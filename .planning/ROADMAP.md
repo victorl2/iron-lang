@@ -12,7 +12,7 @@ Iron is built in four broad phases that follow the natural dependency graph of a
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Frontend** - Lexer and parser produce a complete, span-annotated AST from any Iron source file
+- [x] **Phase 1: Frontend** - Lexer and parser produce a complete, span-annotated AST from any Iron source file (completed 2026-03-25)
 - [ ] **Phase 2: Semantics and Codegen** - Fully analyzed AST emits valid C11 that compiles and runs
 - [ ] **Phase 3: Runtime, Stdlib, and CLI** - Iron programs are buildable, runnable, and testable from the command line
 - [ ] **Phase 4: Comptime, Game Dev, and Cross-Platform** - Comptime evaluation, raylib bindings, and Windows parity complete v1
@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Lexer errors (unterminated strings, invalid characters) report exact location; a source file with 3 independent lex errors produces exactly 3 error messages
   4. The parser produces a complete AST for any syntactically valid Iron file, including string interpolation and all operator precedences
   5. A source file with 3 independent syntax errors produces exactly 3 diagnostics (not cascades); `ErrorNode` recovery lets parsing continue past each error
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 01-01-PLAN.md — Project scaffolding, arena allocator, diagnostics, build system
@@ -79,7 +79,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Frontend | 3/4 | In Progress|  |
+| 1. Frontend | 4/4 | Complete   | 2026-03-25 |
 | 2. Semantics and Codegen | 0/TBD | Not started | - |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
