@@ -7,6 +7,7 @@
 
 #include <string.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 /* ── Precedence levels (Pratt) ────────────────────────────────────────────── */
 
@@ -48,6 +49,7 @@ static Iron_Node *iron_parse_while_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_for_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_match_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p);
+static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value, Iron_Span span);
 
 /* ── Parser creation ─────────────────────────────────────────────────────── */
 
@@ -108,6 +110,13 @@ static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t) {
                           t->line, t->col + (t->len > 0 ? t->len - 1 : 0));
 }
 
+/* Emit a diagnostic only if not currently suppressing cascading errors */
+static void iron_emit_diag(Iron_Parser *p, int code, Iron_Span sp, const char *msg) {
+    if (!p->in_error_recovery) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code, sp, msg, NULL);
+    }
+}
+
 /* Emit a diagnostic and return NULL; used by iron_expect on failure */
 static Iron_Token *iron_expect(Iron_Parser *p, Iron_TokenKind kind) {
     if (iron_check(p, kind)) return iron_advance(p);
@@ -119,8 +128,7 @@ static Iron_Token *iron_expect(Iron_Parser *p, Iron_TokenKind kind) {
     if (kind == IRON_TOK_RPAREN) code = IRON_ERR_EXPECTED_RPAREN;
     if (kind == IRON_TOK_COLON)  code = IRON_ERR_EXPECTED_COLON;
     if (kind == IRON_TOK_ARROW)  code = IRON_ERR_EXPECTED_ARROW;
-    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code, sp,
-                   "unexpected token", NULL);
+    iron_emit_diag(p, code, sp, "unexpected token");
     return NULL;
 }
 
@@ -475,23 +483,10 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
             return (Iron_Node *)n;
         }
-        /* Interpolated string — treat as a single string node for the parser */
+        /* Interpolated string — parse into alternating literal/expr segments */
         case IRON_TOK_INTERP_STRING: {
             iron_advance(p);
-            Iron_InterpString *n = ARENA_ALLOC(p->arena, Iron_InterpString);
-            n->kind       = IRON_NODE_INTERP_STRING;
-            n->span       = iron_token_span(p, t);
-            /* For now, store the raw token as a single string-lit part.
-             * Full interpolation splitting is a semantic pass concern. */
-            Iron_StringLit *raw = ARENA_ALLOC(p->arena, Iron_StringLit);
-            raw->kind  = IRON_NODE_STRING_LIT;
-            raw->span  = n->span;
-            raw->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            Iron_Node **parts = NULL;
-            arrput(parts, (Iron_Node *)raw);
-            n->parts      = parts;
-            n->part_count = 1;
-            return (Iron_Node *)n;
+            return iron_parse_interp_string(p, t->value, iron_token_span(p, t));
         }
         /* true */
         case IRON_TOK_TRUE: {
@@ -665,10 +660,9 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     }
 
     /* Unexpected token in expression position */
-    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                   IRON_ERR_EXPECTED_EXPR,
+    iron_emit_diag(p, IRON_ERR_EXPECTED_EXPR,
                    iron_token_span(p, t),
-                   "expected expression", NULL);
+                   "expected expression");
     /* Do not advance — let the caller handle recovery */
     return iron_make_error(p);
 }
@@ -1020,6 +1014,120 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
     return (Iron_Node *)n;
 }
 
+/* ── String interpolation parsing ────────────────────────────────────────── */
+
+/* Parse an interpolated string token value into an InterpString node.
+ * raw_value is the token text (already stripped of outer quotes by the lexer).
+ * Splits on { } boundaries:
+ *   literal text → Iron_StringLit node
+ *   {expr}       → re-lex and parse as expression
+ */
+static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value,
+                                            Iron_Span span) {
+    Iron_InterpString *n = ARENA_ALLOC(p->arena, Iron_InterpString);
+    n->kind       = IRON_NODE_INTERP_STRING;
+    n->span       = span;
+    n->parts      = NULL;
+    n->part_count = 0;
+
+    if (!raw_value) {
+        return (Iron_Node *)n;
+    }
+
+    const char *s   = raw_value;
+    size_t      len = strlen(s);
+
+    /* Temporary buffer for accumulating literal segments */
+    char *lit_buf = (char *)malloc(len + 1);
+    if (!lit_buf) return (Iron_Node *)n;
+
+    size_t lit_len = 0;
+
+    size_t i = 0;
+    while (i < len) {
+        if (s[i] == '{') {
+            /* Flush accumulated literal segment */
+            if (lit_len > 0) {
+                lit_buf[lit_len] = '\0';
+                Iron_StringLit *sl = ARENA_ALLOC(p->arena, Iron_StringLit);
+                sl->kind  = IRON_NODE_STRING_LIT;
+                sl->span  = span;
+                sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
+                arrput(n->parts, (Iron_Node *)sl);
+                n->part_count++;
+                lit_len = 0;
+            }
+
+            /* Find matching closing brace, respecting nested parens/brackets */
+            i++;  /* skip '{' */
+            size_t expr_start = i;
+            int depth = 1;
+            while (i < len && depth > 0) {
+                if (s[i] == '{') depth++;
+                else if (s[i] == '}') depth--;
+                if (depth > 0) i++;
+            }
+            /* s[i] is now the closing '}' (or end of string) */
+            size_t expr_len = i - expr_start;
+            if (i < len) i++;  /* skip '}' */
+
+            /* Extract expression text */
+            char *expr_buf = (char *)malloc(expr_len + 1);
+            if (expr_buf) {
+                memcpy(expr_buf, s + expr_start, expr_len);
+                expr_buf[expr_len] = '\0';
+
+                /* Re-lex the expression */
+                Iron_DiagList expr_diags = iron_diaglist_create();
+                Iron_Lexer    el         = iron_lexer_create(expr_buf, p->filename,
+                                                              p->arena, &expr_diags);
+                Iron_Token   *expr_toks  = iron_lex_all(&el);
+                int           tok_count  = 0;
+                while (expr_toks[tok_count].kind != IRON_TOK_EOF) tok_count++;
+                tok_count++;  /* include EOF */
+
+                /* Parse the expression using a sub-parser */
+                Iron_Parser sub = iron_parser_create(expr_toks, tok_count,
+                                                      expr_buf, p->filename,
+                                                      p->arena, p->diags);
+                Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
+                iron_diaglist_free(&expr_diags);
+                free(expr_buf);
+
+                if (expr_node && expr_node->kind != IRON_NODE_ERROR) {
+                    arrput(n->parts, expr_node);
+                    n->part_count++;
+                } else {
+                    /* Failed to parse expression: emit diagnostic and insert ErrorNode */
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_EXPECTED_EXPR, span,
+                                   "failed to parse interpolated expression", NULL);
+                    arrput(n->parts, iron_make_error(p));
+                    n->part_count++;
+                }
+            }
+        } else {
+            lit_buf[lit_len++] = s[i++];
+        }
+    }
+
+    /* Flush trailing literal */
+    if (lit_len > 0) {
+        lit_buf[lit_len] = '\0';
+        Iron_StringLit *sl = ARENA_ALLOC(p->arena, Iron_StringLit);
+        sl->kind  = IRON_NODE_STRING_LIT;
+        sl->span  = span;
+        sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
+        arrput(n->parts, (Iron_Node *)sl);
+        n->part_count++;
+        lit_len = 0;
+    }
+    (void)lit_len;
+
+    free(lit_buf);
+    return (Iron_Node *)n;
+}
+
 static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'val' */
@@ -1251,10 +1359,11 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
 
     /* Check for generic method: Pool[T].method or just name */
     if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_UNEXPECTED_TOKEN,
+        iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
-                       "expected function name", NULL);
+                       "expected function name");
+        p->in_error_recovery = true;
+        iron_parser_sync_toplevel(p);
         return iron_make_error(p);
     }
     Iron_Token *name_tok = iron_advance(p);
@@ -1341,10 +1450,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
     iron_advance(p);  /* consume 'object' */
 
     if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_UNEXPECTED_TOKEN,
+        iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
-                       "expected object name", NULL);
+                       "expected object name");
+        p->in_error_recovery = true;
+        iron_parser_sync_toplevel(p);
         return iron_make_error(p);
     }
     Iron_Token *name_tok = iron_advance(p);
@@ -1599,18 +1709,46 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
 
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
     switch (iron_peek(p)) {
-        case IRON_TOK_FUNC:      return iron_parse_func_or_method(p, is_private);
-        case IRON_TOK_OBJECT:    return iron_parse_object_decl(p, is_private);
-        case IRON_TOK_INTERFACE: return iron_parse_interface_decl(p, is_private);
-        case IRON_TOK_ENUM:      return iron_parse_enum_decl(p, is_private);
-        case IRON_TOK_IMPORT:    return iron_parse_import_decl(p);
-        case IRON_TOK_VAL:       return iron_parse_val_decl(p);
-        case IRON_TOK_VAR:       return iron_parse_var_decl(p);
+        case IRON_TOK_FUNC:      {
+            Iron_Node *n = iron_parse_func_or_method(p, is_private);
+            p->in_error_recovery = false;
+            return n;
+        }
+        case IRON_TOK_OBJECT:    {
+            Iron_Node *n = iron_parse_object_decl(p, is_private);
+            p->in_error_recovery = false;
+            return n;
+        }
+        case IRON_TOK_INTERFACE: {
+            Iron_Node *n = iron_parse_interface_decl(p, is_private);
+            p->in_error_recovery = false;
+            return n;
+        }
+        case IRON_TOK_ENUM:      {
+            Iron_Node *n = iron_parse_enum_decl(p, is_private);
+            p->in_error_recovery = false;
+            return n;
+        }
+        case IRON_TOK_IMPORT:    {
+            Iron_Node *n = iron_parse_import_decl(p);
+            p->in_error_recovery = false;
+            return n;
+        }
+        case IRON_TOK_VAL:       {
+            Iron_Node *n = iron_parse_val_decl(p);
+            p->in_error_recovery = false;
+            return n;
+        }
+        case IRON_TOK_VAR:       {
+            Iron_Node *n = iron_parse_var_decl(p);
+            p->in_error_recovery = false;
+            return n;
+        }
         default: {
-            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_UNEXPECTED_TOKEN,
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
-                           "unexpected token at top level", NULL);
+                           "unexpected token at top level");
+            p->in_error_recovery = true;
             Iron_Node *err = iron_make_error(p);
             iron_advance(p);  /* consume bad token */
             iron_parser_sync_toplevel(p);
