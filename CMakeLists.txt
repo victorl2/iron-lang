@@ -28,6 +28,8 @@ add_library(iron_compiler STATIC
     src/util/stb_ds_impl.c
     src/diagnostics/diagnostics.c
     src/lexer/lexer.c
+    src/parser/ast.c
+    src/parser/parser.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 
