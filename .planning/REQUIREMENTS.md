@@ -17,10 +17,10 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Parser
 
 - [x] **PARSE-01**: Recursive descent parser produces complete AST for all Iron syntax
-- [ ] **PARSE-02**: Parser recovers from errors and reports multiple diagnostics per file
-- [ ] **PARSE-03**: String interpolation segments are parsed into AST nodes
+- [x] **PARSE-02**: Parser recovers from errors and reports multiple diagnostics per file
+- [x] **PARSE-03**: String interpolation segments are parsed into AST nodes
 - [x] **PARSE-04**: Operator precedence is correctly handled for all binary/unary operators
-- [ ] **PARSE-05**: AST pretty-printer can dump tree back to readable Iron for debugging
+- [x] **PARSE-05**: AST pretty-printer can dump tree back to readable Iron for debugging
 
 ### Semantic Analysis
 
@@ -98,7 +98,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **TEST-01**: C unit tests cover all compiler internals (lexer, parser, semantic, codegen)
 - [ ] **TEST-02**: .iron integration tests verify end-to-end compilation and execution
-- [ ] **TEST-03**: Error diagnostic tests verify specific error messages for specific mistakes
+- [x] **TEST-03**: Error diagnostic tests verify specific error messages for specific mistakes
 - [ ] **TEST-04**: Memory safety validated with ASan/UBSan in CI
 
 ## v2 Requirements
@@ -148,11 +148,11 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | LEX-03 | Phase 1 | Complete |
 | LEX-04 | Phase 1 | Complete |
 | PARSE-01 | Phase 1 | Complete |
-| PARSE-02 | Phase 1 | Pending |
-| PARSE-03 | Phase 1 | Pending |
+| PARSE-02 | Phase 1 | Complete |
+| PARSE-03 | Phase 1 | Complete |
 | PARSE-04 | Phase 1 | Complete |
-| PARSE-05 | Phase 1 | Pending |
-| TEST-03 | Phase 1 | Pending |
+| PARSE-05 | Phase 1 | Complete |
+| TEST-03 | Phase 1 | Complete |
 | SEM-01 | Phase 2 | Pending |
 | SEM-02 | Phase 2 | Pending |
 | SEM-03 | Phase 2 | Pending |

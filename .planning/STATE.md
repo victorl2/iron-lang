@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-03-25T21:49:30.618Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-03-25T22:17:46.884Z"
 last_activity: "2026-03-25 — Completed plan 01-03: recursive descent parser with Pratt expression parsing, 55-node AST, 35 Unity tests passing"
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 50
+  completed_plans: 4
+  percent: 75
 ---
 
 # Project State
@@ -50,6 +50,7 @@ Progress: [████████░░] 75%
 - Trend: consistent
 
 *Updated after each plan completion*
+| Phase 01-frontend P04 | 12 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - [Phase 01-frontend]: 01-03: heap/rc/comptime/await use PREC_UNARY as inner expr min so call exprs are captured inside wrapper node
 - [Phase 01-frontend]: 01-03: ConstructExpr and CallExpr unified at parse time; semantic analysis disambiguates based on callee type
 - [Phase 01-frontend]: 01-03: Interface method signatures stored as FuncDecl with body=NULL (no separate signature node type)
+- [Phase 01-frontend]: 01-04: String interpolation uses sub-parser for {expr} segments, sharing parent arena
+- [Phase 01-frontend]: 01-04: in_error_recovery flag suppresses cascading diagnostics, top-level parser skips stray }
+- [Phase 01-frontend]: 01-04: Pretty-printer uses direct switch dispatch instead of iron_ast_walk visitor for simpler context management
 
 ### Pending Todos
 
@@ -86,6 +90,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T21:49:30.616Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-03-25T22:17:46.882Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
