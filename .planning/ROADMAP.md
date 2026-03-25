@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Lexer errors (unterminated strings, invalid characters) report exact location; a source file with 3 independent lex errors produces exactly 3 error messages
   4. The parser produces a complete AST for any syntactically valid Iron file, including string interpolation and all operator precedences
   5. A source file with 3 independent syntax errors produces exactly 3 diagnostics (not cascades); `ErrorNode` recovery lets parsing continue past each error
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 - [x] 01-01-PLAN.md — Project scaffolding, arena allocator, diagnostics, build system
@@ -79,7 +79,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Frontend | 2/4 | In Progress|  |
+| 1. Frontend | 3/4 | In Progress|  |
 | 2. Semantics and Codegen | 0/TBD | Not started | - |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |

@@ -19,7 +19,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **PARSE-01**: Recursive descent parser produces complete AST for all Iron syntax
 - [ ] **PARSE-02**: Parser recovers from errors and reports multiple diagnostics per file
 - [ ] **PARSE-03**: String interpolation segments are parsed into AST nodes
-- [ ] **PARSE-04**: Operator precedence is correctly handled for all binary/unary operators
+- [x] **PARSE-04**: Operator precedence is correctly handled for all binary/unary operators
 - [ ] **PARSE-05**: AST pretty-printer can dump tree back to readable Iron for debugging
 
 ### Semantic Analysis
@@ -147,10 +147,10 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | LEX-02 | Phase 1 | Complete |
 | LEX-03 | Phase 1 | Complete |
 | LEX-04 | Phase 1 | Complete |
-| PARSE-01 | Phase 1 | Pending |
+| PARSE-01 | Phase 1 | Complete |
 | PARSE-02 | Phase 1 | Pending |
 | PARSE-03 | Phase 1 | Pending |
-| PARSE-04 | Phase 1 | Pending |
+| PARSE-04 | Phase 1 | Complete |
 | PARSE-05 | Phase 1 | Pending |
 | TEST-03 | Phase 1 | Pending |
 | SEM-01 | Phase 2 | Pending |

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in_progress
-stopped_at: "Completed 01-02-PLAN.md"
-last_updated: "2026-03-25T21:37:03Z"
-last_activity: "2026-03-25 — Completed plan 01-02: Iron lexer with 37 keywords, span tracking, error recovery, 25 tests passing"
+status: executing
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-03-25T21:49:30.618Z"
+last_activity: "2026-03-25 — Completed plan 01-03: recursive descent parser with Pratt expression parsing, 55-node AST, 35 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 50
 ---
 
@@ -26,27 +26,27 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 1 of 4 (Frontend)
-Plan: 2 of 4 in current phase
+Plan: 3 of 4 in current phase
 Status: In progress
-Last activity: 2026-03-25 — Completed plan 01-02: Iron lexer with 37-keyword bsearch table, span-accurate tokens, error recovery, 25 Unity tests passing
+Last activity: 2026-03-25 — Completed plan 01-03: recursive descent parser with Pratt expression parsing, 55-node AST, 35 Unity tests passing
 
-Progress: [####░░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: ~4 min
-- Total execution time: ~8 min
+- Total plans completed: 3
+- Average duration: ~5 min
+- Total execution time: ~16 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-frontend | 2 | ~8 min | ~4 min |
+| 01-frontend | 3 | ~16 min | ~5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~4 min), 01-02 (~4 min)
+- Last 5 plans: 01-01 (~4 min), 01-02 (~4 min), 01-03 (~8 min)
 - Trend: consistent
 
 *Updated after each plan completion*
@@ -68,6 +68,9 @@ Recent decisions affecting current work:
 - 01-02: Comment (--) consumed in punctuation scanner, returns IRON_TOK_NEWLINE covering entire comment+newline
 - 01-02: Token value is NULL for punctuation tokens; arena-copied only for literals/identifiers/keywords
 - 01-02: String interpolation detection via has_interp flag on any unescaped { — IRON_TOK_INTERP_STRING for parser
+- [Phase 01-frontend]: 01-03: heap/rc/comptime/await use PREC_UNARY as inner expr min so call exprs are captured inside wrapper node
+- [Phase 01-frontend]: 01-03: ConstructExpr and CallExpr unified at parse time; semantic analysis disambiguates based on callee type
+- [Phase 01-frontend]: 01-03: Interface method signatures stored as FuncDecl with body=NULL (no separate signature node type)
 
 ### Pending Todos
 
@@ -83,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T21:37:03Z
-Stopped at: Completed 01-02-PLAN.md
-Resume file: .planning/phases/01-frontend/01-03-PLAN.md
+Last session: 2026-03-25T21:49:30.616Z
+Stopped at: Completed 01-03-PLAN.md
+Resume file: None
