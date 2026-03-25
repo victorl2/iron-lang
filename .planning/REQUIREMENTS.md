@@ -143,10 +143,10 @@ Deferred to future milestones. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LEX-01 | Phase 1 | Pending |
-| LEX-02 | Phase 1 | Pending |
-| LEX-03 | Phase 1 | Pending |
-| LEX-04 | Phase 1 | Pending |
+| LEX-01 | Phase 1 | Complete |
+| LEX-02 | Phase 1 | Complete |
+| LEX-03 | Phase 1 | Complete |
+| LEX-04 | Phase 1 | Complete |
 | PARSE-01 | Phase 1 | Pending |
 | PARSE-02 | Phase 1 | Pending |
 | PARSE-03 | Phase 1 | Pending |

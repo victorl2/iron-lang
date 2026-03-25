@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: "Completed 01-01-PLAN.md"
-last_updated: "2026-03-25T21:30:05Z"
-last_activity: "2026-03-25 — Completed plan 01-01: project scaffolding and foundational infrastructure"
+stopped_at: "Completed 01-02-PLAN.md"
+last_updated: "2026-03-25T21:37:03Z"
+last_activity: "2026-03-25 — Completed plan 01-02: Iron lexer with 37 keywords, span tracking, error recovery, 25 tests passing"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -26,28 +26,28 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 1 of 4 (Frontend)
-Plan: 1 of 4 in current phase
+Plan: 2 of 4 in current phase
 Status: In progress
-Last activity: 2026-03-25 — Completed plan 01-01: project scaffolding, arena, diagnostics, 13 Unity tests passing
+Last activity: 2026-03-25 — Completed plan 01-02: Iron lexer with 37-keyword bsearch table, span-accurate tokens, error recovery, 25 Unity tests passing
 
-Progress: [##░░░░░░░░] 25%
+Progress: [####░░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: ~4 min
-- Total execution time: ~4 min
+- Total execution time: ~8 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-frontend | 1 | ~4 min | ~4 min |
+| 01-frontend | 2 | ~8 min | ~4 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~4 min)
-- Trend: baseline established
+- Last 5 plans: 01-01 (~4 min), 01-02 (~4 min)
+- Trend: consistent
 
 *Updated after each plan completion*
 
@@ -64,6 +64,10 @@ Recent decisions affecting current work:
 - 01-01: Arena allocator uses realloc growth (doubles capacity); callers must not cache base pointer across alloc calls
 - 01-01: Iron_Span uses 1-indexed lines and byte-based columns matching Rust/clang diagnostic convention
 - 01-01: isatty(STDERR_FILENO) gates ANSI color so piped diagnostic output is clean
+- 01-02: Keywords in alphabetically sorted array with bsearch for O(log n) lookup — no hash table for 37 entries
+- 01-02: Comment (--) consumed in punctuation scanner, returns IRON_TOK_NEWLINE covering entire comment+newline
+- 01-02: Token value is NULL for punctuation tokens; arena-copied only for literals/identifiers/keywords
+- 01-02: String interpolation detection via has_interp flag on any unescaped { — IRON_TOK_INTERP_STRING for parser
 
 ### Pending Todos
 
@@ -79,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T21:30:05Z
-Stopped at: Completed 01-01-PLAN.md
-Resume file: .planning/phases/01-frontend/01-02-PLAN.md
+Last session: 2026-03-25T21:37:03Z
+Stopped at: Completed 01-02-PLAN.md
+Resume file: .planning/phases/01-frontend/01-03-PLAN.md
