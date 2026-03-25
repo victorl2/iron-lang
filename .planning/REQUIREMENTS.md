@@ -9,14 +9,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Lexer
 
-- [ ] **LEX-01**: Compiler tokenizes all Iron keywords, operators, literals, and delimiters
-- [ ] **LEX-02**: Every token carries source span (file, line, column) for diagnostics
-- [ ] **LEX-03**: Lexer reports errors for unterminated strings and invalid characters with location
-- [ ] **LEX-04**: Comments (-- to end of line) are recognized and skipped
+- [x] **LEX-01**: Compiler tokenizes all Iron keywords, operators, literals, and delimiters
+- [x] **LEX-02**: Every token carries source span (file, line, column) for diagnostics
+- [x] **LEX-03**: Lexer reports errors for unterminated strings and invalid characters with location
+- [x] **LEX-04**: Comments (-- to end of line) are recognized and skipped
 
 ### Parser
 
-- [ ] **PARSE-01**: Recursive descent parser produces complete AST for all Iron syntax
+- [x] **PARSE-01**: Recursive descent parser produces complete AST for all Iron syntax
 - [ ] **PARSE-02**: Parser recovers from errors and reports multiple diagnostics per file
 - [ ] **PARSE-03**: String interpolation segments are parsed into AST nodes
 - [ ] **PARSE-04**: Operator precedence is correctly handled for all binary/unary operators

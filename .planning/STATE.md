@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-03-25T20:20:50.150Z"
-last_activity: 2026-03-25 — Roadmap created, phases derived from requirements
+status: in_progress
+stopped_at: "Completed 01-01-PLAN.md"
+last_updated: "2026-03-25T21:30:05Z"
+last_activity: "2026-03-25 — Completed plan 01-01: project scaffolding and foundational infrastructure"
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 4
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -26,28 +26,28 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 1 of 4 (Frontend)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-25 — Roadmap created, phases derived from requirements
+Plan: 1 of 4 in current phase
+Status: In progress
+Last activity: 2026-03-25 — Completed plan 01-01: project scaffolding, arena, diagnostics, 13 Unity tests passing
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [##░░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: -
+- Total plans completed: 1
+- Average duration: ~4 min
+- Total execution time: ~4 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-frontend | 1 | ~4 min | ~4 min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 01-01 (~4 min)
+- Trend: baseline established
 
 *Updated after each plan completion*
 
@@ -60,6 +60,10 @@ Recent decisions affecting current work:
 
 - Roadmap: Consolidated 8 research phases into 4 coarse phases — Frontend / Semantics+Codegen / Runtime+Stdlib+CLI / Comptime+GameDev+CrossPlatform
 - Roadmap: TEST-03 assigned to Phase 1 (diagnostic error testing starts at lexer); TEST-01/02 to Phase 2 (first end-to-end pipeline); TEST-04 (ASan/UBSan CI) to Phase 3 (toolchain hardening)
+- 01-01: stb_ds STB_DS_IMPLEMENTATION in dedicated src/util/stb_ds_impl.c to avoid multiple-definition linker errors
+- 01-01: Arena allocator uses realloc growth (doubles capacity); callers must not cache base pointer across alloc calls
+- 01-01: Iron_Span uses 1-indexed lines and byte-based columns matching Rust/clang diagnostic convention
+- 01-01: isatty(STDERR_FILENO) gates ANSI color so piped diagnostic output is clean
 
 ### Pending Todos
 
@@ -75,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T20:20:50.148Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-frontend/01-CONTEXT.md
+Last session: 2026-03-25T21:30:05Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: .planning/phases/01-frontend/01-02-PLAN.md
