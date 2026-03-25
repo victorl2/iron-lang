@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 4 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffolding, arena allocator, diagnostics, build system
+- [x] 01-01-PLAN.md — Project scaffolding, arena allocator, diagnostics, build system
 - [ ] 01-02-PLAN.md — Complete lexer (all tokens, spans, errors, comments)
 - [ ] 01-03-PLAN.md — AST node types and recursive descent parser
 - [ ] 01-04-PLAN.md — String interpolation, error recovery, pretty-printer, diagnostic tests
@@ -79,7 +79,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Frontend | 0/4 | Planning complete | - |
+| 1. Frontend | 1/4 | In progress | - |
 | 2. Semantics and Codegen | 0/TBD | Not started | - |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
