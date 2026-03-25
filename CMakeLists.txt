@@ -26,6 +26,7 @@ add_library(iron_compiler STATIC
     src/util/arena.c
     src/util/strbuf.c
     src/util/stb_ds_impl.c
+    src/diagnostics/diagnostics.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 
@@ -35,3 +36,7 @@ enable_testing()
 add_executable(test_arena tests/test_arena.c)
 target_link_libraries(test_arena iron_compiler unity)
 add_test(NAME test_arena COMMAND test_arena)
+
+add_executable(test_diagnostics tests/test_diagnostics.c)
+target_link_libraries(test_diagnostics iron_compiler unity)
+add_test(NAME test_diagnostics COMMAND test_diagnostics)
