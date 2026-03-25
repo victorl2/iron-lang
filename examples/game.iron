@@ -1,0 +1,65 @@
+import raylib
+import math as m
+
+object Player {
+  var pos:    Vec2
+  var hp:     Int
+  val speed:  Float
+  val name:   String
+  val sprite: rc Texture
+}
+
+func Player.new(name: String) -> Player {
+  return Player(vec2(100.0, 100.0), 100, 200.0, name, rc load_texture("hero.png"))
+}
+
+func Player.update(dt: Float) {
+  if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
+  if is_key_down(.LEFT)  { self.pos.x -= self.speed * dt }
+  if is_key_down(.UP)    { self.pos.y -= self.speed * dt }
+  if is_key_down(.DOWN)  { self.pos.y += self.speed * dt }
+}
+
+func Player.draw() {
+  draw_texture(self.sprite, self.pos)
+}
+
+func Player.is_alive() -> Bool {
+  return self.hp > 0
+}
+
+func main() {
+  val window = init_window(800, 600, "My Game")
+  defer close_window(window)
+
+  var player = Player.new("Victor")
+
+  val bullets = heap [Bullet; 256]
+  var bullet_count = 0
+
+  while not window_should_close() {
+    val dt = get_frame_time()
+
+    player.update(dt)
+
+    if is_key_pressed(.SPACE) {
+      bullets[bullet_count] = player.shoot()
+      bullet_count += 1
+    }
+
+    for i in range(bullet_count) {
+      bullets[i].update(dt)
+    }
+
+    draw {
+      clear(DARKGRAY)
+      player.draw()
+      for i in range(bullet_count) {
+        if bullets[i].alive {
+          draw_circle(bullets[i].pos, 4.0, RED)
+        }
+      }
+      draw_text("{player.name}: {bullet_count} bullets", 10, 10, 20, WHITE)
+    }
+  }
+}
