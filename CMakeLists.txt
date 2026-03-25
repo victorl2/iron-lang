@@ -41,3 +41,7 @@ add_test(NAME test_arena COMMAND test_arena)
 add_executable(test_diagnostics tests/test_diagnostics.c)
 target_link_libraries(test_diagnostics iron_compiler unity)
 add_test(NAME test_diagnostics COMMAND test_diagnostics)
+
+add_executable(test_lexer tests/test_lexer.c)
+target_link_libraries(test_lexer iron_compiler unity)
+add_test(NAME test_lexer COMMAND test_lexer)
