@@ -167,7 +167,7 @@ val enemy = find[Enemy](enemies, func(e) { e.hp < 50 })
 - **Legibility over magic.** No operator overloading, no implicit conversions, no hidden control flow. When you read Iron code, you know what it does.
 - **Manual memory with safety nets.** You control allocation. The compiler warns about leaks and auto-frees locals. `rc` is there when you need shared ownership.
 - **Game-dev first.** Every feature was designed with game development patterns in mind — from `draw {}` blocks to `parallel` for loops to thread pools with core pinning.
-- **Compiles to C.** Iron transpiles to C and uses your system's C compiler. Performance matches hand-written C because it *is* C at the end.
+- **Compiles to native binaries.** Iron compiles to C and produces a native executable with the runtime statically linked. No Iron installation needed to run the binary.
 - **No pointers in the language.** Objects are passed by reference, primitives by value. The compiler generates pointers in the C output — you never see them.
 
 ## Keywords
