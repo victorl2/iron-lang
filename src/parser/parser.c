@@ -553,7 +553,9 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         /* heap expr */
         case IRON_TOK_HEAP: {
             iron_advance(p);
-            Iron_Node *inner   = iron_parse_expr_prec(p, PREC_CALL);
+            /* Use PREC_UNARY (9) so PREC_CALL infix operators (., [], ()) are
+             * captured as part of the inner expression (e.g. heap Enemy(args)) */
+            Iron_Node *inner   = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_HeapExpr *n   = ARENA_ALLOC(p->arena, Iron_HeapExpr);
             n->kind            = IRON_NODE_HEAP;
             n->span            = iron_span_merge(iron_token_span(p, t), inner->span);
@@ -563,7 +565,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         /* rc expr */
         case IRON_TOK_RC: {
             iron_advance(p);
-            Iron_Node *inner = iron_parse_expr_prec(p, PREC_CALL);
+            Iron_Node *inner = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_RcExpr *n   = ARENA_ALLOC(p->arena, Iron_RcExpr);
             n->kind          = IRON_NODE_RC;
             n->span          = iron_span_merge(iron_token_span(p, t), inner->span);
@@ -573,7 +575,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         /* comptime expr */
         case IRON_TOK_COMPTIME: {
             iron_advance(p);
-            Iron_Node *inner      = iron_parse_expr_prec(p, PREC_CALL);
+            Iron_Node *inner      = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_ComptimeExpr *n  = ARENA_ALLOC(p->arena, Iron_ComptimeExpr);
             n->kind               = IRON_NODE_COMPTIME;
             n->span               = iron_span_merge(iron_token_span(p, t), inner->span);
@@ -583,7 +585,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         /* await expr */
         case IRON_TOK_AWAIT: {
             iron_advance(p);
-            Iron_Node *handle  = iron_parse_expr_prec(p, PREC_CALL);
+            Iron_Node *handle  = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_AwaitExpr *n  = ARENA_ALLOC(p->arena, Iron_AwaitExpr);
             n->kind            = IRON_NODE_AWAIT;
             n->span            = iron_span_merge(iron_token_span(p, t), handle->span);
