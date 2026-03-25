@@ -30,6 +30,7 @@ add_library(iron_compiler STATIC
     src/lexer/lexer.c
     src/parser/ast.c
     src/parser/parser.c
+    src/parser/printer.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 
