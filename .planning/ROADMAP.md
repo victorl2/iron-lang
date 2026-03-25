@@ -29,7 +29,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Lexer errors (unterminated strings, invalid characters) report exact location; a source file with 3 independent lex errors produces exactly 3 error messages
   4. The parser produces a complete AST for any syntactically valid Iron file, including string interpolation and all operator precedences
   5. A source file with 3 independent syntax errors produces exactly 3 diagnostics (not cascades); `ErrorNode` recovery lets parsing continue past each error
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Project scaffolding, arena allocator, diagnostics, build system
+- [ ] 01-02-PLAN.md — Complete lexer (all tokens, spans, errors, comments)
+- [ ] 01-03-PLAN.md — AST node types and recursive descent parser
+- [ ] 01-04-PLAN.md — String interpolation, error recovery, pretty-printer, diagnostic tests
 
 ### Phase 2: Semantics and Codegen
 **Goal**: The compiler's analysis passes fully annotate the AST and the code generator emits C11 that compiles and executes correctly
@@ -73,7 +79,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Frontend | 0/TBD | Not started | - |
+| 1. Frontend | 0/4 | Planning complete | - |
 | 2. Semantics and Codegen | 0/TBD | Not started | - |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
