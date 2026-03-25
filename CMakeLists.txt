@@ -52,3 +52,15 @@ add_test(NAME test_lexer COMMAND test_lexer)
 add_executable(test_parser tests/test_parser.c)
 target_link_libraries(test_parser iron_compiler unity)
 add_test(NAME test_parser COMMAND test_parser)
+
+add_executable(test_parser_errors tests/test_parser_errors.c)
+target_link_libraries(test_parser_errors iron_compiler unity)
+add_test(NAME test_parser_errors COMMAND test_parser_errors)
+
+add_executable(test_interp tests/test_interp.c)
+target_link_libraries(test_interp iron_compiler unity)
+add_test(NAME test_interp COMMAND test_interp)
+
+add_executable(test_printer tests/test_printer.c)
+target_link_libraries(test_printer iron_compiler unity)
+add_test(NAME test_printer COMMAND test_printer)
