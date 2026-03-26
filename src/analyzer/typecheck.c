@@ -48,6 +48,7 @@ typedef struct {
     Iron_Type     *current_return_type;  /* expected return type; NULL outside funcs */
     const char    *current_method_type;  /* owning type name if in method */
     NarrowEntry   *narrowed;             /* stb_ds map: sym name -> narrowed type */
+    Iron_Program  *program;              /* for method return type lookup */
 } TypeCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -505,7 +506,37 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
             check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+
+            /* Try to resolve the return type by finding the matching method decl.
+             * This handles both auto-static (Math.sin) and instance method calls. */
             result = iron_type_make_primitive(IRON_TYPE_VOID);
+            if (mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id = (Iron_Ident *)mc->object;
+                const char *type_name_mc = NULL;
+                if (obj_id->resolved_sym &&
+                    obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE) {
+                    /* Auto-static: receiver is the type itself */
+                    type_name_mc = obj_id->name;
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_OBJECT) {
+                    /* Instance method: receiver has object type */
+                    type_name_mc = obj_id->resolved_type->object.decl->name;
+                }
+                if (type_name_mc && ctx->program) {
+                    for (int i = 0; i < ctx->program->decl_count; i++) {
+                        Iron_Node *d = ctx->program->decls[i];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, type_name_mc) == 0 &&
+                            strcmp(md->method_name, mc->method) == 0) {
+                            if (md->resolved_return_type) {
+                                result = md->resolved_return_type;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
             mc->resolved_type = result;
             break;
         }
@@ -1208,6 +1239,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.current_return_type = NULL;
     ctx.current_method_type = NULL;
     ctx.narrowed            = NULL;
+    ctx.program             = program;
     sh_new_strdup(ctx.narrowed);
 
     /* Check all func and method decls */
