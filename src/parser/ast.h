@@ -6,6 +6,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Forward declarations for semantic annotation fields.
+ * Do NOT include analyzer headers from ast.h — the analyzer includes ast.h. */
+struct Iron_Symbol;
+struct Iron_Type;
+
 /* ── Node kinds ──────────────────────────────────────────────────────────── */
 
 typedef enum {
@@ -132,30 +137,33 @@ typedef struct {
 } Iron_EnumDecl;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;  /* IRON_NODE_FUNC_DECL */
-    const char   *name;
-    Iron_Node   **params;
-    int           param_count;
-    Iron_Node    *return_type;  /* NULL if void */
-    Iron_Node    *body;         /* Iron_Block */
-    bool          is_private;
-    Iron_Node   **generic_params;
-    int           generic_param_count;
+    Iron_Span          span;
+    Iron_NodeKind      kind;  /* IRON_NODE_FUNC_DECL */
+    const char        *name;
+    Iron_Node        **params;
+    int                param_count;
+    Iron_Node         *return_type;  /* NULL if void */
+    Iron_Node         *body;         /* Iron_Block */
+    bool               is_private;
+    Iron_Node        **generic_params;
+    int                generic_param_count;
+    struct Iron_Type  *resolved_return_type;  /* set by type checker */
 } Iron_FuncDecl;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;  /* IRON_NODE_METHOD_DECL */
-    const char   *type_name;
-    const char   *method_name;
-    Iron_Node   **params;
-    int           param_count;
-    Iron_Node    *return_type;  /* NULL if void */
-    Iron_Node    *body;
-    bool          is_private;
-    Iron_Node   **generic_params;
-    int           generic_param_count;
+    Iron_Span          span;
+    Iron_NodeKind      kind;  /* IRON_NODE_METHOD_DECL */
+    const char        *type_name;
+    const char        *method_name;
+    Iron_Node        **params;
+    int                param_count;
+    Iron_Node         *return_type;  /* NULL if void */
+    Iron_Node         *body;
+    bool               is_private;
+    Iron_Node        **generic_params;
+    int                generic_param_count;
+    struct Iron_Type  *resolved_return_type;  /* set by type checker */
+    struct Iron_Symbol *owner_sym;             /* set by resolver: the owning type */
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -196,19 +204,21 @@ typedef struct {
 /* ── Statements ──────────────────────────────────────────────────────────── */
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;  /* IRON_NODE_VAL_DECL */
-    const char   *name;
-    Iron_Node    *type_ann;  /* NULL if inferred */
-    Iron_Node    *init;
+    Iron_Span          span;
+    Iron_NodeKind      kind;  /* IRON_NODE_VAL_DECL */
+    const char        *name;
+    Iron_Node         *type_ann;  /* NULL if inferred */
+    Iron_Node         *init;
+    struct Iron_Type  *declared_type;  /* set by type checker */
 } Iron_ValDecl;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;  /* IRON_NODE_VAR_DECL */
-    const char   *name;
-    Iron_Node    *type_ann;  /* NULL if inferred */
-    Iron_Node    *init;
+    Iron_Span          span;
+    Iron_NodeKind      kind;  /* IRON_NODE_VAR_DECL */
+    const char        *name;
+    Iron_Node         *type_ann;  /* NULL if inferred */
+    Iron_Node         *init;
+    struct Iron_Type  *declared_type;  /* set by type checker */
 } Iron_VarDecl;
 
 typedef struct {
@@ -306,158 +316,183 @@ typedef struct {
 /* ── Expressions ─────────────────────────────────────────────────────────── */
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_INT_LIT */
-    const char   *value;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_INT_LIT */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    const char        *value;
 } Iron_IntLit;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_FLOAT_LIT */
-    const char   *value;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_FLOAT_LIT */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    const char        *value;
 } Iron_FloatLit;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_STRING_LIT */
-    const char   *value;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_STRING_LIT */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    const char        *value;
 } Iron_StringLit;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;       /* IRON_NODE_INTERP_STRING */
-    Iron_Node   **parts;      /* alternating string lit and expr */
-    int           part_count;
+    Iron_Span          span;
+    Iron_NodeKind      kind;       /* IRON_NODE_INTERP_STRING */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node        **parts;      /* alternating string lit and expr */
+    int                part_count;
 } Iron_InterpString;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_BOOL_LIT */
-    bool          value;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_BOOL_LIT */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    bool               value;
 } Iron_BoolLit;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_NULL_LIT */
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_NULL_LIT */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
 } Iron_NullLit;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;  /* IRON_NODE_IDENT */
-    const char   *name;
+    Iron_Span           span;
+    Iron_NodeKind       kind;  /* IRON_NODE_IDENT */
+    struct Iron_Type   *resolved_type;  /* set by type checker */
+    const char         *name;
+    struct Iron_Symbol *resolved_sym;   /* set by resolver; NULL = unresolved */
 } Iron_Ident;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_BINARY */
-    Iron_Node    *left;
-    Iron_OpKind   op;
-    Iron_Node    *right;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_BINARY */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *left;
+    Iron_OpKind        op;
+    Iron_Node         *right;
 } Iron_BinaryExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;     /* IRON_NODE_UNARY */
-    Iron_OpKind   op;
-    Iron_Node    *operand;
+    Iron_Span          span;
+    Iron_NodeKind      kind;     /* IRON_NODE_UNARY */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_OpKind        op;
+    Iron_Node         *operand;
 } Iron_UnaryExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;     /* IRON_NODE_CALL */
-    Iron_Node    *callee;
-    Iron_Node   **args;
-    int           arg_count;
+    Iron_Span          span;
+    Iron_NodeKind      kind;     /* IRON_NODE_CALL */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *callee;
+    Iron_Node        **args;
+    int                arg_count;
 } Iron_CallExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;        /* IRON_NODE_METHOD_CALL */
-    Iron_Node    *object;
-    const char   *method;
-    Iron_Node   **args;
-    int           arg_count;
+    Iron_Span          span;
+    Iron_NodeKind      kind;        /* IRON_NODE_METHOD_CALL */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *object;
+    const char        *method;
+    Iron_Node        **args;
+    int                arg_count;
 } Iron_MethodCallExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_FIELD_ACCESS */
-    Iron_Node    *object;
-    const char   *field;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_FIELD_ACCESS */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *object;
+    const char        *field;
 } Iron_FieldAccess;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_INDEX */
-    Iron_Node    *object;
-    Iron_Node    *index;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_INDEX */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *object;
+    Iron_Node         *index;
 } Iron_IndexExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_SLICE */
-    Iron_Node    *object;
-    Iron_Node    *start;  /* NULL if omitted */
-    Iron_Node    *end;    /* NULL if omitted */
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_SLICE */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *object;
+    Iron_Node         *start;  /* NULL if omitted */
+    Iron_Node         *end;    /* NULL if omitted */
 } Iron_SliceExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;         /* IRON_NODE_LAMBDA */
-    Iron_Node   **params;
-    int           param_count;
-    Iron_Node    *return_type;  /* NULL if inferred */
-    Iron_Node    *body;
+    Iron_Span          span;
+    Iron_NodeKind      kind;         /* IRON_NODE_LAMBDA */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node        **params;
+    int                param_count;
+    Iron_Node         *return_type;  /* NULL if inferred */
+    Iron_Node         *body;
 } Iron_LambdaExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_HEAP */
-    Iron_Node    *inner;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_HEAP */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *inner;
+    bool               auto_free;  /* set by escape analyzer */
+    bool               escapes;    /* set by escape analyzer */
 } Iron_HeapExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_RC */
-    Iron_Node    *inner;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_RC */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *inner;
 } Iron_RcExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;   /* IRON_NODE_COMPTIME */
-    Iron_Node    *inner;
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_COMPTIME */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *inner;
 } Iron_ComptimeExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;       /* IRON_NODE_IS */
-    Iron_Node    *expr;
-    const char   *type_name;
+    Iron_Span          span;
+    Iron_NodeKind      kind;       /* IRON_NODE_IS */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    Iron_Node         *expr;
+    const char        *type_name;
 } Iron_IsExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;            /* IRON_NODE_AWAIT */
-    Iron_Node    *handle;
+    Iron_Span          span;
+    Iron_NodeKind      kind;            /* IRON_NODE_AWAIT */
+    struct Iron_Type  *resolved_type;   /* set by type checker */
+    Iron_Node         *handle;
 } Iron_AwaitExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;           /* IRON_NODE_CONSTRUCT */
-    const char   *type_name;
-    Iron_Node   **args;
-    int           arg_count;
-    Iron_Node   **generic_args;
-    int           generic_arg_count;
+    Iron_Span          span;
+    Iron_NodeKind      kind;           /* IRON_NODE_CONSTRUCT */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    const char        *type_name;
+    Iron_Node        **args;
+    int                arg_count;
+    Iron_Node        **generic_args;
+    int                generic_arg_count;
 } Iron_ConstructExpr;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;          /* IRON_NODE_ARRAY_LIT */
-    Iron_Node    *type_ann;      /* NULL if inferred */
-    Iron_Node    *size;          /* NULL if dynamic */
-    Iron_Node   **elements;
-    int           element_count;
+    Iron_Span          span;
+    Iron_NodeKind      kind;          /* IRON_NODE_ARRAY_LIT */
+    struct Iron_Type  *resolved_type; /* set by type checker */
+    Iron_Node         *type_ann;      /* NULL if inferred */
+    Iron_Node         *size;          /* NULL if dynamic */
+    Iron_Node        **elements;
+    int                element_count;
 } Iron_ArrayLit;
 
 typedef struct {
