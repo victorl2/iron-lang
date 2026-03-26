@@ -64,7 +64,9 @@ typedef struct {
     const char         **call_stack;        /* stb_ds array of func names */
     Iron_Span           *call_spans;        /* stb_ds array of call site spans */
     int                  call_depth;
-    const char          *source_file_dir;
+    const char          *source_file_dir;   /* dir of .iron file for read_file resolution */
+    const char          *source_text;       /* full source text for cache key computation */
+    size_t               source_len;        /* length of source_text */
     bool                 had_error;
     /* Local variable bindings stack: array of stb_ds hashmaps */
     Iron_ComptimeBinding **local_frames;    /* stb_ds array of frames */
@@ -90,10 +92,12 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
  * evaluated literal equivalents.  Called from iron_analyze() after typecheck,
  * before returning to the caller (and before codegen runs).
  *
- * force_comptime: if true, evaluate ALL expressions (not just comptime-tagged).
- * source_file_dir: used for read_file() calls (NULL is fine for basic comptime). */
+ * force_comptime:  if true, bypass cache and re-evaluate all comptime exprs.
+ * source_file_dir: used for read_file() calls (NULL is fine for basic comptime).
+ * source_text/len: full source text used as cache key (NULL skips caching). */
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
                           Iron_Arena *arena, Iron_DiagList *diags,
-                          const char *source_file_dir, bool force_comptime);
+                          const char *source_file_dir, bool force_comptime,
+                          const char *source_text, size_t source_len);
 
 #endif /* IRON_COMPTIME_H */
