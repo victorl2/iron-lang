@@ -49,7 +49,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **GEN-08**: Nullable types generate Optional structs with value + has_value flag
 - [x] **GEN-09**: Lambda expressions generate C function pointers with closure data
 - [x] **GEN-10**: Spawn/await/channel/mutex generate correct thread pool and synchronization code
-- [ ] **GEN-11**: Parallel-for generates range splitting, chunk submission, and barrier
+- [x] **GEN-11**: Parallel-for generates range splitting, chunk submission, and barrier
 
 ### Runtime Library
 
@@ -175,7 +175,7 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | GEN-08 | Phase 2 | Complete |
 | GEN-09 | Phase 2 | Complete |
 | GEN-10 | Phase 2 | Complete |
-| GEN-11 | Phase 5 | Pending |
+| GEN-11 | Phase 5 | Complete |
 | TEST-01 | Phase 2 | Complete |
 | TEST-02 | Phase 2 | Complete |
 | RT-01 | Phase 3 | Complete |
