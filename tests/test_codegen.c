@@ -670,7 +670,7 @@ void test_call_to_type_emits_compound_literal(void) {
     TEST_ASSERT_FALSE(str_contains(c, "Iron_Vec2(1"));
 }
 
-/* ── Test: println emits printf("%s\n", arg) without extra positional arg ─── */
+/* ── Test: println emits Iron_println() builtin, not printf ─────────────── */
 
 void test_println_format_no_extra_args(void) {
     const char *src =
@@ -679,10 +679,10 @@ void test_println_format_no_extra_args(void) {
         "}\n";
     const char *c = run_codegen(src);
     TEST_ASSERT_NOT_NULL(c);
-    /* Must emit %s\n format and the string arg */
-    TEST_ASSERT_TRUE(str_contains(c, "%s\\n"));
-    /* Must NOT pass newline as a separate second argument */
-    TEST_ASSERT_FALSE(str_contains(c, "\"\\n\""));
+    /* Must emit Iron_println() builtin call */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_println"));
+    /* Must NOT use raw printf for println any more */
+    TEST_ASSERT_FALSE(str_contains(c, "printf(\"%%s\\n\""));
 }
 
 /* ── Test: generated C compiles through clang -std=c11 -Wall -Werror ──────── */
@@ -708,23 +708,42 @@ void test_codegen_output_compiles_with_clang(void) {
     const char *c = run_codegen(src);
     TEST_ASSERT_NOT_NULL(c);
 
-    /* Write generated C to a temp file */
+    /* Write generated C to a temp file.
+     * Prepend the runtime header include so Iron_println, iron_runtime_init,
+     * etc. are declared (codegen runtime include wiring is done in Plan 04).
+     *
+     * __FILE__ is tests/test_codegen.c; two dirname steps reach the project
+     * root where src/ lives.  We use that to form absolute -I paths so the
+     * test works regardless of the working directory it is invoked from. */
     const char *tmpfile = "/tmp/iron_codegen_test.c";
     FILE *f = fopen(tmpfile, "w");
     TEST_ASSERT_NOT_NULL_MESSAGE(f, "Could not open temp file for writing");
+    /* Determine project root from __FILE__ (absolute path injected by compiler) */
+    char src_root[512];
+    strncpy(src_root, __FILE__, sizeof(src_root) - 1);
+    src_root[sizeof(src_root) - 1] = '\0';
+    /* Strip "tests/test_codegen.c" to get project root */
+    char *sep = strrchr(src_root, '/');
+    if (sep) { *sep = '\0'; }  /* strip filename */
+    sep = strrchr(src_root, '/');
+    if (sep) { *sep = '\0'; }  /* strip "tests" dir */
+    fputs("#include \"runtime/iron_runtime.h\"\n", f);
     fputs(c, f);
     fclose(f);
 
     /* Invoke clang -fsyntax-only to verify the C compiles without errors.
+     * -I <src_root>/src        : allow #include "runtime/iron_runtime.h".
+     * -I <src_root>/src/vendor : for vendor headers included by iron_runtime.
      * -Wno-unused-variable: val v is unused (Iron doesn't require use).
      * -Wno-unused-function: generated helpers may be unused in this snippet.
      * -Werror: any remaining warning is a hard failure. */
-    char cmd[512];
+    char cmd[1024];
     snprintf(cmd, sizeof(cmd),
              "clang -std=c11 -Wall -Werror "
              "-Wno-unused-variable -Wno-unused-function "
+             "-I %s/src -I %s/src/vendor "
              "-fsyntax-only %s 2>/dev/null",
-             tmpfile);
+             src_root, src_root, tmpfile);
     int ret = system(cmd);
     remove(tmpfile);
 
