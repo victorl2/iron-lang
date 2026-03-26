@@ -47,7 +47,7 @@ Plans:
   3. `val` reassignment, use of a nullable without a null check, and a missing interface method each produce a compile error pointing to the offending line
   4. Escape analysis marks non-escaping heap allocations and the generated C inserts the correct free; concurrency checks reject `parallel for` bodies that mutate outer non-mutex variables
   5. C unit tests cover lexer, parser, semantic, and codegen internals; end-to-end .iron integration tests verify compilation and execution
-**Plans:** 7 plans
+**Plans:** 1/7 plans executed
 
 Plans:
 - [ ] 02-01-PLAN.md — Type system and scope tree infrastructure
@@ -89,6 +89,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
-| 2. Semantics and Codegen | 0/7 | Not started | - |
+| 2. Semantics and Codegen | 1/7 | In Progress|  |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
