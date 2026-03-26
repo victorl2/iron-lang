@@ -1,3 +1,5 @@
 func main() {
-  println("hello world")
+    println("hello from iron")
+    val x = 42
+    println("x is 42")
 }
