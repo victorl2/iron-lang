@@ -356,23 +356,61 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
             /* Special case: print/println -> printf stub */
             if (call->callee->kind == IRON_NODE_IDENT) {
                 Iron_Ident *callee_id = (Iron_Ident *)call->callee;
-                if (strcmp(callee_id->name, "print") == 0 ||
-                    strcmp(callee_id->name, "println") == 0) {
-                    iron_strbuf_appendf(sb, "printf(");
-                    for (int i = 0; i < call->arg_count; i++) {
-                        if (i > 0) iron_strbuf_appendf(sb, ", ");
-                        emit_expr(sb, call->args[i], ctx);
+                if (strcmp(callee_id->name, "println") == 0) {
+                    if (call->arg_count == 0) {
+                        iron_strbuf_appendf(sb, "printf(\"\\n\")");
+                    } else {
+                        /* Emit printf("%s\n", arg) — newline in format string */
+                        iron_strbuf_appendf(sb, "printf(\"%%s\\n\", ");
+                        emit_expr(sb, call->args[0], ctx);
+                        iron_strbuf_appendf(sb, ")");
                     }
-                    if (strcmp(callee_id->name, "println") == 0) {
-                        if (call->arg_count > 0) {
-                            iron_strbuf_appendf(sb, ", \"\\n\"");
-                        } else {
-                            iron_strbuf_appendf(sb, "\"\\n\"");
-                        }
-                    }
-                    iron_strbuf_appendf(sb, ")");
                     break;
                 }
+                if (strcmp(callee_id->name, "print") == 0) {
+                    if (call->arg_count == 0) {
+                        iron_strbuf_appendf(sb, "printf(\"\")");
+                    } else {
+                        iron_strbuf_appendf(sb, "printf(\"%%s\", ");
+                        emit_expr(sb, call->args[0], ctx);
+                        iron_strbuf_appendf(sb, ")");
+                    }
+                    break;
+                }
+                /* Check if callee is a type name (object constructor).
+                 * If so, emit as compound literal (Iron_TypeName){.field=arg}
+                 * rather than a C function call Iron_TypeName(arg) which
+                 * would be invalid C (no such function exists). */
+                if (callee_id->resolved_sym &&
+                    callee_id->resolved_sym->sym_kind == IRON_SYM_TYPE) {
+                    const char *mangled = iron_mangle_name(callee_id->name,
+                                                           ctx->arena);
+                    iron_strbuf_appendf(sb, "(%s){", mangled);
+                    /* Look up field names from the object declaration */
+                    Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope,
+                                                         callee_id->name);
+                    if (sym && sym->decl_node &&
+                        sym->decl_node->kind == IRON_NODE_OBJECT_DECL) {
+                        Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
+                        int n = call->arg_count < od->field_count
+                                    ? call->arg_count : od->field_count;
+                        for (int i = 0; i < n; i++) {
+                            if (i > 0) iron_strbuf_appendf(sb, ", ");
+                            Iron_Field *f = (Iron_Field *)od->fields[i];
+                            iron_strbuf_appendf(sb, ".%s = ", f->name);
+                            emit_expr(sb, call->args[i], ctx);
+                        }
+                    } else {
+                        /* Fallback: positional init */
+                        for (int i = 0; i < call->arg_count; i++) {
+                            if (i > 0) iron_strbuf_appendf(sb, ", ");
+                            emit_expr(sb, call->args[i], ctx);
+                        }
+                    }
+                    iron_strbuf_appendf(sb, "}");
+                    break;
+                }
+
                 /* Regular function call: mangle the name */
                 const char *mangled = iron_mangle_name(callee_id->name,
                                                         ctx->arena);
@@ -433,7 +471,20 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
             emit_expr(sb, fa->object, ctx);
-            iron_strbuf_appendf(sb, ".%s", fa->field);
+
+            /* Determine whether to use -> or . based on receiver type.
+             * Methods receive self as T* (pointer), so field access is ->
+             * For struct values (stack objects), use .
+             * Heuristic: if the object is "self" identifier, always use ->
+             * because methods declare self as T* (per emit_method_impl). */
+            bool use_arrow = false;
+            if (fa->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *id = (Iron_Ident *)fa->object;
+                if (strcmp(id->name, "self") == 0) {
+                    use_arrow = true;
+                }
+            }
+            iron_strbuf_appendf(sb, "%s%s", use_arrow ? "->" : ".", fa->field);
             break;
         }
 
