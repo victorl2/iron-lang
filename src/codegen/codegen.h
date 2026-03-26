@@ -15,6 +15,7 @@ typedef struct {
     Iron_Arena    *arena;
     Iron_DiagList *diags;
     Iron_Scope    *global_scope;
+    Iron_Program  *program;       /* the program being compiled */
 
     /* Output buffers — one per emission section */
     Iron_StrBuf    includes;        /* #include directives */

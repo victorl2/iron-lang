@@ -69,7 +69,7 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
             const char *c_type = vd->declared_type
                                      ? iron_type_to_c(vd->declared_type, ctx)
                                      : "int64_t";  /* fallback */
-            /* Nullable val decls */
+            /* Nullable val decls emit Iron_Optional_T type */
             if (vd->declared_type &&
                 vd->declared_type->kind == IRON_TYPE_NULLABLE) {
                 iron_strbuf_appendf(sb, "const %s %s", c_type,

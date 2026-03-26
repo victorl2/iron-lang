@@ -19,8 +19,9 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
     switch (node->kind) {
 
         case IRON_NODE_INT_LIT: {
+            /* Iron Int -> C int64_t literal */
             Iron_IntLit *lit = (Iron_IntLit *)node;
-            iron_strbuf_appendf(sb, "%s", lit->value);
+            iron_strbuf_appendf(sb, "(int64_t)%s", lit->value);
             break;
         }
 

@@ -145,7 +145,7 @@ static void emit_object_struct(Iron_Codegen *ctx, Iron_ObjectDecl *od,
                                                        ctx->arena);
         iron_strbuf_appendf(&ctx->struct_bodies,
                              "    %s _base;\n", parent_mangled);
-    } else if (has_subtype(ctx->global_scope ? NULL : NULL, od->name)) {
+    } else if (has_subtype(ctx->program, od->name)) {
         /* Root of inheritance: add type tag */
         iron_strbuf_appendf(&ctx->struct_bodies,
                              "    int32_t iron_type_tag;\n");
@@ -229,6 +229,7 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     ctx.arena        = arena;
     ctx.diags        = diags;
     ctx.global_scope = global_scope;
+    ctx.program      = program;
     ctx.next_type_tag = 1;
 
     ctx.includes        = iron_strbuf_create(256);
