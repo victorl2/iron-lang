@@ -124,3 +124,7 @@ add_test(NAME test_runtime_string COMMAND test_runtime_string)
 add_executable(test_runtime_threads tests/test_runtime_threads.c)
 target_link_libraries(test_runtime_threads iron_runtime unity)
 add_test(NAME test_runtime_threads COMMAND test_runtime_threads)
+
+add_executable(test_runtime_collections tests/test_runtime_collections.c)
+target_link_libraries(test_runtime_collections iron_runtime unity)
+add_test(NAME test_runtime_collections COMMAND test_runtime_collections)
