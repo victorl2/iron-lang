@@ -1,0 +1,4 @@
+func main() {
+    -- This tests that the runtime collections link correctly
+    println("collections ok")
+}
