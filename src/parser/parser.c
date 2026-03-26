@@ -1830,9 +1830,20 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
         }
         Iron_Token *vt  = iron_advance(p);
         Iron_EnumVariant *v = ARENA_ALLOC(p->arena, Iron_EnumVariant);
-        v->kind             = IRON_NODE_ENUM_VARIANT;
-        v->span             = iron_token_span(p, vt);
-        v->name             = iron_arena_strdup(p->arena, vt->value, strlen(vt->value));
+        v->kind               = IRON_NODE_ENUM_VARIANT;
+        v->span               = iron_token_span(p, vt);
+        v->name               = iron_arena_strdup(p->arena, vt->value, strlen(vt->value));
+        v->has_explicit_value = false;
+        v->explicit_value     = 0;
+        /* Optional explicit ordinal: VARIANT = INTEGER */
+        if (iron_check(p, IRON_TOK_ASSIGN)) {
+            iron_advance(p);  /* consume '=' */
+            if (iron_check(p, IRON_TOK_INTEGER)) {
+                Iron_Token *num = iron_advance(p);
+                v->has_explicit_value = true;
+                v->explicit_value     = (int)atoi(num->value);
+            }
+        }
         arrput(variants, (Iron_Node *)v);
         variant_count++;
         iron_skip_newlines(p);
