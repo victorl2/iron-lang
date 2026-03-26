@@ -74,8 +74,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **CLI-01**: `iron build [file]` compiles .iron to standalone binary via C
 - [x] **CLI-02**: `iron run [file]` compiles and immediately executes
 - [x] **CLI-03**: `iron check [file]` type-checks without compiling to binary
-- [ ] **CLI-04**: `iron fmt [file]` formats Iron source code
-- [ ] **CLI-05**: `iron test [dir]` discovers and runs Iron tests
+- [x] **CLI-04**: `iron fmt [file]` formats Iron source code
+- [x] **CLI-05**: `iron test [dir]` discovers and runs Iron tests
 - [x] **CLI-06**: Error messages show Rust-style diagnostics: source snippet, arrow, suggestion
 - [x] **CLI-07**: Terminal output is colored
 - [x] **CLI-08**: `--verbose` flag shows generated C code
@@ -193,8 +193,8 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | CLI-01 | Phase 3 | Complete |
 | CLI-02 | Phase 3 | Complete |
 | CLI-03 | Phase 3 | Complete |
-| CLI-04 | Phase 3 | Pending |
-| CLI-05 | Phase 3 | Pending |
+| CLI-04 | Phase 3 | Complete |
+| CLI-05 | Phase 3 | Complete |
 | CLI-06 | Phase 3 | Complete |
 | CLI-07 | Phase 3 | Complete |
 | CLI-08 | Phase 3 | Complete |
