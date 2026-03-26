@@ -32,8 +32,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SEM-06**: Nullable types require null check before use; compiler narrows type after check
 - [x] **SEM-07**: Interface implementation completeness is validated
 - [x] **SEM-08**: Generic type parameters are validated and instantiated
-- [ ] **SEM-09**: Escape analysis tracks heap allocations and marks non-escaping values for auto-free
-- [ ] **SEM-10**: Concurrency checks enforce parallel-for body cannot mutate outer non-mutex variables
+- [x] **SEM-09**: Escape analysis tracks heap allocations and marks non-escaping values for auto-free
+- [x] **SEM-10**: Concurrency checks enforce parallel-for body cannot mutate outer non-mutex variables
 - [x] **SEM-11**: Import resolution locates .iron files by path and builds module graph
 - [x] **SEM-12**: `self` and `super` resolve correctly inside methods
 
@@ -161,8 +161,8 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | SEM-06 | Phase 2 | Complete |
 | SEM-07 | Phase 2 | Complete |
 | SEM-08 | Phase 2 | Complete |
-| SEM-09 | Phase 2 | Pending |
-| SEM-10 | Phase 2 | Pending |
+| SEM-09 | Phase 2 | Complete |
+| SEM-10 | Phase 2 | Complete |
 | SEM-11 | Phase 2 | Complete |
 | SEM-12 | Phase 2 | Complete |
 | GEN-01 | Phase 2 | Pending |
