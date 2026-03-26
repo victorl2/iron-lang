@@ -35,6 +35,8 @@ add_library(iron_compiler STATIC
     src/analyzer/scope.c
     src/analyzer/resolve.c
     src/analyzer/typecheck.c
+    src/analyzer/escape.c
+    src/analyzer/concurrency.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 
@@ -80,3 +82,11 @@ add_test(NAME test_resolver COMMAND test_resolver)
 add_executable(test_typecheck tests/test_typecheck.c)
 target_link_libraries(test_typecheck iron_compiler unity)
 add_test(NAME test_typecheck COMMAND test_typecheck)
+
+add_executable(test_escape tests/test_escape.c)
+target_link_libraries(test_escape iron_compiler unity)
+add_test(NAME test_escape COMMAND test_escape)
+
+add_executable(test_concurrency tests/test_concurrency.c)
+target_link_libraries(test_concurrency iron_compiler unity)
+add_test(NAME test_concurrency COMMAND test_concurrency)
