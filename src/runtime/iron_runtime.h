@@ -7,41 +7,26 @@
 #include <stdatomic.h>
 
 /* ── Platform threading abstraction ──────────────────────────────────────── */
-#ifdef _WIN32
-  #include <threads.h>    /* C11 threads — MSVC 17.8+ / VS 2022 */
-  typedef thrd_t          iron_thread_t;
-  typedef mtx_t           iron_mutex_t;
-  typedef cnd_t           iron_cond_t;
+/* Pthreads everywhere, including Windows (via pthreads4w / pthreads-win32).
+ * The C11 <threads.h> path has been removed; pthreads4w provides pthread.h
+ * on Windows and is installed by the CI Windows step (choco install pthreads4w).
+ */
+#include <pthread.h>
+typedef pthread_t          iron_thread_t;
+typedef pthread_mutex_t    iron_mutex_t;
+typedef pthread_cond_t     iron_cond_t;
 
-  #define IRON_THREAD_CREATE(t,fn,arg)   thrd_create(&(t),(thrd_start_t)(fn),(arg))
-  #define IRON_THREAD_JOIN(t)            thrd_join((t), NULL)
-  #define IRON_MUTEX_INIT(m)             mtx_init(&(m), mtx_plain)
-  #define IRON_MUTEX_LOCK(m)             mtx_lock(&(m))
-  #define IRON_MUTEX_UNLOCK(m)           mtx_unlock(&(m))
-  #define IRON_MUTEX_DESTROY(m)          mtx_destroy(&(m))
-  #define IRON_COND_INIT(c)              cnd_init(&(c))
-  #define IRON_COND_WAIT(c,m)            cnd_wait(&(c), &(m))
-  #define IRON_COND_SIGNAL(c)            cnd_signal(&(c))
-  #define IRON_COND_BROADCAST(c)         cnd_broadcast(&(c))
-  #define IRON_COND_DESTROY(c)           cnd_destroy(&(c))
-#else
-  #include <pthread.h>
-  typedef pthread_t          iron_thread_t;
-  typedef pthread_mutex_t    iron_mutex_t;
-  typedef pthread_cond_t     iron_cond_t;
-
-  #define IRON_THREAD_CREATE(t,fn,arg)   pthread_create(&(t),NULL,(fn),(arg))
-  #define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
-  #define IRON_MUTEX_INIT(m)             pthread_mutex_init(&(m), NULL)
-  #define IRON_MUTEX_LOCK(m)             pthread_mutex_lock(&(m))
-  #define IRON_MUTEX_UNLOCK(m)           pthread_mutex_unlock(&(m))
-  #define IRON_MUTEX_DESTROY(m)          pthread_mutex_destroy(&(m))
-  #define IRON_COND_INIT(c)              pthread_cond_init(&(c), NULL)
-  #define IRON_COND_WAIT(c,m)            pthread_cond_wait(&(c), &(m))
-  #define IRON_COND_SIGNAL(c)            pthread_cond_signal(&(c))
-  #define IRON_COND_BROADCAST(c)         pthread_cond_broadcast(&(c))
-  #define IRON_COND_DESTROY(c)           pthread_cond_destroy(&(c))
-#endif
+#define IRON_THREAD_CREATE(t,fn,arg)   pthread_create(&(t),NULL,(fn),(arg))
+#define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
+#define IRON_MUTEX_INIT(m)             pthread_mutex_init(&(m), NULL)
+#define IRON_MUTEX_LOCK(m)             pthread_mutex_lock(&(m))
+#define IRON_MUTEX_UNLOCK(m)           pthread_mutex_unlock(&(m))
+#define IRON_MUTEX_DESTROY(m)          pthread_mutex_destroy(&(m))
+#define IRON_COND_INIT(c)              pthread_cond_init(&(c), NULL)
+#define IRON_COND_WAIT(c,m)            pthread_cond_wait(&(c), &(m))
+#define IRON_COND_SIGNAL(c)            pthread_cond_signal(&(c))
+#define IRON_COND_BROADCAST(c)         pthread_cond_broadcast(&(c))
+#define IRON_COND_DESTROY(c)           pthread_cond_destroy(&(c))
 
 /* ── Iron_String ────────────────────────────────────────────────────────────
  * 24-byte string type with Small String Optimisation (SSO).
