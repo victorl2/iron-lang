@@ -236,6 +236,7 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     ctx.forward_decls   = iron_strbuf_create(256);
     ctx.struct_bodies   = iron_strbuf_create(1024);
     ctx.enum_defs       = iron_strbuf_create(256);
+    ctx.global_consts   = iron_strbuf_create(256);
     ctx.prototypes      = iron_strbuf_create(512);
     ctx.implementations = iron_strbuf_create(4096);
     ctx.main_wrapper    = iron_strbuf_create(128);
@@ -354,6 +355,92 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
         iron_strbuf_appendf(&ctx.enum_defs, "} %s;\n\n", mangled);
     }
 
+    /* ── 4b. Top-level val/var declarations (global constants) ───────────── */
+    /* After comptime evaluation, top-level val GREETING = comptime "..."
+     * becomes val GREETING = STRING_LIT "...".  We emit these as global C
+     * variables so they are visible from all functions in the file.
+     *
+     * Strategy:
+     *  - Non-string types (int, float, bool): emit as static global with
+     *    a C constant-expression initializer.
+     *  - String types: emit declaration only (no static initializer since
+     *    iron_string_from_literal() is a runtime call).  Emit initialization
+     *    at the start of Iron_main via global_consts (init code section). */
+    Iron_StrBuf global_inits = iron_strbuf_create(256); /* init calls for Iron_main */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        const char *var_name = NULL;
+        Iron_Node  *init_expr = NULL;
+
+        if (decl->kind == IRON_NODE_VAL_DECL) {
+            Iron_ValDecl *vd = (Iron_ValDecl *)decl;
+            var_name  = vd->name;
+            init_expr = vd->init;
+        } else if (decl->kind == IRON_NODE_VAR_DECL) {
+            Iron_VarDecl *vd = (Iron_VarDecl *)decl;
+            var_name  = vd->name;
+            init_expr = vd->init;
+        }
+
+        if (!var_name) continue;
+
+        /* Determine C type from declared_type or init_expr kind */
+        const char *c_type = "int64_t";  /* safe default */
+        bool is_string_type = false;
+
+        /* Helper to derive type */
+        {
+            const Iron_Type *dtype = NULL;
+            if (decl->kind == IRON_NODE_VAL_DECL)
+                dtype = ((Iron_ValDecl *)decl)->declared_type;
+            else
+                dtype = ((Iron_VarDecl *)decl)->declared_type;
+
+            if (dtype) {
+                c_type = iron_type_to_c(dtype, &ctx);
+                is_string_type = (dtype->kind == IRON_TYPE_STRING);
+            } else if (init_expr) {
+                switch (init_expr->kind) {
+                    case IRON_NODE_STRING_LIT:
+                        c_type = "Iron_String"; is_string_type = true; break;
+                    case IRON_NODE_INT_LIT:
+                        c_type = "int64_t"; break;
+                    case IRON_NODE_FLOAT_LIT:
+                        c_type = "double"; break;
+                    case IRON_NODE_BOOL_LIT:
+                        c_type = "bool"; break;
+                    default: break;
+                }
+            }
+        }
+
+        if (is_string_type) {
+            /* Declare as uninitialized global; initialize in Iron_main preamble */
+            iron_strbuf_appendf(&ctx.global_consts, "static Iron_String %s;\n",
+                                 var_name);
+            if (init_expr && init_expr->kind == IRON_NODE_STRING_LIT) {
+                Iron_StringLit *sl = (Iron_StringLit *)init_expr;
+                const char *sval = sl->value ? sl->value : "";
+                size_t slen = sl->value ? strlen(sl->value) : 0;
+                iron_strbuf_appendf(&global_inits,
+                                     "    %s = iron_string_from_literal(\"%s\", %zu);\n",
+                                     var_name, sval, slen);
+            }
+        } else {
+            /* Emit as static global with C constant initializer */
+            iron_strbuf_appendf(&ctx.global_consts, "static %s %s",
+                                 c_type, var_name);
+            if (init_expr) {
+                iron_strbuf_appendf(&ctx.global_consts, " = ");
+                emit_expr(&ctx.global_consts, init_expr, &ctx);
+            }
+            iron_strbuf_appendf(&ctx.global_consts, ";\n");
+        }
+    }
+    if (ctx.global_consts.len > 0) {
+        iron_strbuf_appendf(&ctx.global_consts, "\n");
+    }
+
     /* ── 5 & 6. Function prototypes and implementations ───────────────────── */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
@@ -412,6 +499,11 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
                          "    (void)argc; (void)argv;\n");
     iron_strbuf_appendf(&ctx.main_wrapper,
                          "    iron_runtime_init();\n");
+    /* Emit global string constant initializations (require runtime to be up) */
+    if (global_inits.len > 0) {
+        iron_strbuf_append(&ctx.main_wrapper,
+                            iron_strbuf_get(&global_inits), global_inits.len);
+    }
     iron_strbuf_appendf(&ctx.main_wrapper,
                          "    Iron_main();\n");
     iron_strbuf_appendf(&ctx.main_wrapper,
@@ -433,6 +525,8 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
                         ctx.struct_bodies.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.enum_defs),
                         ctx.enum_defs.len);
+    iron_strbuf_append(&output, iron_strbuf_get(&ctx.global_consts),
+                        ctx.global_consts.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.prototypes),
                         ctx.prototypes.len);
     /* Lifted functions (lambda bodies, spawn bodies, parallel chunks) */
@@ -454,10 +548,12 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     iron_strbuf_free(&ctx.forward_decls);
     iron_strbuf_free(&ctx.struct_bodies);
     iron_strbuf_free(&ctx.enum_defs);
+    iron_strbuf_free(&ctx.global_consts);
     iron_strbuf_free(&ctx.prototypes);
     iron_strbuf_free(&ctx.implementations);
     iron_strbuf_free(&ctx.lifted_funcs);
     iron_strbuf_free(&ctx.main_wrapper);
+    iron_strbuf_free(&global_inits);
     iron_strbuf_free(&output);
 
     /* Free defer_stacks */
