@@ -24,8 +24,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Semantic Analysis
 
-- [ ] **SEM-01**: Name resolution builds scoped symbol table (global → module → function → block)
-- [ ] **SEM-02**: All identifiers resolve to declarations; undefined variables produce errors
+- [x] **SEM-01**: Name resolution builds scoped symbol table (global → module → function → block)
+- [x] **SEM-02**: All identifiers resolve to declarations; undefined variables produce errors
 - [ ] **SEM-03**: Type inference works for val/var declarations without explicit types
 - [ ] **SEM-04**: Type checker validates all assignments, function calls, and return types
 - [ ] **SEM-05**: val immutability is enforced (reassignment produces compile error)
@@ -153,8 +153,8 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | PARSE-04 | Phase 1 | Complete |
 | PARSE-05 | Phase 1 | Complete |
 | TEST-03 | Phase 1 | Complete |
-| SEM-01 | Phase 2 | Pending |
-| SEM-02 | Phase 2 | Pending |
+| SEM-01 | Phase 2 | Complete |
+| SEM-02 | Phase 2 | Complete |
 | SEM-03 | Phase 2 | Pending |
 | SEM-04 | Phase 2 | Pending |
 | SEM-05 | Phase 2 | Pending |
