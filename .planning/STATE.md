@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-03-PLAN.md
-last_updated: "2026-03-26T19:50:52.652Z"
+stopped_at: Completed 05-codegen-fixes-stdlib-wiring/05-01-PLAN.md
+last_updated: "2026-03-26T19:52:23.415Z"
 last_activity: "2026-03-26 — Completed plan 04-03: raylib.iron wrapper with Key enum (RIGHT=262 etc), explicit enum ordinals in AST/parser/codegen, build pipeline compiles raylib inline, extern func integration test passing"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 30
-  completed_plans: 27
+  completed_plans: 28
   percent: 92
 ---
 
@@ -74,6 +74,7 @@ Progress: [█████████░] 92%
 | Phase 04-comptime-game-dev-and-cross-platform P05 | 6 | 2 tasks | 5 files |
 | Phase 04-comptime-game-dev-and-cross-platform P06 | 167 | 3 tasks | 163 files |
 | Phase 05-codegen-fixes-stdlib-wiring P03 | 7 | 2 tasks | 8 files |
+| Phase 05-codegen-fixes-stdlib-wiring P01 | 11 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -155,6 +156,7 @@ Recent decisions affecting current work:
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-06: pthreads used unconditionally on all platforms; C11 threads.h path removed; Windows uses pthreads4w via Chocolatey
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-06: vendor/raylib/raylib.c is an amalgamation driver that #includes all raylib 5.5 source modules; no single-file amalgam ships in the tarball
 - [Phase 05-codegen-fixes-stdlib-wiring]: 05-03: Stdlib .iron wrappers use top-level func Math.method() syntax; auto-static dispatch by IRON_SYM_TYPE check emits Iron_math_sin pattern; TypeCtx.program enables method return type lookup
+- [Phase 05-codegen-fixes-stdlib-wiring]: 05-01: snprintf two-pass GNU statement expression for IRON_NODE_INTERP_STRING; lambda_counter as unique interp index; iron_string_from_literal for result wrapping
 
 ### Pending Todos
 
@@ -170,6 +172,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T19:50:52.649Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-03-26T19:52:23.412Z
+Stopped at: Completed 05-codegen-fixes-stdlib-wiring/05-01-PLAN.md
 Resume file: None
