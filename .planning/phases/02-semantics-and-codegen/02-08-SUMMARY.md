@@ -121,6 +121,17 @@ None - no external service configuration required.
 - SEM-09 (escape analysis) is now fully satisfied at both analysis and codegen levels
 - Phase 3 (runtime/stdlib/CLI) can proceed with confidence that the code generator produces valid C
 
+## Self-Check: PASSED
+
+- src/codegen/gen_exprs.c: FOUND
+- src/codegen/gen_stmts.c: FOUND
+- tests/test_codegen.c: FOUND
+- tests/integration/run_integration.sh: FOUND
+- fa50986 (test: failing tests): FOUND
+- bc3942a (feat: bug fixes): FOUND
+- caab222 (feat: clang test): FOUND
+- All 14 test executables: 100% pass (29 codegen tests including 5 new)
+
 ---
 *Phase: 02-semantics-and-codegen*
 *Completed: 2026-03-25*
