@@ -5,6 +5,8 @@
 
 #include "cli/build.h"
 #include "cli/check.h"
+#include "cli/fmt.h"
+#include "cli/test_runner.h"
 
 static void print_usage(void) {
     fprintf(stderr, "Usage: iron <command> [options] <file>\n\n");
@@ -88,13 +90,15 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(cmd, "fmt") == 0) {
-        fprintf(stderr, "iron fmt: not yet implemented\n");
-        return 1;
+        if (!source_file) {
+            fprintf(stderr, "iron fmt: missing file argument\nUsage: iron fmt <file.iron>\n");
+            return 1;
+        }
+        return iron_fmt(source_file);
     }
 
     if (strcmp(cmd, "test") == 0) {
-        fprintf(stderr, "iron test: not yet implemented\n");
-        return 1;
+        return iron_test(source_file ? source_file : ".");
     }
 
     fprintf(stderr, "iron: unknown command '%s'\n", cmd);
