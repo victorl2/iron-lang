@@ -631,6 +631,160 @@ void test_parallel_for_generates_chunk_and_barrier(void) {
     TEST_ASSERT_TRUE(str_contains(c, "Iron_pool_barrier"));
 }
 
+/* ── Test: field access uses -> for self (pointer receiver) ─────────────── */
+
+void test_field_access_uses_arrow_for_self(void) {
+    const char *src =
+        "object Vec2 {\n"
+        "    var x: Float\n"
+        "}\n"
+        "func Vec2.get_x() -> Float {\n"
+        "    return self.x\n"
+        "}\n"
+        "func main() { val v = Vec2(1.0) }\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Method body must use -> not . for self field access */
+    TEST_ASSERT_TRUE(str_contains(c, "self->x"));
+    /* Must NOT use self.x (dot access on pointer is invalid C) */
+    TEST_ASSERT_FALSE(str_contains(c, "self.x"));
+}
+
+/* ── Test: CALL to type name emits compound literal, not function call ────── */
+
+void test_call_to_type_emits_compound_literal(void) {
+    const char *src =
+        "object Vec2 {\n"
+        "    var x: Float\n"
+        "    var y: Float\n"
+        "}\n"
+        "func main() {\n"
+        "    val v = Vec2(1.0, 2.0)\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Should emit compound literal (Iron_Vec2){ */
+    TEST_ASSERT_TRUE(str_contains(c, "(Iron_Vec2){"));
+    /* Must NOT emit Iron_Vec2(1 — a C function call that doesn't exist */
+    TEST_ASSERT_FALSE(str_contains(c, "Iron_Vec2(1"));
+}
+
+/* ── Test: println emits printf("%s\n", arg) without extra positional arg ─── */
+
+void test_println_format_no_extra_args(void) {
+    const char *src =
+        "func main() {\n"
+        "    println(\"hello\")\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Must emit %s\n format and the string arg */
+    TEST_ASSERT_TRUE(str_contains(c, "%s\\n"));
+    /* Must NOT pass newline as a separate second argument */
+    TEST_ASSERT_FALSE(str_contains(c, "\"\\n\""));
+}
+
+/* ── Test: auto_free heap allocation emits free() at block exit ─────────── */
+
+void test_auto_free_emits_free(void) {
+    /* Build AST directly to inject auto_free=true without running escape
+     * analysis (which may not mark this specific pattern). Instead we
+     * manually construct the nodes and call emit_block. */
+    Iron_Arena arena = iron_arena_create(64 * 1024);
+    iron_types_init(&arena);
+    Iron_DiagList diags = iron_diaglist_create();
+
+    Iron_Span s = iron_span_make("test.iron", 1, 1, 1, 10);
+
+    /* Build: object Vec2 { var x: Float } for the type */
+    Iron_ObjectDecl *od = ARENA_ALLOC(&arena, Iron_ObjectDecl);
+    memset(od, 0, sizeof(*od));
+    od->span = s;
+    od->kind = IRON_NODE_OBJECT_DECL;
+    od->name = "Vec2";
+    od->fields = NULL;
+    od->field_count = 0;
+
+    /* Build a scope with Vec2 symbol */
+    Iron_Scope *global = iron_scope_create(&arena, NULL, IRON_SCOPE_GLOBAL);
+    Iron_Symbol *vec2_sym = iron_symbol_create(&arena, "Vec2",
+                                                IRON_SYM_TYPE,
+                                                (Iron_Node *)od, s);
+    iron_scope_define(global, &arena, vec2_sym);
+
+    /* Build inner construct node for Vec2() */
+    Iron_ConstructExpr *ce = ARENA_ALLOC(&arena, Iron_ConstructExpr);
+    memset(ce, 0, sizeof(*ce));
+    ce->span = s;
+    ce->kind = IRON_NODE_CONSTRUCT;
+    ce->type_name = "Vec2";
+    ce->args = NULL;
+    ce->arg_count = 0;
+
+    /* Build heap expr with auto_free=true */
+    Iron_HeapExpr *he = ARENA_ALLOC(&arena, Iron_HeapExpr);
+    memset(he, 0, sizeof(*he));
+    he->span = s;
+    he->kind = IRON_NODE_HEAP;
+    he->inner = (Iron_Node *)ce;
+    he->auto_free = true;
+    he->escapes   = false;
+
+    /* Build val p = heap Vec2() */
+    Iron_ValDecl *vd = ARENA_ALLOC(&arena, Iron_ValDecl);
+    memset(vd, 0, sizeof(*vd));
+    vd->span = s;
+    vd->kind = IRON_NODE_VAL_DECL;
+    vd->name = "p";
+    vd->init = (Iron_Node *)he;
+    vd->declared_type = NULL; /* will use fallback int64_t */
+
+    /* Build a block containing this statement */
+    Iron_Node **stmts = NULL;
+    arrput(stmts, (Iron_Node *)vd);
+    Iron_Block *block = ARENA_ALLOC(&arena, Iron_Block);
+    memset(block, 0, sizeof(*block));
+    block->span       = s;
+    block->kind       = IRON_NODE_BLOCK;
+    block->stmts      = stmts;
+    block->stmt_count = 1;
+
+    /* Create codegen context */
+    Iron_Codegen ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.arena        = &arena;
+    ctx.diags        = &diags;
+    ctx.global_scope = global;
+    ctx.program      = NULL;
+    ctx.struct_bodies    = iron_strbuf_create(1024);
+    ctx.forward_decls    = iron_strbuf_create(256);
+    ctx.prototypes       = iron_strbuf_create(256);
+    ctx.implementations  = iron_strbuf_create(1024);
+    ctx.lifted_funcs     = iron_strbuf_create(1024);
+    ctx.emitted_optionals = NULL;
+    ctx.mono_registry    = NULL;
+    ctx.indent           = 0;
+    ctx.defer_depth      = 0;
+    ctx.function_scope_depth = 0;
+
+    Iron_StrBuf sb = iron_strbuf_create(512);
+    emit_block(&sb, block, &ctx);
+
+    const char *out = iron_strbuf_get(&sb);
+    TEST_ASSERT_NOT_NULL(out);
+    /* free(p) must appear in the block output */
+    TEST_ASSERT_TRUE(str_contains(out, "free(p)"));
+
+    iron_strbuf_free(&sb);
+    iron_strbuf_free(&ctx.struct_bodies);
+    iron_strbuf_free(&ctx.forward_decls);
+    iron_strbuf_free(&ctx.prototypes);
+    iron_strbuf_free(&ctx.implementations);
+    iron_strbuf_free(&ctx.lifted_funcs);
+    iron_arena_free(&arena);
+    iron_diaglist_free(&diags);
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -660,6 +814,10 @@ int main(void) {
     RUN_TEST(test_lambda_with_captures_generates_env_struct);
     RUN_TEST(test_spawn_generates_lifted_function_and_pool_submit);
     RUN_TEST(test_parallel_for_generates_chunk_and_barrier);
+    RUN_TEST(test_field_access_uses_arrow_for_self);
+    RUN_TEST(test_call_to_type_emits_compound_literal);
+    RUN_TEST(test_println_format_no_extra_args);
+    RUN_TEST(test_auto_free_emits_free);
 
     return UNITY_END();
 }
