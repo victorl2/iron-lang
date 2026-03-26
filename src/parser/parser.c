@@ -306,10 +306,10 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
         }
 
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
-            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_UNEXPECTED_TOKEN,
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
-                           "expected parameter name", NULL);
+                           "expected parameter name");
+            p->in_error_recovery = true;
             iron_parser_sync_stmt(p);
             break;
         }
@@ -345,7 +345,10 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
 
 static Iron_Node *iron_parse_block(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
-    if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
+    if (!iron_expect(p, IRON_TOK_LBRACE)) {
+        p->in_error_recovery = true;
+        return iron_make_error(p);
+    }
 
     iron_skip_newlines(p);
 
@@ -555,6 +558,9 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             n->kind            = IRON_NODE_HEAP;
             n->span            = iron_span_merge(iron_token_span(p, t), inner->span);
             n->inner           = inner;
+            n->resolved_type   = NULL;   /* set by type checker */
+            n->auto_free       = false;  /* set by escape analyzer */
+            n->escapes         = false;  /* set by escape analyzer */
             return (Iron_Node *)n;
         }
         /* rc expr */
@@ -650,9 +656,32 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_IDENTIFIER: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            id->kind = IRON_NODE_IDENT;
-            id->span = iron_token_span(p, t);
-            id->name = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            id->kind         = IRON_NODE_IDENT;
+            id->span         = iron_token_span(p, t);
+            id->name         = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            id->resolved_sym = NULL;
+            id->resolved_type = NULL;
+            return (Iron_Node *)id;
+        }
+        /* self and super are expression keywords that resolve to idents */
+        case IRON_TOK_SELF: {
+            iron_advance(p);
+            Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
+            id->kind         = IRON_NODE_IDENT;
+            id->span         = iron_token_span(p, t);
+            id->name         = "self";
+            id->resolved_sym = NULL;
+            id->resolved_type = NULL;
+            return (Iron_Node *)id;
+        }
+        case IRON_TOK_SUPER: {
+            iron_advance(p);
+            Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
+            id->kind         = IRON_NODE_IDENT;
+            id->span         = iron_token_span(p, t);
+            id->name         = "super";
+            id->resolved_sym = NULL;
+            id->resolved_type = NULL;
             return (Iron_Node *)id;
         }
         default:
@@ -1152,13 +1181,14 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     }
 
     Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
-    n->kind         = IRON_NODE_VAL_DECL;
-    n->span         = iron_span_merge(iron_token_span(p, start),
+    n->kind          = IRON_NODE_VAL_DECL;
+    n->span          = iron_span_merge(iron_token_span(p, start),
                                        init ? init->span : iron_token_span(p, name_tok));
-    n->name         = iron_arena_strdup(p->arena, name_tok->value,
+    n->name          = iron_arena_strdup(p->arena, name_tok->value,
                                          strlen(name_tok->value));
-    n->type_ann     = type_ann;
-    n->init         = init;
+    n->type_ann      = type_ann;
+    n->init          = init;
+    n->declared_type = NULL;  /* set by type checker */
     return (Iron_Node *)n;
 }
 
@@ -1186,13 +1216,14 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     }
 
     Iron_VarDecl *n = ARENA_ALLOC(p->arena, Iron_VarDecl);
-    n->kind         = IRON_NODE_VAR_DECL;
-    n->span         = iron_span_merge(iron_token_span(p, start),
+    n->kind          = IRON_NODE_VAR_DECL;
+    n->span          = iron_span_merge(iron_token_span(p, start),
                                        init ? init->span : iron_token_span(p, name_tok));
-    n->name         = iron_arena_strdup(p->arena, name_tok->value,
+    n->name          = iron_arena_strdup(p->arena, name_tok->value,
                                          strlen(name_tok->value));
-    n->type_ann     = type_ann;
-    n->init         = init;
+    n->type_ann      = type_ann;
+    n->init          = init;
+    n->declared_type = NULL;  /* set by type checker */
     return (Iron_Node *)n;
 }
 
@@ -1402,20 +1433,22 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
 
         Iron_Node *body = iron_parse_block(p);
 
-        Iron_MethodDecl *m  = ARENA_ALLOC(p->arena, Iron_MethodDecl);
-        m->kind             = IRON_NODE_METHOD_DECL;
-        m->span             = iron_span_merge(iron_token_span(p, start), body->span);
-        m->type_name        = iron_arena_strdup(p->arena, name_tok->value,
-                                                 strlen(name_tok->value));
-        m->method_name      = iron_arena_strdup(p->arena, method_tok->value,
-                                                 strlen(method_tok->value));
-        m->params           = params;
-        m->param_count      = param_count;
-        m->return_type      = ret;
-        m->body             = body;
-        m->is_private       = is_private;
-        m->generic_params   = generic_params;
-        m->generic_param_count = generic_count;
+        Iron_MethodDecl *m      = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+        m->kind                 = IRON_NODE_METHOD_DECL;
+        m->span                 = iron_span_merge(iron_token_span(p, start), body->span);
+        m->type_name            = iron_arena_strdup(p->arena, name_tok->value,
+                                                     strlen(name_tok->value));
+        m->method_name          = iron_arena_strdup(p->arena, method_tok->value,
+                                                     strlen(method_tok->value));
+        m->params               = params;
+        m->param_count          = param_count;
+        m->return_type          = ret;
+        m->body                 = body;
+        m->is_private           = is_private;
+        m->generic_params       = generic_params;
+        m->generic_param_count  = generic_count;
+        m->resolved_return_type = NULL;  /* set by type checker */
+        m->owner_sym            = NULL;  /* set by resolver */
         return (Iron_Node *)m;
     }
 
@@ -1430,18 +1463,19 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
 
     Iron_Node *body = iron_parse_block(p);
 
-    Iron_FuncDecl *f  = ARENA_ALLOC(p->arena, Iron_FuncDecl);
-    f->kind           = IRON_NODE_FUNC_DECL;
-    f->span           = iron_span_merge(iron_token_span(p, start), body->span);
-    f->name           = iron_arena_strdup(p->arena, name_tok->value,
-                                           strlen(name_tok->value));
-    f->params         = params;
-    f->param_count    = param_count;
-    f->return_type    = ret;
-    f->body           = body;
-    f->is_private     = is_private;
-    f->generic_params = generic_params;
-    f->generic_param_count = generic_count;
+    Iron_FuncDecl *f        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
+    f->kind                 = IRON_NODE_FUNC_DECL;
+    f->span                 = iron_span_merge(iron_token_span(p, start), body->span);
+    f->name                 = iron_arena_strdup(p->arena, name_tok->value,
+                                               strlen(name_tok->value));
+    f->params               = params;
+    f->param_count          = param_count;
+    f->return_type          = ret;
+    f->body                 = body;
+    f->is_private           = is_private;
+    f->generic_params       = generic_params;
+    f->generic_param_count  = generic_count;
+    f->resolved_return_type = NULL;  /* set by type checker */
     return (Iron_Node *)f;
 }
 
@@ -1631,6 +1665,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         sig->is_private           = false;
         sig->generic_params       = NULL;
         sig->generic_param_count  = 0;
+        sig->resolved_return_type = NULL;  /* set by type checker */
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
@@ -1769,6 +1804,13 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     while (!iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_EOF)) break;
+
+        /* Skip stray closing braces from incomplete declarations */
+        if (iron_check(p, IRON_TOK_RBRACE)) {
+            iron_advance(p);
+            iron_skip_newlines(p);
+            continue;
+        }
 
         bool is_private = false;
         if (iron_check(p, IRON_TOK_PRIVATE)) {
