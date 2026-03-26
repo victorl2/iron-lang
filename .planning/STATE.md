@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-03-26T14:55:01.383Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-26T15:37:39.155Z"
 last_activity: "2026-03-25 — Completed plan 03-04: codegen runtime integration — generated C now includes iron_runtime.h, parallel-for uses dynamic thread count, builtins len/min/max/clamp/abs/assert registered in resolver, 5 new integration tests, all 17 tests passing"
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 25
+  completed_plans: 21
   percent: 80
 ---
 
@@ -67,6 +67,7 @@ Progress: [████████░░] 80%
 | Phase 03-runtime-stdlib-and-cli P06 | 6 | 2 tasks | 6 files |
 | Phase 03-runtime-stdlib-and-cli P07 | 3 | 3 tasks | 8 files |
 | Phase 03-runtime-stdlib-and-cli P08 | 5 | 2 tasks | 7 files |
+| Phase 04-comptime-game-dev-and-cross-platform P01 | 18 | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,10 @@ Recent decisions affecting current work:
 - [Phase 03-runtime-stdlib-and-cli]: 03-07: Test runner calls iron_build() directly rather than spawning subprocess; posix_spawn for compiled test binaries
 - [Phase 03-runtime-stdlib-and-cli]: 03-08: Integration tests use iron build -> execute binary -> compare stdout (not C codegen pattern matching)
 - [Phase 03-runtime-stdlib-and-cli]: 03-08: run_integration.sh resolves iron binary to absolute path before cd-ing into per-test temp dir
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-01: iron_check_name() accepts IRON_TOK_DRAW as valid func/method name to avoid keyword conflict with existing interface method declarations
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-01: Extern func prototype/impl emission skipped in codegen — extern funcs declared in external C headers, no Iron_-prefixed wrapper needed
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-01: String literal args to extern funcs emit as raw C strings not iron_string_from_literal() — raylib and C APIs expect const char*
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-01: iron_snake_to_camel() derives CamelCase C FFI name from Iron snake_case (init_window -> InitWindow) at parse time
 
 ### Pending Todos
 
@@ -145,6 +150,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T14:55:01.380Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-comptime-game-dev-and-cross-platform/04-CONTEXT.md
+Last session: 2026-03-26T15:37:39.153Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
