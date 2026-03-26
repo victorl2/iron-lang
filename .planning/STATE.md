@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-03-26T11:24:27.067Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-03-26T12:24:09.480Z"
 last_activity: "2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 20
+  completed_plans: 13
   percent: 55
 ---
 
@@ -59,6 +59,7 @@ Progress: [██████░░░░] 55%
 | Phase 02-semantics-and-codegen P06 | 9 | 2 tasks | 6 files |
 | Phase 02-semantics-and-codegen P07 | 6 | 2 tasks | 18 files |
 | Phase 02-semantics-and-codegen P08 | 4 | 2 tasks | 4 files |
+| Phase 03-runtime-stdlib-and-cli P01 | 10 | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,11 @@ Recent decisions affecting current work:
 - [Phase 02-semantics-and-codegen]: 02-08: println emits printf("%s\n", arg) with newline in format string to avoid clang -Wformat-extra-args
 - [Phase 02-semantics-and-codegen]: 02-08: CALL->CONSTRUCT redirect checks IRON_SYM_TYPE on resolved_sym before regular function call emission
 - [Phase 02-semantics-and-codegen]: 02-08: auto_free free() emitted at emit_block exit after defer drain; clang -fsyntax-only test gates codegen correctness
+- [Phase 03-runtime-stdlib-and-cli]: 03-01: SSO data array is IRON_STRING_SSO_MAX+1 (24 bytes) so null terminator slot is always valid when length==23
+- [Phase 03-runtime-stdlib-and-cli]: 03-01: stb_ds_impl.c moved from iron_compiler to iron_runtime so runtime tests link without full compiler
+- [Phase 03-runtime-stdlib-and-cli]: 03-01: String literals emit iron_string_from_literal() not raw char* so Iron_println receives correct Iron_String struct
+- [Phase 03-runtime-stdlib-and-cli]: 03-01: Iron_String typedef stub removed from codegen; Plan 04 will add proper #include iron_runtime.h
+- [Phase 03-runtime-stdlib-and-cli]: 03-01: iron_threads_init called from iron_runtime_init — global thread pool starts at runtime init
 
 ### Pending Todos
 
@@ -118,6 +124,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T11:24:27.064Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-runtime-stdlib-and-cli/03-CONTEXT.md
+Last session: 2026-03-26T12:24:09.478Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
