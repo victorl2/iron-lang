@@ -186,4 +186,238 @@ void Iron_condvar_broadcast(Iron_CondVar *cv);
 void iron_runtime_init(void);
 void iron_runtime_shutdown(void);
 
+/* ── Collection macros ───────────────────────────────────────────────────────
+ * Macro-generated List[T], Map[K,V], and Set[T] collection types.
+ *
+ * The Iron compiler's monomorphization pass (gen_types.c ensure_monomorphized_type)
+ * emits stub struct typedefs with the naming convention Iron_<base>_<csuffix>.
+ * These macros generate the matching function implementations.
+ *
+ * Naming example (from gen_types.c mangle_generic):
+ *   List[Int]        -> Iron_List_int64_t   (struct + functions)
+ *   Map[String, Int] -> Iron_Map_Iron_String_int64_t
+ *   Set[Int]         -> Iron_Set_int64_t
+ *
+ * Usage:
+ *   IRON_LIST_DECL(int64_t, int64_t)   -- declares function prototypes
+ *   IRON_LIST_IMPL(int64_t, int64_t)   -- defines function bodies (in .c file)
+ *
+ * The codegen-emitted struct typedef must already be visible (the codegen
+ * output includes it before calling any runtime function).  For the runtime's
+ * own test/collection file, use the pre-instantiated common types defined
+ * with IRON_CODEGEN_PROVIDES_STRUCTS unset (see iron_collections.c).
+ */
+
+/* ── List[T] macros ──────────────────────────────────────────────────────────
+ * Expected struct layout (emitted by ensure_monomorphized_type):
+ *   typedef struct Iron_List_##suffix {
+ *       T       *items;
+ *       int64_t  count;
+ *       int64_t  capacity;
+ *   } Iron_List_##suffix;
+ */
+#define IRON_LIST_DECL(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_create(void); \
+    void               Iron_List_##suffix##_push(Iron_List_##suffix *self, T item); \
+    T                  Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index); \
+    void               Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item); \
+    T                  Iron_List_##suffix##_pop(Iron_List_##suffix *self); \
+    int64_t            Iron_List_##suffix##_len(const Iron_List_##suffix *self); \
+    void               Iron_List_##suffix##_free(Iron_List_##suffix *self);
+
+#define IRON_LIST_IMPL(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_create(void) { \
+        Iron_List_##suffix l; \
+        l.items = NULL; l.count = 0; l.capacity = 0; \
+        return l; \
+    } \
+    void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
+        if (self->count >= self->capacity) { \
+            self->capacity = self->capacity ? self->capacity * 2 : 8; \
+            self->items = (T *)realloc(self->items, (size_t)self->capacity * sizeof(T)); \
+        } \
+        self->items[self->count++] = item; \
+    } \
+    T Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index) { \
+        return self->items[index]; \
+    } \
+    void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        self->items[index] = item; \
+    } \
+    T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        return self->items[--self->count]; \
+    } \
+    int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \
+        return self->count; \
+    } \
+    void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
+        free(self->items); \
+        self->items = NULL; self->count = 0; self->capacity = 0; \
+    }
+
+/* ── Map[K,V] macros ─────────────────────────────────────────────────────────
+ * Simple array-based map with linear-scan lookup (O(n), sufficient for v1).
+ * eq_fn has signature: bool (*)(const K *a, const K *b)
+ *
+ * Expected struct layout:
+ *   typedef struct Iron_Map_##ksuffix##_##vsuffix {
+ *       K       *keys;
+ *       V       *values;
+ *       int64_t  count;
+ *       int64_t  capacity;
+ *   } Iron_Map_##ksuffix##_##vsuffix;
+ */
+#define IRON_MAP_DECL(K, V, ksuffix, vsuffix) \
+    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create(void); \
+    void  Iron_Map_##ksuffix##_##vsuffix##_put(Iron_Map_##ksuffix##_##vsuffix *self, K key, V value); \
+    V     Iron_Map_##ksuffix##_##vsuffix##_get(const Iron_Map_##ksuffix##_##vsuffix *self, K key); \
+    bool  Iron_Map_##ksuffix##_##vsuffix##_has(const Iron_Map_##ksuffix##_##vsuffix *self, K key); \
+    void  Iron_Map_##ksuffix##_##vsuffix##_remove(Iron_Map_##ksuffix##_##vsuffix *self, K key); \
+    int64_t Iron_Map_##ksuffix##_##vsuffix##_len(const Iron_Map_##ksuffix##_##vsuffix *self); \
+    void  Iron_Map_##ksuffix##_##vsuffix##_free(Iron_Map_##ksuffix##_##vsuffix *self);
+
+#define IRON_MAP_IMPL(K, V, ksuffix, vsuffix, eq_fn) \
+    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create(void) { \
+        Iron_Map_##ksuffix##_##vsuffix m; \
+        m.keys = NULL; m.values = NULL; m.count = 0; m.capacity = 0; \
+        return m; \
+    } \
+    void Iron_Map_##ksuffix##_##vsuffix##_put(Iron_Map_##ksuffix##_##vsuffix *self, K key, V value) { \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (eq_fn(&self->keys[i], &key)) { self->values[i] = value; return; } \
+        } \
+        if (self->count >= self->capacity) { \
+            self->capacity = self->capacity ? self->capacity * 2 : 8; \
+            self->keys   = (K *)realloc(self->keys,   (size_t)self->capacity * sizeof(K)); \
+            self->values = (V *)realloc(self->values, (size_t)self->capacity * sizeof(V)); \
+        } \
+        self->keys[self->count]   = key; \
+        self->values[self->count] = value; \
+        self->count++; \
+    } \
+    V Iron_Map_##ksuffix##_##vsuffix##_get(const Iron_Map_##ksuffix##_##vsuffix *self, K key) { \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (eq_fn(&self->keys[i], &key)) { return self->values[i]; } \
+        } \
+        /* Caller must use has() first — undefined if key absent */ \
+        V _zero; \
+        memset(&_zero, 0, sizeof(V)); \
+        return _zero; \
+    } \
+    bool Iron_Map_##ksuffix##_##vsuffix##_has(const Iron_Map_##ksuffix##_##vsuffix *self, K key) { \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (eq_fn(&self->keys[i], &key)) { return true; } \
+        } \
+        return false; \
+    } \
+    void Iron_Map_##ksuffix##_##vsuffix##_remove(Iron_Map_##ksuffix##_##vsuffix *self, K key) { \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (eq_fn(&self->keys[i], &key)) { \
+                self->keys[i]   = self->keys[self->count - 1]; \
+                self->values[i] = self->values[self->count - 1]; \
+                self->count--; \
+                return; \
+            } \
+        } \
+    } \
+    int64_t Iron_Map_##ksuffix##_##vsuffix##_len(const Iron_Map_##ksuffix##_##vsuffix *self) { \
+        return self->count; \
+    } \
+    void Iron_Map_##ksuffix##_##vsuffix##_free(Iron_Map_##ksuffix##_##vsuffix *self) { \
+        free(self->keys);   self->keys   = NULL; \
+        free(self->values); self->values = NULL; \
+        self->count = 0; self->capacity = 0; \
+    }
+
+/* ── Set[T] macros ───────────────────────────────────────────────────────────
+ * Simple array-based set with linear-scan deduplication (O(n), sufficient v1).
+ * eq_fn has signature: bool (*)(const T *a, const T *b)
+ *
+ * Expected struct layout:
+ *   typedef struct Iron_Set_##suffix {
+ *       T       *items;
+ *       int64_t  count;
+ *       int64_t  capacity;
+ *   } Iron_Set_##suffix;
+ */
+#define IRON_SET_DECL(T, suffix) \
+    Iron_Set_##suffix Iron_Set_##suffix##_create(void); \
+    void    Iron_Set_##suffix##_add(Iron_Set_##suffix *self, T item); \
+    bool    Iron_Set_##suffix##_contains(const Iron_Set_##suffix *self, T item); \
+    void    Iron_Set_##suffix##_remove(Iron_Set_##suffix *self, T item); \
+    int64_t Iron_Set_##suffix##_len(const Iron_Set_##suffix *self); \
+    void    Iron_Set_##suffix##_free(Iron_Set_##suffix *self);
+
+#define IRON_SET_IMPL(T, suffix, eq_fn) \
+    Iron_Set_##suffix Iron_Set_##suffix##_create(void) { \
+        Iron_Set_##suffix s; \
+        s.items = NULL; s.count = 0; s.capacity = 0; \
+        return s; \
+    } \
+    void Iron_Set_##suffix##_add(Iron_Set_##suffix *self, T item) { \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (eq_fn(&self->items[i], &item)) { return; } \
+        } \
+        if (self->count >= self->capacity) { \
+            self->capacity = self->capacity ? self->capacity * 2 : 8; \
+            self->items = (T *)realloc(self->items, (size_t)self->capacity * sizeof(T)); \
+        } \
+        self->items[self->count++] = item; \
+    } \
+    bool Iron_Set_##suffix##_contains(const Iron_Set_##suffix *self, T item) { \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (eq_fn(&self->items[i], &item)) { return true; } \
+        } \
+        return false; \
+    } \
+    void Iron_Set_##suffix##_remove(Iron_Set_##suffix *self, T item) { \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (eq_fn(&self->items[i], &item)) { \
+                self->items[i] = self->items[self->count - 1]; \
+                self->count--; \
+                return; \
+            } \
+        } \
+    } \
+    int64_t Iron_Set_##suffix##_len(const Iron_Set_##suffix *self) { \
+        return self->count; \
+    } \
+    void Iron_Set_##suffix##_free(Iron_Set_##suffix *self) { \
+        free(self->items); \
+        self->items = NULL; self->count = 0; self->capacity = 0; \
+    }
+
+/* ── Pre-instantiated common collection struct typedefs ──────────────────────
+ * The codegen emits its own struct typedefs in the generated C output.
+ * Here we define the most common types so that iron_collections.c and
+ * test files compile without needing a full codegen pass.
+ * C11 permits duplicate compatible typedefs, so codegen output can repeat them.
+ */
+#ifndef IRON_CODEGEN_PROVIDES_STRUCTS
+
+typedef struct Iron_List_int64_t    { int64_t     *items; int64_t count; int64_t capacity; } Iron_List_int64_t;
+typedef struct Iron_List_double     { double      *items; int64_t count; int64_t capacity; } Iron_List_double;
+typedef struct Iron_List_bool       { bool        *items; int64_t count; int64_t capacity; } Iron_List_bool;
+typedef struct Iron_List_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_List_Iron_String;
+
+typedef struct Iron_Map_Iron_String_int64_t    { Iron_String *keys; int64_t     *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_int64_t;
+typedef struct Iron_Map_Iron_String_Iron_String { Iron_String *keys; Iron_String *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_Iron_String;
+
+typedef struct Iron_Set_int64_t    { int64_t     *items; int64_t count; int64_t capacity; } Iron_Set_int64_t;
+typedef struct Iron_Set_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_Set_Iron_String;
+
+#endif /* IRON_CODEGEN_PROVIDES_STRUCTS */
+
+/* Declarations for the pre-instantiated types in iron_collections.c */
+IRON_LIST_DECL(int64_t,     int64_t)
+IRON_LIST_DECL(double,      double)
+IRON_LIST_DECL(bool,        bool)
+IRON_LIST_DECL(Iron_String, Iron_String)
+
+IRON_MAP_DECL(Iron_String, int64_t,     Iron_String, int64_t)
+IRON_MAP_DECL(Iron_String, Iron_String, Iron_String, Iron_String)
+
+IRON_SET_DECL(int64_t,     int64_t)
+IRON_SET_DECL(Iron_String, Iron_String)
+
 #endif /* IRON_RUNTIME_H */
