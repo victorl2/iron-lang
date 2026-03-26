@@ -26,12 +26,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **SEM-01**: Name resolution builds scoped symbol table (global → module → function → block)
 - [x] **SEM-02**: All identifiers resolve to declarations; undefined variables produce errors
-- [ ] **SEM-03**: Type inference works for val/var declarations without explicit types
-- [ ] **SEM-04**: Type checker validates all assignments, function calls, and return types
-- [ ] **SEM-05**: val immutability is enforced (reassignment produces compile error)
-- [ ] **SEM-06**: Nullable types require null check before use; compiler narrows type after check
-- [ ] **SEM-07**: Interface implementation completeness is validated
-- [ ] **SEM-08**: Generic type parameters are validated and instantiated
+- [x] **SEM-03**: Type inference works for val/var declarations without explicit types
+- [x] **SEM-04**: Type checker validates all assignments, function calls, and return types
+- [x] **SEM-05**: val immutability is enforced (reassignment produces compile error)
+- [x] **SEM-06**: Nullable types require null check before use; compiler narrows type after check
+- [x] **SEM-07**: Interface implementation completeness is validated
+- [x] **SEM-08**: Generic type parameters are validated and instantiated
 - [ ] **SEM-09**: Escape analysis tracks heap allocations and marks non-escaping values for auto-free
 - [ ] **SEM-10**: Concurrency checks enforce parallel-for body cannot mutate outer non-mutex variables
 - [x] **SEM-11**: Import resolution locates .iron files by path and builds module graph
@@ -155,12 +155,12 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | TEST-03 | Phase 1 | Complete |
 | SEM-01 | Phase 2 | Complete |
 | SEM-02 | Phase 2 | Complete |
-| SEM-03 | Phase 2 | Pending |
-| SEM-04 | Phase 2 | Pending |
-| SEM-05 | Phase 2 | Pending |
-| SEM-06 | Phase 2 | Pending |
-| SEM-07 | Phase 2 | Pending |
-| SEM-08 | Phase 2 | Pending |
+| SEM-03 | Phase 2 | Complete |
+| SEM-04 | Phase 2 | Complete |
+| SEM-05 | Phase 2 | Complete |
+| SEM-06 | Phase 2 | Complete |
+| SEM-07 | Phase 2 | Complete |
+| SEM-08 | Phase 2 | Complete |
 | SEM-09 | Phase 2 | Pending |
 | SEM-10 | Phase 2 | Pending |
 | SEM-11 | Phase 2 | Complete |
