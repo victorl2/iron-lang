@@ -107,7 +107,7 @@ typedef struct {
     const char   *alias;  /* NULL if no alias */
 } Iron_ImportDecl;
 
-typedef struct {
+typedef struct Iron_ObjectDecl {
     Iron_Span     span;
     Iron_NodeKind kind;  /* IRON_NODE_OBJECT_DECL */
     const char   *name;
@@ -120,7 +120,7 @@ typedef struct {
     int           generic_param_count;
 } Iron_ObjectDecl;
 
-typedef struct {
+typedef struct Iron_InterfaceDecl {
     Iron_Span     span;
     Iron_NodeKind kind;  /* IRON_NODE_INTERFACE_DECL */
     const char   *name;
@@ -128,7 +128,7 @@ typedef struct {
     int           method_count;
 } Iron_InterfaceDecl;
 
-typedef struct {
+typedef struct Iron_EnumDecl {
     Iron_Span     span;
     Iron_NodeKind kind;  /* IRON_NODE_ENUM_DECL */
     const char   *name;

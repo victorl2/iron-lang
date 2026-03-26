@@ -374,8 +374,8 @@ void test_resolve_method_unresolved_type(void) {
 void test_resolve_enum_variants_registered(void) {
     const char *src =
         "enum Color {\n"
-        "  Red\n"
-        "  Green\n"
+        "  Red,\n"
+        "  Green,\n"
         "  Blue\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
@@ -398,7 +398,7 @@ void test_resolve_enum_variants_registered(void) {
 
 /* Test 14: import declaration is recorded without error */
 void test_resolve_import_no_error(void) {
-    const char *src = "import \"std/math\"\n";
+    const char *src = "import std.math\n";
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
