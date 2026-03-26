@@ -22,6 +22,7 @@ typedef struct {
     Iron_StrBuf    forward_decls;   /* typedef struct X X; */
     Iron_StrBuf    struct_bodies;   /* struct X { ... }; */
     Iron_StrBuf    enum_defs;       /* typedef enum { ... } X; */
+    Iron_StrBuf    global_consts;   /* top-level val/var declarations */
     Iron_StrBuf    prototypes;      /* void X_foo(X* self, ...); */
     Iron_StrBuf    implementations; /* void X_foo(X* self, ...) { ... } */
     Iron_StrBuf    main_wrapper;    /* int main() { ... } */
