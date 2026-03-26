@@ -19,6 +19,8 @@ FetchContent_Declare(
     GIT_TAG        v2.6.1
 )
 FetchContent_MakeAvailable(unity)
+# Enable double-precision float assertions for all Unity test targets
+target_compile_definitions(unity PUBLIC UNITY_INCLUDE_DOUBLE)
 
 # ── iron_runtime static library ────────────────────────────────────────────
 # stb_ds_impl.c lives here so runtime tests can link without iron_compiler.
@@ -128,3 +130,17 @@ add_test(NAME test_runtime_threads COMMAND test_runtime_threads)
 add_executable(test_runtime_collections tests/test_runtime_collections.c)
 target_link_libraries(test_runtime_collections iron_runtime unity)
 add_test(NAME test_runtime_collections COMMAND test_runtime_collections)
+
+# ── iron_stdlib static library ─────────────────────────────────────────────
+add_library(iron_stdlib STATIC
+    src/stdlib/iron_math.c
+    src/stdlib/iron_io.c
+    src/stdlib/iron_time.c
+    src/stdlib/iron_log.c
+)
+target_include_directories(iron_stdlib PUBLIC src)
+target_link_libraries(iron_stdlib iron_runtime m)  # -lm for math
+
+add_executable(test_stdlib tests/test_stdlib.c)
+target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib COMMAND test_stdlib)
