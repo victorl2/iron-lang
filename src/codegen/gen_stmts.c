@@ -52,6 +52,33 @@ void emit_block(Iron_StrBuf *sb, Iron_Block *block, Iron_Codegen *ctx) {
     /* Drain defers at block exit */
     emit_defers(sb, ctx, ctx->defer_depth - 1);
 
+    /* Emit free() for auto_free heap allocations declared in this block.
+     * Scan statements for val/var decls whose init is a heap expr with
+     * auto_free=true (set by escape analysis for non-escaping allocations). */
+    for (int i = 0; i < block->stmt_count; i++) {
+        Iron_Node *s = block->stmts[i];
+        const char *var_name = NULL;
+        Iron_Node  *init_expr = NULL;
+
+        if (s->kind == IRON_NODE_VAL_DECL) {
+            Iron_ValDecl *vd = (Iron_ValDecl *)s;
+            var_name  = vd->name;
+            init_expr = vd->init;
+        } else if (s->kind == IRON_NODE_VAR_DECL) {
+            Iron_VarDecl *vd = (Iron_VarDecl *)s;
+            var_name  = vd->name;
+            init_expr = vd->init;
+        }
+
+        if (var_name && init_expr && init_expr->kind == IRON_NODE_HEAP) {
+            Iron_HeapExpr *he = (Iron_HeapExpr *)init_expr;
+            if (he->auto_free) {
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb, "free(%s);\n", var_name);
+            }
+        }
+    }
+
     ctx->indent--;
     ctx->defer_depth = old_depth;
 }
