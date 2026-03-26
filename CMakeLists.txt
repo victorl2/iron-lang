@@ -28,6 +28,7 @@ add_library(iron_runtime STATIC
     src/runtime/iron_rc.c
     src/runtime/iron_builtins.c
     src/runtime/iron_threads.c
+    src/runtime/iron_collections.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
 target_link_libraries(iron_runtime pthread)
