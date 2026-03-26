@@ -354,6 +354,8 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
         Iron_Node *decl = program->decls[i];
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            /* Skip extern funcs — they are declared in external C headers */
+            if (fd->is_extern) continue;
             emit_func_prototype(&ctx, fd);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
@@ -368,6 +370,8 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
         Iron_Node *decl = program->decls[i];
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            /* Skip extern funcs — no implementation to emit */
+            if (fd->is_extern) continue;
             emit_func_impl(&ctx, fd);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;

@@ -922,6 +922,33 @@ void test_codegen_builtin_len(void) {
     TEST_ASSERT_TRUE(str_contains(c, "Iron_len("));
 }
 
+/* ── Test: extern func call emits raw CamelCase C function name ──────────── */
+
+void test_extern_func_call(void) {
+    const char *src =
+        "extern func init_window(w: Int, h: Int, title: String)\n"
+        "func main() { init_window(800, 600, \"Game\") }\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Must use CamelCase C name, no Iron_ prefix */
+    TEST_ASSERT_TRUE(str_contains(c, "InitWindow("));
+    TEST_ASSERT_FALSE(str_contains(c, "Iron_init_window"));
+    /* String literal must be emitted as raw C string, not iron_string_from_literal */
+    TEST_ASSERT_TRUE(str_contains(c, "\"Game\""));
+}
+
+/* ── Test: draw {} block emits BeginDrawing/EndDrawing pair ──────────────── */
+
+void test_draw_block(void) {
+    const char *src = "func main() { draw { } }\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    TEST_ASSERT_TRUE(str_contains(c, "BeginDrawing()"));
+    TEST_ASSERT_TRUE(str_contains(c, "EndDrawing()"));
+    /* BeginDrawing must come before EndDrawing */
+    TEST_ASSERT_TRUE(str_before(c, "BeginDrawing()", "EndDrawing()"));
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -961,6 +988,8 @@ int main(void) {
     RUN_TEST(test_codegen_main_has_init_shutdown);
     RUN_TEST(test_codegen_parallel_for_dynamic_chunks);
     RUN_TEST(test_codegen_builtin_len);
+    RUN_TEST(test_extern_func_call);
+    RUN_TEST(test_draw_block);
 
     return UNITY_END();
 }
