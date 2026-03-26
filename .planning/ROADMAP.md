@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Frontend** - Lexer and parser produce a complete, span-annotated AST from any Iron source file (completed 2026-03-25)
 - [x] **Phase 2: Semantics and Codegen** - Fully analyzed AST emits valid C11 that compiles and runs (completed 2026-03-26)
-- [ ] **Phase 3: Runtime, Stdlib, and CLI** - Iron programs are buildable, runnable, and testable from the command line
+- [x] **Phase 3: Runtime, Stdlib, and CLI** - Iron programs are buildable, runnable, and testable from the command line (completed 2026-03-26)
 - [ ] **Phase 4: Comptime, Game Dev, and Cross-Platform** - Comptime evaluation, raylib bindings, and Windows parity complete v1
 
 ## Phase Details
@@ -69,7 +69,7 @@ Plans:
   3. Standard library modules (`math`, `io`, `time`, `log`) are importable in Iron programs and their functions produce correct results
   4. Error messages display Rust-style diagnostics: source snippet, arrow pointing to the problem, and a suggestion; terminal output is colored; `--verbose` shows generated C
   5. The CI build runs with ASan+UBSan enabled and all tests pass clean (zero sanitizer errors)
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans complete
 
 Plans:
 - [ ] 03-01-PLAN.md — Iron_String (SSO + interning), Iron_Rc, builtins, codegen print/println fix
@@ -101,5 +101,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
 | 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
-| 3. Runtime, Stdlib, and CLI | 7/8 | In Progress|  |
+| 3. Runtime, Stdlib, and CLI | 8/8 | Complete   | 2026-03-26 |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |

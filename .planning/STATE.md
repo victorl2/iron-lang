@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-03-26T13:19:46.500Z"
+stopped_at: Completed 03-08-PLAN.md
+last_updated: "2026-03-26T13:26:54.991Z"
 last_activity: "2026-03-25 — Completed plan 03-04: codegen runtime integration — generated C now includes iron_runtime.h, parallel-for uses dynamic thread count, builtins len/min/max/clamp/abs/assert registered in resolver, 5 new integration tests, all 17 tests passing"
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 20
-  completed_plans: 19
+  completed_plans: 20
   percent: 80
 ---
 
@@ -66,6 +66,7 @@ Progress: [████████░░] 80%
 | Phase 03-runtime-stdlib-and-cli P05 | 5 | 2 tasks | 10 files |
 | Phase 03-runtime-stdlib-and-cli P06 | 6 | 2 tasks | 6 files |
 | Phase 03-runtime-stdlib-and-cli P07 | 3 | 3 tasks | 8 files |
+| Phase 03-runtime-stdlib-and-cli P08 | 5 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,8 @@ Recent decisions affecting current work:
 - [Phase 03-runtime-stdlib-and-cli]: 03-07: iron fmt uses rename() for atomic in-place file replacement; refuses to format on parse errors
 - [Phase 03-runtime-stdlib-and-cli]: 03-07: iron.toml parser hand-written minimal subset (not full TOML) for project name/version/entry/raylib
 - [Phase 03-runtime-stdlib-and-cli]: 03-07: Test runner calls iron_build() directly rather than spawning subprocess; posix_spawn for compiled test binaries
+- [Phase 03-runtime-stdlib-and-cli]: 03-08: Integration tests use iron build -> execute binary -> compare stdout (not C codegen pattern matching)
+- [Phase 03-runtime-stdlib-and-cli]: 03-08: run_integration.sh resolves iron binary to absolute path before cd-ing into per-test temp dir
 
 ### Pending Todos
 
@@ -142,6 +145,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T13:19:46.497Z
-Stopped at: Completed 03-07-PLAN.md
+Last session: 2026-03-26T13:26:54.988Z
+Stopped at: Completed 03-08-PLAN.md
 Resume file: None
