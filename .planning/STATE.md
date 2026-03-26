@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-26T15:53:09.952Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-03-26T16:04:17.255Z"
 last_activity: "2026-03-26 — Completed plan 04-02: comptime interpreter — tree-walking AST evaluator with step limit (1M), heap/rc restrictions, function call evaluation; fib(10)=55 at compile time; 6 new tests, all 21 pass"
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 25
-  completed_plans: 22
-  percent: 84
+  completed_plans: 23
+  percent: 92
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** Phase 2 — Semantics and Codegen
+**Current focus:** Phase 4 — Comptime, Game Dev, and Cross-Platform
 
 ## Current Position
 
 Phase: 4 of 4 (Comptime, Game Dev, and Cross-Platform)
-Plan: 2 of 5 in current phase (plans 01-02 complete)
+Plan: 3 of 5 in current phase (plans 01-03 complete)
 Status: In progress
-Last activity: 2026-03-26 — Completed plan 04-02: comptime interpreter — tree-walking AST evaluator with step limit (1M), heap/rc restrictions, function call evaluation; fib(10)=55 at compile time; 6 new tests, all 21 pass
+Last activity: 2026-03-26 — Completed plan 04-03: raylib.iron wrapper with Key enum (RIGHT=262 etc), explicit enum ordinals in AST/parser/codegen, build pipeline compiles raylib inline, extern func integration test passing
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [████████░░] 84%
 | Phase 03-runtime-stdlib-and-cli P08 | 5 | 2 tasks | 7 files |
 | Phase 04-comptime-game-dev-and-cross-platform P01 | 18 | 2 tasks | 12 files |
 | Phase 04-comptime-game-dev-and-cross-platform P02 | 19 | 2 tasks | 6 files |
+| Phase 04-comptime-game-dev-and-cross-platform P03 | 8 | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,9 @@ Recent decisions affecting current work:
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-02: Return value signaling uses had_return flag + return_val pointer on ctx struct rather than setjmp/longjmp for simplicity
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-02: iron_comptime_apply() performs parent-pointer in-place replacement of IRON_NODE_COMPTIME nodes; all COMPTIME nodes gone before codegen runs
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-02: Step counting at function-call entry and loop-iteration points (not per-expression) to keep hot-path overhead minimal
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-03: iron_snake_to_camel skips conversion when name has no underscores — preserves single-word C library names like puts/printf unchanged
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-03: import raylib uses strstr-based source detection and prepends raylib.iron before lex phase — no multi-file parser complexity
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-03: invoke_clang uses dynamic argv array parameterized by IronBuildOpts for conditional raylib compilation
 
 ### Pending Todos
 
@@ -155,6 +159,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T15:53:09.949Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-03-26T16:04:07.590Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

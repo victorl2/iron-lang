@@ -91,7 +91,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **GAME-01**: Raylib bindings allow Iron programs to create windows, draw, and handle input
 - [x] **GAME-02**: The draw {} block syntax works for raylib begin/end drawing
-- [ ] **GAME-03**: Compiled binaries are standalone executables (runtime statically linked)
+- [x] **GAME-03**: Compiled binaries are standalone executables (runtime statically linked)
 - [ ] **GAME-04**: Build produces working binaries on macOS, Linux, and Windows
 
 ### Testing
@@ -205,7 +205,7 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | CT-04 | Phase 4 | Complete |
 | GAME-01 | Phase 4 | Complete |
 | GAME-02 | Phase 4 | Complete |
-| GAME-03 | Phase 4 | Pending |
+| GAME-03 | Phase 4 | Complete |
 | GAME-04 | Phase 4 | Pending |
 
 **Coverage:**
