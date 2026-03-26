@@ -1,8 +1,15 @@
 import io
 
 func main() {
-  -- Test IO.file_exists with a known file path
-  -- This verifies the IO module compiles and auto-static dispatch works
+  -- Test IO.file_exists with a known path
   val exists = IO.file_exists("/tmp")
   println("io works")
+
+  -- Test IO.read_file: write a file then read it back
+  IO.write_file("/tmp/iron_test_io_read.txt", "hello from iron")
+  val content = IO.read_file("/tmp/iron_test_io_read.txt")
+  println(content)
+
+  -- Clean up
+  IO.delete_file("/tmp/iron_test_io_read.txt")
 }
