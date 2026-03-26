@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-03-26T16:04:17.255Z"
-last_activity: "2026-03-26 — Completed plan 04-02: comptime interpreter — tree-walking AST evaluator with step limit (1M), heap/rc restrictions, function call evaluation; fib(10)=55 at compile time; 6 new tests, all 21 pass"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-03-26T16:07:28.593Z"
+last_activity: "2026-03-26 — Completed plan 04-03: raylib.iron wrapper with Key enum (RIGHT=262 etc), explicit enum ordinals in AST/parser/codegen, build pipeline compiles raylib inline, extern func integration test passing"
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 25
-  completed_plans: 23
+  completed_plans: 24
   percent: 92
 ---
 
@@ -70,6 +70,7 @@ Progress: [█████████░] 92%
 | Phase 04-comptime-game-dev-and-cross-platform P01 | 18 | 2 tasks | 12 files |
 | Phase 04-comptime-game-dev-and-cross-platform P02 | 19 | 2 tasks | 6 files |
 | Phase 04-comptime-game-dev-and-cross-platform P03 | 8 | 3 tasks | 12 files |
+| Phase 04-comptime-game-dev-and-cross-platform P04 | 15 | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,7 @@ Recent decisions affecting current work:
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-03: iron_snake_to_camel skips conversion when name has no underscores — preserves single-word C library names like puts/printf unchanged
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-03: import raylib uses strstr-based source detection and prepends raylib.iron before lex phase — no multi-file parser complexity
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-03: invoke_clang uses dynamic argv array parameterized by IronBuildOpts for conditional raylib compilation
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-04: FNV-1a hash of full source text as comptime cache key; string globals init in C main() preamble after iron_runtime_init(); read_file dispatched by name in CALL handler
 
 ### Pending Todos
 
@@ -159,6 +161,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T16:04:07.590Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-03-26T16:07:28.590Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
