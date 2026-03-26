@@ -263,6 +263,10 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     iron_strbuf_appendf(&ctx.includes, "#include <stdlib.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <string.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdio.h>\n");
+    iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_math.h\"\n");
+    iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_io.h\"\n");
+    iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");
+    iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_log.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "\n");
 
     /* ── 2. Forward declarations ─────────────────────────────────────────── */

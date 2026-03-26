@@ -569,6 +569,94 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1d. Detect "import math" and prepend math.iron */
+    if (strstr(source, "import math") != NULL) {
+        char *math_path = make_src_path("stdlib/math.iron");
+        if (math_path) {
+            long math_size = 0;
+            char *math_src = read_file(math_path, &math_size);
+            free(math_path);
+            if (math_src) {
+                size_t combined_len = (size_t)math_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, math_src, (size_t)math_size);
+                    combined[math_size] = '\n';
+                    strcpy(combined + math_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(math_src);
+            }
+        }
+    }
+
+    /* 1e. Detect "import io" and prepend io.iron */
+    if (strstr(source, "import io") != NULL) {
+        char *io_path = make_src_path("stdlib/io.iron");
+        if (io_path) {
+            long io_size = 0;
+            char *io_src = read_file(io_path, &io_size);
+            free(io_path);
+            if (io_src) {
+                size_t combined_len = (size_t)io_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, io_src, (size_t)io_size);
+                    combined[io_size] = '\n';
+                    strcpy(combined + io_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(io_src);
+            }
+        }
+    }
+
+    /* 1f. Detect "import time" and prepend time.iron */
+    if (strstr(source, "import time") != NULL) {
+        char *time_path = make_src_path("stdlib/time.iron");
+        if (time_path) {
+            long time_size = 0;
+            char *time_src = read_file(time_path, &time_size);
+            free(time_path);
+            if (time_src) {
+                size_t combined_len = (size_t)time_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, time_src, (size_t)time_size);
+                    combined[time_size] = '\n';
+                    strcpy(combined + time_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(time_src);
+            }
+        }
+    }
+
+    /* 1g. Detect "import log" and prepend log.iron */
+    if (strstr(source, "import log") != NULL) {
+        char *log_path = make_src_path("stdlib/log.iron");
+        if (log_path) {
+            long log_size = 0;
+            char *log_src = read_file(log_path, &log_size);
+            free(log_path);
+            if (log_src) {
+                size_t combined_len = (size_t)log_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, log_src, (size_t)log_size);
+                    combined[log_size] = '\n';
+                    strcpy(combined + log_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(log_src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();
