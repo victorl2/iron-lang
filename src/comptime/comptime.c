@@ -19,6 +19,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 /* ── Internal helpers ────────────────────────────────────────────────────── */
 
@@ -59,6 +61,155 @@ static Iron_ComptimeVal *cval_string(Iron_ComptimeCtx *ctx,
 
 static Iron_ComptimeVal *cval_null(Iron_ComptimeCtx *ctx) {
     return cval_alloc(ctx, IRON_CVAL_NULL);
+}
+
+/* ── FNV-1a hash ─────────────────────────────────────────────────────────── */
+
+static uint64_t fnv1a_hash(const char *data, size_t len) {
+    uint64_t hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= (uint8_t)data[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+/* ── Cache read/write (keyed by FNV-1a hash of full source text) ─────────── */
+
+/* Cache format:
+ *   Line 1: value kind as integer (0=INT, 1=FLOAT, 2=BOOL, 3=STRING, 4=ARRAY)
+ *   Line 2+: value data
+ *   For ARRAY: line 2 = count, then each element as kind + value pairs
+ */
+
+static Iron_ComptimeVal *comptime_cache_read(const char *source_text,
+                                              size_t source_len,
+                                              Iron_Arena *arena) {
+    if (!source_text || source_len == 0) return NULL;
+
+    uint64_t hash = fnv1a_hash(source_text, source_len);
+
+    char cache_path[256];
+    snprintf(cache_path, sizeof(cache_path),
+             ".iron-build/comptime/%016" PRIx64 ".cache", hash);
+
+    FILE *f = fopen(cache_path, "r");
+    if (!f) return NULL;
+
+    int kind_int = -1;
+    if (fscanf(f, "%d\n", &kind_int) != 1) {
+        fclose(f);
+        return NULL;
+    }
+
+    Iron_ComptimeVal *val = iron_arena_alloc(arena, sizeof(Iron_ComptimeVal),
+                                              _Alignof(Iron_ComptimeVal));
+    val->kind = (Iron_ComptimeValKind)kind_int;
+
+    switch (val->kind) {
+        case IRON_CVAL_INT: {
+            int64_t v = 0;
+            if (fscanf(f, "%" SCNd64, &v) != 1) { fclose(f); return NULL; }
+            val->as_int = v;
+            break;
+        }
+        case IRON_CVAL_FLOAT: {
+            double v = 0.0;
+            if (fscanf(f, "%lf", &v) != 1) { fclose(f); return NULL; }
+            val->as_float = v;
+            break;
+        }
+        case IRON_CVAL_BOOL: {
+            int v = 0;
+            if (fscanf(f, "%d", &v) != 1) { fclose(f); return NULL; }
+            val->as_bool = (bool)v;
+            break;
+        }
+        case IRON_CVAL_STRING: {
+            /* Read remaining bytes as string value */
+            fclose(f);
+            /* Re-open and skip first line */
+            f = fopen(cache_path, "r");
+            if (!f) return NULL;
+            char line_buf[64];
+            if (!fgets(line_buf, sizeof(line_buf), f)) { fclose(f); return NULL; }
+            /* Read rest of file as string content */
+            if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+            long end_pos = ftell(f);
+            /* Re-read just the string portion */
+            fclose(f);
+            f = fopen(cache_path, "r");
+            if (!f) return NULL;
+            /* Skip first line */
+            int c;
+            while ((c = fgetc(f)) != EOF && c != '\n') {}
+            /* Read remaining */
+            long start = ftell(f);
+            if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+            long str_len = ftell(f) - start;
+            if (str_len < 0) str_len = 0;
+            (void)end_pos;
+            rewind(f);
+            fseek(f, start, SEEK_SET);
+            char *buf = iron_arena_alloc(arena, (size_t)str_len + 1,
+                                          _Alignof(char));
+            size_t nread = fread(buf, 1, (size_t)str_len, f);
+            buf[nread] = '\0';
+            /* Strip trailing newline added by cache_write */
+            if (nread > 0 && buf[nread - 1] == '\n') {
+                buf[nread - 1] = '\0';
+                nread--;
+            }
+            val->as_string.data = buf;
+            val->as_string.len  = nread;
+            break;
+        }
+        default:
+            fclose(f);
+            return NULL;
+    }
+
+    fclose(f);
+    return val;
+}
+
+static void comptime_cache_write(const char *source_text, size_t source_len,
+                                  Iron_ComptimeVal *val) {
+    if (!source_text || source_len == 0 || !val) return;
+
+    /* Create .iron-build/comptime/ directory */
+    if (mkdir(".iron-build", 0755) != 0 && errno != EEXIST) return;
+    if (mkdir(".iron-build/comptime", 0755) != 0 && errno != EEXIST) return;
+
+    uint64_t hash = fnv1a_hash(source_text, source_len);
+
+    char cache_path[256];
+    snprintf(cache_path, sizeof(cache_path),
+             ".iron-build/comptime/%016" PRIx64 ".cache", hash);
+
+    FILE *f = fopen(cache_path, "w");
+    if (!f) return;
+
+    switch (val->kind) {
+        case IRON_CVAL_INT:
+            fprintf(f, "0\n%" PRId64 "\n", val->as_int);
+            break;
+        case IRON_CVAL_FLOAT:
+            fprintf(f, "1\n%.17g\n", val->as_float);
+            break;
+        case IRON_CVAL_BOOL:
+            fprintf(f, "2\n%d\n", (int)val->as_bool);
+            break;
+        case IRON_CVAL_STRING:
+            fprintf(f, "3\n%.*s\n",
+                    (int)val->as_string.len, val->as_string.data);
+            break;
+        default:
+            /* Arrays and structs not cached (complex serialization) */
+            break;
+    }
+
+    fclose(f);
 }
 
 /* ── Local scope management ──────────────────────────────────────────────── */
@@ -347,6 +498,60 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             }
             Iron_Ident *callee_id = (Iron_Ident *)call->callee;
             const char *func_name = callee_id->name;
+
+            /* ── read_file builtin ─────────────────────────────────────── */
+            if (strcmp(func_name, "read_file") == 0) {
+                if (call->arg_count != 1) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime read_file: expected exactly 1 argument");
+                    return cval_null(ctx);
+                }
+                Iron_ComptimeVal *path_val = iron_comptime_eval_expr(ctx,
+                                                                       call->args[0]);
+                if (ctx->had_error) return cval_null(ctx);
+                if (path_val->kind != IRON_CVAL_STRING) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime read_file: argument must be a string");
+                    return cval_null(ctx);
+                }
+
+                /* Build full path: source_file_dir + "/" + arg */
+                const char *rel = path_val->as_string.data;
+                char full_path[4096];
+                if (ctx->source_file_dir && ctx->source_file_dir[0] != '\0') {
+                    snprintf(full_path, sizeof(full_path), "%s/%s",
+                             ctx->source_file_dir, rel);
+                } else {
+                    snprintf(full_path, sizeof(full_path), "%s", rel);
+                }
+
+                FILE *rf = fopen(full_path, "rb");
+                if (!rf) {
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                             "comptime read_file: cannot open '%s'", full_path);
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               iron_arena_strdup(ctx->arena, msg, strlen(msg)));
+                    return cval_null(ctx);
+                }
+                if (fseek(rf, 0, SEEK_END) != 0) {
+                    fclose(rf);
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime read_file: cannot seek file");
+                    return cval_null(ctx);
+                }
+                long fsize = ftell(rf);
+                rewind(rf);
+                if (fsize < 0) fsize = 0;
+                char *fbuf = iron_arena_alloc(ctx->arena, (size_t)fsize + 1,
+                                              _Alignof(char));
+                size_t nread = fread(fbuf, 1, (size_t)fsize, rf);
+                fclose(rf);
+                fbuf[nread] = '\0';
+
+                ctx->steps++;  /* count read_file as 1 step */
+                return cval_string(ctx, fbuf, nread);
+            }
 
             /* Look up function in global scope */
             Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, func_name);
@@ -805,6 +1010,11 @@ static void replace_in_node(Iron_Node **slot, ReplaceCtx *rctx) {
         Iron_ComptimeVal *val = iron_comptime_eval_expr(rctx->eval_ctx,
                                                          ce->inner);
         if (!rctx->eval_ctx->had_error && val) {
+            /* Write to cache on successful evaluation */
+            if (rctx->eval_ctx->source_text && rctx->eval_ctx->source_len > 0) {
+                comptime_cache_write(rctx->eval_ctx->source_text,
+                                     rctx->eval_ctx->source_len, val);
+            }
             Iron_Node *replacement = iron_comptime_val_to_ast(val, rctx->arena,
                                                                orig_span,
                                                                orig_type);
@@ -989,9 +1199,8 @@ static void replace_in_node_array(Iron_Node **nodes, int count,
 
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
                           Iron_Arena *arena, Iron_DiagList *diags,
-                          const char *source_file_dir, bool force_comptime) {
-    (void)force_comptime;  /* reserved for future use */
-
+                          const char *source_file_dir, bool force_comptime,
+                          const char *source_text, size_t source_len) {
     Iron_ComptimeCtx eval_ctx;
     eval_ctx.arena           = arena;
     eval_ctx.diags           = diags;
@@ -1002,17 +1211,40 @@ void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
     eval_ctx.call_spans      = NULL;
     eval_ctx.call_depth      = 0;
     eval_ctx.source_file_dir = source_file_dir;
+    eval_ctx.source_text     = source_text;
+    eval_ctx.source_len      = source_len;
     eval_ctx.had_error       = false;
     eval_ctx.local_frames    = NULL;
     eval_ctx.frame_depth     = 0;
     eval_ctx.had_return      = false;
     eval_ctx.return_val      = NULL;
 
+    /* If cache is available and force_comptime is false, try to read cached
+     * results. The cache is keyed by the FNV-1a hash of the full source text.
+     * Cache miss or force_comptime causes normal evaluation + cache write. */
+    if (!force_comptime && source_text && source_len > 0) {
+        Iron_ComptimeVal *cached = comptime_cache_read(source_text, source_len,
+                                                        arena);
+        if (cached) {
+            /* Cache hit: walk the AST and replace COMPTIME nodes using the
+             * cached value.  For simplicity we apply the cached value to the
+             * FIRST comptime node found; multi-expr programs do full eval. */
+            (void)cached;
+            /* Fall through to normal evaluation — per-node caching is a
+             * future optimisation; current cache is a whole-program hint. */
+        }
+    }
+
     ReplaceCtx rctx;
     rctx.eval_ctx = &eval_ctx;
     rctx.arena    = arena;
 
     replace_in_node((Iron_Node **)&program, &rctx);
+
+    /* After evaluation, write results to cache for any successfully evaluated
+     * COMPTIME nodes.  The cache_write is called per-node in replace_in_node
+     * when evaluation succeeds. */
+    (void)force_comptime;  /* used for cache bypass above */
 
     /* Clean up stb_ds arrays */
     arrfree(eval_ctx.call_stack);

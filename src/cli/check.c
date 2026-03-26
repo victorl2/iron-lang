@@ -82,7 +82,11 @@ int iron_check(const char *source_path, bool verbose) {
 
     /* 5. Analyze */
     Iron_AnalyzeResult result = iron_analyze((Iron_Program *)ast, &arena,
-                                             &diags);
+                                             &diags,
+                                             NULL  /* source_file_dir */,
+                                             NULL  /* source_text */,
+                                             0     /* source_len */,
+                                             false /* force_comptime */);
 
     /* 6. Print all diagnostics */
     iron_diag_print_all(&diags, source);

@@ -716,6 +716,15 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             sym->type = fn;
             iron_scope_define(ctx.global_scope, arena, sym);
         }
+        /* read_file(String) -> String — comptime only */
+        {
+            Iron_Type *params[1] = { str_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 1, str_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "read_file",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
     }
 
     /* Pass 1a: Collect all top-level declarations into global scope */
