@@ -39,6 +39,18 @@ typedef struct {
 
     /* Optional struct registry — track emitted Iron_Optional_T names */
     char        **emitted_optionals; /* stb_ds string array */
+
+    /* Monomorphization registry — tracks emitted generic instantiations.
+     * Maps mangled_name -> bool (true = already emitted). */
+    struct { char *key; bool value; } *mono_registry;  /* stb_ds string hash map */
+
+    /* Lambda counter — for unique naming of lifted lambda/spawn/parallel functions */
+    int           lambda_counter;
+    int           spawn_counter;
+    int           parallel_counter;
+
+    /* Lifted functions — spawn bodies, parallel-for chunks, and lambdas */
+    Iron_StrBuf   lifted_funcs;
 } Iron_Codegen;
 
 /* Generate C code for the given analyzed program.
@@ -89,5 +101,27 @@ void emit_func_impl(Iron_Codegen *ctx, Iron_FuncDecl *fd);
 
 /* Emit a method implementation to implementations buffer */
 void emit_method_impl(Iron_Codegen *ctx, Iron_MethodDecl *md);
+
+/* Emit interface vtable struct and ref type for the given interface.
+ * E.g., Iron_Drawable_vtable { void (*draw)(void* self); } and Iron_Drawable_ref */
+void emit_interface_vtable_struct(Iron_Codegen *ctx,
+                                  Iron_InterfaceDecl *iface);
+
+/* Emit a static vtable instance for a given (type, interface) pair.
+ * Emitted into implementations so function names are already prototyped.
+ * E.g., static Iron_Drawable_vtable Iron_Player_Drawable_vtable = { .draw = ... } */
+void emit_vtable_instance(Iron_Codegen *ctx, const char *type_name,
+                           Iron_InterfaceDecl *iface);
+
+/* Compute the mangled name for a generic instantiation.
+ * E.g., "List" + [Iron_Enemy] -> "Iron_List_Iron_Enemy" (arena-allocated) */
+const char *mangle_generic(const char *base, Iron_Type **args, int count,
+                            Iron_Arena *a);
+
+/* Ensure a monomorphized generic type is emitted.
+ * Checks mono_registry for duplicates. Emits stub struct if new.
+ * Returns the mangled name (arena-allocated). */
+const char *ensure_monomorphized_type(Iron_Codegen *ctx, const char *base_name,
+                                       Iron_Type **args, int count);
 
 #endif /* IRON_CODEGEN_H */
