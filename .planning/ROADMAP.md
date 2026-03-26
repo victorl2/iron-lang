@@ -112,7 +112,7 @@ Plans:
   3. `import math` followed by `val s = sin(1.0)` compiles and produces the correct result
   4. `import io` followed by `val content, err = read_file("test.txt")` compiles and returns file contents
   5. `import time` and `import log` modules are callable from Iron source
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 - [ ] 05-01-PLAN.md — String interpolation codegen (snprintf two-pass formatting)
@@ -131,4 +131,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
 | 3. Runtime, Stdlib, and CLI | 8/8 | Complete    | 2026-03-26 |
 | 4. Comptime, Game Dev, and Cross-Platform | 6/6 | Complete    | 2026-03-26 |
-| 5. Codegen Fixes + Stdlib Wiring | 0/4 | Not started | - |
+| 5. Codegen Fixes + Stdlib Wiring | 1/4 | In Progress|  |
