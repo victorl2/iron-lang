@@ -112,7 +112,7 @@ void test_io_write_and_read(void) {
     Iron_Error werr = Iron_io_write_file(path, content);
     TEST_ASSERT_EQUAL_INT(0, werr.code);
 
-    Iron_Result_String_Error result = Iron_io_read_file(path);
+    Iron_Result_String_Error result = Iron_io_read_file_result(path);
     TEST_ASSERT_EQUAL_INT(0, result.v1.code);
     TEST_ASSERT_EQUAL_STRING("hello, world!", iron_string_cstr(&result.v0));
 
@@ -124,7 +124,7 @@ void test_io_write_and_read(void) {
 
 void test_io_read_nonexistent(void) {
     Iron_String path = make_str("/tmp/iron_test_nonexistent_xyz123.txt");
-    Iron_Result_String_Error result = Iron_io_read_file(path);
+    Iron_Result_String_Error result = Iron_io_read_file_result(path);
     TEST_ASSERT_NOT_EQUAL_INT(0, result.v1.code);
 }
 
