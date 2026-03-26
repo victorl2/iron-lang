@@ -69,7 +69,7 @@ Plans:
   3. Standard library modules (`math`, `io`, `time`, `log`) are importable in Iron programs and their functions produce correct results
   4. Error messages display Rust-style diagnostics: source snippet, arrow pointing to the problem, and a suggestion; terminal output is colored; `--verbose` shows generated C
   5. The CI build runs with ASan+UBSan enabled and all tests pass clean (zero sanitizer errors)
-**Plans:** 1/8 plans executed
+**Plans:** 2/8 plans executed
 
 Plans:
 - [ ] 03-01-PLAN.md — Iron_String (SSO + interning), Iron_Rc, builtins, codegen print/println fix
@@ -101,5 +101,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
 | 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
-| 3. Runtime, Stdlib, and CLI | 1/8 | In Progress|  |
+| 3. Runtime, Stdlib, and CLI | 2/8 | In Progress|  |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
