@@ -4,8 +4,14 @@
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
 #include "comptime/comptime.h"
+#include <stddef.h>
+#include <stdbool.h>
 
-Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena, Iron_DiagList *diags) {
+Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
+                                 Iron_DiagList *diags,
+                                 const char *source_file_dir,
+                                 const char *source_text, size_t source_len,
+                                 bool force_comptime) {
     Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false };
 
     /* Step 1: Initialize type system (interned primitives) */
@@ -34,8 +40,8 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena, Iron_D
     /* Step 6: Comptime evaluation — replace IRON_NODE_COMPTIME nodes with literals */
     if (diags->error_count == 0) {
         iron_comptime_apply(program, result.global_scope, arena, diags,
-                            NULL /* source_file_dir — set by caller if needed */,
-                            false /* force_comptime */);
+                            source_file_dir, force_comptime,
+                            source_text, source_len);
     }
 
     result.has_errors = (diags->error_count > 0);
