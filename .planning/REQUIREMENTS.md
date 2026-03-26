@@ -60,7 +60,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **RT-05**: Channel implementation (ring buffer + mutex + condvars) with send/recv/try_recv
 - [x] **RT-06**: Mutex wraps a value with lock semantics
 - [x] **RT-07**: Built-in functions work: print, println, len, range, min, max, clamp, abs, assert
-- [ ] **RT-08**: Runtime compiles and passes tests on macOS, Linux, and Windows
+- [x] **RT-08**: Runtime compiles and passes tests on macOS, Linux, and Windows
 
 ### Standard Library
 
@@ -185,7 +185,7 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | RT-05 | Phase 3 | Complete |
 | RT-06 | Phase 3 | Complete |
 | RT-07 | Phase 3 | Complete |
-| RT-08 | Phase 3 | Pending |
+| RT-08 | Phase 3 | Complete |
 | STD-01 | Phase 3 | Pending |
 | STD-02 | Phase 3 | Pending |
 | STD-03 | Phase 3 | Pending |
