@@ -33,7 +33,9 @@ add_library(iron_runtime STATIC
     src/runtime/iron_collections.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
-target_link_libraries(iron_runtime pthread)
+if(NOT WIN32)
+  target_link_libraries(iron_runtime pthread)
+endif()
 
 # ── iron_compiler static library ───────────────────────────────────────────
 # NOTE: More source files will be added in later plans.
@@ -160,7 +162,11 @@ add_executable(iron
     src/cli/toml.c
 )
 target_include_directories(iron PRIVATE src)
-target_link_libraries(iron iron_compiler iron_runtime iron_stdlib m pthread)
+if(NOT WIN32)
+  target_link_libraries(iron iron_compiler iron_runtime iron_stdlib m pthread)
+else()
+  target_link_libraries(iron iron_compiler iron_runtime iron_stdlib)
+endif()
 # Inject the absolute path to src/ so the CLI can find runtime sources at build time
 target_compile_definitions(iron PRIVATE
     IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
@@ -179,9 +185,12 @@ set_tests_properties(test_cli_help PROPERTIES
 
 # ── Integration tests ────────────────────────────────────────────────────────
 # Compiles .iron files to native binaries and verifies their runtime output.
-add_test(
-    NAME test_integration
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/run_integration.sh
-            ${CMAKE_BINARY_DIR}/iron
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
+# Shell-script based tests cannot run on Windows.
+if(NOT WIN32)
+  add_test(
+      NAME test_integration
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/run_integration.sh
+              ${CMAKE_BINARY_DIR}/iron
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+endif()
