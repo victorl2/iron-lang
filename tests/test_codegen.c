@@ -949,6 +949,26 @@ void test_draw_block(void) {
     TEST_ASSERT_TRUE(str_before(c, "BeginDrawing()", "EndDrawing()"));
 }
 
+/* ── Test: enum with explicit values emits = N in C typedef enum ─────────── */
+
+void test_enum_explicit_values(void) {
+    const char *src =
+        "enum Key {\n"
+        "  RIGHT = 262,\n"
+        "  LEFT  = 263,\n"
+        "  UP    = 265,\n"
+        "  DOWN  = 264,\n"
+        "}\n"
+        "func main() { val k = Key.RIGHT }\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Must emit explicit values in the typedef enum */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Key_RIGHT = 262"));
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Key_LEFT = 263"));
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Key_UP = 265"));
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Key_DOWN = 264"));
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -990,6 +1010,7 @@ int main(void) {
     RUN_TEST(test_codegen_builtin_len);
     RUN_TEST(test_extern_func_call);
     RUN_TEST(test_draw_block);
+    RUN_TEST(test_enum_explicit_values);
 
     return UNITY_END();
 }
