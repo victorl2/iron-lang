@@ -4,13 +4,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <spawn.h>
-#include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <libgen.h>
+#ifdef _WIN32
+  #include <windows.h>
+  #include <process.h>
+  #include <direct.h>  /* _mkdir */
+#else
+  #include <unistd.h>
+  #include <spawn.h>
+  #include <sys/wait.h>
+  #include <libgen.h>
+#endif
 
 /* IRON_SOURCE_DIR is injected by CMake at build time — absolute path to src/ */
 #ifndef IRON_SOURCE_DIR
@@ -26,7 +32,37 @@
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
+#ifndef _WIN32
 extern char **environ;
+#endif
+
+/* ── Windows compatibility shims ─────────────────────────────────────────── */
+#ifdef _WIN32
+/* basename: return pointer to last path component (no allocation) */
+static const char *win_basename(const char *path) {
+    const char *p = path;
+    const char *last = path;
+    while (*p) {
+        if (*p == '/' || *p == '\\') last = p + 1;
+        p++;
+    }
+    return last;
+}
+/* dirname: copy directory part into a static buffer */
+static char *win_dirname(char *path) {
+    char *p = path + strlen(path);
+    while (p > path && *p != '/' && *p != '\\') p--;
+    if (p == path) {
+        path[0] = '.';
+        path[1] = '\0';
+    } else {
+        *p = '\0';
+    }
+    return path;
+}
+#define basename(p)  win_basename(p)
+#define dirname(p)   win_dirname(p)
+#endif
 
 /* ── Helper: read a file into a heap-allocated string ────────────────────── */
 
@@ -59,11 +95,15 @@ static char *read_file(const char *path, long *out_size) {
 /* ── Helper: derive output binary name from source path ──────────────────── */
 
 static char *derive_output_name(const char *source_path) {
-    /* Make a mutable copy for basename/dirname calls */
+    /* Make a mutable copy for basename calls */
     char *path_copy = strdup(source_path);
     if (!path_copy) return NULL;
 
+#ifdef _WIN32
+    const char *base = win_basename(path_copy);
+#else
     char *base = basename(path_copy);
+#endif
 
     /* Strip .iron extension if present */
     size_t len = strlen(base);
@@ -80,6 +120,21 @@ static char *derive_output_name(const char *source_path) {
         out = strdup(base);
     }
     free(path_copy);
+
+#ifdef _WIN32
+    /* Append .exe extension on Windows */
+    if (out) {
+        size_t out_len = strlen(out);
+        char *out_exe = (char *)malloc(out_len + 5); /* +4 for ".exe" + nul */
+        if (out_exe) {
+            memcpy(out_exe, out, out_len);
+            memcpy(out_exe + out_len, ".exe", 5);
+            free(out);
+            out = out_exe;
+        }
+    }
+#endif
+
     return out;
 }
 
@@ -88,11 +143,14 @@ static char *derive_output_name(const char *source_path) {
 static char *write_temp_c(const char *c_src, bool debug_build,
                            const char *binary_name) {
     char *path = NULL;
-    int fd = -1;
 
     if (debug_build) {
         /* Use .iron-build/ directory */
+#ifdef _WIN32
+        if (_mkdir(".iron-build") != 0 && errno != EEXIST) {
+#else
         if (mkdir(".iron-build", 0755) != 0 && errno != EEXIST) {
+#endif
             fprintf(stderr, "error: cannot create .iron-build/: %s\n",
                     strerror(errno));
             return NULL;
@@ -101,14 +159,73 @@ static char *write_temp_c(const char *c_src, bool debug_build,
         path = (char *)malloc(plen);
         if (!path) return NULL;
         snprintf(path, plen, ".iron-build/%s.c", binary_name);
-        fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    } else {
-        /* Use /tmp with mkstemp */
-        path = strdup("/tmp/iron_XXXXXX.c");
-        if (!path) return NULL;
-        /* mkstemps for suffix support */
-        fd = mkstemps(path, 2); /* 2 = length of ".c" suffix */
+
+        FILE *f = fopen(path, "w");
+        if (!f) {
+            fprintf(stderr, "error: cannot create temp file: %s\n",
+                    strerror(errno));
+            free(path);
+            return NULL;
+        }
+        size_t total = strlen(c_src);
+        if (fwrite(c_src, 1, total, f) != total) {
+            fprintf(stderr, "error: write failed: %s\n", strerror(errno));
+            fclose(f);
+            free(path);
+            return NULL;
+        }
+        fclose(f);
+        return path;
     }
+
+#ifdef _WIN32
+    /* Windows: use GetTempPath + GetTempFileName */
+    char tmp_dir[MAX_PATH];
+    DWORD dir_len = GetTempPathA(MAX_PATH, tmp_dir);
+    if (dir_len == 0) {
+        fprintf(stderr, "error: cannot get temp dir\n");
+        return NULL;
+    }
+    char tmp_file[MAX_PATH];
+    if (GetTempFileNameA(tmp_dir, "iron", 0, tmp_file) == 0) {
+        fprintf(stderr, "error: cannot create temp file\n");
+        return NULL;
+    }
+    /* GetTempFileName creates a .tmp file; rename to .c */
+    size_t base_len = strlen(tmp_file);
+    path = (char *)malloc(base_len + 3); /* +2 for ".c" + nul */
+    if (!path) return NULL;
+    /* Replace last 4 chars (.tmp) with .c */
+    if (base_len > 4) {
+        memcpy(path, tmp_file, base_len - 4);
+        memcpy(path + base_len - 4, ".c", 3);
+    } else {
+        memcpy(path, tmp_file, base_len);
+        memcpy(path + base_len, ".c", 3);
+    }
+    DeleteFileA(tmp_file); /* remove the .tmp placeholder */
+
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        fprintf(stderr, "error: cannot create temp file '%s': %s\n",
+                path, strerror(errno));
+        free(path);
+        return NULL;
+    }
+    size_t total = strlen(c_src);
+    if (fwrite(c_src, 1, total, f) != total) {
+        fprintf(stderr, "error: write failed: %s\n", strerror(errno));
+        fclose(f);
+        free(path);
+        return NULL;
+    }
+    fclose(f);
+    return path;
+#else
+    /* Unix: use /tmp with mkstemps */
+    path = strdup("/tmp/iron_XXXXXX.c");
+    if (!path) return NULL;
+    int fd = mkstemps(path, 2); /* 2 = length of ".c" suffix */
 
     if (fd < 0) {
         fprintf(stderr, "error: cannot create temp file: %s\n",
@@ -131,6 +248,7 @@ static char *write_temp_c(const char *c_src, bool debug_build,
     }
     close(fd);
     return path;
+#endif
 }
 
 /* ── Helper: build a path within IRON_SOURCE_DIR ─────────────────────────── */
@@ -148,109 +266,115 @@ static char *make_src_path(const char *rel) {
 
 /* ── Helper: invoke clang to compile generated C with runtime sources ──────── */
 
-static int invoke_clang(const char *c_file, const char *output,
-                         const char *src_dir, IronBuildOpts opts) {
-    (void)src_dir;
-
+/* Build the source file list shared by both Unix and Windows invoke helpers */
+static int build_src_list(const char **argv_buf, int *ai_out,
+                           const char *c_file, const char *output,
+                           char **src_i_flag_out, char **vendor_i_flag_out,
+                           char **rt_stb_out, char **rt_arena_out,
+                           char **rt_strbuf_out, char **rt_string_out,
+                           char **rt_rc_out, char **rt_builtin_out,
+                           char **rt_threads_out, char **rt_collect_out,
+                           char **sl_math_out, char **sl_io_out,
+                           char **sl_time_out, char **sl_log_out,
+                           IronBuildOpts opts,
+                           char **rl_src_out, char **rl_i_flag_out) {
     /* Build -I flag for headers */
     size_t src_i_len = strlen("-I") + strlen(IRON_SOURCE_DIR) + 1;
     char *src_i_flag = (char *)malloc(src_i_len);
     if (!src_i_flag) return 1;
     snprintf(src_i_flag, src_i_len, "-I%s", IRON_SOURCE_DIR);
+    *src_i_flag_out = src_i_flag;
 
     /* Also add vendor dir for stb_ds.h */
     size_t vendor_i_len = strlen("-I") + strlen(IRON_SOURCE_DIR) + strlen("/vendor") + 1;
     char *vendor_i_flag = (char *)malloc(vendor_i_len);
-    if (!vendor_i_flag) { free(src_i_flag); return 1; }
+    if (!vendor_i_flag) return 1;
     snprintf(vendor_i_flag, vendor_i_len, "-I%s/vendor", IRON_SOURCE_DIR);
+    *vendor_i_flag_out = vendor_i_flag;
 
-    /* Runtime and stdlib source files to compile alongside generated C.
-     * These are compiled together in one clang invocation to produce a single
-     * self-contained binary without needing pre-built libraries. */
-    char *rt_stb     = make_src_path("util/stb_ds_impl.c");
-    char *rt_arena   = make_src_path("util/arena.c");
-    char *rt_strbuf  = make_src_path("util/strbuf.c");
-    char *rt_string  = make_src_path("runtime/iron_string.c");
-    char *rt_rc      = make_src_path("runtime/iron_rc.c");
-    char *rt_builtin = make_src_path("runtime/iron_builtins.c");
-    char *rt_threads = make_src_path("runtime/iron_threads.c");
-    char *rt_collect = make_src_path("runtime/iron_collections.c");
-    char *sl_math    = make_src_path("stdlib/iron_math.c");
-    char *sl_io      = make_src_path("stdlib/iron_io.c");
-    char *sl_time    = make_src_path("stdlib/iron_time.c");
-    char *sl_log     = make_src_path("stdlib/iron_log.c");
+    *rt_stb_out     = make_src_path("util/stb_ds_impl.c");
+    *rt_arena_out   = make_src_path("util/arena.c");
+    *rt_strbuf_out  = make_src_path("util/strbuf.c");
+    *rt_string_out  = make_src_path("runtime/iron_string.c");
+    *rt_rc_out      = make_src_path("runtime/iron_rc.c");
+    *rt_builtin_out = make_src_path("runtime/iron_builtins.c");
+    *rt_threads_out = make_src_path("runtime/iron_threads.c");
+    *rt_collect_out = make_src_path("runtime/iron_collections.c");
+    *sl_math_out    = make_src_path("stdlib/iron_math.c");
+    *sl_io_out      = make_src_path("stdlib/iron_io.c");
+    *sl_time_out    = make_src_path("stdlib/iron_time.c");
+    *sl_log_out     = make_src_path("stdlib/iron_log.c");
 
-    if (!rt_stb || !rt_arena || !rt_strbuf || !rt_string || !rt_rc ||
-        !rt_builtin || !rt_threads || !rt_collect ||
-        !sl_math || !sl_io || !sl_time || !sl_log) {
-        free(src_i_flag); free(vendor_i_flag);
-        free(rt_stb); free(rt_arena); free(rt_strbuf);
-        free(rt_string); free(rt_rc); free(rt_builtin);
-        free(rt_threads); free(rt_collect);
-        free(sl_math); free(sl_io); free(sl_time); free(sl_log);
+    if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
+        !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
+        !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out) {
         return 1;
     }
 
-    /* Raylib source file and include flag (only when use_raylib) */
-    char *rl_src    = NULL;
-    char *rl_i_flag = NULL;
     if (opts.use_raylib) {
-        rl_src = make_src_path("vendor/raylib/raylib.c");
-        /* -I flag for raylib headers directory */
+        *rl_src_out = make_src_path("vendor/raylib/raylib.c");
         size_t rl_i_len = strlen("-I") + strlen(IRON_SOURCE_DIR) + strlen("/vendor/raylib") + 1;
-        rl_i_flag = (char *)malloc(rl_i_len);
-        if (!rl_i_flag) {
-            free(src_i_flag); free(vendor_i_flag);
-            free(rt_stb); free(rt_arena); free(rt_strbuf);
-            free(rt_string); free(rt_rc); free(rt_builtin);
-            free(rt_threads); free(rt_collect);
-            free(sl_math); free(sl_io); free(sl_time); free(sl_log);
-            free(rl_src);
-            return 1;
-        }
+        char *rl_i_flag = (char *)malloc(rl_i_len);
+        if (!rl_i_flag) return 1;
         snprintf(rl_i_flag, rl_i_len, "-I%s/vendor/raylib", IRON_SOURCE_DIR);
-    }
-
-    /* Build argv dynamically to accommodate optional raylib args */
-    const char **argv_buf = (const char **)malloc(64 * sizeof(const char *));
-    if (!argv_buf) {
-        free(src_i_flag); free(vendor_i_flag);
-        free(rt_stb); free(rt_arena); free(rt_strbuf);
-        free(rt_string); free(rt_rc); free(rt_builtin);
-        free(rt_threads); free(rt_collect);
-        free(sl_math); free(sl_io); free(sl_time); free(sl_log);
-        free(rl_src); free(rl_i_flag);
-        return 1;
+        *rl_i_flag_out = rl_i_flag;
     }
 
     int ai = 0;
+#ifdef _WIN32
+    argv_buf[ai++] = "clang-cl";
+    argv_buf[ai++] = "/std:c11";
+    argv_buf[ai++] = "/O2";
+    argv_buf[ai++] = c_file;
+    argv_buf[ai++] = *rt_stb_out;
+    argv_buf[ai++] = *rt_arena_out;
+    argv_buf[ai++] = *rt_strbuf_out;
+    argv_buf[ai++] = *rt_string_out;
+    argv_buf[ai++] = *rt_rc_out;
+    argv_buf[ai++] = *rt_builtin_out;
+    argv_buf[ai++] = *rt_threads_out;
+    argv_buf[ai++] = *rt_collect_out;
+    argv_buf[ai++] = *sl_math_out;
+    argv_buf[ai++] = *sl_io_out;
+    argv_buf[ai++] = *sl_time_out;
+    argv_buf[ai++] = *sl_log_out;
+    argv_buf[ai++] = src_i_flag;
+    argv_buf[ai++] = vendor_i_flag;
+    /* Output flag for clang-cl */
+    {
+        static char out_flag[1024];
+        snprintf(out_flag, sizeof(out_flag), "/Fe%s", output);
+        argv_buf[ai++] = out_flag;
+    }
+#else
     argv_buf[ai++] = "clang";
     argv_buf[ai++] = "-std=c11";
     argv_buf[ai++] = "-O2";
     argv_buf[ai++] = "-o";
     argv_buf[ai++] = output;
     argv_buf[ai++] = c_file;
-    argv_buf[ai++] = rt_stb;
-    argv_buf[ai++] = rt_arena;
-    argv_buf[ai++] = rt_strbuf;
-    argv_buf[ai++] = rt_string;
-    argv_buf[ai++] = rt_rc;
-    argv_buf[ai++] = rt_builtin;
-    argv_buf[ai++] = rt_threads;
-    argv_buf[ai++] = rt_collect;
-    argv_buf[ai++] = sl_math;
-    argv_buf[ai++] = sl_io;
-    argv_buf[ai++] = sl_time;
-    argv_buf[ai++] = sl_log;
+    argv_buf[ai++] = *rt_stb_out;
+    argv_buf[ai++] = *rt_arena_out;
+    argv_buf[ai++] = *rt_strbuf_out;
+    argv_buf[ai++] = *rt_string_out;
+    argv_buf[ai++] = *rt_rc_out;
+    argv_buf[ai++] = *rt_builtin_out;
+    argv_buf[ai++] = *rt_threads_out;
+    argv_buf[ai++] = *rt_collect_out;
+    argv_buf[ai++] = *sl_math_out;
+    argv_buf[ai++] = *sl_io_out;
+    argv_buf[ai++] = *sl_time_out;
+    argv_buf[ai++] = *sl_log_out;
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = "-lm";
     argv_buf[ai++] = "-lpthread";
+#endif
 
     /* Raylib-specific args */
-    if (opts.use_raylib && rl_src) {
-        argv_buf[ai++] = rl_src;
-        argv_buf[ai++] = rl_i_flag;
+    if (opts.use_raylib && *rl_src_out) {
+        argv_buf[ai++] = *rl_src_out;
+        argv_buf[ai++] = *rl_i_flag_out;
         argv_buf[ai++] = "-DPLATFORM_DESKTOP";
 #ifdef __APPLE__
         argv_buf[ai++] = "-framework";
@@ -268,18 +392,109 @@ static int invoke_clang(const char *c_file, const char *output,
 #endif
     }
     argv_buf[ai] = NULL;
+    *ai_out = ai;
+    return 0;
+}
 
-    pid_t pid;
-    int status = posix_spawnp(&pid, "clang", NULL, NULL,
-                               (char *const *)argv_buf, environ);
-
-    free(argv_buf);
+static void free_src_list(char *src_i_flag, char *vendor_i_flag,
+                           char *rt_stb, char *rt_arena, char *rt_strbuf,
+                           char *rt_string, char *rt_rc, char *rt_builtin,
+                           char *rt_threads, char *rt_collect,
+                           char *sl_math, char *sl_io, char *sl_time,
+                           char *sl_log, char *rl_src, char *rl_i_flag) {
     free(src_i_flag); free(vendor_i_flag);
     free(rt_stb); free(rt_arena); free(rt_strbuf);
     free(rt_string); free(rt_rc); free(rt_builtin);
     free(rt_threads); free(rt_collect);
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(rl_src); free(rl_i_flag);
+}
+
+static int invoke_clang(const char *c_file, const char *output,
+                         const char *src_dir, IronBuildOpts opts) {
+    (void)src_dir;
+
+    char *src_i_flag = NULL, *vendor_i_flag = NULL;
+    char *rt_stb = NULL, *rt_arena = NULL, *rt_strbuf = NULL;
+    char *rt_string = NULL, *rt_rc = NULL, *rt_builtin = NULL;
+    char *rt_threads = NULL, *rt_collect = NULL;
+    char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
+    char *rl_src = NULL, *rl_i_flag = NULL;
+
+    const char *argv_buf[96];
+    int ai = 0;
+
+    if (build_src_list(argv_buf, &ai, c_file, output,
+                       &src_i_flag, &vendor_i_flag,
+                       &rt_stb, &rt_arena, &rt_strbuf,
+                       &rt_string, &rt_rc, &rt_builtin,
+                       &rt_threads, &rt_collect,
+                       &sl_math, &sl_io, &sl_time, &sl_log,
+                       opts, &rl_src, &rl_i_flag) != 0) {
+        free_src_list(src_i_flag, vendor_i_flag,
+                      rt_stb, rt_arena, rt_strbuf,
+                      rt_string, rt_rc, rt_builtin,
+                      rt_threads, rt_collect,
+                      sl_math, sl_io, sl_time, sl_log,
+                      rl_src, rl_i_flag);
+        return 1;
+    }
+
+#ifdef _WIN32
+    /* Build a single command-line string for CreateProcess */
+    char cmd[32768];
+    int pos = 0;
+    for (int i = 0; i < ai && argv_buf[i]; i++) {
+        if (i > 0) cmd[pos++] = ' ';
+        /* Quote args containing spaces */
+        int has_space = (strchr(argv_buf[i], ' ') != NULL);
+        if (has_space) cmd[pos++] = '"';
+        size_t arglen = strlen(argv_buf[i]);
+        memcpy(cmd + pos, argv_buf[i], arglen);
+        pos += (int)arglen;
+        if (has_space) cmd[pos++] = '"';
+    }
+    cmd[pos] = '\0';
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    memset(&pi, 0, sizeof(pi));
+
+    free_src_list(src_i_flag, vendor_i_flag,
+                  rt_stb, rt_arena, rt_strbuf,
+                  rt_string, rt_rc, rt_builtin,
+                  rt_threads, rt_collect,
+                  sl_math, sl_io, sl_time, sl_log,
+                  rl_src, rl_i_flag);
+
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        fprintf(stderr, "error: failed to spawn clang-cl (error %lu)\n",
+                GetLastError());
+        return 1;
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    if (exit_code != 0) {
+        fprintf(stderr, "error: clang-cl exited with code %lu\n", exit_code);
+        return 1;
+    }
+    return 0;
+#else
+    pid_t pid;
+    int status = posix_spawnp(&pid, "clang", NULL, NULL,
+                               (char *const *)argv_buf, environ);
+
+    free_src_list(src_i_flag, vendor_i_flag,
+                  rt_stb, rt_arena, rt_strbuf,
+                  rt_string, rt_rc, rt_builtin,
+                  rt_threads, rt_collect,
+                  sl_math, sl_io, sl_time, sl_log,
+                  rl_src, rl_i_flag);
 
     if (status != 0) {
         fprintf(stderr, "error: failed to spawn clang: %s\n",
@@ -296,6 +511,7 @@ static int invoke_clang(const char *c_file, const char *output,
         return 1;
     }
     return 0;
+#endif
 }
 
 /* ── Main build function ─────────────────────────────────────────────────── */
@@ -456,7 +672,11 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 11. Clean up temp file unless --debug-build */
     if (!opts.debug_build) {
+#ifdef _WIN32
+        DeleteFileA(c_file_path);
+#else
         unlink(c_file_path);
+#endif
     }
     free(c_file_path);
 
@@ -472,6 +692,35 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 13. Run if requested (iron run) */
     if (opts.run_after) {
+#ifdef _WIN32
+        /* On Windows use CreateProcess to run the compiled binary */
+        char run_cmd[32768];
+        snprintf(run_cmd, sizeof(run_cmd), "%s", binary_name);
+        /* Append extra args */
+        for (int i = 0; i < opts.run_arg_count; i++) {
+            size_t pos = strlen(run_cmd);
+            snprintf(run_cmd + pos, sizeof(run_cmd) - pos, " %s", opts.run_args[i]);
+        }
+        STARTUPINFOA run_si;
+        PROCESS_INFORMATION run_pi;
+        memset(&run_si, 0, sizeof(run_si));
+        run_si.cb = sizeof(run_si);
+        memset(&run_pi, 0, sizeof(run_pi));
+        if (!CreateProcessA(NULL, run_cmd, NULL, NULL, FALSE, 0, NULL, NULL,
+                            &run_si, &run_pi)) {
+            fprintf(stderr, "error: failed to run '%s' (error %lu)\n",
+                    binary_name, GetLastError());
+            free(derived_output);
+            return 1;
+        }
+        WaitForSingleObject(run_pi.hProcess, INFINITE);
+        DWORD run_exit = 0;
+        GetExitCodeProcess(run_pi.hProcess, &run_exit);
+        CloseHandle(run_pi.hProcess);
+        CloseHandle(run_pi.hThread);
+        free(derived_output);
+        return (int)run_exit;
+#else
         /* If binary_name has no '/', it's in the current directory.
          * posix_spawnp searches PATH, which won't find ./binary.
          * Prefix with "./" so the shell-like search works correctly. */
@@ -525,6 +774,7 @@ int iron_build(const char *source_path, const char *output_path,
         }
         free(derived_output);
         return WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
+#endif
     }
 
     /* 14. Success message */
