@@ -8,7 +8,7 @@
 
 /* ── File I/O ────────────────────────────────────────────────────────────── */
 
-Iron_Result_String_Error Iron_io_read_file(Iron_String path) {
+Iron_Result_String_Error Iron_io_read_file_result(Iron_String path) {
     const char *p = iron_string_cstr(&path);
     FILE *f = fopen(p, "rb");
     if (!f) {
@@ -71,9 +71,9 @@ Iron_Error Iron_io_write_file(Iron_String path, Iron_String content) {
     return iron_error_none();
 }
 
-Iron_Result_String_Error Iron_io_read_bytes(Iron_String path) {
+Iron_Result_String_Error Iron_io_read_bytes_result(Iron_String path) {
     /* Same as read_file — binary mode is already used */
-    return Iron_io_read_file(path);
+    return Iron_io_read_file_result(path);
 }
 
 Iron_Error Iron_io_write_bytes(Iron_String path, const uint8_t *data, size_t len) {
@@ -117,7 +117,7 @@ Iron_Error Iron_io_delete_file(Iron_String path) {
     return iron_error_none();
 }
 
-Iron_Result_String_Error Iron_io_list_files(Iron_String dir_path) {
+Iron_Result_String_Error Iron_io_list_files_result(Iron_String dir_path) {
     const char *p = iron_string_cstr(&dir_path);
     DIR *dir = opendir(p);
     if (!dir) {
