@@ -10,39 +10,55 @@ jobs:
   build-and-test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+      fail-fast: false
+
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build clang
 
-      - name: Configure (Debug with ASan/UBSan)
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
+      - name: Configure (Unix — Debug with ASan/UBSan)
+        if: runner.os != 'Windows'
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -G Ninja
 
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -G "Visual Studio 17 2022"
+
       - name: Build
-        run: cmake --build build
+        run: cmake --build build --config Debug
 
-      - name: Run unit tests
-        run: ctest --test-dir build --output-on-failure -j4
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --config Debug -j4
 
-      - name: Run integration tests
+      - name: Run integration tests (Unix only)
+        if: runner.os != 'Windows'
         run: |
           chmod +x tests/integration/run_integration.sh
           tests/integration/run_integration.sh build/iron
 
-      - name: Verify no sanitizer leaks
+      - name: Verify no sanitizer leaks (Unix only)
+        if: runner.os != 'Windows'
         run: |
-          # Run tests again with ASAN_OPTIONS for stricter checking
           ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
           UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
           ctest --test-dir build --output-on-failure -j4
