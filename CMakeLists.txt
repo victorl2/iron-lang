@@ -150,6 +150,9 @@ add_executable(iron
     src/cli/main.c
     src/cli/build.c
     src/cli/check.c
+    src/cli/fmt.c
+    src/cli/test_runner.c
+    src/cli/toml.c
 )
 target_include_directories(iron PRIVATE src)
 target_link_libraries(iron iron_compiler iron_runtime iron_stdlib m pthread)
