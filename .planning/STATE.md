@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-03-26T02:46:41.656Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-03-26T03:00:25.544Z"
 last_activity: "2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 7
+  completed_plans: 8
   percent: 55
 ---
 
@@ -54,6 +54,7 @@ Progress: [██████░░░░] 55%
 | Phase 02-semantics-and-codegen P01 | 4 | 1 tasks | 7 files |
 | Phase 02-semantics-and-codegen P02 | 68 | 2 tasks | 5 files |
 | Phase 02-semantics-and-codegen P03 | 15 | 1 tasks | 4 files |
+| Phase 02-semantics-and-codegen P04 | 13 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 02-semantics-and-codegen]: 02-02: Arena alloc does not zero memory; parser must explicitly initialize ALL struct fields including semantic annotations or resolver segfaults on garbage pointers
 - [Phase 02-semantics-and-codegen]: 02-03: Type-checker builds parallel scope chain (not reusing resolver scopes); CALL handler disambiguates type-constructor calls by checking callee SYM_TYPE
 - [Phase 02-semantics-and-codegen]: 02-03: Narrowing map uses stb_ds deep-copy for branch analysis; RETURN nullable check emits E0204 not E0215
+- [Phase 02-semantics-and-codegen]: 02-04: Escape analysis uses intra-procedural two-pass collect-then-classify; conservative assignment RHS escape detection
+- [Phase 02-semantics-and-codegen]: 02-04: Concurrency checker tracks local names at parallel-for entry; no scope chain needed post-resolve
+- [Phase 02-semantics-and-codegen]: 02-04: resolve_quiet test helper runs resolve+typecheck into throwaway diag list to avoid stb_ds array offset bugs when resetting count
 
 ### Pending Todos
 
@@ -100,6 +104,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T02:46:41.654Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-03-26T03:00:25.542Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
