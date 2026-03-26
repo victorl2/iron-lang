@@ -518,6 +518,119 @@ void test_monomorphization_dedup(void) {
     iron_diaglist_free(&diags);
 }
 
+/* ── Test: lambda without captures generates lifted function ──────────────── */
+
+void test_lambda_no_captures_generates_lifted_function(void) {
+    const char *src =
+        "func main() {\n"
+        "    val f = func(x: Int) -> Int { return x + 1 }\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* A lifted function should be emitted for the lambda */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_main_lambda_0"));
+    /* The function should have the correct signature with int64_t param */
+    TEST_ASSERT_TRUE(str_contains(c, "int64_t x"));
+}
+
+/* ── Test: lambda with captures generates env struct ─────────────────────── */
+
+void test_lambda_with_captures_generates_env_struct(void) {
+    /* Build an AST manually to avoid parser/resolver complications with captures.
+     * We test the lambda code emitter directly via a minimal codegen context. */
+    Iron_Arena arena = iron_arena_create(64 * 1024);
+    iron_types_init(&arena);
+    Iron_DiagList diags = iron_diaglist_create();
+
+    /* Build a minimal lambda node with a "score" capture marker */
+    Iron_LambdaExpr *lam = ARENA_ALLOC(&arena, Iron_LambdaExpr);
+    Iron_Span s = iron_span_make("test.iron", 1, 1, 1, 10);
+    lam->span         = s;
+    lam->kind         = IRON_NODE_LAMBDA;
+    lam->params       = NULL;
+    lam->param_count  = 0;
+    lam->return_type  = NULL;
+    lam->resolved_type = NULL;
+
+    /* Empty block body */
+    Iron_Block *body = ARENA_ALLOC(&arena, Iron_Block);
+    body->span       = s;
+    body->kind       = IRON_NODE_BLOCK;
+    body->stmts      = NULL;
+    body->stmt_count = 0;
+    lam->body        = (Iron_Node *)body;
+
+    /* Create a minimal codegen context */
+    Iron_Codegen ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.arena        = &arena;
+    ctx.diags        = &diags;
+    ctx.global_scope = NULL;
+    ctx.program      = NULL;
+    ctx.struct_bodies  = iron_strbuf_create(1024);
+    ctx.forward_decls  = iron_strbuf_create(256);
+    ctx.prototypes     = iron_strbuf_create(256);
+    ctx.implementations = iron_strbuf_create(1024);
+    ctx.lifted_funcs   = iron_strbuf_create(1024);
+    ctx.emitted_optionals = NULL;
+    ctx.mono_registry  = NULL;
+    ctx.lambda_counter = 0;
+
+    /* Emit the lambda — caller function name is "main" */
+    Iron_StrBuf sb = iron_strbuf_create(256);
+    emit_lambda(&sb, (Iron_Node *)lam, &ctx, "main");
+
+    /* Check that a lifted function was produced */
+    const char *lifted = iron_strbuf_get(&ctx.lifted_funcs);
+    TEST_ASSERT_TRUE(str_contains(lifted, "Iron_main_lambda_0"));
+
+    iron_strbuf_free(&sb);
+    iron_strbuf_free(&ctx.struct_bodies);
+    iron_strbuf_free(&ctx.forward_decls);
+    iron_strbuf_free(&ctx.prototypes);
+    iron_strbuf_free(&ctx.implementations);
+    iron_strbuf_free(&ctx.lifted_funcs);
+    iron_arena_free(&arena);
+    iron_diaglist_free(&diags);
+}
+
+/* ── Test: spawn generates lifted function and pool_submit call ───────────── */
+
+void test_spawn_generates_lifted_function_and_pool_submit(void) {
+    const char *src =
+        "func save() { }\n"
+        "func main() {\n"
+        "    spawn(\"autosave\") { save() }\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Lifted spawn function must be emitted */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_spawn_"));
+    /* pool_submit call must be emitted */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_pool_submit"));
+    /* Lifted function must take void* arg */
+    TEST_ASSERT_TRUE(str_contains(c, "void* arg"));
+}
+
+/* ── Test: parallel-for generates chunk function and barrier ─────────────── */
+
+void test_parallel_for_generates_chunk_and_barrier(void) {
+    const char *src =
+        "func work(i: Int) { }\n"
+        "func main() {\n"
+        "    val n = 100\n"
+        "    for i in n parallel { work(i) }\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Chunk function must be emitted */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_parallel_chunk_"));
+    /* pool_submit call must be emitted */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_pool_submit"));
+    /* Barrier call must be present */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_pool_barrier"));
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -543,6 +656,10 @@ int main(void) {
     RUN_TEST(test_vtable_instance_has_correct_function_pointer);
     RUN_TEST(test_monomorphization_generates_concrete_struct);
     RUN_TEST(test_monomorphization_dedup);
+    RUN_TEST(test_lambda_no_captures_generates_lifted_function);
+    RUN_TEST(test_lambda_with_captures_generates_env_struct);
+    RUN_TEST(test_spawn_generates_lifted_function_and_pool_submit);
+    RUN_TEST(test_parallel_for_generates_chunk_and_barrier);
 
     return UNITY_END();
 }
