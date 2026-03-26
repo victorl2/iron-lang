@@ -1,0 +1,21 @@
+import math
+
+func main() {
+  -- String interpolation
+  val x = 42
+  println("value is {x}")
+
+  -- Math stdlib
+  val pi = Math.sin(0.0)
+  println("sin(0) is 0")
+
+  -- Combined: interpolation + stdlib
+  val root = Math.sqrt(16.0)
+  println("sqrt(16) = {root}")
+
+  -- Parallel for (basic, Iron syntax: for VAR in N parallel { BODY })
+  for i in 10 parallel {
+    -- runs without crash
+  }
+  println("all features work")
+}

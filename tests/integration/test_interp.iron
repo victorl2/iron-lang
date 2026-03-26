@@ -1,0 +1,19 @@
+func main() {
+  val x = 42
+  val msg = "value is {x}"
+  println(msg)
+
+  val pi = 3.14
+  println("pi is {pi}")
+
+  val flag = true
+  println("flag is {flag}")
+
+  val name = "world"
+  println("hello {name}")
+
+  -- Test expression inside interpolation
+  val a = 10
+  val b = 20
+  println("sum is {a + b}")
+}

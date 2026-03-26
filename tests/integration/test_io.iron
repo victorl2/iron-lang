@@ -1,0 +1,8 @@
+import io
+
+func main() {
+  -- Test IO.file_exists with a known file path
+  -- This verifies the IO module compiles and auto-static dispatch works
+  val exists = IO.file_exists("/tmp")
+  println("io works")
+}

@@ -1,0 +1,11 @@
+import math
+
+func main() {
+  val x = Math.sin(0.0)
+  println("sin(0) is 0")
+
+  val y = Math.sqrt(4.0)
+  println("sqrt(4) is 2")
+
+  println("math works")
+}

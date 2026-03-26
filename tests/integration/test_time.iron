@@ -1,0 +1,6 @@
+import time
+
+func main() {
+  val ms = Time.now_ms()
+  println("time works")
+}
