@@ -54,7 +54,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Runtime Library
 
 - [x] **RT-01**: String type supports UTF-8 with interning and small string optimization
-- [ ] **RT-02**: List (dynamic array), Map (hash map), and Set (hash set) collections work correctly
+- [x] **RT-02**: List (dynamic array), Map (hash map), and Set (hash set) collections work correctly
 - [x] **RT-03**: Reference counting (rc) correctly manages shared ownership with retain/release
 - [x] **RT-04**: Thread pool implementation with work queue, submit, and barrier
 - [x] **RT-05**: Channel implementation (ring buffer + mutex + condvars) with send/recv/try_recv
@@ -179,7 +179,7 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | TEST-01 | Phase 2 | Complete |
 | TEST-02 | Phase 2 | Complete |
 | RT-01 | Phase 3 | Complete |
-| RT-02 | Phase 3 | Pending |
+| RT-02 | Phase 3 | Complete |
 | RT-03 | Phase 3 | Complete |
 | RT-04 | Phase 3 | Complete |
 | RT-05 | Phase 3 | Complete |
