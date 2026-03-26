@@ -56,9 +56,9 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **RT-01**: String type supports UTF-8 with interning and small string optimization
 - [ ] **RT-02**: List (dynamic array), Map (hash map), and Set (hash set) collections work correctly
 - [x] **RT-03**: Reference counting (rc) correctly manages shared ownership with retain/release
-- [ ] **RT-04**: Thread pool implementation with work queue, submit, and barrier
-- [ ] **RT-05**: Channel implementation (ring buffer + mutex + condvars) with send/recv/try_recv
-- [ ] **RT-06**: Mutex wraps a value with lock semantics
+- [x] **RT-04**: Thread pool implementation with work queue, submit, and barrier
+- [x] **RT-05**: Channel implementation (ring buffer + mutex + condvars) with send/recv/try_recv
+- [x] **RT-06**: Mutex wraps a value with lock semantics
 - [x] **RT-07**: Built-in functions work: print, println, len, range, min, max, clamp, abs, assert
 - [ ] **RT-08**: Runtime compiles and passes tests on macOS, Linux, and Windows
 
@@ -181,9 +181,9 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | RT-01 | Phase 3 | Complete |
 | RT-02 | Phase 3 | Pending |
 | RT-03 | Phase 3 | Complete |
-| RT-04 | Phase 3 | Pending |
-| RT-05 | Phase 3 | Pending |
-| RT-06 | Phase 3 | Pending |
+| RT-04 | Phase 3 | Complete |
+| RT-05 | Phase 3 | Complete |
+| RT-06 | Phase 3 | Complete |
 | RT-07 | Phase 3 | Complete |
 | RT-08 | Phase 3 | Pending |
 | STD-01 | Phase 3 | Pending |

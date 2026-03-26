@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-03-26T12:24:09.480Z"
-last_activity: "2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-03-26T15:00:00.000Z"
+last_activity: "2026-03-26 — Completed plan 03-02: threading primitives (Iron_Pool, Iron_Channel, Iron_Mutex, Iron_Handle) with 13 Unity tests, all 16 tests passing"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 20
-  completed_plans: 13
-  percent: 55
+  completed_plans: 14
+  percent: 60
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 
 ## Current Position
 
-Phase: 2 of 4 (Semantics and Codegen)
-Plan: 2 of 7 in current phase
+Phase: 3 of 4 (Runtime, Stdlib, and CLI)
+Plan: 2 of 8 in current phase (plans 01 and 02 complete)
 Status: In progress
-Last activity: 2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing
+Last activity: 2026-03-26 — Completed plan 03-02: threading primitives (Iron_Pool, Iron_Channel, Iron_Mutex, Iron_Handle) with 13 Unity tests, all 16 tests passing
 
-Progress: [██████░░░░] 55%
+Progress: [███████░░░] 60%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [██████░░░░] 55%
 | Phase 02-semantics-and-codegen P07 | 6 | 2 tasks | 18 files |
 | Phase 02-semantics-and-codegen P08 | 4 | 2 tasks | 4 files |
 | Phase 03-runtime-stdlib-and-cli P01 | 10 | 2 tasks | 12 files |
+| Phase 03-runtime-stdlib-and-cli P02 | 10 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,10 @@ Recent decisions affecting current work:
 - [Phase 03-runtime-stdlib-and-cli]: 03-01: String literals emit iron_string_from_literal() not raw char* so Iron_println receives correct Iron_String struct
 - [Phase 03-runtime-stdlib-and-cli]: 03-01: Iron_String typedef stub removed from codegen; Plan 04 will add proper #include iron_runtime.h
 - [Phase 03-runtime-stdlib-and-cli]: 03-01: iron_threads_init called from iron_runtime_init — global thread pool starts at runtime init
+- [Phase 03-runtime-stdlib-and-cli]: 03-02: Pool work queue is circular buffer (head/tail/count) that doubles capacity when full; no work-stealing
+- [Phase 03-runtime-stdlib-and-cli]: 03-02: Iron_Handle uses HeapWrapper struct so spawned thread can access fn and arg after pthread_create returns
+- [Phase 03-runtime-stdlib-and-cli]: 03-02: Channel unbuffered semantics = capacity-1 ring buffer; send blocks until receiver dequeues
+- [Phase 03-runtime-stdlib-and-cli]: 03-02: iron_threads_init declared as extern (not static) forward declaration in iron_string.c since it lives in a different TU
 
 ### Pending Todos
 
@@ -124,6 +129,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T12:24:09.478Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-03-26T15:00:00.000Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
