@@ -136,7 +136,19 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                                            Iron_Node *node) {
     if (!node || ctx->had_error) return cval_null(ctx);
 
-    /* Step counting for non-literal nodes */
+    /* Call depth guard: prevents C stack overflow from recursive comptime.
+     * Each function call adds multiple C frames (eval_expr -> eval_stmt ->
+     * eval_stmts -> eval_stmt -> eval_expr...), so 50 nested Iron function
+     * calls translates to ~200+ C stack frames — safely within typical
+     * 8MB stack limits while still allowing non-trivial recursion like
+     * fib(10) which has max depth ~10. */
+    if (ctx->call_depth >= 50) {
+        emit_error(ctx, IRON_ERR_COMPTIME_STEP_LIMIT, node->span,
+                   "comptime evaluation exceeded step limit (1000000 steps)");
+        return cval_null(ctx);
+    }
+
+    /* Step counting — tracks total work done across all calls */
     ctx->steps++;
     if (ctx->steps > ctx->step_limit) {
         Iron_Span span = node->span;
@@ -351,7 +363,12 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                 return cval_null(ctx);
             }
 
-            /* Step + depth check */
+            /* Depth + step check — depth check first prevents stack overflow */
+            if (ctx->call_depth >= 10000) {
+                emit_error(ctx, IRON_ERR_COMPTIME_STEP_LIMIT, node->span,
+                           "comptime evaluation exceeded step limit (1000000 steps)");
+                return cval_null(ctx);
+            }
             ctx->steps++;
             if (ctx->steps > ctx->step_limit) {
                 emit_error(ctx, IRON_ERR_COMPTIME_STEP_LIMIT, node->span,
@@ -492,6 +509,12 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
 
 static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node) {
     if (!node || ctx->had_error || ctx->had_return) return;
+    /* Guard against deep recursion (mirrors the check in eval_expr) */
+    if (ctx->call_depth >= 50) {
+        emit_error(ctx, IRON_ERR_COMPTIME_STEP_LIMIT, node->span,
+                   "comptime evaluation exceeded step limit (1000000 steps)");
+        return;
+    }
 
     switch (node->kind) {
 
