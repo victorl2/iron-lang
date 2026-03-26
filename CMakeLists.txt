@@ -37,6 +37,10 @@ add_library(iron_compiler STATIC
     src/analyzer/typecheck.c
     src/analyzer/escape.c
     src/analyzer/concurrency.c
+    src/codegen/codegen.c
+    src/codegen/gen_types.c
+    src/codegen/gen_stmts.c
+    src/codegen/gen_exprs.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 
