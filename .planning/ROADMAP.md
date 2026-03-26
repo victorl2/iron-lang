@@ -33,9 +33,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Project scaffolding, arena allocator, diagnostics, build system
-- [ ] 01-02-PLAN.md — Complete lexer (all tokens, spans, errors, comments)
-- [ ] 01-03-PLAN.md — AST node types and recursive descent parser
-- [ ] 01-04-PLAN.md — String interpolation, error recovery, pretty-printer, diagnostic tests
+- [x] 01-02-PLAN.md — Complete lexer (all tokens, spans, errors, comments)
+- [x] 01-03-PLAN.md — AST node types and recursive descent parser
+- [x] 01-04-PLAN.md — String interpolation, error recovery, pretty-printer, diagnostic tests
 
 ### Phase 2: Semantics and Codegen
 **Goal**: The compiler's analysis passes fully annotate the AST and the code generator emits C11 that compiles and executes correctly
@@ -47,7 +47,16 @@ Plans:
   3. `val` reassignment, use of a nullable without a null check, and a missing interface method each produce a compile error pointing to the offending line
   4. Escape analysis marks non-escaping heap allocations and the generated C inserts the correct free; concurrency checks reject `parallel for` bodies that mutate outer non-mutex variables
   5. C unit tests cover lexer, parser, semantic, and codegen internals; end-to-end .iron integration tests verify compilation and execution
-**Plans**: TBD
+**Plans:** 7 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Type system and scope tree infrastructure
+- [ ] 02-02-PLAN.md — Two-pass name resolution with forward references
+- [ ] 02-03-PLAN.md — Type checking with inference, immutability, and nullable narrowing
+- [ ] 02-04-PLAN.md — Escape analysis and concurrency checking
+- [ ] 02-05-PLAN.md — Core C code generator (variables, functions, objects, defer, nullable)
+- [ ] 02-06-PLAN.md — Advanced codegen (vtables, monomorphization, lambdas, concurrency)
+- [ ] 02-07-PLAN.md — Unified pipeline, unit tests, and integration test fixtures
 
 ### Phase 3: Runtime, Stdlib, and CLI
 **Goal**: Iron programs can be built, run, checked, formatted, and tested via the `iron` CLI, backed by a complete runtime and standard library
@@ -80,6 +89,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
-| 2. Semantics and Codegen | 0/TBD | Not started | - |
+| 2. Semantics and Codegen | 0/7 | Not started | - |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
