@@ -4,8 +4,17 @@
 -- Types (match C struct layout exactly)
 -- Note: Vec2 uses Float32 (not Float) because raylib's Vector2 uses C `float`.
 -- Iron's Float maps to double which would cause wrong struct layout.
-object Vec2 { var x: Float32; var y: Float32 }
-object Color { var r: UInt8; var g: UInt8; var b: UInt8; var a: UInt8 }
+object Vec2 {
+  var x: Float32
+  var y: Float32
+}
+
+object Color {
+  var r: UInt8
+  var g: UInt8
+  var b: UInt8
+  var a: UInt8
+}
 
 -- Color constants
 val RED      = Color(230, 41, 55, 255)
