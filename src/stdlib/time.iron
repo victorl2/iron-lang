@@ -1,6 +1,6 @@
 -- time.iron -- Iron wrapper for the Time stdlib module
-object Time {
-  func now() -> Float {}
-  func now_ms() -> Int {}
-  func sleep(ms: Int) {}
-}
+object Time {}
+
+func Time.now() -> Float {}
+func Time.now_ms() -> Int {}
+func Time.sleep(ms: Int) {}

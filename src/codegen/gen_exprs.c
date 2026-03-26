@@ -860,6 +860,27 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
 
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+
+            /* AUTO-STATIC FIELD: If the receiver is a type name (IRON_SYM_TYPE),
+             * emit the constant using convention: IRON_<UPPER(field)>
+             * e.g. Math.PI -> IRON_PI, Math.TAU -> IRON_TAU, Math.E -> IRON_E */
+            if (fa->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id_f = (Iron_Ident *)fa->object;
+                if (obj_id_f->resolved_sym &&
+                    obj_id_f->resolved_sym->sym_kind == IRON_SYM_TYPE) {
+                    const char *fname = fa->field;
+                    size_t flen = strlen(fname);
+                    char *upper = (char *)iron_arena_alloc(ctx->arena, flen + 1,
+                                                           _Alignof(char));
+                    for (size_t k = 0; k < flen; k++) {
+                        upper[k] = (char)toupper((unsigned char)fname[k]);
+                    }
+                    upper[flen] = '\0';
+                    iron_strbuf_appendf(sb, "IRON_%s", upper);
+                    break;
+                }
+            }
+
             emit_expr(sb, fa->object, ctx);
 
             /* Determine whether to use -> or . based on receiver type.
