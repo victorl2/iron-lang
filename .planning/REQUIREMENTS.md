@@ -82,10 +82,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Comptime
 
-- [ ] **CT-01**: `comptime` expressions evaluate at compile time and emit result as literals
+- [x] **CT-01**: `comptime` expressions evaluate at compile time and emit result as literals
 - [ ] **CT-02**: `comptime read_file()` embeds file contents as string/byte array at compile time
-- [ ] **CT-03**: Comptime restrictions enforced: no heap, no rc, no runtime I/O
-- [ ] **CT-04**: Step limit prevents infinite loops during compile-time evaluation
+- [x] **CT-03**: Comptime restrictions enforced: no heap, no rc, no runtime I/O
+- [x] **CT-04**: Step limit prevents infinite loops during compile-time evaluation
 
 ### Game Dev Integration
 
@@ -199,10 +199,10 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | CLI-07 | Phase 3 | Complete |
 | CLI-08 | Phase 3 | Complete |
 | TEST-04 | Phase 3 | Complete |
-| CT-01 | Phase 4 | Pending |
+| CT-01 | Phase 4 | Complete |
 | CT-02 | Phase 4 | Pending |
-| CT-03 | Phase 4 | Pending |
-| CT-04 | Phase 4 | Pending |
+| CT-03 | Phase 4 | Complete |
+| CT-04 | Phase 4 | Complete |
 | GAME-01 | Phase 4 | Complete |
 | GAME-02 | Phase 4 | Complete |
 | GAME-03 | Phase 4 | Pending |
