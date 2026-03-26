@@ -94,3 +94,7 @@ add_test(NAME test_escape COMMAND test_escape)
 add_executable(test_concurrency tests/test_concurrency.c)
 target_link_libraries(test_concurrency iron_compiler unity)
 add_test(NAME test_concurrency COMMAND test_concurrency)
+
+add_executable(test_codegen tests/test_codegen.c)
+target_link_libraries(test_codegen iron_compiler unity)
+add_test(NAME test_codegen COMMAND test_codegen)
