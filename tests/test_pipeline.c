@@ -66,7 +66,8 @@ static const char *compile_iron(const char *source, Iron_DiagList *diags) {
         return NULL;
     }
 
-    Iron_AnalyzeResult result = iron_analyze(program, &arena, diags);
+    Iron_AnalyzeResult result = iron_analyze(program, &arena, diags,
+                                               NULL, source, strlen(source), false);
     if (result.has_errors) {
         iron_arena_free(&arena);
         return NULL;
@@ -96,7 +97,8 @@ static const char *run_pipeline(const char *src) {
 
     if (!prog || g_diags.error_count > 0) return NULL;
 
-    Iron_AnalyzeResult result = iron_analyze(prog, &g_arena, &g_diags);
+    Iron_AnalyzeResult result = iron_analyze(prog, &g_arena, &g_diags,
+                                               NULL, src, strlen(src), false);
     if (result.has_errors) return NULL;
 
     return iron_codegen(prog, result.global_scope, &g_arena, &g_diags);
@@ -314,7 +316,8 @@ void test_pipeline_analyze_result_success(void) {
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
 
-    Iron_AnalyzeResult result = iron_analyze(prog, &g_arena, &g_diags);
+    Iron_AnalyzeResult result = iron_analyze(prog, &g_arena, &g_diags,
+                                               NULL, src, strlen(src), false);
     TEST_ASSERT_FALSE(result.has_errors);
     TEST_ASSERT_NOT_NULL(result.global_scope);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
@@ -336,7 +339,8 @@ void test_pipeline_analyze_result_failure(void) {
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
 
-    Iron_AnalyzeResult result = iron_analyze(prog, &g_arena, &g_diags);
+    Iron_AnalyzeResult result = iron_analyze(prog, &g_arena, &g_diags,
+                                               NULL, src, strlen(src), false);
     TEST_ASSERT_TRUE(result.has_errors);
     TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
 }

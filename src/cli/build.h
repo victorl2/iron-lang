@@ -9,6 +9,8 @@ typedef struct {
     bool        run_after;        /* true for "iron run" */
     const char **run_args;        /* args after -- */
     int          run_arg_count;
+    bool        use_raylib;       /* true when iron.toml has [dependencies] raylib = true */
+    bool        force_comptime;   /* --force-comptime flag: skip comptime cache */
 } IronBuildOpts;
 
 /* Build a .iron source file to a native binary.
