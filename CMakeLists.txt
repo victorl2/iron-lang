@@ -171,3 +171,12 @@ add_test(
 set_tests_properties(test_cli_help PROPERTIES
     PASS_REGULAR_EXPRESSION "Usage: iron"
 )
+
+# ── Integration tests ────────────────────────────────────────────────────────
+# Compiles .iron files to native binaries and verifies their runtime output.
+add_test(
+    NAME test_integration
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/run_integration.sh
+            ${CMAKE_BINARY_DIR}/iron
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
