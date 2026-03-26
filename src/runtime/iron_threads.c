@@ -15,7 +15,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
+#ifdef _WIN32
+  #include <windows.h>
+#else
+  #include <unistd.h>
+#endif
 
 /* ── Global pool instance ────────────────────────────────────────────────── */
 
@@ -29,16 +33,16 @@ typedef struct {
 } Iron_WorkItem;
 
 struct Iron_Pool {
-    pthread_t       *threads;
+    iron_thread_t   *threads;
     int              thread_count;
     Iron_WorkItem   *queue;      /* circular buffer */
     int              queue_head;
     int              queue_tail;
     int              queue_count;
     int              queue_capacity;
-    pthread_mutex_t  lock;
-    pthread_cond_t   work_ready;
-    pthread_cond_t   work_done;
+    iron_mutex_t     lock;
+    iron_cond_t      work_ready;
+    iron_cond_t      work_done;
     int              pending;
     bool             shutdown;
     const char      *name;
@@ -64,20 +68,28 @@ static void pool_queue_grow(Iron_Pool *pool) {
 }
 
 /* Worker thread entry point */
+#ifdef _WIN32
+static int pool_worker(void *arg) {
+#else
 static void *pool_worker(void *arg) {
+#endif
     Iron_Pool *pool = (Iron_Pool *)arg;
 
     for (;;) {
-        pthread_mutex_lock(&pool->lock);
+        IRON_MUTEX_LOCK(pool->lock);
 
         /* Wait until there is work or the pool is shutting down */
         while (pool->queue_count == 0 && !pool->shutdown) {
-            pthread_cond_wait(&pool->work_ready, &pool->lock);
+            IRON_COND_WAIT(pool->work_ready, pool->lock);
         }
 
         if (pool->shutdown && pool->queue_count == 0) {
-            pthread_mutex_unlock(&pool->lock);
+            IRON_MUTEX_UNLOCK(pool->lock);
+#ifdef _WIN32
+            return 0;
+#else
             return NULL;
+#endif
         }
 
         /* Dequeue one item */
@@ -85,18 +97,18 @@ static void *pool_worker(void *arg) {
         pool->queue_head = (pool->queue_head + 1) % pool->queue_capacity;
         pool->queue_count--;
 
-        pthread_mutex_unlock(&pool->lock);
+        IRON_MUTEX_UNLOCK(pool->lock);
 
         /* Execute the work item */
         item.fn(item.arg);
 
         /* Decrement pending and signal barrier waiters if done */
-        pthread_mutex_lock(&pool->lock);
+        IRON_MUTEX_LOCK(pool->lock);
         pool->pending--;
         if (pool->pending == 0) {
-            pthread_cond_broadcast(&pool->work_done);
+            IRON_COND_BROADCAST(pool->work_done);
         }
-        pthread_mutex_unlock(&pool->lock);
+        IRON_MUTEX_UNLOCK(pool->lock);
     }
 }
 
@@ -124,12 +136,12 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
         return NULL;
     }
 
-    pthread_mutex_init(&pool->lock,       NULL);
-    pthread_cond_init(&pool->work_ready,  NULL);
-    pthread_cond_init(&pool->work_done,   NULL);
+    IRON_MUTEX_INIT(pool->lock);
+    IRON_COND_INIT(pool->work_ready);
+    IRON_COND_INIT(pool->work_done);
 
-    pool->threads = (pthread_t *)malloc(
-        (size_t)thread_count * sizeof(pthread_t));
+    pool->threads = (iron_thread_t *)malloc(
+        (size_t)thread_count * sizeof(iron_thread_t));
     if (!pool->threads) {
         free(pool->queue);
         free(pool);
@@ -137,7 +149,7 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
     }
 
     for (int i = 0; i < thread_count; i++) {
-        pthread_create(&pool->threads[i], NULL, pool_worker, pool);
+        IRON_THREAD_CREATE(pool->threads[i], pool_worker, pool);
     }
 
     return pool;
@@ -146,7 +158,7 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
 void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
     if (!pool || !fn) return;
 
-    pthread_mutex_lock(&pool->lock);
+    IRON_MUTEX_LOCK(pool->lock);
 
     if (pool->queue_count == pool->queue_capacity) {
         pool_queue_grow(pool);
@@ -158,17 +170,17 @@ void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
     pool->queue_count++;
     pool->pending++;
 
-    pthread_cond_signal(&pool->work_ready);
-    pthread_mutex_unlock(&pool->lock);
+    IRON_COND_SIGNAL(pool->work_ready);
+    IRON_MUTEX_UNLOCK(pool->lock);
 }
 
 void Iron_pool_barrier(Iron_Pool *pool) {
     if (!pool) return;
-    pthread_mutex_lock(&pool->lock);
+    IRON_MUTEX_LOCK(pool->lock);
     while (pool->pending > 0) {
-        pthread_cond_wait(&pool->work_done, &pool->lock);
+        IRON_COND_WAIT(pool->work_done, pool->lock);
     }
-    pthread_mutex_unlock(&pool->lock);
+    IRON_MUTEX_UNLOCK(pool->lock);
 }
 
 int Iron_pool_thread_count(const Iron_Pool *pool) {
@@ -178,20 +190,20 @@ int Iron_pool_thread_count(const Iron_Pool *pool) {
 void Iron_pool_destroy(Iron_Pool *pool) {
     if (!pool) return;
 
-    pthread_mutex_lock(&pool->lock);
+    IRON_MUTEX_LOCK(pool->lock);
     pool->shutdown = true;
-    pthread_cond_broadcast(&pool->work_ready);
-    pthread_mutex_unlock(&pool->lock);
+    IRON_COND_BROADCAST(pool->work_ready);
+    IRON_MUTEX_UNLOCK(pool->lock);
 
     for (int i = 0; i < pool->thread_count; i++) {
-        pthread_join(pool->threads[i], NULL);
+        IRON_THREAD_JOIN(pool->threads[i]);
     }
 
     free(pool->threads);
     free(pool->queue);
-    pthread_mutex_destroy(&pool->lock);
-    pthread_cond_destroy(&pool->work_ready);
-    pthread_cond_destroy(&pool->work_done);
+    IRON_MUTEX_DESTROY(pool->lock);
+    IRON_COND_DESTROY(pool->work_ready);
+    IRON_COND_DESTROY(pool->work_done);
     free(pool);
 }
 
@@ -203,7 +215,11 @@ typedef struct {
     void *arg;
 } HandleWrapper;
 
+#ifdef _WIN32
+static int handle_thread_fn(void *arg) {
+#else
 static void *handle_thread_fn(void *arg) {
+#endif
     HandleWrapper *w = (HandleWrapper *)arg;
     Iron_Handle *h   = w->handle;
     void (*fn)(void *) = w->fn;
@@ -212,11 +228,15 @@ static void *handle_thread_fn(void *arg) {
 
     fn(fn_arg);
 
-    pthread_mutex_lock(&h->lock);
+    IRON_MUTEX_LOCK(h->lock);
     h->done = true;
-    pthread_cond_signal(&h->cond);
-    pthread_mutex_unlock(&h->lock);
+    IRON_COND_SIGNAL(h->cond);
+    IRON_MUTEX_UNLOCK(h->lock);
+#ifdef _WIN32
+    return 0;
+#else
     return NULL;
+#endif
 }
 
 Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
@@ -226,8 +246,8 @@ Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
     h->done      = false;
     h->result    = NULL;
     h->panic_msg = NULL;
-    pthread_mutex_init(&h->lock, NULL);
-    pthread_cond_init(&h->cond, NULL);
+    IRON_MUTEX_INIT(h->lock);
+    IRON_COND_INIT(h->cond);
 
     HandleWrapper *w = (HandleWrapper *)malloc(sizeof(HandleWrapper));
     if (!w) {
@@ -238,20 +258,20 @@ Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
     w->fn     = fn;
     w->arg    = arg;
 
-    pthread_create(&h->thread, NULL, handle_thread_fn, w);
+    IRON_THREAD_CREATE(h->thread, handle_thread_fn, w);
     return h;
 }
 
 void Iron_handle_wait(Iron_Handle *handle) {
     if (!handle) return;
 
-    pthread_mutex_lock(&handle->lock);
+    IRON_MUTEX_LOCK(handle->lock);
     while (!handle->done) {
-        pthread_cond_wait(&handle->cond, &handle->lock);
+        IRON_COND_WAIT(handle->cond, handle->lock);
     }
-    pthread_mutex_unlock(&handle->lock);
+    IRON_MUTEX_UNLOCK(handle->lock);
 
-    pthread_join(handle->thread, NULL);
+    IRON_THREAD_JOIN(handle->thread);
 
     if (handle->panic_msg) {
         fprintf(stderr, "panic in spawned task: %s\n", handle->panic_msg);
@@ -261,8 +281,8 @@ void Iron_handle_wait(Iron_Handle *handle) {
 
 void Iron_handle_destroy(Iron_Handle *handle) {
     if (!handle) return;
-    pthread_mutex_destroy(&handle->lock);
-    pthread_cond_destroy(&handle->cond);
+    IRON_MUTEX_DESTROY(handle->lock);
+    IRON_COND_DESTROY(handle->cond);
     free(handle->panic_msg);
     free(handle);
 }
@@ -275,9 +295,9 @@ struct Iron_Channel {
     int             head;
     int             tail;
     int             count;
-    pthread_mutex_t lock;
-    pthread_cond_t  not_full;
-    pthread_cond_t  not_empty;
+    iron_mutex_t    lock;
+    iron_cond_t     not_full;
+    iron_cond_t     not_empty;
     bool            closed;
 };
 
@@ -297,77 +317,77 @@ Iron_Channel *Iron_channel_create(int capacity) {
     ch->count    = 0;
     ch->closed   = false;
 
-    pthread_mutex_init(&ch->lock,      NULL);
-    pthread_cond_init(&ch->not_full,   NULL);
-    pthread_cond_init(&ch->not_empty,  NULL);
+    IRON_MUTEX_INIT(ch->lock);
+    IRON_COND_INIT(ch->not_full);
+    IRON_COND_INIT(ch->not_empty);
     return ch;
 }
 
 void Iron_channel_send(Iron_Channel *ch, void *item) {
     if (!ch) return;
-    pthread_mutex_lock(&ch->lock);
+    IRON_MUTEX_LOCK(ch->lock);
     while (ch->count == ch->capacity && !ch->closed) {
-        pthread_cond_wait(&ch->not_full, &ch->lock);
+        IRON_COND_WAIT(ch->not_full, ch->lock);
     }
     if (ch->closed) {
-        pthread_mutex_unlock(&ch->lock);
+        IRON_MUTEX_UNLOCK(ch->lock);
         return;
     }
     ch->ring[ch->tail] = item;
     ch->tail = (ch->tail + 1) % ch->capacity;
     ch->count++;
-    pthread_cond_signal(&ch->not_empty);
-    pthread_mutex_unlock(&ch->lock);
+    IRON_COND_SIGNAL(ch->not_empty);
+    IRON_MUTEX_UNLOCK(ch->lock);
 }
 
 void *Iron_channel_recv(Iron_Channel *ch) {
     if (!ch) return NULL;
-    pthread_mutex_lock(&ch->lock);
+    IRON_MUTEX_LOCK(ch->lock);
     while (ch->count == 0 && !ch->closed) {
-        pthread_cond_wait(&ch->not_empty, &ch->lock);
+        IRON_COND_WAIT(ch->not_empty, ch->lock);
     }
     if (ch->count == 0 && ch->closed) {
-        pthread_mutex_unlock(&ch->lock);
+        IRON_MUTEX_UNLOCK(ch->lock);
         return NULL;
     }
     void *item   = ch->ring[ch->head];
     ch->head     = (ch->head + 1) % ch->capacity;
     ch->count--;
-    pthread_cond_signal(&ch->not_full);
-    pthread_mutex_unlock(&ch->lock);
+    IRON_COND_SIGNAL(ch->not_full);
+    IRON_MUTEX_UNLOCK(ch->lock);
     return item;
 }
 
 bool Iron_channel_try_recv(Iron_Channel *ch, void **out) {
     if (!ch || !out) return false;
-    pthread_mutex_lock(&ch->lock);
+    IRON_MUTEX_LOCK(ch->lock);
     if (ch->count == 0) {
-        pthread_mutex_unlock(&ch->lock);
+        IRON_MUTEX_UNLOCK(ch->lock);
         return false;
     }
     *out     = ch->ring[ch->head];
     ch->head = (ch->head + 1) % ch->capacity;
     ch->count--;
-    pthread_cond_signal(&ch->not_full);
-    pthread_mutex_unlock(&ch->lock);
+    IRON_COND_SIGNAL(ch->not_full);
+    IRON_MUTEX_UNLOCK(ch->lock);
     return true;
 }
 
 void Iron_channel_close(Iron_Channel *ch) {
     if (!ch) return;
-    pthread_mutex_lock(&ch->lock);
+    IRON_MUTEX_LOCK(ch->lock);
     ch->closed = true;
-    pthread_cond_broadcast(&ch->not_full);
-    pthread_cond_broadcast(&ch->not_empty);
-    pthread_mutex_unlock(&ch->lock);
+    IRON_COND_BROADCAST(ch->not_full);
+    IRON_COND_BROADCAST(ch->not_empty);
+    IRON_MUTEX_UNLOCK(ch->lock);
 }
 
 void Iron_channel_destroy(Iron_Channel *ch) {
     if (!ch) return;
     free(ch->ring);
-    pthread_mutex_destroy(&ch->lock);
-    pthread_cond_destroy(&ch->not_full);
-    pthread_cond_destroy(&ch->not_empty);
+    IRON_MUTEX_DESTROY(ch->lock);
+    IRON_COND_DESTROY(ch->not_full);
+    IRON_COND_DESTROY(ch->not_empty);
     free(ch);
 }
 
@@ -386,44 +406,50 @@ Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size) {
     if (initial_value && size > 0) {
         memcpy(m->value, initial_value, size);
     }
-    pthread_mutex_init(&m->lock, NULL);
+    IRON_MUTEX_INIT(m->lock);
     return m;
 }
 
 void *Iron_mutex_lock(Iron_Mutex *m) {
     if (!m) return NULL;
-    pthread_mutex_lock(&m->lock);
+    IRON_MUTEX_LOCK(m->lock);
     return m->value;
 }
 
 void Iron_mutex_unlock(Iron_Mutex *m) {
     if (!m) return;
-    pthread_mutex_unlock(&m->lock);
+    IRON_MUTEX_UNLOCK(m->lock);
 }
 
 void Iron_mutex_destroy(Iron_Mutex *m) {
     if (!m) return;
     free(m->value);
-    pthread_mutex_destroy(&m->lock);
+    IRON_MUTEX_DESTROY(m->lock);
     free(m);
 }
 
 /* ── Lock / CondVar raw primitives ───────────────────────────────────────── */
 
-void Iron_lock_init(Iron_Lock *l)    { pthread_mutex_init(l, NULL); }
-void Iron_lock_acquire(Iron_Lock *l) { pthread_mutex_lock(l); }
-void Iron_lock_release(Iron_Lock *l) { pthread_mutex_unlock(l); }
+void Iron_lock_init(Iron_Lock *l)    { IRON_MUTEX_INIT(*l); }
+void Iron_lock_acquire(Iron_Lock *l) { IRON_MUTEX_LOCK(*l); }
+void Iron_lock_release(Iron_Lock *l) { IRON_MUTEX_UNLOCK(*l); }
 
-void Iron_condvar_init(Iron_CondVar *cv)                       { pthread_cond_init(cv, NULL); }
-void Iron_condvar_wait(Iron_CondVar *cv, Iron_Lock *l)         { pthread_cond_wait(cv, l); }
-void Iron_condvar_signal(Iron_CondVar *cv)                     { pthread_cond_signal(cv); }
-void Iron_condvar_broadcast(Iron_CondVar *cv)                  { pthread_cond_broadcast(cv); }
+void Iron_condvar_init(Iron_CondVar *cv)                       { IRON_COND_INIT(*cv); }
+void Iron_condvar_wait(Iron_CondVar *cv, Iron_Lock *l)         { IRON_COND_WAIT(*cv, *l); }
+void Iron_condvar_signal(Iron_CondVar *cv)                     { IRON_COND_SIGNAL(*cv); }
+void Iron_condvar_broadcast(Iron_CondVar *cv)                  { IRON_COND_BROADCAST(*cv); }
 
 /* ── Global pool lifecycle (called from iron_runtime_init/shutdown) ───────── */
 
 void iron_threads_init(void) {
-    long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
-    int  thread_count = (ncpus > 1) ? (int)(ncpus - 1) : 1;
+#ifdef _WIN32
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    int cpu_count = (int)si.dwNumberOfProcessors;
+#else
+    int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+    int thread_count = (cpu_count > 1) ? (cpu_count - 1) : 1;
     Iron_global_pool = Iron_pool_create("global", thread_count);
 }
 
