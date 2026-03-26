@@ -277,7 +277,10 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                 iron_strbuf_appendf(sb, ";\n");
                 codegen_indent(sb, ctx->indent + 1);
                 iron_strbuf_appendf(sb,
-                    "int64_t _chunk_size = (_total + 3) / 4; /* 4 chunks */\n");
+                    "int64_t _nthreads = Iron_pool_thread_count(Iron_global_pool);\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb,
+                    "int64_t _chunk_size = (_total + _nthreads - 1) / _nthreads;\n");
                 codegen_indent(sb, ctx->indent + 1);
                 iron_strbuf_appendf(sb,
                     "for (int64_t _c = 0; _c < _total; _c += _chunk_size) {\n");
