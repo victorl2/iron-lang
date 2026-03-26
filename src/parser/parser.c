@@ -1403,9 +1403,14 @@ static Iron_Node *iron_parse_import_decl(Iron_Parser *p) {
 
 /* ── Helper: convert Iron snake_case name to C CamelCase ─────────────────── */
 
-/* e.g. "init_window" -> "InitWindow", "draw_text" -> "DrawText" */
+/* e.g. "init_window" -> "InitWindow", "draw_text" -> "DrawText"
+ * Names with no underscores are returned unchanged so that lowercase C
+ * library functions like "puts" or "printf" are not accidentally capitalized. */
 static const char *iron_snake_to_camel(Iron_Arena *arena, const char *name) {
     if (!name) return name;
+    /* Only apply conversion when the name contains underscores */
+    if (strchr(name, '_') == NULL) return name;
+
     size_t len = strlen(name);
     /* Output can be at most len bytes (we remove underscores, add nothing) */
     char *buf = (char *)iron_arena_alloc(arena, len + 1, 1);
