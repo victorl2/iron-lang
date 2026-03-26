@@ -49,7 +49,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **GEN-08**: Nullable types generate Optional structs with value + has_value flag
 - [x] **GEN-09**: Lambda expressions generate C function pointers with closure data
 - [x] **GEN-10**: Spawn/await/channel/mutex generate correct thread pool and synchronization code
-- [x] **GEN-11**: Parallel-for generates range splitting, chunk submission, and barrier
+- [ ] **GEN-11**: Parallel-for generates range splitting, chunk submission, and barrier
 
 ### Runtime Library
 
@@ -64,10 +64,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Standard Library
 
-- [x] **STD-01**: math module provides trig, sqrt, pow, lerp, random, PI/TAU/E
-- [x] **STD-02**: io module provides file read/write, file_exists, list_files, create_dir
-- [x] **STD-03**: time module provides now, now_ms, sleep, since, Timer
-- [x] **STD-04**: log module provides info/warn/error/debug with level filtering
+- [ ] **STD-01**: math module provides trig, sqrt, pow, lerp, random, PI/TAU/E
+- [ ] **STD-02**: io module provides file read/write, file_exists, list_files, create_dir
+- [ ] **STD-03**: time module provides now, now_ms, sleep, since, Timer
+- [ ] **STD-04**: log module provides info/warn/error/debug with level filtering
 
 ### CLI Toolchain
 
@@ -175,7 +175,7 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | GEN-08 | Phase 2 | Complete |
 | GEN-09 | Phase 2 | Complete |
 | GEN-10 | Phase 2 | Complete |
-| GEN-11 | Phase 2 | Complete |
+| GEN-11 | Phase 5 | Pending |
 | TEST-01 | Phase 2 | Complete |
 | TEST-02 | Phase 2 | Complete |
 | RT-01 | Phase 3 | Complete |
@@ -186,10 +186,10 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | RT-06 | Phase 3 | Complete |
 | RT-07 | Phase 3 | Complete |
 | RT-08 | Phase 3 | Complete |
-| STD-01 | Phase 3 | Complete |
-| STD-02 | Phase 3 | Complete |
-| STD-03 | Phase 3 | Complete |
-| STD-04 | Phase 3 | Complete |
+| STD-01 | Phase 5 | Pending |
+| STD-02 | Phase 5 | Pending |
+| STD-03 | Phase 5 | Pending |
+| STD-04 | Phase 5 | Pending |
 | CLI-01 | Phase 3 | Complete |
 | CLI-02 | Phase 3 | Complete |
 | CLI-03 | Phase 3 | Complete |

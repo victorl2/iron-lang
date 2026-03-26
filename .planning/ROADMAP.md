@@ -16,6 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Semantics and Codegen** - Fully analyzed AST emits valid C11 that compiles and runs (completed 2026-03-26)
 - [x] **Phase 3: Runtime, Stdlib, and CLI** - Iron programs are buildable, runnable, and testable from the command line (completed 2026-03-26)
 - [x] **Phase 4: Comptime, Game Dev, and Cross-Platform** - Comptime evaluation, raylib bindings, and Windows parity complete v1 (completed 2026-03-26)
+- [ ] **Phase 5: Codegen Fixes + Stdlib Wiring** - Fix string interpolation and parallel-for codegen; wire stdlib modules to Iron source via import
 
 ## Phase Details
 
@@ -100,6 +101,19 @@ Plans:
 - [ ] 04-05-PLAN.md — Windows parity (C11 threads, clang-cl, platform CI)
 - [ ] 04-06-PLAN.md — Gap closure: fix raylib.iron syntax, vendor raylib 5.5, pthreads-only runtime
 
+### Phase 5: Codegen Fixes + Stdlib Wiring
+**Goal**: String interpolation and parallel-for produce correct output; stdlib modules (math, io, time, log) are callable from Iron source via import
+**Depends on**: Phase 4
+**Requirements**: GEN-01 (string interpolation codegen), GEN-11, STD-01, STD-02, STD-03, STD-04
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `"value is {x}"` where x=42 produces the string "value is 42" at runtime (not empty string)
+  2. `parallel for i in range(100) { array[i] = i }` correctly distributes the range across pool workers — each iteration runs exactly once with the correct index
+  3. `import math` followed by `val s = sin(1.0)` compiles and produces the correct result
+  4. `import io` followed by `val content, err = read_file("test.txt")` compiles and returns file contents
+  5. `import time` and `import log` modules are callable from Iron source
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
@@ -111,3 +125,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
 | 3. Runtime, Stdlib, and CLI | 8/8 | Complete    | 2026-03-26 |
 | 4. Comptime, Game Dev, and Cross-Platform | 6/6 | Complete    | 2026-03-26 |
+| 5. Codegen Fixes + Stdlib Wiring | 0/TBD | Not started | - |
