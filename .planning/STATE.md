@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-03-26T15:00:00.000Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-03-26T12:31:59.523Z"
 last_activity: "2026-03-26 — Completed plan 03-02: threading primitives (Iron_Pool, Iron_Channel, Iron_Mutex, Iron_Handle) with 13 Unity tests, all 16 tests passing"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 20
-  completed_plans: 14
+  completed_plans: 16
   percent: 60
 ---
 
@@ -61,6 +61,8 @@ Progress: [███████░░░] 60%
 | Phase 02-semantics-and-codegen P08 | 4 | 2 tasks | 4 files |
 | Phase 03-runtime-stdlib-and-cli P01 | 10 | 2 tasks | 12 files |
 | Phase 03-runtime-stdlib-and-cli P02 | 10 | 2 tasks | 5 files |
+| Phase 03-runtime-stdlib-and-cli P03 | 4 | 2 tasks | 4 files |
+| Phase 03-runtime-stdlib-and-cli P04 | 3 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -114,6 +116,9 @@ Recent decisions affecting current work:
 - [Phase 03-runtime-stdlib-and-cli]: 03-02: Iron_Handle uses HeapWrapper struct so spawned thread can access fn and arg after pthread_create returns
 - [Phase 03-runtime-stdlib-and-cli]: 03-02: Channel unbuffered semantics = capacity-1 ring buffer; send blocks until receiver dequeues
 - [Phase 03-runtime-stdlib-and-cli]: 03-02: iron_threads_init declared as extern (not static) forward declaration in iron_string.c since it lives in a different TU
+- [Phase 03-runtime-stdlib-and-cli]: 03-03: Collection macros use eq_fn parameter for type-safe key equality; Map/Set use O(n) linear scan for v1 (API surface compatible with future hash upgrade)
+- [Phase 03-runtime-stdlib-and-cli]: 03-03: IRON_CODEGEN_PROVIDES_STRUCTS guard prevents typedef redefinition when codegen output includes runtime header (C11 duplicate compatible typedef also permits this)
+- [Phase 03-runtime-stdlib-and-cli]: 03-04: Runtime header emitted first in generated C includes; builtins (len/min/max/clamp/abs/assert) registered in resolver with simplified signatures alongside print/println
 
 ### Pending Todos
 
@@ -129,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T15:00:00.000Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-26T12:31:59.521Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
