@@ -64,6 +64,11 @@ typedef struct {
 const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
                          Iron_Arena *arena, Iron_DiagList *diags);
 
+/* Collect outer-variable captures from a node subtree, excluding params.
+ * Returns an stb_ds array of const char* names (caller must arrfree). */
+const char **collect_captures(Iron_Node *body, Iron_Node **params,
+                               int param_count);
+
 /* --- Internal functions used across gen_*.c files --- */
 
 /* Map Iron type to C type string. E.g., IRON_TYPE_INT -> "int64_t" */
