@@ -23,6 +23,7 @@ static const char *s_node_kind_names[IRON_NODE_COUNT] = {
     [IRON_NODE_FREE]            = "FreeStmt",
     [IRON_NODE_LEAK]            = "LeakStmt",
     [IRON_NODE_SPAWN]           = "SpawnStmt",
+    [IRON_NODE_DRAW]            = "DrawBlock",
     [IRON_NODE_BLOCK]           = "Block",
     [IRON_NODE_INT_LIT]         = "IntLit",
     [IRON_NODE_FLOAT_LIT]       = "FloatLit",
@@ -218,6 +219,11 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
         case IRON_NODE_SPAWN: {
             Iron_SpawnStmt *n = (Iron_SpawnStmt *)root;
             walk_child(n->pool_expr, v);
+            walk_child(n->body, v);
+            break;
+        }
+        case IRON_NODE_DRAW: {
+            Iron_DrawBlock *n = (Iron_DrawBlock *)root;
             walk_child(n->body, v);
             break;
         }

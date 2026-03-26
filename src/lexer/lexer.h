@@ -16,15 +16,17 @@ typedef enum {
     IRON_TOK_STRING,
     IRON_TOK_INTERP_STRING,
 
-    /* Keywords (37 total, alphabetical) */
+    /* Keywords (39 total, alphabetical) */
     IRON_TOK_AND,
     IRON_TOK_AWAIT,
     IRON_TOK_COMPTIME,
     IRON_TOK_DEFER,
+    IRON_TOK_DRAW,
     IRON_TOK_ELIF,
     IRON_TOK_ELSE,
     IRON_TOK_ENUM,
     IRON_TOK_EXTENDS,
+    IRON_TOK_EXTERN,
     IRON_TOK_FALSE,
     IRON_TOK_FOR,
     IRON_TOK_FREE,

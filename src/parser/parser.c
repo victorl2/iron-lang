@@ -98,6 +98,13 @@ static bool iron_check(Iron_Parser *p, Iron_TokenKind kind) {
     return iron_peek(p) == kind;
 }
 
+/* True if the current token can appear as a function/method name.
+ * Allows keywords like 'draw' that are common method names. */
+static bool iron_check_name(Iron_Parser *p) {
+    Iron_TokenKind k = iron_peek(p);
+    return k == IRON_TOK_IDENTIFIER || k == IRON_TOK_DRAW;
+}
+
 static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
     if (iron_check(p, kind)) { iron_advance(p); return true; }
     return false;
@@ -1288,6 +1295,16 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
         }
         case IRON_TOK_SPAWN:
             return iron_parse_spawn_stmt(p);
+        case IRON_TOK_DRAW: {
+            Iron_Token *draw_tok = iron_current(p);
+            iron_advance(p);  /* consume 'draw' */
+            Iron_Node *body = iron_parse_block(p);
+            Iron_DrawBlock *db = ARENA_ALLOC(p->arena, Iron_DrawBlock);
+            db->kind = IRON_NODE_DRAW;
+            db->span = iron_span_merge(iron_token_span(p, draw_tok), body->span);
+            db->body = body;
+            return (Iron_Node *)db;
+        }
         case IRON_TOK_LBRACE:
             return iron_parse_block(p);
         default: {
@@ -1384,12 +1401,103 @@ static Iron_Node *iron_parse_import_decl(Iron_Parser *p) {
     return (Iron_Node *)n;
 }
 
+/* ── Helper: convert Iron snake_case name to C CamelCase ─────────────────── */
+
+/* e.g. "init_window" -> "InitWindow", "draw_text" -> "DrawText" */
+static const char *iron_snake_to_camel(Iron_Arena *arena, const char *name) {
+    if (!name) return name;
+    size_t len = strlen(name);
+    /* Output can be at most len bytes (we remove underscores, add nothing) */
+    char *buf = (char *)iron_arena_alloc(arena, len + 1, 1);
+    if (!buf) return name;
+
+    size_t out = 0;
+    bool capitalize_next = true;  /* capitalize first letter */
+
+    for (size_t i = 0; i < len; i++) {
+        char c = name[i];
+        if (c == '_') {
+            capitalize_next = true;
+        } else {
+            if (capitalize_next && c >= 'a' && c <= 'z') {
+                buf[out++] = (char)(c - 'a' + 'A');
+            } else {
+                buf[out++] = c;
+            }
+            capitalize_next = false;
+        }
+    }
+    buf[out] = '\0';
+    return buf;
+}
+
+/* ── Parse extern func declaration ───────────────────────────────────────── */
+
+static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
+    Iron_Token *start = iron_current(p);
+    iron_advance(p);  /* consume 'extern' */
+
+    if (!iron_check(p, IRON_TOK_FUNC)) {
+        iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected 'func' after 'extern'");
+        p->in_error_recovery = true;
+        iron_parser_sync_toplevel(p);
+        return iron_make_error(p);
+    }
+    iron_advance(p);  /* consume 'func' */
+
+    if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected function name after 'extern func'");
+        p->in_error_recovery = true;
+        iron_parser_sync_toplevel(p);
+        return iron_make_error(p);
+    }
+    Iron_Token *name_tok = iron_advance(p);
+    const char *iron_name = iron_arena_strdup(p->arena, name_tok->value,
+                                               strlen(name_tok->value));
+    /* Derive C name: snake_case -> CamelCase */
+    const char *c_name = iron_snake_to_camel(p->arena, iron_name);
+
+    /* Parse parameter list (may be empty) */
+    int         param_count = 0;
+    Iron_Node **params      = iron_parse_param_list(p, &param_count);
+
+    /* Optional return type */
+    Iron_Node *ret = NULL;
+    if (iron_match(p, IRON_TOK_ARROW)) {
+        ret = iron_parse_type_annotation(p);
+    }
+
+    /* No body for extern funcs */
+    Iron_FuncDecl *f        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
+    f->kind                 = IRON_NODE_FUNC_DECL;
+    f->span                 = iron_span_merge(iron_token_span(p, start),
+                                              ret ? ret->span
+                                                  : iron_token_span(p, name_tok));
+    f->name                 = iron_name;
+    f->params               = params;
+    f->param_count          = param_count;
+    f->return_type          = ret;
+    f->body                 = NULL;        /* extern funcs have no body */
+    f->is_private           = is_private;
+    f->is_extern            = true;
+    f->extern_c_name        = c_name;
+    f->generic_params       = NULL;
+    f->generic_param_count  = 0;
+    f->resolved_return_type = NULL;
+    return (Iron_Node *)f;
+}
+
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'func' */
 
-    /* Check for generic method: Pool[T].method or just name */
-    if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+    /* Check for generic method: Pool[T].method or just name.
+     * Accept both identifiers and 'draw' keyword (common method name). */
+    if (!iron_check_name(p)) {
         iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
                        "expected function name");
@@ -1409,7 +1517,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     /* Check for method: TypeName.method_name */
     if (iron_check(p, IRON_TOK_DOT)) {
         iron_advance(p);  /* consume '.' */
-        if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        if (!iron_check_name(p)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
@@ -1473,6 +1581,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     f->return_type          = ret;
     f->body                 = body;
     f->is_private           = is_private;
+    f->is_extern            = false;
+    f->extern_c_name        = NULL;
     f->generic_params       = generic_params;
     f->generic_param_count  = generic_count;
     f->resolved_return_type = NULL;  /* set by type checker */
@@ -1637,7 +1747,8 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         Iron_Token *fsig_start = iron_current(p);
         iron_advance(p);  /* consume 'func' */
 
-        if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        /* Method name: can be a regular identifier or the 'draw' keyword used as name */
+        if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_DRAW)) {
             iron_parser_sync_stmt(p);
             continue;
         }
@@ -1663,6 +1774,8 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         sig->return_type          = sig_ret;
         sig->body                 = NULL;  /* no body — it's a signature */
         sig->is_private           = false;
+        sig->is_extern            = false;
+        sig->extern_c_name        = NULL;
         sig->generic_params       = NULL;
         sig->generic_param_count  = 0;
         sig->resolved_return_type = NULL;  /* set by type checker */
@@ -1744,6 +1857,11 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
 
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
     switch (iron_peek(p)) {
+        case IRON_TOK_EXTERN:    {
+            Iron_Node *n = iron_parse_extern_func(p, is_private);
+            p->in_error_recovery = false;
+            return n;
+        }
         case IRON_TOK_FUNC:      {
             Iron_Node *n = iron_parse_func_or_method(p, is_private);
             p->in_error_recovery = false;
