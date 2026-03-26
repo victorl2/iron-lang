@@ -39,14 +39,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Code Generation
 
-- [ ] **GEN-01**: C code emitted for all Iron language constructs compiles with `gcc/clang -std=c11 -Wall -Werror`
-- [ ] **GEN-02**: Defer statements execute in reverse order at every scope exit including early returns
-- [ ] **GEN-03**: Object inheritance uses struct embedding; child pointer castable to parent
+- [x] **GEN-01**: C code emitted for all Iron language constructs compiles with `gcc/clang -std=c11 -Wall -Werror`
+- [x] **GEN-02**: Defer statements execute in reverse order at every scope exit including early returns
+- [x] **GEN-03**: Object inheritance uses struct embedding; child pointer castable to parent
 - [ ] **GEN-04**: Interface dispatch uses vtable structs with function pointers
 - [ ] **GEN-05**: Generics monomorphized to concrete C types
-- [ ] **GEN-06**: Forward declarations and topological sort prevent C compilation order issues
-- [ ] **GEN-07**: Generated C uses consistent namespace prefix to prevent symbol collisions
-- [ ] **GEN-08**: Nullable types generate Optional structs with value + has_value flag
+- [x] **GEN-06**: Forward declarations and topological sort prevent C compilation order issues
+- [x] **GEN-07**: Generated C uses consistent namespace prefix to prevent symbol collisions
+- [x] **GEN-08**: Nullable types generate Optional structs with value + has_value flag
 - [ ] **GEN-09**: Lambda expressions generate C function pointers with closure data
 - [ ] **GEN-10**: Spawn/await/channel/mutex generate correct thread pool and synchronization code
 - [ ] **GEN-11**: Parallel-for generates range splitting, chunk submission, and barrier
@@ -165,14 +165,14 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | SEM-10 | Phase 2 | Complete |
 | SEM-11 | Phase 2 | Complete |
 | SEM-12 | Phase 2 | Complete |
-| GEN-01 | Phase 2 | Pending |
-| GEN-02 | Phase 2 | Pending |
-| GEN-03 | Phase 2 | Pending |
+| GEN-01 | Phase 2 | Complete |
+| GEN-02 | Phase 2 | Complete |
+| GEN-03 | Phase 2 | Complete |
 | GEN-04 | Phase 2 | Pending |
 | GEN-05 | Phase 2 | Pending |
-| GEN-06 | Phase 2 | Pending |
-| GEN-07 | Phase 2 | Pending |
-| GEN-08 | Phase 2 | Pending |
+| GEN-06 | Phase 2 | Complete |
+| GEN-07 | Phase 2 | Complete |
+| GEN-08 | Phase 2 | Complete |
 | GEN-09 | Phase 2 | Pending |
 | GEN-10 | Phase 2 | Pending |
 | GEN-11 | Phase 2 | Pending |
