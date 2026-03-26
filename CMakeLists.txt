@@ -52,6 +52,7 @@ add_library(iron_compiler STATIC
     src/analyzer/escape.c
     src/analyzer/concurrency.c
     src/analyzer/analyzer.c
+    src/comptime/comptime.c
     src/codegen/codegen.c
     src/codegen/gen_types.c
     src/codegen/gen_stmts.c
