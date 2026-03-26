@@ -1,0 +1,12 @@
+object Vec2 {
+  var x: Float
+  var y: Float
+}
+
+func Vec2.length() -> Float {
+  return self.x + self.y
+}
+
+func main() {
+  val v = Vec2(1.0, 2.0)
+}
