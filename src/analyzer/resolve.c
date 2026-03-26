@@ -130,7 +130,9 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, fd->name,
                                                    IRON_SYM_FUNCTION,
                                                    node, fd->span);
-            sym->is_private = fd->is_private;
+            sym->is_private    = fd->is_private;
+            sym->is_extern     = fd->is_extern;
+            sym->extern_c_name = fd->extern_c_name;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, fd->span,
@@ -263,6 +265,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
+
+            /* Extern funcs have no body — skip resolution entirely */
+            if (fd->is_extern) break;
+
             push_scope(ctx, IRON_SCOPE_FUNCTION);
             ctx->current_scope->owner_name = fd->name;
 
@@ -441,6 +447,12 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
             if (ss->pool_expr) resolve_expr(ctx, ss->pool_expr);
             if (ss->body) resolve_node(ctx, ss->body);
+            break;
+        }
+
+        case IRON_NODE_DRAW: {
+            Iron_DrawBlock *db = (Iron_DrawBlock *)node;
+            if (db->body) resolve_node(ctx, db->body);
             break;
         }
 

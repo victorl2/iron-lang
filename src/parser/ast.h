@@ -38,6 +38,7 @@ typedef enum {
     IRON_NODE_FREE,
     IRON_NODE_LEAK,
     IRON_NODE_SPAWN,
+    IRON_NODE_DRAW,
     IRON_NODE_BLOCK,
 
     /* Expressions */
@@ -143,8 +144,10 @@ typedef struct {
     Iron_Node        **params;
     int                param_count;
     Iron_Node         *return_type;  /* NULL if void */
-    Iron_Node         *body;         /* Iron_Block */
+    Iron_Node         *body;         /* Iron_Block; NULL for extern funcs */
     bool               is_private;
+    bool               is_extern;      /* true for extern func declarations */
+    const char        *extern_c_name;  /* C function name, e.g. "InitWindow"; NULL for non-extern */
     Iron_Node        **generic_params;
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
@@ -305,6 +308,12 @@ typedef struct {
     Iron_Node    *body;
     const char   *handle_name;  /* NULL if no handle */
 } Iron_SpawnStmt;
+
+typedef struct {
+    Iron_Span     span;
+    Iron_NodeKind kind;      /* IRON_NODE_DRAW */
+    Iron_Node    *body;      /* Iron_Block */
+} Iron_DrawBlock;
 
 typedef struct {
     Iron_Span     span;

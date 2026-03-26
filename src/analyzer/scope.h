@@ -42,6 +42,8 @@ typedef struct Iron_Symbol {
     Iron_Span          span;        /* declaration location */
     bool               is_mutable;  /* true for var, false for val */
     bool               is_private;
+    bool               is_extern;       /* true for extern func symbols */
+    const char        *extern_c_name;   /* C-side function name for FFI calls */
 } Iron_Symbol;
 
 /* ── stb_ds hash map entry ───────────────────────────────────────────────── */
