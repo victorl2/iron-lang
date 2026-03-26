@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-03-26T00:37:39.598Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-03-26T01:13:35.110Z"
 last_activity: "2026-03-25 — Completed plan 01-03: recursive descent parser with Pratt expression parsing, 55-node AST, 35 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 11
+  completed_plans: 5
   percent: 75
 ---
 
@@ -51,6 +51,7 @@ Progress: [████████░░] 75%
 
 *Updated after each plan completion*
 | Phase 01-frontend P04 | 12 min | 2 tasks | 11 files |
+| Phase 02-semantics-and-codegen P01 | 4 | 1 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 01-frontend]: 01-04: String interpolation uses sub-parser for {expr} segments, sharing parent arena
 - [Phase 01-frontend]: 01-04: in_error_recovery flag suppresses cascading diagnostics, top-level parser skips stray }
 - [Phase 01-frontend]: 01-04: Pretty-printer uses direct switch dispatch instead of iron_ast_walk visitor for simpler context management
+- [Phase 02-semantics-and-codegen]: 02-01: Primitive types interned as static singletons s_primitives[kind]; pointer equality valid for all primitive comparisons
+- [Phase 02-semantics-and-codegen]: 02-01: iron_scope_define uses shgeti for O(1) duplicate detection before shput; sh_new_strdup mode for key ownership
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T00:37:39.596Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-semantics-and-codegen/02-CONTEXT.md
+Last session: 2026-03-26T01:13:35.108Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
