@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-26T01:13:35.110Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-03-26T02:28:09.246Z"
 last_activity: "2026-03-25 — Completed plan 01-03: recursive descent parser with Pratt expression parsing, 55-node AST, 35 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 5
-  percent: 75
+  completed_plans: 6
+  percent: 55
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** Phase 1 — Frontend
+**Current focus:** Phase 2 — Semantics and Codegen
 
 ## Current Position
 
-Phase: 1 of 4 (Frontend)
-Plan: 3 of 4 in current phase
+Phase: 2 of 4 (Semantics and Codegen)
+Plan: 2 of 7 in current phase
 Status: In progress
-Last activity: 2026-03-25 — Completed plan 01-03: recursive descent parser with Pratt expression parsing, 55-node AST, 35 Unity tests passing
+Last activity: 2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing
 
-Progress: [████████░░] 75%
+Progress: [██████░░░░] 55%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [████████░░] 75%
 *Updated after each plan completion*
 | Phase 01-frontend P04 | 12 min | 2 tasks | 11 files |
 | Phase 02-semantics-and-codegen P01 | 4 | 1 tasks | 7 files |
+| Phase 02-semantics-and-codegen P02 | 68 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase 01-frontend]: 01-04: Pretty-printer uses direct switch dispatch instead of iron_ast_walk visitor for simpler context management
 - [Phase 02-semantics-and-codegen]: 02-01: Primitive types interned as static singletons s_primitives[kind]; pointer equality valid for all primitive comparisons
 - [Phase 02-semantics-and-codegen]: 02-01: iron_scope_define uses shgeti for O(1) duplicate detection before shput; sh_new_strdup mode for key ownership
+- [Phase 02-semantics-and-codegen]: 02-02: Two-pass collect-then-resolve handles forward references where method appears before owning object in source
+- [Phase 02-semantics-and-codegen]: 02-02: self/super parsed as Iron_Ident nodes (name "self"/"super"); resolver special-cases by name — no new AST node kinds
+- [Phase 02-semantics-and-codegen]: 02-02: Arena alloc does not zero memory; parser must explicitly initialize ALL struct fields including semantic annotations or resolver segfaults on garbage pointers
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T01:13:35.108Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-26T02:28:09.244Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
