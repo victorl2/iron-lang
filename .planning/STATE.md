@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-26T15:37:39.155Z"
-last_activity: "2026-03-25 — Completed plan 03-04: codegen runtime integration — generated C now includes iron_runtime.h, parallel-for uses dynamic thread count, builtins len/min/max/clamp/abs/assert registered in resolver, 5 new integration tests, all 17 tests passing"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-26T15:53:09.952Z"
+last_activity: "2026-03-26 — Completed plan 04-02: comptime interpreter — tree-walking AST evaluator with step limit (1M), heap/rc restrictions, function call evaluation; fib(10)=55 at compile time; 6 new tests, all 21 pass"
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 25
-  completed_plans: 21
-  percent: 80
+  completed_plans: 22
+  percent: 84
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 
 ## Current Position
 
-Phase: 3 of 4 (Runtime, Stdlib, and CLI)
-Plan: 4 of 8 in current phase (plans 01-04 complete)
+Phase: 4 of 4 (Comptime, Game Dev, and Cross-Platform)
+Plan: 2 of 5 in current phase (plans 01-02 complete)
 Status: In progress
-Last activity: 2026-03-25 — Completed plan 03-04: codegen runtime integration — generated C now includes iron_runtime.h, parallel-for uses dynamic thread count, builtins len/min/max/clamp/abs/assert registered in resolver, 5 new integration tests, all 17 tests passing
+Last activity: 2026-03-26 — Completed plan 04-02: comptime interpreter — tree-walking AST evaluator with step limit (1M), heap/rc restrictions, function call evaluation; fib(10)=55 at compile time; 6 new tests, all 21 pass
 
-Progress: [████████░░] 80%
+Progress: [████████░░] 84%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [████████░░] 80%
 | Phase 03-runtime-stdlib-and-cli P07 | 3 | 3 tasks | 8 files |
 | Phase 03-runtime-stdlib-and-cli P08 | 5 | 2 tasks | 7 files |
 | Phase 04-comptime-game-dev-and-cross-platform P01 | 18 | 2 tasks | 12 files |
+| Phase 04-comptime-game-dev-and-cross-platform P02 | 19 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,10 @@ Recent decisions affecting current work:
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-01: Extern func prototype/impl emission skipped in codegen — extern funcs declared in external C headers, no Iron_-prefixed wrapper needed
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-01: String literal args to extern funcs emit as raw C strings not iron_string_from_literal() — raylib and C APIs expect const char*
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-01: iron_snake_to_camel() derives CamelCase C FFI name from Iron snake_case (init_window -> InitWindow) at parse time
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-02: Comptime local scope stack uses stb_ds shmap per frame; frames pushed/popped per function call, searched outward for variable lookup
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-02: Return value signaling uses had_return flag + return_val pointer on ctx struct rather than setjmp/longjmp for simplicity
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-02: iron_comptime_apply() performs parent-pointer in-place replacement of IRON_NODE_COMPTIME nodes; all COMPTIME nodes gone before codegen runs
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-02: Step counting at function-call entry and loop-iteration points (not per-expression) to keep hot-path overhead minimal
 
 ### Pending Todos
 
@@ -150,6 +155,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T15:37:39.153Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-26T15:53:09.949Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
