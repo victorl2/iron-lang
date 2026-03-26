@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-25)
 ## Current Position
 
 Phase: 3 of 4 (Runtime, Stdlib, and CLI)
-Plan: 2 of 8 in current phase (plans 01 and 02 complete)
+Plan: 4 of 8 in current phase (plans 01-04 complete)
 Status: In progress
-Last activity: 2026-03-26 — Completed plan 03-02: threading primitives (Iron_Pool, Iron_Channel, Iron_Mutex, Iron_Handle) with 13 Unity tests, all 16 tests passing
+Last activity: 2026-03-25 — Completed plan 03-04: codegen runtime integration — generated C now includes iron_runtime.h, parallel-for uses dynamic thread count, builtins len/min/max/clamp/abs/assert registered in resolver, 5 new integration tests, all 17 tests passing
 
-Progress: [███████░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
