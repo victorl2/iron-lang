@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-03-26T03:12:40.513Z"
+stopped_at: Completed 02-06-PLAN.md
+last_updated: "2026-03-26T03:24:19.170Z"
 last_activity: "2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 55
 ---
 
@@ -56,6 +56,7 @@ Progress: [██████░░░░] 55%
 | Phase 02-semantics-and-codegen P03 | 15 | 1 tasks | 4 files |
 | Phase 02-semantics-and-codegen P04 | 13 | 2 tasks | 7 files |
 | Phase 02-semantics-and-codegen P05 | 10 | 2 tasks | 7 files |
+| Phase 02-semantics-and-codegen P06 | 9 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,7 @@ Recent decisions affecting current work:
 - [Phase 02-semantics-and-codegen]: 02-04: resolve_quiet test helper runs resolve+typecheck into throwaway diag list to avoid stb_ds array offset bugs when resetting count
 - [Phase 02-semantics-and-codegen]: 02-05: Iron_Codegen stores program pointer for has_subtype detection during struct emission
 - [Phase 02-semantics-and-codegen]: 02-05: Generated C uses int64_t explicit cast for integer literals to avoid implicit widening
+- [Phase 02-semantics-and-codegen]: 02-06: Mono registry uses stb_ds shmap keyed by mangled name for O(1) dedup; vtable instances emitted after all function implementations; current_func_name field tracks enclosing function for lambda naming
 
 ### Pending Todos
 
@@ -107,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T03:12:40.510Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-03-26T03:24:19.168Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None
