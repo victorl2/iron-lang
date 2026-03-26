@@ -853,6 +853,75 @@ void test_auto_free_emits_free(void) {
     iron_diaglist_free(&diags);
 }
 
+/* ── Test: generated C includes runtime header ───────────────────────────── */
+
+void test_codegen_includes_runtime(void) {
+    const char *src = "func main() { val x = 1 }";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Generated output must include the runtime header */
+    TEST_ASSERT_TRUE(str_contains(c, "#include \"runtime/iron_runtime.h\""));
+}
+
+/* ── Test: print uses Iron_println (not raw printf) ─────────────────────── */
+
+void test_codegen_print_uses_iron_print(void) {
+    const char *src =
+        "func main() {\n"
+        "    println(\"hello\")\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Must emit the runtime builtin, not a raw printf */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_println"));
+    /* Must NOT fall back to printf with %s format */
+    TEST_ASSERT_FALSE(str_contains(c, "printf(\"%s"));
+}
+
+/* ── Test: generated main() has runtime init and shutdown ───────────────── */
+
+void test_codegen_main_has_init_shutdown(void) {
+    const char *src = "func main() { val x = 1 }";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* The C main() wrapper must call iron_runtime_init() and shutdown */
+    TEST_ASSERT_TRUE(str_contains(c, "iron_runtime_init()"));
+    TEST_ASSERT_TRUE(str_contains(c, "iron_runtime_shutdown()"));
+    /* init must precede shutdown */
+    TEST_ASSERT_TRUE(str_before(c, "iron_runtime_init()", "iron_runtime_shutdown()"));
+}
+
+/* ── Test: parallel-for uses dynamic thread count (not hardcoded 4) ──────── */
+
+void test_codegen_parallel_for_dynamic_chunks(void) {
+    const char *src =
+        "func work(i: Int) { }\n"
+        "func main() {\n"
+        "    val n = 100\n"
+        "    for i in n parallel { work(i) }\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Must query pool thread count at runtime */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_pool_thread_count"));
+    /* Must NOT use the old hardcoded 4-chunk formula */
+    TEST_ASSERT_FALSE(str_contains(c, "(_total + 3) / 4"));
+}
+
+/* ── Test: len() emits Iron_len() runtime builtin ────────────────────────── */
+
+void test_codegen_builtin_len(void) {
+    const char *src =
+        "func main() {\n"
+        "    val s = \"hello\"\n"
+        "    val n = len(s)\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Must emit the runtime builtin Iron_len */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_len("));
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -887,6 +956,11 @@ int main(void) {
     RUN_TEST(test_println_format_no_extra_args);
     RUN_TEST(test_auto_free_emits_free);
     RUN_TEST(test_codegen_output_compiles_with_clang);
+    RUN_TEST(test_codegen_includes_runtime);
+    RUN_TEST(test_codegen_print_uses_iron_print);
+    RUN_TEST(test_codegen_main_has_init_shutdown);
+    RUN_TEST(test_codegen_parallel_for_dynamic_chunks);
+    RUN_TEST(test_codegen_builtin_len);
 
     return UNITY_END();
 }

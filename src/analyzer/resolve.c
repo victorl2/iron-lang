@@ -626,14 +626,83 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
         params[0] = str_t;
         Iron_Type *println_type = iron_type_make_func(arena, params, 1, void_t);
 
-        static const char *builtins[] = { "print", "println" };
+        static const char *print_builtins[] = { "print", "println" };
         for (int bi = 0; bi < 2; bi++) {
             Iron_Span no_span = {0};
-            Iron_Symbol *bsym = iron_symbol_create(arena, builtins[bi],
+            Iron_Symbol *bsym = iron_symbol_create(arena, print_builtins[bi],
                                                     IRON_SYM_FUNCTION,
                                                     NULL, no_span);
             bsym->type = println_type;
             iron_scope_define(ctx.global_scope, arena, bsym);
+        }
+    }
+
+    /* Register remaining builtins: len(String)->Int, min/max(Int,Int)->Int,
+     * clamp(Int,Int,Int)->Int, abs(Int)->Int, assert(Bool)->Void.
+     * These are handled by the codegen but must be in scope so the resolver
+     * and type-checker accept call sites without emitting undefined-identifier
+     * errors.  Signatures use Int/String for simplicity; the type-checker
+     * only verifies that a matching IRON_SYM_FUNCTION symbol exists. */
+    {
+        Iron_Span no_span = {0};
+        Iron_Type *int_t   = iron_type_make_primitive(IRON_TYPE_INT);
+        Iron_Type *str_t   = iron_type_make_primitive(IRON_TYPE_STRING);
+        Iron_Type *bool_t  = iron_type_make_primitive(IRON_TYPE_BOOL);
+        Iron_Type *void_t  = iron_type_make_primitive(IRON_TYPE_VOID);
+
+        /* len(String) -> Int */
+        {
+            Iron_Type *params[1] = { str_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "len",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
+        /* min(Int, Int) -> Int */
+        {
+            Iron_Type *params[2] = { int_t, int_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 2, int_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "min",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
+        /* max(Int, Int) -> Int */
+        {
+            Iron_Type *params[2] = { int_t, int_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 2, int_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "max",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
+        /* clamp(Int, Int, Int) -> Int */
+        {
+            Iron_Type *params[3] = { int_t, int_t, int_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 3, int_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "clamp",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
+        /* abs(Int) -> Int */
+        {
+            Iron_Type *params[1] = { int_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "abs",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
+        /* assert(Bool) -> Void */
+        {
+            Iron_Type *params[1] = { bool_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 1, void_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "assert",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
         }
     }
 
