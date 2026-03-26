@@ -374,6 +374,150 @@ void test_if_generates_c_if(void) {
     TEST_ASSERT_TRUE(str_contains(c, "if ("));
 }
 
+/* ── Test: interface generates vtable struct ──────────────────────────────── */
+
+void test_interface_generates_vtable_struct(void) {
+    const char *src =
+        "interface Drawable {\n"
+        "    func draw()\n"
+        "}\n"
+        "object Player implements Drawable {\n"
+        "    var hp: Int\n"
+        "}\n"
+        "func Player.draw() { }\n"
+        "func main() { val p = Player(100) }\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Vtable struct must be emitted */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Drawable_vtable"));
+    /* Vtable must have a function pointer for draw */
+    TEST_ASSERT_TRUE(str_contains(c, "(*draw)"));
+    /* Static vtable instance for Player implementing Drawable */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Player_Drawable_vtable"));
+    /* Interface ref type must be emitted */
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Drawable_ref"));
+}
+
+/* ── Test: vtable instance references the correct implementation ─────────── */
+
+void test_vtable_instance_has_correct_function_pointer(void) {
+    const char *src =
+        "interface Drawable {\n"
+        "    func draw()\n"
+        "}\n"
+        "object Player implements Drawable {\n"
+        "    var hp: Int\n"
+        "}\n"
+        "func Player.draw() { }\n"
+        "func main() { val p = Player(100) }\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+    /* Vtable instance must reference the implementation function */
+    TEST_ASSERT_TRUE(str_contains(c, ".draw"));
+    TEST_ASSERT_TRUE(str_contains(c, "Iron_Player_draw"));
+}
+
+/* ── Test: monomorphization generates concrete struct via direct API ─────── */
+
+void test_monomorphization_generates_concrete_struct(void) {
+    /* Test via object with a generic-named field placeholder.
+     * We directly verify ensure_monomorphized_type emits the struct. */
+    /* Build a minimal context to call the API */
+    Iron_Arena arena = iron_arena_create(64 * 1024);
+    iron_types_init(&arena);
+    Iron_DiagList diags = iron_diaglist_create();
+
+    /* Create a minimal codegen context */
+    Iron_Codegen ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.arena        = &arena;
+    ctx.diags        = &diags;
+    ctx.global_scope = NULL;
+    ctx.program      = NULL;
+    ctx.struct_bodies  = iron_strbuf_create(1024);
+    ctx.forward_decls  = iron_strbuf_create(256);
+    ctx.prototypes     = iron_strbuf_create(256);
+    ctx.emitted_optionals = NULL;
+    ctx.mono_registry  = NULL;
+
+    /* Create an Iron_Type for Enemy: we'll use a simple OBJECT type */
+    Iron_ObjectDecl enemy_decl;
+    memset(&enemy_decl, 0, sizeof(enemy_decl));
+    enemy_decl.kind = IRON_NODE_OBJECT_DECL;
+    enemy_decl.name = "Enemy";
+
+    Iron_Type *enemy_type = iron_type_make_object(&arena, &enemy_decl);
+    Iron_Type *arg_types[1] = { enemy_type };
+
+    /* Call ensure_monomorphized_type for List[Enemy] */
+    const char *name = ensure_monomorphized_type(&ctx, "List", arg_types, 1);
+    TEST_ASSERT_NOT_NULL(name);
+    TEST_ASSERT_TRUE(str_contains(name, "Iron_List_Iron_Enemy"));
+
+    /* Struct body must have been emitted */
+    const char *bodies = iron_strbuf_get(&ctx.struct_bodies);
+    TEST_ASSERT_TRUE(str_contains(bodies, "Iron_List_Iron_Enemy"));
+    TEST_ASSERT_TRUE(str_contains(bodies, "count"));
+    TEST_ASSERT_TRUE(str_contains(bodies, "capacity"));
+
+    iron_strbuf_free(&ctx.struct_bodies);
+    iron_strbuf_free(&ctx.forward_decls);
+    iron_strbuf_free(&ctx.prototypes);
+    iron_arena_free(&arena);
+    iron_diaglist_free(&diags);
+}
+
+/* ── Test: same generic instantiation is emitted only once (dedup) ─────────── */
+
+void test_monomorphization_dedup(void) {
+    Iron_Arena arena = iron_arena_create(64 * 1024);
+    iron_types_init(&arena);
+    Iron_DiagList diags = iron_diaglist_create();
+
+    Iron_Codegen ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.arena        = &arena;
+    ctx.diags        = &diags;
+    ctx.global_scope = NULL;
+    ctx.program      = NULL;
+    ctx.struct_bodies  = iron_strbuf_create(1024);
+    ctx.forward_decls  = iron_strbuf_create(256);
+    ctx.prototypes     = iron_strbuf_create(256);
+    ctx.emitted_optionals = NULL;
+    ctx.mono_registry  = NULL;
+
+    Iron_ObjectDecl enemy_decl;
+    memset(&enemy_decl, 0, sizeof(enemy_decl));
+    enemy_decl.kind = IRON_NODE_OBJECT_DECL;
+    enemy_decl.name = "Enemy";
+
+    Iron_Type *enemy_type = iron_type_make_object(&arena, &enemy_decl);
+    Iron_Type *arg_types[1] = { enemy_type };
+
+    /* Call twice — should produce same mangled name, only emit struct once */
+    const char *name1 = ensure_monomorphized_type(&ctx, "List", arg_types, 1);
+    const char *name2 = ensure_monomorphized_type(&ctx, "List", arg_types, 1);
+    TEST_ASSERT_NOT_NULL(name1);
+    TEST_ASSERT_NOT_NULL(name2);
+    TEST_ASSERT_EQUAL_STRING(name1, name2);
+
+    /* Count struct definitions emitted */
+    const char *bodies = iron_strbuf_get(&ctx.struct_bodies);
+    int count = 0;
+    const char *ptr = bodies;
+    while ((ptr = strstr(ptr, "Iron_List_Iron_Enemy {")) != NULL) {
+        count++;
+        ptr++;
+    }
+    TEST_ASSERT_EQUAL_INT(1, count);
+
+    iron_strbuf_free(&ctx.struct_bodies);
+    iron_strbuf_free(&ctx.forward_decls);
+    iron_strbuf_free(&ctx.prototypes);
+    iron_arena_free(&arena);
+    iron_diaglist_free(&diags);
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -395,6 +539,10 @@ int main(void) {
     RUN_TEST(test_while_loop_generates_c_while);
     RUN_TEST(test_binary_arithmetic);
     RUN_TEST(test_if_generates_c_if);
+    RUN_TEST(test_interface_generates_vtable_struct);
+    RUN_TEST(test_vtable_instance_has_correct_function_pointer);
+    RUN_TEST(test_monomorphization_generates_concrete_struct);
+    RUN_TEST(test_monomorphization_dedup);
 
     return UNITY_END();
 }
