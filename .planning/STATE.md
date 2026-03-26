@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-06-PLAN.md
-last_updated: "2026-03-26T03:24:19.170Z"
+stopped_at: Completed 02-07-PLAN.md
+last_updated: "2026-03-26T03:32:49.634Z"
 last_activity: "2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing"
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 55
 ---
 
@@ -57,6 +57,7 @@ Progress: [██████░░░░] 55%
 | Phase 02-semantics-and-codegen P04 | 13 | 2 tasks | 7 files |
 | Phase 02-semantics-and-codegen P05 | 10 | 2 tasks | 7 files |
 | Phase 02-semantics-and-codegen P06 | 9 | 2 tasks | 6 files |
+| Phase 02-semantics-and-codegen P07 | 6 | 2 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Recent decisions affecting current work:
 - [Phase 02-semantics-and-codegen]: 02-05: Iron_Codegen stores program pointer for has_subtype detection during struct emission
 - [Phase 02-semantics-and-codegen]: 02-05: Generated C uses int64_t explicit cast for integer literals to avoid implicit widening
 - [Phase 02-semantics-and-codegen]: 02-06: Mono registry uses stb_ds shmap keyed by mangled name for O(1) dedup; vtable instances emitted after all function implementations; current_func_name field tracks enclosing function for lambda naming
+- [Phase 02-semantics-and-codegen]: 02-07: iron_analyze() early-exits after resolve errors and typecheck errors separately to prevent cascading failures
+- [Phase 02-semantics-and-codegen]: 02-07: print/println registered as func(String)->Void builtins in global scope before resolver Pass 1a; codegen continues to handle them as printf() stubs
+- [Phase 02-semantics-and-codegen]: 02-07: Integration .expected files contain C output patterns for grep-based verification, not Iron source
 
 ### Pending Todos
 
@@ -109,6 +113,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T03:24:19.168Z
-Stopped at: Completed 02-06-PLAN.md
+Last session: 2026-03-26T03:32:49.631Z
+Stopped at: Completed 02-07-PLAN.md
 Resume file: None
