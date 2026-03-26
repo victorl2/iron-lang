@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-03-26T12:43:35.422Z"
+stopped_at: Completed 03-06-PLAN.md
+last_updated: "2026-03-26T13:14:42.929Z"
 last_activity: "2026-03-25 — Completed plan 03-04: codegen runtime integration — generated C now includes iron_runtime.h, parallel-for uses dynamic thread count, builtins len/min/max/clamp/abs/assert registered in resolver, 5 new integration tests, all 17 tests passing"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 20
-  completed_plans: 17
+  completed_plans: 18
   percent: 80
 ---
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 80%
 | Phase 03-runtime-stdlib-and-cli P03 | 4 | 2 tasks | 4 files |
 | Phase 03-runtime-stdlib-and-cli P04 | 3 | 2 tasks | 4 files |
 | Phase 03-runtime-stdlib-and-cli P05 | 5 | 2 tasks | 10 files |
+| Phase 03-runtime-stdlib-and-cli P06 | 6 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,7 @@ Recent decisions affecting current work:
 - [Phase 03-runtime-stdlib-and-cli]: 03-03: IRON_CODEGEN_PROVIDES_STRUCTS guard prevents typedef redefinition when codegen output includes runtime header (C11 duplicate compatible typedef also permits this)
 - [Phase 03-runtime-stdlib-and-cli]: 03-04: Runtime header emitted first in generated C includes; builtins (len/min/max/clamp/abs/assert) registered in resolver with simplified signatures alongside print/println
 - [Phase 03-runtime-stdlib-and-cli]: 03-05: Global RNG uses two separate __thread statics (state + init flag); UNITY_INCLUDE_DOUBLE added to unity PUBLIC definitions; Iron_io_list_files uses newline separator (not comma) for unambiguous filename parsing
+- [Phase 03-runtime-stdlib-and-cli]: 03-06: IRON_SOURCE_DIR baked in at CMake configure time for runtime source discovery; posix_spawn (not posix_spawnp) for iron run; WILL_FAIL removed from test_cli_help (PASS_REGULAR_EXPRESSION alone correct)
 
 ### Pending Todos
 
@@ -136,6 +138,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T12:43:35.419Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-03-26T13:14:42.926Z
+Stopped at: Completed 03-06-PLAN.md
 Resume file: None
