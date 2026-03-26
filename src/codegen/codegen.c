@@ -240,10 +240,15 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     ctx.implementations = iron_strbuf_create(4096);
     ctx.main_wrapper    = iron_strbuf_create(128);
 
-    ctx.defer_stacks      = NULL;
-    ctx.defer_depth       = 0;
+    ctx.defer_stacks         = NULL;
+    ctx.defer_depth          = 0;
     ctx.function_scope_depth = 0;
-    ctx.emitted_optionals = NULL;
+    ctx.emitted_optionals    = NULL;
+    ctx.mono_registry        = NULL;
+    ctx.lambda_counter       = 0;
+    ctx.spawn_counter        = 0;
+    ctx.parallel_counter     = 0;
+    ctx.lifted_funcs         = iron_strbuf_create(1024);
 
     /* ── 1. Includes ──────────────────────────────────────────────────────── */
     iron_strbuf_appendf(&ctx.includes, "#include <stdint.h>\n");
@@ -311,6 +316,17 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
         arrfree(topo.sorted);
     }
 
+    /* ── 3b. Interface vtable structs and ref types ───────────────────────── */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (decl->kind != IRON_NODE_INTERFACE_DECL) continue;
+        Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)decl;
+        emit_interface_vtable_struct(&ctx, iface);
+    }
+    if (ctx.struct_bodies.len > 0) {
+        iron_strbuf_appendf(&ctx.struct_bodies, "\n");
+    }
+
     /* ── 4. Enum definitions ─────────────────────────────────────────────── */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
@@ -356,6 +372,27 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
         }
     }
 
+    /* ── 6b. Vtable instances (emitted after all function impls are available) */
+    /* For each object that implements interfaces, emit a static vtable instance */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (decl->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
+        for (int j = 0; j < od->implements_count; j++) {
+            const char *iface_name = od->implements_names[j];
+            /* Find the interface decl */
+            for (int k = 0; k < program->decl_count; k++) {
+                Iron_Node *id = program->decls[k];
+                if (id->kind != IRON_NODE_INTERFACE_DECL) continue;
+                Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)id;
+                if (strcmp(iface->name, iface_name) == 0) {
+                    emit_vtable_instance(&ctx, od->name, iface);
+                    break;
+                }
+            }
+        }
+    }
+
     /* ── 7. main() wrapper ───────────────────────────────────────────────── */
     iron_strbuf_appendf(&ctx.main_wrapper,
                          "int main(int argc, char** argv) {\n");
@@ -382,6 +419,11 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
                         ctx.enum_defs.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.prototypes),
                         ctx.prototypes.len);
+    /* Lifted functions (lambda bodies, spawn bodies, parallel chunks) */
+    if (ctx.lifted_funcs.len > 0) {
+        iron_strbuf_append(&output, iron_strbuf_get(&ctx.lifted_funcs),
+                            ctx.lifted_funcs.len);
+    }
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.implementations),
                         ctx.implementations.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.main_wrapper),
@@ -398,6 +440,7 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     iron_strbuf_free(&ctx.enum_defs);
     iron_strbuf_free(&ctx.prototypes);
     iron_strbuf_free(&ctx.implementations);
+    iron_strbuf_free(&ctx.lifted_funcs);
     iron_strbuf_free(&ctx.main_wrapper);
     iron_strbuf_free(&output);
 
@@ -409,6 +452,7 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     }
     arrfree(ctx.defer_stacks);
     arrfree(ctx.emitted_optionals);
+    shfree(ctx.mono_registry);
 
     return result;
 }
