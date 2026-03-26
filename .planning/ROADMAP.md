@@ -13,7 +13,7 @@ Iron is built in four broad phases that follow the natural dependency graph of a
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Frontend** - Lexer and parser produce a complete, span-annotated AST from any Iron source file (completed 2026-03-25)
-- [ ] **Phase 2: Semantics and Codegen** - Fully analyzed AST emits valid C11 that compiles and runs
+- [x] **Phase 2: Semantics and Codegen** - Fully analyzed AST emits valid C11 that compiles and runs (completed 2026-03-26)
 - [ ] **Phase 3: Runtime, Stdlib, and CLI** - Iron programs are buildable, runnable, and testable from the command line
 - [ ] **Phase 4: Comptime, Game Dev, and Cross-Platform** - Comptime evaluation, raylib bindings, and Windows parity complete v1
 
@@ -47,7 +47,7 @@ Plans:
   3. `val` reassignment, use of a nullable without a null check, and a missing interface method each produce a compile error pointing to the offending line
   4. Escape analysis marks non-escaping heap allocations and the generated C inserts the correct free; concurrency checks reject `parallel for` bodies that mutate outer non-mutex variables
   5. C unit tests cover lexer, parser, semantic, and codegen internals; end-to-end .iron integration tests verify compilation and execution
-**Plans:** 8 plans
+**Plans:** 8/8 plans complete
 
 Plans:
 - [x] 02-01-PLAN.md — Type system and scope tree infrastructure
@@ -90,6 +90,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
-| 2. Semantics and Codegen | 7/8 | Gap closure | - |
+| 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
