@@ -34,7 +34,7 @@ typedef enum {
 
 /* ── Symbol ──────────────────────────────────────────────────────────────── */
 
-typedef struct {
+typedef struct Iron_Symbol {
     const char        *name;
     Iron_SymbolKind    sym_kind;
     Iron_Type         *type;        /* resolved type; NULL until type-checked */
