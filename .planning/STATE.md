@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-05-PLAN.md
-last_updated: "2026-03-26T16:16:30.691Z"
+stopped_at: Completed 04-06-PLAN.md
+last_updated: "2026-03-26T16:46:36.472Z"
 last_activity: "2026-03-26 — Completed plan 04-03: raylib.iron wrapper with Key enum (RIGHT=262 etc), explicit enum ordinals in AST/parser/codegen, build pipeline compiles raylib inline, extern func integration test passing"
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 25
-  completed_plans: 25
+  total_plans: 26
+  completed_plans: 26
   percent: 92
 ---
 
@@ -72,6 +72,7 @@ Progress: [█████████░] 92%
 | Phase 04-comptime-game-dev-and-cross-platform P03 | 8 | 3 tasks | 12 files |
 | Phase 04-comptime-game-dev-and-cross-platform P04 | 15 | 2 tasks | 11 files |
 | Phase 04-comptime-game-dev-and-cross-platform P05 | 6 | 2 tasks | 5 files |
+| Phase 04-comptime-game-dev-and-cross-platform P06 | 167 | 3 tasks | 163 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,8 @@ Recent decisions affecting current work:
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-05: Threading abstraction uses iron_thread_t/iron_mutex_t/iron_cond_t typedefs + IRON_* macros; Unix maps to pthreads, Windows to C11 threads.h
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-05: build.c Windows path uses clang-cl + /std:c11 + /Fe<output> + CreateProcess; GetTempPath/GetTempFileName replaces mkstemps
 - [Phase 04-comptime-game-dev-and-cross-platform]: 04-05: CI matrix fail-fast: false so all three platforms (ubuntu/macOS/Windows) always report independently; integration tests skipped on Windows
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-06: pthreads used unconditionally on all platforms; C11 threads.h path removed; Windows uses pthreads4w via Chocolatey
+- [Phase 04-comptime-game-dev-and-cross-platform]: 04-06: vendor/raylib/raylib.c is an amalgamation driver that #includes all raylib 5.5 source modules; no single-file amalgam ships in the tarball
 
 ### Pending Todos
 
@@ -165,6 +168,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T16:16:30.688Z
-Stopped at: Completed 04-05-PLAN.md
+Last session: 2026-03-26T16:46:36.470Z
+Stopped at: Completed 04-06-PLAN.md
 Resume file: None
