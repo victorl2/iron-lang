@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-04-PLAN.md
-last_updated: "2026-03-26T19:59:51.182Z"
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-03-26T20:50:27.898Z"
 last_activity: "2026-03-26 — Completed plan 04-03: raylib.iron wrapper with Key enum (RIGHT=262 etc), explicit enum ordinals in AST/parser/codegen, build pipeline compiles raylib inline, extern func integration test passing"
 progress:
   total_phases: 5
   completed_phases: 5
-  total_plans: 30
-  completed_plans: 30
+  total_plans: 31
+  completed_plans: 31
   percent: 92
 ---
 
@@ -77,6 +77,7 @@ Progress: [█████████░] 92%
 | Phase 05-codegen-fixes-stdlib-wiring P01 | 11 | 2 tasks | 3 files |
 | Phase 05-codegen-fixes-stdlib-wiring P02 | 13 | 2 tasks | 4 files |
 | Phase 05-codegen-fixes-stdlib-wiring P04 | 2 | 2 tasks | 15 files |
+| Phase 05-codegen-fixes-stdlib-wiring P05 | 1 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,7 @@ Recent decisions affecting current work:
 - [Phase 05-codegen-fixes-stdlib-wiring]: 05-02: collect_captures made non-static and declared in codegen.h for gen_stmts.c cross-TU use
 - [Phase 05-codegen-fixes-stdlib-wiring]: 05-02: Iron parallel-for syntax is 'for VAR in ITERABLE parallel { BODY }' not 'parallel for...'
 - [Phase 05-codegen-fixes-stdlib-wiring]: 05-04: Parallel-for test uses empty body + known formula println (Iron syntax: for i in 100 parallel {}); Log test skips Log.info call due to dynamic stderr timestamp
+- [Phase 05-codegen-fixes-stdlib-wiring]: 05-05: Static inline wrapper at C header level bridges Iron -> String declaration and C -> Iron_Result_String_Error implementation; _result suffix preserves full struct access for C callers
 
 ### Pending Todos
 
@@ -178,6 +180,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T19:59:51.179Z
-Stopped at: Completed 05-04-PLAN.md
+Last session: 2026-03-26T20:50:27.895Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None
