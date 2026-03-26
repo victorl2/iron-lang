@@ -54,7 +54,7 @@ static Iron_Program *run_analysis(const char *src) {
                                             &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    iron_analyze(prog, &g_arena, &g_diags);
+    iron_analyze(prog, &g_arena, &g_diags, NULL, src, strlen(src), false);
     return prog;
 }
 

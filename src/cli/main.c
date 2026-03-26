@@ -17,8 +17,9 @@ static void print_usage(void) {
     fprintf(stderr, "  fmt     Format Iron source code\n");
     fprintf(stderr, "  test    Discover and run Iron tests\n");
     fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  --verbose       Show generated C code\n");
-    fprintf(stderr, "  --debug-build   Keep .iron-build/ directory\n");
+    fprintf(stderr, "  --verbose         Show generated C code\n");
+    fprintf(stderr, "  --debug-build     Keep .iron-build/ directory\n");
+    fprintf(stderr, "  --force-comptime  Skip comptime evaluation cache\n");
 }
 
 int main(int argc, char **argv) {
@@ -32,6 +33,7 @@ int main(int argc, char **argv) {
     /* Parse global flags */
     bool verbose = false;
     bool debug_build = false;
+    bool force_comptime = false;
     const char *source_file = NULL;
     const char **run_args = NULL;
     int run_arg_count = 0;
@@ -41,6 +43,8 @@ int main(int argc, char **argv) {
             verbose = true;
         } else if (strcmp(argv[i], "--debug-build") == 0) {
             debug_build = true;
+        } else if (strcmp(argv[i], "--force-comptime") == 0) {
+            force_comptime = true;
         } else if (strcmp(argv[i], "--") == 0) {
             /* Everything after -- is passed to the program (iron run) */
             run_args = (const char **)&argv[i + 1];
@@ -57,11 +61,13 @@ int main(int argc, char **argv) {
             return 1;
         }
         IronBuildOpts opts = {
-            .verbose     = verbose,
-            .debug_build = debug_build,
-            .run_after   = false,
-            .run_args    = NULL,
-            .run_arg_count = 0
+            .verbose        = verbose,
+            .debug_build    = debug_build,
+            .run_after      = false,
+            .run_args       = NULL,
+            .run_arg_count  = 0,
+            .use_raylib     = false,
+            .force_comptime = force_comptime
         };
         return iron_build(source_file, NULL, opts);
     }
@@ -72,11 +78,13 @@ int main(int argc, char **argv) {
             return 1;
         }
         IronBuildOpts opts = {
-            .verbose       = verbose,
-            .debug_build   = debug_build,
-            .run_after     = true,
-            .run_args      = run_args,
-            .run_arg_count = run_arg_count
+            .verbose        = verbose,
+            .debug_build    = debug_build,
+            .run_after      = true,
+            .run_args       = run_args,
+            .run_arg_count  = run_arg_count,
+            .use_raylib     = false,
+            .force_comptime = force_comptime
         };
         return iron_build(source_file, NULL, opts);
     }
