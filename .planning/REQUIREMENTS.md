@@ -59,21 +59,21 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **RT-04**: Thread pool implementation with work queue, submit, and barrier
 - [x] **RT-05**: Channel implementation (ring buffer + mutex + condvars) with send/recv/try_recv
 - [x] **RT-06**: Mutex wraps a value with lock semantics
-- [x] **RT-07**: Built-in functions work: print, println, len, range, min, max, clamp, abs, assert
+- [ ] **RT-07**: Built-in functions work: print, println, len, range, min, max, clamp, abs, assert
 - [x] **RT-08**: Runtime compiles and passes tests on macOS, Linux, and Windows
 
 ### Standard Library
 
 - [x] **STD-01**: math module provides trig, sqrt, pow, lerp, random, PI/TAU/E
 - [x] **STD-02**: io module provides file read/write, file_exists, list_files, create_dir
-- [x] **STD-03**: time module provides now, now_ms, sleep, since, Timer
+- [ ] **STD-03**: time module provides now, now_ms, sleep, since, Timer
 - [x] **STD-04**: log module provides info/warn/error/debug with level filtering
 
 ### CLI Toolchain
 
 - [x] **CLI-01**: `iron build [file]` compiles .iron to standalone binary via C
 - [x] **CLI-02**: `iron run [file]` compiles and immediately executes
-- [x] **CLI-03**: `iron check [file]` type-checks without compiling to binary
+- [ ] **CLI-03**: `iron check [file]` type-checks without compiling to binary
 - [x] **CLI-04**: `iron fmt [file]` formats Iron source code
 - [x] **CLI-05**: `iron test [dir]` discovers and runs Iron tests
 - [x] **CLI-06**: Error messages show Rust-style diagnostics: source snippet, arrow, suggestion
@@ -184,15 +184,15 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | RT-04 | Phase 3 | Complete |
 | RT-05 | Phase 3 | Complete |
 | RT-06 | Phase 3 | Complete |
-| RT-07 | Phase 3 | Complete |
+| RT-07 | Phase 6 | Pending |
 | RT-08 | Phase 3 | Complete |
 | STD-01 | Phase 5 | Complete |
 | STD-02 | Phase 5 | Complete |
-| STD-03 | Phase 5 | Complete |
+| STD-03 | Phase 6 | Pending |
 | STD-04 | Phase 5 | Complete |
 | CLI-01 | Phase 3 | Complete |
 | CLI-02 | Phase 3 | Complete |
-| CLI-03 | Phase 3 | Complete |
+| CLI-03 | Phase 6 | Pending |
 | CLI-04 | Phase 3 | Complete |
 | CLI-05 | Phase 3 | Complete |
 | CLI-06 | Phase 3 | Complete |
@@ -215,4 +215,4 @@ Deferred to future milestones. Tracked but not in current roadmap.
 
 ---
 *Requirements defined: 2025-03-25*
-*Last updated: 2026-03-25 — Traceability updated to reflect 4-phase coarse roadmap*
+*Last updated: 2026-03-26 — RT-07, STD-03, CLI-03 reassigned to Phase 6 gap closure*

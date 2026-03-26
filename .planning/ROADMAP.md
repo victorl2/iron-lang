@@ -17,6 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Runtime, Stdlib, and CLI** - Iron programs are buildable, runnable, and testable from the command line (completed 2026-03-26)
 - [x] **Phase 4: Comptime, Game Dev, and Cross-Platform** - Comptime evaluation, raylib bindings, and Windows parity complete v1 (completed 2026-03-26)
 - [x] **Phase 5: Codegen Fixes + Stdlib Wiring** - Fix string interpolation and parallel-for codegen; wire stdlib modules to Iron source via import (completed 2026-03-26)
+- [ ] **Phase 6: Milestone Gap Closure** - Close remaining v1.0 audit gaps: range builtin, Timer wrappers, iron check stdlib support
 
 ## Phase Details
 
@@ -121,10 +122,20 @@ Plans:
 - [x] 05-04-PLAN.md — Integration tests (interpolation, parallel-for, math, time, log, hello.iron)
 - [ ] 05-05-PLAN.md — Gap closure: fix IO.read_file return type mismatch, add read_file integration test
 
+### Phase 6: Milestone Gap Closure
+**Goal**: Close the 3 remaining v1.0 audit gaps so all 52 requirements are fully satisfied
+**Depends on**: Phase 5
+**Requirements**: RT-07 (range builtin), STD-03 (Timer/since wrappers), CLI-03 (iron check stdlib support)
+**Gap Closure**: Closes gaps from v1.0 milestone audit
+**Success Criteria** (what must be TRUE):
+  1. `range(10)` is a recognized builtin: registered in resolve.c, implemented in iron_builtins.c, callable from Iron source
+  2. `Time.since()`, `Timer.create()`, `Timer.since()`, `Timer.reset()` are callable from Iron source via time.iron wrapper
+  3. `iron check file_with_import_math.iron` succeeds (check.c prepends stdlib .iron files like build.c)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -133,3 +144,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 3. Runtime, Stdlib, and CLI | 8/8 | Complete    | 2026-03-26 |
 | 4. Comptime, Game Dev, and Cross-Platform | 6/6 | Complete    | 2026-03-26 |
 | 5. Codegen Fixes + Stdlib Wiring | 5/5 | Complete   | 2026-03-26 |
+| 6. Milestone Gap Closure | 0/0 | Planned    |  |
