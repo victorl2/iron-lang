@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-03-26T02:28:09.246Z"
-last_activity: "2026-03-25 — Completed plan 01-03: recursive descent parser with Pratt expression parsing, 55-node AST, 35 Unity tests passing"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-03-26T02:46:41.656Z"
+last_activity: "2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
   percent: 55
 ---
 
@@ -53,6 +53,7 @@ Progress: [██████░░░░] 55%
 | Phase 01-frontend P04 | 12 min | 2 tasks | 11 files |
 | Phase 02-semantics-and-codegen P01 | 4 | 1 tasks | 7 files |
 | Phase 02-semantics-and-codegen P02 | 68 | 2 tasks | 5 files |
+| Phase 02-semantics-and-codegen P03 | 15 | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 02-semantics-and-codegen]: 02-02: Two-pass collect-then-resolve handles forward references where method appears before owning object in source
 - [Phase 02-semantics-and-codegen]: 02-02: self/super parsed as Iron_Ident nodes (name "self"/"super"); resolver special-cases by name — no new AST node kinds
 - [Phase 02-semantics-and-codegen]: 02-02: Arena alloc does not zero memory; parser must explicitly initialize ALL struct fields including semantic annotations or resolver segfaults on garbage pointers
+- [Phase 02-semantics-and-codegen]: 02-03: Type-checker builds parallel scope chain (not reusing resolver scopes); CALL handler disambiguates type-constructor calls by checking callee SYM_TYPE
+- [Phase 02-semantics-and-codegen]: 02-03: Narrowing map uses stb_ds deep-copy for branch analysis; RETURN nullable check emits E0204 not E0215
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T02:28:09.244Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-03-26T02:46:41.654Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
