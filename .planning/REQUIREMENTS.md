@@ -64,10 +64,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Standard Library
 
-- [ ] **STD-01**: math module provides trig, sqrt, pow, lerp, random, PI/TAU/E
-- [ ] **STD-02**: io module provides file read/write, file_exists, list_files, create_dir
-- [ ] **STD-03**: time module provides now, now_ms, sleep, since, Timer
-- [ ] **STD-04**: log module provides info/warn/error/debug with level filtering
+- [x] **STD-01**: math module provides trig, sqrt, pow, lerp, random, PI/TAU/E
+- [x] **STD-02**: io module provides file read/write, file_exists, list_files, create_dir
+- [x] **STD-03**: time module provides now, now_ms, sleep, since, Timer
+- [x] **STD-04**: log module provides info/warn/error/debug with level filtering
 
 ### CLI Toolchain
 
@@ -186,10 +186,10 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | RT-06 | Phase 3 | Complete |
 | RT-07 | Phase 3 | Complete |
 | RT-08 | Phase 3 | Complete |
-| STD-01 | Phase 5 | Pending |
-| STD-02 | Phase 5 | Pending |
-| STD-03 | Phase 5 | Pending |
-| STD-04 | Phase 5 | Pending |
+| STD-01 | Phase 5 | Complete |
+| STD-02 | Phase 5 | Complete |
+| STD-03 | Phase 5 | Complete |
+| STD-04 | Phase 5 | Complete |
 | CLI-01 | Phase 3 | Complete |
 | CLI-02 | Phase 3 | Complete |
 | CLI-03 | Phase 3 | Complete |
