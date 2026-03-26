@@ -68,11 +68,7 @@ static void pool_queue_grow(Iron_Pool *pool) {
 }
 
 /* Worker thread entry point */
-#ifdef _WIN32
-static int pool_worker(void *arg) {
-#else
 static void *pool_worker(void *arg) {
-#endif
     Iron_Pool *pool = (Iron_Pool *)arg;
 
     for (;;) {
@@ -85,11 +81,7 @@ static void *pool_worker(void *arg) {
 
         if (pool->shutdown && pool->queue_count == 0) {
             IRON_MUTEX_UNLOCK(pool->lock);
-#ifdef _WIN32
-            return 0;
-#else
             return NULL;
-#endif
         }
 
         /* Dequeue one item */
@@ -215,11 +207,7 @@ typedef struct {
     void *arg;
 } HandleWrapper;
 
-#ifdef _WIN32
-static int handle_thread_fn(void *arg) {
-#else
 static void *handle_thread_fn(void *arg) {
-#endif
     HandleWrapper *w = (HandleWrapper *)arg;
     Iron_Handle *h   = w->handle;
     void (*fn)(void *) = w->fn;
@@ -232,11 +220,7 @@ static void *handle_thread_fn(void *arg) {
     h->done = true;
     IRON_COND_SIGNAL(h->cond);
     IRON_MUTEX_UNLOCK(h->lock);
-#ifdef _WIN32
-    return 0;
-#else
     return NULL;
-#endif
 }
 
 Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
