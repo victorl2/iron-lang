@@ -1,0 +1,9 @@
+-- io.iron -- Iron wrapper for the IO stdlib module
+object IO {
+  func read_file(path: String) -> String {}
+  func write_file(path: String, content: String) {}
+  func file_exists(path: String) -> Bool {}
+  func create_dir(path: String) {}
+  func delete_file(path: String) {}
+  func list_files(dir_path: String) -> String {}
+}

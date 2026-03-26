@@ -1,0 +1,18 @@
+-- math.iron -- Iron wrapper for the Math stdlib module
+object Math {
+  val PI: Float = 3.14159265358979323846
+  val TAU: Float = 6.28318530717958647692
+  val E: Float = 2.71828182845904523536
+
+  func sin(x: Float) -> Float {}
+  func cos(x: Float) -> Float {}
+  func tan(x: Float) -> Float {}
+  func sqrt(x: Float) -> Float {}
+  func pow(base: Float, exp: Float) -> Float {}
+  func floor(x: Float) -> Float {}
+  func ceil(x: Float) -> Float {}
+  func round(x: Float) -> Float {}
+  func lerp(a: Float, b: Float, t: Float) -> Float {}
+  func random() -> Float {}
+  func random_int(min: Int, max: Int) -> Int {}
+}
