@@ -3,6 +3,7 @@
 #include "analyzer/typecheck.h"
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
+#include "comptime/comptime.h"
 
 Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena, Iron_DiagList *diags) {
     Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false };
@@ -29,6 +30,13 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena, Iron_D
 
     /* Step 5: Concurrency checks */
     iron_concurrency_check(program, result.global_scope, arena, diags);
+
+    /* Step 6: Comptime evaluation — replace IRON_NODE_COMPTIME nodes with literals */
+    if (diags->error_count == 0) {
+        iron_comptime_apply(program, result.global_scope, arena, diags,
+                            NULL /* source_file_dir — set by caller if needed */,
+                            false /* force_comptime */);
+    }
 
     result.has_errors = (diags->error_count > 0);
     return result;
