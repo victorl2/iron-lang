@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-03-26T03:32:49.634Z"
+stopped_at: Completed 02-08-PLAN.md
+last_updated: "2026-03-26T03:52:03.728Z"
 last_activity: "2026-03-25 — Completed plan 02-02: two-pass name resolver with self/super support, forward references, 15 Unity tests passing"
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 12
+  completed_plans: 12
   percent: 55
 ---
 
@@ -58,6 +58,7 @@ Progress: [██████░░░░] 55%
 | Phase 02-semantics-and-codegen P05 | 10 | 2 tasks | 7 files |
 | Phase 02-semantics-and-codegen P06 | 9 | 2 tasks | 6 files |
 | Phase 02-semantics-and-codegen P07 | 6 | 2 tasks | 18 files |
+| Phase 02-semantics-and-codegen P08 | 4 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,10 @@ Recent decisions affecting current work:
 - [Phase 02-semantics-and-codegen]: 02-07: iron_analyze() early-exits after resolve errors and typecheck errors separately to prevent cascading failures
 - [Phase 02-semantics-and-codegen]: 02-07: print/println registered as func(String)->Void builtins in global scope before resolver Pass 1a; codegen continues to handle them as printf() stubs
 - [Phase 02-semantics-and-codegen]: 02-07: Integration .expected files contain C output patterns for grep-based verification, not Iron source
+- [Phase 02-semantics-and-codegen]: 02-08: Self-pointer heuristic: check id->name == 'self' for -> vs . in FIELD_ACCESS without resolved_type pointer-kind check
+- [Phase 02-semantics-and-codegen]: 02-08: println emits printf("%s\n", arg) with newline in format string to avoid clang -Wformat-extra-args
+- [Phase 02-semantics-and-codegen]: 02-08: CALL->CONSTRUCT redirect checks IRON_SYM_TYPE on resolved_sym before regular function call emission
+- [Phase 02-semantics-and-codegen]: 02-08: auto_free free() emitted at emit_block exit after defer drain; clang -fsyntax-only test gates codegen correctness
 
 ### Pending Todos
 
@@ -113,6 +118,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T03:32:49.631Z
-Stopped at: Completed 02-07-PLAN.md
+Last session: 2026-03-26T03:52:03.726Z
+Stopped at: Completed 02-08-PLAN.md
 Resume file: None
