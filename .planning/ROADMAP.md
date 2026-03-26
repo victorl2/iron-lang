@@ -90,7 +90,7 @@ Plans:
   2. `comptime read_file("assets/shader.glsl")` embeds the file contents as a string literal at compile time, resolved relative to the source file
   3. An Iron program that `import raylib` and uses the `draw {}` block compiles to a standalone binary that opens a window and handles input on macOS and Linux
   4. `iron build`, `iron run`, `iron check`, `iron fmt`, and `iron test` all produce correct results on macOS, Linux, and Windows
-**Plans:** 6 plans (5 complete + 1 gap closure)
+**Plans:** 6/6 plans complete
 
 Plans:
 - [ ] 04-01-PLAN.md — extern func declarations and draw {} block (lexer, parser, resolver, codegen)
@@ -110,4 +110,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
 | 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
 | 3. Runtime, Stdlib, and CLI | 8/8 | Complete    | 2026-03-26 |
-| 4. Comptime, Game Dev, and Cross-Platform | 5/6 | In Progress | 2026-03-26 |
+| 4. Comptime, Game Dev, and Cross-Platform | 6/6 | Complete   | 2026-03-26 |
