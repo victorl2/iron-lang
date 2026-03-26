@@ -11,14 +11,16 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
 
 /* ── Lambda capture collection ────────────────────────────────────────────── */
 
 /* Collect identifiers used in the body that are NOT in the param list.
  * These are potential captures from the enclosing scope.
  * Returns an stb_ds array of const char* names (caller must arrfree). */
-static const char **collect_captures(Iron_Node *body, Iron_Node **params,
-                                      int param_count) {
+const char **collect_captures(Iron_Node *body, Iron_Node **params,
+                               int param_count) {
     const char **captures = NULL;
 
     /* Walk the body looking for IRON_NODE_IDENT nodes */
@@ -120,6 +122,37 @@ static const char **collect_captures(Iron_Node *body, Iron_Node **params,
                 arrput(stack, is->condition);
                 arrput(stack, is->body);
                 if (is->else_body) arrput(stack, is->else_body);
+                break;
+            }
+            case IRON_NODE_INDEX: {
+                Iron_IndexExpr *idx = (Iron_IndexExpr *)node;
+                arrput(stack, idx->object);
+                arrput(stack, idx->index);
+                break;
+            }
+            case IRON_NODE_FIELD_ACCESS: {
+                Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+                arrput(stack, fa->object);
+                break;
+            }
+            case IRON_NODE_METHOD_CALL: {
+                Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+                arrput(stack, mc->object);
+                for (int i = 0; i < mc->arg_count; i++) {
+                    arrput(stack, mc->args[i]);
+                }
+                break;
+            }
+            case IRON_NODE_FOR: {
+                Iron_ForStmt *fs2 = (Iron_ForStmt *)node;
+                arrput(stack, fs2->iterable);
+                if (fs2->body) arrput(stack, fs2->body);
+                break;
+            }
+            case IRON_NODE_WHILE: {
+                Iron_WhileStmt *ws2 = (Iron_WhileStmt *)node;
+                arrput(stack, ws2->condition);
+                if (ws2->body) arrput(stack, ws2->body);
                 break;
             }
             default:
@@ -251,6 +284,15 @@ void emit_lambda(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx,
     arrfree(captures);
 }
 
+/* ── Helper: get resolved_type from any expression node ──────────────────── */
+/* All expression AST nodes share the layout: span, kind, resolved_type* as
+ * their first three fields.  Casting to Iron_IntLit is safe as a tag-checked
+ * accessor for that third field. */
+static Iron_Type *node_resolved_type(Iron_Node *n) {
+    if (!n) return NULL;
+    return ((Iron_IntLit *)n)->resolved_type;
+}
+
 /* ── emit_expr ────────────────────────────────────────────────────────────── */
 
 void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
@@ -289,8 +331,249 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
         }
 
         case IRON_NODE_INTERP_STRING: {
-            /* Stub: emit empty string for now (Phase 3 will use snprintf) */
-            iron_strbuf_appendf(sb, "\"\"");
+            /* Two-pass snprintf interpolation using a GNU statement expression.
+             * The format string is built at Iron compile time by scanning parts;
+             * only the snprintf call itself runs at C runtime.
+             *
+             * Variable naming uses a unique index (_interp_idx) so that nested
+             * interpolations don't collide. */
+            Iron_InterpString *istr = (Iron_InterpString *)node;
+            int interp_idx = ctx->lambda_counter++;
+
+            /* ── Pass 1: build format string at codegen time ── */
+            size_t fmt_cap = 256;
+            char  *fmt_buf = (char *)malloc(fmt_cap);
+            size_t fmt_len = 0;
+            fmt_buf[0] = '\0';
+
+#define INTERP_APPEND_CHAR(ch) do { \
+    if (fmt_len + 2 >= fmt_cap) { \
+        fmt_cap *= 2; \
+        fmt_buf = (char *)realloc(fmt_buf, fmt_cap); \
+    } \
+    fmt_buf[fmt_len++] = (ch); \
+    fmt_buf[fmt_len]   = '\0'; \
+} while (0)
+
+#define INTERP_APPEND_STR(str) do { \
+    const char *_sp = (str); \
+    while (*_sp) INTERP_APPEND_CHAR(*_sp++); \
+} while (0)
+
+            for (int pi = 0; pi < istr->part_count; pi++) {
+                Iron_Node *part = istr->parts[pi];
+                if (part->kind == IRON_NODE_STRING_LIT) {
+                    /* Literal segment: copy chars, escaping % -> %% */
+                    Iron_StringLit *slit = (Iron_StringLit *)part;
+                    for (const char *cp = slit->value; *cp; cp++) {
+                        if (*cp == '%') {
+                            INTERP_APPEND_CHAR('%');
+                            INTERP_APPEND_CHAR('%');
+                        } else if (*cp == '"') {
+                            INTERP_APPEND_CHAR('\\');
+                            INTERP_APPEND_CHAR('"');
+                        } else if (*cp == '\\') {
+                            INTERP_APPEND_CHAR('\\');
+                            INTERP_APPEND_CHAR('\\');
+                        } else {
+                            INTERP_APPEND_CHAR(*cp);
+                        }
+                    }
+                } else {
+                    /* Expression segment: choose format specifier by type.
+                     * Cast through Iron_IntLit* to access resolved_type which
+                     * all expression nodes share at the same struct offset. */
+                    Iron_Type *t = ((Iron_IntLit *)part)->resolved_type;
+                    if (!t) {
+                        INTERP_APPEND_STR("%s");
+                    } else {
+                        switch (t->kind) {
+                            case IRON_TYPE_INT:
+                            case IRON_TYPE_INT8:
+                            case IRON_TYPE_INT16:
+                            case IRON_TYPE_INT32:
+                            case IRON_TYPE_INT64:
+                            case IRON_TYPE_UINT:
+                            case IRON_TYPE_UINT8:
+                            case IRON_TYPE_UINT16:
+                            case IRON_TYPE_UINT32:
+                            case IRON_TYPE_UINT64:
+                                INTERP_APPEND_STR("%lld");
+                                break;
+                            case IRON_TYPE_FLOAT:
+                            case IRON_TYPE_FLOAT32:
+                            case IRON_TYPE_FLOAT64:
+                                INTERP_APPEND_STR("%g");
+                                break;
+                            case IRON_TYPE_BOOL:
+                                INTERP_APPEND_STR("%s");
+                                break;
+                            case IRON_TYPE_STRING:
+                                INTERP_APPEND_STR("%s");
+                                break;
+                            default:
+                                INTERP_APPEND_STR("%s");
+                                break;
+                        }
+                    }
+                }
+            }
+
+#undef INTERP_APPEND_CHAR
+#undef INTERP_APPEND_STR
+
+            /* ── Emit the GNU statement expression ── */
+            iron_strbuf_appendf(sb, "({ ");
+
+            /* Declare temp Iron_String variables for String-typed expression
+             * parts so we can take their address for iron_string_cstr(). */
+            int str_tmp = 0;
+            for (int pi = 0; pi < istr->part_count; pi++) {
+                Iron_Node *part = istr->parts[pi];
+                if (part->kind == IRON_NODE_STRING_LIT) continue;
+                Iron_Type *t = ((Iron_IntLit *)part)->resolved_type;
+                if (t && t->kind == IRON_TYPE_STRING) {
+                    iron_strbuf_appendf(sb, "Iron_String _is_%d_%d = ",
+                                        interp_idx, str_tmp);
+                    emit_expr(sb, part, ctx);
+                    iron_strbuf_appendf(sb, "; ");
+                    str_tmp++;
+                }
+            }
+
+            /* Stack buffer + first snprintf (measurement + small-string path) */
+            iron_strbuf_appendf(sb,
+                "char _ibuf_%d[1024]; "
+                "int _in_%d = snprintf(_ibuf_%d, sizeof(_ibuf_%d), \"%s\"",
+                interp_idx, interp_idx, interp_idx, interp_idx, fmt_buf);
+
+            /* Args for first snprintf */
+            str_tmp = 0;
+            for (int pi = 0; pi < istr->part_count; pi++) {
+                Iron_Node *part = istr->parts[pi];
+                if (part->kind == IRON_NODE_STRING_LIT) continue;
+                Iron_Type *t = ((Iron_IntLit *)part)->resolved_type;
+                iron_strbuf_appendf(sb, ", ");
+                if (!t) {
+                    emit_expr(sb, part, ctx);
+                } else {
+                    switch (t->kind) {
+                        case IRON_TYPE_INT:
+                        case IRON_TYPE_INT8:
+                        case IRON_TYPE_INT16:
+                        case IRON_TYPE_INT32:
+                        case IRON_TYPE_INT64:
+                        case IRON_TYPE_UINT:
+                        case IRON_TYPE_UINT8:
+                        case IRON_TYPE_UINT16:
+                        case IRON_TYPE_UINT32:
+                        case IRON_TYPE_UINT64:
+                            iron_strbuf_appendf(sb, "(long long)(");
+                            emit_expr(sb, part, ctx);
+                            iron_strbuf_appendf(sb, ")");
+                            break;
+                        case IRON_TYPE_FLOAT:
+                        case IRON_TYPE_FLOAT32:
+                        case IRON_TYPE_FLOAT64:
+                            iron_strbuf_appendf(sb, "(double)(");
+                            emit_expr(sb, part, ctx);
+                            iron_strbuf_appendf(sb, ")");
+                            break;
+                        case IRON_TYPE_BOOL:
+                            iron_strbuf_appendf(sb, "((");
+                            emit_expr(sb, part, ctx);
+                            iron_strbuf_appendf(sb, ") ? \"true\" : \"false\")");
+                            break;
+                        case IRON_TYPE_STRING:
+                            iron_strbuf_appendf(sb,
+                                "iron_string_cstr(&_is_%d_%d)",
+                                interp_idx, str_tmp);
+                            str_tmp++;
+                            break;
+                        default:
+                            emit_expr(sb, part, ctx);
+                            break;
+                    }
+                }
+            }
+            iron_strbuf_appendf(sb, "); ");
+
+            /* Result variable */
+            iron_strbuf_appendf(sb, "Iron_String _ir_%d; ", interp_idx);
+
+            /* Branch: stack buf fits vs heap needed */
+            iron_strbuf_appendf(sb,
+                "if (_in_%d < 1024) { "
+                    "_ir_%d = iron_string_from_literal(_ibuf_%d, (size_t)_in_%d); "
+                "} else { "
+                    "char *_ihp_%d = (char*)malloc((size_t)_in_%d + 1); "
+                    "snprintf(_ihp_%d, (size_t)_in_%d + 1, \"%s\"",
+                interp_idx, interp_idx, interp_idx, interp_idx,
+                interp_idx, interp_idx,
+                interp_idx, interp_idx, fmt_buf);
+
+            /* Args for second snprintf (heap path) */
+            str_tmp = 0;
+            for (int pi = 0; pi < istr->part_count; pi++) {
+                Iron_Node *part = istr->parts[pi];
+                if (part->kind == IRON_NODE_STRING_LIT) continue;
+                Iron_Type *t = ((Iron_IntLit *)part)->resolved_type;
+                iron_strbuf_appendf(sb, ", ");
+                if (!t) {
+                    emit_expr(sb, part, ctx);
+                } else {
+                    switch (t->kind) {
+                        case IRON_TYPE_INT:
+                        case IRON_TYPE_INT8:
+                        case IRON_TYPE_INT16:
+                        case IRON_TYPE_INT32:
+                        case IRON_TYPE_INT64:
+                        case IRON_TYPE_UINT:
+                        case IRON_TYPE_UINT8:
+                        case IRON_TYPE_UINT16:
+                        case IRON_TYPE_UINT32:
+                        case IRON_TYPE_UINT64:
+                            iron_strbuf_appendf(sb, "(long long)(");
+                            emit_expr(sb, part, ctx);
+                            iron_strbuf_appendf(sb, ")");
+                            break;
+                        case IRON_TYPE_FLOAT:
+                        case IRON_TYPE_FLOAT32:
+                        case IRON_TYPE_FLOAT64:
+                            iron_strbuf_appendf(sb, "(double)(");
+                            emit_expr(sb, part, ctx);
+                            iron_strbuf_appendf(sb, ")");
+                            break;
+                        case IRON_TYPE_BOOL:
+                            iron_strbuf_appendf(sb, "((");
+                            emit_expr(sb, part, ctx);
+                            iron_strbuf_appendf(sb, ") ? \"true\" : \"false\")");
+                            break;
+                        case IRON_TYPE_STRING:
+                            iron_strbuf_appendf(sb,
+                                "iron_string_cstr(&_is_%d_%d)",
+                                interp_idx, str_tmp);
+                            str_tmp++;
+                            break;
+                        default:
+                            emit_expr(sb, part, ctx);
+                            break;
+                    }
+                }
+            }
+
+            /* Close second snprintf; wrap; free heap; end stmt expr */
+            iron_strbuf_appendf(sb,
+                "); "
+                "_ir_%d = iron_string_from_literal(_ihp_%d, (size_t)_in_%d); "
+                "free(_ihp_%d); "
+                "} "
+                "_ir_%d; })",
+                interp_idx, interp_idx, interp_idx,
+                interp_idx,
+                interp_idx);
+
+            free(fmt_buf);
             break;
         }
 

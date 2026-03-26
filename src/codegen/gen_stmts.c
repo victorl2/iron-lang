@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* Forward declarations for mutual recursion */
 static void emit_func_params(Iron_StrBuf *sb, Iron_Node **params,
@@ -240,36 +241,71 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                 codegen_indent(sb, ctx->indent);
                 iron_strbuf_appendf(sb, "}\n");
             } else {
-                /* Parallel for: generate chunk function and range splitting */
+                /* Parallel for: generate capture struct + chunk function */
                 int parallel_idx = ctx->parallel_counter++;
+                char ctx_type[256];
                 char chunk_name[256];
+                snprintf(ctx_type, sizeof(ctx_type),
+                         "Iron_parallel_ctx_%d", parallel_idx);
                 snprintf(chunk_name, sizeof(chunk_name),
                          "Iron_parallel_chunk_%d", parallel_idx);
 
-                /* Emit chunk function: void chunk_N(int64_t start, int64_t end, void* ctx_arg) */
+                /* Collect outer variables referenced in the body,
+                 * excluding the loop variable itself. */
+                Iron_Param fake_param;
+                memset(&fake_param, 0, sizeof(fake_param));
+                fake_param.kind = IRON_NODE_PARAM;
+                fake_param.name = fs->var_name;
+                Iron_Node *fake_params[1] = { (Iron_Node *)&fake_param };
+                const char **captures = collect_captures(fs->body,
+                                                         fake_params, 1);
+                int capture_count = captures ? (int)arrlen(captures) : 0;
+
+                /* Emit capture struct typedef into lifted_funcs */
                 iron_strbuf_appendf(&ctx->lifted_funcs,
-                    "void %s(int64_t start, int64_t end, void* ctx_arg) {\n",
-                    chunk_name);
+                    "typedef struct {\n"
+                    "    int64_t start;\n"
+                    "    int64_t end;\n");
+                for (int i = 0; i < capture_count; i++) {
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "    void *cap_%s;\n", captures[i]);
+                }
                 iron_strbuf_appendf(&ctx->lifted_funcs,
-                    "    (void)ctx_arg;\n");
+                    "} %s;\n\n", ctx_type);
+
+                /* Emit chunk function with void(*)(void*) signature */
                 iron_strbuf_appendf(&ctx->lifted_funcs,
-                    "    for (int64_t %s = start; %s < end; %s++) {\n",
+                    "void %s(void* ctx_arg) {\n", chunk_name);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    %s *_pctx = (%s*)ctx_arg;\n", ctx_type, ctx_type);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    int64_t _start = _pctx->start;\n");
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    int64_t _end = _pctx->end;\n");
+                /* Emit local shadow variables for each capture */
+                for (int i = 0; i < capture_count; i++) {
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "    int64_t *%s = (int64_t*)_pctx->cap_%s;\n",
+                        captures[i], captures[i]);
+                }
+                /* Emit the loop over [_start, _end) */
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    for (int64_t %s = _start; %s < _end; %s++) {\n",
                     fs->var_name, fs->var_name, fs->var_name);
-                /* Emit body with increased indent into lifted_funcs */
                 ctx->indent += 2;
                 if (fs->body) {
                     emit_block(&ctx->lifted_funcs, (Iron_Block *)fs->body, ctx);
                 }
                 ctx->indent -= 2;
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    }\n");
+                iron_strbuf_appendf(&ctx->lifted_funcs, "    free(ctx_arg);\n");
                 iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
 
                 /* Prototype for chunk function */
                 iron_strbuf_appendf(&ctx->prototypes,
-                    "void %s(int64_t start, int64_t end, void* ctx_arg);\n",
-                    chunk_name);
+                    "void %s(void* ctx_arg);\n", chunk_name);
 
-                /* At use site: emit range splitting and pool_submit loop */
+                /* At use site: emit range splitting, malloc per chunk, submit */
                 iron_strbuf_appendf(sb, "{\n");
                 codegen_indent(sb, ctx->indent + 1);
                 iron_strbuf_appendf(sb, "int64_t _total = ");
@@ -277,10 +313,16 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                 iron_strbuf_appendf(sb, ";\n");
                 codegen_indent(sb, ctx->indent + 1);
                 iron_strbuf_appendf(sb,
-                    "int64_t _nthreads = Iron_pool_thread_count(Iron_global_pool);\n");
+                    "int64_t _nthreads = (int64_t)Iron_pool_thread_count(Iron_global_pool);\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb,
+                    "if (_nthreads < 1) _nthreads = 1;\n");
                 codegen_indent(sb, ctx->indent + 1);
                 iron_strbuf_appendf(sb,
                     "int64_t _chunk_size = (_total + _nthreads - 1) / _nthreads;\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb,
+                    "if (_chunk_size < 1) _chunk_size = 1;\n");
                 codegen_indent(sb, ctx->indent + 1);
                 iron_strbuf_appendf(sb,
                     "for (int64_t _c = 0; _c < _total; _c += _chunk_size) {\n");
@@ -289,10 +331,23 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                     "int64_t _end = (_c + _chunk_size > _total) ? _total : _c + _chunk_size;\n");
                 codegen_indent(sb, ctx->indent + 2);
                 iron_strbuf_appendf(sb,
-                    "Iron_pool_submit(Iron_global_pool, (void(*)(void*))%s, (void*)_c);\n",
+                    "%s *_ctx = (%s*)malloc(sizeof(%s));\n",
+                    ctx_type, ctx_type, ctx_type);
+                codegen_indent(sb, ctx->indent + 2);
+                iron_strbuf_appendf(sb, "_ctx->start = _c;\n");
+                codegen_indent(sb, ctx->indent + 2);
+                iron_strbuf_appendf(sb, "_ctx->end = _end;\n");
+                /* Store address of each captured variable */
+                for (int i = 0; i < capture_count; i++) {
+                    codegen_indent(sb, ctx->indent + 2);
+                    iron_strbuf_appendf(sb,
+                        "_ctx->cap_%s = (void*)%s;\n",
+                        captures[i], captures[i]);
+                }
+                codegen_indent(sb, ctx->indent + 2);
+                iron_strbuf_appendf(sb,
+                    "Iron_pool_submit(Iron_global_pool, %s, _ctx);\n",
                     chunk_name);
-                codegen_indent(sb, ctx->indent + 1);
-                iron_strbuf_appendf(sb, "(void)_end;\n");
                 codegen_indent(sb, ctx->indent + 1);
                 iron_strbuf_appendf(sb, "}\n");
                 codegen_indent(sb, ctx->indent + 1);
@@ -300,6 +355,8 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                     "Iron_pool_barrier(Iron_global_pool);\n");
                 codegen_indent(sb, ctx->indent);
                 iron_strbuf_appendf(sb, "}\n");
+
+                if (captures) arrfree(captures);
             }
             break;
         }
