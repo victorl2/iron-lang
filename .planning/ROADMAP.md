@@ -79,7 +79,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Frontend | 4/4 | Complete   | 2026-03-25 |
+| 1. Frontend | 4/4 | Complete    | 2026-03-26 |
 | 2. Semantics and Codegen | 0/TBD | Not started | - |
 | 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
