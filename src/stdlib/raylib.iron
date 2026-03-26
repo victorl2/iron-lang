@@ -1,0 +1,59 @@
+-- raylib.iron — Iron bindings for raylib 5.5
+-- Ships with the Iron compiler; loaded when user writes: import raylib
+
+-- Types (match C struct layout exactly)
+-- Note: Vec2 uses Float32 (not Float) because raylib's Vector2 uses C `float`.
+-- Iron's Float maps to double which would cause wrong struct layout.
+object Vec2 { var x: Float32; var y: Float32 }
+object Color { var r: UInt8; var g: UInt8; var b: UInt8; var a: UInt8 }
+
+-- Color constants
+val RED      = Color(230, 41, 55, 255)
+val BLUE     = Color(0, 121, 241, 255)
+val GREEN    = Color(0, 228, 48, 255)
+val DARKGRAY = Color(80, 80, 80, 255)
+val WHITE    = Color(255, 255, 255, 255)
+val BLACK    = Color(0, 0, 0, 255)
+val YELLOW   = Color(253, 249, 0, 255)
+val ORANGE   = Color(255, 161, 0, 255)
+
+-- Key codes — explicit ordinal values match raylib KEY_* constants exactly.
+-- This is what makes is_key_down(.RIGHT) pass the correct integer to C.
+enum Key {
+  SPACE     = 32,
+  ESCAPE    = 256,
+  ENTER     = 257,
+  BACKSPACE = 259,
+  RIGHT     = 262,
+  LEFT      = 263,
+  DOWN      = 264,
+  UP        = 265,
+  A = 65, B = 66, C = 67, D = 68, E = 69, F = 70,
+  G = 71, H = 72, I = 73, J = 74, K = 75, L = 76,
+  M = 77, N = 78, O = 79, P = 80, Q = 81, R = 82,
+  S = 83, T = 84, U = 85, V = 86, W = 87, X = 88,
+  Y = 89, Z = 90,
+}
+
+-- Window management
+extern func InitWindow(w: Int, h: Int, title: String)
+extern func CloseWindow()
+extern func WindowShouldClose() -> Bool
+extern func SetTargetFPS(fps: Int)
+extern func GetFrameTime() -> Float32
+
+-- Drawing
+extern func ClearBackground(color: Color)
+extern func BeginDrawing()
+extern func EndDrawing()
+extern func DrawText(text: String, x: Int, y: Int, size: Int, color: Color)
+extern func DrawRectangle(x: Int, y: Int, w: Int, h: Int, color: Color)
+extern func DrawCircle(x: Int, y: Int, radius: Float32, color: Color)
+extern func DrawLine(x1: Int, y1: Int, x2: Int, y2: Int, color: Color)
+
+-- Input — Key enum used here (not Int) per user decision
+extern func IsKeyDown(key: Key) -> Bool
+extern func IsKeyPressed(key: Key) -> Bool
+extern func GetMouseX() -> Int
+extern func GetMouseY() -> Int
+extern func IsMouseButtonPressed(button: Int) -> Bool
