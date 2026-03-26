@@ -251,16 +251,18 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     ctx.lifted_funcs         = iron_strbuf_create(1024);
 
     /* ── 1. Includes ──────────────────────────────────────────────────────── */
+    /* Runtime header first — it brings in Iron_String, Iron_println,
+     * iron_runtime_init/shutdown, Iron_Pool, and all collection types.
+     * Standard headers are pulled in transitively by the runtime header,
+     * but we also emit them explicitly for clarity and editor tooling. */
+    iron_strbuf_appendf(&ctx.includes,
+                         "#include \"runtime/iron_runtime.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdint.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdbool.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdlib.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <string.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdio.h>\n");
     iron_strbuf_appendf(&ctx.includes, "\n");
-
-    /* NOTE: #include "runtime/iron_runtime.h" is added in Plan 04 (codegen
-     * runtime integration).  The typedef stub is removed so it does not
-     * conflict with the struct definition in iron_runtime.h. */
 
     /* ── 2. Forward declarations ─────────────────────────────────────────── */
     for (int i = 0; i < program->decl_count; i++) {
