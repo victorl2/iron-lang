@@ -615,6 +615,28 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     /* Initialize type system */
     iron_types_init(arena);
 
+    /* Register built-in functions in global scope.
+     * print/println map to printf in codegen; register as func(String)->Void
+     * so the resolver and type-checker accept them without errors.
+     * Using a single-String-param signature works for all current test fixtures. */
+    {
+        Iron_Type *str_t  = iron_type_make_primitive(IRON_TYPE_STRING);
+        Iron_Type *void_t = iron_type_make_primitive(IRON_TYPE_VOID);
+        Iron_Type *params[1];
+        params[0] = str_t;
+        Iron_Type *println_type = iron_type_make_func(arena, params, 1, void_t);
+
+        static const char *builtins[] = { "print", "println" };
+        for (int bi = 0; bi < 2; bi++) {
+            Iron_Span no_span = {0};
+            Iron_Symbol *bsym = iron_symbol_create(arena, builtins[bi],
+                                                    IRON_SYM_FUNCTION,
+                                                    NULL, no_span);
+            bsym->type = println_type;
+            iron_scope_define(ctx.global_scope, arena, bsym);
+        }
+    }
+
     /* Pass 1a: Collect all top-level declarations into global scope */
     for (int i = 0; i < program->decl_count; i++) {
         if (program->decls[i]) {

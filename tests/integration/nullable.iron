@@ -1,0 +1,6 @@
+func main() {
+  var target: Int? = null
+  if target != null {
+    val x = target + 1
+  }
+}

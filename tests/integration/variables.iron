@@ -1,0 +1,8 @@
+func main() {
+  val x = 42
+  var y = 10
+  y = 20
+  val pi: Float = 3.14
+  println("{x}")
+  println("{y}")
+}

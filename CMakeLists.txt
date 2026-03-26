@@ -99,3 +99,7 @@ add_test(NAME test_concurrency COMMAND test_concurrency)
 add_executable(test_codegen tests/test_codegen.c)
 target_link_libraries(test_codegen iron_compiler unity)
 add_test(NAME test_codegen COMMAND test_codegen)
+
+add_executable(test_pipeline tests/test_pipeline.c)
+target_link_libraries(test_pipeline iron_compiler unity)
+add_test(NAME test_pipeline COMMAND test_pipeline)
