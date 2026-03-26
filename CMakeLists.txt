@@ -144,3 +144,27 @@ target_link_libraries(iron_stdlib iron_runtime m)  # -lm for math
 add_executable(test_stdlib tests/test_stdlib.c)
 target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)
 add_test(NAME test_stdlib COMMAND test_stdlib)
+
+# ── iron CLI executable ─────────────────────────────────────────────────────
+add_executable(iron
+    src/cli/main.c
+    src/cli/build.c
+    src/cli/check.c
+)
+target_include_directories(iron PRIVATE src)
+target_link_libraries(iron iron_compiler iron_runtime iron_stdlib m pthread)
+# Inject the absolute path to src/ so the CLI can find runtime sources at build time
+target_compile_definitions(iron PRIVATE
+    IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
+)
+
+# ── CLI smoke test ──────────────────────────────────────────────────────────
+# iron with no args exits with code 1, but outputs "Usage: iron" to stderr.
+# PASS_REGULAR_EXPRESSION matches stderr+stdout output regardless of exit code.
+add_test(
+    NAME test_cli_help
+    COMMAND iron
+)
+set_tests_properties(test_cli_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "Usage: iron"
+)
