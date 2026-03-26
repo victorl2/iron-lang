@@ -1,0 +1,6 @@
+typedef struct Iron_Vec2
+double x
+double y
+Iron_Vec2_length
+self->
+Iron_main

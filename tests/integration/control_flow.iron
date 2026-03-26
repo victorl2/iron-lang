@@ -1,0 +1,15 @@
+func main() {
+  val x = 10
+  if x > 5 {
+    println("big")
+  } elif x > 0 {
+    println("small")
+  } else {
+    println("zero")
+  }
+
+  var i = 0
+  while i < 10 {
+    i = i + 1
+  }
+}
