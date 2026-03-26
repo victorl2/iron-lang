@@ -118,6 +118,14 @@ add_executable(test_codegen tests/test_codegen.c)
 target_link_libraries(test_codegen iron_compiler unity)
 add_test(NAME test_codegen COMMAND test_codegen)
 
+add_executable(test_interp_codegen tests/test_interp_codegen.c)
+target_link_libraries(test_interp_codegen iron_compiler unity)
+add_test(NAME test_interp_codegen COMMAND test_interp_codegen)
+
+add_executable(test_parallel_codegen tests/test_parallel_codegen.c)
+target_link_libraries(test_parallel_codegen iron_compiler unity)
+add_test(NAME test_parallel_codegen COMMAND test_parallel_codegen)
+
 add_executable(test_comptime tests/test_comptime.c)
 target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)
