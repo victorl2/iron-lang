@@ -110,4 +110,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
 | 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
 | 3. Runtime, Stdlib, and CLI | 8/8 | Complete    | 2026-03-26 |
-| 4. Comptime, Game Dev, and Cross-Platform | 6/6 | Complete   | 2026-03-26 |
+| 4. Comptime, Game Dev, and Cross-Platform | 6/6 | Complete    | 2026-03-26 |
