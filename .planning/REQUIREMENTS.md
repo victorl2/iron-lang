@@ -96,8 +96,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Testing
 
-- [ ] **TEST-01**: C unit tests cover all compiler internals (lexer, parser, semantic, codegen)
-- [ ] **TEST-02**: .iron integration tests verify end-to-end compilation and execution
+- [x] **TEST-01**: C unit tests cover all compiler internals (lexer, parser, semantic, codegen)
+- [x] **TEST-02**: .iron integration tests verify end-to-end compilation and execution
 - [x] **TEST-03**: Error diagnostic tests verify specific error messages for specific mistakes
 - [ ] **TEST-04**: Memory safety validated with ASan/UBSan in CI
 
@@ -176,8 +176,8 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | GEN-09 | Phase 2 | Complete |
 | GEN-10 | Phase 2 | Complete |
 | GEN-11 | Phase 2 | Complete |
-| TEST-01 | Phase 2 | Pending |
-| TEST-02 | Phase 2 | Pending |
+| TEST-01 | Phase 2 | Complete |
+| TEST-02 | Phase 2 | Complete |
 | RT-01 | Phase 3 | Pending |
 | RT-02 | Phase 3 | Pending |
 | RT-03 | Phase 3 | Pending |
