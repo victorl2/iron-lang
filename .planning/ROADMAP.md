@@ -69,7 +69,17 @@ Plans:
   3. Standard library modules (`math`, `io`, `time`, `log`) are importable in Iron programs and their functions produce correct results
   4. Error messages display Rust-style diagnostics: source snippet, arrow pointing to the problem, and a suggestion; terminal output is colored; `--verbose` shows generated C
   5. The CI build runs with ASan+UBSan enabled and all tests pass clean (zero sanitizer errors)
-**Plans**: TBD
+**Plans:** 8 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Iron_String (SSO + interning), Iron_Rc, builtins, codegen print/println fix
+- [ ] 03-02-PLAN.md — Thread pool, channels, mutex, handle (pthreads)
+- [ ] 03-03-PLAN.md — Generic collections (List, Map, Set) with macro expansion
+- [ ] 03-04-PLAN.md — Codegen runtime integration (includes, parallel-for fix, init/shutdown)
+- [ ] 03-05-PLAN.md — Standard library modules (math, io, time, log)
+- [ ] 03-06-PLAN.md — CLI core (build, run, check commands)
+- [ ] 03-07-PLAN.md — CLI fmt, test runner, iron.toml parser
+- [ ] 03-08-PLAN.md — GitHub Actions CI, integration tests, ASan/UBSan hardening
 
 ### Phase 4: Comptime, Game Dev, and Cross-Platform
 **Goal**: Comptime evaluation works, raylib programs build and run, and the full toolchain produces binaries on macOS, Linux, and Windows
@@ -91,5 +101,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Frontend | 4/4 | Complete    | 2026-03-26 |
 | 2. Semantics and Codegen | 7/8 | Complete    | 2026-03-26 |
-| 3. Runtime, Stdlib, and CLI | 0/TBD | Not started | - |
+| 3. Runtime, Stdlib, and CLI | 0/8 | Planning complete | - |
 | 4. Comptime, Game Dev, and Cross-Platform | 0/TBD | Not started | - |
