@@ -455,6 +455,9 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
             emit_func_prototype(&ctx, fd);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+            /* Skip empty-body methods (stdlib wrappers) — auto-static dispatch
+             * handles them at callsite without emitting a C function body */
+            if (!md->body || ((Iron_Block *)md->body)->stmt_count == 0) continue;
             emit_method_prototype(&ctx, md);
         }
     }
@@ -471,6 +474,8 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
             emit_func_impl(&ctx, fd);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+            /* Skip empty-body methods (stdlib wrappers) */
+            if (!md->body || ((Iron_Block *)md->body)->stmt_count == 0) continue;
             emit_method_impl(&ctx, md);
         }
     }
