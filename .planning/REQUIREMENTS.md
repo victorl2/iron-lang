@@ -34,8 +34,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **SEM-08**: Generic type parameters are validated and instantiated
 - [ ] **SEM-09**: Escape analysis tracks heap allocations and marks non-escaping values for auto-free
 - [ ] **SEM-10**: Concurrency checks enforce parallel-for body cannot mutate outer non-mutex variables
-- [ ] **SEM-11**: Import resolution locates .iron files by path and builds module graph
-- [ ] **SEM-12**: `self` and `super` resolve correctly inside methods
+- [x] **SEM-11**: Import resolution locates .iron files by path and builds module graph
+- [x] **SEM-12**: `self` and `super` resolve correctly inside methods
 
 ### Code Generation
 
@@ -163,8 +163,8 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | SEM-08 | Phase 2 | Pending |
 | SEM-09 | Phase 2 | Pending |
 | SEM-10 | Phase 2 | Pending |
-| SEM-11 | Phase 2 | Pending |
-| SEM-12 | Phase 2 | Pending |
+| SEM-11 | Phase 2 | Complete |
+| SEM-12 | Phase 2 | Complete |
 | GEN-01 | Phase 2 | Pending |
 | GEN-02 | Phase 2 | Pending |
 | GEN-03 | Phase 2 | Pending |
