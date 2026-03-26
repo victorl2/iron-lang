@@ -278,9 +278,13 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
         }
 
         case IRON_NODE_STRING_LIT: {
-            /* Phase 2 stub: emit as raw C string literal */
+            /* Emit as Iron_String using iron_string_from_literal() so that
+             * functions accepting Iron_String (e.g. Iron_println) get the
+             * correct type.  The intern call deduplicates identical literals. */
             Iron_StringLit *lit = (Iron_StringLit *)node;
-            iron_strbuf_appendf(sb, "\"%s\"", lit->value);
+            iron_strbuf_appendf(sb,
+                "iron_string_from_literal(\"%s\", %zu)",
+                lit->value, strlen(lit->value));
             break;
         }
 
@@ -353,15 +357,15 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
 
         case IRON_NODE_CALL: {
             Iron_CallExpr *call = (Iron_CallExpr *)node;
-            /* Special case: print/println -> printf stub */
+            /* Special case: print/println/len/min/max/clamp/abs/assert -> Iron_ builtins */
             if (call->callee->kind == IRON_NODE_IDENT) {
                 Iron_Ident *callee_id = (Iron_Ident *)call->callee;
                 if (strcmp(callee_id->name, "println") == 0) {
                     if (call->arg_count == 0) {
-                        iron_strbuf_appendf(sb, "printf(\"\\n\")");
+                        iron_strbuf_appendf(sb,
+                            "Iron_println(iron_string_from_cstr(\"\", 0))");
                     } else {
-                        /* Emit printf("%s\n", arg) — newline in format string */
-                        iron_strbuf_appendf(sb, "printf(\"%%s\\n\", ");
+                        iron_strbuf_appendf(sb, "Iron_println(");
                         emit_expr(sb, call->args[0], ctx);
                         iron_strbuf_appendf(sb, ")");
                     }
@@ -369,12 +373,64 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                 }
                 if (strcmp(callee_id->name, "print") == 0) {
                     if (call->arg_count == 0) {
-                        iron_strbuf_appendf(sb, "printf(\"\")");
+                        iron_strbuf_appendf(sb,
+                            "Iron_print(iron_string_from_cstr(\"\", 0))");
                     } else {
-                        iron_strbuf_appendf(sb, "printf(\"%%s\", ");
+                        iron_strbuf_appendf(sb, "Iron_print(");
                         emit_expr(sb, call->args[0], ctx);
                         iron_strbuf_appendf(sb, ")");
                     }
+                    break;
+                }
+                if (strcmp(callee_id->name, "len") == 0 && call->arg_count == 1) {
+                    iron_strbuf_appendf(sb, "Iron_len(");
+                    emit_expr(sb, call->args[0], ctx);
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
+                if (strcmp(callee_id->name, "min") == 0 && call->arg_count == 2) {
+                    iron_strbuf_appendf(sb, "Iron_min(");
+                    emit_expr(sb, call->args[0], ctx);
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_expr(sb, call->args[1], ctx);
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
+                if (strcmp(callee_id->name, "max") == 0 && call->arg_count == 2) {
+                    iron_strbuf_appendf(sb, "Iron_max(");
+                    emit_expr(sb, call->args[0], ctx);
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_expr(sb, call->args[1], ctx);
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
+                if (strcmp(callee_id->name, "clamp") == 0 && call->arg_count == 3) {
+                    iron_strbuf_appendf(sb, "Iron_clamp(");
+                    emit_expr(sb, call->args[0], ctx);
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_expr(sb, call->args[1], ctx);
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_expr(sb, call->args[2], ctx);
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
+                if (strcmp(callee_id->name, "abs") == 0 && call->arg_count == 1) {
+                    iron_strbuf_appendf(sb, "Iron_abs(");
+                    emit_expr(sb, call->args[0], ctx);
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
+                if (strcmp(callee_id->name, "assert") == 0 && call->arg_count >= 1) {
+                    iron_strbuf_appendf(sb, "Iron_assert(");
+                    emit_expr(sb, call->args[0], ctx);
+                    if (call->arg_count >= 2) {
+                        iron_strbuf_appendf(sb, ", ");
+                        emit_expr(sb, call->args[1], ctx);
+                    } else {
+                        iron_strbuf_appendf(sb,
+                            ", iron_string_from_cstr(\"assertion failed\", 17)");
+                    }
+                    iron_strbuf_appendf(sb, ")");
                     break;
                 }
                 /* Check if callee is a type name (object constructor).

@@ -123,8 +123,8 @@ void test_pipeline_hello(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
     /* Iron_ prefix applied to main */
     TEST_ASSERT_NOT_NULL(strstr(c, "Iron_main"));
-    /* printf used for println */
-    TEST_ASSERT_NOT_NULL(strstr(c, "printf"));
+    /* Iron_println used for println (printf stubs removed in Plan 03-01) */
+    TEST_ASSERT_NOT_NULL(strstr(c, "Iron_println"));
     /* String content present */
     TEST_ASSERT_NOT_NULL(strstr(c, "hello"));
 }

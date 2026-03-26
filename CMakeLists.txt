@@ -20,12 +20,23 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(unity)
 
+# ── iron_runtime static library ────────────────────────────────────────────
+# stb_ds_impl.c lives here so runtime tests can link without iron_compiler.
+add_library(iron_runtime STATIC
+    src/util/stb_ds_impl.c
+    src/runtime/iron_string.c
+    src/runtime/iron_rc.c
+    src/runtime/iron_builtins.c
+    src/runtime/iron_threads.c
+)
+target_include_directories(iron_runtime PUBLIC src src/vendor)
+target_link_libraries(iron_runtime pthread)
+
 # ── iron_compiler static library ───────────────────────────────────────────
 # NOTE: More source files will be added in later plans.
 add_library(iron_compiler STATIC
     src/util/arena.c
     src/util/strbuf.c
-    src/util/stb_ds_impl.c
     src/diagnostics/diagnostics.c
     src/lexer/lexer.c
     src/parser/ast.c
@@ -44,6 +55,7 @@ add_library(iron_compiler STATIC
     src/codegen/gen_exprs.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
+target_link_libraries(iron_compiler iron_runtime)
 
 # ── Tests ──────────────────────────────────────────────────────────────────
 enable_testing()
@@ -103,3 +115,11 @@ add_test(NAME test_codegen COMMAND test_codegen)
 add_executable(test_pipeline tests/test_pipeline.c)
 target_link_libraries(test_pipeline iron_compiler unity)
 add_test(NAME test_pipeline COMMAND test_pipeline)
+
+add_executable(test_runtime_string tests/test_runtime_string.c)
+target_link_libraries(test_runtime_string iron_runtime unity)
+add_test(NAME test_runtime_string COMMAND test_runtime_string)
+
+add_executable(test_runtime_threads tests/test_runtime_threads.c)
+target_link_libraries(test_runtime_threads iron_runtime unity)
+add_test(NAME test_runtime_threads COMMAND test_runtime_threads)

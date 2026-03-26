@@ -258,8 +258,9 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     iron_strbuf_appendf(&ctx.includes, "#include <stdio.h>\n");
     iron_strbuf_appendf(&ctx.includes, "\n");
 
-    /* Phase 2 stub: Iron_String as char* */
-    iron_strbuf_appendf(&ctx.includes, "typedef const char* Iron_String;\n\n");
+    /* NOTE: #include "runtime/iron_runtime.h" is added in Plan 04 (codegen
+     * runtime integration).  The typedef stub is removed so it does not
+     * conflict with the struct definition in iron_runtime.h. */
 
     /* ── 2. Forward declarations ─────────────────────────────────────────── */
     for (int i = 0; i < program->decl_count; i++) {
@@ -399,7 +400,11 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     iron_strbuf_appendf(&ctx.main_wrapper,
                          "    (void)argc; (void)argv;\n");
     iron_strbuf_appendf(&ctx.main_wrapper,
+                         "    iron_runtime_init();\n");
+    iron_strbuf_appendf(&ctx.main_wrapper,
                          "    Iron_main();\n");
+    iron_strbuf_appendf(&ctx.main_wrapper,
+                         "    iron_runtime_shutdown();\n");
     iron_strbuf_appendf(&ctx.main_wrapper,
                          "    return 0;\n");
     iron_strbuf_appendf(&ctx.main_wrapper,
