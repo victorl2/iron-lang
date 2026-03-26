@@ -1,5 +1,5 @@
 func main() {
-    println("hello from iron")
-    val x = 42
-    println("x is 42")
+  println("hello from iron")
+  val x = 42
+  println("x is {x}")
 }
