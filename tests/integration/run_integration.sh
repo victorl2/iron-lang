@@ -64,6 +64,21 @@ for iron_file in "${SCRIPT_DIR}"/*.iron; do
         fi
     done < "${expected_file}"
 
+    # Write generated C to temp file and verify it compiles with clang
+    if $all_ok && command -v clang >/dev/null 2>&1; then
+        tmpfile=$(mktemp /tmp/iron_integration_XXXXXX.c)
+        printf '%s' "${c_output}" > "${tmpfile}"
+        if clang -std=c11 -Wall -Werror \
+                 -Wno-unused-variable -Wno-unused-function \
+                 -fsyntax-only "${tmpfile}" 2>/dev/null; then
+            : # clang OK
+        else
+            echo "[FAIL] ${name}: generated C does not compile with clang -std=c11 -Wall -Werror -fsyntax-only"
+            all_ok=false
+        fi
+        rm -f "${tmpfile}"
+    fi
+
     if $all_ok; then
         echo "[PASS] ${name}"
         PASS=$((PASS + 1))
