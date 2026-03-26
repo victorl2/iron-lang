@@ -118,4 +118,9 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_NUMERIC_CONVERSION   222
 #define IRON_ERR_CIRCULAR_TYPE        223
 
+/* Comptime errors */
+#define IRON_ERR_COMPTIME_STEP_LIMIT  230
+#define IRON_ERR_COMPTIME_RESTRICTION 231
+#define IRON_ERR_COMPTIME_ERROR       232
+
 #endif /* IRON_DIAGNOSTICS_H */
