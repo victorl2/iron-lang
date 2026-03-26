@@ -92,4 +92,30 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_EXPECTED_COLON      105
 #define IRON_ERR_EXPECTED_ARROW      106
 
+/* Semantic errors */
+#define IRON_ERR_UNDEFINED_VAR        200
+#define IRON_ERR_DUPLICATE_DECL       201
+#define IRON_ERR_TYPE_MISMATCH        202
+#define IRON_ERR_VAL_REASSIGN         203
+#define IRON_ERR_NULLABLE_ACCESS      204
+#define IRON_ERR_MISSING_IFACE_METHOD 205
+#define IRON_ERR_GENERIC_CONSTRAINT   206
+#define IRON_ERR_ESCAPE_NO_FREE       207
+#define IRON_ERR_PARALLEL_MUTATION    208
+#define IRON_ERR_IMPORT_NOT_FOUND     209
+#define IRON_ERR_SELF_OUTSIDE_METHOD  210
+#define IRON_ERR_SUPER_NO_PARENT      211
+#define IRON_ERR_FREE_NON_HEAP        212
+#define IRON_ERR_LEAK_NON_HEAP        213
+#define IRON_ERR_LEAK_RC              214
+#define IRON_ERR_RETURN_TYPE          215
+#define IRON_ERR_ARG_COUNT            216
+#define IRON_ERR_ARG_TYPE             217
+#define IRON_ERR_NOT_CALLABLE         218
+#define IRON_ERR_NO_SUCH_FIELD        219
+#define IRON_ERR_NO_SUCH_METHOD       220
+#define IRON_ERR_PRIVATE_ACCESS       221
+#define IRON_ERR_NUMERIC_CONVERSION   222
+#define IRON_ERR_CIRCULAR_TYPE        223
+
 #endif /* IRON_DIAGNOSTICS_H */
