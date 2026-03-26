@@ -1,9 +1,9 @@
 ---
 phase: 3
 slug: runtime-stdlib-and-cli
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: active
+nyquist_compliant: true
+wave_0_complete: true
 created: 2025-03-26
 ---
 
@@ -36,12 +36,7 @@ created: 2025-03-26
 
 ## Wave 0 Requirements
 
-- [ ] `src/runtime/` directory with header stubs
-- [ ] `src/stdlib/` directory with header stubs
-- [ ] `src/cli/` directory with main.c stub
-- [ ] `tests/test_runtime.c` — Unity test stubs for RT-01..08
-- [ ] `tests/test_stdlib.c` — Unity test stubs for STD-01..04
-- [ ] Integration tests that compile .iron to binary and run
+N/A — plans create all artifacts directly. Each plan's first task creates the necessary files from scratch (e.g., Plan 01 Task 1 creates `src/runtime/` directory and all runtime headers/sources). No pre-existing stubs are required.
 
 ---
 
@@ -56,11 +51,11 @@ created: 2025-03-26
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
 - [ ] No watch-mode flags
 - [ ] Feedback latency < 20s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
