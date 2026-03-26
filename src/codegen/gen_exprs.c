@@ -284,15 +284,6 @@ void emit_lambda(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx,
     arrfree(captures);
 }
 
-/* ── Helper: get resolved_type from any expression node ──────────────────── */
-/* All expression AST nodes share the layout: span, kind, resolved_type* as
- * their first three fields.  Casting to Iron_IntLit is safe as a tag-checked
- * accessor for that third field. */
-static Iron_Type *node_resolved_type(Iron_Node *n) {
-    if (!n) return NULL;
-    return ((Iron_IntLit *)n)->resolved_type;
-}
-
 /* ── emit_expr ────────────────────────────────────────────────────────────── */
 
 void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
@@ -807,6 +798,33 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+            /* AUTO-STATIC CHECK: If the receiver is a type name (IRON_SYM_TYPE),
+             * emit a direct C function call without self pointer.
+             * Convention: Iron_<lowercase_type>_<method>(args...)
+             * This matches the stdlib C API: Iron_math_sin, Iron_io_read_file, etc. */
+            if (mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id_s = (Iron_Ident *)mc->object;
+                if (obj_id_s->resolved_sym &&
+                    obj_id_s->resolved_sym->sym_kind == IRON_SYM_TYPE) {
+                    const char *tname = obj_id_s->name;
+                    size_t tlen = strlen(tname);
+                    char *lower = (char *)iron_arena_alloc(ctx->arena, tlen + 1,
+                                                           _Alignof(char));
+                    for (size_t k = 0; k < tlen; k++) {
+                        lower[k] = (char)tolower((unsigned char)tname[k]);
+                    }
+                    lower[tlen] = '\0';
+                    iron_strbuf_appendf(sb, "Iron_%s_%s(", lower, mc->method);
+                    for (int i = 0; i < mc->arg_count; i++) {
+                        if (i > 0) iron_strbuf_appendf(sb, ", ");
+                        emit_expr(sb, mc->args[i], ctx);
+                    }
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
+            }
+
             /* Determine the type of the object to get the method mangling */
             const char *type_name = NULL;
             if (mc->object->kind == IRON_NODE_IDENT) {
