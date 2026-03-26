@@ -433,6 +433,39 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                     iron_strbuf_appendf(sb, ")");
                     break;
                 }
+                /* Extern function call: use raw C name, no Iron_ prefix.
+                 * String literals are passed as raw C strings. */
+                if (callee_id->resolved_sym &&
+                    callee_id->resolved_sym->is_extern) {
+                    const char *c_name = callee_id->resolved_sym->extern_c_name;
+                    if (!c_name || c_name[0] == '\0') c_name = callee_id->name;
+                    iron_strbuf_appendf(sb, "%s(", c_name);
+                    for (int i = 0; i < call->arg_count; i++) {
+                        if (i > 0) iron_strbuf_appendf(sb, ", ");
+                        Iron_Node *arg = call->args[i];
+                        if (arg->kind == IRON_NODE_STRING_LIT) {
+                            /* Auto-convert Iron String literal to const char* */
+                            Iron_StringLit *slit = (Iron_StringLit *)arg;
+                            iron_strbuf_appendf(sb, "\"%s\"", slit->value);
+                        } else if (arg->kind == IRON_NODE_IDENT) {
+                            Iron_Ident *aid = (Iron_Ident *)arg;
+                            if (aid->resolved_type &&
+                                aid->resolved_type->kind == IRON_TYPE_STRING) {
+                                /* Wrap Iron_String variable with iron_string_cstr */
+                                iron_strbuf_appendf(sb, "iron_string_cstr(&(");
+                                emit_expr(sb, arg, ctx);
+                                iron_strbuf_appendf(sb, "))");
+                            } else {
+                                emit_expr(sb, arg, ctx);
+                            }
+                        } else {
+                            emit_expr(sb, arg, ctx);
+                        }
+                    }
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
+
                 /* Check if callee is a type name (object constructor).
                  * If so, emit as compound literal (Iron_TypeName){.field=arg}
                  * rather than a C function call Iron_TypeName(arg) which
