@@ -31,6 +31,8 @@ add_library(iron_compiler STATIC
     src/parser/ast.c
     src/parser/parser.c
     src/parser/printer.c
+    src/analyzer/types.c
+    src/analyzer/scope.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 
@@ -64,3 +66,7 @@ add_test(NAME test_interp COMMAND test_interp)
 add_executable(test_printer tests/test_printer.c)
 target_link_libraries(test_printer iron_compiler unity)
 add_test(NAME test_printer COMMAND test_printer)
+
+add_executable(test_types tests/test_types.c)
+target_link_libraries(test_types iron_compiler unity)
+add_test(NAME test_types COMMAND test_types)
