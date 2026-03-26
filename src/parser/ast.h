@@ -191,6 +191,8 @@ typedef struct {
     Iron_Span     span;
     Iron_NodeKind kind;  /* IRON_NODE_ENUM_VARIANT */
     const char   *name;
+    bool          has_explicit_value;  /* true when variant has = N */
+    int           explicit_value;      /* only valid when has_explicit_value */
 } Iron_EnumVariant;
 
 typedef struct {

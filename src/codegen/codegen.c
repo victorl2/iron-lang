@@ -339,8 +339,13 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
         iron_strbuf_appendf(&ctx.enum_defs, "typedef enum {\n");
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
-            iron_strbuf_appendf(&ctx.enum_defs, "    %s_%s",
-                                 mangled, ev->name);
+            if (ev->has_explicit_value) {
+                iron_strbuf_appendf(&ctx.enum_defs, "    %s_%s = %d",
+                                     mangled, ev->name, ev->explicit_value);
+            } else {
+                iron_strbuf_appendf(&ctx.enum_defs, "    %s_%s",
+                                     mangled, ev->name);
+            }
             if (j < ed->variant_count - 1) {
                 iron_strbuf_appendf(&ctx.enum_defs, ",");
             }
