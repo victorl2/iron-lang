@@ -66,6 +66,14 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
             codegen_indent(sb, ctx->indent);
+            /* Lambda init: type is "void*" (function pointer) */
+            if (vd->init && vd->init->kind == IRON_NODE_LAMBDA) {
+                iron_strbuf_appendf(sb, "void* %s = (void*)(", vd->name);
+                emit_lambda(sb, vd->init, ctx,
+                             ctx->current_func_name ? ctx->current_func_name : "anon");
+                iron_strbuf_appendf(sb, ");\n");
+                break;
+            }
             const char *c_type = vd->declared_type
                                      ? iron_type_to_c(vd->declared_type, ctx)
                                      : "int64_t";  /* fallback */
@@ -194,7 +202,7 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             /* Range-based for — iterable is a range expression */
-            /* For now, emit as: for (int64_t var = 0; var < iterable; var++) */
+            /* Emit as: for (int64_t var = 0; var < iterable; var++) */
             codegen_indent(sb, ctx->indent);
             if (!fs->is_parallel) {
                 iron_strbuf_appendf(sb, "for (int64_t %s = 0; %s < ",
@@ -205,14 +213,61 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                 codegen_indent(sb, ctx->indent);
                 iron_strbuf_appendf(sb, "}\n");
             } else {
-                /* Parallel for: stub — emit as sequential for Phase 2 */
-                iron_strbuf_appendf(sb, "/* parallel for (stub) */\n");
-                codegen_indent(sb, ctx->indent);
-                iron_strbuf_appendf(sb, "for (int64_t %s = 0; %s < ",
-                                    fs->var_name, fs->var_name);
+                /* Parallel for: generate chunk function and range splitting */
+                int parallel_idx = ctx->parallel_counter++;
+                char chunk_name[256];
+                snprintf(chunk_name, sizeof(chunk_name),
+                         "Iron_parallel_chunk_%d", parallel_idx);
+
+                /* Emit chunk function: void chunk_N(int64_t start, int64_t end, void* ctx_arg) */
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "void %s(int64_t start, int64_t end, void* ctx_arg) {\n",
+                    chunk_name);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    (void)ctx_arg;\n");
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    for (int64_t %s = start; %s < end; %s++) {\n",
+                    fs->var_name, fs->var_name, fs->var_name);
+                /* Emit body with increased indent into lifted_funcs */
+                ctx->indent += 2;
+                if (fs->body) {
+                    emit_block(&ctx->lifted_funcs, (Iron_Block *)fs->body, ctx);
+                }
+                ctx->indent -= 2;
+                iron_strbuf_appendf(&ctx->lifted_funcs, "    }\n");
+                iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+
+                /* Prototype for chunk function */
+                iron_strbuf_appendf(&ctx->prototypes,
+                    "void %s(int64_t start, int64_t end, void* ctx_arg);\n",
+                    chunk_name);
+
+                /* At use site: emit range splitting and pool_submit loop */
+                iron_strbuf_appendf(sb, "{\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb, "int64_t _total = ");
                 emit_expr(sb, fs->iterable, ctx);
-                iron_strbuf_appendf(sb, "; %s++) {\n", fs->var_name);
-                emit_block(sb, (Iron_Block *)fs->body, ctx);
+                iron_strbuf_appendf(sb, ";\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb,
+                    "int64_t _chunk_size = (_total + 3) / 4; /* 4 chunks */\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb,
+                    "for (int64_t _c = 0; _c < _total; _c += _chunk_size) {\n");
+                codegen_indent(sb, ctx->indent + 2);
+                iron_strbuf_appendf(sb,
+                    "int64_t _end = (_c + _chunk_size > _total) ? _total : _c + _chunk_size;\n");
+                codegen_indent(sb, ctx->indent + 2);
+                iron_strbuf_appendf(sb,
+                    "Iron_pool_submit(Iron_global_pool, (void(*)(void*))%s, (void*)_c);\n",
+                    chunk_name);
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb, "(void)_end;\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb, "}\n");
+                codegen_indent(sb, ctx->indent + 1);
+                iron_strbuf_appendf(sb,
+                    "Iron_pool_barrier(Iron_global_pool);\n");
                 codegen_indent(sb, ctx->indent);
                 iron_strbuf_appendf(sb, "}\n");
             }
@@ -282,11 +337,34 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
         }
 
         case IRON_NODE_SPAWN: {
-            /* Stub for Phase 3 concurrency */
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            int spawn_idx = ctx->spawn_counter++;
+
+            /* Generate a unique lifted function name: Iron_spawn_<name>_<N> */
+            char spawn_func_name[256];
+            const char *sname = ss->name ? ss->name : "task";
+            snprintf(spawn_func_name, sizeof(spawn_func_name),
+                     "Iron_spawn_%s_%d", sname, spawn_idx);
+
+            /* Emit lifted void function: void Iron_spawn_<name>_N(void* arg) */
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                                 "void %s(void* arg) {\n", spawn_func_name);
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                                 "    (void)arg;\n");
+            if (ss->body) {
+                emit_block(&ctx->lifted_funcs, (Iron_Block *)ss->body, ctx);
+            }
+            iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+
+            /* Prototype for the lifted spawn function */
+            iron_strbuf_appendf(&ctx->prototypes,
+                                 "void %s(void* arg);\n", spawn_func_name);
+
+            /* At use site: emit Iron_pool_submit(pool, fn, arg) */
             codegen_indent(sb, ctx->indent);
-            iron_strbuf_appendf(sb, "/* spawn %s (stub) */\n",
-                                ss->name ? ss->name : "");
+            iron_strbuf_appendf(sb,
+                "Iron_pool_submit(Iron_global_pool, %s, NULL);\n",
+                spawn_func_name);
             break;
         }
 
@@ -357,15 +435,18 @@ void emit_func_impl(Iron_Codegen *ctx, Iron_FuncDecl *fd) {
     emit_func_params(sb, fd->params, fd->param_count, ctx);
     iron_strbuf_appendf(sb, ") {\n");
 
-    /* Set up defer tracking for this function */
+    /* Set up defer tracking and function name for this function */
     int saved_fn_depth = ctx->function_scope_depth;
+    const char *saved_func_name = ctx->current_func_name;
     ctx->function_scope_depth = ctx->defer_depth;
+    ctx->current_func_name = fd->name;
 
     if (fd->body) {
         emit_block(sb, (Iron_Block *)fd->body, ctx);
     }
 
     ctx->function_scope_depth = saved_fn_depth;
+    ctx->current_func_name = saved_func_name;
     iron_strbuf_appendf(sb, "}\n\n");
 }
 
@@ -403,12 +484,15 @@ void emit_method_impl(Iron_Codegen *ctx, Iron_MethodDecl *md) {
     iron_strbuf_appendf(sb, ") {\n");
 
     int saved_fn_depth = ctx->function_scope_depth;
+    const char *saved_func_name = ctx->current_func_name;
     ctx->function_scope_depth = ctx->defer_depth;
+    ctx->current_func_name = md->method_name;
 
     if (md->body) {
         emit_block(sb, (Iron_Block *)md->body, ctx);
     }
 
     ctx->function_scope_depth = saved_fn_depth;
+    ctx->current_func_name = saved_func_name;
     iron_strbuf_appendf(sb, "}\n\n");
 }

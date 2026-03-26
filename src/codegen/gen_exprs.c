@@ -1,7 +1,8 @@
 /* gen_exprs.c — Expression emission for the Iron C code generator.
  *
  * Implements:
- *   emit_expr() — emit a single expression node
+ *   emit_expr()   — emit a single expression node
+ *   emit_lambda() — lift a lambda to a named C function
  */
 
 #include "codegen/codegen.h"
@@ -10,6 +11,245 @@
 
 #include <stdio.h>
 #include <string.h>
+
+/* ── Lambda capture collection ────────────────────────────────────────────── */
+
+/* Collect identifiers used in the body that are NOT in the param list.
+ * These are potential captures from the enclosing scope.
+ * Returns an stb_ds array of const char* names (caller must arrfree). */
+static const char **collect_captures(Iron_Node *body, Iron_Node **params,
+                                      int param_count) {
+    const char **captures = NULL;
+
+    /* Walk the body looking for IRON_NODE_IDENT nodes */
+    /* Simple recursive walk */
+    if (!body) return NULL;
+
+    /* We use a simple DFS without the full visitor mechanism */
+    Iron_Node **stack = NULL;
+    arrput(stack, body);
+
+    while (arrlen(stack) > 0) {
+        Iron_Node *node = stack[arrlen(stack) - 1];
+        arrsetlen(stack, arrlen(stack) - 1);
+
+        if (!node) continue;
+
+        if (node->kind == IRON_NODE_IDENT) {
+            Iron_Ident *id = (Iron_Ident *)node;
+            /* Skip "self" and "super" */
+            if (strcmp(id->name, "self") == 0 ||
+                strcmp(id->name, "super") == 0) {
+                continue;
+            }
+            /* Skip if it's a param name */
+            bool is_param = false;
+            for (int i = 0; i < param_count; i++) {
+                Iron_Param *p = (Iron_Param *)params[i];
+                if (strcmp(p->name, id->name) == 0) {
+                    is_param = true;
+                    break;
+                }
+            }
+            if (is_param) continue;
+            /* Check if already in captures list */
+            bool already = false;
+            for (int i = 0; i < (int)arrlen(captures); i++) {
+                if (strcmp(captures[i], id->name) == 0) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) {
+                arrput(captures, id->name);
+            }
+            continue;
+        }
+
+        /* Push children based on node kind */
+        switch (node->kind) {
+            case IRON_NODE_BLOCK: {
+                Iron_Block *blk = (Iron_Block *)node;
+                for (int i = 0; i < blk->stmt_count; i++) {
+                    arrput(stack, blk->stmts[i]);
+                }
+                break;
+            }
+            case IRON_NODE_VAL_DECL: {
+                Iron_ValDecl *vd = (Iron_ValDecl *)node;
+                if (vd->init) arrput(stack, vd->init);
+                break;
+            }
+            case IRON_NODE_VAR_DECL: {
+                Iron_VarDecl *vd = (Iron_VarDecl *)node;
+                if (vd->init) arrput(stack, vd->init);
+                break;
+            }
+            case IRON_NODE_ASSIGN: {
+                Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+                arrput(stack, as->target);
+                arrput(stack, as->value);
+                break;
+            }
+            case IRON_NODE_RETURN: {
+                Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
+                if (rs->value) arrput(stack, rs->value);
+                break;
+            }
+            case IRON_NODE_BINARY: {
+                Iron_BinaryExpr *bin = (Iron_BinaryExpr *)node;
+                arrput(stack, bin->left);
+                arrput(stack, bin->right);
+                break;
+            }
+            case IRON_NODE_UNARY: {
+                Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
+                arrput(stack, un->operand);
+                break;
+            }
+            case IRON_NODE_CALL: {
+                Iron_CallExpr *ce = (Iron_CallExpr *)node;
+                arrput(stack, ce->callee);
+                for (int i = 0; i < ce->arg_count; i++) {
+                    arrput(stack, ce->args[i]);
+                }
+                break;
+            }
+            case IRON_NODE_IF: {
+                Iron_IfStmt *is = (Iron_IfStmt *)node;
+                arrput(stack, is->condition);
+                arrput(stack, is->body);
+                if (is->else_body) arrput(stack, is->else_body);
+                break;
+            }
+            default:
+                /* Skip other nodes for capture detection */
+                break;
+        }
+    }
+
+    arrfree(stack);
+    return captures;
+}
+
+/* ── emit_lambda ──────────────────────────────────────────────────────────── */
+
+void emit_lambda(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx,
+                 const char *enclosing_name) {
+    Iron_LambdaExpr *lam = (Iron_LambdaExpr *)node;
+
+    /* Generate unique lambda name: Iron_<enclosing>_lambda_<N> */
+    int lambda_idx = ctx->lambda_counter++;
+    char lambda_name[256];
+    snprintf(lambda_name, sizeof(lambda_name), "Iron_%s_lambda_%d",
+             enclosing_name ? enclosing_name : "anon", lambda_idx);
+
+    /* Collect captures from body */
+    const char **captures = collect_captures(lam->body, lam->params,
+                                             lam->param_count);
+    int capture_count = (int)arrlen(captures);
+
+    if (capture_count > 0) {
+        /* ── Closure: generate env struct and lifted function ── */
+        char env_name[320];
+        snprintf(env_name, sizeof(env_name), "%s_env", lambda_name);
+
+        /* Forward declare env struct */
+        iron_strbuf_appendf(&ctx->forward_decls,
+                             "typedef struct %s %s;\n", env_name, env_name);
+
+        /* Emit env struct into struct_bodies */
+        iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", env_name);
+        for (int i = 0; i < capture_count; i++) {
+            /* Emit as int64_t* for captured vars (pointer for mutation) */
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "    int64_t* %s;\n", captures[i]);
+        }
+        iron_strbuf_appendf(&ctx->struct_bodies, "};\n");
+
+        /* Lifted function: ret lambda_name(env_name* env, params...) */
+        const char *ret_type = "void";
+        if (lam->resolved_type) {
+            /* Lambda's function return type */
+            ret_type = "void"; /* simplified for Phase 2 */
+        }
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+                             "%s %s(%s* env", ret_type, lambda_name, env_name);
+        for (int i = 0; i < lam->param_count; i++) {
+            Iron_Param *p = (Iron_Param *)lam->params[i];
+            const char *pt = "int64_t";
+            if (p->type_ann) {
+                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
+                if (strcmp(ta->name, "Int") == 0) pt = "int64_t";
+                else if (strcmp(ta->name, "Float") == 0) pt = "double";
+                else if (strcmp(ta->name, "Bool") == 0) pt = "bool";
+                else if (strcmp(ta->name, "String") == 0) pt = "Iron_String";
+                else pt = iron_mangle_name(ta->name, ctx->arena);
+            }
+            iron_strbuf_appendf(&ctx->lifted_funcs, ", %s %s", pt, p->name);
+        }
+        iron_strbuf_appendf(&ctx->lifted_funcs, ") {\n");
+        if (lam->body) {
+            emit_block(&ctx->lifted_funcs, (Iron_Block *)lam->body, ctx);
+        }
+        iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+
+        /* At use site: allocate env and populate captured vars */
+        iron_strbuf_appendf(sb, "({ %s* _env = malloc(sizeof(%s));\n",
+                             env_name, env_name);
+        for (int i = 0; i < capture_count; i++) {
+            iron_strbuf_appendf(sb, "    _env->%s = &%s;\n",
+                                 captures[i], captures[i]);
+        }
+        iron_strbuf_appendf(sb, "    %s; })", lambda_name);
+    } else {
+        /* ── Pure lambda (no captures): lift as regular function ── */
+        const char *ret_type = "void";
+        if (lam->resolved_type) {
+            ret_type = "void"; /* simplified for Phase 2 */
+        }
+
+        /* Determine return type from annotation if available */
+        if (lam->return_type) {
+            Iron_TypeAnnotation *rta = (Iron_TypeAnnotation *)lam->return_type;
+            if (rta->kind == IRON_NODE_TYPE_ANNOTATION) {
+                if (strcmp(rta->name, "Int") == 0) ret_type = "int64_t";
+                else if (strcmp(rta->name, "Float") == 0) ret_type = "double";
+                else if (strcmp(rta->name, "Bool") == 0) ret_type = "bool";
+                else if (strcmp(rta->name, "Void") == 0) ret_type = "void";
+                else if (strcmp(rta->name, "String") == 0) ret_type = "Iron_String";
+                else ret_type = iron_mangle_name(rta->name, ctx->arena);
+            }
+        }
+
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+                             "%s %s(", ret_type, lambda_name);
+        for (int i = 0; i < lam->param_count; i++) {
+            if (i > 0) iron_strbuf_appendf(&ctx->lifted_funcs, ", ");
+            Iron_Param *p = (Iron_Param *)lam->params[i];
+            const char *pt = "int64_t";
+            if (p->type_ann) {
+                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
+                if (strcmp(ta->name, "Int") == 0) pt = "int64_t";
+                else if (strcmp(ta->name, "Float") == 0) pt = "double";
+                else if (strcmp(ta->name, "Bool") == 0) pt = "bool";
+                else if (strcmp(ta->name, "String") == 0) pt = "Iron_String";
+                else pt = iron_mangle_name(ta->name, ctx->arena);
+            }
+            iron_strbuf_appendf(&ctx->lifted_funcs, "%s %s", pt, p->name);
+        }
+        iron_strbuf_appendf(&ctx->lifted_funcs, ") {\n");
+        if (lam->body) {
+            emit_block(&ctx->lifted_funcs, (Iron_Block *)lam->body, ctx);
+        }
+        iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+
+        /* At use site: emit the function pointer */
+        iron_strbuf_appendf(sb, "%s", lambda_name);
+    }
+
+    arrfree(captures);
+}
 
 /* ── emit_expr ────────────────────────────────────────────────────────────── */
 
@@ -290,8 +530,21 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
         }
 
         case IRON_NODE_AWAIT: {
-            /* Stub for Phase 3 */
-            iron_strbuf_appendf(sb, "0 /* await stub */");
+            Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
+            /* Emit handle_wait call */
+            iron_strbuf_appendf(sb, "Iron_handle_wait(");
+            if (ae->handle) {
+                emit_expr(sb, ae->handle, ctx);
+            }
+            iron_strbuf_appendf(sb, ")");
+            break;
+        }
+
+        case IRON_NODE_LAMBDA: {
+            /* Lift lambda to named C function; emit use-site expression.
+             * In expression context we don't know the enclosing function name.
+             * Use "anon" as fallback; statement emission passes proper name. */
+            emit_lambda(sb, node, ctx, "anon");
             break;
         }
 

@@ -49,6 +49,9 @@ typedef struct {
     int           spawn_counter;
     int           parallel_counter;
 
+    /* Current function name — for lambda naming (set during func/method emit) */
+    const char   *current_func_name;
+
     /* Lifted functions — spawn bodies, parallel-for chunks, and lambdas */
     Iron_StrBuf   lifted_funcs;
 } Iron_Codegen;
@@ -89,6 +92,12 @@ void emit_defers(Iron_StrBuf *sb, Iron_Codegen *ctx, int target_depth);
 
 /* Ensure Iron_Optional_T struct is emitted for the given type */
 void ensure_optional_type(Iron_Codegen *ctx, const Iron_Type *inner);
+
+/* Emit a lambda expression, lifting the body to ctx->lifted_funcs.
+ * enclosing_name is the name of the enclosing function (for naming).
+ * Writes to sb the expression that produces the callable at the use site. */
+void emit_lambda(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx,
+                 const char *enclosing_name);
 
 /* Emit a function prototype to prototypes buffer */
 void emit_func_prototype(Iron_Codegen *ctx, Iron_FuncDecl *fd);
