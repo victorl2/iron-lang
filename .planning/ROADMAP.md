@@ -62,7 +62,7 @@ Plans:
 ### Phase 3: Runtime, Stdlib, and CLI
 **Goal**: Iron programs can be built, run, checked, formatted, and tested via the `iron` CLI, backed by a complete runtime and standard library
 **Depends on**: Phase 2
-**Requirements**: RT-01, RT-02, RT-03, RT-04, RT-05, RT-06, RT-07, RT-08, STD-01, STD-02, STD-03, STD-04, CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, CLI-06, CLI-07, CLI-08, TEST-04
+**Requirements**: RT-01, RT-02, RT-03, RT-04, RT-05, RT-06, RT-07, RT-08 (macOS+Linux only; Windows deferred to Phase 4), STD-01, STD-02, STD-03, STD-04, CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, CLI-06, CLI-07, CLI-08, TEST-04
 **Success Criteria** (what must be TRUE):
   1. `iron build hello.iron` produces a standalone native binary that executes; `iron run hello.iron` does the same in one step
   2. String, List, Map, Set, and Rc work correctly in Iron programs; the runtime passes all tests on macOS and Linux
@@ -84,7 +84,7 @@ Plans:
 ### Phase 4: Comptime, Game Dev, and Cross-Platform
 **Goal**: Comptime evaluation works, raylib programs build and run, and the full toolchain produces binaries on macOS, Linux, and Windows
 **Depends on**: Phase 3
-**Requirements**: CT-01, CT-02, CT-03, CT-04, GAME-01, GAME-02, GAME-03, GAME-04
+**Requirements**: CT-01, CT-02, CT-03, CT-04, GAME-01, GAME-02, GAME-03, GAME-04, RT-08 (Windows parity)
 **Success Criteria** (what must be TRUE):
   1. A `comptime` expression (e.g., `comptime fibonacci(10)`) evaluates at compile time and emits the result as a literal in the generated C; a step-limit violation produces a compile error rather than hanging
   2. `comptime read_file("assets/shader.glsl")` embeds the file contents as a string literal at compile time, resolved relative to the source file
