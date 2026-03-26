@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* ── Module-level fixtures ───────────────────────────────────────────────── */
 
@@ -684,6 +685,54 @@ void test_println_format_no_extra_args(void) {
     TEST_ASSERT_FALSE(str_contains(c, "\"\\n\""));
 }
 
+/* ── Test: generated C compiles through clang -std=c11 -Wall -Werror ──────── */
+
+void test_codegen_output_compiles_with_clang(void) {
+    /* A comprehensive Iron program exercising all three fixed bugs:
+     *   - Vec2.length() uses self.x -> must emit self->x (Bug 1 fix)
+     *   - Vec2(1.0, 2.0) is a type constructor -> must emit compound literal (Bug 2 fix)
+     *   - println("hello") -> must emit printf("%s\n",...) (Bug 3 fix)
+     * This program does NOT use spawn/parallel to avoid undeclared pool functions. */
+    const char *src =
+        "object Vec2 {\n"
+        "    var x: Float\n"
+        "    var y: Float\n"
+        "}\n"
+        "func Vec2.length() -> Float {\n"
+        "    return self.x + self.y\n"
+        "}\n"
+        "func main() {\n"
+        "    val v = Vec2(1.0, 2.0)\n"
+        "    println(\"hello\")\n"
+        "}\n";
+    const char *c = run_codegen(src);
+    TEST_ASSERT_NOT_NULL(c);
+
+    /* Write generated C to a temp file */
+    const char *tmpfile = "/tmp/iron_codegen_test.c";
+    FILE *f = fopen(tmpfile, "w");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, "Could not open temp file for writing");
+    fputs(c, f);
+    fclose(f);
+
+    /* Invoke clang -fsyntax-only to verify the C compiles without errors.
+     * -Wno-unused-variable: val v is unused (Iron doesn't require use).
+     * -Wno-unused-function: generated helpers may be unused in this snippet.
+     * -Werror: any remaining warning is a hard failure. */
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "clang -std=c11 -Wall -Werror "
+             "-Wno-unused-variable -Wno-unused-function "
+             "-fsyntax-only %s 2>/dev/null",
+             tmpfile);
+    int ret = system(cmd);
+    remove(tmpfile);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, ret,
+        "clang -std=c11 -Wall -Werror rejected generated C — "
+        "check /tmp/iron_codegen_test.c for details");
+}
+
 /* ── Test: auto_free heap allocation emits free() at block exit ─────────── */
 
 void test_auto_free_emits_free(void) {
@@ -818,6 +867,7 @@ int main(void) {
     RUN_TEST(test_call_to_type_emits_compound_literal);
     RUN_TEST(test_println_format_no_extra_args);
     RUN_TEST(test_auto_free_emits_free);
+    RUN_TEST(test_codegen_output_compiles_with_clang);
 
     return UNITY_END();
 }
