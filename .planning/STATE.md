@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
-status: planning
-stopped_at: Phase 7 context gathered
-last_updated: "2026-03-27T10:40:15.679Z"
-last_activity: 2026-03-27 — Roadmap finalized for v1.1 (5 phases, 52 requirements)
+status: in_progress
+stopped_at: "Completed 07-ir-foundation/07-01-PLAN.md"
+last_updated: "2026-03-27T11:10:30.000Z"
+last_activity: 2026-03-27 — Completed 07-01: IR data structure scaffold with 46-variant tagged union
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 10
+  completed_plans: 1
+  percent: 10
 ---
 
 # Project State
@@ -26,24 +26,24 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 ## Current Position
 
 Phase: 7 of 11 (IR Foundation)
-Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-03-27 — Roadmap finalized for v1.1 (5 phases, 52 requirements)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-03-27 — Completed 07-01: IR data structure scaffold
 
-Progress: [..........] 0%
+Progress: [#.........] 10%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 5 min
+- Total execution time: 0.08 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 07-ir-foundation | 1/2 | 5 min | 5 min |
 
 ## Accumulated Context
 
@@ -58,6 +58,9 @@ Recent decisions affecting current work:
 - Alloca+load+store model for mutable variables — sidesteps phi-placement complexity
 - Braun et al. 2013 SSA construction — single-pass incremental, no dominance frontiers needed
 - Separate ir_arena from ast_arena — correct lifetime management as pipeline evolves
+- free_instr union member name (not free) — avoids C stdlib name conflict in tagged union
+- value_table[0] pre-seeded NULL — IRON_IR_VALUE_INVALID=0 never maps to a real instruction
+- alloc_instr() static helper centralizes arena allocation, value numbering, and block appending
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -78,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T10:40:15.677Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-ir-foundation/07-CONTEXT.md
+Last session: 2026-03-27T11:10:30.000Z
+Stopped at: Completed 07-ir-foundation/07-01-PLAN.md
+Resume file: .planning/phases/07-ir-foundation/07-02-PLAN.md
