@@ -3,7 +3,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <pthread.h>
 
 /* stb_ds hash map — STB_DS_IMPLEMENTATION is in src/util/stb_ds_impl.c */
 #include "vendor/stb_ds.h"
@@ -14,7 +13,27 @@
  * Value: the interned Iron_String (which points into the same key buffer) */
 static struct { char *key; Iron_String value; } *s_intern_table = NULL;
 
-static pthread_mutex_t s_intern_lock = PTHREAD_MUTEX_INITIALIZER;
+static iron_mutex_t s_intern_lock;
+#ifdef _WIN32
+  static INIT_ONCE s_intern_once = INIT_ONCE_STATIC_INIT;
+  static BOOL CALLBACK iron__init_intern_lock(PINIT_ONCE once, PVOID param, PVOID *ctx) {
+      (void)once; (void)param; (void)ctx;
+      IRON_MUTEX_INIT(s_intern_lock);
+      return TRUE;
+  }
+  static inline void iron__ensure_intern_lock(void) {
+      InitOnceExecuteOnce(&s_intern_once, iron__init_intern_lock, NULL, NULL);
+  }
+#else
+  #include <pthread.h>
+  static pthread_once_t s_intern_once = PTHREAD_ONCE_INIT;
+  static void iron__init_intern_lock(void) {
+      IRON_MUTEX_INIT(s_intern_lock);
+  }
+  static inline void iron__ensure_intern_lock(void) {
+      pthread_once(&s_intern_once, iron__init_intern_lock);
+  }
+#endif
 
 /* ── UTF-8 helpers ───────────────────────────────────────────────────────── */
 
@@ -142,12 +161,13 @@ Iron_String iron_string_intern(Iron_String s) {
     const char *cstr = iron_string_cstr(&s);
     size_t      blen = iron_string_byte_len(&s);
 
-    pthread_mutex_lock(&s_intern_lock);
+    iron__ensure_intern_lock();
+    IRON_MUTEX_LOCK(s_intern_lock);
 
     ptrdiff_t idx = shgeti(s_intern_table, cstr);
     if (idx >= 0) {
         Iron_String existing = s_intern_table[idx].value;
-        pthread_mutex_unlock(&s_intern_lock);
+        IRON_MUTEX_UNLOCK(s_intern_lock);
         /* Free the heap allocation of the input string if not yet interned */
         if ((s.heap.flags & 0x01) && !(s.heap.flags & 0x02)) {
             free(s.heap.data);
@@ -169,7 +189,7 @@ Iron_String iron_string_intern(Iron_String s) {
 
     shput(s_intern_table, cstr, interned);
 
-    pthread_mutex_unlock(&s_intern_lock);
+    IRON_MUTEX_UNLOCK(s_intern_lock);
     return interned;
 }
 
@@ -180,11 +200,12 @@ void iron_threads_shutdown(void);
 /* ── Runtime lifecycle ───────────────────────────────────────────────────── */
 
 void iron_runtime_init(void) {
-    pthread_mutex_lock(&s_intern_lock);
+    iron__ensure_intern_lock();
+    IRON_MUTEX_LOCK(s_intern_lock);
     if (s_intern_table == NULL) {
         sh_new_strdup(s_intern_table);
     }
-    pthread_mutex_unlock(&s_intern_lock);
+    IRON_MUTEX_UNLOCK(s_intern_lock);
     iron_threads_init();
 }
 
@@ -192,7 +213,8 @@ void iron_runtime_shutdown(void) {
     /* Shut down thread pool before freeing strings */
     iron_threads_shutdown();
 
-    pthread_mutex_lock(&s_intern_lock);
+    iron__ensure_intern_lock();
+    IRON_MUTEX_LOCK(s_intern_lock);
     /* Free heap-allocated string data stored in the intern table values */
     for (ptrdiff_t i = 0; i < shlen(s_intern_table); i++) {
         Iron_String *v = &s_intern_table[i].value;
@@ -202,5 +224,5 @@ void iron_runtime_shutdown(void) {
     }
     shfree(s_intern_table);
     s_intern_table = NULL;
-    pthread_mutex_unlock(&s_intern_lock);
+    IRON_MUTEX_UNLOCK(s_intern_lock);
 }

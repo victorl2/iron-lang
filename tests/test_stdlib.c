@@ -191,17 +191,17 @@ void test_time_sleep(void) {
 void test_timer_create_since(void) {
     Iron_Timer t = Iron_timer_create();
     Iron_time_sleep(5);
-    int64_t elapsed = Iron_timer_since(&t);
+    int64_t elapsed = Iron_timer_since(t);
     TEST_ASSERT_GREATER_OR_EQUAL_INT64(5, elapsed);
 }
 
 void test_timer_reset(void) {
     Iron_Timer t = Iron_timer_create();
     Iron_time_sleep(10);
-    int64_t before_reset = Iron_timer_since(&t);
+    int64_t before_reset = Iron_timer_since(t);
 
-    Iron_timer_reset(&t);
-    int64_t after_reset = Iron_timer_since(&t);
+    t = Iron_timer_reset(t);
+    int64_t after_reset = Iron_timer_since(t);
 
     TEST_ASSERT_GREATER_OR_EQUAL_INT64(10, before_reset);
     TEST_ASSERT_LESS_THAN_INT64(before_reset, after_reset + 1);
