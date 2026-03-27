@@ -70,73 +70,6 @@ add_library(iron_compiler STATIC
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 target_link_libraries(iron_compiler iron_runtime)
 
-# ── Tests ──────────────────────────────────────────────────────────────────
-enable_testing()
-
-add_executable(test_arena tests/test_arena.c)
-target_link_libraries(test_arena iron_compiler unity)
-add_test(NAME test_arena COMMAND test_arena)
-
-add_executable(test_diagnostics tests/test_diagnostics.c)
-target_link_libraries(test_diagnostics iron_compiler unity)
-add_test(NAME test_diagnostics COMMAND test_diagnostics)
-
-add_executable(test_lexer tests/test_lexer.c)
-target_link_libraries(test_lexer iron_compiler unity)
-add_test(NAME test_lexer COMMAND test_lexer)
-
-add_executable(test_parser tests/test_parser.c)
-target_link_libraries(test_parser iron_compiler unity)
-add_test(NAME test_parser COMMAND test_parser)
-
-add_executable(test_parser_errors tests/test_parser_errors.c)
-target_link_libraries(test_parser_errors iron_compiler unity)
-add_test(NAME test_parser_errors COMMAND test_parser_errors)
-
-add_executable(test_interp tests/test_interp.c)
-target_link_libraries(test_interp iron_compiler unity)
-add_test(NAME test_interp COMMAND test_interp)
-
-add_executable(test_printer tests/test_printer.c)
-target_link_libraries(test_printer iron_compiler unity)
-add_test(NAME test_printer COMMAND test_printer)
-
-add_executable(test_types tests/test_types.c)
-target_link_libraries(test_types iron_compiler unity)
-add_test(NAME test_types COMMAND test_types)
-
-add_executable(test_resolver tests/test_resolver.c)
-target_link_libraries(test_resolver iron_compiler unity)
-add_test(NAME test_resolver COMMAND test_resolver)
-
-add_executable(test_typecheck tests/test_typecheck.c)
-target_link_libraries(test_typecheck iron_compiler unity)
-add_test(NAME test_typecheck COMMAND test_typecheck)
-
-add_executable(test_escape tests/test_escape.c)
-target_link_libraries(test_escape iron_compiler unity)
-add_test(NAME test_escape COMMAND test_escape)
-
-add_executable(test_concurrency tests/test_concurrency.c)
-target_link_libraries(test_concurrency iron_compiler unity)
-add_test(NAME test_concurrency COMMAND test_concurrency)
-
-add_executable(test_comptime tests/test_comptime.c)
-target_link_libraries(test_comptime iron_compiler unity)
-add_test(NAME test_comptime COMMAND test_comptime)
-
-add_executable(test_runtime_string tests/test_runtime_string.c)
-target_link_libraries(test_runtime_string iron_runtime unity)
-add_test(NAME test_runtime_string COMMAND test_runtime_string)
-
-add_executable(test_runtime_threads tests/test_runtime_threads.c)
-target_link_libraries(test_runtime_threads iron_runtime unity)
-add_test(NAME test_runtime_threads COMMAND test_runtime_threads)
-
-add_executable(test_runtime_collections tests/test_runtime_collections.c)
-target_link_libraries(test_runtime_collections iron_runtime unity)
-add_test(NAME test_runtime_collections COMMAND test_runtime_collections)
-
 # ── iron_stdlib static library ─────────────────────────────────────────────
 add_library(iron_stdlib STATIC
     src/stdlib/iron_math.c
@@ -151,31 +84,15 @@ else()
   target_link_libraries(iron_stdlib iron_runtime)
 endif()
 
-add_executable(test_stdlib tests/test_stdlib.c)
-target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)
-add_test(NAME test_stdlib COMMAND test_stdlib)
+# ── Tests ──────────────────────────────────────────────────────────────────
+enable_testing()
 
-# ── IR tests ──────────────────────────────────────────────────────────────
-add_executable(test_ir_data tests/ir/test_ir_data.c)
-target_link_libraries(test_ir_data iron_compiler unity)
-add_test(NAME test_ir_data COMMAND test_ir_data)
-
-add_executable(test_ir_print tests/ir/test_ir_print.c)
-target_link_libraries(test_ir_print iron_compiler unity)
-add_test(NAME test_ir_print COMMAND test_ir_print)
-
-add_executable(test_ir_verify tests/ir/test_ir_verify.c)
-target_link_libraries(test_ir_verify iron_compiler unity)
-add_test(NAME test_ir_verify COMMAND test_ir_verify)
-
-add_executable(test_ir_lower tests/ir/test_ir_lower.c)
-target_link_libraries(test_ir_lower iron_compiler unity)
-add_test(NAME test_ir_lower COMMAND test_ir_lower
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-add_executable(test_ir_emit tests/ir/test_ir_emit.c)
-target_link_libraries(test_ir_emit iron_compiler unity)
-add_test(NAME test_ir_emit COMMAND test_ir_emit)
+add_subdirectory(tests/unit)
+add_subdirectory(tests/ir)
+add_subdirectory(tests/integration)
+add_subdirectory(tests/algorithms)
+add_subdirectory(tests/composite)
+add_subdirectory(tests/manual)
 
 # ── iron CLI executable ─────────────────────────────────────────────────────
 add_executable(iron
@@ -207,15 +124,3 @@ add_test(
 set_tests_properties(test_cli_help PROPERTIES
     PASS_REGULAR_EXPRESSION "Usage: iron"
 )
-
-# ── Integration tests ────────────────────────────────────────────────────────
-# Compiles .iron files to native binaries and verifies their runtime output.
-# Shell-script based tests cannot run on Windows.
-if(NOT WIN32)
-  add_test(
-      NAME test_integration
-      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/run_integration.sh
-              ${CMAKE_BINARY_DIR}/iron
-      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  )
-endif()
