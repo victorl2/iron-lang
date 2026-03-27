@@ -86,6 +86,39 @@ static const char *mangle_func_name(const char *name, Iron_Arena *arena) {
     return emit_mangle_name(name, arena);
 }
 
+/* Resolve a function IR name to its C symbol, honoring extern_c_name.
+ * Looks up the function in the module; if found and is_extern, uses extern_c_name.
+ * Otherwise falls back to mangle_func_name(). */
+static const char *resolve_func_c_name(EmitCtx *ctx, const char *ir_name) {
+    if (!ir_name) return "NULL";
+    for (int fi = 0; fi < ctx->module->func_count; fi++) {
+        IronIR_Func *f = ctx->module->funcs[fi];
+        if (strcmp(f->name, ir_name) == 0 && f->is_extern) {
+            return f->extern_c_name ? f->extern_c_name : ir_name;
+        }
+    }
+    return mangle_func_name(ir_name, ctx->arena);
+}
+
+/* Sanitize a block label for use as a C identifier: replace dots with underscores. */
+static const char *sanitize_label(const char *label, Iron_Arena *arena) {
+    if (!label) return "unknown_block";
+    /* Check if any dot exists; if not, return label unchanged */
+    const char *p = label;
+    while (*p) {
+        if (*p == '.') break;
+        p++;
+    }
+    if (!*p) return label; /* no dots, fast path */
+
+    size_t len = strlen(label);
+    char *buf = (char *)iron_arena_alloc(arena, len + 1, 1);
+    for (size_t i = 0; i <= len; i++) {
+        buf[i] = (label[i] == '.') ? '_' : label[i];
+    }
+    return buf;
+}
+
 /* ── Type-to-C mapping (no Iron_Codegen dependency) ───────────────────────── */
 
 /* Forward declaration for mutual recursion */
@@ -316,11 +349,18 @@ static void phi_eliminate(IronIR_Module *module) {
 
 /* ── Block label resolution ───────────────────────────────────────────────── */
 
-static const char *resolve_label(IronIR_Func *fn, IronIR_BlockId id) {
+static const char *resolve_label_raw(IronIR_Func *fn, IronIR_BlockId id) {
     for (int i = 0; i < fn->block_count; i++) {
         if (fn->blocks[i]->id == id) return fn->blocks[i]->label;
     }
     return "unknown_block";
+}
+
+/* Resolve a block label and sanitize dots for valid C identifiers */
+static const char *resolve_label(IronIR_Func *fn, IronIR_BlockId id,
+                                  Iron_Arena *arena) {
+    const char *label = resolve_label_raw(fn, id);
+    return sanitize_label(label, arena);
 }
 
 /* ── Instruction emission ─────────────────────────────────────────────────── */
@@ -673,9 +713,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
                 fn->value_table[fptr] != NULL &&
                 fn->value_table[fptr]->kind == IRON_IR_FUNC_REF) {
-                /* Direct call via known function name */
-                const char *c_name = mangle_func_name(
-                    fn->value_table[fptr]->func_ref.func_name, ctx->arena);
+                /* Direct call via known function name — honor extern_c_name */
+                const char *c_name = resolve_func_c_name(
+                    ctx, fn->value_table[fptr]->func_ref.func_name);
                 iron_strbuf_appendf(sb, "%s(", c_name);
                 emitted_direct = true;
             }
@@ -688,9 +728,49 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             }
         }
 
+        /* Determine if this is an extern call — extern calls need Iron_String
+         * arguments converted to const char* via iron_string_cstr(). */
+        bool is_extern_call = false;
+        if (instr->call.func_decl && instr->call.func_decl->is_extern) {
+            is_extern_call = true;
+        } else if (!instr->call.func_decl) {
+            /* Indirect call: check if the FUNC_REF target is extern */
+            IronIR_ValueId fptr = instr->call.func_ptr;
+            if (fptr != IRON_IR_VALUE_INVALID &&
+                fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[fptr] != NULL &&
+                fn->value_table[fptr]->kind == IRON_IR_FUNC_REF) {
+                const char *ref_name = fn->value_table[fptr]->func_ref.func_name;
+                for (int fi = 0; fi < ctx->module->func_count; fi++) {
+                    if (strcmp(ctx->module->funcs[fi]->name, ref_name) == 0 &&
+                        ctx->module->funcs[fi]->is_extern) {
+                        is_extern_call = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         for (int i = 0; i < instr->call.arg_count; i++) {
             if (i > 0) iron_strbuf_appendf(sb, ", ");
-            emit_val(sb, instr->call.args[i]);
+            IronIR_ValueId arg_id = instr->call.args[i];
+            /* For extern calls, convert Iron_String arguments to const char* */
+            bool is_string_arg = false;
+            if (is_extern_call && arg_id != IRON_IR_VALUE_INVALID &&
+                arg_id < (IronIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[arg_id] != NULL) {
+                Iron_Type *arg_type = fn->value_table[arg_id]->type;
+                if (arg_type && arg_type->kind == IRON_TYPE_STRING) {
+                    is_string_arg = true;
+                }
+            }
+            if (is_string_arg) {
+                iron_strbuf_appendf(sb, "iron_string_cstr(&");
+                emit_val(sb, arg_id);
+                iron_strbuf_appendf(sb, ")");
+            } else {
+                emit_val(sb, arg_id);
+            }
         }
         iron_strbuf_appendf(sb, ");\n");
         break;
@@ -701,7 +781,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     case IRON_IR_JUMP:
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "goto %s;\n",
-                            resolve_label(fn, instr->jump.target));
+                            resolve_label(fn, instr->jump.target, ctx->arena));
         break;
 
     case IRON_IR_BRANCH:
@@ -709,8 +789,8 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "if (");
         emit_val(sb, instr->branch.cond);
         iron_strbuf_appendf(sb, ") goto %s; else goto %s;\n",
-                            resolve_label(fn, instr->branch.then_block),
-                            resolve_label(fn, instr->branch.else_block));
+                            resolve_label(fn, instr->branch.then_block, ctx->arena),
+                            resolve_label(fn, instr->branch.else_block, ctx->arena));
         break;
 
     case IRON_IR_SWITCH: {
@@ -722,11 +802,11 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             emit_indent(sb, ind + 1);
             iron_strbuf_appendf(sb, "case %d: goto %s;\n",
                                 instr->sw.case_values[i],
-                                resolve_label(fn, instr->sw.case_blocks[i]));
+                                resolve_label(fn, instr->sw.case_blocks[i], ctx->arena));
         }
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "default: goto %s;\n",
-                            resolve_label(fn, instr->sw.default_block));
+                            resolve_label(fn, instr->sw.default_block, ctx->arena));
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "}\n");
         break;
@@ -1136,13 +1216,14 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         break;
     }
 
-    case IRON_IR_FUNC_REF:
+    case IRON_IR_FUNC_REF: {
+        const char *c_name = resolve_func_c_name(ctx, instr->func_ref.func_name);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "void* ");
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (void*)%s;\n",
-                            mangle_func_name(instr->func_ref.func_name, ctx->arena));
+        iron_strbuf_appendf(sb, " = (void*)%s;\n", c_name);
         break;
+    }
 
     /* ── Concurrency ────────────────────────────────────────────────────── */
 
@@ -1273,8 +1354,8 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronIR_Block *block = fn->blocks[bi];
 
-        /* Emit block label — C requires labels before statements */
-        iron_strbuf_appendf(sb, "%s:;\n", block->label);
+        /* Emit block label — sanitize dots to underscores for valid C */
+        iron_strbuf_appendf(sb, "%s:;\n", sanitize_label(block->label, ctx->arena));
 
         for (int ii = 0; ii < block->instr_count; ii++) {
             emit_instr(sb, block->instrs[ii], fn, ctx);

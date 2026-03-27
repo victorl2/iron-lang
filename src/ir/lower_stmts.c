@@ -87,7 +87,7 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             Iron_IfStmt *is = (Iron_IfStmt *)node;
 
             /* Allocate merge block upfront; used as final continuation */
-            IronIR_Block *merge_block = new_block(ctx, "if.merge");
+            IronIR_Block *merge_block = new_block(ctx, "if_merge");
 
             /* Track whether at least one branch jumps to merge_block.
              * If ALL branches terminate (early return/break), merge_block is dead. */
@@ -100,14 +100,14 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
              * Each condition branches to its then-block or the next condition
              * block (or the else/merge block if no more elifs). */
 
-            IronIR_Block *then_block = new_block(ctx, "if.then");
+            IronIR_Block *then_block = new_block(ctx, "if_then");
 
             /* Determine the "else target" for the primary condition */
             IronIR_Block *else_target;
             if (is->elif_count > 0) {
-                else_target = new_block(ctx, "if.elif.cond");
+                else_target = new_block(ctx, "if_elif_cond");
             } else if (is->else_body) {
-                else_target = new_block(ctx, "if.else");
+                else_target = new_block(ctx, "if_else");
             } else {
                 /* No else: the false branch falls through to merge */
                 else_target = merge_block;
@@ -133,13 +133,13 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 switch_block(ctx, cur_elif_cond_block);
                 IronIR_ValueId elif_cond = lower_expr(ctx, is->elif_conds[i]);
 
-                IronIR_Block *elif_then = new_block(ctx, "if.elif.then");
+                IronIR_Block *elif_then = new_block(ctx, "if_elif_then");
 
                 IronIR_Block *next_else;
                 if (i + 1 < is->elif_count) {
-                    next_else = new_block(ctx, "if.elif.cond");
+                    next_else = new_block(ctx, "if_elif_cond");
                 } else if (is->else_body) {
-                    next_else = new_block(ctx, "if.else");
+                    next_else = new_block(ctx, "if_else");
                 } else {
                     next_else = merge_block;
                     merge_has_predecessor = true;
@@ -183,9 +183,9 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
         case IRON_NODE_WHILE: {
             Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
 
-            IronIR_Block *header = new_block(ctx, "while.header");
-            IronIR_Block *body   = new_block(ctx, "while.body");
-            IronIR_Block *exit   = new_block(ctx, "while.exit");
+            IronIR_Block *header = new_block(ctx, "while_header");
+            IronIR_Block *body   = new_block(ctx, "while_body");
+            IronIR_Block *exit   = new_block(ctx, "while_exit");
 
             /* Jump from current block to header */
             iron_ir_jump(fn, ctx->current_block, header->id, span);
@@ -262,11 +262,11 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                                                      int_type, fs->var_name, span);
                 shput(ctx->var_alloca_map, fs->var_name, slot->id);
 
-                IronIR_Block *pre_header = new_block(ctx, "for.init");
-                IronIR_Block *header     = new_block(ctx, "for.header");
-                IronIR_Block *body_blk   = new_block(ctx, "for.body");
-                IronIR_Block *increment  = new_block(ctx, "for.incr");
-                IronIR_Block *exit       = new_block(ctx, "for.exit");
+                IronIR_Block *pre_header = new_block(ctx, "for_init");
+                IronIR_Block *header     = new_block(ctx, "for_header");
+                IronIR_Block *body_blk   = new_block(ctx, "for_body");
+                IronIR_Block *increment  = new_block(ctx, "for_incr");
+                IronIR_Block *exit       = new_block(ctx, "for_exit");
 
                 /* Jump to pre_header */
                 iron_ir_jump(fn, ctx->current_block, pre_header->id, span);
@@ -332,12 +332,12 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             IronIR_ValueId subject_val = lower_expr(ctx, ms->subject);
 
             /* Create join block */
-            IronIR_Block *join_block = new_block(ctx, "match.join");
+            IronIR_Block *join_block = new_block(ctx, "match_join");
 
             /* Create default block (else body or direct jump to join) */
             IronIR_Block *default_block;
             if (ms->else_body) {
-                default_block = new_block(ctx, "match.else");
+                default_block = new_block(ctx, "match_else");
             } else {
                 default_block = join_block;
             }
@@ -348,7 +348,7 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
             for (int i = 0; i < ms->case_count; i++) {
                 Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
-                IronIR_Block *arm_block = new_block(ctx, "match.arm");
+                IronIR_Block *arm_block = new_block(ctx, "match_arm");
 
                 /* Determine the case value from the pattern.
                  * For enum integer patterns: the pattern is an IRON_NODE_INT_LIT.
