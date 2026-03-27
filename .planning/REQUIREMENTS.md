@@ -59,14 +59,14 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **RT-04**: Thread pool implementation with work queue, submit, and barrier
 - [x] **RT-05**: Channel implementation (ring buffer + mutex + condvars) with send/recv/try_recv
 - [x] **RT-06**: Mutex wraps a value with lock semantics
-- [ ] **RT-07**: Built-in functions work: print, println, len, range, min, max, clamp, abs, assert
+- [x] **RT-07**: Built-in functions work: print, println, len, range, min, max, clamp, abs, assert
 - [x] **RT-08**: Runtime compiles and passes tests on macOS, Linux, and Windows
 
 ### Standard Library
 
 - [x] **STD-01**: math module provides trig, sqrt, pow, lerp, random, PI/TAU/E
 - [x] **STD-02**: io module provides file read/write, file_exists, list_files, create_dir
-- [ ] **STD-03**: time module provides now, now_ms, sleep, since, Timer
+- [x] **STD-03**: time module provides now, now_ms, sleep, since, Timer
 - [x] **STD-04**: log module provides info/warn/error/debug with level filtering
 
 ### CLI Toolchain
@@ -184,11 +184,11 @@ Deferred to future milestones. Tracked but not in current roadmap.
 | RT-04 | Phase 3 | Complete |
 | RT-05 | Phase 3 | Complete |
 | RT-06 | Phase 3 | Complete |
-| RT-07 | Phase 6 | Pending |
+| RT-07 | Phase 6 | Complete |
 | RT-08 | Phase 3 | Complete |
 | STD-01 | Phase 5 | Complete |
 | STD-02 | Phase 5 | Complete |
-| STD-03 | Phase 6 | Pending |
+| STD-03 | Phase 6 | Complete |
 | STD-04 | Phase 5 | Complete |
 | CLI-01 | Phase 3 | Complete |
 | CLI-02 | Phase 3 | Complete |
