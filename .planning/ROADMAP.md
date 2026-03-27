@@ -3,7 +3,7 @@
 ## Milestones
 
 - v1.0 Iron Language Compiler - Phases 1-6 (shipped 2026-03-27)
-- v1.1 High IR - Phases 7-10 (in progress)
+- v1.1 High IR - Phases 7-11 (in progress)
 
 ## Phases
 
@@ -31,6 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 8: AST-to-IR Lowering** - Every Iron language feature lowers from AST to typed SSA-form IR instructions
 - [ ] **Phase 9: C Emission and Cutover** - IR-to-C backend produces equivalent output to old codegen; old codegen removed after parity gate
 - [ ] **Phase 10: Test Hardening** - Reorganize test structure, add real algorithm tests, comprehensive IR coverage tests, and real-world composite programs
+- [ ] **Phase 11: Release Pipeline & Versioning** - CI builds release binaries on draft release; `iron --version` shows commit hash and build date
 
 ## Phase Details
 
@@ -216,10 +217,25 @@ Plans:
 - [ ] 10-02: Real algorithm test suite and control flow / memory / concurrency edge case tests
 - [ ] 10-03: Real-world composite programs and IR printer snapshot tests
 
+### Phase 11: Release Pipeline & Versioning
+**Goal**: CI automatically builds downloadable release binaries for all platforms when a draft GitHub release is created, and `iron --version` outputs version, commit hash, and build date in rustc style
+**Depends on**: Phase 10
+**Requirements**: REL-01, REL-02, REL-03, REL-04
+**Success Criteria** (what must be TRUE):
+  1. Creating a draft release on GitHub triggers a CI workflow that builds iron binaries for macOS (arm64 + x86_64), Linux (x86_64), and Windows (x86_64)
+  2. Built binaries are uploaded as release assets and are directly downloadable and executable on each platform
+  3. `iron --version` outputs `iron X.Y.Z (abcdef0 2026-MM-DD)` matching the rustc format with the actual commit hash and build date
+  4. Commit hash and build date are baked in at compile time via CMake defines, not runtime detection
+**Plans**: TBD
+
+Plans:
+- [ ] 11-01: Version string with commit hash and build date (CMake configure + CLI flag)
+- [ ] 11-02: CI release workflow (GitHub Actions: build matrix, artifact upload on draft release)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 7 -> 8 -> 9 -> 10
+Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -233,3 +249,4 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10
 | 8. AST-to-IR Lowering | v1.1 | 0/3 | Not started | - |
 | 9. C Emission and Cutover | v1.1 | 0/2 | Not started | - |
 | 10. Test Hardening | v1.1 | 0/3 | Not started | - |
+| 11. Release Pipeline & Versioning | v1.1 | 0/2 | Not started | - |
