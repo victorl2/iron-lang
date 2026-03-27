@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: "Completed 11-01: version baking via CMake compile-time defines"
-last_updated: "2026-03-27T22:37:40.211Z"
+stopped_at: "Completed 11-02: GitHub Actions release workflow and curl-pipe-sh install script"
+last_updated: "2026-03-27T22:41:16.698Z"
 last_activity: "2026-03-27 — Completed 10-03: 13 algorithm tests with 5 IR pipeline bug fixes"
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 86
 ---
 
@@ -54,6 +54,7 @@ Progress: [########..] 86%
 | Phase 09-c-emission-and-cutover P03 | 35 min | 2 tasks | 4 files |
 | Phase 10-test-hardening P05 | 3 | 2 tasks | 8 files |
 | Phase 11-release-pipeline-versioning P01 | 2 | 2 tasks | 2 files |
+| Phase 11-release-pipeline-versioning P02 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,9 @@ Recent decisions affecting current work:
 - [Phase 11-release-pipeline-versioning]: Version baked at CMake configure time via execute_process(git rev-parse --short HEAD) — not runtime detection
 - [Phase 11-release-pipeline-versioning]: PROJECT_VERSION from project(VERSION 0.1.1) is single source of truth; flows to IRON_VERSION_STRING compile definition
 - [Phase 11-release-pipeline-versioning]: #ifndef fallback guards in main.c protect correctness for non-CMake builds
+- [Phase 11-release-pipeline-versioning]: Release triggered on types: [created] — fires on both draft and published releases
+- [Phase 11-release-pipeline-versioning]: softprops/action-gh-release@v2 for asset upload — standard, well-maintained action
+- [Phase 11-release-pipeline-versioning]: install.sh uses /bin/sh for maximum curl-pipe-sh portability; PATH update is idempotent
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -128,6 +132,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T22:37:40.208Z
-Stopped at: Completed 11-01: version baking via CMake compile-time defines
+Last session: 2026-03-27T22:41:16.696Z
+Stopped at: Completed 11-02: GitHub Actions release workflow and curl-pipe-sh install script
 Resume file: None
