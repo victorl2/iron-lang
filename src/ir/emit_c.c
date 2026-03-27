@@ -1228,40 +1228,135 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     /* ── Concurrency ────────────────────────────────────────────────────── */
 
     case IRON_IR_SPAWN: {
-        const char *func_name  = instr->spawn.lifted_func_name;
+        /* Iron_pool_submit returns void; emit as a statement (no return value) */
+        const char *func_name = instr->spawn.lifted_func_name;
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_Future* ");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = iron_pool_submit(");
+        iron_strbuf_appendf(sb, "Iron_pool_submit(");
         if (instr->spawn.pool_val == IRON_IR_VALUE_INVALID) {
-            iron_strbuf_appendf(sb, "iron_default_pool()");
+            iron_strbuf_appendf(sb, "Iron_global_pool");
         } else {
             emit_val(sb, instr->spawn.pool_val);
         }
-        iron_strbuf_appendf(sb, ", (Iron_TaskFunc)%s, NULL);\n", func_name);
+        iron_strbuf_appendf(sb, ", (void (*)(void *))%s, NULL);\n", func_name);
         break;
     }
 
     case IRON_IR_PARALLEL_FOR: {
+        /* Range-splitting parallel-for pattern using Iron_pool_submit.
+         *
+         * The IR chunk function has signature:
+         *   void chunk_func(int64_t loop_var)
+         * Iron_pool_submit expects:
+         *   void (*fn)(void *)
+         *
+         * We emit:
+         *   1. A context struct typedef:  chunk_func_ctx { int64_t start; int64_t end; }
+         *   2. A wrapper function:        chunk_func_wrapper(void*) that loops start..end
+         *      calling the original chunk_func for each iteration, then frees the ctx.
+         *   3. Inline range-splitting logic that malloc's a ctx per chunk and submits.
+         *   4. Iron_pool_barrier at the end.
+         */
         const char *chunk_func = instr->parallel_for.chunk_func_name;
+
+        /* Derive context struct name and wrapper name from chunk func name */
+        Iron_StrBuf ctx_type_sb = iron_strbuf_create(64);
+        iron_strbuf_appendf(&ctx_type_sb, "%s_ctx", chunk_func);
+        const char *ctx_type = iron_arena_strdup(ctx->arena,
+                                                   iron_strbuf_get(&ctx_type_sb),
+                                                   ctx_type_sb.len);
+        iron_strbuf_free(&ctx_type_sb);
+
+        Iron_StrBuf wrapper_sb = iron_strbuf_create(64);
+        iron_strbuf_appendf(&wrapper_sb, "%s_wrapper", chunk_func);
+        const char *wrapper_name = iron_arena_strdup(ctx->arena,
+                                                       iron_strbuf_get(&wrapper_sb),
+                                                       wrapper_sb.len);
+        iron_strbuf_free(&wrapper_sb);
+
+        /* Emit context struct typedef into lifted_funcs section */
+        iron_strbuf_appendf(&ctx->lifted_funcs, "typedef struct {\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs, "    int64_t start;\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs, "    int64_t end;\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs, "} %s;\n\n", ctx_type);
+
+        /* Resolve the mangled C name for the chunk function.
+         * The chunk func (e.g., "__pfor_0") is a user function and gets
+         * the Iron_ prefix via mangle_func_name. */
+        const char *chunk_c_name = mangle_func_name(chunk_func, ctx->arena);
+
+        /* Emit wrapper function into lifted_funcs section.
+         * The wrapper loops [start, end) and calls the original chunk function. */
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static void %s(void *_arg) {\n", wrapper_name);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    %s *_c = (%s *)_arg;\n", ctx_type, ctx_type);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    int64_t _start = _c->start;\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    int64_t _end   = _c->end;\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    free(_arg);\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    for (int64_t _i = _start; _i < _end; _i++) {\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "        %s(_i);\n", chunk_c_name);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    }\n");
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "}\n\n");
+
+        /* Emit inline range-splitting and submission loop */
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "iron_pool_parallel_for(");
-        if (instr->parallel_for.pool_val == IRON_IR_VALUE_INVALID) {
-            iron_strbuf_appendf(sb, "iron_default_pool()");
-        } else {
-            emit_val(sb, instr->parallel_for.pool_val);
-        }
-        iron_strbuf_appendf(sb, ", ");
+        iron_strbuf_appendf(sb, "{\n");
+        int inner = ind + 1;
+
+        /* _total = range value */
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb, "int64_t _total = ");
         emit_val(sb, instr->parallel_for.range_val);
-        iron_strbuf_appendf(sb, ", (Iron_ChunkFunc)%s, NULL);\n", chunk_func);
+        iron_strbuf_appendf(sb, ";\n");
+
+        /* Thread count and chunk size */
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb,
+            "int64_t _nthreads = (int64_t)Iron_pool_thread_count(Iron_global_pool);\n");
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb, "if (_nthreads < 1) _nthreads = 1;\n");
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb,
+            "int64_t _chunk_size = (_total + _nthreads - 1) / _nthreads;\n");
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb, "if (_chunk_size < 1) _chunk_size = 1;\n");
+
+        /* Submission loop */
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb,
+            "for (int64_t _c = 0; _c < _total; _c += _chunk_size) {\n");
+        int inner2 = inner + 1;
+        emit_indent(sb, inner2);
+        iron_strbuf_appendf(sb,
+            "int64_t _end = (_c + _chunk_size > _total) ? _total : _c + _chunk_size;\n");
+        emit_indent(sb, inner2);
+        iron_strbuf_appendf(sb,
+            "%s *_pctx = (%s *)malloc(sizeof(%s));\n",
+            ctx_type, ctx_type, ctx_type);
+        emit_indent(sb, inner2);
+        iron_strbuf_appendf(sb, "_pctx->start = _c;\n");
+        emit_indent(sb, inner2);
+        iron_strbuf_appendf(sb, "_pctx->end = _end;\n");
+        emit_indent(sb, inner2);
+        iron_strbuf_appendf(sb,
+            "Iron_pool_submit(Iron_global_pool, %s, _pctx);\n", wrapper_name);
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb, "}\n");
+
+        /* Barrier */
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb, "Iron_pool_barrier(Iron_global_pool);\n");
+
+        /* Close scope */
         emit_indent(sb, ind);
-        if (instr->parallel_for.pool_val == IRON_IR_VALUE_INVALID) {
-            iron_strbuf_appendf(sb, "iron_pool_barrier(iron_default_pool());\n");
-        } else {
-            iron_strbuf_appendf(sb, "iron_pool_barrier(");
-            emit_val(sb, instr->parallel_for.pool_val);
-            iron_strbuf_appendf(sb, ");\n");
-        }
+        iron_strbuf_appendf(sb, "}\n");
         break;
     }
 
@@ -1327,9 +1422,17 @@ static void emit_func_signature(Iron_StrBuf *sb, IronIR_Func *fn,
     iron_strbuf_appendf(sb, "%s %s(", ret_c, c_name);
     for (int i = 0; i < fn->param_count; i++) {
         if (i > 0) iron_strbuf_appendf(sb, ", ");
-        iron_strbuf_appendf(sb, "%s %s",
-                            emit_type_to_c(fn->params[i].type, ctx),
-                            fn->params[i].name);
+        /* Params are assigned sequential value IDs starting at 1.
+         * Param 0 → _v1, param 1 → _v2, etc.
+         * Emit params as _v{id} to match IR value references. */
+        Iron_Type *pt = fn->params[i].type;
+        if (pt) {
+            iron_strbuf_appendf(sb, "%s _v%d",
+                                emit_type_to_c(pt, ctx), i + 1);
+        } else {
+            /* Unknown type — use void* */
+            iron_strbuf_appendf(sb, "void* _v%d", i + 1);
+        }
     }
     if (fn->param_count == 0) {
         iron_strbuf_appendf(sb, "void");
