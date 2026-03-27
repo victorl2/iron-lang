@@ -1,0 +1,8 @@
+pipeline start
+input: 1-10
+partial lo (1-5): 55
+partial hi (6-10): 330
+total sum of squares: 385
+squares > 25: 5
+sum of large squares: 330
+pipeline done
