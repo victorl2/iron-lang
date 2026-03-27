@@ -164,8 +164,8 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### Tooling
 
-- [ ] **TOOL-01**: IR printer producing human-readable text dump of IR modules
-- [ ] **TOOL-02**: IR verifier validating structural invariants (values defined before use, blocks have terminators, branch targets valid)
+- [x] **TOOL-01**: IR printer producing human-readable text dump of IR modules
+- [x] **TOOL-02**: IR verifier validating structural invariants (values defined before use, blocks have terminators, branch targets valid)
 
 ### Test Hardening
 
@@ -362,8 +362,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EMIT-01 | Phase 9 | Pending |
 | EMIT-02 | Phase 9 | Pending |
 | EMIT-03 | Phase 9 | Pending |
-| TOOL-01 | Phase 7 | Pending |
-| TOOL-02 | Phase 7 | Pending |
+| TOOL-01 | Phase 7 | Complete |
+| TOOL-02 | Phase 7 | Complete |
 | THARD-01 | Phase 10 | Pending |
 | THARD-02 | Phase 10 | Pending |
 | THARD-03 | Phase 10 | Pending |

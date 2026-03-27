@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
-status: in_progress
-stopped_at: "Completed 07-ir-foundation/07-01-PLAN.md"
-last_updated: "2026-03-27T11:10:30.000Z"
-last_activity: 2026-03-27 — Completed 07-01: IR data structure scaffold with 46-variant tagged union
+status: executing
+stopped_at: Completed 07-ir-foundation/07-02-PLAN.md
+last_updated: "2026-03-27T11:31:51.487Z"
+last_activity: "2026-03-27 — Completed 07-01: IR data structure scaffold"
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 10
-  completed_plans: 1
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
   percent: 10
 ---
 
@@ -44,6 +44,7 @@ Progress: [#.........] 10%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 07-ir-foundation | 1/2 | 5 min | 5 min |
+| Phase 07-ir-foundation P02 | 14 | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,9 @@ Recent decisions affecting current work:
 - free_instr union member name (not free) — avoids C stdlib name conflict in tagged union
 - value_table[0] pre-seeded NULL — IRON_IR_VALUE_INVALID=0 never maps to a real instruction
 - alloc_instr() static helper centralizes arena allocation, value numbering, and block appending
+- [Phase 07-ir-foundation]: Printer uses temporary Iron_Arena for type_to_string calls — freed before return, no leak
+- [Phase 07-ir-foundation]: Verifier collects all errors without early exit — reports all violations in one pass
+- [Phase 07-ir-foundation]: collect_operands() helper centralizes ValueId extraction for all instruction kinds — reusable for future passes
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -81,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T11:10:30.000Z
-Stopped at: Completed 07-ir-foundation/07-01-PLAN.md
-Resume file: .planning/phases/07-ir-foundation/07-02-PLAN.md
+Last session: 2026-03-27T11:25:50.732Z
+Stopped at: Completed 07-ir-foundation/07-02-PLAN.md
+Resume file: None
