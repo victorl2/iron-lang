@@ -265,6 +265,10 @@ const char *iron_codegen(Iron_Program *program, Iron_Scope *global_scope,
     iron_strbuf_appendf(&ctx.includes, "#include <stdio.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_math.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_io.h\"\n");
+    /* IRON_TIMER_STRUCT_DEFINED: the Timer Iron object in time.iron causes codegen
+     * to emit struct Iron_Timer.  Guard the header's definition so they don't
+     * conflict — iron_time.h will emit only the forward typedef. */
+    iron_strbuf_appendf(&ctx.includes, "#define IRON_TIMER_STRUCT_DEFINED\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_log.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "\n");
