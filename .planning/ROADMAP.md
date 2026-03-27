@@ -212,7 +212,7 @@ Plans:
   3. Every IR instruction kind has a dedicated lowering unit test with a minimal .iron snippet; every verifier invariant has a negative test that triggers the specific error
   4. Edge case tests cover deeply nested control flow, multiple early returns with defer, heap auto_free in loops, rc patterns, lambda capture of mutables, nested spawn/await, and generic stress patterns
   5. Real-world composite programs (mini game loop, CLI file processor, concurrent pipeline) compile and run correctly; IR printer snapshot tests catch regressions in IR output
-**Plans:** 5 plans
+**Plans:** 2/5 plans executed
 
 Plans:
 - [ ] 10-01-PLAN.md — Test directory reorganization, shared runner, per-directory CMakeLists.txt with CTest labels
@@ -252,5 +252,5 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 7. IR Foundation | 2/2 | Complete   | 2026-03-27 | - |
 | 8. AST-to-IR Lowering | 3/3 | Complete   | 2026-03-27 | - |
 | 9. C Emission and Cutover | 2/4 | In Progress|  | - |
-| 10. Test Hardening | v1.1 | 0/5 | Not started | - |
+| 10. Test Hardening | 2/5 | In Progress|  | - |
 | 11. Release Pipeline & Versioning | v1.1 | 0/2 | Not started | - |

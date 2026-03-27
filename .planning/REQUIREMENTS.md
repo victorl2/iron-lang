@@ -171,14 +171,14 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 - [ ] **THARD-01**: Test directory reorganized into clear structure (unit/, integration/, algorithms/, ir/) with consistent naming conventions
 - [ ] **THARD-02**: Real algorithm test suite — quicksort, subset sum, binary search, fibonacci (recursive + iterative), merge sort, BFS/DFS graph traversal — each compiles and produces correct output through IR pipeline
-- [ ] **THARD-03**: IR lowering unit tests cover every instruction kind with targeted .iron snippets that exercise each IR path in isolation
-- [ ] **THARD-04**: IR verifier negative tests — malformed IR triggers specific verification errors for every invariant the verifier checks
+- [x] **THARD-03**: IR lowering unit tests cover every instruction kind with targeted .iron snippets that exercise each IR path in isolation
+- [x] **THARD-04**: IR verifier negative tests — malformed IR triggers specific verification errors for every invariant the verifier checks
 - [ ] **THARD-05**: Control flow edge case tests — deeply nested if/else (5+ levels), while with break/continue patterns, match with fallthrough, multiple early returns with defer cleanup
 - [ ] **THARD-06**: Memory and ownership test suite — heap auto_free in loops, rc cycle patterns, defer with multiple exit paths, explicit free after conditional
 - [ ] **THARD-07**: Concurrency test suite — lambda capturing mutable vars, spawn with shared state, parallel-for with captured collections, nested spawn/await
 - [ ] **THARD-08**: Generic and polymorphism stress tests — multiple instantiations of same generic type, interface dispatch through generic containers, nested generics
 - [ ] **THARD-09**: Real-world composite programs — a mini game loop (raylib), a CLI tool (file processing), a concurrent data pipeline — each exercising multiple language features together
-- [ ] **THARD-10**: IR printer snapshot tests — printed IR for representative programs is captured and diffed against expected output to catch IR regressions
+- [x] **THARD-10**: IR printer snapshot tests — printed IR for representative programs is captured and diffed against expected output to catch IR regressions
 
 ### Release & Versioning
 
@@ -366,14 +366,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TOOL-02 | Phase 7 | Complete |
 | THARD-01 | Phase 10 | Pending |
 | THARD-02 | Phase 10 | Pending |
-| THARD-03 | Phase 10 | Pending |
-| THARD-04 | Phase 10 | Pending |
+| THARD-03 | Phase 10 | Complete |
+| THARD-04 | Phase 10 | Complete |
 | THARD-05 | Phase 10 | Pending |
 | THARD-06 | Phase 10 | Pending |
 | THARD-07 | Phase 10 | Pending |
 | THARD-08 | Phase 10 | Pending |
 | THARD-09 | Phase 10 | Pending |
-| THARD-10 | Phase 10 | Pending |
+| THARD-10 | Phase 10 | Complete |
 | REL-01 | Phase 11 | Pending |
 | REL-02 | Phase 11 | Pending |
 | REL-03 | Phase 11 | Pending |
