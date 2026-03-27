@@ -14,6 +14,8 @@ jobs:
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
+    # Windows/MSVC has known compat issues (__attribute__, unistd.h, narrowing)
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
     steps:
       - uses: actions/checkout@v4

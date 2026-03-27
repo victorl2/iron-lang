@@ -348,7 +348,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     }
 #else
     argv_buf[ai++] = "clang";
-    argv_buf[ai++] = "-std=c11";
+    argv_buf[ai++] = "-std=gnu17";
     argv_buf[ai++] = "-O2";
     argv_buf[ai++] = "-o";
     argv_buf[ai++] = output;
