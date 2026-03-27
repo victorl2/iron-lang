@@ -163,7 +163,7 @@ Plans:
   2. Every IR instruction carries an Iron_Span and uses integer IrValueId operand references (not pointers); the IR type system reuses Iron_Type* directly with no IR-specific type wrappers
   3. `ir_print()` on a hand-built IrModule produces a human-readable text dump showing functions, blocks, instructions with value IDs, types, and source locations
   4. `ir_verify()` on a well-formed module passes; a module with a use-before-def, a missing block terminator, or an invalid branch target each produce a specific verification error
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 07-01-PLAN.md — IR data structures, IronIR_InstrKind enum, constructors, stub files, CMake wiring
@@ -178,13 +178,13 @@ Plans:
   2. An Iron program with if/else, while loops, match expressions, and early returns lowers to basic blocks connected by conditional branches, jumps, switch terminators, and return terminators; ir_verify confirms every block has exactly one terminator and all branch targets are valid
   3. An Iron program using heap allocation (auto_free and explicit), rc, defer with multiple exit points, and explicit free lowers correctly; defer is eagerly inlined at every exit point in the IR (no deferred IR instruction exists); auto_free produces explicit IrFree instructions
   4. An Iron program using lambdas, spawn, await, and parallel-for lowers correctly; lambdas and spawn bodies are lifted to top-level IrFunctions with environment structs; parallel-for chunk functions are lifted with captured variables
-  5. Module-level type declarations (objects, enums, interfaces) produce correct vtable ordering; extern functions declare with C-level names; generic types are deduplicated through the monomorphization registry; draw blocks lower to explicit BeginDrawing/EndDrawing calls
-**Plans**: TBD
+  5. Module-level type declarations (objects, enums, interfaces) produce correct vtable ordering; extern functions declare with C-level names; generic types are deduplicated through the monomorphization registry; IRON_NODE_DRAW removed from parser (draw becomes raylib.draw lambda)
+**Plans:** 3 plans
 
 Plans:
-- [ ] 08-01: Lowering infrastructure (Braun SSA construction) and straight-line expressions (constants, arithmetic, comparisons, unary, calls, field/index access, object/array construction, cast, nullable, string interpolation, slice)
-- [ ] 08-02: Control flow lowering (if/else, while, match, return) and memory lowering (heap alloc, rc, free, defer eager inlining)
-- [ ] 08-03: Concurrency lowering (lambda lifting, spawn lifting, parallel-for chunk lifting, await) and module-level features (type declarations, extern, monomorphization, draw blocks)
+- [ ] 08-01-PLAN.md — Lowering infrastructure (POISON, LowerCtx, two-pass orchestration) and expression lowering (constants, arithmetic, comparisons, unary, calls, field/index, object/array, cast, nullable, string interpolation, slice, short-circuit and/or)
+- [ ] 08-02-PLAN.md — Control flow lowering (if/else, while, for, match, return) and memory lowering (heap alloc, rc, free, defer eager inlining) plus lowering unit tests
+- [ ] 08-03-PLAN.md — Module declarations (types, externs, monomorphization), concurrency lifting (lambda, spawn, parallel-for), draw keyword removal, and expanded tests
 
 ### Phase 9: C Emission and Cutover
 **Goal**: The IR-to-C emission backend replaces the old AST-to-C codegen, producing identical program behavior verified by all existing integration tests
@@ -245,7 +245,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 4. Comptime, Game Dev, and Cross-Platform | v1.0 | 6/6 | Complete | 2026-03-26 |
 | 5. Codegen Fixes + Stdlib Wiring | v1.0 | 5/5 | Complete | 2026-03-26 |
 | 6. Milestone Gap Closure | v1.0 | 2/2 | Complete | 2026-03-27 |
-| 7. IR Foundation | 1/2 | In Progress|  | - |
+| 7. IR Foundation | 2/2 | Complete   | 2026-03-27 | - |
 | 8. AST-to-IR Lowering | v1.1 | 0/3 | Not started | - |
 | 9. C Emission and Cutover | v1.1 | 0/2 | Not started | - |
 | 10. Test Hardening | v1.1 | 0/3 | Not started | - |
