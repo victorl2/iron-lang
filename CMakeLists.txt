@@ -185,6 +185,10 @@ add_executable(test_ir_verify tests/ir/test_ir_verify.c)
 target_link_libraries(test_ir_verify iron_compiler unity)
 add_test(NAME test_ir_verify COMMAND test_ir_verify)
 
+add_executable(test_ir_lower tests/ir/test_ir_lower.c)
+target_link_libraries(test_ir_lower iron_compiler unity)
+add_test(NAME test_ir_lower COMMAND test_ir_lower)
+
 # ── iron CLI executable ─────────────────────────────────────────────────────
 add_executable(iron
     src/cli/main.c
