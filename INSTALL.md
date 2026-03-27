@@ -1,13 +1,14 @@
-# Installing Iron
+# Installing from Source
+**Note: This document describes building Iron from source. This is not recommended if you don't know what you're doing.**
 
-Iron compiles to C and produces native binaries. You need a C compiler and CMake to build the Iron compiler itself. Programs compiled with Iron have no dependencies — they are standalone executables.
+Iron compiles to C and produces native binaries. You need a C compiler and CMake to build the Iron compiler itself. Programs compiled with Iron are standalone executables.
 
 ## Requirements
 
 | Tool | Version | Notes |
 |------|---------|-------|
 | CMake | 3.25+ | Build system |
-| C compiler | C17 support | clang (preferred) or gcc |
+| C compiler | C17 support | clang |
 | Ninja | any | Recommended (faster builds) |
 
 ## Quick Install
