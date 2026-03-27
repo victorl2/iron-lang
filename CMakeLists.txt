@@ -64,6 +64,7 @@ add_library(iron_compiler STATIC
     src/codegen/gen_exprs.c
     src/ir/ir.c
     src/ir/lower.c
+    src/ir/lower_types.c
     src/ir/lower_exprs.c
     src/ir/lower_stmts.c
     src/ir/emit_c.c
