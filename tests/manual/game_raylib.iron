@@ -1,0 +1,41 @@
+-- game_raylib.iron: Manual raylib smoke test
+-- Opens a window, draws text and a frame counter.
+-- Run manually: ctest --test-dir build -L manual
+-- NOT included in CI (requires display and raylib).
+
+import raylib
+
+object Ball {
+  var x: Float
+  var y: Float
+  var speed: Float
+}
+
+func main() {
+  raylib.init_window(800, 600, "Iron Language Test")
+  raylib.set_target_fps(60)
+
+  var frame = 0
+  var ball = Ball(400.0, 300.0, 2.0)
+
+  while not raylib.window_should_close() {
+    frame = frame + 1
+
+    -- Update: simple vertical bounce
+    ball.y = ball.y + ball.speed
+    if ball.y > 550.0 {
+      ball.speed = 0.0 - ball.speed
+    }
+    if ball.y < 50.0 {
+      ball.speed = 0.0 - ball.speed
+    }
+
+    raylib.begin_drawing()
+    raylib.clear_background(raylib.RAYWHITE)
+    raylib.draw_text("Iron Language Test", 200, 250, 30, raylib.DARKGRAY)
+    raylib.draw_text("Frame: {frame}", 200, 300, 20, raylib.GRAY)
+    raylib.end_drawing()
+  }
+
+  raylib.close_window()
+}
