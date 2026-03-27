@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
 project(iron C)
 
-set(CMAKE_C_STANDARD 11)
+if(MSVC)
+    set(CMAKE_C_STANDARD 17)  # MSVC needs C17 for <stdatomic.h>
+else()
+    set(CMAKE_C_STANDARD 11)
+endif()
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 if(MSVC)
