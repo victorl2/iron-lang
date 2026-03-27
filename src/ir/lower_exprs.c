@@ -370,6 +370,34 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 return result;
             }
 
+            /* If callee is a local variable (lambda stored in val/var), load it
+             * and treat as an indirect call rather than a global function reference.
+             * A local lambda variable has resolved_type == IRON_TYPE_FUNC and
+             * appears in var_alloca_map or val_binding_map. */
+            {
+                int vidx = shgeti(ctx->val_binding_map, callee_id->name);
+                int aidx = shgeti(ctx->var_alloca_map, callee_id->name);
+                bool is_local_func = (vidx >= 0 || aidx >= 0) &&
+                    callee_id->resolved_type &&
+                    callee_id->resolved_type->kind == IRON_TYPE_FUNC;
+
+                if (is_local_func) {
+                    /* Load the function pointer from the local var/val */
+                    IronIR_ValueId func_ptr_val = lower_expr(ctx, call->callee);
+                    IronIR_ValueId *args = NULL;
+                    for (int i = 0; i < call->arg_count; i++) {
+                        IronIR_ValueId v = lower_expr(ctx, call->args[i]);
+                        arrput(args, v);
+                    }
+                    IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+                                                          NULL, func_ptr_val,
+                                                          args, call->arg_count,
+                                                          call->resolved_type, span)->id;
+                    arrfree(args);
+                    return result;
+                }
+            }
+
             /* Emit func_ref for the callee name, then call via func_ptr */
             IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
                                                         callee_id->name,

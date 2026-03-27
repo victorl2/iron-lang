@@ -1,0 +1,10 @@
+work stealing:
+worker0 sum: 14
+worker1 sum: 77
+worker2 sum: 194
+worker3 sum: 365
+total: 650
+expected: 650
+parallel tasks:
+sum sq 1..8: 204
+all workers done

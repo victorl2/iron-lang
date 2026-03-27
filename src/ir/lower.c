@@ -220,15 +220,101 @@ static void lower_global_constants(IronIR_LowerCtx *ctx) {
     }
 }
 
+static void lower_method_body(IronIR_LowerCtx *ctx, Iron_MethodDecl *md) {
+    if (!md->body) return;
+
+    /* Build mangled name: "TypeName_methodName" */
+    size_t name_len = strlen(md->type_name) + 1 + strlen(md->method_name) + 1;
+    char mangled[256];
+    if (name_len > sizeof(mangled)) return;  /* safety */
+    snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
+
+    IronIR_Func *fn = find_func_by_name(ctx->module, mangled);
+    if (!fn) return;  /* not registered (empty-body stub skipped in Pass 1f) */
+
+    ctx->current_func = fn;
+
+    /* Reset per-function maps */
+    shfree(ctx->val_binding_map);
+    shfree(ctx->var_alloca_map);
+    shfree(ctx->param_map);
+    ctx->val_binding_map = NULL;
+    ctx->var_alloca_map  = NULL;
+    ctx->param_map       = NULL;
+
+    /* Create entry block */
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    ctx->current_block = entry;
+
+    ctx->function_scope_depth = ctx->defer_depth;
+    ctx->current_func_name    = mangled;
+
+    /* Assign ValueIds for parameters.
+     * fn->params[0] is the implicit "self" parameter.
+     * fn->params[1..] are the explicit parameters from md->params. */
+    for (int p = 0; p < fn->param_count; p++) {
+        IronIR_Param *fp = &fn->params[p];
+        const char   *pname = fp->name;
+        Iron_Type    *pt    = fp->type;
+
+        /* Allocate a synthetic ValueId for the param argument value */
+        IronIR_ValueId param_val_id = fn->next_value_id++;
+        while (arrlen(fn->value_table) <= (ptrdiff_t)param_val_id) {
+            arrput(fn->value_table, NULL);
+        }
+        fn->value_table[param_val_id] = NULL;
+
+        /* Record in param_map */
+        shput(ctx->param_map, pname, param_val_id);
+
+        /* Create alloca for this param */
+        Iron_Span span = md->span;
+        IronIR_Instr *slot = iron_ir_alloca(fn, entry, pt, pname, span);
+
+        /* Store param value into alloca */
+        iron_ir_store(fn, entry, slot->id, param_val_id, span);
+
+        /* Record alloca in var_alloca_map */
+        shput(ctx->var_alloca_map, pname, slot->id);
+    }
+
+    /* Lower the method body */
+    Iron_Block *body = (Iron_Block *)md->body;
+    push_defer_scope(ctx);
+    for (int i = 0; i < body->stmt_count; i++) {
+        if (!ctx->current_block) break;
+        lower_stmt(ctx, body->stmts[i]);
+    }
+    if (ctx->current_block) {
+        emit_defers_ir(ctx, ctx->function_scope_depth);
+    }
+    pop_defer_scope(ctx);
+
+    /* Emit implicit void return if needed */
+    if (fn->return_type == NULL) {
+        if (ctx->current_block && ctx->current_block->instr_count > 0) {
+            IronIR_Instr *last = ctx->current_block->instrs[ctx->current_block->instr_count - 1];
+            if (!iron_ir_is_terminator(last->kind)) {
+                iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
+                               NULL, md->span);
+            }
+        } else if (ctx->current_block && ctx->current_block->instr_count == 0) {
+            iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
+                           NULL, md->span);
+        }
+    }
+}
+
 static void lower_func_bodies(IronIR_LowerCtx *ctx) {
     /* Lower top-level function declarations */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             lower_func_body(ctx, (Iron_FuncDecl *)decl);
+        } else if (decl->kind == IRON_NODE_METHOD_DECL) {
+            lower_method_body(ctx, (Iron_MethodDecl *)decl);
         }
     }
-    /* Method declarations on object types are handled in Plan 08-03 */
 }
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
