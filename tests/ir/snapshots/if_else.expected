@@ -1,0 +1,23 @@
+; Module: module
+
+func @choose(c: Bool) -> Int {
+entry:
+  %2 = alloca Bool
+  store %2, %1
+  %3 = alloca Int
+  %4 = const_int 0 : Int
+  store %3, %4
+  %5 = load %2 : Bool
+  branch %5, if.then, if.else
+if.merge:
+  %8 = load %3 : Int
+  ret %8
+if.then:
+  %6 = const_int 1 : Int
+  store %3, %6
+  jump if.merge
+if.else:
+  %7 = const_int 2 : Int
+  store %3, %7
+  jump if.merge
+}
