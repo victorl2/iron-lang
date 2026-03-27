@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run unit tests
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ctest --test-dir build --output-on-failure -j4
+
+      - name: Run integration tests
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          chmod +x tests/integration/run_integration.sh
+          tests/integration/run_integration.sh build/iron
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: macos-arm64
+            archive_ext: tar.gz
+          - os: macos-13
+            target: macos-x86_64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: windows-x86_64
+            archive_ext: zip
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -G Ninja
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022"
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        run: cmake --build build --target iron
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Release --target iron
+
+      - name: Verify version output (Unix)
+        if: runner.os != 'Windows'
+        run: ./build/iron --version
+
+      - name: Verify version output (Windows)
+        if: runner.os == 'Windows'
+        run: build\Release\iron.exe --version
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          ARCHIVE="iron-${VERSION}-${{ matrix.target }}.tar.gz"
+          mkdir -p staging
+          cp build/iron staging/
+          cp LICENSE staging/
+          tar -czf "${ARCHIVE}" -C staging .
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.event.release.tag_name }}".TrimStart("v")
+          $ARCHIVE = "iron-${VERSION}-${{ matrix.target }}.zip"
+          New-Item -ItemType Directory -Force -Path staging
+          Copy-Item build\Release\iron.exe staging\
+          Copy-Item LICENSE staging\
+          Compress-Archive -Path staging\* -DestinationPath $ARCHIVE
+          echo "ARCHIVE=$ARCHIVE" >> $env:GITHUB_ENV
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE }}
+
+  upload-install-script:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload install script
+        uses: softprops/action-gh-release@v2
+        with:
+          files: scripts/install.sh
