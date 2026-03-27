@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: "Completed 08-01: Lowering infrastructure and expression pass"
-last_updated: "2026-03-27T14:51:05.940Z"
+stopped_at: "Completed 08-02: Statement lowering pass"
+last_updated: "2026-03-27T15:08:39.969Z"
 last_activity: "2026-03-27 — Completed 07-01: IR data structure scaffold"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 10
 ---
 
@@ -46,6 +46,7 @@ Progress: [#.........] 10%
 | 07-ir-foundation | 1/2 | 5 min | 5 min |
 | Phase 07-ir-foundation P02 | 14 | 3 tasks | 7 files |
 | Phase 08-ast-to-ir-lowering P01 | 11 | 4 tasks | 11 files |
+| Phase 08-ast-to-ir-lowering P02 | 13 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Recent decisions affecting current work:
 - [Phase 08-ast-to-ir-lowering]: Iron_CallExpr has no func_decl field — direct calls emit func_ref+func_ptr instead of passing AST func_decl pointer
 - [Phase 08-ast-to-ir-lowering]: Iron_Param has no declared_type — param types resolved via IrFunc.params[p].type set by lower_module_decls from type_ann
 - [Phase 08-ast-to-ir-lowering]: Params use alloca+load model with synthetic ValueIds (NULL in value_table) for uniform IDENT resolution
+- [Phase 08-ast-to-ir-lowering]: ctx->current_block = NULL after return for dead code suppression — avoids unterminated dead blocks that fail verifier
+- [Phase 08-ast-to-ir-lowering]: IRON_TYPE_VOID return normalizes to NULL fn->return_type in lower_module_decls — aligns with verifier convention
+- [Phase 08-ast-to-ir-lowering]: Arena-allocated params array in lower_module_decls — fixes use-after-free from stb_ds arrfree
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -89,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T14:51:05.938Z
-Stopped at: Completed 08-01: Lowering infrastructure and expression pass
+Last session: 2026-03-27T15:08:39.967Z
+Stopped at: Completed 08-02: Statement lowering pass
 Resume file: None
