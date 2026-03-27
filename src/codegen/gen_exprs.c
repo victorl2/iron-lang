@@ -694,6 +694,12 @@ void emit_expr(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
                     iron_strbuf_appendf(sb, ")");
                     break;
                 }
+                if (strcmp(callee_id->name, "range") == 0 && call->arg_count == 1) {
+                    iron_strbuf_appendf(sb, "Iron_range(");
+                    emit_expr(sb, call->args[0], ctx);
+                    iron_strbuf_appendf(sb, ")");
+                    break;
+                }
                 if (strcmp(callee_id->name, "assert") == 0 && call->arg_count >= 1) {
                     iron_strbuf_appendf(sb, "Iron_assert(");
                     emit_expr(sb, call->args[0], ctx);

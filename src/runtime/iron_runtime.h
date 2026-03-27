@@ -117,6 +117,7 @@ int64_t Iron_max(int64_t a, int64_t b);
 int64_t Iron_clamp(int64_t val, int64_t lo, int64_t hi);
 int64_t Iron_abs(int64_t val);
 void    Iron_assert(bool cond, Iron_String msg);
+int64_t Iron_range(int64_t n);
 
 /* ── Iron_Pool (fixed-size thread pool) ──────────────────────────────────────
  * Iron_Pool manages a set of worker threads and a FIFO work queue.

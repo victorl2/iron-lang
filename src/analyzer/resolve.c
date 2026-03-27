@@ -707,6 +707,15 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             sym->type = fn;
             iron_scope_define(ctx.global_scope, arena, sym);
         }
+        /* range(Int) -> Int */
+        {
+            Iron_Type *params[1] = { int_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "range",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
         /* assert(Bool) -> Void */
         {
             Iron_Type *params[1] = { bool_t };

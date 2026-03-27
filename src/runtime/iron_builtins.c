@@ -49,3 +49,9 @@ void Iron_assert(bool cond, Iron_String msg) {
         abort();
     }
 }
+
+/* ── range ──────────────────────────────────────────────────────────────── */
+
+int64_t Iron_range(int64_t n) {
+    return n;
+}
