@@ -44,10 +44,20 @@ jobs:
         if: runner.os == 'Windows'
         run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -G "Visual Studio 17 2022"
 
-      - name: Build
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        run: cmake --build build
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
         run: cmake --build build --config Debug
 
-      - name: Run tests
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build --output-on-failure -j4
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
         run: ctest --test-dir build --output-on-failure --config Debug -j4
 
       - name: Run integration tests (Unix only)
