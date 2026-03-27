@@ -194,11 +194,13 @@ Plans:
   1. `iron build` compiles any valid Iron program through the AST-to-IR-to-C pipeline; the emitted C compiles with `clang -std=c11 -Wall -Werror` with zero warnings
   2. All existing integration tests pass through the new IR pipeline with identical runtime behavior (same stdout, same exit codes)
   3. The old `src/codegen/` AST-to-C path is fully removed from the codebase; no dual-path maintenance burden remains; the compiler has exactly one codegen path (IR-to-C)
-**Plans:** 1/2 plans executed
+**Plans:** 4 plans
 
 Plans:
-- [ ] 09-01: IR-to-C emission backend (emit_c.c) with phi pre-elimination, goto-based terminators, and sequential value naming
-- [ ] 09-02: Integration test parity gate and old codegen removal
+- [ ] 09-01-PLAN.md — IR-to-C emission backend (emit_c.c) with phi pre-elimination, goto-based terminators, and sequential value naming
+- [ ] 09-02-PLAN.md — Integration test parity gate and old codegen removal
+- [ ] 09-03-PLAN.md — Gap closure: fix emit_c.c bugs (extern FUNC_REF mangling, block label dots, PARALLEL_FOR runtime API)
+- [ ] 09-04-PLAN.md — Gap closure: add stdlib auto-static dispatch and comptime constant lowering to IR lowerer
 
 ### Phase 10: Test Hardening
 **Goal**: Reorganize the test directory, add real algorithm tests and comprehensive IR coverage tests so that the new IR pipeline is proven correct across a wide range of programs — from isolated instruction-level tests to real-world composite programs
@@ -247,6 +249,6 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 6. Milestone Gap Closure | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 7. IR Foundation | 2/2 | Complete   | 2026-03-27 | - |
 | 8. AST-to-IR Lowering | 3/3 | Complete   | 2026-03-27 | - |
-| 9. C Emission and Cutover | 1/2 | In Progress|  | - |
+| 9. C Emission and Cutover | 2/4 | In Progress|  | - |
 | 10. Test Hardening | v1.1 | 0/3 | Not started | - |
 | 11. Release Pipeline & Versioning | v1.1 | 0/2 | Not started | - |
