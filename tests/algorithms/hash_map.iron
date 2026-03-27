@@ -1,0 +1,128 @@
+-- hash_map.iron - Fixed-size hash map (open addressing, linear probing).
+-- Keys and values are integers. Tombstone sentinel for deleted slots.
+-- Demonstrates: arrays, hash functions, collision handling.
+
+-- Simple integer hash
+func hash_key(key: Int, cap: Int) -> Int {
+  val h = key * 2654435761
+  val bucket = h - (h / cap) * cap
+  if bucket < 0 {
+    return bucket + cap
+  }
+  return bucket
+}
+
+object InsertResult {
+  var keys: [Int]
+  var vals: [Int]
+}
+
+-- Insert key->value using linear probing. empty=-9999, deleted=-9998
+func hm_insert(keys: [Int], vals: [Int], key: Int, val_in: Int) -> InsertResult {
+  val cap = 16
+  val empty_key = -9999
+  val del_key   = -9998
+  var ks = keys
+  var vs = vals
+  val h = hash_key(key, cap)
+  var i = 0
+  while i < cap {
+    val raw = h + i
+    val slot = raw - (raw / cap) * cap
+    val k = ks[slot]
+    if k == empty_key or k == del_key or k == key {
+      ks[slot] = key
+      vs[slot] = val_in
+      return InsertResult(ks, vs)
+    }
+    i = i + 1
+  }
+  return InsertResult(ks, vs)
+}
+
+func hm_get(keys: [Int], vals: [Int], key: Int) -> Int {
+  val cap       = 16
+  val empty_key = -9999
+  val h = hash_key(key, cap)
+  var i = 0
+  while i < cap {
+    val raw = h + i
+    val slot = raw - (raw / cap) * cap
+    val k = keys[slot]
+    if k == empty_key {
+      return -9999
+    }
+    if k == key {
+      return vals[slot]
+    }
+    i = i + 1
+  }
+  return -9999
+}
+
+func hm_delete(keys: [Int], key: Int) -> [Int] {
+  val cap       = 16
+  val empty_key = -9999
+  var ks = keys
+  val h = hash_key(key, cap)
+  var i = 0
+  while i < cap {
+    val raw = h + i
+    val slot = raw - (raw / cap) * cap
+    val k = ks[slot]
+    if k == empty_key {
+      return ks
+    }
+    if k == key {
+      ks[slot] = -9998
+      return ks
+    }
+    i = i + 1
+  }
+  return ks
+}
+
+func make_empty_map() -> InsertResult {
+  val keys = [-9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999,
+              -9999, -9999, -9999, -9999, -9999, -9999, -9999, -9999]
+  val vals = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  return InsertResult(keys, vals)
+}
+
+func main() {
+  -- Test 1: Basic insert and lookup
+  println("basic:")
+  val m = make_empty_map()
+  var r = hm_insert(m.keys, m.vals, 10, 100)
+  r = hm_insert(r.keys, r.vals, 20, 200)
+  r = hm_insert(r.keys, r.vals, 30, 300)
+  println("{hm_get(r.keys, r.vals, 10)}")
+  println("{hm_get(r.keys, r.vals, 20)}")
+  println("{hm_get(r.keys, r.vals, 30)}")
+  println("{hm_get(r.keys, r.vals, 40)}")
+
+  -- Test 2: Update existing key
+  println("update:")
+  r = hm_insert(r.keys, r.vals, 10, 999)
+  println("{hm_get(r.keys, r.vals, 10)}")
+
+  -- Test 3: Collision handling (keys 1, 17, 33 all hash to same bucket mod 16)
+  println("collision:")
+  val m2 = make_empty_map()
+  r = hm_insert(m2.keys, m2.vals, 1, 111)
+  r = hm_insert(r.keys, r.vals, 17, 1717)
+  r = hm_insert(r.keys, r.vals, 33, 3333)
+  println("{hm_get(r.keys, r.vals, 1)}")
+  println("{hm_get(r.keys, r.vals, 17)}")
+  println("{hm_get(r.keys, r.vals, 33)}")
+
+  -- Test 4: Delete
+  println("delete:")
+  val m3 = make_empty_map()
+  r = hm_insert(m3.keys, m3.vals, 42, 4200)
+  val before = hm_get(r.keys, r.vals, 42)
+  val new_keys = hm_delete(r.keys, 42)
+  val after = hm_get(new_keys, r.vals, 42)
+  println("{before}")
+  println("{after}")
+}

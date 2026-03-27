@@ -1,0 +1,19 @@
+count: 4
+lengths:
+3
+2
+1
+4
+sums:
+6
+9
+6
+34
+maxes:
+3
+5
+6
+10
+empty count: 0
+single count: 1
+single sum: 42

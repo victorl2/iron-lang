@@ -1,0 +1,19 @@
+forward:
+1
+2
+3
+4
+5
+len: 5
+sum: 15
+reversed:
+5
+4
+3
+2
+1
+single:
+42
+single len: 1
+empty len: 0
+empty sum: 0

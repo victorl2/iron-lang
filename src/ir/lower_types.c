@@ -21,11 +21,52 @@
 /* Collect identifiers used in the body that are NOT in the param list.
  * These are potential captures from the enclosing scope.
  * Returns an stb_ds array of const char* names (caller must arrfree). */
+/* Collect all val/var declaration names from a subtree (used to find locals). */
+static void collect_local_names(Iron_Node *body, const char ***locals_out) {
+    if (!body) return;
+    Iron_Node **stk = NULL;
+    arrput(stk, body);
+    while (arrlen(stk) > 0) {
+        Iron_Node *n = stk[arrlen(stk) - 1];
+        arrsetlen(stk, arrlen(stk) - 1);
+        if (!n) continue;
+        if (n->kind == IRON_NODE_VAL_DECL) {
+            Iron_ValDecl *vd = (Iron_ValDecl *)n;
+            arrput(*locals_out, vd->name);
+            if (vd->init) arrput(stk, vd->init);
+        } else if (n->kind == IRON_NODE_VAR_DECL) {
+            Iron_VarDecl *vd = (Iron_VarDecl *)n;
+            arrput(*locals_out, vd->name);
+            if (vd->init) arrput(stk, vd->init);
+        } else if (n->kind == IRON_NODE_BLOCK) {
+            Iron_Block *blk = (Iron_Block *)n;
+            for (int i = 0; i < blk->stmt_count; i++) arrput(stk, blk->stmts[i]);
+        } else if (n->kind == IRON_NODE_IF) {
+            Iron_IfStmt *is2 = (Iron_IfStmt *)n;
+            if (is2->body) arrput(stk, is2->body);
+            if (is2->else_body) arrput(stk, is2->else_body);
+        } else if (n->kind == IRON_NODE_WHILE) {
+            Iron_WhileStmt *ws2 = (Iron_WhileStmt *)n;
+            if (ws2->body) arrput(stk, ws2->body);
+        } else if (n->kind == IRON_NODE_FOR) {
+            Iron_ForStmt *fs2 = (Iron_ForStmt *)n;
+            if (fs2->var_name) arrput(*locals_out, fs2->var_name);
+            if (fs2->body) arrput(stk, fs2->body);
+        }
+    }
+    arrfree(stk);
+}
+
 static const char **collect_captures(Iron_Node *body, Iron_Node **params,
                                       int param_count) {
     const char **captures = NULL;
 
     if (!body) return NULL;
+
+    /* First pass: collect all locally-defined variable names in the body.
+     * These are NOT captures — they are defined within the closure itself. */
+    const char **locals = NULL;
+    collect_local_names(body, &locals);
 
     /* Simple DFS without the full visitor mechanism */
     Iron_Node **stack = NULL;
@@ -44,6 +85,20 @@ static const char **collect_captures(Iron_Node *body, Iron_Node **params,
                 strcmp(id->name, "super") == 0) {
                 continue;
             }
+            /* Skip function-typed identifiers: these are global function references,
+             * not local variable captures (e.g. println, Math.sqrt, etc.) */
+            if (id->resolved_type && id->resolved_type->kind == IRON_TYPE_FUNC) {
+                continue;
+            }
+            /* Skip if it's a locally-defined variable (val/var inside the body) */
+            bool is_local = false;
+            for (int i = 0; i < (int)arrlen(locals); i++) {
+                if (locals[i] && strcmp(locals[i], id->name) == 0) {
+                    is_local = true;
+                    break;
+                }
+            }
+            if (is_local) continue;
             /* Skip if it's a param name */
             bool is_param = false;
             for (int i = 0; i < param_count; i++) {
@@ -162,16 +217,28 @@ static const char **collect_captures(Iron_Node *body, Iron_Node **params,
     }
 
     arrfree(stack);
+    arrfree(locals);
     return captures;
 }
 
 /* ── Resolve type annotation to Iron_Type* ───────────────────────────────── */
 /* Shared implementation — mirrors the version in lower.c.
- * Only handles primitive types; for named/generic types the type checker
- * sets resolved_return_type which is the authoritative source. */
+ * Handles primitive types, array types, and named object types (when program
+ * context is provided). */
+
+/* Forward declaration */
+static Iron_Type *lower_types_resolve_ann_with_program(Iron_Node *ann_node,
+                                                         Iron_Arena *arena,
+                                                         Iron_Program *program);
 
 static Iron_Type *lower_types_resolve_ann_with_arena(Iron_Node *ann_node,
                                                        Iron_Arena *arena) {
+    return lower_types_resolve_ann_with_program(ann_node, arena, NULL);
+}
+
+static Iron_Type *lower_types_resolve_ann_with_program(Iron_Node *ann_node,
+                                                         Iron_Arena *arena,
+                                                         Iron_Program *program) {
     if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
     if (ann_node->kind != IRON_NODE_TYPE_ANNOTATION) return NULL;
     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann_node;
@@ -183,8 +250,21 @@ static Iron_Type *lower_types_resolve_ann_with_arena(Iron_Node *ann_node,
     else if (strcmp(ta->name, "Bool") == 0)   base = iron_type_make_primitive(IRON_TYPE_BOOL);
     else if (strcmp(ta->name, "String") == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
     else if (strcmp(ta->name, "Void") == 0)   base = iron_type_make_primitive(IRON_TYPE_VOID);
+    else if (program && arena) {
+        /* Named type (object/struct): look up in program declarations */
+        for (int i = 0; i < program->decl_count; i++) {
+            Iron_Node *decl = program->decls[i];
+            if (decl->kind == IRON_NODE_OBJECT_DECL) {
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
+                if (strcmp(od->name, ta->name) == 0) {
+                    base = iron_type_make_object(arena, od);
+                    break;
+                }
+            }
+        }
+    }
 
-    /* If the annotation is an array type (e.g., [Int]), wrap in IRON_TYPE_ARRAY */
+    /* If the annotation is an array type (e.g., [Int] or [Queue]), wrap in IRON_TYPE_ARRAY */
     if (ta->is_array && base) {
         return iron_type_make_array(arena, base, -1);
     }
@@ -210,7 +290,9 @@ static IronIR_Param *build_param_array(IronIR_LowerCtx *ctx,
 
     for (int p = 0; p < param_count; p++) {
         Iron_Param *ap = (Iron_Param *)params[p];
-        Iron_Type  *pt = lower_types_resolve_ann_with_arena(ap->type_ann, ctx->ir_arena);
+        Iron_Type  *pt = lower_types_resolve_ann_with_program(ap->type_ann,
+                                                               ctx->ir_arena,
+                                                               ctx->program);
         arr[p].name = ap->name;
         arr[p].type = pt;
     }
@@ -324,6 +406,7 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
     /* Pass 1f: Register method declarations (on object types).
      * Method declarations appear as IRON_NODE_METHOD_DECL at the top level.
      * Each becomes an IrFunc with a mangled name (TypeName_methodName).
+     * The first parameter is always an implicit "self" of the owner object type.
      * Skip methods with empty bodies — these are stdlib stubs (e.g. Timer.since)
      * that delegate to C functions via auto-static dispatch in lower_exprs.c.
      * Registering them would emit C function definitions with broken void param
@@ -347,9 +430,29 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
         Iron_Type *ret_type = md->resolved_return_type;
         if (ret_type && ret_type->kind == IRON_TYPE_VOID) ret_type = NULL;
 
-        IronIR_Param *params = build_param_array(ctx, md->params, md->param_count);
-        iron_ir_func_create(ctx->module, mangled, params, md->param_count,
-                            ret_type);
+        /* Find the owner object type for the implicit "self" parameter */
+        Iron_Type *self_type = NULL;
+        for (int ti = 0; ti < ctx->module->type_decl_count; ti++) {
+            if (strcmp(ctx->module->type_decls[ti]->name, md->type_name) == 0) {
+                self_type = ctx->module->type_decls[ti]->type;
+                break;
+            }
+        }
+
+        /* Build param array: self first, then explicit params */
+        int total_params = 1 + md->param_count;
+        IronIR_Param *params = (IronIR_Param *)iron_arena_alloc(
+            ctx->ir_arena,
+            (size_t)total_params * sizeof(IronIR_Param),
+            _Alignof(IronIR_Param));
+        params[0].name = "self";
+        params[0].type = self_type;
+        IronIR_Param *explicit_params = build_param_array(ctx, md->params, md->param_count);
+        for (int p = 0; p < md->param_count; p++) {
+            params[1 + p] = explicit_params[p];
+        }
+
+        iron_ir_func_create(ctx->module, mangled, params, total_params, ret_type);
     }
 
     /* Pass 1g: Walk all declarations for monomorphization tracking.
@@ -617,8 +720,15 @@ static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
     Iron_ForStmt *fs = (Iron_ForStmt *)lp->ast_node;
     if (!fs) return;
 
-    /* Collect captures from the pfor body (excluding the loop variable) */
-    const char **captures = collect_captures(fs->body, NULL, 0);
+    /* Collect captures from the pfor body, treating the loop variable as a param
+     * (not a capture) so it is excluded from the capture list. */
+    /* Build a 1-element fake params array for the loop variable */
+    const char *lv_name = fs->var_name ? fs->var_name : "i";
+    Iron_Param fake_lv_param;
+    memset(&fake_lv_param, 0, sizeof(fake_lv_param));
+    fake_lv_param.name = lv_name;
+    Iron_Node *fake_lv_node = (Iron_Node *)&fake_lv_param;
+    const char **captures = collect_captures(fs->body, &fake_lv_node, 1);
     int capture_count = (int)arrlen(captures);
 
     /* Chunk function params: (loop_var: Int) + captured variables.
