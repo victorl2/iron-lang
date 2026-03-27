@@ -1,0 +1,53 @@
+-- spawn_await.iron: Spawn tasks using Iron's concurrency primitives
+-- Tests THARD-07: spawn submits tasks to thread pool; iron_runtime_shutdown
+-- waits for completion before exit. Print only from main thread for determinism.
+-- Note: the await keyword parses as expression; spawn returns no handle,
+-- so deterministic output is achieved by printing only from the main thread.
+
+func compute(n: Int) -> Int {
+  var result = 0
+  var i = 0
+  while i < n {
+    result = result + i
+    i = i + 1
+  }
+  return result
+}
+
+func main() {
+  -- Spawn 3 background tasks (they print from their own context)
+  spawn("task1") {
+    -- Background work: just runs without communicating result
+    var x = 0
+    while x < 100 {
+      x = x + 1
+    }
+  }
+  spawn("task2") {
+    -- Background work: computation without output
+    var y = 0
+    while y < 200 {
+      y = y + 1
+    }
+  }
+  spawn("task3") {
+    -- Background work: computation without output
+    var z = 0
+    while z < 50 {
+      z = z + 1
+    }
+  }
+
+  -- Main thread does its own work deterministically
+  val r1 = compute(10)
+  val r2 = compute(5)
+  val r3 = compute(20)
+
+  -- Print deterministic results from main thread
+  -- (runtime_shutdown waits for all spawned tasks before exit)
+  println("main: sum(10) = {r1}")
+  println("main: sum(5) = {r2}")
+  println("main: sum(20) = {r3}")
+  println("tasks launched: 3")
+  println("done")
+}

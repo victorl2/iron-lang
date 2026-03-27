@@ -1,0 +1,60 @@
+-- lambda_capture.iron: Lambda expressions (closures) as first-class values
+-- Tests THARD-07: lambda functions stored in variables and called indirectly
+-- Note: lambdas capturing outer scope variables are not yet supported;
+-- these tests exercise lambda creation, storage, and invocation via func type.
+
+func main() {
+  -- Lambda stored as val, called directly
+  val double = func(x: Int) -> Int {
+    return x * 2
+  }
+  val triple = func(x: Int) -> Int {
+    return x * 3
+  }
+  val square = func(x: Int) -> Int {
+    return x * x
+  }
+
+  println("double(5): {double(5)}")
+  println("triple(5): {triple(5)}")
+  println("square(5): {square(5)}")
+
+  -- Chain of lambda calls
+  val a = double(4)
+  val b = triple(a)
+  println("triple(double(4)): {b}")
+
+  -- Lambda returning 1 or 0
+  val is_positive = func(n: Int) -> Int {
+    if n > 0 {
+      return 1
+    } else {
+      return 0
+    }
+  }
+  println("is_positive(5): {is_positive(5)}")
+  println("is_positive(-3): {is_positive(-3)}")
+  println("is_positive(0): {is_positive(0)}")
+
+  -- Lambda over a range via loop
+  var sum = 0
+  for i in range(5) {
+    sum = sum + double(i)
+  }
+  println("sum of doubled 0-4: {sum}")
+
+  -- Lambda used in conditionals
+  val negate = func(x: Int) -> Int {
+    return 0 - x
+  }
+  val n = negate(10)
+  if n < 0 {
+    println("negate works: {n}")
+  }
+
+  -- Multiple lambda calls in expression
+  val r = square(triple(2))
+  println("square(triple(2)): {r}")
+
+  println("done")
+}

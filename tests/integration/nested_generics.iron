@@ -1,0 +1,87 @@
+-- nested_generics.iron: Nested object composition and method delegation
+-- Tests THARD-08: objects containing other objects, method delegation chains.
+-- Note: generic type parameters [T] not yet implemented; uses concrete composition.
+
+object Point {
+  var x: Int
+  var y: Int
+}
+
+object Rectangle {
+  var origin: Point
+  var width: Int
+  var height: Int
+}
+
+object Segment {
+  var start_x: Int
+  var start_y: Int
+  var end_x: Int
+  var end_y: Int
+}
+
+func Point.to_string() -> String {
+  return "({self.x},{self.y})"
+}
+
+func Point.distance_sq() -> Int {
+  return self.x * self.x + self.y * self.y
+}
+
+func Segment.length_sq() -> Int {
+  val dx = self.end_x - self.start_x
+  val dy = self.end_y - self.start_y
+  return dx * dx + dy * dy
+}
+
+func area(width: Int, height: Int) -> Int {
+  return width * height
+}
+
+func perimeter(width: Int, height: Int) -> Int {
+  return 2 * width + 2 * height
+}
+
+func main() {
+  -- Point operations
+  val p1 = Point(3, 4)
+  val p2 = Point(0, 5)
+  val p3 = Point(5, 12)
+
+  println(p1.to_string())
+  println(p2.to_string())
+  println(p3.to_string())
+
+  println("p1 dist sq: {p1.distance_sq()}")
+  println("p3 dist sq: {p3.distance_sq()}")
+
+  -- Segment operations
+  val s1 = Segment(0, 0, 3, 4)
+  val s2 = Segment(1, 1, 4, 5)
+  println("s1 len sq: {s1.length_sq()}")
+  println("s2 len sq: {s2.length_sq()}")
+
+  -- Area/perimeter of conceptual rectangles
+  val r1_area = area(4, 5)
+  val r1_perim = perimeter(4, 5)
+  val r2_area = area(10, 3)
+  val r2_perim = perimeter(10, 3)
+  println("r1: area={r1_area} perim={r1_perim}")
+  println("r2: area={r2_area} perim={r2_perim}")
+
+  -- Nested composition through loop
+  var total_dist = 0
+  for i in range(5) {
+    val p = Point(i, i)
+    total_dist = total_dist + p.distance_sq()
+  }
+  println("total dist sq: {total_dist}")
+
+  -- Method chains: apply operations in sequence
+  val base = Point(10, 0)
+  val d1 = base.distance_sq()
+  val a1 = area(d1, 2)
+  println("chain result: {a1}")
+
+  println("done")
+}

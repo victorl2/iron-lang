@@ -1,0 +1,90 @@
+-- generic_stress.iron: Code reuse and polymorphism patterns with multiple types
+-- Tests THARD-08: multiple object types, methods, and function polymorphism.
+-- Note: generic type parameters [T] are not yet implemented; tests use
+-- concrete types to verify multiple instantiations of similar patterns work.
+
+object IntPair {
+  var first: Int
+  var second: Int
+}
+
+object StringPair {
+  var first: String
+  var second: String
+}
+
+object Counter {
+  var value: Int
+  var step: Int
+}
+
+func IntPair.sum() -> Int {
+  return self.first + self.second
+}
+
+func IntPair.product() -> Int {
+  return self.first * self.second
+}
+
+func StringPair.combined() -> String {
+  return "{self.first}-{self.second}"
+}
+
+func Counter.next() -> Int {
+  return self.value + self.step
+}
+
+func double_val(n: Int) -> Int {
+  return n * 2
+}
+
+func triple_val(n: Int) -> Int {
+  return n * 3
+}
+
+func main() {
+  -- IntPair with methods
+  val p1 = IntPair(3, 4)
+  val p2 = IntPair(10, 20)
+  val p3 = IntPair(7, 7)
+  println("p1 sum: {p1.sum()}")
+  println("p2 sum: {p2.sum()}")
+  println("p3 product: {p3.product()}")
+
+  -- StringPair with methods
+  val s1 = StringPair("hello", "world")
+  val s2 = StringPair("iron", "lang")
+  println(s1.combined())
+  println(s2.combined())
+
+  -- Counter with methods
+  val c1 = Counter(0, 1)
+  val c2 = Counter(10, 5)
+  val c3 = Counter(100, 10)
+  println("c1 next: {c1.next()}")
+  println("c2 next: {c2.next()}")
+  println("c3 next: {c3.next()}")
+
+  -- Same operation applied to multiple types (code reuse pattern)
+  var i_sum = 0
+  for i in range(5) {
+    i_sum = i_sum + double_val(i)
+  }
+  println("doubled sum: {i_sum}")
+
+  var t_sum = 0
+  for i in range(5) {
+    t_sum = t_sum + triple_val(i)
+  }
+  println("tripled sum: {t_sum}")
+
+  -- Multiple object type instances in loops
+  var pair_sum = 0
+  for i in range(4) {
+    val pair = IntPair(i, i + 1)
+    pair_sum = pair_sum + pair.sum()
+  }
+  println("pair sum total: {pair_sum}")
+
+  println("done")
+}

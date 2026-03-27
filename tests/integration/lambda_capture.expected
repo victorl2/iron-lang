@@ -1,0 +1,11 @@
+double(5): 10
+triple(5): 15
+square(5): 25
+triple(double(4)): 24
+is_positive(5): 1
+is_positive(-3): 0
+is_positive(0): 0
+sum of doubled 0-4: 20
+negate works: -10
+square(triple(2)): 36
+done
