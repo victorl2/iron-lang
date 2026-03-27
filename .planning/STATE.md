@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-03-26T20:50:27.898Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-03-27T01:31:06.858Z"
 last_activity: "2026-03-26 — Completed plan 04-03: raylib.iron wrapper with Key enum (RIGHT=262 etc), explicit enum ordinals in AST/parser/codegen, build pipeline compiles raylib inline, extern func integration test passing"
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
-  total_plans: 31
-  completed_plans: 31
+  total_plans: 33
+  completed_plans: 32
   percent: 92
 ---
 
@@ -78,6 +78,7 @@ Progress: [█████████░] 92%
 | Phase 05-codegen-fixes-stdlib-wiring P02 | 13 | 2 tasks | 4 files |
 | Phase 05-codegen-fixes-stdlib-wiring P04 | 2 | 2 tasks | 15 files |
 | Phase 05-codegen-fixes-stdlib-wiring P05 | 1 | 2 tasks | 5 files |
+| Phase 06-milestone-gap-closure P02 | 3 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,8 @@ Recent decisions affecting current work:
 - [Phase 05-codegen-fixes-stdlib-wiring]: 05-02: Iron parallel-for syntax is 'for VAR in ITERABLE parallel { BODY }' not 'parallel for...'
 - [Phase 05-codegen-fixes-stdlib-wiring]: 05-04: Parallel-for test uses empty body + known formula println (Iron syntax: for i in 100 parallel {}); Log test skips Log.info call due to dynamic stderr timestamp
 - [Phase 05-codegen-fixes-stdlib-wiring]: 05-05: Static inline wrapper at C header level bridges Iron -> String declaration and C -> Iron_Result_String_Error implementation; _result suffix preserves full struct access for C callers
+- [Phase 06-milestone-gap-closure]: check.c uses 64k initial arena (matches build.c) to prevent heap-use-after-free when combined source triggers realloc during resolver scope push
+- [Phase 06-milestone-gap-closure]: check.c stdlib detection mirrors build.c strstr/prepend pattern exactly: raylib, math, io, time, log ordering
 
 ### Pending Todos
 
@@ -180,6 +183,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T20:50:27.895Z
-Stopped at: Completed 05-05-PLAN.md
+Last session: 2026-03-27T01:31:06.855Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None
