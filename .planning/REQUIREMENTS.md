@@ -169,14 +169,14 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### Test Hardening
 
-- [ ] **THARD-01**: Test directory reorganized into clear structure (unit/, integration/, algorithms/, ir/) with consistent naming conventions
+- [x] **THARD-01**: Test directory reorganized into clear structure (unit/, integration/, algorithms/, ir/) with consistent naming conventions
 - [x] **THARD-02**: Real algorithm test suite — quicksort, subset sum, binary search, fibonacci (recursive + iterative), merge sort, BFS/DFS graph traversal — each compiles and produces correct output through IR pipeline
 - [x] **THARD-03**: IR lowering unit tests cover every instruction kind with targeted .iron snippets that exercise each IR path in isolation
 - [x] **THARD-04**: IR verifier negative tests — malformed IR triggers specific verification errors for every invariant the verifier checks
-- [ ] **THARD-05**: Control flow edge case tests — deeply nested if/else (5+ levels), while with break/continue patterns, match with fallthrough, multiple early returns with defer cleanup
-- [ ] **THARD-06**: Memory and ownership test suite — heap auto_free in loops, rc cycle patterns, defer with multiple exit paths, explicit free after conditional
-- [ ] **THARD-07**: Concurrency test suite — lambda capturing mutable vars, spawn with shared state, parallel-for with captured collections, nested spawn/await
-- [ ] **THARD-08**: Generic and polymorphism stress tests — multiple instantiations of same generic type, interface dispatch through generic containers, nested generics
+- [x] **THARD-05**: Control flow edge case tests — deeply nested if/else (5+ levels), while with break/continue patterns, match with fallthrough, multiple early returns with defer cleanup
+- [x] **THARD-06**: Memory and ownership test suite — heap auto_free in loops, rc cycle patterns, defer with multiple exit paths, explicit free after conditional
+- [x] **THARD-07**: Concurrency test suite — lambda capturing mutable vars, spawn with shared state, parallel-for with captured collections, nested spawn/await
+- [x] **THARD-08**: Generic and polymorphism stress tests — multiple instantiations of same generic type, interface dispatch through generic containers, nested generics
 - [x] **THARD-09**: Real-world composite programs — a mini game loop (raylib), a CLI tool (file processing), a concurrent data pipeline — each exercising multiple language features together
 - [x] **THARD-10**: IR printer snapshot tests — printed IR for representative programs is captured and diffed against expected output to catch IR regressions
 
@@ -184,8 +184,8 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 - [ ] **REL-01**: CI builds release binaries for macOS (arm64, x86_64), Linux (x86_64), and Windows (x86_64) when a draft GitHub release is created
 - [ ] **REL-02**: Release binaries are uploaded as downloadable assets on the GitHub release page (ready-to-use iron binary)
-- [ ] **REL-03**: `iron --version` outputs version string with commit hash and build date in rustc format (e.g., `iron 0.1.1 (abc1234 2026-03-27)`)
-- [ ] **REL-04**: Build date and commit hash are baked in at compile time via CMake configure or build flags
+- [x] **REL-03**: `iron --version` outputs version string with commit hash and build date in rustc format (e.g., `iron 0.1.1 (abc1234 2026-03-27)`)
+- [x] **REL-04**: Build date and commit hash are baked in at compile time via CMake configure or build flags
 
 ## Future Requirements
 
@@ -364,20 +364,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EMIT-03 | Phase 9 | Complete |
 | TOOL-01 | Phase 7 | Complete |
 | TOOL-02 | Phase 7 | Complete |
-| THARD-01 | Phase 10 | Pending |
+| THARD-01 | Phase 10 | Complete |
 | THARD-02 | Phase 10 | Complete |
 | THARD-03 | Phase 10 | Complete |
 | THARD-04 | Phase 10 | Complete |
-| THARD-05 | Phase 10 | Pending |
-| THARD-06 | Phase 10 | Pending |
-| THARD-07 | Phase 10 | Pending |
-| THARD-08 | Phase 10 | Pending |
+| THARD-05 | Phase 10 | Complete |
+| THARD-06 | Phase 10 | Complete |
+| THARD-07 | Phase 10 | Complete |
+| THARD-08 | Phase 10 | Complete |
 | THARD-09 | Phase 10 | Complete |
 | THARD-10 | Phase 10 | Complete |
 | REL-01 | Phase 11 | Pending |
 | REL-02 | Phase 11 | Pending |
-| REL-03 | Phase 11 | Pending |
-| REL-04 | Phase 11 | Pending |
+| REL-03 | Phase 11 | Complete |
+| REL-04 | Phase 11 | Complete |
 
 **Coverage:**
 - v1.0 requirements: 52 total -- all Complete
