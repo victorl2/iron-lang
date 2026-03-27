@@ -8,10 +8,18 @@
 #include "cli/fmt.h"
 #include "cli/test_runner.h"
 
-#define IRON_VERSION "0.0.1-alpha"
+#ifndef IRON_VERSION_STRING
+#define IRON_VERSION_STRING "0.1.1"
+#endif
+#ifndef IRON_GIT_HASH
+#define IRON_GIT_HASH "unknown"
+#endif
+#ifndef IRON_BUILD_DATE
+#define IRON_BUILD_DATE "unknown"
+#endif
 
 static void print_version(void) {
-    printf("iron %s\n", IRON_VERSION);
+    printf("iron %s (%s %s)\n", IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
 }
 
 static void print_usage(void) {
