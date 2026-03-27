@@ -130,17 +130,17 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### Control Flow
 
-- [ ] **CTRL-01**: Conditional branch terminator (branch on bool to then/else blocks)
-- [ ] **CTRL-02**: Unconditional jump terminator
-- [ ] **CTRL-03**: Return terminator (with value or void)
-- [ ] **CTRL-04**: Switch/match terminator for enum pattern matching
+- [x] **CTRL-01**: Conditional branch terminator (branch on bool to then/else blocks)
+- [x] **CTRL-02**: Unconditional jump terminator
+- [x] **CTRL-03**: Return terminator (with value or void)
+- [x] **CTRL-04**: Switch/match terminator for enum pattern matching
 
 ### Memory
 
-- [ ] **MEM-01**: Heap allocation instruction with auto_free and escapes flags from escape analysis
-- [ ] **MEM-02**: Rc allocation instruction
-- [ ] **MEM-03**: Free instruction (explicit free)
-- [ ] **MEM-04**: Defer statements eagerly lowered during AST->IR (deferred calls inlined before every exit point)
+- [x] **MEM-01**: Heap allocation instruction with auto_free and escapes flags from escape analysis
+- [x] **MEM-02**: Rc allocation instruction
+- [x] **MEM-03**: Free instruction (explicit free)
+- [x] **MEM-04**: Defer statements eagerly lowered during AST->IR (deferred calls inlined before every exit point)
 
 ### Concurrency
 
@@ -343,14 +343,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INSTR-11 | Phase 8 | Complete |
 | INSTR-12 | Phase 8 | Complete |
 | INSTR-13 | Phase 8 | Complete |
-| CTRL-01 | Phase 8 | Pending |
-| CTRL-02 | Phase 8 | Pending |
-| CTRL-03 | Phase 8 | Pending |
-| CTRL-04 | Phase 8 | Pending |
-| MEM-01 | Phase 8 | Pending |
-| MEM-02 | Phase 8 | Pending |
-| MEM-03 | Phase 8 | Pending |
-| MEM-04 | Phase 8 | Pending |
+| CTRL-01 | Phase 8 | Complete |
+| CTRL-02 | Phase 8 | Complete |
+| CTRL-03 | Phase 8 | Complete |
+| CTRL-04 | Phase 8 | Complete |
+| MEM-01 | Phase 8 | Complete |
+| MEM-02 | Phase 8 | Complete |
+| MEM-03 | Phase 8 | Complete |
+| MEM-04 | Phase 8 | Complete |
 | CONC-01 | Phase 8 | Pending |
 | CONC-02 | Phase 8 | Pending |
 | CONC-03 | Phase 8 | Pending |
