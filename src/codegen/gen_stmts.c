@@ -455,22 +455,6 @@ void emit_stmt(Iron_StrBuf *sb, Iron_Node *node, Iron_Codegen *ctx) {
             break;
         }
 
-        case IRON_NODE_DRAW: {
-            Iron_DrawBlock *db = (Iron_DrawBlock *)node;
-            codegen_indent(sb, ctx->indent);
-            iron_strbuf_appendf(sb, "BeginDrawing();\n");
-            codegen_indent(sb, ctx->indent);
-            iron_strbuf_appendf(sb, "{\n");
-            if (db->body) {
-                emit_block(sb, (Iron_Block *)db->body, ctx);
-            }
-            codegen_indent(sb, ctx->indent);
-            iron_strbuf_appendf(sb, "}\n");
-            codegen_indent(sb, ctx->indent);
-            iron_strbuf_appendf(sb, "EndDrawing();\n");
-            break;
-        }
-
         case IRON_NODE_BLOCK: {
             /* Nested block */
             Iron_Block *blk = (Iron_Block *)node;
