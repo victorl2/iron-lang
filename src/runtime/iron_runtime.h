@@ -7,26 +7,59 @@
 #include <stdatomic.h>
 
 /* ── Platform threading abstraction ──────────────────────────────────────── */
-/* Pthreads everywhere, including Windows (via pthreads4w / pthreads-win32).
- * The C11 <threads.h> path has been removed; pthreads4w provides pthread.h
- * on Windows and is installed by the CI Windows step (choco install pthreads4w).
- */
-#include <pthread.h>
-typedef pthread_t          iron_thread_t;
-typedef pthread_mutex_t    iron_mutex_t;
-typedef pthread_cond_t     iron_cond_t;
+#ifdef _WIN32
+  #include <windows.h>
 
-#define IRON_THREAD_CREATE(t,fn,arg)   pthread_create(&(t),NULL,(fn),(arg))
-#define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
-#define IRON_MUTEX_INIT(m)             pthread_mutex_init(&(m), NULL)
-#define IRON_MUTEX_LOCK(m)             pthread_mutex_lock(&(m))
-#define IRON_MUTEX_UNLOCK(m)           pthread_mutex_unlock(&(m))
-#define IRON_MUTEX_DESTROY(m)          pthread_mutex_destroy(&(m))
-#define IRON_COND_INIT(c)              pthread_cond_init(&(c), NULL)
-#define IRON_COND_WAIT(c,m)            pthread_cond_wait(&(c), &(m))
-#define IRON_COND_SIGNAL(c)            pthread_cond_signal(&(c))
-#define IRON_COND_BROADCAST(c)         pthread_cond_broadcast(&(c))
-#define IRON_COND_DESTROY(c)           pthread_cond_destroy(&(c))
+  typedef HANDLE               iron_thread_t;
+  typedef CRITICAL_SECTION     iron_mutex_t;
+  typedef CONDITION_VARIABLE   iron_cond_t;
+
+  /* Thread wrapper: Win32 thread proc signature differs from pthreads */
+  typedef struct { void *(*fn)(void*); void *arg; } iron__win_trampoline_t;
+  static DWORD WINAPI iron__win_thread_proc(void *p) {
+      iron__win_trampoline_t *t = (iron__win_trampoline_t *)p;
+      t->fn(t->arg);
+      free(p);
+      return 0;
+  }
+  static inline int iron__win_thread_create(iron_thread_t *t,
+                                            void *(*fn)(void*), void *arg) {
+      iron__win_trampoline_t *tramp = (iron__win_trampoline_t *)malloc(sizeof(*tramp));
+      if (!tramp) return -1;
+      tramp->fn = fn; tramp->arg = arg;
+      *t = CreateThread(NULL, 0, iron__win_thread_proc, tramp, 0, NULL);
+      return *t ? 0 : -1;
+  }
+
+  #define IRON_THREAD_CREATE(t,fn,arg)   iron__win_thread_create(&(t),(fn),(arg))
+  #define IRON_THREAD_JOIN(t)            (WaitForSingleObject((t), INFINITE), CloseHandle((t)))
+  #define IRON_MUTEX_INIT(m)             InitializeCriticalSection(&(m))
+  #define IRON_MUTEX_LOCK(m)             EnterCriticalSection(&(m))
+  #define IRON_MUTEX_UNLOCK(m)           LeaveCriticalSection(&(m))
+  #define IRON_MUTEX_DESTROY(m)          DeleteCriticalSection(&(m))
+  #define IRON_COND_INIT(c)              InitializeConditionVariable(&(c))
+  #define IRON_COND_WAIT(c,m)            SleepConditionVariableCS(&(c), &(m), INFINITE)
+  #define IRON_COND_SIGNAL(c)            WakeConditionVariable(&(c))
+  #define IRON_COND_BROADCAST(c)         WakeAllConditionVariable(&(c))
+  #define IRON_COND_DESTROY(c)           ((void)(c))  /* Win32 CV needs no destroy */
+#else
+  #include <pthread.h>
+  typedef pthread_t          iron_thread_t;
+  typedef pthread_mutex_t    iron_mutex_t;
+  typedef pthread_cond_t     iron_cond_t;
+
+  #define IRON_THREAD_CREATE(t,fn,arg)   pthread_create(&(t),NULL,(fn),(arg))
+  #define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
+  #define IRON_MUTEX_INIT(m)             pthread_mutex_init(&(m), NULL)
+  #define IRON_MUTEX_LOCK(m)             pthread_mutex_lock(&(m))
+  #define IRON_MUTEX_UNLOCK(m)           pthread_mutex_unlock(&(m))
+  #define IRON_MUTEX_DESTROY(m)          pthread_mutex_destroy(&(m))
+  #define IRON_COND_INIT(c)              pthread_cond_init(&(c), NULL)
+  #define IRON_COND_WAIT(c,m)            pthread_cond_wait(&(c), &(m))
+  #define IRON_COND_SIGNAL(c)            pthread_cond_signal(&(c))
+  #define IRON_COND_BROADCAST(c)         pthread_cond_broadcast(&(c))
+  #define IRON_COND_DESTROY(c)           pthread_cond_destroy(&(c))
+#endif
 
 /* ── Iron_String ────────────────────────────────────────────────────────────
  * 24-byte string type with Small String Optimisation (SSO).

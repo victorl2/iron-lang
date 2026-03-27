@@ -4,11 +4,14 @@ project(iron C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-add_compile_options(-Wall -Wextra -Werror -Wpedantic)
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_options(-fsanitize=address,undefined)
-    add_link_options(-fsanitize=address,undefined)
+if(MSVC)
+    add_compile_options(/W3 /WX)
+else()
+    add_compile_options(-Wall -Wextra -Werror -Wpedantic)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        add_compile_options(-fsanitize=address,undefined)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
 endif()
 
 # ── Unity test framework ────────────────────────────────────────────────────
@@ -154,7 +157,11 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_log.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
-target_link_libraries(iron_stdlib iron_runtime m)  # -lm for math
+if(NOT WIN32)
+  target_link_libraries(iron_stdlib iron_runtime m)  # -lm for math
+else()
+  target_link_libraries(iron_stdlib iron_runtime)
+endif()
 
 add_executable(test_stdlib tests/test_stdlib.c)
 target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)

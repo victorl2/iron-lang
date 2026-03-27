@@ -30,9 +30,7 @@ jobs:
 
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        run: |
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          choco install pthreads4w -y
+        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
       - name: Configure (Unix — Debug with ASan/UBSan)
         if: runner.os != 'Windows'
@@ -44,11 +42,7 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Debug -G "Visual Studio 17 2022" ^
-            -DCMAKE_PREFIX_PATH="C:/ProgramData/chocolatey/lib/pthreads4w/tools" ^
-            -DCMAKE_C_FLAGS="/IC:/ProgramData/chocolatey/lib/pthreads4w/tools/include" ^
-            -DCMAKE_EXE_LINKER_FLAGS="/LIBPATH:C:/ProgramData/chocolatey/lib/pthreads4w/tools/lib/x64"
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -G "Visual Studio 17 2022"
 
       - name: Build
         run: cmake --build build --config Debug
