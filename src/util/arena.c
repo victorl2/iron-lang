@@ -19,11 +19,12 @@ static Iron_ArenaChunk *arena_new_chunk(size_t min_capacity, size_t default_chun
 
 Iron_Arena iron_arena_create(size_t capacity) {
     Iron_Arena a;
-    size_t chunk_size = capacity > IRON_ARENA_CHUNK_SIZE ? capacity : IRON_ARENA_CHUNK_SIZE;
-    Iron_ArenaChunk *chunk = arena_new_chunk(chunk_size, chunk_size);
+    /* Initial chunk uses the requested capacity.
+     * Subsequent chunks use IRON_ARENA_CHUNK_SIZE for amortized growth. */
+    Iron_ArenaChunk *chunk = arena_new_chunk(capacity, capacity);
     a.head       = chunk;
     a.first      = chunk;
-    a.chunk_size = chunk_size;
+    a.chunk_size = IRON_ARENA_CHUNK_SIZE;  /* default size for future chunks */
     /* Sync legacy fields */
     a.base     = chunk ? chunk->data : NULL;
     a.used     = 0;

@@ -568,6 +568,13 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 break;
             }
 
+            /* Unwrap rc pointer types to access the inner object type.
+             * heap types already expose the inner object type directly (IRON_NODE_HEAP
+             * sets resolved_type to the inner construct type, not an RC wrapper). */
+            if (obj_type->kind == IRON_TYPE_RC) {
+                obj_type = obj_type->rc.inner;
+            }
+
             if (obj_type->kind != IRON_TYPE_OBJECT) {
                 if (obj_type->kind == IRON_TYPE_NULLABLE) {
                     emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, fa->span,
@@ -729,8 +736,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
+            /* Build the FUNC type for the lambda so it is callable.
+             * Collect param types from param annotations. */
+            Iron_Type **param_types = NULL;
+            if (le->param_count > 0) {
+                param_types = (Iron_Type **)iron_arena_alloc(
+                    ctx->arena,
+                    (size_t)le->param_count * sizeof(Iron_Type *),
+                    _Alignof(Iron_Type *));
+                for (int p = 0; p < le->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)le->params[p];
+                    param_types[p] = resolve_type_annotation(ctx, ap->type_ann);
+                }
+            }
+            Iron_Type *ret_t = le->return_type
+                ? resolve_type_annotation(ctx, le->return_type)
+                : iron_type_make_primitive(IRON_TYPE_VOID);
+            if (ret_t && ret_t->kind == IRON_TYPE_VOID) ret_t = NULL;
             if (le->body) check_stmt(ctx, le->body);
-            result = iron_type_make_primitive(IRON_TYPE_VOID);
+            result = iron_type_make_func(ctx->arena, param_types, le->param_count, ret_t);
             le->resolved_type = result;
             break;
         }
