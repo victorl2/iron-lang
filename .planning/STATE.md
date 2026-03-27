@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: Completed 09-04-PLAN.md
-last_updated: "2026-03-27T17:43:04.851Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-03-27T17:49:12.795Z"
 last_activity: "2026-03-27 — Completed 07-01: IR data structure scaffold"
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
   percent: 10
 ---
 
@@ -51,6 +51,7 @@ Progress: [#.........] 10%
 | Phase 09-c-emission-and-cutover P01 | 45 | 2 tasks | 3 files |
 | Phase 09-c-emission-and-cutover P02 | 35 | 2 tasks | 4 files |
 | Phase 09-c-emission-and-cutover P04 | 41 | 2 tasks | 4 files |
+| Phase 09-c-emission-and-cutover P03 | 35 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,10 @@ Recent decisions affecting current work:
 - [Phase 09-c-emission-and-cutover]: Auto-static dispatch emits lowercase_type_method as func_ref name; mangle_func_name() adds Iron_ prefix at emission, matching Iron_math_sin convention
 - [Phase 09-c-emission-and-cutover]: global_constants_map stores name->AST_init_node pairs; lazily lowered in calling function context, cached in val_binding_map
 - [Phase 09-c-emission-and-cutover]: Empty-body stdlib method stubs skipped in lower_module_decls Pass 1f to prevent void param emission for non-primitive types
+- [Phase 09-c-emission-and-cutover]: resolve_func_c_name() centralizes extern/mangle logic — honors is_extern/extern_c_name at all FUNC_REF and CALL sites
+- [Phase 09-c-emission-and-cutover]: Iron_String args to extern calls coerced via iron_string_cstr() at emit time — Iron_String is a 24-byte SSO struct incompatible with const char*
+- [Phase 09-c-emission-and-cutover]: PARALLEL_FOR emits wrapper+struct pattern bridging IR chunk signature void(int64_t) to Iron_pool_submit's void(*)(void*)
+- [Phase 09-c-emission-and-cutover]: Function params emitted as _v{id} names in C signatures — param 0 gets _v1, param 1 gets _v2, etc., matching IR value ID references
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -109,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T17:43:04.849Z
-Stopped at: Completed 09-04-PLAN.md
+Last session: 2026-03-27T17:49:12.792Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
