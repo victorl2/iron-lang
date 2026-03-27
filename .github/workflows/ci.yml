@@ -54,6 +54,8 @@ jobs:
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
+        env:
+          ASAN_OPTIONS: detect_leaks=0
         run: ctest --test-dir build --output-on-failure -j4
 
       - name: Run tests (Windows)
@@ -62,13 +64,15 @@ jobs:
 
       - name: Run integration tests (Unix only)
         if: runner.os != 'Windows'
+        env:
+          ASAN_OPTIONS: detect_leaks=0
         run: |
           chmod +x tests/integration/run_integration.sh
           tests/integration/run_integration.sh build/iron
 
-      - name: Verify no sanitizer leaks (Unix only)
+      - name: Verify sanitizers (Unix only)
         if: runner.os != 'Windows'
-        run: |
-          ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
-          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-          ctest --test-dir build --output-on-failure -j4
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure -j4

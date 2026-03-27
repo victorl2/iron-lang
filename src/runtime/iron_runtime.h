@@ -4,11 +4,34 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdatomic.h>
+
+/* ── Platform atomic abstraction ────────────────────────────────────────── */
+#ifdef _WIN32
+  #include <windows.h>
+  typedef volatile LONG iron_atomic_int;
+  #define IRON_ATOMIC_INIT(v, val)          ((v) = (val))
+  #define IRON_ATOMIC_LOAD(v)               InterlockedCompareExchange(&(v), 0, 0)
+  #define IRON_ATOMIC_FETCH_ADD(v, n)       InterlockedExchangeAdd(&(v), (n))
+  #define IRON_ATOMIC_FETCH_SUB(v, n)       InterlockedExchangeAdd(&(v), -(n))
+  #define IRON_ATOMIC_CAS_WEAK(v, exp, des) iron__win_cas(&(v), (exp), (des))
+  static inline bool iron__win_cas(volatile LONG *v, int *expected, int desired) {
+      LONG old = InterlockedCompareExchange(v, desired, *expected);
+      if (old == *expected) return true;
+      *expected = (int)old;
+      return false;
+  }
+#else
+  #include <stdatomic.h>
+  typedef atomic_int iron_atomic_int;
+  #define IRON_ATOMIC_INIT(v, val)          atomic_init(&(v), (val))
+  #define IRON_ATOMIC_LOAD(v)               atomic_load(&(v))
+  #define IRON_ATOMIC_FETCH_ADD(v, n)       atomic_fetch_add(&(v), (n))
+  #define IRON_ATOMIC_FETCH_SUB(v, n)       atomic_fetch_sub(&(v), (n))
+  #define IRON_ATOMIC_CAS_WEAK(v, exp, des) atomic_compare_exchange_weak(&(v), (exp), (des))
+#endif
 
 /* ── Platform threading abstraction ──────────────────────────────────────── */
 #ifdef _WIN32
-  #include <windows.h>
 
   typedef HANDLE               iron_thread_t;
   typedef CRITICAL_SECTION     iron_mutex_t;
@@ -107,8 +130,8 @@ Iron_String  iron_string_intern(Iron_String s);
  * reference that returns NULL after the last strong ref is dropped.
  */
 typedef struct {
-    atomic_int  strong_count;
-    atomic_int  weak_count;
+    iron_atomic_int  strong_count;
+    iron_atomic_int  weak_count;
     void      (*destructor)(void *value);
 } Iron_RcControl;
 
