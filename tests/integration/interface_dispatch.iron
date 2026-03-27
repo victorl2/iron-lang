@@ -1,0 +1,91 @@
+-- interface_dispatch.iron: Interface definition and method dispatch
+-- Tests THARD-08: object method dispatch exercising the IR method lowering path
+
+interface Animal {
+  func speak() -> String
+  func name() -> String
+}
+
+object Dog {
+  var dog_name: String
+  var breed: String
+}
+
+object Cat {
+  var cat_name: String
+  var indoor: Int
+}
+
+object Bird {
+  var bird_name: String
+  var can_fly: Int
+}
+
+func Dog.speak() -> String {
+  return "Woof!"
+}
+
+func Dog.name() -> String {
+  return self.dog_name
+}
+
+func Cat.speak() -> String {
+  return "Meow!"
+}
+
+func Cat.name() -> String {
+  return self.cat_name
+}
+
+func Bird.speak() -> String {
+  if self.can_fly == 1 {
+    return "Tweet from above!"
+  } else {
+    return "Tweet from ground!"
+  }
+}
+
+func Bird.name() -> String {
+  return self.bird_name
+}
+
+func describe_dog(d: Dog) -> String {
+  return "{d.name()}: {d.speak()}"
+}
+
+func describe_cat(c: Cat) -> String {
+  return "{c.name()}: {c.speak()}"
+}
+
+func describe_bird(b: Bird) -> String {
+  return "{b.name()}: {b.speak()}"
+}
+
+func main() {
+  -- Method dispatch on different object types
+  val d1 = Dog("Rex", "Labrador")
+  val d2 = Dog("Max", "Poodle")
+  val c1 = Cat("Whiskers", 1)
+  val c2 = Cat("Shadow", 0)
+  val b1 = Bird("Tweety", 1)
+  val b2 = Bird("Penguin", 0)
+
+  println(describe_dog(d1))
+  println(describe_dog(d2))
+  println(describe_cat(c1))
+  println(describe_cat(c2))
+  println(describe_bird(b1))
+  println(describe_bird(b2))
+
+  -- Direct method calls
+  println("name: {d1.name()}")
+  println("speak: {c1.speak()}")
+
+  -- Method dispatch in a loop
+  for i in range(3) {
+    val dog = Dog("dog", "breed")
+    println("loop dog: {dog.speak()}")
+  }
+
+  println("done")
+}

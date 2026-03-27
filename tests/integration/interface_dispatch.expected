@@ -1,0 +1,12 @@
+Rex: Woof!
+Max: Woof!
+Whiskers: Meow!
+Shadow: Meow!
+Tweety: Tweet from above!
+Penguin: Tweet from ground!
+name: Rex
+speak: Meow!
+loop dog: Woof!
+loop dog: Woof!
+loop dog: Woof!
+done

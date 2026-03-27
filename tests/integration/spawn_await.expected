@@ -1,0 +1,5 @@
+main: sum(10) = 45
+main: sum(5) = 10
+main: sum(20) = 190
+tasks launched: 3
+done
