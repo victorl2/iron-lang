@@ -1,0 +1,64 @@
+-- linked_list.iron - Singly linked list using array-backed node pool.
+-- Simulates pointers via integer indices (-1 = null).
+-- Demonstrates: objects, arrays, index-based traversal.
+
+-- Nodes: values[i] = data, nexts[i] = index of next (-1 = end)
+func list_print(values: [Int], nexts: [Int], head: Int) {
+  var cur = head
+  while cur != -1 {
+    println("{values[cur]}")
+    cur = nexts[cur]
+  }
+}
+
+func list_len(nexts: [Int], head: Int) -> Int {
+  var cur = head
+  var count = 0
+  while cur != -1 {
+    count = count + 1
+    cur = nexts[cur]
+  }
+  return count
+}
+
+func list_sum(values: [Int], nexts: [Int], head: Int) -> Int {
+  var cur = head
+  var total = 0
+  while cur != -1 {
+    total = total + values[cur]
+    cur = nexts[cur]
+  }
+  return total
+}
+
+func main() {
+  -- Build a 5-node list: 1 -> 2 -> 3 -> 4 -> 5 -> nil
+  var values = [1, 2, 3, 4, 5, 0, 0, 0]
+  var nexts  = [1, 2, 3, 4, -1, -1, -1, -1]
+  val head = 0
+
+  -- Test 1: Print forward list
+  println("forward:")
+  list_print(values, nexts, head)
+
+  -- Test 2: Length and sum
+  println("len: {list_len(nexts, head)}")
+  println("sum: {list_sum(values, nexts, head)}")
+
+  -- Test 3: Reversed list: 5 -> 4 -> 3 -> 2 -> 1 -> nil
+  var rvalues = [5, 4, 3, 2, 1, 0, 0, 0]
+  var rnexts  = [1, 2, 3, 4, -1, -1, -1, -1]
+  println("reversed:")
+  list_print(rvalues, rnexts, 0)
+
+  -- Test 4: Single element
+  var svalues = [42, 0]
+  var snexts  = [-1, -1]
+  println("single:")
+  list_print(svalues, snexts, 0)
+  println("single len: {list_len(snexts, 0)}")
+
+  -- Test 5: Empty list (head = -1)
+  println("empty len: {list_len(nexts, -1)}")
+  println("empty sum: {list_sum(values, nexts, -1)}")
+}

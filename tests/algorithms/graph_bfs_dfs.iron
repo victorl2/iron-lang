@@ -1,0 +1,130 @@
+-- graph_bfs_dfs.iron - Graph traversal: BFS and DFS on an adjacency-list graph.
+-- Graph stored as fixed-size edge arrays (5 nodes, edges encoded as adjacency).
+-- Demonstrates: objects, arrays, nested loops, visited tracking, queue/stack patterns.
+
+-- Simple queue using an array with head/tail indices
+object Queue {
+  var data: [Int]
+  var head: Int
+  var tail: Int
+}
+
+func queue_create() -> Queue {
+  return Queue([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 0, 0)
+}
+
+func queue_push(q: Queue, val_in: Int) -> Queue {
+  var nq = q
+  nq.data[nq.tail] = val_in
+  nq.tail = nq.tail + 1
+  return nq
+}
+
+func queue_pop(q: Queue) -> Queue {
+  var nq = q
+  nq.head = nq.head + 1
+  return nq
+}
+
+func queue_front(q: Queue) -> Int {
+  return q.data[q.head]
+}
+
+func queue_empty(q: Queue) -> Int {
+  if q.head >= q.tail {
+    return 1
+  }
+  return 0
+}
+
+-- Adjacency list stored as a flat array with known degrees
+-- Graph: 5 nodes (0..4), edges encoded as pairs
+-- node 0 -> 1, 2
+-- node 1 -> 0, 3, 4
+-- node 2 -> 0, 4
+-- node 3 -> 1
+-- node 4 -> 1, 2
+-- adj[i*5 + j] = 1 if edge i->j exists (adjacency matrix)
+func make_adj() -> [Int] {
+  var adj = [0, 0, 0, 0, 0,
+             0, 0, 0, 0, 0,
+             0, 0, 0, 0, 0,
+             0, 0, 0, 0, 0,
+             0, 0, 0, 0, 0]
+  -- node 0 -> 1, 2
+  adj[0 * 5 + 1] = 1
+  adj[0 * 5 + 2] = 1
+  -- node 1 -> 0, 3, 4
+  adj[1 * 5 + 0] = 1
+  adj[1 * 5 + 3] = 1
+  adj[1 * 5 + 4] = 1
+  -- node 2 -> 0, 4
+  adj[2 * 5 + 0] = 1
+  adj[2 * 5 + 4] = 1
+  -- node 3 -> 1
+  adj[3 * 5 + 1] = 1
+  -- node 4 -> 1, 2
+  adj[4 * 5 + 1] = 1
+  adj[4 * 5 + 2] = 1
+  return adj
+}
+
+func bfs(adj: [Int], n: Int, start: Int) {
+  var visited = [0, 0, 0, 0, 0]
+  var q = queue_create()
+  visited[start] = 1
+  q = queue_push(q, start)
+  while queue_empty(q) == 0 {
+    val node = queue_front(q)
+    q = queue_pop(q)
+    println("{node}")
+    var j = 0
+    while j < n {
+      if adj[node * 5 + j] == 1 and visited[j] == 0 {
+        visited[j] = 1
+        q = queue_push(q, j)
+      }
+      j = j + 1
+    }
+  }
+}
+
+-- DFS using explicit stack (array + top pointer)
+func dfs(adj: [Int], n: Int, start: Int) {
+  var visited = [0, 0, 0, 0, 0]
+  var stack  = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  var top = 0
+  stack[top] = start
+  top = top + 1
+  while top > 0 {
+    top = top - 1
+    val node = stack[top]
+    if visited[node] == 0 {
+      visited[node] = 1
+      println("{node}")
+      -- Push neighbors in reverse order so lower-numbered nodes visited first
+      var j = n - 1
+      while j >= 0 {
+        if adj[node * 5 + j] == 1 and visited[j] == 0 {
+          stack[top] = j
+          top = top + 1
+        }
+        j = j - 1
+      }
+    }
+  }
+}
+
+func main() {
+  val adj = make_adj()
+  val n = 5
+
+  println("bfs from 0:")
+  bfs(adj, n, 0)
+
+  println("dfs from 0:")
+  dfs(adj, n, 0)
+
+  println("bfs from 3:")
+  bfs(adj, n, 3)
+}

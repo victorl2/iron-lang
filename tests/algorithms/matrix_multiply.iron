@@ -1,0 +1,70 @@
+-- matrix_multiply.iron - Matrix multiplication (flat array representation).
+-- Matrix A[n x m] stored as flat array of size n*m, row-major.
+-- C[i][j] = sum_k A[i][k] * B[k][j]
+-- Demonstrates: nested loops, array indexing, integer arithmetic.
+
+-- Multiply A (n x m) by B (m x p), return C (n x p)
+func mat_mul(a: [Int], b: [Int], n: Int, m: Int, p: Int) -> [Int] {
+  var c = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  var i = 0
+  while i < n {
+    var j = 0
+    while j < p {
+      var sum = 0
+      var k = 0
+      while k < m {
+        sum = sum + a[i * m + k] * b[k * p + j]
+        k = k + 1
+      }
+      c[i * p + j] = sum
+      j = j + 1
+    }
+    i = i + 1
+  }
+  return c
+}
+
+func print_matrix(mat: [Int], rows: Int, cols: Int) {
+  var i = 0
+  while i < rows {
+    var j = 0
+    while j < cols {
+      println("{mat[i * cols + j]}")
+      j = j + 1
+    }
+    i = i + 1
+  }
+}
+
+func main() {
+  -- Test 1: 2x2 * 2x2
+  println("2x2 * 2x2:")
+  val a1 = [1, 2, 3, 4, 0, 0, 0, 0]
+  val b1 = [5, 6, 7, 8, 0, 0, 0, 0]
+  val c1 = mat_mul(a1, b1, 2, 2, 2)
+  print_matrix(c1, 2, 2)
+
+  -- Test 2: 2x3 * 3x2
+  println("2x3 * 3x2:")
+  val a2 = [1, 2, 3, 4, 5, 6, 0, 0]
+  val b2 = [7, 8, 9, 10, 11, 12, 0, 0]
+  val c2 = mat_mul(a2, b2, 2, 3, 2)
+  print_matrix(c2, 2, 2)
+
+  -- Test 3: Identity matrix
+  println("identity:")
+  val id2 = [1, 0, 0, 1, 0, 0, 0, 0]
+  val v2  = [3, 4, 5, 6, 0, 0, 0, 0]
+  val r3  = mat_mul(id2, v2, 2, 2, 2)
+  print_matrix(r3, 2, 2)
+
+  -- Test 4: 3x3 * 3x3
+  println("3x3 * 3x3:")
+  val a4 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0]
+  val b4 = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0]
+  val c4 = mat_mul(a4, b4, 3, 3, 3)
+  print_matrix(c4, 3, 3)
+}
