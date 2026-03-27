@@ -89,6 +89,10 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             /* Allocate merge block upfront; used as final continuation */
             IronIR_Block *merge_block = new_block(ctx, "if.merge");
 
+            /* Track whether at least one branch jumps to merge_block.
+             * If ALL branches terminate (early return/break), merge_block is dead. */
+            bool merge_has_predecessor = false;
+
             /* Lower the primary condition */
             IronIR_ValueId cond_val = lower_expr(ctx, is->condition);
 
@@ -105,7 +109,9 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             } else if (is->else_body) {
                 else_target = new_block(ctx, "if.else");
             } else {
+                /* No else: the false branch falls through to merge */
                 else_target = merge_block;
+                merge_has_predecessor = true;
             }
 
             /* Emit primary branch */
@@ -117,6 +123,7 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             lower_block(ctx, (Iron_Block *)is->body);
             if (!block_is_terminated(ctx->current_block)) {
                 iron_ir_jump(fn, ctx->current_block, merge_block->id, span);
+                merge_has_predecessor = true;
             }
 
             /* Lower elif chains */
@@ -135,6 +142,7 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                     next_else = new_block(ctx, "if.else");
                 } else {
                     next_else = merge_block;
+                    merge_has_predecessor = true;
                 }
 
                 iron_ir_branch(fn, cur_elif_cond_block, elif_cond,
@@ -144,6 +152,7 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 lower_block(ctx, (Iron_Block *)is->elif_bodies[i]);
                 if (!block_is_terminated(ctx->current_block)) {
                     iron_ir_jump(fn, ctx->current_block, merge_block->id, span);
+                    merge_has_predecessor = true;
                 }
 
                 cur_elif_cond_block = next_else;
@@ -156,11 +165,17 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 lower_block(ctx, (Iron_Block *)is->else_body);
                 if (!block_is_terminated(ctx->current_block)) {
                     iron_ir_jump(fn, ctx->current_block, merge_block->id, span);
+                    merge_has_predecessor = true;
                 }
             }
 
-            /* Continue at merge */
+            /* Continue at merge.
+             * If merge has no predecessors (all branches terminated), it's dead code.
+             * Add a void return to terminate it so the verifier stays happy. */
             switch_block(ctx, merge_block);
+            if (!merge_has_predecessor) {
+                iron_ir_return(fn, merge_block, IRON_IR_VALUE_INVALID, true, NULL, span);
+            }
             break;
         }
 
@@ -410,10 +425,11 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                                true, NULL, span);
             }
 
-            /* Create a dead block to absorb any code that follows this return.
-             * Prevents "instruction after terminator" verifier errors on dead code. */
-            IronIR_Block *dead = new_block(ctx, "return.dead");
-            switch_block(ctx, dead);
+            /* Mark current_block as NULL to indicate dead code after this return.
+             * Any subsequent lower_stmt calls in this block will early-exit via the
+             * guard at the top of lower_stmt. This avoids creating unterminated
+             * dead blocks that the verifier would flag. */
+            ctx->current_block = NULL;
             break;
         }
 
@@ -476,14 +492,6 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                           lp.lifted_name, pool_val,
                           ss->handle_name ? ss->handle_name : "",
                           void_type, span);
-            break;
-        }
-
-        /* ── Draw (deprecated — emit poison with diagnostic) ─────────────── */
-        case IRON_NODE_DRAW: {
-            /* Per locked decision: IRON_NODE_DRAW is being removed in Plan 08-03.
-             * For now, emit poison and a deprecation diagnostic. */
-            emit_poison(ctx, NULL, span);
             break;
         }
 

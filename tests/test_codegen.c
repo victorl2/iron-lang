@@ -937,18 +937,6 @@ void test_extern_func_call(void) {
     TEST_ASSERT_TRUE(str_contains(c, "\"Game\""));
 }
 
-/* ── Test: draw {} block emits BeginDrawing/EndDrawing pair ──────────────── */
-
-void test_draw_block(void) {
-    const char *src = "func main() { draw { } }\n";
-    const char *c = run_codegen(src);
-    TEST_ASSERT_NOT_NULL(c);
-    TEST_ASSERT_TRUE(str_contains(c, "BeginDrawing()"));
-    TEST_ASSERT_TRUE(str_contains(c, "EndDrawing()"));
-    /* BeginDrawing must come before EndDrawing */
-    TEST_ASSERT_TRUE(str_before(c, "BeginDrawing()", "EndDrawing()"));
-}
-
 /* ── Test: enum with explicit values emits = N in C typedef enum ─────────── */
 
 void test_enum_explicit_values(void) {
@@ -1009,7 +997,6 @@ int main(void) {
     RUN_TEST(test_codegen_parallel_for_dynamic_chunks);
     RUN_TEST(test_codegen_builtin_len);
     RUN_TEST(test_extern_func_call);
-    RUN_TEST(test_draw_block);
     RUN_TEST(test_enum_explicit_values);
 
     return UNITY_END();

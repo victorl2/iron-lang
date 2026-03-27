@@ -154,7 +154,7 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 - [ ] **MOD-01**: Module-level type declarations (objects, enums, interfaces) with correct vtable ordering
 - [ ] **MOD-02**: Extern function declarations with C-level names
 - [ ] **MOD-03**: Monomorphization registry on IrModule for generic type deduplication
-- [ ] **MOD-04**: Draw block lowered to BeginDrawing/EndDrawing calls at AST->IR time
+- [ ] **MOD-04**: IRON_NODE_DRAW removed from parser; draw functionality moved to raylib.draw() module function
 
 ### Emission
 

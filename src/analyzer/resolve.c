@@ -450,12 +450,6 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             break;
         }
 
-        case IRON_NODE_DRAW: {
-            Iron_DrawBlock *db = (Iron_DrawBlock *)node;
-            if (db->body) resolve_node(ctx, db->body);
-            break;
-        }
-
         /* ── Expressions ──────────────────────────────────────────────────── */
 
         case IRON_NODE_INT_LIT:

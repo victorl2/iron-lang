@@ -98,11 +98,10 @@ static bool iron_check(Iron_Parser *p, Iron_TokenKind kind) {
     return iron_peek(p) == kind;
 }
 
-/* True if the current token can appear as a function/method name.
- * Allows keywords like 'draw' that are common method names. */
+/* True if the current token can appear as a function/method name. */
 static bool iron_check_name(Iron_Parser *p) {
     Iron_TokenKind k = iron_peek(p);
-    return k == IRON_TOK_IDENTIFIER || k == IRON_TOK_DRAW;
+    return k == IRON_TOK_IDENTIFIER;
 }
 
 static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
@@ -1295,16 +1294,6 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
         }
         case IRON_TOK_SPAWN:
             return iron_parse_spawn_stmt(p);
-        case IRON_TOK_DRAW: {
-            Iron_Token *draw_tok = iron_current(p);
-            iron_advance(p);  /* consume 'draw' */
-            Iron_Node *body = iron_parse_block(p);
-            Iron_DrawBlock *db = ARENA_ALLOC(p->arena, Iron_DrawBlock);
-            db->kind = IRON_NODE_DRAW;
-            db->span = iron_span_merge(iron_token_span(p, draw_tok), body->span);
-            db->body = body;
-            return (Iron_Node *)db;
-        }
         case IRON_TOK_LBRACE:
             return iron_parse_block(p);
         default: {
@@ -1752,8 +1741,8 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         Iron_Token *fsig_start = iron_current(p);
         iron_advance(p);  /* consume 'func' */
 
-        /* Method name: can be a regular identifier or the 'draw' keyword used as name */
-        if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_DRAW)) {
+        /* Method name: must be a regular identifier */
+        if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_parser_sync_stmt(p);
             continue;
         }

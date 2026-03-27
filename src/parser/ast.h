@@ -38,7 +38,6 @@ typedef enum {
     IRON_NODE_FREE,
     IRON_NODE_LEAK,
     IRON_NODE_SPAWN,
-    IRON_NODE_DRAW,
     IRON_NODE_BLOCK,
 
     /* Expressions */
@@ -310,12 +309,6 @@ typedef struct {
     Iron_Node    *body;
     const char   *handle_name;  /* NULL if no handle */
 } Iron_SpawnStmt;
-
-typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;      /* IRON_NODE_DRAW */
-    Iron_Node    *body;      /* Iron_Block */
-} Iron_DrawBlock;
 
 typedef struct {
     Iron_Span     span;
