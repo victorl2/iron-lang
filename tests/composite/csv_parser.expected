@@ -1,0 +1,10 @@
+csv_parser: analyzing 5 records
+age sum: 140
+age avg: 28
+age range: 22-35
+score sum: 438
+score avg: 87
+score range: 78-95
+passing (>80): 4
+pass rate: 80%
+done

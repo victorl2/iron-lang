@@ -1,0 +1,70 @@
+-- game_loop_headless.iron: Headless game loop simulation
+-- Tests: objects, mutable state via return-value style, while loop,
+--        Float arithmetic, string interpolation, conditionals.
+-- Simulates an init/update/render cycle for 5 frames without graphics.
+
+object GameState {
+  var frame: Int
+  var player_x: Float
+  var player_y: Float
+  var velocity_x: Float
+  var velocity_y: Float
+  var score: Int
+  var lives: Int
+  var running: Bool
+}
+
+func init_game() -> GameState {
+  return GameState(0, 0.0, 0.0, 1.5, 0.5, 0, 3, true)
+}
+
+func update(var state: GameState) -> GameState {
+  state.frame = state.frame + 1
+  state.player_x = state.player_x + state.velocity_x
+  state.player_y = state.player_y + state.velocity_y
+  state.score = state.score + 10
+
+  -- Bounce off right wall at x >= 6.0
+  if state.player_x >= 6.0 {
+    state.velocity_x = 0.0 - state.velocity_x
+  }
+
+  -- Stop after 5 frames
+  if state.frame >= 5 {
+    state.running = false
+  }
+
+  return state
+}
+
+func render(state: GameState) {
+  println("frame {state.frame}: pos=({state.player_x},{state.player_y}) score={state.score} lives={state.lives}")
+}
+
+func check_bounds(state: GameState) -> Bool {
+  if state.player_x < 0.0 {
+    return false
+  }
+  if state.player_y < 0.0 {
+    return false
+  }
+  return true
+}
+
+func main() {
+  var state = init_game()
+  println("game start")
+
+  while state.running {
+    state = update(state)
+    render(state)
+    val in_bounds = check_bounds(state)
+    if in_bounds {
+      -- nothing
+    }
+  }
+
+  println("game over")
+  println("final score: {state.score}")
+  println("total frames: {state.frame}")
+}
