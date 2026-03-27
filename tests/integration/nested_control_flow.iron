@@ -1,0 +1,95 @@
+-- nested_control_flow.iron: 5+ levels of nested if/else with while and break-like pattern
+-- Tests THARD-05: deeply nested control flow compiles and runs correctly
+
+func classify(x: Int) -> String {
+  if x > 100 {
+    if x > 200 {
+      if x > 300 {
+        if x > 400 {
+          if x > 500 {
+            return "huge"
+          } else {
+            return "very large"
+          }
+        } else {
+          return "large"
+        }
+      } else {
+        return "medium-large"
+      }
+    } else {
+      return "medium"
+    }
+  } else {
+    return "small"
+  }
+  return "unknown"
+}
+
+func check_range(low: Int, high: Int, num: Int) -> String {
+  if num >= low {
+    if num <= high {
+      if num == low {
+        return "at low"
+      } elif num == high {
+        return "at high"
+      } else {
+        return "in range"
+      }
+    } else {
+      return "above high"
+    }
+  } else {
+    return "below low"
+  }
+  return "error"
+}
+
+func main() {
+  -- Test deeply nested classify function (5 levels of if/else)
+  println(classify(50))
+  println(classify(150))
+  println(classify(250))
+  println(classify(350))
+  println(classify(450))
+  println(classify(550))
+
+  -- Test range checking with nested conditions
+  println(check_range(10, 20, 5))
+  println(check_range(10, 20, 10))
+  println(check_range(10, 20, 15))
+  println(check_range(10, 20, 20))
+  println(check_range(10, 20, 25))
+
+  -- Test while loop with nested if inside
+  var counter = 0
+  var result = 0
+  while counter < 10 {
+    if counter < 3 {
+      result = result + 1
+    } elif counter < 7 {
+      result = result + 2
+    } else {
+      result = result + 3
+    }
+    counter = counter + 1
+  }
+  println("accumulated: {result}")
+
+  -- Nested while loops
+  var outer = 0
+  var total = 0
+  while outer < 3 {
+    var inner = 0
+    while inner < 3 {
+      if outer == inner {
+        total = total + 1
+      }
+      inner = inner + 1
+    }
+    outer = outer + 1
+  }
+  println("diagonal sum: {total}")
+
+  println("done")
+}

@@ -1,0 +1,52 @@
+-- early_return_defer.iron: Multiple early returns with defer cleanup
+-- Tests THARD-05: defers execute in correct reverse order at each exit point
+
+func process(x: Int) -> String {
+  defer println("cleanup A")
+  if x < 0 {
+    return "negative"
+  }
+  defer println("cleanup B")
+  if x == 0 {
+    return "zero"
+  }
+  defer println("cleanup C")
+  return "positive"
+}
+
+func validate(code: Int) -> String {
+  defer println("exit validate")
+  if code < 0 {
+    defer println("bad code cleanup")
+    return "invalid: negative"
+  }
+  if code > 999 {
+    defer println("overflow cleanup")
+    return "invalid: overflow"
+  }
+  if code == 0 {
+    return "empty"
+  }
+  return "ok"
+}
+
+func main() {
+  -- process(-1): cleanup A, then "negative"
+  println(process(-1))
+  println("---")
+  -- process(0): cleanup B, cleanup A, then "zero"
+  println(process(0))
+  println("---")
+  -- process(1): cleanup C, cleanup B, cleanup A, then "positive"
+  println(process(1))
+  println("---")
+  -- validate with multiple defer scopes
+  println(validate(-5))
+  println("---")
+  println(validate(1000))
+  println("---")
+  println(validate(0))
+  println("---")
+  println(validate(42))
+  println("done")
+}

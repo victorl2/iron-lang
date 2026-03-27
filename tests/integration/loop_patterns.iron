@@ -1,0 +1,78 @@
+-- loop_patterns.iron: Various loop patterns including while, for, and nested loops
+-- Tests THARD-05: complex loop control flow compiles and produces correct results
+
+func main() {
+  -- Pattern 1: while loop with counter
+  var i = 0
+  var sum = 0
+  while i < 10 {
+    sum = sum + i
+    i = i + 1
+  }
+  println("sum 0..9: {sum}")
+
+  -- Pattern 2: while loop with early exit via condition flag
+  var found = 0
+  var target = 42
+  var search = 0
+  var hit = false
+  while search < 100 {
+    if search * 2 == target {
+      found = search
+      hit = true
+    }
+    if hit {
+      search = 100
+    } else {
+      search = search + 1
+    }
+  }
+  println("found at: {found}")
+
+  -- Pattern 3: for loop over range
+  var product = 1
+  for n in range(5) {
+    product = product * (n + 1)
+  }
+  println("5! = {product}")
+
+  -- Pattern 4: nested for loops
+  var pairs = 0
+  for a in range(4) {
+    for b in range(4) {
+      if a + b == 3 {
+        pairs = pairs + 1
+      }
+    }
+  }
+  println("pairs summing to 3: {pairs}")
+
+  -- Pattern 5: while with accumulator and skip condition
+  var acc = 0
+  var k = 0
+  while k < 20 {
+    -- skip multiples of 3
+    if k == 0 {
+      k = k + 1
+    } elif k > 0 {
+      if (k / 3) * 3 == k {
+        k = k + 1
+      } else {
+        acc = acc + k
+        k = k + 1
+      }
+    }
+  }
+  println("sum non-multiples-of-3 (1-19): {acc}")
+
+  -- Pattern 6: count-down while loop
+  var countdown = 5
+  var countdown_sum = 0
+  while countdown > 0 {
+    countdown_sum = countdown_sum + countdown
+    countdown = countdown - 1
+  }
+  println("countdown sum: {countdown_sum}")
+
+  println("done")
+}

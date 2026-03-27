@@ -1,0 +1,80 @@
+-- match_expressions.iron: Match expressions dispatching on integer values
+-- Tests THARD-05: match expressions exercise SWITCH IR instruction
+-- Note: enum type lowering is not yet implemented; using integer matches instead
+
+func day_name(d: Int) -> String {
+  match d {
+    1 { return "Monday" }
+    2 { return "Tuesday" }
+    3 { return "Wednesday" }
+    4 { return "Thursday" }
+    5 { return "Friday" }
+    6 { return "Saturday" }
+    7 { return "Sunday" }
+    else { return "invalid" }
+  }
+  return "invalid"
+}
+
+func day_type(d: Int) -> String {
+  match d {
+    6 { return "weekend" }
+    7 { return "weekend" }
+    else { return "weekday" }
+  }
+  return "weekday"
+}
+
+func score_grade(score: Int) -> String {
+  match score {
+    5 { return "A" }
+    4 { return "B" }
+    3 { return "C" }
+    2 { return "D" }
+    1 { return "F" }
+    else { return "invalid" }
+  }
+  return "invalid"
+}
+
+func main() {
+  -- Test day names
+  println(day_name(1))
+  println(day_name(3))
+  println(day_name(5))
+  println(day_name(7))
+  println(day_name(8))
+
+  -- Test day type classification
+  println(day_type(1))
+  println(day_type(6))
+  println(day_type(7))
+
+  -- Test score grading
+  println(score_grade(5))
+  println(score_grade(3))
+  println(score_grade(1))
+
+  -- Match in a loop: sum scores
+  var total = 0
+  for i in range(5) {
+    total = total + (i + 1)
+  }
+  println("total score sum: {total}")
+
+  -- Nested match: classify day type within a loop
+  var weekdays = 0
+  var weekends = 0
+  for d in range(7) {
+    val dtype = day_type(d + 1)
+    match d + 1 {
+      6 { weekends = weekends + 1 }
+      7 { weekends = weekends + 1 }
+      else { weekdays = weekdays + 1 }
+    }
+  }
+  println("weekdays: {weekdays}")
+  println("weekends: {weekends}")
+
+  println("done")
+}

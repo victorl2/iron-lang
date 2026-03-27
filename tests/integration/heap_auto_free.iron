@@ -1,0 +1,53 @@
+-- heap_auto_free.iron: Heap allocation in loops with auto_free
+-- Tests THARD-06: heap objects allocated per-iteration, field access via ->
+
+object Data {
+  var value: Int
+  var label: String
+}
+
+object Point {
+  var x: Int
+  var y: Int
+}
+
+func make_point(px: Int, py: Int) -> Int {
+  val p = heap Point(px, py)
+  return p.x + p.y
+}
+
+func main() {
+  -- Allocate heap objects in a loop, access fields
+  for i in range(5) {
+    val d = heap Data(i, "item")
+    println("data: {d.value}")
+  }
+  println("loop done")
+
+  -- Conditional heap allocation
+  for i in range(6) {
+    if i > 2 {
+      val p = heap Point(i, i * 2)
+      println("point: {p.x},{p.y}")
+    }
+  }
+  println("cond done")
+
+  -- Heap allocation via function
+  val r1 = make_point(3, 4)
+  val r2 = make_point(10, 20)
+  println("sum1: {r1}")
+  println("sum2: {r2}")
+
+  -- Nested heap allocation
+  for a in range(3) {
+    for b in range(3) {
+      if a == b {
+        val d = heap Data(a + b, "diag")
+        println("diag: {d.value}")
+      }
+    }
+  }
+
+  println("done")
+}
