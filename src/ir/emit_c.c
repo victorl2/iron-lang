@@ -196,8 +196,25 @@ static const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
         case IRON_TYPE_FUNC:
             return "void*";
 
-        case IRON_TYPE_ARRAY:
-            return emit_type_to_c(t->array.elem, ctx);
+        case IRON_TYPE_ARRAY: {
+            /* Arrays are represented as Iron_List_<elem_c_type> in C.
+             * e.g. [Int] -> Iron_List_int64_t, [Float] -> Iron_List_double */
+            const char *elem_c = emit_type_to_c(t->array.elem, ctx);
+            Iron_StrBuf sb = iron_strbuf_create(64);
+            iron_strbuf_appendf(&sb, "Iron_List_");
+            for (const char *p = elem_c; *p; p++) {
+                if (*p == ' ' || *p == '*') {
+                    iron_strbuf_appendf(&sb, "_");
+                } else {
+                    char ch[2] = { *p, '\0' };
+                    iron_strbuf_appendf(&sb, "%s", ch);
+                }
+            }
+            const char *result = iron_arena_strdup(ctx->arena,
+                                                    iron_strbuf_get(&sb), sb.len);
+            iron_strbuf_free(&sb);
+            return result;
+        }
 
         case IRON_TYPE_GENERIC_PARAM:
             return "void*";
@@ -349,18 +366,29 @@ static void phi_eliminate(IronIR_Module *module) {
 
 /* ── Block label resolution ───────────────────────────────────────────────── */
 
-static const char *resolve_label_raw(IronIR_Func *fn, IronIR_BlockId id) {
-    for (int i = 0; i < fn->block_count; i++) {
-        if (fn->blocks[i]->id == id) return fn->blocks[i]->label;
-    }
-    return "unknown_block";
+/* Build a unique C label for a block: "<sanitized_label>_b<id>".
+ * This avoids duplicate-label errors when nested control flow reuses
+ * the same label string (e.g., multiple "if_merge" blocks in one function). */
+static const char *make_block_label(IronIR_BlockId id, const char *raw_label,
+                                     Iron_Arena *arena) {
+    /* Sanitize dots first */
+    const char *san = sanitize_label(raw_label, arena);
+    /* Allocate "label_b<id>\0" */
+    size_t san_len = strlen(san);
+    /* Max digits for a 32-bit int = 10 + "b" prefix + "_" + NUL = 14 extra */
+    char *buf = (char *)iron_arena_alloc(arena, san_len + 16, 1);
+    snprintf(buf, san_len + 16, "%s_b%d", san, (int)id);
+    return buf;
 }
 
-/* Resolve a block label and sanitize dots for valid C identifiers */
 static const char *resolve_label(IronIR_Func *fn, IronIR_BlockId id,
                                   Iron_Arena *arena) {
-    const char *label = resolve_label_raw(fn, id);
-    return sanitize_label(label, arena);
+    for (int i = 0; i < fn->block_count; i++) {
+        if (fn->blocks[i]->id == id) {
+            return make_block_label(id, fn->blocks[i]->label, arena);
+        }
+    }
+    return "unknown_block";
 }
 
 /* ── Instruction emission ─────────────────────────────────────────────────── */
@@ -640,41 +668,69 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     /* ── Field / Index ──────────────────────────────────────────────────── */
 
     case IRON_IR_GET_FIELD: {
-        /* object.field or object->field for pointers */
+        /* object.field or object->field for heap/rc pointers */
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_val(sb, instr->field.object);
-        iron_strbuf_appendf(sb, ".%s;\n", instr->field.field);
+        /* Use -> when the object value comes from a heap or rc allocation
+         * (those produce pointer types in the emitted C). */
+        bool obj_is_ptr = false;
+        if (instr->field.object < (IronIR_ValueId)arrlen(fn->value_table) &&
+            fn->value_table[instr->field.object]) {
+            IronIR_InstrKind k = fn->value_table[instr->field.object]->kind;
+            obj_is_ptr = (k == IRON_IR_HEAP_ALLOC || k == IRON_IR_RC_ALLOC);
+        }
+        iron_strbuf_appendf(sb, "%s%s;\n", obj_is_ptr ? "->" : ".", instr->field.field);
         break;
     }
 
-    case IRON_IR_SET_FIELD:
-        /* object.field = value */
+    case IRON_IR_SET_FIELD: {
+        /* object.field = value or object->field = value for heap/rc */
         emit_indent(sb, ind);
         emit_val(sb, instr->field.object);
-        iron_strbuf_appendf(sb, ".%s = ", instr->field.field);
+        bool obj_is_ptr = false;
+        if (instr->field.object < (IronIR_ValueId)arrlen(fn->value_table) &&
+            fn->value_table[instr->field.object]) {
+            IronIR_InstrKind k = fn->value_table[instr->field.object]->kind;
+            obj_is_ptr = (k == IRON_IR_HEAP_ALLOC || k == IRON_IR_RC_ALLOC);
+        }
+        iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr ? "->" : ".", instr->field.field);
         emit_val(sb, instr->field.value);
         iron_strbuf_appendf(sb, ";\n");
         break;
+    }
 
-    case IRON_IR_GET_INDEX:
-        /* result = iron_list_get(array, index) or array[index] for raw arrays */
+    case IRON_IR_GET_INDEX: {
+        /* result = Iron_List_<suffix>_get(&array, index) */
+        const char *list_type = "Iron_List_int64_t"; /* default fallback */
+        if (instr->index.array < (IronIR_ValueId)arrlen(fn->value_table) &&
+            fn->value_table[instr->index.array]) {
+            Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
+            if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
+        }
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = iron_list_get(");
+        iron_strbuf_appendf(sb, " = %s_get(&", list_type);
         emit_val(sb, instr->index.array);
         iron_strbuf_appendf(sb, ", ");
         emit_val(sb, instr->index.index);
         iron_strbuf_appendf(sb, ");\n");
         break;
+    }
 
-    case IRON_IR_SET_INDEX:
-        /* iron_list_set(array, index, value) */
+    case IRON_IR_SET_INDEX: {
+        /* Iron_List_<suffix>_set(&array, index, value) */
+        const char *list_type = "Iron_List_int64_t"; /* default fallback */
+        if (instr->index.array < (IronIR_ValueId)arrlen(fn->value_table) &&
+            fn->value_table[instr->index.array]) {
+            Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
+            if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
+        }
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "iron_list_set(");
+        iron_strbuf_appendf(sb, "%s_set(&", list_type);
         emit_val(sb, instr->index.array);
         iron_strbuf_appendf(sb, ", ");
         emit_val(sb, instr->index.index);
@@ -682,6 +738,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         emit_val(sb, instr->index.value);
         iron_strbuf_appendf(sb, ");\n");
         break;
+    }
 
     /* ── Call ───────────────────────────────────────────────────────────── */
 
@@ -839,15 +896,15 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     /* ── Memory management ──────────────────────────────────────────────── */
 
     case IRON_IR_HEAP_ALLOC: {
-        /* The inner_val is an already-constructed value; wrap it in a pointer */
-        /* result = malloc(sizeof(*inner_val_type)); *result = inner_val; */
-        const char *ptr_type = emit_type_to_c(instr->type, ctx);
+        /* The inner_val is an already-constructed value; wrap it in a pointer.
+         * instr->type is the inner (value) type, e.g. Iron_Data.
+         * The heap result is a pointer: Iron_Data *_vN = malloc(sizeof(Iron_Data));
+         * *_vN = inner_val; */
+        const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", ptr_type);
+        iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = malloc(sizeof(*");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, "));\n");
+        iron_strbuf_appendf(sb, " = (%s *)malloc(sizeof(%s));\n", val_type, val_type);
         /* Store the inner value into the allocated memory */
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "*");
@@ -859,13 +916,19 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     }
 
     case IRON_IR_RC_ALLOC: {
-        const char *ptr_type = emit_type_to_c(instr->type, ctx);
+        /* rc allocates via malloc (simplified: no actual ref-count tracking yet).
+         * instr->type is IRON_TYPE_RC wrapping an inner type; result is a pointer
+         * to the inner type (e.g. rc Config -> Iron_Config *). */
+        const char *val_type = NULL;
+        if (instr->type && instr->type->kind == IRON_TYPE_RC && instr->type->rc.inner) {
+            val_type = emit_type_to_c(instr->type->rc.inner, ctx);
+        } else {
+            val_type = emit_type_to_c(instr->type, ctx);
+        }
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", ptr_type);
+        iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = iron_rc_alloc(sizeof(*");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, "));\n");
+        iron_strbuf_appendf(sb, " = (%s *)malloc(sizeof(%s));\n", val_type, val_type);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "*");
         emit_val(sb, instr->id);
@@ -934,18 +997,19 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     /* ── Array literal ──────────────────────────────────────────────────── */
 
     case IRON_IR_ARRAY_LIT: {
-        /* Create a list, push each element */
-        const char *elem_c = emit_type_to_c(instr->array_lit.elem_type, ctx);
+        /* Create a type-specific Iron_List_<suffix> and push each element.
+         * e.g. [Int] -> Iron_List_int64_t_create(), Iron_List_int64_t_push() */
+        Iron_Type *arr_type = iron_type_make_array(ctx->arena, instr->array_lit.elem_type, -1);
+        const char *list_type = emit_type_to_c(arr_type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_List ");
+        iron_strbuf_appendf(sb, "%s ", list_type);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = iron_list_create(sizeof(%s), %d);\n",
-                            elem_c, instr->array_lit.element_count);
+        iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
         for (int i = 0; i < instr->array_lit.element_count; i++) {
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "iron_list_push(&");
+            iron_strbuf_appendf(sb, "%s_push(&", list_type);
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, ", &");
+            iron_strbuf_appendf(sb, ", ");
             emit_val(sb, instr->array_lit.elements[i]);
             iron_strbuf_appendf(sb, ");\n");
         }
@@ -1422,16 +1486,21 @@ static void emit_func_signature(Iron_StrBuf *sb, IronIR_Func *fn,
     iron_strbuf_appendf(sb, "%s %s(", ret_c, c_name);
     for (int i = 0; i < fn->param_count; i++) {
         if (i > 0) iron_strbuf_appendf(sb, ", ");
-        /* Params are assigned sequential value IDs starting at 1.
-         * Param 0 → _v1, param 1 → _v2, etc.
-         * Emit params as _v{id} to match IR value references. */
+        /* Each param consumes two ValueIds: one synthetic (the incoming argument
+         * value) and one alloca slot.  They are allocated in lower.c as:
+         *   param_val_id = next_value_id++    (synthetic, odd: 1, 3, 5, …)
+         *   alloca slot  = alloc_instr(…)     (even: 2, 4, 6, …)
+         * so param i's synthetic id = i*2 + 1.
+         * The C signature must use the synthetic id so the STORE in the entry
+         * block (store alloca_slot = param_val_id) resolves correctly. */
         Iron_Type *pt = fn->params[i].type;
+        int param_val_id = i * 2 + 1;
         if (pt) {
             iron_strbuf_appendf(sb, "%s _v%d",
-                                emit_type_to_c(pt, ctx), i + 1);
+                                emit_type_to_c(pt, ctx), param_val_id);
         } else {
             /* Unknown type — use void* */
-            iron_strbuf_appendf(sb, "void* _v%d", i + 1);
+            iron_strbuf_appendf(sb, "void* _v%d", param_val_id);
         }
     }
     if (fn->param_count == 0) {
@@ -1457,11 +1526,19 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronIR_Block *block = fn->blocks[bi];
 
-        /* Emit block label — sanitize dots to underscores for valid C */
-        iron_strbuf_appendf(sb, "%s:;\n", sanitize_label(block->label, ctx->arena));
+        /* Emit block label — unique per block to avoid duplicate-label errors */
+        iron_strbuf_appendf(sb, "%s:;\n",
+                            make_block_label(block->id, block->label, ctx->arena));
 
-        for (int ii = 0; ii < block->instr_count; ii++) {
-            emit_instr(sb, block->instrs[ii], fn, ctx);
+        if (block->instr_count == 0) {
+            /* Dead / unreachable block with no instructions.
+             * Emit __builtin_unreachable() so C compilers don't warn about
+             * missing returns and optimizers can prune the dead path. */
+            iron_strbuf_appendf(sb, "    __builtin_unreachable();\n");
+        } else {
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                emit_instr(sb, block->instrs[ii], fn, ctx);
+            }
         }
     }
 
