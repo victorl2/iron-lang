@@ -13,6 +13,7 @@ hello
 extern_basic
 test_*
 !tests/
+!tests/**
 
 # OS files
 .DS_Store
