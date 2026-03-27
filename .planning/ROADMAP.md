@@ -163,11 +163,11 @@ Plans:
   2. Every IR instruction carries an Iron_Span and uses integer IrValueId operand references (not pointers); the IR type system reuses Iron_Type* directly with no IR-specific type wrappers
   3. `ir_print()` on a hand-built IrModule produces a human-readable text dump showing functions, blocks, instructions with value IDs, types, and source locations
   4. `ir_verify()` on a well-formed module passes; a module with a use-before-def, a missing block terminator, or an invalid branch target each produce a specific verification error
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 07-01: IR data structures (IrModule, IrFunc, IrBlock, IrInstr tagged union, IrValueId) and arena constructors
-- [ ] 07-02: IR printer and IR verifier with unit tests
+- [ ] 07-01-PLAN.md — IR data structures, IronIR_InstrKind enum, constructors, stub files, CMake wiring
+- [ ] 07-02-PLAN.md — IR printer (LLVM-style), verifier (6 invariants), unit tests
 
 ### Phase 8: AST-to-IR Lowering
 **Goal**: Every Iron language feature lowers from the annotated AST to typed SSA-form IR, producing a complete IrModule that passes verification for any valid Iron program
