@@ -170,18 +170,31 @@ static const char **collect_captures(Iron_Node *body, Iron_Node **params,
  * Only handles primitive types; for named/generic types the type checker
  * sets resolved_return_type which is the authoritative source. */
 
-static Iron_Type *lower_types_resolve_ann(Iron_Node *ann_node) {
+static Iron_Type *lower_types_resolve_ann_with_arena(Iron_Node *ann_node,
+                                                       Iron_Arena *arena) {
     if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
     if (ann_node->kind != IRON_NODE_TYPE_ANNOTATION) return NULL;
     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann_node;
 
-    if (strcmp(ta->name, "Int") == 0)    return iron_type_make_primitive(IRON_TYPE_INT);
-    if (strcmp(ta->name, "Float") == 0)  return iron_type_make_primitive(IRON_TYPE_FLOAT);
-    if (strcmp(ta->name, "Bool") == 0)   return iron_type_make_primitive(IRON_TYPE_BOOL);
-    if (strcmp(ta->name, "String") == 0) return iron_type_make_primitive(IRON_TYPE_STRING);
-    if (strcmp(ta->name, "Void") == 0)   return iron_type_make_primitive(IRON_TYPE_VOID);
+    /* Resolve the base element/inner type first */
+    Iron_Type *base = NULL;
+    if (strcmp(ta->name, "Int") == 0)         base = iron_type_make_primitive(IRON_TYPE_INT);
+    else if (strcmp(ta->name, "Float") == 0)  base = iron_type_make_primitive(IRON_TYPE_FLOAT);
+    else if (strcmp(ta->name, "Bool") == 0)   base = iron_type_make_primitive(IRON_TYPE_BOOL);
+    else if (strcmp(ta->name, "String") == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
+    else if (strcmp(ta->name, "Void") == 0)   base = iron_type_make_primitive(IRON_TYPE_VOID);
 
-    return NULL;
+    /* If the annotation is an array type (e.g., [Int]), wrap in IRON_TYPE_ARRAY */
+    if (ta->is_array && base) {
+        return iron_type_make_array(arena, base, -1);
+    }
+
+    return base;
+}
+
+/* Backward-compatible wrapper that does not need an arena (cannot create array types) */
+static Iron_Type *lower_types_resolve_ann(Iron_Node *ann_node) {
+    return lower_types_resolve_ann_with_arena(ann_node, NULL);
 }
 
 /* ── Param array builder (shared by func and method registration) ────────── */
@@ -197,7 +210,7 @@ static IronIR_Param *build_param_array(IronIR_LowerCtx *ctx,
 
     for (int p = 0; p < param_count; p++) {
         Iron_Param *ap = (Iron_Param *)params[p];
-        Iron_Type  *pt = lower_types_resolve_ann(ap->type_ann);
+        Iron_Type  *pt = lower_types_resolve_ann_with_arena(ap->type_ann, ctx->ir_arena);
         arr[p].name = ap->name;
         arr[p].type = pt;
     }
@@ -228,8 +241,11 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
         if (decl->kind != IRON_NODE_OBJECT_DECL) continue;
 
         Iron_ObjectDecl *obj = (Iron_ObjectDecl *)decl;
+        /* Create the Iron_Type* with the object.decl pointer set so that
+         * emit_c.c can find the field list when emitting the C struct. */
+        Iron_Type *obj_type = iron_type_make_object(ctx->ir_arena, obj);
         iron_ir_module_add_type_decl(ctx->module, IRON_IR_TYPE_OBJECT,
-                                     obj->name, NULL);
+                                     obj->name, obj_type);
 
         /* For generic objects: register known instantiations in mono_registry.
          * The registry tracks mangled names so Phase 9 knows which concrete
@@ -388,7 +404,7 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
     /* Remaining params: lambda's declared parameters */
     for (int p = 0; p < lam->param_count; p++) {
         Iron_Param *ap = (Iron_Param *)lam->params[p];
-        Iron_Type  *pt = lower_types_resolve_ann(ap->type_ann);
+        Iron_Type  *pt = lower_types_resolve_ann_with_arena(ap->type_ann, ctx->ir_arena);
         params[param_idx].name = ap->name;
         params[param_idx].type = pt;
         param_idx++;

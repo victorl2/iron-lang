@@ -330,9 +330,46 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_CALL: {
         Iron_CallExpr *call = (Iron_CallExpr *)node;
 
+        /* Special case: len(array) -> array.count field access.
+         * The builtin len() is registered for String, but also accepts [T].
+         * When called with an array argument, emit GET_FIELD .count instead. */
+        if (call->callee && call->callee->kind == IRON_NODE_IDENT &&
+            call->arg_count == 1) {
+            Iron_Ident *fn_id = (Iron_Ident *)call->callee;
+            if (strcmp(fn_id->name, "len") == 0) {
+                typedef struct { Iron_Span span; Iron_NodeKind kind; Iron_Type *resolved_type; } ExprNode;
+                Iron_Type *arg_t = ((ExprNode *)call->args[0])->resolved_type;
+                if (arg_t && arg_t->kind == IRON_TYPE_ARRAY) {
+                    IronIR_ValueId arr_val = lower_expr(ctx, call->args[0]);
+                    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+                    return iron_ir_get_field(fn, ctx->current_block,
+                                            arr_val, "count", int_type, span)->id;
+                }
+            }
+        }
+
         /* Direct call: callee is a simple identifier */
         if (call->callee && call->callee->kind == IRON_NODE_IDENT) {
             Iron_Ident *callee_id = (Iron_Ident *)call->callee;
+
+            /* Object construction: callee resolves to an object type (not a func).
+             * The type checker treats Foo(a, b) as construction when Foo is a type name.
+             * Emit CONSTRUCT instead of CALL to produce correct C struct literal. */
+            if (callee_id->resolved_type &&
+                callee_id->resolved_type->kind == IRON_TYPE_OBJECT) {
+                IronIR_ValueId *field_vals = NULL;
+                for (int i = 0; i < call->arg_count; i++) {
+                    IronIR_ValueId v = lower_expr(ctx, call->args[i]);
+                    arrput(field_vals, v);
+                }
+                IronIR_ValueId result = iron_ir_construct(fn, ctx->current_block,
+                                                           callee_id->resolved_type,
+                                                           field_vals, call->arg_count,
+                                                           span)->id;
+                arrfree(field_vals);
+                return result;
+            }
+
             /* Emit func_ref for the callee name, then call via func_ptr */
             IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
                                                         callee_id->name,
@@ -414,8 +451,33 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             }
         }
 
-        /* Instance method call: receiver is an object instance */
+        /* Instance method call: receiver is an object instance.
+         * Build the method name as "<TypeName>_<method>" so that
+         * mangle_func_name() in emit_c.c produces "Iron_TypeName_method".
+         * This matches how Iron methods are defined: func Dog.hello() -> ... */
         IronIR_ValueId obj_val = lower_expr(ctx, mc->object);
+
+        /* Determine the receiver type name from the object's resolved_type */
+        const char *method_name = mc->method;
+        if (mc->object) {
+            Iron_Type *obj_type = expr_type(mc->object);
+            /* Unwrap rc if needed */
+            if (obj_type && obj_type->kind == IRON_TYPE_RC && obj_type->rc.inner) {
+                obj_type = obj_type->rc.inner;
+            }
+            if (obj_type && obj_type->kind == IRON_TYPE_OBJECT &&
+                obj_type->object.decl) {
+                const char *tname = obj_type->object.decl->name;
+                size_t tlen  = strlen(tname);
+                size_t mlen  = strlen(mc->method);
+                char *full   = (char *)iron_arena_alloc(ctx->ir_arena,
+                                                         tlen + 1 + mlen + 1, 1);
+                memcpy(full, tname, tlen);
+                full[tlen] = '_';
+                memcpy(full + tlen + 1, mc->method, mlen + 1);
+                method_name = full;
+            }
+        }
 
         /* Build args: receiver first, then explicit args */
         IronIR_ValueId *args = NULL;
@@ -428,7 +490,7 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
         /* Emit method name as func_ref */
         IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
-                                                    mc->method, NULL, span)->id;
+                                                    method_name, NULL, span)->id;
         IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
                                               NULL, func_ptr,
                                               args, total_args,
