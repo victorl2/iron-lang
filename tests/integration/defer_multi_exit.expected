@@ -1,0 +1,30 @@
+D1
+exit 1
+---
+D2
+D1
+exit 2
+---
+D3
+D2
+D1
+exit 3
+---
+outer defer
+result: 0
+---
+inner defer A
+outer defer
+result: 10
+---
+inner defer B
+inner defer A
+outer defer
+result: 110
+---
+body runs first
+step 1
+step 2
+step 3
+---
+done

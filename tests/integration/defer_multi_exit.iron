@@ -1,0 +1,61 @@
+-- defer_multi_exit.iron: Functions with multiple defers and multiple exit points
+-- Tests THARD-06: defers execute in correct reverse order for each path
+
+func three_defers(n: Int) -> String {
+  defer println("D1")
+  if n == 1 {
+    return "exit 1"
+  }
+  defer println("D2")
+  if n == 2 {
+    return "exit 2"
+  }
+  defer println("D3")
+  return "exit 3"
+}
+
+func nested_defer_scopes(n: Int) -> Int {
+  var result = 0
+  defer println("outer defer")
+  if n > 0 {
+    defer println("inner defer A")
+    result = result + 10
+    if n > 5 {
+      defer println("inner defer B")
+      result = result + 100
+    }
+  }
+  return result
+}
+
+func defer_with_side_effects() {
+  var count = 0
+  defer println("step 3")
+  defer println("step 2")
+  defer println("step 1")
+  println("body runs first")
+}
+
+func main() {
+  -- Three defers, three exits — verify reverse order for each
+  println(three_defers(1))
+  println("---")
+  println(three_defers(2))
+  println("---")
+  println(three_defers(3))
+  println("---")
+
+  -- Nested scope defers
+  println("result: {nested_defer_scopes(0)}")
+  println("---")
+  println("result: {nested_defer_scopes(3)}")
+  println("---")
+  println("result: {nested_defer_scopes(10)}")
+  println("---")
+
+  -- Multiple defers as stack (LIFO order)
+  defer_with_side_effects()
+  println("---")
+
+  println("done")
+}
