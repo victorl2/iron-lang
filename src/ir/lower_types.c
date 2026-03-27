@@ -307,12 +307,20 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
 
     /* Pass 1f: Register method declarations (on object types).
      * Method declarations appear as IRON_NODE_METHOD_DECL at the top level.
-     * Each becomes an IrFunc with a mangled name (TypeName_methodName). */
+     * Each becomes an IrFunc with a mangled name (TypeName_methodName).
+     * Skip methods with empty bodies — these are stdlib stubs (e.g. Timer.since)
+     * that delegate to C functions via auto-static dispatch in lower_exprs.c.
+     * Registering them would emit C function definitions with broken void param
+     * types for non-primitive parameters (Timer, IO, etc.). */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind != IRON_NODE_METHOD_DECL) continue;
 
         Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+
+        /* Skip empty-body stubs — they are stdlib delegates, not real implementations */
+        Iron_Block *method_body = md->body ? (Iron_Block *)md->body : NULL;
+        if (!method_body || method_body->stmt_count == 0) continue;
 
         /* Mangle method name: "TypeName_methodName" */
         size_t name_len = strlen(md->type_name) + 1 + strlen(md->method_name) + 1;
