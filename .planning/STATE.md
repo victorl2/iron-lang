@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-03-27T20:09:51.921Z"
-last_activity: "2026-03-27 — Completed 07-01: IR data structure scaffold"
+stopped_at: Completed 10-05-PLAN.md
+last_updated: "2026-03-27T21:37:42.804Z"
+last_activity: "2026-03-27 — Completed 10-03: 13 algorithm tests with 5 IR pipeline bug fixes"
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 14
-  completed_plans: 11
-  percent: 10
+  completed_plans: 14
+  percent: 86
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** Phase 7 — IR Foundation
+**Current focus:** Phase 10 — Test Hardening
 
 ## Current Position
 
-Phase: 7 of 11 (IR Foundation)
-Plan: 1 of 2 in current phase
+Phase: 10 of 11 (Test Hardening)
+Plan: 3 of 5 in current phase
 Status: In progress
-Last activity: 2026-03-27 — Completed 07-01: IR data structure scaffold
+Last activity: 2026-03-27 — Completed 10-03: 13 algorithm tests with 5 IR pipeline bug fixes
 
-Progress: [#.........] 10%
+Progress: [########..] 86%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [#.........] 10%
 | Phase 09-c-emission-and-cutover P02 | 35 | 2 tasks | 4 files |
 | Phase 09-c-emission-and-cutover P04 | 41 | 2 tasks | 4 files |
 | Phase 09-c-emission-and-cutover P03 | 35 min | 2 tasks | 4 files |
+| Phase 10-test-hardening P05 | 3 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,15 @@ Recent decisions affecting current work:
 - [Phase 09-c-emission-and-cutover]: Iron_String args to extern calls coerced via iron_string_cstr() at emit time — Iron_String is a 24-byte SSO struct incompatible with const char*
 - [Phase 09-c-emission-and-cutover]: PARALLEL_FOR emits wrapper+struct pattern bridging IR chunk signature void(int64_t) to Iron_pool_submit's void(*)(void*)
 - [Phase 09-c-emission-and-cutover]: Function params emitted as _v{id} names in C signatures — param 0 gets _v1, param 1 gets _v2, etc., matching IR value ID references
+- [Phase 10-test-hardening]: Arena converted to linked-list of non-moving 256KB chunks — single growing buffer caused use-after-free when programs exceeded 64KB
+- [Phase 10-test-hardening]: while-loop branch must use ctx->current_block after condition eval — and/or short-circuit changes current_block to merge block
+- [Phase 10-test-hardening]: SET_FIELD on var ident requires STORE back to alloca — struct field mutation via copy is not automatically propagated
+- [Phase 10-test-hardening]: Object type params resolved via Iron_Program decl lookup in lower_types_resolve_ann_with_program — not resolvable from type name alone
+- [Phase 10-test-hardening]: Return-value style required for all array algorithms — Iron arrays share pointer on struct copy; in-place param mutation doesn't persist
+- [Phase 10-test-hardening]: Global val constants in array literals unresolved — use literal values instead of named constants in [expr] array initializers
+- [Phase 10-test-hardening]: Return-value mutation for objects in game loop — func update(var state: T) -> T pattern required
+- [Phase 10-test-hardening]: Parallel-for array write limitation: spawn + sequential aggregation used for number pipeline instead
+- [Phase 10-test-hardening]: CSV parser uses pre-parsed integer arrays — no runtime string character access needed
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -114,6 +124,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T20:09:51.917Z
-Stopped at: Completed 10-02-PLAN.md
+Last session: 2026-03-27T21:37:42.801Z
+Stopped at: Completed 10-05-PLAN.md
 Resume file: None
