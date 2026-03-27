@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-03-27T16:56:55.824Z"
+stopped_at: Completed 09-04-PLAN.md
+last_updated: "2026-03-27T17:43:04.851Z"
 last_activity: "2026-03-27 — Completed 07-01: IR data structure scaffold"
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 8
   percent: 10
 ---
 
@@ -50,6 +50,7 @@ Progress: [#.........] 10%
 | Phase 08-ast-to-ir-lowering P03 | 45 | 3 tasks | 14 files |
 | Phase 09-c-emission-and-cutover P01 | 45 | 2 tasks | 3 files |
 | Phase 09-c-emission-and-cutover P02 | 35 | 2 tasks | 4 files |
+| Phase 09-c-emission-and-cutover P04 | 41 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 09-c-emission-and-cutover]: mangle_func_name() in emit_c.c applies Iron_ prefix to all user and builtin function names at emission time — IR stores names unmangled
 - [Phase 09-c-emission-and-cutover]: FUNC_REF + CALL optimization: detect FUNC_REF in value_table to emit direct calls avoiding ISO-C-invalid variadic pointer cast
 - [Phase 09-c-emission-and-cutover]: collect_captures() inlined as static function in lower_types.c — single consumer outside codegen, no need for shared header
+- [Phase 09-c-emission-and-cutover]: Auto-static dispatch emits lowercase_type_method as func_ref name; mangle_func_name() adds Iron_ prefix at emission, matching Iron_math_sin convention
+- [Phase 09-c-emission-and-cutover]: global_constants_map stores name->AST_init_node pairs; lazily lowered in calling function context, cached in val_binding_map
+- [Phase 09-c-emission-and-cutover]: Empty-body stdlib method stubs skipped in lower_module_decls Pass 1f to prevent void param emission for non-primitive types
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -105,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T16:56:55.822Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-03-27T17:43:04.849Z
+Stopped at: Completed 09-04-PLAN.md
 Resume file: None
