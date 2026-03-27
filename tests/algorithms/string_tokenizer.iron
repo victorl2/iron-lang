@@ -1,0 +1,124 @@
+-- string_tokenizer.iron - Tokenize a sequence of "words" encoded as integer arrays.
+-- Words are separated by a sentinel value (0). Each word is a sequence of non-zero ints.
+-- Demonstrates: arrays, nested loops, counting, index scanning.
+
+-- Count how many tokens (non-empty runs of non-zero values) are in the sequence
+func count_tokens(data: [Int], n: Int) -> Int {
+  var count = 0
+  var in_token = 0
+  var i = 0
+  while i < n {
+    if data[i] != 0 and in_token == 0 {
+      in_token = 1
+      count = count + 1
+    } elif data[i] == 0 {
+      in_token = 0
+    }
+    i = i + 1
+  }
+  return count
+}
+
+-- Get length of token starting at index `start` (until 0 or end)
+func token_len(data: [Int], start: Int, n: Int) -> Int {
+  var i = start
+  while i < n and data[i] != 0 {
+    i = i + 1
+  }
+  return i - start
+}
+
+-- Find start of token k (0-indexed)
+func token_start(data: [Int], n: Int, k: Int) -> Int {
+  var token_idx = 0
+  var in_token = 0
+  var i = 0
+  while i < n {
+    if data[i] != 0 and in_token == 0 {
+      if token_idx == k {
+        return i
+      }
+      in_token = 1
+      token_idx = token_idx + 1
+    } elif data[i] == 0 {
+      in_token = 0
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+-- Sum of values in token k
+func token_sum(data: [Int], n: Int, k: Int) -> Int {
+  val start = token_start(data, n, k)
+  if start == -1 {
+    return 0
+  }
+  var total = 0
+  var i = start
+  while i < n and data[i] != 0 {
+    total = total + data[i]
+    i = i + 1
+  }
+  return total
+}
+
+-- Max value in token k
+func token_max(data: [Int], n: Int, k: Int) -> Int {
+  val start = token_start(data, n, k)
+  if start == -1 {
+    return 0
+  }
+  var max_val = data[start]
+  var i = start + 1
+  while i < n and data[i] != 0 {
+    if data[i] > max_val {
+      max_val = data[i]
+    }
+    i = i + 1
+  }
+  return max_val
+}
+
+func main() {
+  -- Sequence: [1,2,3, 0, 4,5, 0, 6, 0, 7,8,9,10]
+  -- Tokens: [1,2,3], [4,5], [6], [7,8,9,10]
+  val data = [1, 2, 3, 0, 4, 5, 0, 6, 0, 7, 8, 9, 10, 0, 0, 0]
+  val n = 14
+
+  println("count: {count_tokens(data, n)}")
+
+  -- Lengths of each token
+  println("lengths:")
+  val t0 = token_start(data, n, 0)
+  val t1 = token_start(data, n, 1)
+  val t2 = token_start(data, n, 2)
+  val t3 = token_start(data, n, 3)
+  println("{token_len(data, t0, n)}")
+  println("{token_len(data, t1, n)}")
+  println("{token_len(data, t2, n)}")
+  println("{token_len(data, t3, n)}")
+
+  -- Sums of each token
+  println("sums:")
+  println("{token_sum(data, n, 0)}")
+  println("{token_sum(data, n, 1)}")
+  println("{token_sum(data, n, 2)}")
+  println("{token_sum(data, n, 3)}")
+
+  -- Max of each token
+  println("maxes:")
+  println("{token_max(data, n, 0)}")
+  println("{token_max(data, n, 1)}")
+  println("{token_max(data, n, 2)}")
+  println("{token_max(data, n, 3)}")
+
+  -- Edge case: empty sequence
+  val empty = [0, 0, 0, 0]
+  println("empty count: {count_tokens(empty, 4)}")
+
+  -- Single token
+  val single = [42, 0, 0, 0]
+  println("single count: {count_tokens(single, 4)}")
+  println("single sum: {token_sum(single, 4, 0)}")
+}

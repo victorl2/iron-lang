@@ -73,6 +73,17 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 Iron_FieldAccess *fa = (Iron_FieldAccess *)a->target;
                 IronIR_ValueId obj = lower_expr(ctx, fa->object);
                 iron_ir_set_field(fn, ctx->current_block, obj, fa->field, rhs, span);
+                /* For value-type structs stored in a var alloca, the SET_FIELD
+                 * modifies a loaded copy.  We must store the modified copy back
+                 * to the alloca so subsequent loads see the updated value. */
+                if (fa->object->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *obj_id = (Iron_Ident *)fa->object;
+                    ptrdiff_t slot_idx = shgeti(ctx->var_alloca_map, obj_id->name);
+                    if (slot_idx >= 0) {
+                        IronIR_ValueId slot = ctx->var_alloca_map[slot_idx].value;
+                        iron_ir_store(fn, ctx->current_block, slot, obj, span);
+                    }
+                }
             } else if (a->target->kind == IRON_NODE_INDEX) {
                 Iron_IndexExpr *idx = (Iron_IndexExpr *)a->target;
                 IronIR_ValueId arr   = lower_expr(ctx, idx->object);
