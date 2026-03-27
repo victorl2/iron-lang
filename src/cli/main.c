@@ -8,6 +8,12 @@
 #include "cli/fmt.h"
 #include "cli/test_runner.h"
 
+#define IRON_VERSION "0.0.1-alpha"
+
+static void print_version(void) {
+    printf("iron %s\n", IRON_VERSION);
+}
+
 static void print_usage(void) {
     fprintf(stderr, "Usage: iron <command> [options] <file>\n\n");
     fprintf(stderr, "Commands:\n");
@@ -17,6 +23,7 @@ static void print_usage(void) {
     fprintf(stderr, "  fmt     Format Iron source code\n");
     fprintf(stderr, "  test    Discover and run Iron tests\n");
     fprintf(stderr, "\nOptions:\n");
+    fprintf(stderr, "  --version         Print version and exit\n");
     fprintf(stderr, "  --verbose         Show generated C code\n");
     fprintf(stderr, "  --debug-build     Keep .iron-build/ directory\n");
     fprintf(stderr, "  --force-comptime  Skip comptime evaluation cache\n");
@@ -29,6 +36,11 @@ int main(int argc, char **argv) {
     }
 
     const char *cmd = argv[1];
+
+    if (strcmp(cmd, "--version") == 0 || strcmp(cmd, "-v") == 0) {
+        print_version();
+        return 0;
+    }
 
     /* Parse global flags */
     bool verbose = false;
