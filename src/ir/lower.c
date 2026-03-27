@@ -81,70 +81,8 @@ void lower_block(IronIR_LowerCtx *ctx, Iron_Block *block) {
 /* lower_stmt() is fully implemented in lower_stmts.c (Plan 08-02).
  * The declaration is in lower_internal.h. */
 
-/* ── Pass 1: Module declarations ─────────────────────────────────────────── */
-
-/* Resolve a type annotation node to an Iron_Type*.
- * Handles IRON_NODE_TYPE_ANNOTATION with a name lookup in the types system.
- * Falls back to returning NULL for unknown types. */
-static Iron_Type *resolve_type_from_ann(Iron_Node *ann_node) {
-    if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
-    if (ann_node->kind != IRON_NODE_TYPE_ANNOTATION) return NULL;
-    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann_node;
-
-    /* Primitive type names */
-    if (strcmp(ta->name, "Int") == 0)    return iron_type_make_primitive(IRON_TYPE_INT);
-    if (strcmp(ta->name, "Float") == 0)  return iron_type_make_primitive(IRON_TYPE_FLOAT);
-    if (strcmp(ta->name, "Bool") == 0)   return iron_type_make_primitive(IRON_TYPE_BOOL);
-    if (strcmp(ta->name, "String") == 0) return iron_type_make_primitive(IRON_TYPE_STRING);
-    if (strcmp(ta->name, "Void") == 0)   return iron_type_make_primitive(IRON_TYPE_VOID);
-
-    /* For non-primitive types, return NULL — the resolver/typechecker provides
-     * resolved_return_type on FuncDecl which is the authoritative source. */
-    return NULL;
-}
-
-void lower_module_decls(IronIR_LowerCtx *ctx) {
-    /* Pass 1: register declarations — implemented fully in Plan 08-03 (lower_types.c) */
-    /* For now, register function signatures so Pass 2 can reference them */
-    /* NOTE: This stub only registers top-level IRON_NODE_FUNC_DECL. Object method
-     * declarations are intentionally deferred to Plan 08-03 (lower_types.c).
-     * Plan 08-02 unit tests MUST only use top-level function calls (not method
-     * calls) to avoid hitting NULL func_decl in IR_CALL during Wave 1/2 testing. */
-    for (int i = 0; i < ctx->program->decl_count; i++) {
-        Iron_Node *decl = ctx->program->decls[i];
-        if (decl->kind == IRON_NODE_FUNC_DECL) {
-            Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
-            /* Build param array — use type_ann since Iron_Param has no declared_type.
-             * Allocate into the ir_arena so the IronIR_Func can safely hold the pointer
-             * after this function returns. (stb_ds dynamic array would be freed below.) */
-            IronIR_Param *params = NULL;
-            if (fd->param_count > 0) {
-                params = (IronIR_Param *)iron_arena_alloc(ctx->ir_arena,
-                             (size_t)fd->param_count * sizeof(IronIR_Param),
-                             _Alignof(IronIR_Param));
-            }
-            for (int p = 0; p < fd->param_count; p++) {
-                Iron_Param *ap = (Iron_Param *)fd->params[p];
-                Iron_Type *pt = resolve_type_from_ann(ap->type_ann);
-                params[p].name = ap->name;
-                params[p].type = pt;
-            }
-            /* Normalize void return type: the IR and verifier use fn->return_type == NULL
-             * to indicate a void function. Pass NULL for VOID-typed return. */
-            Iron_Type *ret_type = fd->resolved_return_type;
-            if (ret_type && ret_type->kind == IRON_TYPE_VOID) ret_type = NULL;
-            iron_ir_func_create(ctx->module, fd->name,
-                                 params, fd->param_count, ret_type);
-        }
-    }
-}
-
-/* ── Post-pass: Lift pending lambdas/spawn/parallel-for ─────────────────── */
-
-void lower_lift_pending(IronIR_LowerCtx *ctx) {
-    /* Post-pass: lift lambdas/spawn/pfor — implemented in Plan 08-03 */
-    (void)ctx;
-}
+/* ── Pass 1 and Post-pass: Implemented in lower_types.c ─────────────────── */
+/* lower_module_decls() and lower_lift_pending() are defined in lower_types.c */
 
 /* ── Pass 2: Function body lowering ──────────────────────────────────────── */
 
