@@ -1,5 +1,19 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron C)
+project(iron VERSION 0.1.1 LANGUAGES C)
+
+# ── Version info baked at compile time ─────────────────────────────────────
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE IRON_GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT IRON_GIT_HASH)
+    set(IRON_GIT_HASH "unknown")
+endif()
+
+string(TIMESTAMP IRON_BUILD_DATE "%Y-%m-%d" UTC)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -112,6 +126,9 @@ endif()
 # Inject the absolute path to src/ so the CLI can find runtime sources at build time
 target_compile_definitions(iron PRIVATE
     IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
+    IRON_VERSION_STRING="${PROJECT_VERSION}"
+    IRON_GIT_HASH="${IRON_GIT_HASH}"
+    IRON_BUILD_DATE="${IRON_BUILD_DATE}"
 )
 
 # ── CLI smoke test ──────────────────────────────────────────────────────────
