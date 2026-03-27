@@ -193,6 +193,10 @@ target_link_libraries(test_ir_lower iron_compiler unity)
 add_test(NAME test_ir_lower COMMAND test_ir_lower
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+add_executable(test_ir_emit tests/ir/test_ir_emit.c)
+target_link_libraries(test_ir_emit iron_compiler unity)
+add_test(NAME test_ir_emit COMMAND test_ir_emit)
+
 # ── iron CLI executable ─────────────────────────────────────────────────────
 add_executable(iron
     src/cli/main.c
