@@ -62,6 +62,11 @@ add_library(iron_compiler STATIC
     src/codegen/gen_types.c
     src/codegen/gen_stmts.c
     src/codegen/gen_exprs.c
+    src/ir/ir.c
+    src/ir/lower.c
+    src/ir/emit_c.c
+    src/ir/print.c
+    src/ir/verify.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 target_link_libraries(iron_compiler iron_runtime)
