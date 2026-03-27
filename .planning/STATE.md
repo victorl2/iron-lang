@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: Completed 07-ir-foundation/07-02-PLAN.md
-last_updated: "2026-03-27T11:31:51.487Z"
+stopped_at: "Completed 08-01: Lowering infrastructure and expression pass"
+last_updated: "2026-03-27T14:51:05.940Z"
 last_activity: "2026-03-27 — Completed 07-01: IR data structure scaffold"
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 5
+  completed_plans: 3
   percent: 10
 ---
 
@@ -45,6 +45,7 @@ Progress: [#.........] 10%
 |-------|-------|-------|----------|
 | 07-ir-foundation | 1/2 | 5 min | 5 min |
 | Phase 07-ir-foundation P02 | 14 | 3 tasks | 7 files |
+| Phase 08-ast-to-ir-lowering P01 | 11 | 4 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,9 @@ Recent decisions affecting current work:
 - [Phase 07-ir-foundation]: Printer uses temporary Iron_Arena for type_to_string calls — freed before return, no leak
 - [Phase 07-ir-foundation]: Verifier collects all errors without early exit — reports all violations in one pass
 - [Phase 07-ir-foundation]: collect_operands() helper centralizes ValueId extraction for all instruction kinds — reusable for future passes
+- [Phase 08-ast-to-ir-lowering]: Iron_CallExpr has no func_decl field — direct calls emit func_ref+func_ptr instead of passing AST func_decl pointer
+- [Phase 08-ast-to-ir-lowering]: Iron_Param has no declared_type — param types resolved via IrFunc.params[p].type set by lower_module_decls from type_ann
+- [Phase 08-ast-to-ir-lowering]: Params use alloca+load model with synthetic ValueIds (NULL in value_table) for uniform IDENT resolution
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -85,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T11:25:50.732Z
-Stopped at: Completed 07-ir-foundation/07-02-PLAN.md
+Last session: 2026-03-27T14:51:05.938Z
+Stopped at: Completed 08-01: Lowering infrastructure and expression pass
 Resume file: None
