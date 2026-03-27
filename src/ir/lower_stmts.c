@@ -14,7 +14,9 @@
 /* ── Helper: check whether a block already has a terminator ─────────────── */
 
 static bool block_is_terminated(IronIR_Block *block) {
-    if (!block || block->instr_count == 0) return false;
+    /* NULL block means dead code after a return — treat as already terminated */
+    if (!block) return true;
+    if (block->instr_count == 0) return false;
     return iron_ir_is_terminator(block->instrs[block->instr_count - 1]->kind);
 }
 
@@ -89,10 +91,6 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             /* Allocate merge block upfront; used as final continuation */
             IronIR_Block *merge_block = new_block(ctx, "if_merge");
 
-            /* Track whether at least one branch jumps to merge_block.
-             * If ALL branches terminate (early return/break), merge_block is dead. */
-            bool merge_has_predecessor = false;
-
             /* Lower the primary condition */
             IronIR_ValueId cond_val = lower_expr(ctx, is->condition);
 
@@ -111,19 +109,20 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             } else {
                 /* No else: the false branch falls through to merge */
                 else_target = merge_block;
-                merge_has_predecessor = true;
             }
 
             /* Emit primary branch */
             iron_ir_branch(fn, ctx->current_block, cond_val,
                            then_block->id, else_target->id, span);
 
-            /* Lower then-body */
+            /* Lower then-body.
+             * After lower_block returns, ctx->current_block is either the live
+             * continuation block or NULL (dead code after a return).
+             * block_is_terminated(NULL) == true, so the guard below is safe. */
             switch_block(ctx, then_block);
             lower_block(ctx, (Iron_Block *)is->body);
             if (!block_is_terminated(ctx->current_block)) {
                 iron_ir_jump(fn, ctx->current_block, merge_block->id, span);
-                merge_has_predecessor = true;
             }
 
             /* Lower elif chains */
@@ -142,7 +141,6 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                     next_else = new_block(ctx, "if_else");
                 } else {
                     next_else = merge_block;
-                    merge_has_predecessor = true;
                 }
 
                 iron_ir_branch(fn, cur_elif_cond_block, elif_cond,
@@ -152,7 +150,6 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 lower_block(ctx, (Iron_Block *)is->elif_bodies[i]);
                 if (!block_is_terminated(ctx->current_block)) {
                     iron_ir_jump(fn, ctx->current_block, merge_block->id, span);
-                    merge_has_predecessor = true;
                 }
 
                 cur_elif_cond_block = next_else;
@@ -165,17 +162,13 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 lower_block(ctx, (Iron_Block *)is->else_body);
                 if (!block_is_terminated(ctx->current_block)) {
                     iron_ir_jump(fn, ctx->current_block, merge_block->id, span);
-                    merge_has_predecessor = true;
                 }
             }
 
             /* Continue at merge.
-             * If merge has no predecessors (all branches terminated), it's dead code.
-             * Add a void return to terminate it so the verifier stays happy. */
+             * If all branches terminated (returns), merge_block will have zero
+             * instructions — emit_c.c emits __builtin_unreachable() for those. */
             switch_block(ctx, merge_block);
-            if (!merge_has_predecessor) {
-                iron_ir_return(fn, merge_block, IRON_IR_VALUE_INVALID, true, NULL, span);
-            }
             break;
         }
 
@@ -246,80 +239,178 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                                      NULL, 0, span);
             } else {
                 /* Sequential for: lower as while loop pattern.
-                 * Loop variable gets an alloca in the entry block.
-                 * Pattern:
-                 *   pre_header: store 0 into loop_var
-                 *   header:     load loop_var, compare < bound, branch body/exit
-                 *   body:       lower body stmts, jump to increment
+                 *
+                 * Two variants:
+                 *  A) Integer bound (for i in n):
+                 *     var_name = counter (0..n-1)
+                 *  B) Array iteration (for x in arr):
+                 *     hidden index counter, var_name = arr[index]
+                 *
+                 * Pattern for both:
+                 *   entry:      alloca for loop_var (index for A, item for B)
+                 *   pre_header: store 0 into index slot
+                 *   header:     load index, compare < bound, branch body/exit
+                 *   body:       [B: load item = arr[index]; store item slot]
+                 *               lower body stmts, jump to increment
                  *   increment:  load, add 1, store, jump to header
                  *   exit:       continue here
                  */
                 IronIR_Block *entry      = fn->blocks[0];
                 Iron_Type    *int_type   = iron_type_make_primitive(IRON_TYPE_INT);
+                Iron_Type    *bool_type  = iron_type_make_primitive(IRON_TYPE_BOOL);
 
-                /* Alloca for loop variable in entry block */
-                IronIR_Instr *slot = iron_ir_alloca(fn, entry,
-                                                     int_type, fs->var_name, span);
-                shput(ctx->var_alloca_map, fs->var_name, slot->id);
+                /* Detect array-iteration: check the AST iterable's resolved type */
+                typedef struct { Iron_Span span; Iron_NodeKind kind; Iron_Type *resolved_type; } ExprNode;
+                Iron_Type *iter_type = ((ExprNode *)fs->iterable)->resolved_type;
+                bool is_array_iter = (iter_type && iter_type->kind == IRON_TYPE_ARRAY);
 
-                IronIR_Block *pre_header = new_block(ctx, "for_init");
-                IronIR_Block *header     = new_block(ctx, "for_header");
-                IronIR_Block *body_blk   = new_block(ctx, "for_body");
-                IronIR_Block *increment  = new_block(ctx, "for_incr");
-                IronIR_Block *exit       = new_block(ctx, "for_exit");
+                if (is_array_iter) {
+                    /* Array iteration: for x in arr { ... }
+                     * Use a hidden index and bind var_name to arr[index] each iteration.
+                     */
+                    char idx_name[128];
+                    snprintf(idx_name, sizeof(idx_name), "__for_idx_%p", (void *)node);
 
-                /* Jump to pre_header */
-                iron_ir_jump(fn, ctx->current_block, pre_header->id, span);
+                    /* Alloca for hidden index */
+                    IronIR_Instr *idx_slot = iron_ir_alloca(fn, entry,
+                                                              int_type, idx_name, span);
 
-                /* Pre-header: store initial value 0 */
-                switch_block(ctx, pre_header);
-                IronIR_Instr *zero = iron_ir_const_int(fn, pre_header, 0, int_type, span);
-                iron_ir_store(fn, pre_header, slot->id, zero->id, span);
-                iron_ir_jump(fn, pre_header, header->id, span);
+                    /* Alloca for the item (var_name) */
+                    Iron_Type *elem_type = iter_type->array.elem;
+                    IronIR_Instr *item_slot = iron_ir_alloca(fn, entry,
+                                                               elem_type, fs->var_name, span);
+                    shput(ctx->var_alloca_map, fs->var_name, item_slot->id);
 
-                /* Header: load counter, get bound, compare */
-                switch_block(ctx, header);
-                IronIR_Instr *counter = iron_ir_load(fn, header, slot->id, int_type, span);
-                IronIR_ValueId bound  = lower_expr(ctx, fs->iterable);
-                Iron_Type *bool_type  = iron_type_make_primitive(IRON_TYPE_BOOL);
-                IronIR_Instr *cmp     = iron_ir_binop(fn, header, IRON_IR_LT,
-                                                       counter->id, bound,
+                    IronIR_Block *pre_header = new_block(ctx, "for_init");
+                    IronIR_Block *header     = new_block(ctx, "for_header");
+                    IronIR_Block *body_blk   = new_block(ctx, "for_body");
+                    IronIR_Block *increment  = new_block(ctx, "for_incr");
+                    IronIR_Block *exit_blk   = new_block(ctx, "for_exit");
+
+                    iron_ir_jump(fn, ctx->current_block, pre_header->id, span);
+
+                    /* Pre-header: store 0 into index */
+                    switch_block(ctx, pre_header);
+                    IronIR_Instr *zero = iron_ir_const_int(fn, pre_header, 0, int_type, span);
+                    iron_ir_store(fn, pre_header, idx_slot->id, zero->id, span);
+                    /* Evaluate array once in pre_header */
+                    IronIR_ValueId arr_val = lower_expr(ctx, fs->iterable);
+                    iron_ir_jump(fn, pre_header, header->id, span);
+
+                    /* Header: load index, get arr.count, compare */
+                    switch_block(ctx, header);
+                    IronIR_Instr *idx_cur = iron_ir_load(fn, header, idx_slot->id, int_type, span);
+                    /* Access arr.count field for the bound */
+                    IronIR_Instr *bound_instr = iron_ir_get_field(fn, header,
+                                                                    arr_val, "count",
+                                                                    int_type, span);
+                    IronIR_Instr *cmp = iron_ir_binop(fn, header, IRON_IR_LT,
+                                                       idx_cur->id, bound_instr->id,
                                                        bool_type, span);
-                iron_ir_branch(fn, header, cmp->id, body_blk->id, exit->id, span);
+                    iron_ir_branch(fn, header, cmp->id, body_blk->id, exit_blk->id, span);
 
-                /* Save outer loop context */
-                IronIR_Block *old_exit     = ctx->loop_exit_block;
-                IronIR_Block *old_continue = ctx->loop_continue_block;
-                int           old_depth    = ctx->loop_scope_depth;
-                ctx->loop_exit_block     = exit;
-                ctx->loop_continue_block = increment;
-                ctx->loop_scope_depth    = ctx->defer_depth;
+                    /* Save outer loop context */
+                    IronIR_Block *old_exit     = ctx->loop_exit_block;
+                    IronIR_Block *old_continue = ctx->loop_continue_block;
+                    int           old_depth    = ctx->loop_scope_depth;
+                    ctx->loop_exit_block     = exit_blk;
+                    ctx->loop_continue_block = increment;
+                    ctx->loop_scope_depth    = ctx->defer_depth;
 
-                /* Body */
-                switch_block(ctx, body_blk);
-                lower_block(ctx, (Iron_Block *)fs->body);
-                if (!block_is_terminated(ctx->current_block)) {
-                    iron_ir_jump(fn, ctx->current_block, increment->id, span);
+                    /* Body: get item at current index, store into item slot */
+                    switch_block(ctx, body_blk);
+                    IronIR_Instr *idx_body = iron_ir_load(fn, body_blk,
+                                                           idx_slot->id, int_type, span);
+                    IronIR_Instr *item = iron_ir_get_index(fn, body_blk,
+                                                            arr_val, idx_body->id,
+                                                            elem_type, span);
+                    iron_ir_store(fn, body_blk, item_slot->id, item->id, span);
+                    lower_block(ctx, (Iron_Block *)fs->body);
+                    if (!block_is_terminated(ctx->current_block)) {
+                        iron_ir_jump(fn, ctx->current_block, increment->id, span);
+                    }
+
+                    /* Increment: load idx, add 1, store */
+                    switch_block(ctx, increment);
+                    IronIR_Instr *idx_inc = iron_ir_load(fn, increment, idx_slot->id, int_type, span);
+                    IronIR_Instr *one_inc = iron_ir_const_int(fn, increment, 1, int_type, span);
+                    IronIR_Instr *next_idx = iron_ir_binop(fn, increment, IRON_IR_ADD,
+                                                            idx_inc->id, one_inc->id,
+                                                            int_type, span);
+                    iron_ir_store(fn, increment, idx_slot->id, next_idx->id, span);
+                    iron_ir_jump(fn, increment, header->id, span);
+
+                    /* Restore outer loop context */
+                    ctx->loop_exit_block     = old_exit;
+                    ctx->loop_continue_block = old_continue;
+                    ctx->loop_scope_depth    = old_depth;
+
+                    switch_block(ctx, exit_blk);
+                } else {
+                    /* Integer bound: for i in n { ... }
+                     * Loop variable = counter (0..n-1) */
+                    /* Alloca for loop variable in entry block */
+                    IronIR_Instr *slot = iron_ir_alloca(fn, entry,
+                                                         int_type, fs->var_name, span);
+                    shput(ctx->var_alloca_map, fs->var_name, slot->id);
+
+                    IronIR_Block *pre_header = new_block(ctx, "for_init");
+                    IronIR_Block *header     = new_block(ctx, "for_header");
+                    IronIR_Block *body_blk   = new_block(ctx, "for_body");
+                    IronIR_Block *increment  = new_block(ctx, "for_incr");
+                    IronIR_Block *exit       = new_block(ctx, "for_exit");
+
+                    /* Jump to pre_header */
+                    iron_ir_jump(fn, ctx->current_block, pre_header->id, span);
+
+                    /* Pre-header: store initial value 0 */
+                    switch_block(ctx, pre_header);
+                    IronIR_Instr *zero = iron_ir_const_int(fn, pre_header, 0, int_type, span);
+                    iron_ir_store(fn, pre_header, slot->id, zero->id, span);
+                    iron_ir_jump(fn, pre_header, header->id, span);
+
+                    /* Header: load counter, get bound, compare */
+                    switch_block(ctx, header);
+                    IronIR_Instr *counter = iron_ir_load(fn, header, slot->id, int_type, span);
+                    IronIR_ValueId bound  = lower_expr(ctx, fs->iterable);
+                    IronIR_Instr *cmp     = iron_ir_binop(fn, header, IRON_IR_LT,
+                                                           counter->id, bound,
+                                                           bool_type, span);
+                    iron_ir_branch(fn, header, cmp->id, body_blk->id, exit->id, span);
+
+                    /* Save outer loop context */
+                    IronIR_Block *old_exit     = ctx->loop_exit_block;
+                    IronIR_Block *old_continue = ctx->loop_continue_block;
+                    int           old_depth    = ctx->loop_scope_depth;
+                    ctx->loop_exit_block     = exit;
+                    ctx->loop_continue_block = increment;
+                    ctx->loop_scope_depth    = ctx->defer_depth;
+
+                    /* Body */
+                    switch_block(ctx, body_blk);
+                    lower_block(ctx, (Iron_Block *)fs->body);
+                    if (!block_is_terminated(ctx->current_block)) {
+                        iron_ir_jump(fn, ctx->current_block, increment->id, span);
+                    }
+
+                    /* Increment: load, add 1, store, jump back to header */
+                    switch_block(ctx, increment);
+                    IronIR_Instr *cur_val = iron_ir_load(fn, increment, slot->id, int_type, span);
+                    IronIR_Instr *one     = iron_ir_const_int(fn, increment, 1, int_type, span);
+                    IronIR_Instr *next_val = iron_ir_binop(fn, increment, IRON_IR_ADD,
+                                                            cur_val->id, one->id,
+                                                            int_type, span);
+                    iron_ir_store(fn, increment, slot->id, next_val->id, span);
+                    iron_ir_jump(fn, increment, header->id, span);
+
+                    /* Restore outer loop context */
+                    ctx->loop_exit_block     = old_exit;
+                    ctx->loop_continue_block = old_continue;
+                    ctx->loop_scope_depth    = old_depth;
+
+                    /* Continue at exit */
+                    switch_block(ctx, exit);
                 }
-
-                /* Increment: load, add 1, store, jump back to header */
-                switch_block(ctx, increment);
-                IronIR_Instr *cur_val = iron_ir_load(fn, increment, slot->id, int_type, span);
-                IronIR_Instr *one     = iron_ir_const_int(fn, increment, 1, int_type, span);
-                IronIR_Instr *next_val = iron_ir_binop(fn, increment, IRON_IR_ADD,
-                                                        cur_val->id, one->id,
-                                                        int_type, span);
-                iron_ir_store(fn, increment, slot->id, next_val->id, span);
-                iron_ir_jump(fn, increment, header->id, span);
-
-                /* Restore outer loop context */
-                ctx->loop_exit_block     = old_exit;
-                ctx->loop_continue_block = old_continue;
-                ctx->loop_scope_depth    = old_depth;
-
-                /* Continue at exit; clean up loop var from map so later code
-                 * doesn't accidentally shadow a post-loop var of the same name */
-                switch_block(ctx, exit);
             }
             break;
         }

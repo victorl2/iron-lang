@@ -466,6 +466,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 break;
             }
 
+            /* Special case: len(array) -> Int.
+             * The len builtin is registered as len(String)->Int, but we also
+             * support len([T]) -> Int.  Detect this pattern early and bypass the
+             * strict argument type check. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT &&
+                ce->arg_count == 1) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                if (strcmp(fn_id->name, "len") == 0) {
+                    Iron_Type *arg_t = check_expr(ctx, ce->args[0]);
+                    if (arg_t && arg_t->kind == IRON_TYPE_ARRAY) {
+                        result = iron_type_make_primitive(IRON_TYPE_INT);
+                        ce->resolved_type = result;
+                        break;
+                    }
+                }
+            }
+
             /* Check arg count */
             int expected_count = callee_type->func.param_count;
             if (ce->arg_count != expected_count) {
@@ -1005,11 +1022,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
-            check_expr(ctx, fs->iterable);
+            Iron_Type *iter_t = check_expr(ctx, fs->iterable);
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
-            /* Define loop variable */
+            /* Define loop variable with appropriate type.
+             * For array iteration (for x in arr) the loop var has elem type.
+             * For integer bound (for i in n) the loop var is Int. */
+            Iron_Type *loop_var_type = iron_type_make_primitive(IRON_TYPE_INT);
+            if (iter_t && iter_t->kind == IRON_TYPE_ARRAY) {
+                loop_var_type = iter_t->array.elem;
+            }
             tc_define(ctx, fs->var_name, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
-                      true, NULL);
+                      true, loop_var_type);
             if (fs->body) check_stmt(ctx, fs->body);
             tc_pop_scope(ctx);
             break;
