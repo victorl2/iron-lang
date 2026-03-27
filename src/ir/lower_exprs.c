@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 
 /* ── Helper: extract resolved_type from any expression node ─────────────── */
 
@@ -37,9 +38,9 @@ static IronIR_ValueId lower_short_circuit_and(IronIR_LowerCtx *ctx,
     IronIR_Func  *fn   = ctx->current_func;
     Iron_Span     span = node->span;
 
-    IronIR_Block *eval_rhs  = new_block(ctx, "and.rhs");
-    IronIR_Block *short_blk = new_block(ctx, "and.short");
-    IronIR_Block *merge     = new_block(ctx, "and.merge");
+    IronIR_Block *eval_rhs  = new_block(ctx, "and_rhs");
+    IronIR_Block *short_blk = new_block(ctx, "and_short");
+    IronIR_Block *merge     = new_block(ctx, "and_merge");
 
     IronIR_ValueId lhs_val  = lower_expr(ctx, bin->left);
     IronIR_Block  *lhs_exit = ctx->current_block;  /* may have changed block */
@@ -68,9 +69,9 @@ static IronIR_ValueId lower_short_circuit_or(IronIR_LowerCtx *ctx,
     IronIR_Func  *fn   = ctx->current_func;
     Iron_Span     span = node->span;
 
-    IronIR_Block *eval_rhs  = new_block(ctx, "or.rhs");
-    IronIR_Block *short_blk = new_block(ctx, "or.short");
-    IronIR_Block *merge     = new_block(ctx, "or.merge");
+    IronIR_Block *eval_rhs  = new_block(ctx, "or_rhs");
+    IronIR_Block *short_blk = new_block(ctx, "or_short");
+    IronIR_Block *merge     = new_block(ctx, "or_merge");
 
     IronIR_ValueId lhs_val  = lower_expr(ctx, bin->left);
     IronIR_Block  *lhs_exit = ctx->current_block;
@@ -354,6 +355,51 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_METHOD_CALL: {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+        /* AUTO-STATIC CHECK: If the receiver is a type name (IRON_SYM_TYPE),
+         * emit a direct C function call without self pointer.
+         * Convention: <lowercase_type>_<method>(args...)
+         * The emit_c.c mangle_func_name() will add the Iron_ prefix at emission.
+         * This matches the stdlib C API: Iron_math_sin, Iron_io_read_file, etc. */
+        if (mc->object->kind == IRON_NODE_IDENT) {
+            Iron_Ident *obj_id = (Iron_Ident *)mc->object;
+            if (obj_id->resolved_sym &&
+                obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE) {
+                /* Build the function name: lowercase(TypeName)_methodName */
+                const char *tname = obj_id->name;
+                size_t tlen = strlen(tname);
+                size_t mlen = strlen(mc->method);
+                size_t total = tlen + 1 + mlen + 1;  /* type_method\0 */
+                char *func_name = (char *)iron_arena_alloc(ctx->ir_arena, total,
+                                                            _Alignof(char));
+                /* Lowercase the type name */
+                for (size_t k = 0; k < tlen; k++) {
+                    func_name[k] = (char)tolower((unsigned char)tname[k]);
+                }
+                func_name[tlen] = '_';
+                memcpy(func_name + tlen + 1, mc->method, mlen + 1);
+
+                /* Emit func_ref for the auto-static function name */
+                IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
+                                                            func_name, NULL, span)->id;
+
+                /* Lower arguments (NO receiver for auto-static) */
+                IronIR_ValueId *args = NULL;
+                for (int i = 0; i < mc->arg_count; i++) {
+                    IronIR_ValueId v = lower_expr(ctx, mc->args[i]);
+                    arrput(args, v);
+                }
+
+                IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+                                                      NULL, func_ptr,
+                                                      args, mc->arg_count,
+                                                      mc->resolved_type, span)->id;
+                arrfree(args);
+                return result;
+            }
+        }
+
+        /* Instance method call: receiver is an object instance */
         IronIR_ValueId obj_val = lower_expr(ctx, mc->object);
 
         /* Build args: receiver first, then explicit args */
@@ -365,7 +411,7 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
         }
         int total_args = 1 + mc->arg_count;
 
-        /* Emit method name as func_ref (no method_decl on AST node) */
+        /* Emit method name as func_ref */
         IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
                                                     mc->method, NULL, span)->id;
         IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
