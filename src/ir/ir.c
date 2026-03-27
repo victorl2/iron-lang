@@ -506,6 +506,13 @@ IronIR_Instr *iron_ir_phi(IronIR_Func *fn, IronIR_Block *block,
     return i;
 }
 
+IronIR_Instr *iron_ir_poison(IronIR_Func *fn, IronIR_Block *block,
+                              Iron_Type *type, Iron_Span span) {
+    IronIR_Instr *i = alloc_instr(fn, block, IRON_IR_POISON, type, span, true);
+    i->poison._pad = 0;
+    return i;
+}
+
 /* ── Phi manipulation ─────────────────────────────────────────────────────── */
 
 void iron_ir_phi_add_incoming(IronIR_Instr *phi, IronIR_ValueId value,

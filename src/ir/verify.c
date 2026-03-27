@@ -197,6 +197,10 @@ static void collect_operands(const IronIR_Instr *instr,
         }
         break;
 
+    case IRON_IR_POISON:
+        /* No operands — poison is a standalone error placeholder */
+        break;
+
     default:
         break;
     }
@@ -335,6 +339,21 @@ static void verify_func(const IronIR_Func *fn, const IronIR_Module *module,
                 break;
             default:
                 break;
+            }
+        }
+
+        /* Invariant 5a: poison instructions indicate a lowering error */
+        for (int ii = 0; ii < block->instr_count; ii++) {
+            const IronIR_Instr *instr = block->instrs[ii];
+            if (instr->kind == IRON_IR_POISON) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "Poison instruction found in block '%s' (lowering error placeholder)",
+                         block->label);
+                iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LOWER_UNSUPPORTED,
+                               instr->span, msg,
+                               "this indicates an unsupported or erroneous construct during lowering");
             }
         }
 

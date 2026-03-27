@@ -99,6 +99,9 @@ typedef enum {
     /* SSA */
     IRON_IR_PHI,
 
+    /* Error placeholder */
+    IRON_IR_POISON,
+
     /* Sentinel */
     IRON_IR_INSTR_COUNT
 } IronIR_InstrKind;
@@ -269,6 +272,9 @@ struct IronIR_Instr {
             IronIR_BlockId *pred_blocks;  /* stb_ds array */
             int             count;
         } phi;
+
+        /* IRON_IR_POISON */
+        struct { int _pad; } poison;
     };
 };
 
@@ -494,6 +500,8 @@ IronIR_Instr *iron_ir_await(IronIR_Func *fn, IronIR_Block *block,
                              Iron_Type *type, Iron_Span span);
 IronIR_Instr *iron_ir_phi(IronIR_Func *fn, IronIR_Block *block,
                            Iron_Type *type, Iron_Span span);
+IronIR_Instr *iron_ir_poison(IronIR_Func *fn, IronIR_Block *block,
+                              Iron_Type *type, Iron_Span span);
 
 /* Phi manipulation */
 void iron_ir_phi_add_incoming(IronIR_Instr *phi, IronIR_ValueId value,

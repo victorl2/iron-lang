@@ -493,6 +493,17 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         break;
     }
 
+    /* ── Poison ─────────────────────────────────────────────────────────── */
+
+    case IRON_IR_POISON:
+        iron_strbuf_appendf(sb, "  %%%u = poison", instr->id);
+        if (instr->type) {
+            iron_strbuf_appendf(sb, " : ");
+            append_type(sb, instr->type, tmp);
+        }
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
     default:
         assert(false && "unhandled IronIR_InstrKind in printer");
         break;
