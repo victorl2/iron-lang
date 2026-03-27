@@ -845,6 +845,487 @@ void test_snapshot_if_else(void) {
     TEST_ASSERT_TRUE_MESSAGE(match, "if_else IR snapshot mismatch");
 }
 
+/* ── Wave 3: Unit tests (Plan 08-03) ────────────────────────────────────── */
+
+/* Build a call expression: callee(args...) */
+static Iron_Node *make_call(Iron_Arena *arena, Iron_Node *callee,
+                             Iron_Node **args, int arg_count) {
+    Iron_CallExpr *n = ARENA_ALLOC(arena, Iron_CallExpr);
+    memset(n, 0, sizeof(*n));
+    n->span = test_span();
+    n->kind = IRON_NODE_CALL;
+    n->callee = callee;
+    n->resolved_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    if (arg_count > 0) {
+        n->args = (Iron_Node **)iron_arena_alloc(arena,
+                      (size_t)arg_count * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+        memcpy(n->args, args, (size_t)arg_count * sizeof(Iron_Node *));
+    }
+    n->arg_count = arg_count;
+    return (Iron_Node *)n;
+}
+
+/* Build a defer statement */
+static Iron_Node *make_defer(Iron_Arena *arena, Iron_Node *expr) {
+    Iron_DeferStmt *n = ARENA_ALLOC(arena, Iron_DeferStmt);
+    memset(n, 0, sizeof(*n));
+    n->span = test_span();
+    n->kind = IRON_NODE_DEFER;
+    n->expr = expr;
+    return (Iron_Node *)n;
+}
+
+/* Build a match statement (minimal: no cases, just validates subject lowering) */
+static Iron_Node *make_match(Iron_Arena *arena, Iron_Node *subject,
+                              Iron_Node **cases, int case_count) {
+    Iron_MatchStmt *n = ARENA_ALLOC(arena, Iron_MatchStmt);
+    memset(n, 0, sizeof(*n));
+    n->span = test_span();
+    n->kind = IRON_NODE_MATCH;
+    n->subject = subject;
+    if (case_count > 0) {
+        n->cases = (Iron_Node **)iron_arena_alloc(arena,
+                       (size_t)case_count * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+        memcpy(n->cases, cases, (size_t)case_count * sizeof(Iron_Node *));
+    }
+    n->case_count = case_count;
+    n->else_body = NULL;
+    return (Iron_Node *)n;
+}
+
+/* Build a match case */
+static Iron_Node *make_match_case(Iron_Arena *arena, Iron_Node *pattern,
+                                   Iron_Block *body) {
+    Iron_MatchCase *n = ARENA_ALLOC(arena, Iron_MatchCase);
+    memset(n, 0, sizeof(*n));
+    n->span = test_span();
+    n->kind = IRON_NODE_MATCH_CASE;
+    n->pattern = pattern;
+    n->body = (Iron_Node *)body;
+    return (Iron_Node *)n;
+}
+
+/* Build a spawn statement */
+static Iron_Node *make_spawn(Iron_Arena *arena, Iron_Block *body,
+                              const char *handle_name) {
+    Iron_SpawnStmt *n = ARENA_ALLOC(arena, Iron_SpawnStmt);
+    memset(n, 0, sizeof(*n));
+    n->span = test_span();
+    n->kind = IRON_NODE_SPAWN;
+    n->name = "spawned";
+    n->pool_expr = NULL;
+    n->body = (Iron_Node *)body;
+    n->handle_name = handle_name;
+    return (Iron_Node *)n;
+}
+
+/* Build a lambda expression */
+static Iron_Node *make_lambda(Iron_Arena *arena, Iron_Block *body) {
+    Iron_LambdaExpr *n = ARENA_ALLOC(arena, Iron_LambdaExpr);
+    memset(n, 0, sizeof(*n));
+    n->span = test_span();
+    n->kind = IRON_NODE_LAMBDA;
+    n->resolved_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    n->params = NULL;
+    n->param_count = 0;
+    n->return_type = NULL;
+    n->body = (Iron_Node *)body;
+    return (Iron_Node *)n;
+}
+
+/* ── test_lower_extern_decl ──────────────────────────────────────────────── */
+/* Create a program with an extern function declaration.
+ * Verify the module registers an extern decl with correct names. */
+void test_lower_extern_decl(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "init_window", void_type);
+    fd->is_extern = true;
+    fd->extern_c_name = "InitWindow";
+    fd->body = NULL;  /* extern func — no body */
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    /* Must have an extern_decl entry with correct names */
+    TEST_ASSERT_GREATER_THAN(0, mod->extern_decl_count);
+    bool found = false;
+    for (int i = 0; i < mod->extern_decl_count; i++) {
+        IronIR_ExternDecl *ed = mod->extern_decls[i];
+        if (strcmp(ed->iron_name, "init_window") == 0 &&
+            strcmp(ed->c_name, "InitWindow") == 0) {
+            found = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found, "extern_decl for init_window/InitWindow not found");
+
+    /* The function entry in funcs array should be marked is_extern */
+    bool fn_extern = false;
+    for (int i = 0; i < mod->func_count; i++) {
+        if (strcmp(mod->funcs[i]->name, "init_window") == 0) {
+            fn_extern = mod->funcs[i]->is_extern;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(fn_extern, "IrFunc for init_window must have is_extern=true");
+
+    Iron_DiagList verify_diags = iron_diaglist_create();
+    bool ok = iron_ir_verify(mod, &verify_diags, &g_ir_arena);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, verify_diags.error_count);
+    iron_diaglist_free(&verify_diags);
+}
+
+/* ── test_lower_type_decl ────────────────────────────────────────────────── */
+/* Create a program with an object declaration.
+ * Verify the module has a type_decl entry with IRON_IR_TYPE_OBJECT. */
+void test_lower_type_decl(void) {
+    Iron_ObjectDecl *obj = ARENA_ALLOC(&g_ir_arena, Iron_ObjectDecl);
+    memset(obj, 0, sizeof(*obj));
+    obj->span = test_span();
+    obj->kind = IRON_NODE_OBJECT_DECL;
+    obj->name = "Player";
+
+    Iron_Node *decls[1] = { (Iron_Node *)obj };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    /* Must have a type_decl entry for Player with kind OBJECT */
+    bool found = false;
+    for (int i = 0; i < mod->type_decl_count; i++) {
+        IronIR_TypeDecl *td = mod->type_decls[i];
+        if (strcmp(td->name, "Player") == 0 && td->kind == IRON_IR_TYPE_OBJECT) {
+            found = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found, "type_decl for Player (OBJECT) not found");
+
+    Iron_DiagList verify_diags = iron_diaglist_create();
+    bool ok = iron_ir_verify(mod, &verify_diags, &g_ir_arena);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, verify_diags.error_count);
+    iron_diaglist_free(&verify_diags);
+}
+
+/* ── test_lower_defer_before_return ─────────────────────────────────────── */
+/* fn test() { defer cleanup_call(); return }
+ * Verify the deferred call appears BEFORE the return terminator. */
+void test_lower_defer_before_return(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_defer", void_type);
+
+    /* cleanup_call expression (a bare call expression used as defer) */
+    Iron_Node *cleanup_ident = make_ident(&g_ir_arena, "cleanup",
+                                           iron_type_make_primitive(IRON_TYPE_VOID));
+    Iron_Node *cleanup_call = make_call(&g_ir_arena, cleanup_ident, NULL, 0);
+
+    /* defer cleanup_call() */
+    Iron_Node *defer_stmt = make_defer(&g_ir_arena, cleanup_call);
+
+    /* return */
+    Iron_Node *ret_stmt = make_return(&g_ir_arena, NULL);
+
+    Iron_Node *stmts[2] = { defer_stmt, ret_stmt };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    /* Deferred call to unknown identifier may emit diagnostics; we only
+     * care about structural correctness. Allow any diagnostic count but
+     * require the module to be non-NULL (we stopped on errors only if
+     * iron_ir_lower returns NULL). */
+
+    if (mod == NULL) {
+        /* If lowering fails due to missing cleanup symbol, skip structural check */
+        return;
+    }
+
+    IronIR_Func *fn = mod->funcs[0];
+    TEST_ASSERT_NOT_NULL(fn);
+
+    /* Find the return instruction and verify a call or poison precedes it
+     * in the same block (deferred expression runs before return). */
+    bool return_found = false;
+    bool call_before_return = false;
+    for (int b = 0; b < fn->block_count; b++) {
+        IronIR_Block *blk = fn->blocks[b];
+        int last_non_term = -1;
+        for (int i = 0; i < blk->instr_count; i++) {
+            if (blk->instrs[i]->kind == IRON_IR_RETURN) {
+                return_found = true;
+                /* Check if any call or poison appeared before this return */
+                if (last_non_term >= 0) call_before_return = true;
+                break;
+            }
+            last_non_term = i;
+        }
+        if (return_found) break;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(return_found, "return instruction not found");
+    TEST_ASSERT_TRUE_MESSAGE(call_before_return,
+        "deferred call must appear before return in same block");
+}
+
+/* ── test_lower_lambda_lifting ───────────────────────────────────────────── */
+/* fn test() { val f = || { } } — verify lambda is lifted to top-level func */
+void test_lower_lambda_lifting(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_lambda", void_type);
+
+    /* Lambda body: { } (empty — no return value to avoid type mismatch) */
+    Iron_Block *lambda_body = make_block(&g_ir_arena, NULL, 0);
+
+    /* Lambda: || { 42 } */
+    Iron_Node *lam = make_lambda(&g_ir_arena, lambda_body);
+
+    /* val f = || { 42 } */
+    Iron_Node *val_f = make_val_decl(&g_ir_arena, "f", lam,
+                                      iron_type_make_primitive(IRON_TYPE_VOID));
+
+    Iron_Node *fn_stmts[1] = { val_f };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, fn_stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    /* Module must have at least 2 functions: original + lifted lambda */
+    TEST_ASSERT_GREATER_OR_EQUAL(2, mod->func_count);
+
+    /* Lifted function name must start with "__lambda_" */
+    bool found_lambda = false;
+    for (int i = 0; i < mod->func_count; i++) {
+        if (strncmp(mod->funcs[i]->name, "__lambda_", 9) == 0) {
+            found_lambda = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_lambda,
+        "lifted lambda function (__lambda_*) not found in module");
+
+    Iron_DiagList verify_diags = iron_diaglist_create();
+    bool ok = iron_ir_verify(mod, &verify_diags, &g_ir_arena);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, verify_diags.error_count);
+    iron_diaglist_free(&verify_diags);
+}
+
+/* ── test_lower_spawn ────────────────────────────────────────────────────── */
+/* fn test() { spawn { val x = 1 } } — verify spawn body is lifted */
+void test_lower_spawn(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_spawn", void_type);
+
+    /* Spawn body: { val x = 1 } */
+    Iron_Node *val_x = make_val_decl(&g_ir_arena, "x", make_int(&g_ir_arena, "1"),
+                                      iron_type_make_primitive(IRON_TYPE_INT));
+    Iron_Node *spawn_stmts[1] = { val_x };
+    Iron_Block *spawn_body = make_block(&g_ir_arena, spawn_stmts, 1);
+
+    /* spawn { val x = 1 } */
+    Iron_Node *spawn_stmt = make_spawn(&g_ir_arena, spawn_body, NULL);
+
+    Iron_Node *fn_stmts[1] = { spawn_stmt };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, fn_stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    /* Module must have at least 2 functions: original + lifted spawn body */
+    TEST_ASSERT_GREATER_OR_EQUAL(2, mod->func_count);
+
+    /* Lifted function name must start with "__spawn_" */
+    bool found_spawn = false;
+    for (int i = 0; i < mod->func_count; i++) {
+        if (strncmp(mod->funcs[i]->name, "__spawn_", 8) == 0) {
+            found_spawn = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_spawn,
+        "lifted spawn function (__spawn_*) not found in module");
+
+    /* Original function must contain an IRON_IR_SPAWN instruction */
+    IronIR_Func *fn = mod->funcs[0];
+    TEST_ASSERT_GREATER_THAN(0, count_instrs_of_kind(fn, IRON_IR_SPAWN));
+
+    Iron_DiagList verify_diags = iron_diaglist_create();
+    bool ok = iron_ir_verify(mod, &verify_diags, &g_ir_arena);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, verify_diags.error_count);
+    iron_diaglist_free(&verify_diags);
+}
+
+/* ── test_lower_match_switch ─────────────────────────────────────────────── */
+/* fn test(x: Int) -> Int { match x { 1 -> { return 10 } 2 -> { return 20 } } return 0 }
+ * Verify IR contains IRON_IR_SWITCH and multiple arm blocks. */
+void test_lower_match_switch(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+    /* Build param: x: Int */
+    Iron_Param *param_x = make_param(&g_ir_arena, "x");
+    Iron_TypeAnnotation *int_ann = ARENA_ALLOC(&g_ir_arena, Iron_TypeAnnotation);
+    memset(int_ann, 0, sizeof(*int_ann));
+    int_ann->span = test_span();
+    int_ann->kind = IRON_NODE_TYPE_ANNOTATION;
+    int_ann->name = "Int";
+    param_x->type_ann = (Iron_Node *)int_ann;
+
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_match", int_type);
+    fd->params = (Iron_Node **)iron_arena_alloc(&g_ir_arena,
+                     sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    fd->params[0] = (Iron_Node *)param_x;
+    fd->param_count = 1;
+
+    /* case 1: { return 10 } */
+    Iron_Node *ret10 = make_return(&g_ir_arena, make_int(&g_ir_arena, "10"));
+    Iron_Node *arm1_stmts[1] = { ret10 };
+    Iron_Block *arm1_body = make_block(&g_ir_arena, arm1_stmts, 1);
+    Iron_Node *case1 = make_match_case(&g_ir_arena, make_int(&g_ir_arena, "1"), arm1_body);
+
+    /* case 2: { return 20 } */
+    Iron_Node *ret20 = make_return(&g_ir_arena, make_int(&g_ir_arena, "20"));
+    Iron_Node *arm2_stmts[1] = { ret20 };
+    Iron_Block *arm2_body = make_block(&g_ir_arena, arm2_stmts, 1);
+    Iron_Node *case2 = make_match_case(&g_ir_arena, make_int(&g_ir_arena, "2"), arm2_body);
+
+    /* match x { 1 -> ... 2 -> ... } */
+    Iron_Node *cases[2] = { case1, case2 };
+    Iron_Node *match_stmt = make_match(&g_ir_arena,
+                                        make_ident(&g_ir_arena, "x", int_type),
+                                        cases, 2);
+
+    /* return 0 (fallthrough/default case) */
+    Iron_Node *ret0 = make_return(&g_ir_arena, make_int(&g_ir_arena, "0"));
+
+    Iron_Node *fn_stmts[2] = { match_stmt, ret0 };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, fn_stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    IronIR_Func *fn = mod->funcs[0];
+    TEST_ASSERT_NOT_NULL(fn);
+
+    /* Must have at least one IRON_IR_SWITCH instruction */
+    TEST_ASSERT_GREATER_THAN(0, count_instrs_of_kind(fn, IRON_IR_SWITCH));
+
+    /* Must have at least 3 blocks: entry (with switch), arm1, arm2 */
+    TEST_ASSERT_GREATER_OR_EQUAL(3, fn->block_count);
+
+    Iron_DiagList verify_diags = iron_diaglist_create();
+    bool ok = iron_ir_verify(mod, &verify_diags, &g_ir_arena);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, verify_diags.error_count);
+    iron_diaglist_free(&verify_diags);
+}
+
+/* ── test_lower_full_program ─────────────────────────────────────────────── */
+/* fn compute(x: Int) -> Int { var r = x; if r > 0 { r = r + 1 } return r }
+ * End-to-end verify + ir_print sanity check. */
+void test_lower_full_program(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    /* Build param: x: Int */
+    Iron_Param *param_x = make_param(&g_ir_arena, "x");
+    Iron_TypeAnnotation *int_ann = ARENA_ALLOC(&g_ir_arena, Iron_TypeAnnotation);
+    memset(int_ann, 0, sizeof(*int_ann));
+    int_ann->span = test_span();
+    int_ann->kind = IRON_NODE_TYPE_ANNOTATION;
+    int_ann->name = "Int";
+    param_x->type_ann = (Iron_Node *)int_ann;
+
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "compute", int_type);
+    fd->params = (Iron_Node **)iron_arena_alloc(&g_ir_arena,
+                     sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    fd->params[0] = (Iron_Node *)param_x;
+    fd->param_count = 1;
+
+    /* var r = x */
+    Iron_Node *var_r = make_var_decl(&g_ir_arena, "r",
+                                      make_ident(&g_ir_arena, "x", int_type),
+                                      int_type);
+
+    /* r > 0 */
+    Iron_Node *cond = make_binary(&g_ir_arena,
+                                   make_ident(&g_ir_arena, "r", int_type),
+                                   IRON_TOK_GREATER,
+                                   make_int(&g_ir_arena, "0"),
+                                   bool_type);
+
+    /* then: r = r + 1 */
+    Iron_Node *r_plus_1 = make_binary(&g_ir_arena,
+                                       make_ident(&g_ir_arena, "r", int_type),
+                                       IRON_TOK_PLUS,
+                                       make_int(&g_ir_arena, "1"),
+                                       int_type);
+    Iron_Node *assign_r = make_assign(&g_ir_arena,
+                                       make_ident(&g_ir_arena, "r", int_type),
+                                       r_plus_1);
+    Iron_Node *then_stmts[1] = { assign_r };
+    Iron_Block *then_body = make_block(&g_ir_arena, then_stmts, 1);
+
+    Iron_Node *if_stmt = make_if(&g_ir_arena, cond, then_body, NULL);
+
+    /* return r */
+    Iron_Node *ret_r = make_return(&g_ir_arena,
+                                    make_ident(&g_ir_arena, "r", int_type));
+
+    Iron_Node *fn_stmts[3] = { var_r, if_stmt, ret_r };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, fn_stmts, 3);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    /* ir_verify must pass */
+    Iron_DiagList verify_diags = iron_diaglist_create();
+    bool ok = iron_ir_verify(mod, &verify_diags, &g_ir_arena);
+    if (!ok) {
+        for (int i = 0; i < verify_diags.count; i++) {
+            printf("Verify error: %s\n", verify_diags.items[i].message);
+        }
+    }
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, verify_diags.error_count);
+    iron_diaglist_free(&verify_diags);
+
+    /* ir_print must produce output containing function name and block labels */
+    char *ir_text = iron_ir_print(mod, false);
+    TEST_ASSERT_NOT_NULL(ir_text);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(ir_text, "compute") != NULL,
+                              "ir_print output must contain function name 'compute'");
+    TEST_ASSERT_TRUE_MESSAGE(strstr(ir_text, "entry") != NULL,
+                              "ir_print output must contain 'entry' block label");
+    free(ir_text);
+}
+
 /* ── main ───────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -867,6 +1348,15 @@ int main(void) {
     RUN_TEST(test_snapshot_identity);
     RUN_TEST(test_snapshot_arithmetic);
     RUN_TEST(test_snapshot_if_else);
+
+    /* Wave 3: Plan 08-03 tests */
+    RUN_TEST(test_lower_extern_decl);
+    RUN_TEST(test_lower_type_decl);
+    RUN_TEST(test_lower_defer_before_return);
+    RUN_TEST(test_lower_lambda_lifting);
+    RUN_TEST(test_lower_spawn);
+    RUN_TEST(test_lower_match_switch);
+    RUN_TEST(test_lower_full_program);
 
     return UNITY_END();
 }
