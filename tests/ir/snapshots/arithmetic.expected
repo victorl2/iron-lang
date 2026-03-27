@@ -1,1 +1,9 @@
-; placeholder -- update after Task 1 produces real IR
+; Module: module
+
+func @add() -> Int {
+entry:
+  %1 = const_int 1 : Int
+  %2 = const_int 2 : Int
+  %3 = add %1, %2 : Int
+  ret %3
+}

@@ -66,9 +66,15 @@ void emit_defers_ir(IronIR_LowerCtx *ctx, int target_depth) {
 void lower_block(IronIR_LowerCtx *ctx, Iron_Block *block) {
     push_defer_scope(ctx);
     for (int i = 0; i < block->stmt_count; i++) {
+        /* Stop lowering once the current block is terminated (e.g. after a return).
+         * current_block == NULL means we're in dead code after a return/jump. */
+        if (!ctx->current_block) break;
         lower_stmt(ctx, block->stmts[i]);
     }
-    emit_defers_ir(ctx, ctx->defer_depth - 1);
+    /* Only emit defers if we still have a live block to emit into */
+    if (ctx->current_block) {
+        emit_defers_ir(ctx, ctx->defer_depth - 1);
+    }
     pop_defer_scope(ctx);
 }
 
@@ -108,19 +114,27 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            /* Build param array — use type_ann since Iron_Param has no declared_type.
+             * Allocate into the ir_arena so the IronIR_Func can safely hold the pointer
+             * after this function returns. (stb_ds dynamic array would be freed below.) */
             IronIR_Param *params = NULL;
-            /* Build param array — use type_ann since Iron_Param has no declared_type */
+            if (fd->param_count > 0) {
+                params = (IronIR_Param *)iron_arena_alloc(ctx->ir_arena,
+                             (size_t)fd->param_count * sizeof(IronIR_Param),
+                             _Alignof(IronIR_Param));
+            }
             for (int p = 0; p < fd->param_count; p++) {
                 Iron_Param *ap = (Iron_Param *)fd->params[p];
                 Iron_Type *pt = resolve_type_from_ann(ap->type_ann);
-                IronIR_Param ip;
-                ip.name = ap->name;
-                ip.type = pt;
-                arrput(params, ip);
+                params[p].name = ap->name;
+                params[p].type = pt;
             }
+            /* Normalize void return type: the IR and verifier use fn->return_type == NULL
+             * to indicate a void function. Pass NULL for VOID-typed return. */
+            Iron_Type *ret_type = fd->resolved_return_type;
+            if (ret_type && ret_type->kind == IRON_TYPE_VOID) ret_type = NULL;
             iron_ir_func_create(ctx->module, fd->name,
-                                 params, fd->param_count, fd->resolved_return_type);
-            arrfree(params);
+                                 params, fd->param_count, ret_type);
         }
     }
 }
@@ -208,21 +222,30 @@ static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
     Iron_Block *body = (Iron_Block *)fd->body;
     push_defer_scope(ctx);
     for (int i = 0; i < body->stmt_count; i++) {
+        if (!ctx->current_block) break;  /* dead code after return */
         lower_stmt(ctx, body->stmts[i]);
     }
-    emit_defers_ir(ctx, ctx->function_scope_depth);
+    if (ctx->current_block) {
+        emit_defers_ir(ctx, ctx->function_scope_depth);
+    }
     pop_defer_scope(ctx);
 
-    /* If current_block is not terminated, emit implicit void return */
-    if (ctx->current_block && ctx->current_block->instr_count > 0) {
-        IronIR_Instr *last = ctx->current_block->instrs[ctx->current_block->instr_count - 1];
-        if (!iron_ir_is_terminator(last->kind)) {
+    /* If current_block is not terminated, emit implicit void return (void functions only).
+     * For non-void functions we don't add an implicit return — the programmer must
+     * provide explicit returns. Leaving the block unterminated means the verifier
+     * will catch the missing terminator. (In practice, all control paths end with
+     * an explicit return in well-typed Iron programs.) */
+    if (fn->return_type == NULL) {
+        if (ctx->current_block && ctx->current_block->instr_count > 0) {
+            IronIR_Instr *last = ctx->current_block->instrs[ctx->current_block->instr_count - 1];
+            if (!iron_ir_is_terminator(last->kind)) {
+                iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
+                               NULL, fd->span);
+            }
+        } else if (ctx->current_block && ctx->current_block->instr_count == 0) {
             iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
                            NULL, fd->span);
         }
-    } else if (ctx->current_block && ctx->current_block->instr_count == 0) {
-        iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
-                       NULL, fd->span);
     }
 }
 
