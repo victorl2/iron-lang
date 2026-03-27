@@ -218,8 +218,8 @@ Plans:
 - [x] 10-01-PLAN.md — Test directory reorganization, shared runner, per-directory CMakeLists.txt with CTest labels
 - [x] 10-02-PLAN.md — IR lowering unit tests (every instruction kind), verifier negative tests (all 6 invariants), IR printer snapshot tests
 - [x] 10-03-PLAN.md — Real algorithm test suite (quicksort, binary search, fibonacci, merge sort, subset sum, BFS/DFS, linked list, matrix multiply, hash map, tokenizer)
-- [ ] 10-04-PLAN.md — Control flow / memory / concurrency / generic edge case integration tests
-- [ ] 10-05-PLAN.md — Real-world composite programs (game loop, CSV parser, concurrent pipeline) and manual raylib test
+- [x] 10-04-PLAN.md — Control flow / memory / concurrency / generic edge case integration tests
+- [x] 10-05-PLAN.md — Real-world composite programs (game loop, CSV parser, concurrent pipeline) and manual raylib test
 
 ### Phase 11: Release Pipeline & Versioning
 **Goal**: CI automatically builds downloadable release binaries for all platforms when a draft GitHub release is created, and `iron --version` outputs version, commit hash, and build date in rustc style
@@ -230,11 +230,11 @@ Plans:
   2. Built binaries are uploaded as release assets and are directly downloadable and executable on each platform
   3. `iron --version` outputs `iron X.Y.Z (abcdef0 2026-MM-DD)` matching the rustc format with the actual commit hash and build date
   4. Commit hash and build date are baked in at compile time via CMake defines, not runtime detection
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 11-01: Version string with commit hash and build date (CMake configure + CLI flag)
-- [ ] 11-02: CI release workflow (GitHub Actions: build matrix, artifact upload on draft release)
+- [ ] 11-01-PLAN.md — Version string with commit hash and build date (CMake defines + CLI print_version)
+- [ ] 11-02-PLAN.md — CI release workflow (GitHub Actions: build matrix, test gate, artifact upload) + install.sh script
 
 ## Progress
 
@@ -252,5 +252,5 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 7. IR Foundation | 2/2 | Complete   | 2026-03-27 | - |
 | 8. AST-to-IR Lowering | 3/3 | Complete   | 2026-03-27 | - |
 | 9. C Emission and Cutover | 2/4 | In Progress|  | - |
-| 10. Test Hardening | 5/5 | Complete   | 2026-03-27 | - |
+| 10. Test Hardening | 5/5 | Complete    | 2026-03-27 | - |
 | 11. Release Pipeline & Versioning | v1.1 | 0/2 | Not started | - |
