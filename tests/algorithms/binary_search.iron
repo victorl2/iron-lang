@@ -1,0 +1,59 @@
+-- binary_search.iron - Iterative binary search on sorted arrays.
+-- Returns the index of target or -1 if not found.
+-- Demonstrates: while loops, array indexing, integer division, conditionals.
+
+func binary_search(arr: [Int], target: Int) -> Int {
+  var low = 0
+  var high = len(arr) - 1
+  var result = -1
+  while low <= high {
+    val mid = (low + high) / 2
+    val midval = arr[mid]
+    if midval == target {
+      result = mid
+      low = high + 1
+    } elif midval < target {
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  return result
+}
+
+func main() {
+  val sorted = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
+
+  -- Test 1: Found at beginning
+  val r1 = binary_search(sorted, 1)
+  println("search 1: found at {r1}")
+
+  -- Test 2: Found in middle
+  val r2 = binary_search(sorted, 11)
+  println("search 11: found at {r2}")
+
+  -- Test 3: Found at end
+  val r3 = binary_search(sorted, 19)
+  println("search 19: found at {r3}")
+
+  -- Test 4: Not found (below range)
+  val r4 = binary_search(sorted, 0)
+  println("search 0: found at {r4}")
+
+  -- Test 5: Not found (above range)
+  val r5 = binary_search(sorted, 20)
+  println("search 20: found at {r5}")
+
+  -- Test 6: Not found (in gap)
+  val r6 = binary_search(sorted, 4)
+  println("search 4: found at {r6}")
+
+  -- Test 7: Single element found
+  val single = [42]
+  val r7 = binary_search(single, 42)
+  println("single 42: found at {r7}")
+
+  -- Test 8: Single element not found
+  val r8 = binary_search(single, 1)
+  println("single 1: found at {r8}")
+}

@@ -1,0 +1,68 @@
+-- subset_sum.iron - Subset sum decision problem using backtracking.
+-- Determines if any subset of the input array sums to the target.
+-- Demonstrates: recursion, array indexing, boolean results, multiple returns.
+
+-- Returns 1 if a subset of arr[idx..n) sums to remaining, 0 otherwise.
+func subset_sum_helper(arr: [Int], idx: Int, remaining: Int) -> Int {
+  if remaining == 0 {
+    return 1
+  }
+  if idx >= len(arr) {
+    return 0
+  }
+  -- Include arr[idx]
+  val include = subset_sum_helper(arr, idx + 1, remaining - arr[idx])
+  if include == 1 {
+    return 1
+  }
+  -- Exclude arr[idx]
+  return subset_sum_helper(arr, idx + 1, remaining)
+}
+
+func subset_sum(arr: [Int], target: Int) -> Int {
+  return subset_sum_helper(arr, 0, target)
+}
+
+-- Count all subsets that sum to target
+func count_subsets_helper(arr: [Int], idx: Int, remaining: Int) -> Int {
+  if remaining == 0 {
+    return 1
+  }
+  if idx >= len(arr) {
+    return 0
+  }
+  val include = count_subsets_helper(arr, idx + 1, remaining - arr[idx])
+  val exclude = count_subsets_helper(arr, idx + 1, remaining)
+  return include + exclude
+}
+
+func count_subsets(arr: [Int], target: Int) -> Int {
+  return count_subsets_helper(arr, 0, target)
+}
+
+func main() {
+  -- Test 1: Basic case, solution exists
+  val arr1 = [3, 1, 4, 1, 5, 9, 2, 6]
+  println("sum=10: {subset_sum(arr1, 10)}")
+  println("sum=15: {subset_sum(arr1, 15)}")
+  println("sum=1: {subset_sum(arr1, 1)}")
+
+  -- Test 2: No solution
+  println("sum=100: {subset_sum(arr1, 100)}")
+  println("sum=0: {subset_sum(arr1, 0)}")
+
+  -- Test 3: Count subsets
+  val arr2 = [1, 2, 3, 4, 5]
+  println("count sum=5: {count_subsets(arr2, 5)}")
+  println("count sum=10: {count_subsets(arr2, 10)}")
+  println("count sum=15: {count_subsets(arr2, 15)}")
+
+  -- Test 4: Single element
+  val arr3 = [7]
+  println("single sum=7: {subset_sum(arr3, 7)}")
+  println("single sum=8: {subset_sum(arr3, 8)}")
+
+  -- Test 5: Empty-like (target 0)
+  val arr4 = [1, 2, 3]
+  println("zero sum: {subset_sum(arr4, 0)}")
+}

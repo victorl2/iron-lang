@@ -5,22 +5,38 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-/* Arena allocator — linear bump allocator with growth via realloc.
+/* Arena allocator — linked-list of fixed-size chunks (bump pointer per chunk).
+ * Never moves existing allocations, so pointers remain valid after growth.
  * All allocations are bump-pointer; no individual frees.
  * iron_arena_free() releases all memory at once.
  */
-typedef struct {
-    uint8_t *base;
+
+#define IRON_ARENA_CHUNK_SIZE (256 * 1024)  /* 256 KB per chunk */
+
+typedef struct Iron_ArenaChunk {
+    struct Iron_ArenaChunk *next;
     size_t   used;
     size_t   capacity;
+    uint8_t  data[1];  /* flexible array — actual size is capacity */
+} Iron_ArenaChunk;
+
+typedef struct {
+    Iron_ArenaChunk *head;   /* current (most recently allocated) chunk */
+    Iron_ArenaChunk *first;  /* first chunk in chain (for free) */
+    size_t   chunk_size;     /* default chunk size for new chunks */
+    /* Legacy fields kept for any code that reads them (treated as 0/capacity of head) */
+    uint8_t *base;      /* points into head->data, or NULL */
+    size_t   used;      /* mirrors head->used */
+    size_t   capacity;  /* mirrors head->capacity */
 } Iron_Arena;
 
 /* Create a new arena with the given initial capacity in bytes. */
 Iron_Arena iron_arena_create(size_t capacity);
 
 /* Allocate `size` bytes with `align` alignment.
- * Grows the arena via realloc if needed (doubles capacity).
- * Returns NULL only if malloc/realloc fails.
+ * Grows the arena by adding a new chunk if needed.
+ * Returns NULL only if malloc fails.
+ * Existing pointers are NEVER invalidated.
  */
 void *iron_arena_alloc(Iron_Arena *a, size_t size, size_t align);
 

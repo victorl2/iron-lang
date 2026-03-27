@@ -1,0 +1,11 @@
+sum=10: 1
+sum=15: 1
+sum=1: 1
+sum=100: 0
+sum=0: 1
+count sum=5: 3
+count sum=10: 3
+count sum=15: 1
+single sum=7: 1
+single sum=8: 0
+zero sum: 1

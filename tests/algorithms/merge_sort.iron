@@ -1,0 +1,95 @@
+-- merge_sort.iron - Merge sort using a pre-allocated output array.
+-- Uses a copy-then-fill-back strategy: copy segment into a scratch array
+-- (created as a fixed-size literal), then merge back into the main array.
+-- Since Iron arrays are value-semantic structs sharing underlying data,
+-- we use swaps to implement an in-place merge.
+-- Demonstrates: arrays, nested loops, index-based mutation.
+
+-- In-place merge of arr[lo..mid) and arr[mid..hi) using insertion-style shifts.
+func inplace_merge(arr: [Int], lo: Int, mid: Int, hi: Int) -> [Int] {
+  var a = arr
+  var i = mid
+  while i < hi {
+    val key = a[i]
+    var j = i - 1
+    -- Shift elements greater than key one position right
+    var done = 0
+    while j >= lo and done == 0 {
+      if a[j] > key {
+        a[j + 1] = a[j]
+        j = j - 1
+      } else {
+        done = 1
+      }
+    }
+    a[j + 1] = key
+    i = i + 1
+  }
+  return a
+}
+
+func merge_sort(arr: [Int]) -> [Int] {
+  val n = len(arr)
+  if n <= 1 {
+    return arr
+  }
+  var a = arr
+  -- Bottom-up merge sort: width starts at 1 and doubles each pass
+  var width = 1
+  while width < n {
+    var lo = 0
+    while lo < n {
+      val mid_raw = lo + width
+      if mid_raw < n {
+        var hi = lo + width + width
+        if hi > n {
+          hi = n
+        }
+        a = inplace_merge(a, lo, mid_raw, hi)
+      }
+      lo = lo + width + width
+    }
+    width = width + width
+  }
+  return a
+}
+
+func print_array(arr: [Int]) {
+  var i = 0
+  while i < len(arr) {
+    println("{arr[i]}")
+    i = i + 1
+  }
+}
+
+func main() {
+  -- Test 1: Random order
+  println("test1:")
+  val arr1 = [5, 3, 8, 1, 9, 2, 7, 4, 6]
+  val s1 = merge_sort(arr1)
+  print_array(s1)
+
+  -- Test 2: Already sorted
+  println("test2:")
+  val arr2 = [1, 2, 3, 4, 5]
+  val s2 = merge_sort(arr2)
+  print_array(s2)
+
+  -- Test 3: Reverse sorted
+  println("test3:")
+  val arr3 = [5, 4, 3, 2, 1]
+  val s3 = merge_sort(arr3)
+  print_array(s3)
+
+  -- Test 4: Single element
+  println("test4:")
+  val arr4 = [42]
+  val s4 = merge_sort(arr4)
+  print_array(s4)
+
+  -- Test 5: Duplicates
+  println("test5:")
+  val arr5 = [3, 1, 3, 1, 3]
+  val s5 = merge_sort(arr5)
+  print_array(s5)
+}
