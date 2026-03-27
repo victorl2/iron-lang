@@ -430,13 +430,6 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             break;
         }
 
-        case IRON_NODE_DRAW: {
-            Iron_DrawBlock *n = (Iron_DrawBlock *)node;
-            iron_strbuf_appendf(ctx->sb, "draw ");
-            if (n->body) print_block(ctx, n->body);
-            break;
-        }
-
         case IRON_NODE_BLOCK: {
             print_block(ctx, node);
             break;
