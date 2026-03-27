@@ -35,7 +35,9 @@ void *iron_arena_alloc(Iron_Arena *a, size_t size, size_t align) {
     }
 
     a->used = new_used;
-    return a->base + aligned;
+    void *ptr = a->base + aligned;
+    memset(ptr, 0, size);
+    return ptr;
 }
 
 char *iron_arena_strdup(Iron_Arena *a, const char *src, size_t len) {
