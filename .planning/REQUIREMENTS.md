@@ -114,19 +114,19 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### Instructions
 
-- [ ] **INSTR-01**: Const instructions for int, float, bool, string, and null literals
-- [ ] **INSTR-02**: Arithmetic instructions (add, sub, mul, div, mod) and comparison instructions (eq, neq, lt, lte, gt, gte)
-- [ ] **INSTR-03**: Unary instructions (negate, not)
-- [ ] **INSTR-04**: Alloca/load/store instructions for mutable variable bindings
-- [ ] **INSTR-05**: Field get/set instructions for object member access
-- [ ] **INSTR-06**: Array index get/set instructions
-- [ ] **INSTR-07**: Object/struct construction instruction
-- [ ] **INSTR-08**: Array literal instruction
-- [ ] **INSTR-09**: Type cast instruction for numeric conversions and IS expressions
-- [ ] **INSTR-10**: Nullable check instructions (is_null/is_not_null) and narrowed access
-- [ ] **INSTR-11**: String interpolation instruction (high-level, opaque to emitter)
-- [ ] **INSTR-12**: Slice expression instruction
-- [ ] **INSTR-13**: Function call instruction for direct, indirect, and method calls
+- [x] **INSTR-01**: Const instructions for int, float, bool, string, and null literals
+- [x] **INSTR-02**: Arithmetic instructions (add, sub, mul, div, mod) and comparison instructions (eq, neq, lt, lte, gt, gte)
+- [x] **INSTR-03**: Unary instructions (negate, not)
+- [x] **INSTR-04**: Alloca/load/store instructions for mutable variable bindings
+- [x] **INSTR-05**: Field get/set instructions for object member access
+- [x] **INSTR-06**: Array index get/set instructions
+- [x] **INSTR-07**: Object/struct construction instruction
+- [x] **INSTR-08**: Array literal instruction
+- [x] **INSTR-09**: Type cast instruction for numeric conversions and IS expressions
+- [x] **INSTR-10**: Nullable check instructions (is_null/is_not_null) and narrowed access
+- [x] **INSTR-11**: String interpolation instruction (high-level, opaque to emitter)
+- [x] **INSTR-12**: Slice expression instruction
+- [x] **INSTR-13**: Function call instruction for direct, indirect, and method calls
 
 ### Control Flow
 
@@ -330,19 +330,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 | IRCORE-02 | Phase 7 | Complete |
 | IRCORE-03 | Phase 7 | Complete |
 | IRCORE-04 | Phase 7 | Complete |
-| INSTR-01 | Phase 8 | Pending |
-| INSTR-02 | Phase 8 | Pending |
-| INSTR-03 | Phase 8 | Pending |
-| INSTR-04 | Phase 8 | Pending |
-| INSTR-05 | Phase 8 | Pending |
-| INSTR-06 | Phase 8 | Pending |
-| INSTR-07 | Phase 8 | Pending |
-| INSTR-08 | Phase 8 | Pending |
-| INSTR-09 | Phase 8 | Pending |
-| INSTR-10 | Phase 8 | Pending |
-| INSTR-11 | Phase 8 | Pending |
-| INSTR-12 | Phase 8 | Pending |
-| INSTR-13 | Phase 8 | Pending |
+| INSTR-01 | Phase 8 | Complete |
+| INSTR-02 | Phase 8 | Complete |
+| INSTR-03 | Phase 8 | Complete |
+| INSTR-04 | Phase 8 | Complete |
+| INSTR-05 | Phase 8 | Complete |
+| INSTR-06 | Phase 8 | Complete |
+| INSTR-07 | Phase 8 | Complete |
+| INSTR-08 | Phase 8 | Complete |
+| INSTR-09 | Phase 8 | Complete |
+| INSTR-10 | Phase 8 | Complete |
+| INSTR-11 | Phase 8 | Complete |
+| INSTR-12 | Phase 8 | Complete |
+| INSTR-13 | Phase 8 | Complete |
 | CTRL-01 | Phase 8 | Pending |
 | CTRL-02 | Phase 8 | Pending |
 | CTRL-03 | Phase 8 | Pending |
