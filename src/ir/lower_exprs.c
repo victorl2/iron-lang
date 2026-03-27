@@ -155,6 +155,21 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             return iron_ir_load(fn, ctx->current_block, slot,
                                 id->resolved_type, span)->id;
         }
+        /* Check global_constants_map (top-level val/comptime declarations).
+         * Lower the init expression lazily in the current function context.
+         * For comptime "hello", init_node is a STRING_LIT after comptime eval.
+         * Cache in val_binding_map so subsequent references don't re-lower. */
+        {
+            int gidx = shgeti(ctx->global_constants_map, id->name);
+            if (gidx >= 0) {
+                Iron_Node *init_node = ctx->global_constants_map[gidx].value;
+                /* Lower the init expression in the current function context */
+                IronIR_ValueId val = lower_expr(ctx, init_node);
+                /* Cache in val_binding_map for subsequent references */
+                shput(ctx->val_binding_map, id->name, val);
+                return val;
+            }
+        }
         /* Unresolved identifier */
         char msg[256];
         snprintf(msg, sizeof(msg), "unresolved identifier '%s' during IR lowering", id->name);
