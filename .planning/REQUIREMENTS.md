@@ -180,6 +180,13 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 - [ ] **THARD-09**: Real-world composite programs — a mini game loop (raylib), a CLI tool (file processing), a concurrent data pipeline — each exercising multiple language features together
 - [ ] **THARD-10**: IR printer snapshot tests — printed IR for representative programs is captured and diffed against expected output to catch IR regressions
 
+### Release & Versioning
+
+- [ ] **REL-01**: CI builds release binaries for macOS (arm64, x86_64), Linux (x86_64), and Windows (x86_64) when a draft GitHub release is created
+- [ ] **REL-02**: Release binaries are uploaded as downloadable assets on the GitHub release page (ready-to-use iron binary)
+- [ ] **REL-03**: `iron --version` outputs version string with commit hash and build date in rustc format (e.g., `iron 0.1.1 (abc1234 2026-03-27)`)
+- [ ] **REL-04**: Build date and commit hash are baked in at compile time via CMake configure or build flags
+
 ## Future Requirements
 
 Deferred to future milestones. Tracked but not in current roadmap.
@@ -367,11 +374,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | THARD-08 | Phase 10 | Pending |
 | THARD-09 | Phase 10 | Pending |
 | THARD-10 | Phase 10 | Pending |
+| REL-01 | Phase 11 | Pending |
+| REL-02 | Phase 11 | Pending |
+| REL-03 | Phase 11 | Pending |
+| REL-04 | Phase 11 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 52 total -- all Complete
-- v1.1 requirements: 48 total
-- Mapped to phases: 48/48
+- v1.1 requirements: 52 total
+- Mapped to phases: 52/52
 - Unmapped: 0
 
 ---
