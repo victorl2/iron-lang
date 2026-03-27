@@ -131,7 +131,7 @@ Plans:
   1. `range(10)` is a recognized builtin: registered in resolve.c, implemented in iron_builtins.c, callable from Iron source
   2. `Timer.create()`, `Timer.since()`, `Timer.reset()` are callable from Iron source via time.iron wrapper
   3. `iron check file_with_import_math.iron` succeeds (check.c prepends stdlib .iron files like build.c)
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 06-01-PLAN.md — range builtin (RT-07) + Timer wrappers (STD-03)
@@ -149,4 +149,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Runtime, Stdlib, and CLI | 8/8 | Complete    | 2026-03-26 |
 | 4. Comptime, Game Dev, and Cross-Platform | 6/6 | Complete    | 2026-03-26 |
 | 5. Codegen Fixes + Stdlib Wiring | 5/5 | Complete   | 2026-03-26 |
-| 6. Milestone Gap Closure | 0/2 | In Progress    |  |
+| 6. Milestone Gap Closure | 1/2 | In Progress|  |
