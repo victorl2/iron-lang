@@ -1,1 +1,9 @@
-; placeholder -- update after Task 1 produces real IR
+; Module: module
+
+func @identity(x: Int) -> Int {
+entry:
+  %2 = alloca Int
+  store %2, %1
+  %3 = load %2 : Int
+  ret %3
+}

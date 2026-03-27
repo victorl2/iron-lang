@@ -369,6 +369,11 @@ static void verify_func(const IronIR_Func *fn, const IronIR_Module *module,
                 if (op != IRON_IR_VALUE_INVALID &&
                     ((ptrdiff_t)op >= arrlen(fn->value_table) ||
                      fn->value_table[op] == NULL)) {
+                    /* Synthetic param ValueIds (1..param_count) are intentionally
+                     * NULL in value_table — they represent incoming argument values
+                     * that have no backing instruction. Skip the use-before-def check
+                     * for these. Any ValueId beyond param_count that is NULL IS an error. */
+                    if ((int)op >= 1 && (int)op <= fn->param_count) continue;
                     char msg[256];
                     snprintf(msg, sizeof(msg), "use of undefined value %%%u", op);
                     iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
