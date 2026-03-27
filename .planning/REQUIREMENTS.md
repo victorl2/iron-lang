@@ -158,7 +158,7 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### Emission
 
-- [ ] **EMIT-01**: C emission backend that consumes IrModule and produces equivalent C to old codegen
+- [x] **EMIT-01**: C emission backend that consumes IrModule and produces equivalent C to old codegen
 - [ ] **EMIT-02**: All existing integration tests pass through the new AST->IR->C pipeline
 - [ ] **EMIT-03**: Old AST->C codegen fully removed after parity verification
 
@@ -359,7 +359,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MOD-02 | Phase 8 | Complete |
 | MOD-03 | Phase 8 | Complete |
 | MOD-04 | Phase 8 | Complete |
-| EMIT-01 | Phase 9 | Pending |
+| EMIT-01 | Phase 9 | Complete |
 | EMIT-02 | Phase 9 | Pending |
 | EMIT-03 | Phase 9 | Pending |
 | TOOL-01 | Phase 7 | Complete |
