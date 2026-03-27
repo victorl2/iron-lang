@@ -183,10 +183,14 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             /* Jump from current block to header */
             iron_ir_jump(fn, ctx->current_block, header->id, span);
 
-            /* Header: lower condition, branch to body or exit */
+            /* Header: lower condition, branch to body or exit.
+             * NOTE: lower_expr may switch ctx->current_block (e.g. for `and`/`or`
+             * short-circuit expressions that emit multiple basic blocks).  The
+             * branch must be appended to ctx->current_block — the merge block at
+             * the end of the condition evaluation — not to `header`. */
             switch_block(ctx, header);
             IronIR_ValueId cond_val = lower_expr(ctx, ws->condition);
-            iron_ir_branch(fn, header, cond_val, body->id, exit->id, span);
+            iron_ir_branch(fn, ctx->current_block, cond_val, body->id, exit->id, span);
 
             /* Save outer loop context */
             IronIR_Block *old_exit     = ctx->loop_exit_block;
@@ -221,13 +225,17 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             if (fs->is_parallel) {
                 /* Parallel for: defer to Plan 08-03 lifting pass.
                  * Push a LiftPending descriptor and emit IRON_IR_PARALLEL_FOR. */
-                char chunk_name[128];
-                snprintf(chunk_name, sizeof(chunk_name),
+                char chunk_name_tmp[128];
+                snprintf(chunk_name_tmp, sizeof(chunk_name_tmp),
                          "__pfor_%d", ctx->module->parallel_counter++);
+                /* Arena-dup the name FIRST so the pointer survives past this frame */
+                const char *chunk_name = iron_arena_strdup(ctx->ir_arena,
+                                                            chunk_name_tmp,
+                                                            strlen(chunk_name_tmp));
                 LiftPending lp;
                 lp.kind          = LIFT_PARALLEL_FOR;
                 lp.ast_node      = node;
-                lp.lifted_name   = iron_arena_strdup(ctx->ir_arena, chunk_name, strlen(chunk_name));
+                lp.lifted_name   = chunk_name;
                 lp.enclosing_func = ctx->current_func_name;
                 arrput(ctx->pending_lifts, lp);
 

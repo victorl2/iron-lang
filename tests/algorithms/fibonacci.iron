@@ -1,0 +1,58 @@
+-- fibonacci.iron - Fibonacci sequence using iterative and recursive approaches.
+-- Demonstrates: loops, recursion, integer arithmetic, conditionals.
+
+func fib_recursive(n: Int) -> Int {
+  if n <= 1 {
+    return n
+  }
+  return fib_recursive(n - 1) + fib_recursive(n - 2)
+}
+
+func fib_iterative(n: Int) -> Int {
+  if n <= 1 {
+    return n
+  }
+  var a = 0
+  var b = 1
+  var i = 2
+  while i <= n {
+    val c = a + b
+    a = b
+    b = c
+    i = i + 1
+  }
+  return b
+}
+
+func print_recursive() {
+  println("recursive:")
+  var i = 0
+  while i < 10 {
+    val f = fib_recursive(i)
+    println("{f}")
+    i = i + 1
+  }
+}
+
+func print_iterative() {
+  println("iterative:")
+  var i = 0
+  while i < 10 {
+    val f = fib_iterative(i)
+    println("{f}")
+    i = i + 1
+  }
+}
+
+func main() {
+  print_recursive()
+  print_iterative()
+  println("large:")
+  println("{fib_iterative(20)}")
+  println("{fib_iterative(30)}")
+  println("edges:")
+  println("{fib_recursive(0)}")
+  println("{fib_recursive(1)}")
+  println("{fib_iterative(0)}")
+  println("{fib_iterative(1)}")
+}
