@@ -1,0 +1,31 @@
+; Module: module
+
+func @main() -> Void {
+entry:
+  %1 = alloca Int
+  %2 = const_int 10 : Int
+  store %1, %2
+  %3 = load %1 : Int
+  %4 = const_int 5 : Int
+  %5 = gt %3, %4 : Bool
+  branch %5, if_then, if_else
+if_merge:
+  jump while_header
+if_then:
+  jump if_merge
+if_else:
+  jump if_merge
+while_header:
+  %6 = load %1 : Int
+  %7 = const_int 0 : Int
+  %8 = gt %6, %7 : Bool
+  branch %8, while_body, while_exit
+while_body:
+  %9 = load %1 : Int
+  %10 = const_int 1 : Int
+  %11 = sub %9, %10 : Int
+  store %1, %11
+  jump while_header
+while_exit:
+  ret void
+}

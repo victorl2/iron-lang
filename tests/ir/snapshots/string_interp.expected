@@ -1,0 +1,9 @@
+; Module: module
+
+func @main() -> Void {
+entry:
+  %1 = const_int 42 : Int
+  %2 = const_string "age is " : String
+  %3 = interp_string [%2, %1] : String
+  ret void
+}

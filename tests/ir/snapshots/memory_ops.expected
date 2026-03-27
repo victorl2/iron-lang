@@ -1,0 +1,17 @@
+; Module: module
+
+func @main() -> Void {
+entry:
+  %1 = alloca Int
+  %2 = const_int 0 : Int
+  store %1, %2
+  %3 = load %1 : Int
+  %4 = const_int 1 : Int
+  %5 = add %3, %4 : Int
+  store %1, %5
+  %6 = load %1 : Int
+  %7 = const_int 1 : Int
+  %8 = add %6, %7 : Int
+  store %1, %8
+  ret void
+}
