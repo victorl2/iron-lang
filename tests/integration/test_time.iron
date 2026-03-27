@@ -2,5 +2,7 @@ import time
 
 func main() {
   val ms = Time.now_ms()
+  val t = Timer.create()
+  val elapsed = Timer.since(t)
   println("time works")
 }
