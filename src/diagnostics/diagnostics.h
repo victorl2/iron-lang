@@ -131,4 +131,10 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_IR_NO_ENTRY_BLOCK         304
 #define IRON_ERR_IR_RETURN_TYPE_MISMATCH   305
 
+/* Lowering error codes (400 range) */
+#define IRON_ERR_LOWER_UNSUPPORTED         400
+#define IRON_ERR_LOWER_UNRESOLVED_IDENT    401
+#define IRON_ERR_LOWER_INVALID_ASSIGN      402
+#define IRON_ERR_LOWER_INVALID_MATCH       403
+
 #endif /* IRON_DIAGNOSTICS_H */
