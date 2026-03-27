@@ -5,11 +5,11 @@ milestone_name: High IR
 status: ready_to_plan
 stopped_at: "Roadmap created, ready to plan Phase 7"
 last_updated: "2026-03-26"
-last_activity: "2026-03-27 — Roadmap updated for v1.1 (4 phases, 48 requirements)"
+last_activity: "2026-03-27 — Roadmap finalized for v1.1 (5 phases, 52 requirements)"
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 0
-  total_plans: 10
+  total_plans: 12
   completed_plans: 0
   percent: 0
 ---
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-27)
 
 ## Current Position
 
-Phase: 7 of 10 (IR Foundation)
+Phase: 7 of 11 (IR Foundation)
 Plan: 0 of 2 in current phase
 Status: Ready to plan
-Last activity: 2026-03-27 — Roadmap updated for v1.1 (added Phase 10: Test Hardening)
+Last activity: 2026-03-27 — Roadmap finalized for v1.1 (5 phases, 52 requirements)
 
 Progress: [..........] 0%
 
