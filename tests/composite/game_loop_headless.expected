@@ -1,0 +1,9 @@
+game start
+frame 1: pos=(1.5,0.5) score=10 lives=3
+frame 2: pos=(3,1) score=20 lives=3
+frame 3: pos=(4.5,1.5) score=30 lives=3
+frame 4: pos=(6,2) score=40 lives=3
+frame 5: pos=(4.5,2.5) score=50 lives=3
+game over
+final score: 50
+total frames: 5

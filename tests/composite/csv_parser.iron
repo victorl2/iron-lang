@@ -1,0 +1,90 @@
+-- csv_parser.iron: CSV data analysis tool
+-- Models a CSV parser that computes column statistics for tabular data.
+-- Data source: csv_parser_data.csv (name,age,score format; 5 records)
+-- Tests: arrays, for loops, range, conditionals, integer arithmetic,
+--        string interpolation, min/max/sum/avg computations.
+
+-- CSV data (pre-parsed from csv_parser_data.csv):
+--   name,age,score
+--   Alice,25,85
+--   Bob,30,92
+--   Charlie,22,78
+--   Diana,28,95
+--   Eve,35,88
+
+func compute_sum(data: [Int], n: Int) -> Int {
+  var total = 0
+  for i in range(n) {
+    total = total + data[i]
+  }
+  return total
+}
+
+func compute_min(data: [Int], n: Int) -> Int {
+  var min_val = data[0]
+  for i in range(n) {
+    if data[i] < min_val {
+      min_val = data[i]
+    }
+  }
+  return min_val
+}
+
+func compute_max(data: [Int], n: Int) -> Int {
+  var max_val = data[0]
+  for i in range(n) {
+    if data[i] > max_val {
+      max_val = data[i]
+    }
+  }
+  return max_val
+}
+
+func count_above_threshold(data: [Int], n: Int, threshold: Int) -> Int {
+  var count = 0
+  for i in range(n) {
+    if data[i] > threshold {
+      count = count + 1
+    }
+  }
+  return count
+}
+
+func main() {
+  -- Pre-parsed arrays from CSV data
+  val ages   = [25, 30, 22, 28, 35]
+  val scores = [85, 92, 78, 95, 88]
+  val count  = 5
+
+  println("csv_parser: analyzing {count} records")
+
+  -- Age statistics
+  val age_sum = compute_sum(ages, count)
+  val age_avg = age_sum / count
+  val age_min = compute_min(ages, count)
+  val age_max = compute_max(ages, count)
+
+  println("age sum: {age_sum}")
+  println("age avg: {age_avg}")
+  println("age range: {age_min}-{age_max}")
+
+  -- Score statistics
+  val score_sum = compute_sum(scores, count)
+  val score_avg = score_sum / count
+  val score_min = compute_min(scores, count)
+  val score_max = compute_max(scores, count)
+
+  println("score sum: {score_sum}")
+  println("score avg: {score_avg}")
+  println("score range: {score_min}-{score_max}")
+
+  -- Filtered statistics: scores above passing threshold (80)
+  val passing = count_above_threshold(scores, count, 80)
+  println("passing (>80): {passing}")
+
+  -- Compute pass rate (integer percent)
+  val pass_rate = passing * 100 / count
+  println("pass rate: {pass_rate}%")
+
+  println("done")
+}
