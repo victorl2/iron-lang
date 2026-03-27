@@ -11,10 +11,159 @@
  */
 
 #include "ir/lower_internal.h"
-#include "codegen/codegen.h"  /* for collect_captures */
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+
+/* ── collect_captures (local copy, no codegen dependency) ─────────────────── */
+
+/* Collect identifiers used in the body that are NOT in the param list.
+ * These are potential captures from the enclosing scope.
+ * Returns an stb_ds array of const char* names (caller must arrfree). */
+static const char **collect_captures(Iron_Node *body, Iron_Node **params,
+                                      int param_count) {
+    const char **captures = NULL;
+
+    if (!body) return NULL;
+
+    /* Simple DFS without the full visitor mechanism */
+    Iron_Node **stack = NULL;
+    arrput(stack, body);
+
+    while (arrlen(stack) > 0) {
+        Iron_Node *node = stack[arrlen(stack) - 1];
+        arrsetlen(stack, arrlen(stack) - 1);
+
+        if (!node) continue;
+
+        if (node->kind == IRON_NODE_IDENT) {
+            Iron_Ident *id = (Iron_Ident *)node;
+            /* Skip "self" and "super" */
+            if (strcmp(id->name, "self") == 0 ||
+                strcmp(id->name, "super") == 0) {
+                continue;
+            }
+            /* Skip if it's a param name */
+            bool is_param = false;
+            for (int i = 0; i < param_count; i++) {
+                Iron_Param *p = (Iron_Param *)params[i];
+                if (strcmp(p->name, id->name) == 0) {
+                    is_param = true;
+                    break;
+                }
+            }
+            if (is_param) continue;
+            /* Check if already in captures list */
+            bool already = false;
+            for (int i = 0; i < (int)arrlen(captures); i++) {
+                if (strcmp(captures[i], id->name) == 0) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) {
+                arrput(captures, id->name);
+            }
+            continue;
+        }
+
+        /* Push children based on node kind */
+        switch (node->kind) {
+            case IRON_NODE_BLOCK: {
+                Iron_Block *blk = (Iron_Block *)node;
+                for (int i = 0; i < blk->stmt_count; i++) {
+                    arrput(stack, blk->stmts[i]);
+                }
+                break;
+            }
+            case IRON_NODE_VAL_DECL: {
+                Iron_ValDecl *vd = (Iron_ValDecl *)node;
+                if (vd->init) arrput(stack, vd->init);
+                break;
+            }
+            case IRON_NODE_VAR_DECL: {
+                Iron_VarDecl *vd = (Iron_VarDecl *)node;
+                if (vd->init) arrput(stack, vd->init);
+                break;
+            }
+            case IRON_NODE_ASSIGN: {
+                Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+                arrput(stack, as->target);
+                arrput(stack, as->value);
+                break;
+            }
+            case IRON_NODE_RETURN: {
+                Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
+                if (rs->value) arrput(stack, rs->value);
+                break;
+            }
+            case IRON_NODE_BINARY: {
+                Iron_BinaryExpr *bin = (Iron_BinaryExpr *)node;
+                arrput(stack, bin->left);
+                arrput(stack, bin->right);
+                break;
+            }
+            case IRON_NODE_UNARY: {
+                Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
+                arrput(stack, un->operand);
+                break;
+            }
+            case IRON_NODE_CALL: {
+                Iron_CallExpr *ce = (Iron_CallExpr *)node;
+                arrput(stack, ce->callee);
+                for (int i = 0; i < ce->arg_count; i++) {
+                    arrput(stack, ce->args[i]);
+                }
+                break;
+            }
+            case IRON_NODE_IF: {
+                Iron_IfStmt *is = (Iron_IfStmt *)node;
+                arrput(stack, is->condition);
+                arrput(stack, is->body);
+                if (is->else_body) arrput(stack, is->else_body);
+                break;
+            }
+            case IRON_NODE_INDEX: {
+                Iron_IndexExpr *idx = (Iron_IndexExpr *)node;
+                arrput(stack, idx->object);
+                arrput(stack, idx->index);
+                break;
+            }
+            case IRON_NODE_FIELD_ACCESS: {
+                Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+                arrput(stack, fa->object);
+                break;
+            }
+            case IRON_NODE_METHOD_CALL: {
+                Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+                arrput(stack, mc->object);
+                for (int i = 0; i < mc->arg_count; i++) {
+                    arrput(stack, mc->args[i]);
+                }
+                break;
+            }
+            case IRON_NODE_FOR: {
+                Iron_ForStmt *fs2 = (Iron_ForStmt *)node;
+                arrput(stack, fs2->iterable);
+                if (fs2->body) arrput(stack, fs2->body);
+                break;
+            }
+            case IRON_NODE_WHILE: {
+                Iron_WhileStmt *ws2 = (Iron_WhileStmt *)node;
+                arrput(stack, ws2->condition);
+                if (ws2->body) arrput(stack, ws2->body);
+                break;
+            }
+            default:
+                /* Skip other nodes for capture detection */
+                break;
+        }
+    }
+
+    arrfree(stack);
+    return captures;
+}
 
 /* ── Resolve type annotation to Iron_Type* ───────────────────────────────── */
 /* Shared implementation — mirrors the version in lower.c.

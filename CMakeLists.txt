@@ -58,10 +58,6 @@ add_library(iron_compiler STATIC
     src/analyzer/concurrency.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
-    src/codegen/codegen.c
-    src/codegen/gen_types.c
-    src/codegen/gen_stmts.c
-    src/codegen/gen_exprs.c
     src/ir/ir.c
     src/ir/lower.c
     src/ir/lower_types.c
@@ -125,25 +121,9 @@ add_executable(test_concurrency tests/test_concurrency.c)
 target_link_libraries(test_concurrency iron_compiler unity)
 add_test(NAME test_concurrency COMMAND test_concurrency)
 
-add_executable(test_codegen tests/test_codegen.c)
-target_link_libraries(test_codegen iron_compiler unity)
-add_test(NAME test_codegen COMMAND test_codegen)
-
-add_executable(test_interp_codegen tests/test_interp_codegen.c)
-target_link_libraries(test_interp_codegen iron_compiler unity)
-add_test(NAME test_interp_codegen COMMAND test_interp_codegen)
-
-add_executable(test_parallel_codegen tests/test_parallel_codegen.c)
-target_link_libraries(test_parallel_codegen iron_compiler unity)
-add_test(NAME test_parallel_codegen COMMAND test_parallel_codegen)
-
 add_executable(test_comptime tests/test_comptime.c)
 target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)
-
-add_executable(test_pipeline tests/test_pipeline.c)
-target_link_libraries(test_pipeline iron_compiler unity)
-add_test(NAME test_pipeline COMMAND test_pipeline)
 
 add_executable(test_runtime_string tests/test_runtime_string.c)
 target_link_libraries(test_runtime_string iron_runtime unity)
