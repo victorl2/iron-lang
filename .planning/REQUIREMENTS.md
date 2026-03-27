@@ -144,17 +144,17 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### Concurrency
 
-- [ ] **CONC-01**: Lambda/closure lifting to top-level IrFunction with environment struct
-- [ ] **CONC-02**: Spawn statement lifting to top-level IrFunction with pool submission
-- [ ] **CONC-03**: Parallel-for lowering with chunk function lifting and capture analysis
-- [ ] **CONC-04**: Await instruction for blocking on spawned tasks
+- [x] **CONC-01**: Lambda/closure lifting to top-level IrFunction with environment struct
+- [x] **CONC-02**: Spawn statement lifting to top-level IrFunction with pool submission
+- [x] **CONC-03**: Parallel-for lowering with chunk function lifting and capture analysis
+- [x] **CONC-04**: Await instruction for blocking on spawned tasks
 
 ### Module
 
-- [ ] **MOD-01**: Module-level type declarations (objects, enums, interfaces) with correct vtable ordering
-- [ ] **MOD-02**: Extern function declarations with C-level names
-- [ ] **MOD-03**: Monomorphization registry on IrModule for generic type deduplication
-- [ ] **MOD-04**: IRON_NODE_DRAW removed from parser; draw functionality moved to raylib.draw() module function
+- [x] **MOD-01**: Module-level type declarations (objects, enums, interfaces) with correct vtable ordering
+- [x] **MOD-02**: Extern function declarations with C-level names
+- [x] **MOD-03**: Monomorphization registry on IrModule for generic type deduplication
+- [x] **MOD-04**: IRON_NODE_DRAW removed from parser; draw functionality moved to raylib.draw() module function
 
 ### Emission
 
@@ -351,14 +351,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MEM-02 | Phase 8 | Complete |
 | MEM-03 | Phase 8 | Complete |
 | MEM-04 | Phase 8 | Complete |
-| CONC-01 | Phase 8 | Pending |
-| CONC-02 | Phase 8 | Pending |
-| CONC-03 | Phase 8 | Pending |
-| CONC-04 | Phase 8 | Pending |
-| MOD-01 | Phase 8 | Pending |
-| MOD-02 | Phase 8 | Pending |
-| MOD-03 | Phase 8 | Pending |
-| MOD-04 | Phase 8 | Pending |
+| CONC-01 | Phase 8 | Complete |
+| CONC-02 | Phase 8 | Complete |
+| CONC-03 | Phase 8 | Complete |
+| CONC-04 | Phase 8 | Complete |
+| MOD-01 | Phase 8 | Complete |
+| MOD-02 | Phase 8 | Complete |
+| MOD-03 | Phase 8 | Complete |
+| MOD-04 | Phase 8 | Complete |
 | EMIT-01 | Phase 9 | Pending |
 | EMIT-02 | Phase 9 | Pending |
 | EMIT-03 | Phase 9 | Pending |

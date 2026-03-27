@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: "Completed 08-02: Statement lowering pass"
-last_updated: "2026-03-27T15:08:39.969Z"
+stopped_at: "Completed 08-03: Module-level lowering, draw removal, and lifting"
+last_updated: "2026-03-27T15:27:24.499Z"
 last_activity: "2026-03-27 — Completed 07-01: IR data structure scaffold"
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 10
 ---
 
@@ -47,6 +47,7 @@ Progress: [#.........] 10%
 | Phase 07-ir-foundation P02 | 14 | 3 tasks | 7 files |
 | Phase 08-ast-to-ir-lowering P01 | 11 | 4 tasks | 11 files |
 | Phase 08-ast-to-ir-lowering P02 | 13 | 2 tasks | 8 files |
+| Phase 08-ast-to-ir-lowering P03 | 45 | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Recent decisions affecting current work:
 - [Phase 08-ast-to-ir-lowering]: ctx->current_block = NULL after return for dead code suppression — avoids unterminated dead blocks that fail verifier
 - [Phase 08-ast-to-ir-lowering]: IRON_TYPE_VOID return normalizes to NULL fn->return_type in lower_module_decls — aligns with verifier convention
 - [Phase 08-ast-to-ir-lowering]: Arena-allocated params array in lower_module_decls — fixes use-after-free from stb_ds arrfree
+- [Phase 08-ast-to-ir-lowering]: draw keyword removed from lexer entirely — becomes plain identifier enabling raylib.draw() naturally
+- [Phase 08-ast-to-ir-lowering]: lower_types.c implements both Pass 1 and post-pass lifting; mono_registry populated lazily in Phase 9
+- [Phase 08-ast-to-ir-lowering]: IR verifier skips is_extern=true functions — no structural verification needed for extern declarations
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -93,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T15:08:39.967Z
-Stopped at: Completed 08-02: Statement lowering pass
+Last session: 2026-03-27T15:27:24.496Z
+Stopped at: Completed 08-03: Module-level lowering, draw removal, and lifting
 Resume file: None

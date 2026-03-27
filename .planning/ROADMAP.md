@@ -179,7 +179,7 @@ Plans:
   3. An Iron program using heap allocation (auto_free and explicit), rc, defer with multiple exit points, and explicit free lowers correctly; defer is eagerly inlined at every exit point in the IR (no deferred IR instruction exists); auto_free produces explicit IrFree instructions
   4. An Iron program using lambdas, spawn, await, and parallel-for lowers correctly; lambdas and spawn bodies are lifted to top-level IrFunctions with environment structs; parallel-for chunk functions are lifted with captured variables
   5. Module-level type declarations (objects, enums, interfaces) produce correct vtable ordering; extern functions declare with C-level names; generic types are deduplicated through the monomorphization registry; IRON_NODE_DRAW removed from parser (draw becomes raylib.draw lambda)
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 08-01-PLAN.md — Lowering infrastructure (POISON, LowerCtx, two-pass orchestration) and expression lowering (constants, arithmetic, comparisons, unary, calls, field/index, object/array, cast, nullable, string interpolation, slice, short-circuit and/or)
@@ -246,7 +246,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 5. Codegen Fixes + Stdlib Wiring | v1.0 | 5/5 | Complete | 2026-03-26 |
 | 6. Milestone Gap Closure | v1.0 | 2/2 | Complete | 2026-03-27 |
 | 7. IR Foundation | 2/2 | Complete   | 2026-03-27 | - |
-| 8. AST-to-IR Lowering | 2/3 | In Progress|  | - |
+| 8. AST-to-IR Lowering | 3/3 | Complete   | 2026-03-27 | - |
 | 9. C Emission and Cutover | v1.1 | 0/2 | Not started | - |
 | 10. Test Hardening | v1.1 | 0/3 | Not started | - |
 | 11. Release Pipeline & Versioning | v1.1 | 0/2 | Not started | - |
