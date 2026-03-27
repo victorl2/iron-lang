@@ -1,0 +1,91 @@
+-- quicksort.iron - Quicksort using return-value chaining.
+-- Iron arrays are passed by value, so each level returns the sorted copy.
+-- Demonstrates: arrays, recursion, index-based mutation, range loops.
+
+func swap_at(arr: [Int], i: Int, j: Int) -> [Int] {
+  var a = arr
+  val tmp = a[i]
+  a[i] = a[j]
+  a[j] = tmp
+  return a
+}
+
+-- Partition around arr[high], return (partitioned array, pivot index).
+-- Uses a flat object to return two values.
+object PartResult {
+  var arr: [Int]
+  var pi:  Int
+}
+
+func partition(arr: [Int], low: Int, high: Int) -> PartResult {
+  val pivot = arr[high]
+  var a = arr
+  var i = low
+  for j_off in range(high - low) {
+    val j = low + j_off
+    if a[j] <= pivot {
+      a = swap_at(a, i, j)
+      i = i + 1
+    }
+  }
+  a = swap_at(a, i, high)
+  return PartResult(a, i)
+}
+
+func qs_sort(arr: [Int], low: Int, high: Int) -> [Int] {
+  if low >= high {
+    return arr
+  }
+  val res = partition(arr, low, high)
+  var a = res.arr
+  val pi = res.pi
+  a = qs_sort(a, low, pi - 1)
+  a = qs_sort(a, pi + 1, high)
+  return a
+}
+
+func print_array(arr: [Int]) {
+  for x in arr {
+    println("{x}")
+  }
+}
+
+func quicksort(arr: [Int]) -> [Int] {
+  val n = len(arr)
+  if n <= 1 {
+    return arr
+  }
+  return qs_sort(arr, 0, n - 1)
+}
+
+func main() {
+  -- Test 1: Normal array
+  println("test1:")
+  val arr1 = [5, 3, 8, 1, 9, 2, 7, 4, 6]
+  val s1 = quicksort(arr1)
+  print_array(s1)
+
+  -- Test 2: Already sorted
+  println("test2:")
+  val arr2 = [1, 2, 3, 4, 5]
+  val s2 = quicksort(arr2)
+  print_array(s2)
+
+  -- Test 3: Reverse sorted
+  println("test3:")
+  val arr3 = [5, 4, 3, 2, 1]
+  val s3 = quicksort(arr3)
+  print_array(s3)
+
+  -- Test 4: Single element
+  println("test4:")
+  val arr4 = [42]
+  val s4 = quicksort(arr4)
+  print_array(s4)
+
+  -- Test 5: Duplicates
+  println("test5:")
+  val arr5 = [3, 1, 3, 1, 3]
+  val s5 = quicksort(arr5)
+  print_array(s5)
+}
