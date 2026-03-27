@@ -388,7 +388,8 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 if (mc->body) {
                     lower_block(ctx, (Iron_Block *)mc->body);
                 }
-                if (!block_is_terminated(ctx->current_block)) {
+                /* ctx->current_block may be NULL after a return in the arm body */
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
                     iron_ir_jump(fn, ctx->current_block, join_block->id, span);
                 }
             }
@@ -397,7 +398,8 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
             if (ms->else_body) {
                 switch_block(ctx, default_block);
                 lower_block(ctx, (Iron_Block *)ms->else_body);
-                if (!block_is_terminated(ctx->current_block)) {
+                /* ctx->current_block may be NULL after a return in the else body */
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
                     iron_ir_jump(fn, ctx->current_block, join_block->id, span);
                 }
             }
