@@ -208,6 +208,33 @@ void test_verify_multiple_errors(void) {
     iron_arena_free(&ir_arena);
 }
 
+void test_verify_return_type_mismatch(void) {
+    Iron_Arena ir_arena = iron_arena_create(4096);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    /* Function declared to return Int */
+    IronIR_Func *fn = iron_ir_func_create(mod, "fn", NULL, 0, int_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    Iron_Span span = zero_span();
+
+    /* Return a Bool value from an Int function -- type mismatch */
+    IronIR_Instr *b = iron_ir_const_bool(fn, entry, true, bool_type, span);
+    iron_ir_return(fn, entry, b->id, false, bool_type, span);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    bool result = iron_ir_verify(mod, &diags, &ir_arena);
+
+    TEST_ASSERT_FALSE(result);
+    TEST_ASSERT_TRUE(has_error(&diags, IRON_ERR_IR_RETURN_TYPE_MISMATCH));
+
+    iron_diaglist_free(&diags);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -220,6 +247,7 @@ int main(void) {
     RUN_TEST(test_verify_instr_after_terminator);
     RUN_TEST(test_verify_no_entry_block);
     RUN_TEST(test_verify_multiple_errors);
+    RUN_TEST(test_verify_return_type_mismatch);
 
     return UNITY_END();
 }

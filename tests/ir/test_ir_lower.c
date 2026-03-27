@@ -1326,6 +1326,1271 @@ void test_lower_full_program(void) {
     free(ir_text);
 }
 
+/* ── Wave 4: Instruction-kind coverage tests (Plan 10-02) ──────────────── */
+
+/* Helper: return true if any instruction in fn has the given kind. */
+static bool has_instr_kind(IronIR_Func *fn, IronIR_InstrKind kind) {
+    for (int b = 0; b < fn->block_count; b++) {
+        IronIR_Block *blk = fn->blocks[b];
+        for (int i = 0; i < blk->instr_count; i++) {
+            if (blk->instrs[i]->kind == kind) return true;
+        }
+    }
+    return false;
+}
+
+/* ── test_lower_const_int ─────────────────────────────────────────────────
+ * fn f() -> Int { return 42 } — explicit named test for CONST_INT. */
+void test_lower_const_int(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_const_int", int_type);
+
+    Iron_Node *ret = make_return(&g_ir_arena, make_int(&g_ir_arena, "42"));
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_CONST_INT));
+}
+
+/* ── test_lower_const_float ───────────────────────────────────────────────
+ * fn f() -> Float { return 3.14 } */
+void test_lower_const_float(void) {
+    Iron_Type *float_type = iron_type_make_primitive(IRON_TYPE_FLOAT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_const_float", float_type);
+
+    Iron_FloatLit *lit = ARENA_ALLOC(&g_ir_arena, Iron_FloatLit);
+    memset(lit, 0, sizeof(*lit));
+    lit->span = test_span();
+    lit->kind = IRON_NODE_FLOAT_LIT;
+    lit->value = "3.14";
+    lit->resolved_type = float_type;
+
+    Iron_Node *ret = make_return(&g_ir_arena, (Iron_Node *)lit);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_CONST_FLOAT));
+}
+
+/* ── test_lower_const_bool ────────────────────────────────────────────────
+ * fn f() -> Bool { return true } */
+void test_lower_const_bool(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_const_bool", bool_type);
+
+    Iron_Node *ret = make_return(&g_ir_arena, make_bool(&g_ir_arena, true));
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_CONST_BOOL));
+}
+
+/* ── test_lower_const_string ──────────────────────────────────────────────
+ * fn f() { val s = "hello" } */
+void test_lower_const_string(void) {
+    Iron_Type *str_type  = iron_type_make_primitive(IRON_TYPE_STRING);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_const_string", void_type);
+
+    Iron_StringLit *lit = ARENA_ALLOC(&g_ir_arena, Iron_StringLit);
+    memset(lit, 0, sizeof(*lit));
+    lit->span = test_span();
+    lit->kind = IRON_NODE_STRING_LIT;
+    lit->value = "hello";
+    lit->resolved_type = str_type;
+
+    Iron_Node *val_s = make_val_decl(&g_ir_arena, "s", (Iron_Node *)lit, str_type);
+    Iron_Node *stmts[1] = { val_s };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_CONST_STRING));
+}
+
+/* ── test_lower_const_null ────────────────────────────────────────────────
+ * fn f() { val x = null } */
+void test_lower_const_null(void) {
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_const_null", void_type);
+
+    Iron_NullLit *lit = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(lit, 0, sizeof(*lit));
+    lit->span = test_span();
+    lit->kind = IRON_NODE_NULL_LIT;
+    lit->resolved_type = null_type;
+
+    Iron_Node *val_x = make_val_decl(&g_ir_arena, "x", (Iron_Node *)lit, null_type);
+    Iron_Node *stmts[1] = { val_x };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_CONST_NULL));
+}
+
+/* ── test_lower_add ───────────────────────────────────────────────────────
+ * fn f() -> Int { return 1 + 2 } */
+void test_lower_add(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_add", int_type);
+
+    Iron_Node *add_expr = make_binary(&g_ir_arena, make_int(&g_ir_arena, "1"),
+                                       IRON_TOK_PLUS, make_int(&g_ir_arena, "2"), int_type);
+    Iron_Node *ret = make_return(&g_ir_arena, add_expr);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_ADD));
+}
+
+/* ── test_lower_sub ───────────────────────────────────────────────────────
+ * fn f() -> Int { return 5 - 3 } */
+void test_lower_sub(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_sub", int_type);
+
+    Iron_Node *sub_expr = make_binary(&g_ir_arena, make_int(&g_ir_arena, "5"),
+                                       IRON_TOK_MINUS, make_int(&g_ir_arena, "3"), int_type);
+    Iron_Node *ret = make_return(&g_ir_arena, sub_expr);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_SUB));
+}
+
+/* ── test_lower_mul ───────────────────────────────────────────────────────
+ * fn f() -> Int { return 2 * 3 } */
+void test_lower_mul(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_mul", int_type);
+
+    Iron_Node *mul_expr = make_binary(&g_ir_arena, make_int(&g_ir_arena, "2"),
+                                       IRON_TOK_STAR, make_int(&g_ir_arena, "3"), int_type);
+    Iron_Node *ret = make_return(&g_ir_arena, mul_expr);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_MUL));
+}
+
+/* ── test_lower_div ───────────────────────────────────────────────────────
+ * fn f() -> Int { return 10 / 2 } */
+void test_lower_div(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_div", int_type);
+
+    Iron_Node *div_expr = make_binary(&g_ir_arena, make_int(&g_ir_arena, "10"),
+                                       IRON_TOK_SLASH, make_int(&g_ir_arena, "2"), int_type);
+    Iron_Node *ret = make_return(&g_ir_arena, div_expr);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_DIV));
+}
+
+/* ── test_lower_mod ───────────────────────────────────────────────────────
+ * fn f() -> Int { return 10 % 3 } */
+void test_lower_mod(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_mod", int_type);
+
+    Iron_Node *mod_expr = make_binary(&g_ir_arena, make_int(&g_ir_arena, "10"),
+                                       IRON_TOK_PERCENT, make_int(&g_ir_arena, "3"), int_type);
+    Iron_Node *ret = make_return(&g_ir_arena, mod_expr);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_MOD));
+}
+
+/* ── test_lower_eq ────────────────────────────────────────────────────────
+ * fn f() -> Bool { return 1 == 1 } */
+void test_lower_eq(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_eq", bool_type);
+
+    Iron_Node *cmp = make_binary(&g_ir_arena, make_int(&g_ir_arena, "1"),
+                                  IRON_TOK_EQUALS, make_int(&g_ir_arena, "1"), bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, cmp);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_EQ));
+}
+
+/* ── test_lower_neq ───────────────────────────────────────────────────────
+ * fn f() -> Bool { return 1 != 2 } */
+void test_lower_neq(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_neq", bool_type);
+
+    Iron_Node *cmp = make_binary(&g_ir_arena, make_int(&g_ir_arena, "1"),
+                                  IRON_TOK_NOT_EQUALS, make_int(&g_ir_arena, "2"), bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, cmp);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_NEQ));
+}
+
+/* ── test_lower_lt ────────────────────────────────────────────────────────
+ * fn f() -> Bool { return 1 < 2 } */
+void test_lower_lt(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_lt", bool_type);
+
+    Iron_Node *cmp = make_binary(&g_ir_arena, make_int(&g_ir_arena, "1"),
+                                  IRON_TOK_LESS, make_int(&g_ir_arena, "2"), bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, cmp);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_LT));
+}
+
+/* ── test_lower_lte ───────────────────────────────────────────────────────
+ * fn f() -> Bool { return 1 <= 2 } */
+void test_lower_lte(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_lte", bool_type);
+
+    Iron_Node *cmp = make_binary(&g_ir_arena, make_int(&g_ir_arena, "1"),
+                                  IRON_TOK_LESS_EQ, make_int(&g_ir_arena, "2"), bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, cmp);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_LTE));
+}
+
+/* ── test_lower_gt ────────────────────────────────────────────────────────
+ * fn f() -> Bool { return 2 > 1 } */
+void test_lower_gt(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_gt", bool_type);
+
+    Iron_Node *cmp = make_binary(&g_ir_arena, make_int(&g_ir_arena, "2"),
+                                  IRON_TOK_GREATER, make_int(&g_ir_arena, "1"), bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, cmp);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_GT));
+}
+
+/* ── test_lower_gte ───────────────────────────────────────────────────────
+ * fn f() -> Bool { return 2 >= 1 } */
+void test_lower_gte(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_gte", bool_type);
+
+    Iron_Node *cmp = make_binary(&g_ir_arena, make_int(&g_ir_arena, "2"),
+                                  IRON_TOK_GREATER_EQ, make_int(&g_ir_arena, "1"), bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, cmp);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_GTE));
+}
+
+/* ── test_lower_and ───────────────────────────────────────────────────────
+ * Short-circuit AND: emits BRANCH, not IRON_IR_AND.
+ * fn f() -> Bool { return true and false } */
+void test_lower_and(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_and", bool_type);
+
+    Iron_Node *and_expr = make_binary(&g_ir_arena,
+                                       make_bool(&g_ir_arena, true),
+                                       IRON_TOK_AND,
+                                       make_bool(&g_ir_arena, false),
+                                       bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, and_expr);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    /* AND uses short-circuit pattern; verify BRANCH exists */
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_BRANCH));
+}
+
+/* ── test_lower_or ────────────────────────────────────────────────────────
+ * Short-circuit OR: emits BRANCH, not IRON_IR_OR.
+ * fn f() -> Bool { return true or false } */
+void test_lower_or(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_or", bool_type);
+
+    Iron_Node *or_expr = make_binary(&g_ir_arena,
+                                      make_bool(&g_ir_arena, true),
+                                      IRON_TOK_OR,
+                                      make_bool(&g_ir_arena, false),
+                                      bool_type);
+    Iron_Node *ret = make_return(&g_ir_arena, or_expr);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    /* OR uses short-circuit pattern; verify BRANCH exists */
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_BRANCH));
+}
+
+/* ── test_lower_neg ───────────────────────────────────────────────────────
+ * fn f() -> Int { return -42 } */
+void test_lower_neg(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_neg", int_type);
+
+    Iron_UnaryExpr *un = ARENA_ALLOC(&g_ir_arena, Iron_UnaryExpr);
+    memset(un, 0, sizeof(*un));
+    un->span = test_span();
+    un->kind = IRON_NODE_UNARY;
+    un->op = IRON_TOK_MINUS;
+    un->operand = make_int(&g_ir_arena, "42");
+    un->resolved_type = int_type;
+
+    Iron_Node *ret = make_return(&g_ir_arena, (Iron_Node *)un);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_NEG));
+}
+
+/* ── test_lower_not ───────────────────────────────────────────────────────
+ * fn f() -> Bool { return not true } */
+void test_lower_not(void) {
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_not", bool_type);
+
+    Iron_UnaryExpr *un = ARENA_ALLOC(&g_ir_arena, Iron_UnaryExpr);
+    memset(un, 0, sizeof(*un));
+    un->span = test_span();
+    un->kind = IRON_NODE_UNARY;
+    un->op = IRON_TOK_NOT;
+    un->operand = make_bool(&g_ir_arena, true);
+    un->resolved_type = bool_type;
+
+    Iron_Node *ret = make_return(&g_ir_arena, (Iron_Node *)un);
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_NOT));
+}
+
+/* ── test_lower_alloca_load_store ─────────────────────────────────────────
+ * fn f() { var x = 0; x = 1; val y = x } */
+void test_lower_alloca_load_store(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_mem_ops", void_type);
+
+    Iron_Node *var_x = make_var_decl(&g_ir_arena, "x", make_int(&g_ir_arena, "0"), int_type);
+    Iron_Node *assign = make_assign(&g_ir_arena,
+                                     make_ident(&g_ir_arena, "x", int_type),
+                                     make_int(&g_ir_arena, "1"));
+    Iron_Node *val_y = make_val_decl(&g_ir_arena, "y",
+                                      make_ident(&g_ir_arena, "x", int_type), int_type);
+
+    Iron_Node *stmts[3] = { var_x, assign, val_y };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 3);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    IronIR_Func *fn = mod->funcs[0];
+    TEST_ASSERT_TRUE(has_instr_kind(fn, IRON_IR_ALLOCA));
+    TEST_ASSERT_TRUE(has_instr_kind(fn, IRON_IR_STORE));
+    TEST_ASSERT_TRUE(has_instr_kind(fn, IRON_IR_LOAD));
+}
+
+/* ── test_lower_get_field ─────────────────────────────────────────────────
+ * field access expression -> IRON_IR_GET_FIELD */
+void test_lower_get_field(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_get_field", void_type);
+
+    Iron_NullLit *obj_lit = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(obj_lit, 0, sizeof(*obj_lit));
+    obj_lit->span = test_span();
+    obj_lit->kind = IRON_NODE_NULL_LIT;
+    obj_lit->resolved_type = null_type;
+
+    Iron_FieldAccess *fa = ARENA_ALLOC(&g_ir_arena, Iron_FieldAccess);
+    memset(fa, 0, sizeof(*fa));
+    fa->span = test_span();
+    fa->kind = IRON_NODE_FIELD_ACCESS;
+    fa->object = (Iron_Node *)obj_lit;
+    fa->field = "x";
+    fa->resolved_type = int_type;
+
+    Iron_Node *val_v = make_val_decl(&g_ir_arena, "v", (Iron_Node *)fa, int_type);
+    Iron_Node *stmts[1] = { val_v };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_GET_FIELD));
+}
+
+/* ── test_lower_set_field ─────────────────────────────────────────────────
+ * obj.field = val -> IRON_IR_SET_FIELD */
+void test_lower_set_field(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_set_field", void_type);
+
+    Iron_NullLit *obj_lit = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(obj_lit, 0, sizeof(*obj_lit));
+    obj_lit->span = test_span();
+    obj_lit->kind = IRON_NODE_NULL_LIT;
+    obj_lit->resolved_type = null_type;
+
+    Iron_Node *val_obj = make_val_decl(&g_ir_arena, "obj", (Iron_Node *)obj_lit, null_type);
+
+    Iron_FieldAccess *fa = ARENA_ALLOC(&g_ir_arena, Iron_FieldAccess);
+    memset(fa, 0, sizeof(*fa));
+    fa->span = test_span();
+    fa->kind = IRON_NODE_FIELD_ACCESS;
+    fa->object = make_ident(&g_ir_arena, "obj", null_type);
+    fa->field = "x";
+    fa->resolved_type = int_type;
+
+    Iron_Node *assign = make_assign(&g_ir_arena, (Iron_Node *)fa, make_int(&g_ir_arena, "42"));
+
+    Iron_Node *stmts[2] = { val_obj, assign };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_SET_FIELD));
+}
+
+/* ── test_lower_get_index ─────────────────────────────────────────────────
+ * arr[0] -> IRON_IR_GET_INDEX */
+void test_lower_get_index(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *arr_type  = iron_type_make_array(&g_ir_arena, int_type, -1);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_get_index", void_type);
+
+    /* val arr = null (typed placeholder) */
+    Iron_NullLit *arr_lit = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(arr_lit, 0, sizeof(*arr_lit));
+    arr_lit->span = test_span();
+    arr_lit->kind = IRON_NODE_NULL_LIT;
+    arr_lit->resolved_type = null_type;
+
+    Iron_Node *val_arr = make_val_decl(&g_ir_arena, "arr", (Iron_Node *)arr_lit, arr_type);
+
+    Iron_IndexExpr *idx = ARENA_ALLOC(&g_ir_arena, Iron_IndexExpr);
+    memset(idx, 0, sizeof(*idx));
+    idx->span = test_span();
+    idx->kind = IRON_NODE_INDEX;
+    idx->object = make_ident(&g_ir_arena, "arr", arr_type);
+    idx->index = make_int(&g_ir_arena, "0");
+    idx->resolved_type = int_type;
+
+    Iron_Node *val_x = make_val_decl(&g_ir_arena, "x", (Iron_Node *)idx, int_type);
+
+    Iron_Node *stmts[2] = { val_arr, val_x };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_GET_INDEX));
+}
+
+/* ── test_lower_set_index ─────────────────────────────────────────────────
+ * arr[0] = 99 -> IRON_IR_SET_INDEX */
+void test_lower_set_index(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *arr_type  = iron_type_make_array(&g_ir_arena, int_type, -1);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_set_index", void_type);
+
+    Iron_NullLit *arr_lit = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(arr_lit, 0, sizeof(*arr_lit));
+    arr_lit->span = test_span();
+    arr_lit->kind = IRON_NODE_NULL_LIT;
+    arr_lit->resolved_type = null_type;
+
+    Iron_Node *var_arr = make_var_decl(&g_ir_arena, "arr", (Iron_Node *)arr_lit, arr_type);
+
+    Iron_IndexExpr *idx = ARENA_ALLOC(&g_ir_arena, Iron_IndexExpr);
+    memset(idx, 0, sizeof(*idx));
+    idx->span = test_span();
+    idx->kind = IRON_NODE_INDEX;
+    idx->object = make_ident(&g_ir_arena, "arr", arr_type);
+    idx->index = make_int(&g_ir_arena, "0");
+    idx->resolved_type = int_type;
+
+    Iron_Node *assign = make_assign(&g_ir_arena, (Iron_Node *)idx, make_int(&g_ir_arena, "99"));
+
+    Iron_Node *stmts[2] = { var_arr, assign };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_SET_INDEX));
+}
+
+/* ── test_lower_branch ────────────────────────────────────────────────────
+ * if true { } -> IRON_IR_BRANCH */
+void test_lower_branch(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_branch_instr", void_type);
+
+    Iron_Block *then_body = make_block(&g_ir_arena, NULL, 0);
+    Iron_Node *if_stmt = make_if(&g_ir_arena, make_bool(&g_ir_arena, true), then_body, NULL);
+
+    Iron_Node *stmts[1] = { if_stmt };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_BRANCH));
+}
+
+/* ── test_lower_jump ──────────────────────────────────────────────────────
+ * if/else produces jumps to merge block -> IRON_IR_JUMP */
+void test_lower_jump(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_jump_instr", void_type);
+
+    Iron_Block *then_body = make_block(&g_ir_arena, NULL, 0);
+    Iron_Block *else_body = make_block(&g_ir_arena, NULL, 0);
+    Iron_Node *if_stmt = make_if(&g_ir_arena, make_bool(&g_ir_arena, true), then_body, else_body);
+
+    Iron_Node *stmts[1] = { if_stmt };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_JUMP));
+}
+
+/* ── test_lower_return ────────────────────────────────────────────────────
+ * fn foo() -> Int { return 42 } -> IRON_IR_RETURN */
+void test_lower_return(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_return_instr", int_type);
+
+    Iron_Node *ret = make_return(&g_ir_arena, make_int(&g_ir_arena, "42"));
+    Iron_Node *stmts[1] = { ret };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_RETURN));
+}
+
+/* ── test_lower_switch ────────────────────────────────────────────────────
+ * match expression -> IRON_IR_SWITCH */
+void test_lower_switch(void) {
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+    Iron_Param *param_x = make_param(&g_ir_arena, "x");
+    Iron_TypeAnnotation *int_ann = ARENA_ALLOC(&g_ir_arena, Iron_TypeAnnotation);
+    memset(int_ann, 0, sizeof(*int_ann));
+    int_ann->span = test_span();
+    int_ann->kind = IRON_NODE_TYPE_ANNOTATION;
+    int_ann->name = "Int";
+    param_x->type_ann = (Iron_Node *)int_ann;
+
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_switch_instr", int_type);
+    fd->params = (Iron_Node **)iron_arena_alloc(&g_ir_arena,
+                     sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    fd->params[0] = (Iron_Node *)param_x;
+    fd->param_count = 1;
+
+    Iron_Node *ret10 = make_return(&g_ir_arena, make_int(&g_ir_arena, "10"));
+    Iron_Node *arm1_stmts[1] = { ret10 };
+    Iron_Node *case1 = make_match_case(&g_ir_arena, make_int(&g_ir_arena, "1"),
+                                        make_block(&g_ir_arena, arm1_stmts, 1));
+
+    Iron_Node *cases[1] = { case1 };
+    Iron_Node *match_stmt = make_match(&g_ir_arena,
+                                        make_ident(&g_ir_arena, "x", int_type),
+                                        cases, 1);
+    Iron_Node *ret0 = make_return(&g_ir_arena, make_int(&g_ir_arena, "0"));
+    Iron_Node *fn_stmts[2] = { match_stmt, ret0 };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, fn_stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_SWITCH));
+}
+
+/* ── test_lower_call ──────────────────────────────────────────────────────
+ * calling a function -> IRON_IR_CALL + IRON_IR_FUNC_REF */
+void test_lower_call(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+
+    Iron_FuncDecl *callee = make_func_decl(&g_ir_arena, "callee", int_type);
+    Iron_Node *ret1 = make_return(&g_ir_arena, make_int(&g_ir_arena, "1"));
+    Iron_Node *callee_stmts[1] = { ret1 };
+    callee->body = (Iron_Node *)make_block(&g_ir_arena, callee_stmts, 1);
+
+    Iron_FuncDecl *caller = make_func_decl(&g_ir_arena, "caller", void_type);
+    Iron_Node *callee_ident = make_ident(&g_ir_arena, "callee", int_type);
+    Iron_Node *call_expr = make_call(&g_ir_arena, callee_ident, NULL, 0);
+    ((Iron_CallExpr *)call_expr)->resolved_type = int_type;
+    Iron_Node *val_r = make_val_decl(&g_ir_arena, "r", call_expr, int_type);
+    Iron_Node *caller_stmts[1] = { val_r };
+    caller->body = (Iron_Node *)make_block(&g_ir_arena, caller_stmts, 1);
+
+    Iron_Node *decls[2] = { (Iron_Node *)callee, (Iron_Node *)caller };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 2);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    IronIR_Func *caller_fn = NULL;
+    for (int i = 0; i < mod->func_count; i++) {
+        if (strcmp(mod->funcs[i]->name, "caller") == 0) {
+            caller_fn = mod->funcs[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(caller_fn);
+    TEST_ASSERT_TRUE(has_instr_kind(caller_fn, IRON_IR_CALL));
+}
+
+/* ── test_lower_func_ref ──────────────────────────────────────────────────
+ * FUNC_REF is emitted as part of CALL setup -> IRON_IR_FUNC_REF */
+void test_lower_func_ref(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+
+    Iron_FuncDecl *callee = make_func_decl(&g_ir_arena, "target_fn", int_type);
+    Iron_Node *ret1 = make_return(&g_ir_arena, make_int(&g_ir_arena, "1"));
+    Iron_Node *callee_stmts[1] = { ret1 };
+    callee->body = (Iron_Node *)make_block(&g_ir_arena, callee_stmts, 1);
+
+    Iron_FuncDecl *caller = make_func_decl(&g_ir_arena, "caller_fn", void_type);
+    Iron_Node *callee_ident = make_ident(&g_ir_arena, "target_fn", int_type);
+    Iron_Node *call_expr = make_call(&g_ir_arena, callee_ident, NULL, 0);
+    ((Iron_CallExpr *)call_expr)->resolved_type = int_type;
+    Iron_Node *val_r = make_val_decl(&g_ir_arena, "r", call_expr, int_type);
+    Iron_Node *caller_stmts[1] = { val_r };
+    caller->body = (Iron_Node *)make_block(&g_ir_arena, caller_stmts, 1);
+
+    Iron_Node *decls[2] = { (Iron_Node *)callee, (Iron_Node *)caller };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 2);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    IronIR_Func *caller_fn = NULL;
+    for (int i = 0; i < mod->func_count; i++) {
+        if (strcmp(mod->funcs[i]->name, "caller_fn") == 0) {
+            caller_fn = mod->funcs[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(caller_fn);
+    TEST_ASSERT_TRUE(has_instr_kind(caller_fn, IRON_IR_FUNC_REF));
+}
+
+/* ── test_lower_cast ──────────────────────────────────────────────────────
+ * IS expression with type narrowing -> IRON_IR_CAST */
+void test_lower_cast(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_cast_instr", void_type);
+
+    Iron_NullLit *null_val = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(null_val, 0, sizeof(*null_val));
+    null_val->span = test_span();
+    null_val->kind = IRON_NODE_NULL_LIT;
+    null_val->resolved_type = null_type;
+
+    Iron_Node *val_x = make_val_decl(&g_ir_arena, "x", (Iron_Node *)null_val, null_type);
+
+    /* (x is Int) — type narrowing emits CAST */
+    Iron_IsExpr *is_expr = ARENA_ALLOC(&g_ir_arena, Iron_IsExpr);
+    memset(is_expr, 0, sizeof(*is_expr));
+    is_expr->span = test_span();
+    is_expr->kind = IRON_NODE_IS;
+    is_expr->expr = make_ident(&g_ir_arena, "x", null_type);
+    is_expr->type_name = "Int";
+    is_expr->resolved_type = int_type;
+
+    Iron_Node *val_c = make_val_decl(&g_ir_arena, "c", (Iron_Node *)is_expr, int_type);
+
+    Iron_Node *stmts[2] = { val_x, val_c };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_CAST));
+}
+
+/* ── test_lower_construct ─────────────────────────────────────────────────
+ * ConstructExpr -> IRON_IR_CONSTRUCT */
+void test_lower_construct(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+
+    Iron_ObjectDecl *obj = ARENA_ALLOC(&g_ir_arena, Iron_ObjectDecl);
+    memset(obj, 0, sizeof(*obj));
+    obj->span = test_span();
+    obj->kind = IRON_NODE_OBJECT_DECL;
+    obj->name = "Point";
+
+    Iron_Type *point_type = iron_type_make_object(&g_ir_arena, obj);
+
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_construct_instr", void_type);
+
+    Iron_ConstructExpr *con = ARENA_ALLOC(&g_ir_arena, Iron_ConstructExpr);
+    memset(con, 0, sizeof(*con));
+    con->span = test_span();
+    con->kind = IRON_NODE_CONSTRUCT;
+    con->type_name = "Point";
+    con->resolved_type = point_type;
+
+    Iron_Node *arg1 = make_int(&g_ir_arena, "3");
+    Iron_Node *arg2 = make_int(&g_ir_arena, "7");
+    con->args = (Iron_Node **)iron_arena_alloc(&g_ir_arena,
+                    2 * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    con->args[0] = arg1;
+    con->args[1] = arg2;
+    con->arg_count = 2;
+    (void)int_type;
+
+    Iron_Node *val_p = make_val_decl(&g_ir_arena, "p", (Iron_Node *)con, point_type);
+    Iron_Node *fn_stmts[1] = { val_p };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, fn_stmts, 1);
+
+    Iron_Node *decls[2] = { (Iron_Node *)obj, (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 2);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_CONSTRUCT));
+}
+
+/* ── test_lower_array_lit ─────────────────────────────────────────────────
+ * [1, 2, 3] -> IRON_IR_ARRAY_LIT */
+void test_lower_array_lit(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *arr_type  = iron_type_make_array(&g_ir_arena, int_type, -1);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_array_lit_instr", void_type);
+
+    Iron_ArrayLit *al = ARENA_ALLOC(&g_ir_arena, Iron_ArrayLit);
+    memset(al, 0, sizeof(*al));
+    al->span = test_span();
+    al->kind = IRON_NODE_ARRAY_LIT;
+    al->resolved_type = arr_type;
+
+    al->elements = (Iron_Node **)iron_arena_alloc(&g_ir_arena,
+                       3 * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    al->elements[0] = make_int(&g_ir_arena, "1");
+    al->elements[1] = make_int(&g_ir_arena, "2");
+    al->elements[2] = make_int(&g_ir_arena, "3");
+    al->element_count = 3;
+
+    Iron_Node *val_arr = make_val_decl(&g_ir_arena, "arr", (Iron_Node *)al, arr_type);
+    Iron_Node *stmts[1] = { val_arr };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_ARRAY_LIT));
+}
+
+/* ── test_lower_interp_string ─────────────────────────────────────────────
+ * "{x}" -> IRON_IR_INTERP_STRING */
+void test_lower_interp_string(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *str_type  = iron_type_make_primitive(IRON_TYPE_STRING);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_interp_string_instr", void_type);
+
+    Iron_Node *val_x = make_val_decl(&g_ir_arena, "x", make_int(&g_ir_arena, "42"), int_type);
+
+    Iron_StringLit *prefix = ARENA_ALLOC(&g_ir_arena, Iron_StringLit);
+    memset(prefix, 0, sizeof(*prefix));
+    prefix->span = test_span();
+    prefix->kind = IRON_NODE_STRING_LIT;
+    prefix->value = "";
+    prefix->resolved_type = str_type;
+
+    Iron_InterpString *interp = ARENA_ALLOC(&g_ir_arena, Iron_InterpString);
+    memset(interp, 0, sizeof(*interp));
+    interp->span = test_span();
+    interp->kind = IRON_NODE_INTERP_STRING;
+    interp->resolved_type = str_type;
+
+    interp->parts = (Iron_Node **)iron_arena_alloc(&g_ir_arena,
+                        2 * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    interp->parts[0] = (Iron_Node *)prefix;
+    interp->parts[1] = make_ident(&g_ir_arena, "x", int_type);
+    interp->part_count = 2;
+
+    Iron_Node *val_s = make_val_decl(&g_ir_arena, "s", (Iron_Node *)interp, str_type);
+    Iron_Node *stmts[2] = { val_x, val_s };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_INTERP_STRING));
+}
+
+/* ── test_lower_is_null ───────────────────────────────────────────────────
+ * (x is Null) -> IRON_IR_IS_NULL */
+void test_lower_is_null(void) {
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_is_null_instr", void_type);
+
+    Iron_NullLit *null_val = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(null_val, 0, sizeof(*null_val));
+    null_val->span = test_span();
+    null_val->kind = IRON_NODE_NULL_LIT;
+    null_val->resolved_type = null_type;
+
+    Iron_Node *val_x = make_val_decl(&g_ir_arena, "x", (Iron_Node *)null_val, null_type);
+
+    Iron_IsExpr *is_expr = ARENA_ALLOC(&g_ir_arena, Iron_IsExpr);
+    memset(is_expr, 0, sizeof(*is_expr));
+    is_expr->span = test_span();
+    is_expr->kind = IRON_NODE_IS;
+    is_expr->expr = make_ident(&g_ir_arena, "x", null_type);
+    is_expr->type_name = "Null";
+    is_expr->resolved_type = bool_type;
+
+    Iron_Node *val_b = make_val_decl(&g_ir_arena, "b", (Iron_Node *)is_expr, bool_type);
+
+    Iron_Node *stmts[2] = { val_x, val_b };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_IS_NULL));
+}
+
+/* ── test_lower_slice ─────────────────────────────────────────────────────
+ * arr[1..3] -> IRON_IR_SLICE */
+void test_lower_slice(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *arr_type  = iron_type_make_array(&g_ir_arena, int_type, -1);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_slice_instr", void_type);
+
+    Iron_NullLit *arr_null = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(arr_null, 0, sizeof(*arr_null));
+    arr_null->span = test_span();
+    arr_null->kind = IRON_NODE_NULL_LIT;
+    arr_null->resolved_type = null_type;
+
+    Iron_Node *val_arr = make_val_decl(&g_ir_arena, "arr", (Iron_Node *)arr_null, arr_type);
+
+    Iron_SliceExpr *sl = ARENA_ALLOC(&g_ir_arena, Iron_SliceExpr);
+    memset(sl, 0, sizeof(*sl));
+    sl->span = test_span();
+    sl->kind = IRON_NODE_SLICE;
+    sl->object = make_ident(&g_ir_arena, "arr", arr_type);
+    sl->start = make_int(&g_ir_arena, "1");
+    sl->end   = make_int(&g_ir_arena, "3");
+    sl->resolved_type = arr_type;
+
+    Iron_Node *val_s = make_val_decl(&g_ir_arena, "s", (Iron_Node *)sl, arr_type);
+    Iron_Node *stmts[2] = { val_arr, val_s };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_SLICE));
+}
+
+/* ── test_lower_heap_alloc ────────────────────────────────────────────────
+ * heap <expr> -> IRON_IR_HEAP_ALLOC */
+void test_lower_heap_alloc(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_heap_alloc_instr", void_type);
+
+    Iron_HeapExpr *heap = ARENA_ALLOC(&g_ir_arena, Iron_HeapExpr);
+    memset(heap, 0, sizeof(*heap));
+    heap->span = test_span();
+    heap->kind = IRON_NODE_HEAP;
+    heap->inner = make_int(&g_ir_arena, "42");
+    heap->auto_free = false;
+    heap->escapes = false;
+    heap->resolved_type = int_type;
+
+    Iron_Node *val_h = make_val_decl(&g_ir_arena, "h", (Iron_Node *)heap, int_type);
+    Iron_Node *stmts[1] = { val_h };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_HEAP_ALLOC));
+}
+
+/* ── test_lower_rc_alloc ──────────────────────────────────────────────────
+ * rc <expr> -> IRON_IR_RC_ALLOC */
+void test_lower_rc_alloc(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_rc_alloc_instr", void_type);
+
+    Iron_RcExpr *rc = ARENA_ALLOC(&g_ir_arena, Iron_RcExpr);
+    memset(rc, 0, sizeof(*rc));
+    rc->span = test_span();
+    rc->kind = IRON_NODE_RC;
+    rc->inner = make_int(&g_ir_arena, "42");
+    rc->resolved_type = int_type;
+
+    Iron_Node *val_r = make_val_decl(&g_ir_arena, "r", (Iron_Node *)rc, int_type);
+    Iron_Node *stmts[1] = { val_r };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_RC_ALLOC));
+}
+
+/* ── test_lower_free ──────────────────────────────────────────────────────
+ * free <expr> -> IRON_IR_FREE */
+void test_lower_free(void) {
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_free_instr", void_type);
+
+    Iron_HeapExpr *heap = ARENA_ALLOC(&g_ir_arena, Iron_HeapExpr);
+    memset(heap, 0, sizeof(*heap));
+    heap->span = test_span();
+    heap->kind = IRON_NODE_HEAP;
+    heap->inner = make_int(&g_ir_arena, "42");
+    heap->auto_free = false;
+    heap->escapes = false;
+    heap->resolved_type = int_type;
+
+    Iron_Node *val_h = make_val_decl(&g_ir_arena, "h", (Iron_Node *)heap, int_type);
+
+    Iron_FreeStmt *free_stmt = ARENA_ALLOC(&g_ir_arena, Iron_FreeStmt);
+    memset(free_stmt, 0, sizeof(*free_stmt));
+    free_stmt->span = test_span();
+    free_stmt->kind = IRON_NODE_FREE;
+    free_stmt->expr = make_ident(&g_ir_arena, "h", int_type);
+
+    Iron_Node *stmts[2] = { val_h, (Iron_Node *)free_stmt };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_FREE));
+}
+
+/* ── test_lower_make_closure ──────────────────────────────────────────────
+ * lambda expression -> IRON_IR_MAKE_CLOSURE */
+void test_lower_make_closure(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_make_closure_instr", void_type);
+
+    Iron_Block *lambda_body = make_block(&g_ir_arena, NULL, 0);
+    Iron_Node *lam = make_lambda(&g_ir_arena, lambda_body);
+
+    Iron_Node *val_f = make_val_decl(&g_ir_arena, "f", lam, void_type);
+    Iron_Node *stmts[1] = { val_f };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_MAKE_CLOSURE));
+}
+
+/* ── test_lower_spawn_instr ───────────────────────────────────────────────
+ * spawn statement -> IRON_IR_SPAWN */
+void test_lower_spawn_instr(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_spawn_instr_fn", void_type);
+
+    Iron_Block *spawn_body = make_block(&g_ir_arena, NULL, 0);
+    Iron_Node *spawn_stmt = make_spawn(&g_ir_arena, spawn_body, NULL);
+
+    Iron_Node *stmts[1] = { spawn_stmt };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_SPAWN));
+}
+
+/* ── test_lower_parallel_for ──────────────────────────────────────────────
+ * for i in N parallel { } -> IRON_IR_PARALLEL_FOR */
+void test_lower_parallel_for(void) {
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_parallel_for_instr", void_type);
+
+    Iron_ForStmt *for_stmt = ARENA_ALLOC(&g_ir_arena, Iron_ForStmt);
+    memset(for_stmt, 0, sizeof(*for_stmt));
+    for_stmt->span = test_span();
+    for_stmt->kind = IRON_NODE_FOR;
+    for_stmt->var_name = "i";
+    for_stmt->iterable = make_int(&g_ir_arena, "4");
+    for_stmt->body = (Iron_Node *)make_block(&g_ir_arena, NULL, 0);
+    for_stmt->is_parallel = true;
+    for_stmt->pool_expr = NULL;
+
+    Iron_Node *stmts[1] = { (Iron_Node *)for_stmt };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 1);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_PARALLEL_FOR));
+}
+
+/* ── test_lower_await ─────────────────────────────────────────────────────
+ * await handle -> IRON_IR_AWAIT
+ * Use a null literal as the handle placeholder (AWAIT just wraps any ValueId). */
+void test_lower_await(void) {
+    Iron_Type *null_type = iron_type_make_primitive(IRON_TYPE_NULL);
+    Iron_Type *void_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_FuncDecl *fd = make_func_decl(&g_ir_arena, "test_await_instr", void_type);
+
+    /* val h = null (placeholder handle — AWAIT wraps any resolved ValueId) */
+    Iron_NullLit *null_h = ARENA_ALLOC(&g_ir_arena, Iron_NullLit);
+    memset(null_h, 0, sizeof(*null_h));
+    null_h->span = test_span();
+    null_h->kind = IRON_NODE_NULL_LIT;
+    null_h->resolved_type = null_type;
+
+    Iron_Node *val_h = make_val_decl(&g_ir_arena, "h", (Iron_Node *)null_h, null_type);
+
+    /* await h */
+    Iron_AwaitExpr *aw = ARENA_ALLOC(&g_ir_arena, Iron_AwaitExpr);
+    memset(aw, 0, sizeof(*aw));
+    aw->span = test_span();
+    aw->kind = IRON_NODE_AWAIT;
+    aw->handle = make_ident(&g_ir_arena, "h", null_type);
+    aw->resolved_type = void_type;
+
+    Iron_Node *val_r = make_val_decl(&g_ir_arena, "r", (Iron_Node *)aw, void_type);
+
+    Iron_Node *stmts[2] = { val_h, val_r };
+    fd->body = (Iron_Node *)make_block(&g_ir_arena, stmts, 2);
+
+    Iron_Node *decls[1] = { (Iron_Node *)fd };
+    Iron_Program *prog = make_program(&g_ir_arena, decls, 1);
+
+    IronIR_Module *mod = iron_ir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(mod);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_instr_kind(mod->funcs[0], IRON_IR_AWAIT));
+}
+
 /* ── main ───────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1357,6 +2622,52 @@ int main(void) {
     RUN_TEST(test_lower_spawn);
     RUN_TEST(test_lower_match_switch);
     RUN_TEST(test_lower_full_program);
+
+    /* Wave 4: Plan 10-02 — instruction-kind coverage */
+    RUN_TEST(test_lower_const_int);
+    RUN_TEST(test_lower_const_float);
+    RUN_TEST(test_lower_const_bool);
+    RUN_TEST(test_lower_const_string);
+    RUN_TEST(test_lower_const_null);
+    RUN_TEST(test_lower_add);
+    RUN_TEST(test_lower_sub);
+    RUN_TEST(test_lower_mul);
+    RUN_TEST(test_lower_div);
+    RUN_TEST(test_lower_mod);
+    RUN_TEST(test_lower_eq);
+    RUN_TEST(test_lower_neq);
+    RUN_TEST(test_lower_lt);
+    RUN_TEST(test_lower_lte);
+    RUN_TEST(test_lower_gt);
+    RUN_TEST(test_lower_gte);
+    RUN_TEST(test_lower_and);
+    RUN_TEST(test_lower_or);
+    RUN_TEST(test_lower_neg);
+    RUN_TEST(test_lower_not);
+    RUN_TEST(test_lower_alloca_load_store);
+    RUN_TEST(test_lower_get_field);
+    RUN_TEST(test_lower_set_field);
+    RUN_TEST(test_lower_get_index);
+    RUN_TEST(test_lower_set_index);
+    RUN_TEST(test_lower_branch);
+    RUN_TEST(test_lower_jump);
+    RUN_TEST(test_lower_return);
+    RUN_TEST(test_lower_switch);
+    RUN_TEST(test_lower_call);
+    RUN_TEST(test_lower_func_ref);
+    RUN_TEST(test_lower_cast);
+    RUN_TEST(test_lower_construct);
+    RUN_TEST(test_lower_array_lit);
+    RUN_TEST(test_lower_interp_string);
+    RUN_TEST(test_lower_is_null);
+    RUN_TEST(test_lower_slice);
+    RUN_TEST(test_lower_heap_alloc);
+    RUN_TEST(test_lower_rc_alloc);
+    RUN_TEST(test_lower_free);
+    RUN_TEST(test_lower_make_closure);
+    RUN_TEST(test_lower_spawn_instr);
+    RUN_TEST(test_lower_parallel_for);
+    RUN_TEST(test_lower_await);
 
     return UNITY_END();
 }
