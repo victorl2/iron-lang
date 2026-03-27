@@ -182,8 +182,8 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### Release & Versioning
 
-- [ ] **REL-01**: CI builds release binaries for macOS (arm64, x86_64), Linux (x86_64), and Windows (x86_64) when a draft GitHub release is created
-- [ ] **REL-02**: Release binaries are uploaded as downloadable assets on the GitHub release page (ready-to-use iron binary)
+- [x] **REL-01**: CI builds release binaries for macOS (arm64, x86_64), Linux (x86_64), and Windows (x86_64) when a draft GitHub release is created
+- [x] **REL-02**: Release binaries are uploaded as downloadable assets on the GitHub release page (ready-to-use iron binary)
 - [x] **REL-03**: `iron --version` outputs version string with commit hash and build date in rustc format (e.g., `iron 0.1.1 (abc1234 2026-03-27)`)
 - [x] **REL-04**: Build date and commit hash are baked in at compile time via CMake configure or build flags
 
@@ -374,8 +374,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | THARD-08 | Phase 10 | Complete |
 | THARD-09 | Phase 10 | Complete |
 | THARD-10 | Phase 10 | Complete |
-| REL-01 | Phase 11 | Pending |
-| REL-02 | Phase 11 | Pending |
+| REL-01 | Phase 11 | Complete |
+| REL-02 | Phase 11 | Complete |
 | REL-03 | Phase 11 | Complete |
 | REL-04 | Phase 11 | Complete |
 
