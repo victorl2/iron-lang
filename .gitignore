@@ -1,0 +1,39 @@
+# Build directories
+build/
+build_dbg/
+build_debug/
+build_release/
+.iron-build/
+
+# Compiled binaries (root-level test outputs from iron build)
+hello
+extern_basic
+test_*
+!tests/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# C build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.dSYM/
