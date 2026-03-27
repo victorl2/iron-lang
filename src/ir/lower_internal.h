@@ -65,6 +65,11 @@ typedef struct {
     IronIR_Block  *loop_exit_block;
     IronIR_Block  *loop_continue_block;
     int            loop_scope_depth;
+
+    /* Global constant table: name -> Iron_Node* init expression
+     * For top-level val declarations (including comptime). Lowered lazily
+     * when first referenced via IDENT in any function body. */
+    struct { char *key; Iron_Node *value; } *global_constants_map;
 } IronIR_LowerCtx;
 
 /* ── Shared helper declarations (defined in lower.c) ─────────────────── */

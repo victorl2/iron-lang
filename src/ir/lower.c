@@ -187,6 +187,39 @@ static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
     }
 }
 
+/* Lower top-level val/var declarations as global constants.
+ * After comptime evaluation, top-level val GREETING = comptime "..."
+ * becomes val GREETING = STRING_LIT "...". We store the (name -> init_node)
+ * mapping so that IDENT lookups in any function body can lazily lower
+ * the init expression and cache the result in val_binding_map.
+ *
+ * Strategy: Record name -> AST init expression pairs in global_constants_map.
+ * During IDENT resolution in lower_exprs.c, if a name is not found in
+ * val_binding_map or var_alloca_map, check global_constants_map, lower the
+ * init expression in the current function context, cache it, and return it. */
+static void lower_global_constants(IronIR_LowerCtx *ctx) {
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *decl = ctx->program->decls[i];
+        const char *var_name = NULL;
+        Iron_Node  *init_expr = NULL;
+
+        if (decl->kind == IRON_NODE_VAL_DECL) {
+            Iron_ValDecl *vd = (Iron_ValDecl *)decl;
+            var_name  = vd->name;
+            init_expr = vd->init;
+        } else if (decl->kind == IRON_NODE_VAR_DECL) {
+            Iron_VarDecl *vd = (Iron_VarDecl *)decl;
+            var_name  = vd->name;
+            init_expr = vd->init;
+        }
+
+        if (!var_name || !init_expr) continue;
+
+        /* Store in global_constants_map: name -> AST init node */
+        shput(ctx->global_constants_map, var_name, init_expr);
+    }
+}
+
 static void lower_func_bodies(IronIR_LowerCtx *ctx) {
     /* Lower top-level function declarations */
     for (int i = 0; i < ctx->program->decl_count; i++) {
@@ -219,6 +252,9 @@ IronIR_Module *iron_ir_lower(Iron_Program *program, Iron_Scope *global_scope,
     /* Pass 1: register declarations */
     lower_module_decls(&ctx);
 
+    /* Pass 1.5: collect top-level val/var declarations for global constant resolution */
+    lower_global_constants(&ctx);
+
     /* Pass 2: lower function bodies */
     lower_func_bodies(&ctx);
 
@@ -236,6 +272,7 @@ IronIR_Module *iron_ir_lower(Iron_Program *program, Iron_Scope *global_scope,
     shfree(ctx.val_binding_map);
     shfree(ctx.var_alloca_map);
     shfree(ctx.param_map);
+    shfree(ctx.global_constants_map);
 
     /* Return NULL if any errors occurred */
     if (diags->error_count > 0) {
