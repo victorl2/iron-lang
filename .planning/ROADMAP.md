@@ -230,7 +230,7 @@ Plans:
   2. Built binaries are uploaded as release assets and are directly downloadable and executable on each platform
   3. `iron --version` outputs `iron X.Y.Z (abcdef0 2026-MM-DD)` matching the rustc format with the actual commit hash and build date
   4. Commit hash and build date are baked in at compile time via CMake defines, not runtime detection
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 11-01-PLAN.md — Version string with commit hash and build date (CMake defines + CLI print_version)
@@ -253,4 +253,4 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 8. AST-to-IR Lowering | 3/3 | Complete   | 2026-03-27 | - |
 | 9. C Emission and Cutover | 2/4 | In Progress|  | - |
 | 10. Test Hardening | 5/5 | Complete    | 2026-03-27 | - |
-| 11. Release Pipeline & Versioning | v1.1 | 0/2 | Not started | - |
+| 11. Release Pipeline & Versioning | 1/2 | In Progress|  | - |

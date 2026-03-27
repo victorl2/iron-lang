@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
 status: executing
-stopped_at: Completed 10-05-PLAN.md
-last_updated: "2026-03-27T21:37:42.804Z"
+stopped_at: "Completed 11-01: version baking via CMake compile-time defines"
+last_updated: "2026-03-27T22:37:40.211Z"
 last_activity: "2026-03-27 — Completed 10-03: 13 algorithm tests with 5 IR pipeline bug fixes"
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 16
+  completed_plans: 15
   percent: 86
 ---
 
@@ -53,6 +53,7 @@ Progress: [########..] 86%
 | Phase 09-c-emission-and-cutover P04 | 41 | 2 tasks | 4 files |
 | Phase 09-c-emission-and-cutover P03 | 35 min | 2 tasks | 4 files |
 | Phase 10-test-hardening P05 | 3 | 2 tasks | 8 files |
+| Phase 11-release-pipeline-versioning P01 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,9 @@ Recent decisions affecting current work:
 - [Phase 10-test-hardening]: Return-value mutation for objects in game loop — func update(var state: T) -> T pattern required
 - [Phase 10-test-hardening]: Parallel-for array write limitation: spawn + sequential aggregation used for number pipeline instead
 - [Phase 10-test-hardening]: CSV parser uses pre-parsed integer arrays — no runtime string character access needed
+- [Phase 11-release-pipeline-versioning]: Version baked at CMake configure time via execute_process(git rev-parse --short HEAD) — not runtime detection
+- [Phase 11-release-pipeline-versioning]: PROJECT_VERSION from project(VERSION 0.1.1) is single source of truth; flows to IRON_VERSION_STRING compile definition
+- [Phase 11-release-pipeline-versioning]: #ifndef fallback guards in main.c protect correctness for non-CMake builds
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -124,6 +128,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T21:37:42.801Z
-Stopped at: Completed 10-05-PLAN.md
+Last session: 2026-03-27T22:37:40.208Z
+Stopped at: Completed 11-01: version baking via CMake compile-time defines
 Resume file: None
