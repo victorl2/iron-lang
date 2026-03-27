@@ -8,7 +8,8 @@ set_tests_properties(test_ir_data PROPERTIES LABELS "ir")
 
 add_executable(test_ir_print test_ir_print.c)
 target_link_libraries(test_ir_print iron_compiler unity)
-add_test(NAME test_ir_print COMMAND test_ir_print)
+add_test(NAME test_ir_print COMMAND test_ir_print
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(test_ir_print PROPERTIES LABELS "ir")
 
 add_executable(test_ir_verify test_ir_verify.c)
