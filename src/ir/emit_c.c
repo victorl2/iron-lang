@@ -64,6 +64,28 @@ static const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
     return buf;
 }
 
+/* Map an Iron function name to the C symbol name.
+ * - Lifted functions (lambda_, spawn_, parallel_) are kept as-is.
+ * - Built-in function names (println, print, len, etc.) map to Iron_XXX.
+ * - All other user-defined functions map to Iron_XXX.
+ * The returned string is arena-allocated or a static literal. */
+static const char *mangle_func_name(const char *name, Iron_Arena *arena) {
+    if (!name) return "NULL";
+
+    /* Lifted functions are already internal C identifiers — keep as-is */
+    if (strncmp(name, "lambda_", 7)   == 0 ||
+        strncmp(name, "spawn_",   6)  == 0 ||
+        strncmp(name, "parallel_", 9) == 0) {
+        return name;
+    }
+
+    /* Already mangled (shouldn't normally happen, but guard anyway) */
+    if (strncmp(name, "Iron_", 5) == 0) return name;
+
+    /* All other names: apply Iron_ prefix */
+    return emit_mangle_name(name, arena);
+}
+
 /* ── Type-to-C mapping (no Iron_Codegen dependency) ───────────────────────── */
 
 /* Forward declaration for mutual recursion */
@@ -624,7 +646,8 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     /* ── Call ───────────────────────────────────────────────────────────── */
 
     case IRON_IR_CALL: {
-        bool is_void = (instr->type == NULL);
+        bool is_void = (instr->type == NULL ||
+                        instr->type->kind == IRON_TYPE_VOID);
 
         emit_indent(sb, ind);
         if (!is_void) {
@@ -639,20 +662,30 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             if (fd->is_extern && fd->extern_c_name) {
                 iron_strbuf_appendf(sb, "%s(", fd->extern_c_name);
             } else {
-                iron_strbuf_appendf(sb, "%s(", fd->name);
+                iron_strbuf_appendf(sb, "%s(", mangle_func_name(fd->name, ctx->arena));
             }
         } else {
-            /* Indirect call through function pointer */
-            iron_strbuf_appendf(sb, "((void (*)(");
-            /* emit parameter types for the cast — simplified void** for now */
-            for (int i = 0; i < instr->call.arg_count; i++) {
-                if (i > 0) iron_strbuf_appendf(sb, ", ");
-                iron_strbuf_appendf(sb, "...");
-                break; /* variadic cast to avoid type mismatch */
+            /* Indirect call: check if func_ptr is a FUNC_REF — if so, emit
+             * a direct call to avoid the invalid (void (*)(...)) cast pattern. */
+            IronIR_ValueId fptr = instr->call.func_ptr;
+            bool emitted_direct = false;
+            if (fptr != IRON_IR_VALUE_INVALID &&
+                fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[fptr] != NULL &&
+                fn->value_table[fptr]->kind == IRON_IR_FUNC_REF) {
+                /* Direct call via known function name */
+                const char *c_name = mangle_func_name(
+                    fn->value_table[fptr]->func_ref.func_name, ctx->arena);
+                iron_strbuf_appendf(sb, "%s(", c_name);
+                emitted_direct = true;
             }
-            iron_strbuf_appendf(sb, "))");
-            emit_val(sb, instr->call.func_ptr);
-            iron_strbuf_appendf(sb, ")(");
+            if (!emitted_direct) {
+                /* True indirect call through an arbitrary function pointer —
+                 * use (void (*)(void*)) for a safe generic cast. */
+                iron_strbuf_appendf(sb, "((void (*)(void*))");
+                emit_val(sb, fptr);
+                iron_strbuf_appendf(sb, ")(");
+            }
         }
 
         for (int i = 0; i < instr->call.arg_count; i++) {
@@ -886,43 +919,183 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     /* ── String interpolation ───────────────────────────────────────────── */
 
     case IRON_IR_INTERP_STRING: {
-        /* Two-pass: first compute required length, then snprintf */
+        /* Two-pass snprintf interpolation:
+         *   Pass 1: measure with snprintf(NULL, 0, fmt, args...)
+         *   Pass 2: allocate and fill with snprintf(buf, n+1, fmt, args...)
+         * Each part is given a printf format specifier based on its type.
+         * String parts use iron_string_cstr() to convert to C string.
+         *
+         * IMPORTANT: the result variable is declared BEFORE the inner block
+         * so it remains in scope for subsequent instructions. */
+
+        /* Declare result variable at outer scope */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "Iron_String ");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ";\n");
+
+        /* Open temporary block for buf variables */
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "{\n");
         ind++;
 
-        /* Pass 1: compute total size */
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "int _interp_len_%u = 1", instr->id);
+        /* Build format string and collect conversion expressions */
+        Iron_StrBuf fmt_sb   = iron_strbuf_create(64);
+        Iron_StrBuf args_sb  = iron_strbuf_create(128);
+        bool        first_arg = true;
+
         for (int i = 0; i < instr->interp_string.part_count; i++) {
-            iron_strbuf_appendf(sb, " + iron_string_display_len(");
-            emit_val(sb, instr->interp_string.parts[i]);
-            iron_strbuf_appendf(sb, ")");
+            IronIR_ValueId part_id = instr->interp_string.parts[i];
+            /* Look up the type of this part via the function's value_table */
+            Iron_Type *part_type = NULL;
+            if (part_id < (IronIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[part_id]) {
+                part_type = fn->value_table[part_id]->type;
+            }
+
+            /* Determine format specifier and conversion */
+            const char *fmt_spec = "%s";  /* default: string */
+            if (part_type) {
+                switch (part_type->kind) {
+                    case IRON_TYPE_INT:
+                    case IRON_TYPE_INT8:
+                    case IRON_TYPE_INT16:
+                    case IRON_TYPE_INT32:
+                    case IRON_TYPE_INT64:
+                    case IRON_TYPE_UINT:
+                    case IRON_TYPE_UINT8:
+                    case IRON_TYPE_UINT16:
+                    case IRON_TYPE_UINT32:
+                    case IRON_TYPE_UINT64:
+                        fmt_spec = "%lld";
+                        break;
+                    case IRON_TYPE_FLOAT:
+                    case IRON_TYPE_FLOAT32:
+                    case IRON_TYPE_FLOAT64:
+                        fmt_spec = "%g";
+                        break;
+                    case IRON_TYPE_BOOL:
+                        /* emitted as ternary inline */
+                        fmt_spec = "%s";
+                        break;
+                    default:
+                        fmt_spec = "%s";
+                        break;
+                }
+            }
+
+            iron_strbuf_appendf(&fmt_sb, "%s", fmt_spec);
+
+            if (!first_arg) iron_strbuf_appendf(&args_sb, ", ");
+            first_arg = false;
+
+            if (part_type) {
+                switch (part_type->kind) {
+                    case IRON_TYPE_INT:
+                    case IRON_TYPE_INT8:
+                    case IRON_TYPE_INT16:
+                    case IRON_TYPE_INT32:
+                    case IRON_TYPE_INT64:
+                    case IRON_TYPE_UINT:
+                    case IRON_TYPE_UINT8:
+                    case IRON_TYPE_UINT16:
+                    case IRON_TYPE_UINT32:
+                    case IRON_TYPE_UINT64: {
+                        /* Cast to long long for %lld */
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        iron_strbuf_appendf(&args_sb, "(long long)(%s)",
+                                            iron_strbuf_get(&tmp));
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
+                    case IRON_TYPE_FLOAT:
+                    case IRON_TYPE_FLOAT32:
+                    case IRON_TYPE_FLOAT64: {
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        iron_strbuf_appendf(&args_sb, "(double)(%s)",
+                                            iron_strbuf_get(&tmp));
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
+                    case IRON_TYPE_BOOL: {
+                        /* "true" / "false" ternary */
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        iron_strbuf_appendf(&args_sb, "(%s ? \"true\" : \"false\")",
+                                            iron_strbuf_get(&tmp));
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
+                    case IRON_TYPE_STRING: {
+                        /* iron_string_cstr() converts to const char* */
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        iron_strbuf_appendf(&args_sb, "iron_string_cstr(&%s)",
+                                            iron_strbuf_get(&tmp));
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
+                    default: {
+                        /* Generic: try cstr conversion */
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        iron_strbuf_appendf(&args_sb, "iron_string_cstr(&%s)",
+                                            iron_strbuf_get(&tmp));
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
+                }
+            } else {
+                /* No type info: fall back to cstr */
+                Iron_StrBuf tmp = iron_strbuf_create(32);
+                emit_val(&tmp, part_id);
+                iron_strbuf_appendf(&args_sb, "iron_string_cstr(&%s)",
+                                    iron_strbuf_get(&tmp));
+                iron_strbuf_free(&tmp);
+            }
         }
-        iron_strbuf_appendf(sb, ";\n");
 
-        /* Allocate buffer */
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "char *_interp_buf_%u = (char *)malloc((size_t)_interp_len_%u);\n",
-                            instr->id, instr->id);
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "_interp_buf_%u[0] = '\\0';\n", instr->id);
+        const char *fmt_str  = iron_strbuf_get(&fmt_sb);
+        const char *args_str = iron_strbuf_get(&args_sb);
 
-        /* Concatenate each part */
-        for (int i = 0; i < instr->interp_string.part_count; i++) {
-            emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "iron_string_append_display(_interp_buf_%u, _interp_len_%u, ",
-                                instr->id, instr->id);
-            emit_val(sb, instr->interp_string.parts[i]);
-            iron_strbuf_appendf(sb, ");\n");
+        /* Pass 1: measure */
+        emit_indent(sb, ind);
+        if (instr->interp_string.part_count > 0) {
+            iron_strbuf_appendf(sb,
+                "int _interp_len_%u = snprintf(NULL, 0, \"%s\", %s);\n",
+                instr->id, fmt_str, args_str);
+        } else {
+            iron_strbuf_appendf(sb,
+                "int _interp_len_%u = 0;\n", instr->id);
         }
 
-        /* Wrap in Iron_String */
-        emit_indent(sb, ind - 1);
-        iron_strbuf_appendf(sb, "Iron_String ");
+        /* Allocate buffer (len + 1 for NUL terminator) */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb,
+            "char *_interp_buf_%u = (char *)malloc((size_t)(_interp_len_%u + 1));\n",
+            instr->id, instr->id);
+
+        /* Pass 2: fill */
+        emit_indent(sb, ind);
+        if (instr->interp_string.part_count > 0) {
+            iron_strbuf_appendf(sb,
+                "snprintf(_interp_buf_%u, (size_t)(_interp_len_%u + 1), \"%s\", %s);\n",
+                instr->id, instr->id, fmt_str, args_str);
+        } else {
+            iron_strbuf_appendf(sb, "_interp_buf_%u[0] = '\\0';\n", instr->id);
+        }
+
+        iron_strbuf_free(&fmt_sb);
+        iron_strbuf_free(&args_sb);
+
+        /* Assign result to the outer-scoped variable */
+        emit_indent(sb, ind);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = iron_string_from_cstr(_interp_buf_%u);\n",
-                            instr->id);
+        iron_strbuf_appendf(sb,
+            " = iron_string_from_cstr(_interp_buf_%u, (size_t)_interp_len_%u);\n",
+            instr->id, instr->id);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "free(_interp_buf_%u);\n", instr->id);
 
@@ -968,7 +1141,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "void* ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (void*)%s;\n",
-                            instr->func_ref.func_name);
+                            mangle_func_name(instr->func_ref.func_name, ctx->arena));
         break;
 
     /* ── Concurrency ────────────────────────────────────────────────────── */
@@ -1067,7 +1240,10 @@ static void emit_func_signature(Iron_StrBuf *sb, IronIR_Func *fn,
     const char *ret_c = fn->return_type
                         ? emit_type_to_c(fn->return_type, ctx)
                         : "void";
-    iron_strbuf_appendf(sb, "%s %s(", ret_c, fn->name);
+    const char *c_name = fn->is_extern && fn->extern_c_name
+                        ? fn->extern_c_name
+                        : mangle_func_name(fn->name, ctx->arena);
+    iron_strbuf_appendf(sb, "%s %s(", ret_c, c_name);
     for (int i = 0; i < fn->param_count; i++) {
         if (i > 0) iron_strbuf_appendf(sb, ", ");
         iron_strbuf_appendf(sb, "%s %s",
@@ -1442,7 +1618,9 @@ const char *iron_ir_emit_c(IronIR_Module *module, Iron_Arena *arena,
     for (int i = 0; i < module->func_count; i++) {
         IronIR_Func *fn = module->funcs[i];
         if (fn->is_extern) continue;
-        if (strcmp(fn->name, "Iron_main") == 0) {
+        /* Accept "main" (from IR lowerer) or "Iron_main" (from unit tests / direct IR) */
+        if (strcmp(fn->name, "main") == 0 ||
+            strcmp(fn->name, "Iron_main") == 0) {
             has_main = true;
         }
         emit_func_body(&ctx, fn);

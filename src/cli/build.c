@@ -27,7 +27,9 @@
 #include "parser/parser.h"
 #include "parser/ast.h"
 #include "analyzer/analyzer.h"
-#include "codegen/codegen.h"
+#include "ir/lower.h"
+#include "ir/emit_c.h"
+#include "ir/print.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
@@ -710,10 +712,35 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 6. Codegen */
-    const char *c_src = iron_codegen((Iron_Program *)ast,
-                                     analysis.global_scope,
-                                     &arena, &diags);
+    /* 6. Lower AST to IR */
+    Iron_Arena ir_arena = iron_arena_create(1024 * 1024);
+    IronIR_Module *ir_module = iron_ir_lower((Iron_Program *)ast,
+                                              analysis.global_scope,
+                                              &ir_arena, &diags);
+
+    if (!ir_module || diags.error_count > 0) {
+        iron_diag_print_all(&diags, source);
+        iron_diaglist_free(&diags);
+        iron_arena_free(&ir_arena);
+        iron_arena_free(&arena);
+        free(source);
+        return 1;
+    }
+
+    /* 7. Verbose: print IR (before phi elimination) */
+    if (opts.verbose) {
+        char *ir_text = iron_ir_print(ir_module, true);
+        if (ir_text) {
+            fprintf(stdout, "=== Generated IR ===\n%s\n=== End IR ===\n\n", ir_text);
+            free(ir_text);
+        }
+    }
+
+    /* 8. Emit C from IR */
+    const char *c_src = iron_ir_emit_c(ir_module, &arena, &diags);
+
+    iron_ir_module_destroy(ir_module);
+    iron_arena_free(&ir_arena);
 
     if (!c_src || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
@@ -723,13 +750,13 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 7. Verbose: print generated C */
+    /* 9. Verbose: print generated C */
     if (opts.verbose) {
         fprintf(stdout, "=== Generated C ===\n%s\n=== End Generated C ===\n",
                 c_src);
     }
 
-    /* 8. Determine output binary name */
+    /* 10. Determine output binary name */
     char *derived_output = NULL;
     const char *binary_name;
     if (output_path) {
@@ -745,7 +772,7 @@ int iron_build(const char *source_path, const char *output_path,
         binary_name = derived_output;
     }
 
-    /* 9. Write generated C to temp file */
+    /* 12. Write generated C to temp file */
     char *c_file_path = write_temp_c(c_src, opts.debug_build, binary_name);
     if (!c_file_path) {
         free(derived_output);
@@ -755,10 +782,10 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 10. Invoke clang */
+    /* 13. Invoke clang */
     int ret = invoke_clang(c_file_path, binary_name, "src", opts);
 
-    /* 11. Clean up temp file unless --debug-build */
+    /* 14. Clean up temp file unless --debug-build */
     if (!opts.debug_build) {
 #ifdef _WIN32
         DeleteFileA(c_file_path);
@@ -768,7 +795,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
     free(c_file_path);
 
-    /* 12. Clean up compiler resources */
+    /* 15. Clean up compiler resources */
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
     free(source);
@@ -778,7 +805,7 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 13. Run if requested (iron run) */
+    /* 16. Run if requested (iron run) */
     if (opts.run_after) {
 #ifdef _WIN32
         /* On Windows use CreateProcess to run the compiled binary */
