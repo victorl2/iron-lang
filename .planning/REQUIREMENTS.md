@@ -24,7 +24,7 @@ All v1.0 requirements shipped and verified. See MILESTONES.md for details.
 
 ### Semantic Analysis
 
-- [x] **SEM-01**: Name resolution builds scoped symbol table (global → module → function → block)
+- [x] **SEM-01**: Name resolution builds scoped symbol table (global -> module -> function -> block)
 - [x] **SEM-02**: All identifiers resolve to declarations; undefined variables produce errors
 - [x] **SEM-03**: Type inference works for val/var declarations without explicit types
 - [x] **SEM-04**: Type checker validates all assignments, function calls, and return types
@@ -140,7 +140,7 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 - [ ] **MEM-01**: Heap allocation instruction with auto_free and escapes flags from escape analysis
 - [ ] **MEM-02**: Rc allocation instruction
 - [ ] **MEM-03**: Free instruction (explicit free)
-- [ ] **MEM-04**: Defer statements eagerly lowered during AST→IR (deferred calls inlined before every exit point)
+- [ ] **MEM-04**: Defer statements eagerly lowered during AST->IR (deferred calls inlined before every exit point)
 
 ### Concurrency
 
@@ -154,18 +154,31 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 - [ ] **MOD-01**: Module-level type declarations (objects, enums, interfaces) with correct vtable ordering
 - [ ] **MOD-02**: Extern function declarations with C-level names
 - [ ] **MOD-03**: Monomorphization registry on IrModule for generic type deduplication
-- [ ] **MOD-04**: Draw block lowered to BeginDrawing/EndDrawing calls at AST→IR time
+- [ ] **MOD-04**: Draw block lowered to BeginDrawing/EndDrawing calls at AST->IR time
 
 ### Emission
 
 - [ ] **EMIT-01**: C emission backend that consumes IrModule and produces equivalent C to old codegen
-- [ ] **EMIT-02**: All existing integration tests pass through the new AST→IR→C pipeline
-- [ ] **EMIT-03**: Old AST→C codegen fully removed after parity verification
+- [ ] **EMIT-02**: All existing integration tests pass through the new AST->IR->C pipeline
+- [ ] **EMIT-03**: Old AST->C codegen fully removed after parity verification
 
 ### Tooling
 
 - [ ] **TOOL-01**: IR printer producing human-readable text dump of IR modules
 - [ ] **TOOL-02**: IR verifier validating structural invariants (values defined before use, blocks have terminators, branch targets valid)
+
+### Test Hardening
+
+- [ ] **THARD-01**: Test directory reorganized into clear structure (unit/, integration/, algorithms/, ir/) with consistent naming conventions
+- [ ] **THARD-02**: Real algorithm test suite — quicksort, subset sum, binary search, fibonacci (recursive + iterative), merge sort, BFS/DFS graph traversal — each compiles and produces correct output through IR pipeline
+- [ ] **THARD-03**: IR lowering unit tests cover every instruction kind with targeted .iron snippets that exercise each IR path in isolation
+- [ ] **THARD-04**: IR verifier negative tests — malformed IR triggers specific verification errors for every invariant the verifier checks
+- [ ] **THARD-05**: Control flow edge case tests — deeply nested if/else (5+ levels), while with break/continue patterns, match with fallthrough, multiple early returns with defer cleanup
+- [ ] **THARD-06**: Memory and ownership test suite — heap auto_free in loops, rc cycle patterns, defer with multiple exit paths, explicit free after conditional
+- [ ] **THARD-07**: Concurrency test suite — lambda capturing mutable vars, spawn with shared state, parallel-for with captured collections, nested spawn/await
+- [ ] **THARD-08**: Generic and polymorphism stress tests — multiple instantiations of same generic type, interface dispatch through generic containers, nested generics
+- [ ] **THARD-09**: Real-world composite programs — a mini game loop (raylib), a CLI tool (file processing), a concurrent data pipeline — each exercising multiple language features together
+- [ ] **THARD-10**: IR printer snapshot tests — printed IR for representative programs is captured and diffed against expected output to catch IR regressions
 
 ## Future Requirements
 
@@ -306,51 +319,61 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IRCORE-01 | — | Pending |
-| IRCORE-02 | — | Pending |
-| IRCORE-03 | — | Pending |
-| IRCORE-04 | — | Pending |
-| INSTR-01 | — | Pending |
-| INSTR-02 | — | Pending |
-| INSTR-03 | — | Pending |
-| INSTR-04 | — | Pending |
-| INSTR-05 | — | Pending |
-| INSTR-06 | — | Pending |
-| INSTR-07 | — | Pending |
-| INSTR-08 | — | Pending |
-| INSTR-09 | — | Pending |
-| INSTR-10 | — | Pending |
-| INSTR-11 | — | Pending |
-| INSTR-12 | — | Pending |
-| INSTR-13 | — | Pending |
-| CTRL-01 | — | Pending |
-| CTRL-02 | — | Pending |
-| CTRL-03 | — | Pending |
-| CTRL-04 | — | Pending |
-| MEM-01 | — | Pending |
-| MEM-02 | — | Pending |
-| MEM-03 | — | Pending |
-| MEM-04 | — | Pending |
-| CONC-01 | — | Pending |
-| CONC-02 | — | Pending |
-| CONC-03 | — | Pending |
-| CONC-04 | — | Pending |
-| MOD-01 | — | Pending |
-| MOD-02 | — | Pending |
-| MOD-03 | — | Pending |
-| MOD-04 | — | Pending |
-| EMIT-01 | — | Pending |
-| EMIT-02 | — | Pending |
-| EMIT-03 | — | Pending |
-| TOOL-01 | — | Pending |
-| TOOL-02 | — | Pending |
+| IRCORE-01 | Phase 7 | Pending |
+| IRCORE-02 | Phase 7 | Pending |
+| IRCORE-03 | Phase 7 | Pending |
+| IRCORE-04 | Phase 7 | Pending |
+| INSTR-01 | Phase 8 | Pending |
+| INSTR-02 | Phase 8 | Pending |
+| INSTR-03 | Phase 8 | Pending |
+| INSTR-04 | Phase 8 | Pending |
+| INSTR-05 | Phase 8 | Pending |
+| INSTR-06 | Phase 8 | Pending |
+| INSTR-07 | Phase 8 | Pending |
+| INSTR-08 | Phase 8 | Pending |
+| INSTR-09 | Phase 8 | Pending |
+| INSTR-10 | Phase 8 | Pending |
+| INSTR-11 | Phase 8 | Pending |
+| INSTR-12 | Phase 8 | Pending |
+| INSTR-13 | Phase 8 | Pending |
+| CTRL-01 | Phase 8 | Pending |
+| CTRL-02 | Phase 8 | Pending |
+| CTRL-03 | Phase 8 | Pending |
+| CTRL-04 | Phase 8 | Pending |
+| MEM-01 | Phase 8 | Pending |
+| MEM-02 | Phase 8 | Pending |
+| MEM-03 | Phase 8 | Pending |
+| MEM-04 | Phase 8 | Pending |
+| CONC-01 | Phase 8 | Pending |
+| CONC-02 | Phase 8 | Pending |
+| CONC-03 | Phase 8 | Pending |
+| CONC-04 | Phase 8 | Pending |
+| MOD-01 | Phase 8 | Pending |
+| MOD-02 | Phase 8 | Pending |
+| MOD-03 | Phase 8 | Pending |
+| MOD-04 | Phase 8 | Pending |
+| EMIT-01 | Phase 9 | Pending |
+| EMIT-02 | Phase 9 | Pending |
+| EMIT-03 | Phase 9 | Pending |
+| TOOL-01 | Phase 7 | Pending |
+| TOOL-02 | Phase 7 | Pending |
+| THARD-01 | Phase 10 | Pending |
+| THARD-02 | Phase 10 | Pending |
+| THARD-03 | Phase 10 | Pending |
+| THARD-04 | Phase 10 | Pending |
+| THARD-05 | Phase 10 | Pending |
+| THARD-06 | Phase 10 | Pending |
+| THARD-07 | Phase 10 | Pending |
+| THARD-08 | Phase 10 | Pending |
+| THARD-09 | Phase 10 | Pending |
+| THARD-10 | Phase 10 | Pending |
 
 **Coverage:**
-- v1.0 requirements: 52 total — all Complete
-- v1.1 requirements: 38 total
-- Mapped to phases: 0
-- Unmapped: 38 ⚠️
+- v1.0 requirements: 52 total -- all Complete
+- v1.1 requirements: 48 total
+- Mapped to phases: 48/48
+- Unmapped: 0
 
 ---
 *Requirements defined: 2025-03-25*
-*Last updated: 2026-03-27 after milestone v1.1 requirements definition*
+*Last updated: 2026-03-26 after v1.1 roadmap creation*

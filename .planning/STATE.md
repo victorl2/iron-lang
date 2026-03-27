@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: High IR
-status: defining
-stopped_at: null
-last_updated: "2026-03-27"
-last_activity: "2026-03-27 — Milestone v1.1 started"
+status: ready_to_plan
+stopped_at: "Roadmap created, ready to plan Phase 7"
+last_updated: "2026-03-26"
+last_activity: "2026-03-27 — Roadmap updated for v1.1 (4 phases, 48 requirements)"
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 10
   completed_plans: 0
   percent: 0
 ---
@@ -21,14 +21,29 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** Milestone v1.1 — High IR
+**Current focus:** Phase 7 — IR Foundation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-27 — Milestone v1.1 started
+Phase: 7 of 10 (IR Foundation)
+Plan: 0 of 2 in current phase
+Status: Ready to plan
+Last activity: 2026-03-27 — Roadmap updated for v1.1 (added Phase 10: Test Hardening)
+
+Progress: [..........] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 0
+- Average duration: —
+- Total execution time: 0 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
 
 ## Accumulated Context
 
@@ -37,11 +52,12 @@ Last activity: 2026-03-27 — Milestone v1.1 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- v1.0 codegen emits C directly from AST — this is the path being replaced
-- Current codegen split across gen_stmts.c, gen_exprs.c with Iron_Codegen context struct
-- Full codegen replacement chosen over dual-path — clean architectural break
-- High IR should be SSA-form, C-agnostic, designed for future LLVM lowering
-- Future pipeline: source → AST → High IR → Low IR (LLVM) → bytecode/C
+- High IR before LLVM — decoupled IR enables backend swap without rewriting lowering logic
+- SSA form for IR — enables future optimization passes and maps cleanly to LLVM IR
+- Full codegen replacement — no dual-path maintenance burden; clean architectural break
+- Alloca+load+store model for mutable variables — sidesteps phi-placement complexity
+- Braun et al. 2013 SSA construction — single-pass incremental, no dominance frontiers needed
+- Separate ir_arena from ast_arena — correct lifetime management as pipeline evolves
 
 ### v1.0 Accumulated Context (preserved)
 
@@ -49,7 +65,7 @@ Recent decisions affecting current work:
 - Arena allocator is primary allocation strategy in compiler
 - Codegen uses fprintf to emit C text directly
 - Runtime library is separate CMake target (iron_runtime)
-- Integration tests: iron build → execute binary → compare stdout
+- Integration tests: iron build -> execute binary -> compare stdout
 - Cross-platform: pthreads on all platforms (pthreads4w on Windows)
 
 ### Pending Todos
@@ -62,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27
-Stopped at: Milestone v1.1 initialization
+Last session: 2026-03-26
+Stopped at: Roadmap created for v1.1 milestone
 Resume file: None
