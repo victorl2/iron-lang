@@ -214,6 +214,9 @@ static void verify_func(const IronIR_Func *fn, const IronIR_Module *module,
                          Iron_DiagList *diags, Iron_Arena *arena) {
     (void)module;
 
+    /* Extern functions have no body — skip structural verification */
+    if (fn->is_extern) return;
+
     /* Invariant 1: function must have at least one block */
     if (fn->block_count == 0) {
         Iron_Span span = iron_span_make(fn->name, 0, 0, 0, 0);
