@@ -1,8 +1,25 @@
 # Iron
 
+> **Alpha v0.0.1** — early release, expect breaking changes.
+
 A compiled, performant programming language built for game development.
 
 Iron compiles to C. It's designed to be legible, strongly typed, and give you full control over memory — without the complexity of a borrow checker.
+
+## Getting Started
+
+```bash
+# Clone and build
+git clone https://github.com/victorl2/iron-lang.git
+cd iron-lang
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+# Run your first program
+./build/iron run examples/hello.iron
+```
+
+See [INSTALL.md](INSTALL.md) for detailed installation instructions on all platforms.
 
 ## Quick Look
 
@@ -198,4 +215,4 @@ See [docs/language_definition.md](docs/language_definition.md) for the complete 
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
