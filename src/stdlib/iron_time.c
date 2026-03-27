@@ -34,10 +34,11 @@ Iron_Timer Iron_timer_create(void) {
     return t;
 }
 
-int64_t Iron_timer_since(const Iron_Timer *t) {
-    return Iron_time_now_ms() - t->start_ms;
+int64_t Iron_timer_since(Iron_Timer t) {
+    return Iron_time_now_ms() - t.start_ms;
 }
 
-void Iron_timer_reset(Iron_Timer *t) {
-    t->start_ms = Iron_time_now_ms();
+Iron_Timer Iron_timer_reset(Iron_Timer t) {
+    t.start_ms = Iron_time_now_ms();
+    return t;
 }
