@@ -1,0 +1,22 @@
+; Module: module
+
+func @add(a: Int, b: Int) -> Int {
+entry:
+  %2 = alloca Int
+  store %2, %1
+  %4 = alloca Int
+  store %4, %3
+  %5 = load %2 : Int
+  %6 = load %4 : Int
+  %7 = add %5, %6 : Int
+  ret %7
+}
+
+func @main() -> Void {
+entry:
+  %1 = func_ref @add : Void
+  %2 = const_int 3 : Int
+  %3 = const_int 4 : Int
+  %4 = call %1(%2, %3) : Int
+  ret void
+}
