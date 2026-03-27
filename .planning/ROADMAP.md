@@ -163,7 +163,7 @@ Plans:
   2. Every IR instruction carries an Iron_Span and uses integer IrValueId operand references (not pointers); the IR type system reuses Iron_Type* directly with no IR-specific type wrappers
   3. `ir_print()` on a hand-built IrModule produces a human-readable text dump showing functions, blocks, instructions with value IDs, types, and source locations
   4. `ir_verify()` on a well-formed module passes; a module with a use-before-def, a missing block terminator, or an invalid branch target each produce a specific verification error
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 07-01-PLAN.md — IR data structures, IronIR_InstrKind enum, constructors, stub files, CMake wiring
@@ -245,7 +245,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 4. Comptime, Game Dev, and Cross-Platform | v1.0 | 6/6 | Complete | 2026-03-26 |
 | 5. Codegen Fixes + Stdlib Wiring | v1.0 | 5/5 | Complete | 2026-03-26 |
 | 6. Milestone Gap Closure | v1.0 | 2/2 | Complete | 2026-03-27 |
-| 7. IR Foundation | v1.1 | 0/2 | Not started | - |
+| 7. IR Foundation | 1/2 | In Progress|  | - |
 | 8. AST-to-IR Lowering | v1.1 | 0/3 | Not started | - |
 | 9. C Emission and Cutover | v1.1 | 0/2 | Not started | - |
 | 10. Test Hardening | v1.1 | 0/3 | Not started | - |

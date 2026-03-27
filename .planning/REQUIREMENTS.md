@@ -107,10 +107,10 @@ Requirements for High IR milestone. Each maps to roadmap phases.
 
 ### IR Core
 
-- [ ] **IRCORE-01**: IR data structures defined (IrValue, IrInstr, IrBasicBlock, IrFunction, IrModule) with SSA-form semantics
-- [ ] **IRCORE-02**: IR instructions use integer value IDs (not pointers) for operand references
-- [ ] **IRCORE-03**: IR carries full Iron type system (Iron_Type*) without introducing IR-specific types
-- [ ] **IRCORE-04**: Each IR instruction carries an Iron_Span for source location tracking
+- [x] **IRCORE-01**: IR data structures defined (IrValue, IrInstr, IrBasicBlock, IrFunction, IrModule) with SSA-form semantics
+- [x] **IRCORE-02**: IR instructions use integer value IDs (not pointers) for operand references
+- [x] **IRCORE-03**: IR carries full Iron type system (Iron_Type*) without introducing IR-specific types
+- [x] **IRCORE-04**: Each IR instruction carries an Iron_Span for source location tracking
 
 ### Instructions
 
@@ -326,10 +326,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IRCORE-01 | Phase 7 | Pending |
-| IRCORE-02 | Phase 7 | Pending |
-| IRCORE-03 | Phase 7 | Pending |
-| IRCORE-04 | Phase 7 | Pending |
+| IRCORE-01 | Phase 7 | Complete |
+| IRCORE-02 | Phase 7 | Complete |
+| IRCORE-03 | Phase 7 | Complete |
+| IRCORE-04 | Phase 7 | Complete |
 | INSTR-01 | Phase 8 | Pending |
 | INSTR-02 | Phase 8 | Pending |
 | INSTR-03 | Phase 8 | Pending |
