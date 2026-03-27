@@ -1,0 +1,46 @@
+-- rc_patterns.iron: RC (reference counted) allocation patterns
+-- Tests THARD-06: rc objects survive scope transitions and field access works
+
+object Config {
+  var name: String
+  var value: Int
+}
+
+object Node {
+  var id: Int
+  var label: String
+}
+
+func main() {
+  -- Create rc objects and access fields
+  val cfg1 = rc Config("alpha", 1)
+  val cfg2 = rc Config("beta", 2)
+  val cfg3 = rc Config("gamma", 42)
+  println("name: {cfg1.name} val: {cfg1.value}")
+  println("name: {cfg2.name} val: {cfg2.value}")
+  println("name: {cfg3.name} val: {cfg3.value}")
+
+  -- Multiple rc objects with numeric fields
+  var total = 0
+  val a = rc Config("a", 10)
+  val b = rc Config("b", 20)
+  val c = rc Config("c", 30)
+  total = a.value + b.value + c.value
+  println("total: {total}")
+
+  -- RC objects in loop
+  for i in range(4) {
+    val n = rc Node(i, "node")
+    println("node {n.id}: {n.label}")
+  }
+
+  -- RC with conditional field reads
+  val x = rc Config("test", 99)
+  if x.value > 50 {
+    println("large: {x.value}")
+  } else {
+    println("small: {x.value}")
+  }
+
+  println("done")
+}
