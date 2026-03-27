@@ -212,12 +212,14 @@ Plans:
   3. Every IR instruction kind has a dedicated lowering unit test with a minimal .iron snippet; every verifier invariant has a negative test that triggers the specific error
   4. Edge case tests cover deeply nested control flow, multiple early returns with defer, heap auto_free in loops, rc patterns, lambda capture of mutables, nested spawn/await, and generic stress patterns
   5. Real-world composite programs (mini game loop, CLI file processor, concurrent pipeline) compile and run correctly; IR printer snapshot tests catch regressions in IR output
-**Plans**: TBD
+**Plans:** 5 plans
 
 Plans:
-- [ ] 10-01: Test directory reorganization and IR lowering unit tests (every instruction kind + verifier negative tests)
-- [ ] 10-02: Real algorithm test suite and control flow / memory / concurrency edge case tests
-- [ ] 10-03: Real-world composite programs and IR printer snapshot tests
+- [ ] 10-01-PLAN.md — Test directory reorganization, shared runner, per-directory CMakeLists.txt with CTest labels
+- [ ] 10-02-PLAN.md — IR lowering unit tests (every instruction kind), verifier negative tests (all 6 invariants), IR printer snapshot tests
+- [ ] 10-03-PLAN.md — Real algorithm test suite (quicksort, binary search, fibonacci, merge sort, subset sum, BFS/DFS, linked list, matrix multiply, hash map, tokenizer)
+- [ ] 10-04-PLAN.md — Control flow / memory / concurrency / generic edge case integration tests
+- [ ] 10-05-PLAN.md — Real-world composite programs (game loop, CSV parser, concurrent pipeline) and manual raylib test
 
 ### Phase 11: Release Pipeline & Versioning
 **Goal**: CI automatically builds downloadable release binaries for all platforms when a draft GitHub release is created, and `iron --version` outputs version, commit hash, and build date in rustc style
@@ -250,5 +252,5 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11
 | 7. IR Foundation | 2/2 | Complete   | 2026-03-27 | - |
 | 8. AST-to-IR Lowering | 3/3 | Complete   | 2026-03-27 | - |
 | 9. C Emission and Cutover | 2/4 | In Progress|  | - |
-| 10. Test Hardening | v1.1 | 0/3 | Not started | - |
+| 10. Test Hardening | v1.1 | 0/5 | Not started | - |
 | 11. Release Pipeline & Versioning | v1.1 | 0/2 | Not started | - |
