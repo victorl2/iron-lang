@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iron — A Language Forged for Games</title>
+  <meta name="description" content="Iron is a compiled, strongly-typed programming language designed for game development. Compiles to C, producing native binaries with zero overhead.">
+  <meta property="og:title" content="Iron — A Language Forged for Games">
+  <meta property="og:description" content="Compiled to C. Native binaries. Zero overhead. Built for game development.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ironlang.dev">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --accent-glow: rgba(232, 89, 12, 0.12);
+      --accent-subtle: rgba(232, 89, 12, 0.06);
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --max-width: 1200px;
+      --radius: 10px;
+
+      /* Syntax highlighting */
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+      --syn-op: #94a3b8;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--accent-hover); }
+
+    /* ── Navigation ─────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(8, 8, 15, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 2rem;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 800;
+      font-size: 1.25rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-logo:hover { color: var(--text); }
+
+    .nav-logo-icon {
+      width: 30px;
+      height: 30px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: white;
+      font-family: var(--font-sans);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-links .gh-link {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .nav-links .gh-link svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    .nav-hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: var(--text-secondary);
+      margin: 5px 0;
+      transition: 0.3s;
+    }
+
+    /* ── Hero ───────────────────────────────────────────── */
+    .hero {
+      padding: 10rem 2rem 6rem;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: center;
+    }
+
+    .hero-content h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-content h1 .highlight {
+      background: linear-gradient(135deg, var(--accent), #ff8c42);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-content p {
+      font-size: 1.15rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 2rem;
+      max-width: 520px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.75rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      color: white;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(232, 89, 12, 0.3);
+    }
+
+    .btn-secondary {
+      background: var(--bg-surface);
+      color: var(--text);
+      border: 1px solid var(--border-light);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card);
+      color: var(--text);
+      border-color: var(--text-muted);
+      transform: translateY(-1px);
+    }
+
+    .hero-version {
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .hero-code {
+      position: relative;
+    }
+
+    .code-window {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .code-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.8rem 1rem;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .code-dot.red { background: #ef4444; }
+    .code-dot.yellow { background: #eab308; }
+    .code-dot.green { background: #22c55e; }
+
+    .code-filename {
+      margin-left: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .code-body {
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+    }
+
+    .code-body pre {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre;
+      margin: 0;
+    }
+
+    .kw { color: var(--syn-kw); font-weight: 500; }
+    .ty { color: var(--syn-ty); }
+    .st { color: var(--syn-st); }
+    .cm { color: var(--syn-cm); font-style: italic; }
+    .fn { color: var(--syn-fn); }
+    .nu { color: var(--syn-nu); }
+    .pr { color: var(--syn-pr); }
+
+    /* ── Pillars ────────────────────────────────────────── */
+    .pillars {
+      padding: 6rem 2rem;
+      background: var(--bg-primary);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pillars-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    .section-title {
+      font-size: 2.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .section-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin-bottom: 3.5rem;
+    }
+
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.5rem;
+    }
+
+    .pillar {
+      padding: 2rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .pillar:hover {
+      border-color: var(--border-light);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .pillar-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.25rem;
+      font-size: 1.3rem;
+    }
+
+    .pillar-icon.perf { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+    .pillar-icon.ctrl { background: rgba(96, 165, 250, 0.12); color: #60a5fa; }
+    .pillar-icon.game { background: rgba(74, 222, 128, 0.12); color: #4ade80; }
+    .pillar-icon.read { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+
+    .pillar h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 0.6rem;
+    }
+
+    .pillar p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ── Features ───────────────────────────────────────── */
+    .features {
+      padding: 6rem 2rem;
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .feature {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: center;
+      margin-bottom: 6rem;
+    }
+
+    .feature:last-child { margin-bottom: 0; }
+
+    .feature.reverse .feature-text { order: 2; }
+    .feature.reverse .feature-code { order: 1; }
+
+    .feature-text h3 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-text p {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 1rem;
+    }
+
+    .feature-list {
+      list-style: none;
+      margin-top: 1.25rem;
+    }
+
+    .feature-list li {
+      padding: 0.4rem 0;
+      font-size: 0.92rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+    }
+
+    .feature-list li::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      margin-top: 0.4rem;
+    }
+
+    .feature-code .code-window { font-size: 0.9rem; }
+
+    /* ── Install ────────────────────────────────────────── */
+    .install {
+      padding: 6rem 2rem;
+      background: var(--bg-primary);
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .install-inner {
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .install h2 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .install p {
+      color: var(--text-secondary);
+      margin-bottom: 2.5rem;
+      font-size: 1.05rem;
+    }
+
+    .install-steps {
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .install-step {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .install-step .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .install-step code {
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+
+    .install-step .step-comment {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-left: auto;
+    }
+
+    .install-hello {
+      margin-top: 2.5rem;
+    }
+
+    .install-hello .code-window {
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    footer {
+      padding: 4rem 2rem 2rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .footer-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 3rem;
+    }
+
+    .footer-brand p {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 0.75rem;
+      line-height: 1.6;
+      max-width: 280px;
+    }
+
+    .footer-col h4 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      margin-bottom: 1rem;
+    }
+
+    .footer-col ul {
+      list-style: none;
+    }
+
+    .footer-col li {
+      margin-bottom: 0.5rem;
+    }
+
+    .footer-col a {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      transition: color 0.2s;
+    }
+
+    .footer-col a:hover { color: var(--text); }
+
+    .footer-bottom {
+      max-width: var(--max-width);
+      margin: 3rem auto 0;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Responsive ─────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .hero {
+        grid-template-columns: 1fr;
+        padding-top: 8rem;
+        gap: 3rem;
+      }
+      .hero-content h1 { font-size: 2.75rem; }
+      .pillars-grid { grid-template-columns: repeat(2, 1fr); }
+      .feature { grid-template-columns: 1fr; gap: 2rem; }
+      .feature.reverse .feature-text { order: 1; }
+      .feature.reverse .feature-code { order: 2; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .hero-content h1 { font-size: 2.25rem; }
+      .hero-content p { font-size: 1rem; }
+      .pillars-grid { grid-template-columns: 1fr; }
+      .section-title { font-size: 1.75rem; }
+      .feature-text h3 { font-size: 1.4rem; }
+      .code-body pre { font-size: 0.75rem; }
+      .nav-links { display: none; }
+      .nav-links.open {
+        display: flex;
+        flex-direction: column;
+        position: absolute;
+        top: 64px;
+        left: 0;
+        right: 0;
+        background: var(--bg-primary);
+        border-bottom: 1px solid var(--border);
+        padding: 1.5rem 2rem;
+        gap: 1rem;
+      }
+      .nav-hamburger { display: block; }
+      .footer-inner { grid-template-columns: 1fr; gap: 2rem; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; text-align: center; }
+      .hero-buttons { flex-direction: column; }
+      .btn { justify-content: center; }
+      .install h2 { font-size: 1.75rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ── Navigation ───────────────────────────────────── -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">
+        <div class="nav-logo-icon">Fe</div>
+        Iron
+      </a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="/docs/">Documentation</a></li>
+        <li><a href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md">Install</a></li>
+        <li>
+          <a href="https://github.com/victorl2/iron-lang" class="gh-link">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            GitHub
+          </a>
+        </li>
+      </ul>
+      <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── Hero ─────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-content">
+      <h1>A language <span class="highlight">forged</span> for games</h1>
+      <p>Iron compiles to C and produces native binaries with zero runtime overhead. Manual memory control, first-class concurrency, and game-dev primitives &mdash; all with clean, readable syntax.</p>
+      <div class="hero-buttons">
+        <a href="/docs/" class="btn btn-primary">Get Started</a>
+        <a href="/docs/#full-example" class="btn btn-secondary">See Examples</a>
+      </div>
+      <div class="hero-version">Latest: v0.0.1-alpha &middot; Apache 2.0</div>
+    </div>
+    <div class="hero-code">
+      <div class="code-window">
+        <div class="code-titlebar">
+          <div class="code-dot red"></div>
+          <div class="code-dot yellow"></div>
+          <div class="code-dot green"></div>
+          <span class="code-filename">game.iron</span>
+        </div>
+        <div class="code-body">
+<pre><span class="kw">import</span> raylib
+
+<span class="kw">object</span> <span class="ty">Player</span> {
+  <span class="kw">var</span> pos:   <span class="ty">Vec2</span>
+  <span class="kw">var</span> hp:    <span class="ty">Int</span>
+  <span class="kw">val</span> speed: <span class="ty">Float</span>
+  <span class="kw">val</span> name:  <span class="ty">String</span>
+}
+
+<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">update</span>(dt: <span class="ty">Float</span>) {
+  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">RIGHT</span>) { <span class="kw">self</span>.<span class="pr">pos</span>.x += <span class="kw">self</span>.<span class="pr">speed</span> * dt }
+  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">LEFT</span>)  { <span class="kw">self</span>.<span class="pr">pos</span>.x -= <span class="kw">self</span>.<span class="pr">speed</span> * dt }
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+  <span class="kw">val</span> window = <span class="fn">init_window</span>(<span class="nu">800</span>, <span class="nu">600</span>, <span class="st">"My Game"</span>)
+  <span class="kw">defer</span> <span class="fn">close_window</span>(window)
+
+  <span class="kw">var</span> player = <span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">100</span>, <span class="nu">200.0</span>, <span class="st">"Victor"</span>)
+
+  <span class="kw">while</span> <span class="kw">not</span> <span class="fn">window_should_close</span>() {
+    player.<span class="fn">update</span>(<span class="fn">get_frame_time</span>())
+    <span class="kw">draw</span> {
+      <span class="fn">clear</span>(<span class="pr">DARKGRAY</span>)
+      player.<span class="fn">draw</span>()
+    }
+  }
+}</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Why Iron ─────────────────────────────────────── -->
+  <section class="pillars">
+    <div class="pillars-inner">
+      <div class="section-label">Why Iron?</div>
+      <h2 class="section-title">Built for developers who ship games</h2>
+      <p class="section-subtitle">Iron gives you the performance of C with a modern syntax that stays out of your way.</p>
+      <div class="pillars-grid">
+        <div class="pillar">
+          <div class="pillar-icon perf">&#9889;</div>
+          <h3>Performance</h3>
+          <p>Compiles to C and produces native binaries. No garbage collector, no VM, no interpreter overhead. Just raw speed.</p>
+        </div>
+        <div class="pillar">
+          <div class="pillar-icon ctrl">&#9881;</div>
+          <h3>Control</h3>
+          <p>You manage memory explicitly &mdash; stack, heap, reference counting &mdash; with compiler-assisted safety nets. No borrow checker, no hidden magic.</p>
+        </div>
+        <div class="pillar">
+          <div class="pillar-icon game">&#9654;</div>
+          <h3>Game-Dev First</h3>
+          <p>Thread pools, parallel loops, <code>draw {}</code> blocks, and concurrency primitives are first-class language features, not library afterthoughts.</p>
+        </div>
+        <div class="pillar">
+          <div class="pillar-icon read">&#9998;</div>
+          <h3>Legible</h3>
+          <p>No operator overloading, no implicit conversions, no hidden control flow. When you read Iron code, you know exactly what it does.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Features ─────────────────────────────────────── -->
+  <section class="features">
+    <div class="section-label">Features</div>
+    <h2 class="section-title">Power where you need it</h2>
+    <p class="section-subtitle">Iron gives you fine-grained control without boilerplate.</p>
+
+    <!-- Memory Management -->
+    <div class="feature" style="margin-top: 3.5rem;">
+      <div class="feature-text">
+        <h3>Memory, your way</h3>
+        <p>Choose the right strategy for each allocation. Stack by default, heap when you need it, reference counting for shared ownership. The compiler tracks escapes and auto-frees when safe.</p>
+        <ul class="feature-list">
+          <li>Stack allocation by default &mdash; zero overhead</li>
+          <li>Escape analysis auto-frees heap values that don't leave scope</li>
+          <li>Opt-in <code>rc</code> for shared ownership</li>
+          <li><code>defer</code> for deterministic resource cleanup</li>
+          <li><code>leak</code> for intentional permanent allocations</li>
+        </ul>
+      </div>
+      <div class="feature-code">
+        <div class="code-window">
+          <div class="code-titlebar">
+            <div class="code-dot red"></div>
+            <div class="code-dot yellow"></div>
+            <div class="code-dot green"></div>
+            <span class="code-filename">memory.iron</span>
+          </div>
+          <div class="code-body">
+<pre><span class="cm">-- stack: default, auto-freed at scope exit</span>
+<span class="kw">val</span> pos = <span class="fn">vec2</span>(<span class="nu">10.0</span>, <span class="nu">20.0</span>)
+
+<span class="cm">-- heap: auto-freed when value doesn't escape</span>
+<span class="kw">val</span> enemies = <span class="kw">heap</span> [<span class="ty">Enemy</span>; <span class="nu">64</span>]
+
+<span class="cm">-- reference counted: shared ownership</span>
+<span class="kw">val</span> sprite = <span class="kw">rc</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>)
+<span class="kw">var</span> other = sprite  <span class="cm">-- ref count = 2</span>
+
+<span class="cm">-- deterministic cleanup</span>
+<span class="kw">val</span> file = <span class="fn">open_file</span>(<span class="st">"save.dat"</span>)
+<span class="kw">defer</span> <span class="fn">close_file</span>(file)
+
+<span class="cm">-- intentional permanent allocation</span>
+<span class="kw">val</span> atlas = <span class="kw">heap</span> <span class="fn">load_texture</span>(<span class="st">"atlas.png"</span>)
+<span class="kw">leak</span> atlas</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Concurrency -->
+    <div class="feature reverse">
+      <div class="feature-text">
+        <h3>First-class concurrency</h3>
+        <p>Named thread pools, typed channels, mutexes, and parallel loops are built into the language. No external threading libraries, no callback pyramids.</p>
+        <ul class="feature-list">
+          <li>Named thread pools with CPU pinning</li>
+          <li>Typed channels for safe message passing</li>
+          <li><code>parallel</code> loops with automatic work distribution</li>
+          <li>Compiler prevents mutable captures in parallel blocks</li>
+        </ul>
+      </div>
+      <div class="feature-code">
+        <div class="code-window">
+          <div class="code-titlebar">
+            <div class="code-dot red"></div>
+            <div class="code-dot yellow"></div>
+            <div class="code-dot green"></div>
+            <span class="code-filename">concurrency.iron</span>
+          </div>
+          <div class="code-body">
+<pre><span class="kw">val</span> compute = <span class="fn">pool</span>(<span class="st">"compute"</span>, <span class="nu">4</span>)
+<span class="kw">val</span> io = <span class="fn">pool</span>(<span class="st">"io"</span>, <span class="nu">1</span>)
+
+<span class="cm">-- background work on a specific pool</span>
+<span class="kw">val</span> handle = <span class="kw">spawn</span>(<span class="st">"load-assets"</span>, io) {
+  <span class="kw">return</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>)
+}
+<span class="kw">val</span> tex = <span class="kw">await</span> handle
+
+<span class="cm">-- typed channels</span>
+<span class="kw">val</span> ch = <span class="fn">channel</span>[<span class="ty">Texture</span>](<span class="nu">8</span>)
+ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class="st">"hero.png"</span>))
+<span class="kw">val</span> tex = ch.<span class="fn">recv</span>()
+
+<span class="cm">-- parallel loops across cores</span>
+<span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="fn">len</span>(particles)) <span class="kw">parallel</span>(compute) {
+  particles[i].<span class="fn">update</span>(dt)
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compile-time -->
+    <div class="feature">
+      <div class="feature-text">
+        <h3>Compile-time evaluation</h3>
+        <p>Any pure function can run at compile time. Build lookup tables, embed files, precompute values &mdash; all baked into the binary with zero runtime cost.</p>
+        <ul class="feature-list">
+          <li>Call any pure function with <code>comptime</code></li>
+          <li>Embed files directly into the binary</li>
+          <li>Build lookup tables at compile time</li>
+          <li>Same function works at runtime and compile time</li>
+        </ul>
+      </div>
+      <div class="feature-code">
+        <div class="code-window">
+          <div class="code-titlebar">
+            <div class="code-dot red"></div>
+            <div class="code-dot yellow"></div>
+            <div class="code-dot green"></div>
+            <span class="code-filename">comptime.iron</span>
+          </div>
+          <div class="code-body">
+<pre><span class="kw">func</span> <span class="fn">build_sin_table</span>() -> [<span class="ty">Float</span>; <span class="nu">360</span>] {
+  <span class="kw">var</span> table = [<span class="ty">Float</span>; <span class="nu">360</span>]
+  <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">360</span>) {
+    table[i] = <span class="fn">sin</span>(<span class="ty">Float</span>(i) * <span class="nu">3.14159</span> / <span class="nu">180.0</span>)
+  }
+  <span class="kw">return</span> table
+}
+
+<span class="cm">-- evaluated at compile time, zero cost</span>
+<span class="kw">val</span> SIN_TABLE = <span class="kw">comptime</span> <span class="fn">build_sin_table</span>()
+
+<span class="cm">-- embed files directly</span>
+<span class="kw">val</span> SHADER = <span class="kw">comptime</span> <span class="fn">read_file</span>(<span class="st">"main.glsl"</span>)
+
+<span class="cm">-- same function also works at runtime</span>
+<span class="kw">val</span> dynamic = <span class="fn">build_sin_table</span>()</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Get Started ──────────────────────────────────── -->
+  <section class="install" id="install">
+    <div class="install-inner">
+      <h2>Get started in seconds</h2>
+      <p>Clone, build, and run your first Iron program.</p>
+      <div class="install-steps">
+        <div class="install-step">
+          <div class="step-num">1</div>
+          <code>git clone https://github.com/victorl2/iron-lang.git</code>
+        </div>
+        <div class="install-step">
+          <div class="step-num">2</div>
+          <code>cd iron-lang && cmake -B build && cmake --build build</code>
+        </div>
+        <div class="install-step">
+          <div class="step-num">3</div>
+          <code>./build/iron run examples/hello.iron</code>
+        </div>
+      </div>
+      <div class="install-hello">
+        <div class="code-window">
+          <div class="code-titlebar">
+            <div class="code-dot red"></div>
+            <div class="code-dot yellow"></div>
+            <div class="code-dot green"></div>
+            <span class="code-filename">hello.iron</span>
+          </div>
+          <div class="code-body">
+<pre><span class="kw">func</span> <span class="fn">main</span>() {
+  <span class="fn">println</span>(<span class="st">"Hello, Iron!"</span>)
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ───────────────────────────────────────── -->
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">
+          <div class="nav-logo-icon">Fe</div>
+          Iron
+        </a>
+        <p>A compiled, strongly-typed programming language designed for game development. Open source under the Apache 2.0 license.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/docs/#full-example">Examples</a></li>
+          <li><a href="/docs/#standard-library">Standard Library</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/discussions">Discussions</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Built with Iron &middot; ironlang.dev</span>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('navToggle').addEventListener('click', function() {
+      document.getElementById('navLinks').classList.toggle('open');
+    });
+  </script>
+</body>
+</html>
