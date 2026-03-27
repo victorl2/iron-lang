@@ -65,6 +65,7 @@ add_library(iron_compiler STATIC
     src/ir/ir.c
     src/ir/lower.c
     src/ir/lower_exprs.c
+    src/ir/lower_stmts.c
     src/ir/emit_c.c
     src/ir/print.c
     src/ir/verify.c
