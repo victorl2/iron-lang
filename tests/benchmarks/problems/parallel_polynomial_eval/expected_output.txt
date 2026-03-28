@@ -1,0 +1,8 @@
+poly(0): 3
+poly(1): 867
+poly(2): 165039445
+poly(100): 709668770
+N: 5000000
+degree: 20
+total eval sum: 937758376
+verify sum [0,1000): 822650012

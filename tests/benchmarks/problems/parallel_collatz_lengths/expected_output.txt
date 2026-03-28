@@ -1,0 +1,8 @@
+collatz(1): 0
+collatz(2): 1
+collatz(3): 7
+collatz(6): 8
+collatz(27): 111
+N: 500000
+total collatz sum: 62134795
+max collatz in [1,1000]: n=871 len=178

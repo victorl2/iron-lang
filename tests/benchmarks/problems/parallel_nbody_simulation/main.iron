@@ -1,0 +1,104 @@
+import time
+
+-- Parallel N-Body Simulation: compute gravitational forces for one timestep.
+-- Each parallel iteration computes total force on body i from all N=5000 bodies.
+-- Uses conditional println to prevent dead code elimination in parallel body.
+
+func body_x(idx: Int) -> Int {
+    return ((idx * 7919 + 104729) % 10000) - 5000
+}
+
+func body_y(idx: Int) -> Int {
+    return ((idx * 6271 + 73856) % 10000) - 5000
+}
+
+func body_z(idx: Int) -> Int {
+    return ((idx * 3571 + 51427) % 10000) - 5000
+}
+
+func body_mass(idx: Int) -> Int {
+    return (idx * 31 + 17) % 100 + 1
+}
+
+func isqrt(n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    if n == 1 {
+        return 1
+    }
+    var x = n
+    var y = (x + 1) / 2
+    while y < x {
+        x = y
+        y = (x + n / x) / 2
+    }
+    return x
+}
+
+func compute_force_pair(i: Int, j: Int) -> Int {
+    val dx = body_x(j) - body_x(i)
+    val dy = body_y(j) - body_y(i)
+    val dz = body_z(j) - body_z(i)
+    val dist_sq = dx * dx + dy * dy + dz * dz
+    if dist_sq < 1 {
+        return 0
+    }
+    val dist = isqrt(dist_sq)
+    if dist < 1 {
+        return 0
+    }
+    val mi = body_mass(i)
+    val mj = body_mass(j)
+    val force = mi * mj * 10000 / (dist_sq + 1)
+    val potential = mi * mj * 1000 / (dist + 1)
+    return force + potential % 1000
+}
+
+func force_for_body(i: Int) -> Int {
+    val N = 5000
+    var total = 0
+    var j = 0
+    while j < N {
+        if j != i {
+            total = total + compute_force_pair(i, j)
+        }
+        j = j + 1
+    }
+    if total == -1 {
+        println("x")
+    }
+    return total
+}
+
+func main() {
+    val N = 5000
+
+    -- Correctness
+    var checksum = 0
+    var i = 0
+    while i < N {
+        checksum = checksum + force_for_body(i) % 10000
+        i = i + 1
+    }
+    println("Force checksum: {checksum}")
+    println("force(0): {force_for_body(0)}")
+    println("force(1): {force_for_body(1)}")
+    println("force(99): {force_for_body(99)}")
+
+    -- Benchmark: parallel force computation
+    val iterations = 3
+    val start = Time.now_ms()
+    for iter in range(iterations) {
+        for idx in N parallel {
+            val f = force_for_body(idx)
+        }
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Parallel N-Body Simulation ===")
+    println("Bodies: {N}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

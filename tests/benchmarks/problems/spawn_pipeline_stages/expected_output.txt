@@ -1,0 +1,8 @@
+stage 1: generated 500000 elements
+data[0]: 29
+data[999]: 2907
+stage 2: transformed 500000 elements
+output[0]: 419049581
+output[999]: 290975391
+stage 3: aggregate = 822653428
+verify first 100: 83871380

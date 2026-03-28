@@ -1,0 +1,186 @@
+import time
+
+-- Parallel Ray Trace: compute color for each pixel in a 1000x1000 image.
+-- Each parallel iteration traces a ray against 20 spheres with full
+-- shading computation using integer square root.
+-- Uses conditional println to prevent dead code elimination in parallel body.
+
+func sphere_cx(s: Int) -> Int {
+    return ((s * 317 + 113) % 1000) - 500
+}
+
+func sphere_cy(s: Int) -> Int {
+    return ((s * 241 + 79) % 1000) - 500
+}
+
+func sphere_cz(s: Int) -> Int {
+    return 300 + s * 50 + ((s * 127) % 200)
+}
+
+func sphere_r(s: Int) -> Int {
+    return 40 + (s * 17) % 60
+}
+
+func sphere_red(s: Int) -> Int {
+    return (s * 73 + 50) % 256
+}
+
+func sphere_green(s: Int) -> Int {
+    return (s * 127 + 100) % 256
+}
+
+func sphere_blue(s: Int) -> Int {
+    return (s * 191 + 150) % 256
+}
+
+func isqrt(n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    if n == 1 {
+        return 1
+    }
+    var x = n
+    var y = (x + 1) / 2
+    while y < x {
+        x = y
+        y = (x + n / x) / 2
+    }
+    return x
+}
+
+func count_divisors_small(n: Int) -> Int {
+    var count = 0
+    var d = 1
+    while d * d <= n {
+        if n % d == 0 {
+            count = count + 1
+            if d != n / d {
+                count = count + 1
+            }
+        }
+        d = d + 1
+    }
+    return count
+}
+
+func ray_sphere_test(px: Int, py: Int, s: Int) -> Int {
+    val DEPTH = 1000
+    val dx = px - 500
+    val dy = py - 500
+    val dz = DEPTH
+
+    val cx = sphere_cx(s)
+    val cy = sphere_cy(s)
+    val cz = sphere_cz(s)
+    val r = sphere_r(s)
+
+    val ocx = 0 - cx
+    val ocy = 0 - cy
+    val ocz = 0 - cz
+
+    val a = dx * dx + dy * dy + dz * dz
+    val b = 2 * (ocx * dx + ocy * dy + ocz * dz)
+    val c = ocx * ocx + ocy * ocy + ocz * ocz - r * r
+    val disc = b * b - 4 * a * c
+
+    if disc < 0 {
+        return 0
+    }
+
+    val sqrt_disc = isqrt(disc)
+    val t_num = (0 - b) - sqrt_disc
+
+    if t_num < 0 {
+        return 0
+    }
+
+    val t_scaled = t_num * 100 / (2 * a + 1)
+    val hx = dx * t_scaled / 100
+    val hy = dy * t_scaled / 100
+    val hz = dz * t_scaled / 100
+    val nx = hx - cx
+    val ny = hy - cy
+    val nz = hz - cz
+    var dot = nx + ny - nz
+    if dot < 0 {
+        dot = 0
+    }
+    val norm_len = isqrt(nx * nx + ny * ny + nz * nz)
+    var intensity = 50
+    if norm_len > 0 {
+        intensity = 50 + dot * 200 / (norm_len + 1)
+    }
+    if intensity > 255 {
+        intensity = 255
+    }
+
+    return intensity * 1000 + s
+}
+
+func trace_pixel(pixel: Int) -> Int {
+    val WIDTH = 1000
+    val NUM_SPHERES = 20
+    val px = pixel - (pixel / WIDTH) * WIDTH
+    val py = pixel / WIDTH
+
+    var best_color = 0
+    var best_depth = 999999999
+
+    var s = 0
+    while s < NUM_SPHERES {
+        val hit = ray_sphere_test(px, py, s)
+        if hit > 0 {
+            val intensity = hit / 1000
+            val sphere_idx = hit - intensity * 1000
+            val depth = sphere_cz(sphere_idx)
+            if depth < best_depth {
+                best_depth = depth
+                val rv = (intensity * sphere_red(sphere_idx)) / 256
+                val gv = (intensity * sphere_green(sphere_idx)) / 256
+                val bv = (intensity * sphere_blue(sphere_idx)) / 256
+                best_color = rv + gv + bv
+            }
+        }
+        s = s + 1
+    }
+
+    val extra = count_divisors_small(pixel % 50000 + 2)
+    val result = best_color + extra % 10
+    if result == -1 {
+        println("x")
+    }
+    return result
+}
+
+func main() {
+    val TOTAL_PIXELS = 1000000
+
+    -- Correctness
+    var checksum = 0
+    var i = 0
+    while i < TOTAL_PIXELS {
+        checksum = checksum + trace_pixel(i)
+        i = i + 1
+    }
+    println("Color checksum: {checksum}")
+    println("pixel(0): {trace_pixel(0)}")
+    println("pixel(500500): {trace_pixel(500500)}")
+    println("pixel(999999): {trace_pixel(999999)}")
+
+    -- Benchmark: parallel ray tracing
+    val iterations = 3
+    val start = Time.now_ms()
+    for iter in range(iterations) {
+        for pixel in TOTAL_PIXELS parallel {
+            val c = trace_pixel(pixel)
+        }
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Parallel Ray Trace ===")
+    println("Pixels: {TOTAL_PIXELS}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

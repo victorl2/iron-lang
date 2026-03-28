@@ -1,0 +1,91 @@
+import time
+
+-- Parallel Prime Sieve: count primes in independent ranges using parallel-for.
+-- Each parallel iteration counts primes in a segment using trial division.
+-- Uses recursive helper to prevent dead-code elimination in parallel body.
+
+func is_prime(n: Int) -> Int {
+  if n < 2 {
+    return 0
+  }
+  if n < 4 {
+    return 1
+  }
+  if n % 2 == 0 {
+    return 0
+  }
+  if n % 3 == 0 {
+    return 0
+  }
+  var d = 5
+  while d * d <= n {
+    if n % d == 0 {
+      return 0
+    }
+    if n % (d + 2) == 0 {
+      return 0
+    }
+    d = d + 6
+  }
+  return 1
+}
+
+func count_primes_half(seg_idx: Int, start: Int, count: Int) -> Int {
+  -- Non-tail-recursive: splits work in half, combines after recursive calls
+  if count <= 0 {
+    return 0
+  }
+  if count == 1 {
+    val base = seg_idx * 5000
+    return is_prime(base + start)
+  }
+  val mid = count / 2
+  val left = count_primes_half(seg_idx, start, mid)
+  val right = count_primes_half(seg_idx, start + mid, count - mid)
+  return left + right
+}
+
+func count_primes_in_segment(seg_idx: Int) -> Int {
+  return count_primes_half(seg_idx, 0, 5000)
+}
+
+func main() {
+  val n_segments = 800
+
+  -- Correctness: sequential checksum (total primes across all segments)
+  var checksum = 0
+  for i in range(n_segments) {
+    checksum = checksum + count_primes_in_segment(i)
+  }
+  println("checksum: {checksum}")
+
+  -- Benchmark: sequential
+  val iterations = 3
+  var seq_total = 0
+  val start_seq = Time.now_ms()
+  for iter in range(iterations) {
+    for i in range(n_segments) {
+      seq_total = seq_total + count_primes_in_segment(i)
+    }
+  }
+  val elapsed_seq = Time.now_ms() - start_seq
+
+  -- Benchmark: parallel
+  val start_par = Time.now_ms()
+  for iter in range(iterations) {
+    for i in n_segments parallel {
+      val x = count_primes_in_segment(i)
+    }
+  }
+  val elapsed_par = Time.now_ms() - start_par
+
+  println("")
+  println("=== Benchmark: Parallel Prime Sieve ===")
+  println("Segments: {n_segments}")
+  println("Range: [0, {n_segments * 5000})")
+  println("Iterations: {iterations}")
+  println("Sequential time: {elapsed_seq} ms")
+  println("Parallel time: {elapsed_par} ms")
+  println("Seq verify: {seq_total}")
+  println("Total time: {elapsed_par} ms")
+}

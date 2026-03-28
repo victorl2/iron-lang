@@ -1,0 +1,85 @@
+import time
+
+-- Parallel Polynomial Eval: evaluate degree-20 polynomial at N points
+-- Tests parallel-for with Horner's method (20 multiply-adds per element)
+
+-- Evaluate polynomial with fixed coefficients using Horner's method
+-- Coefficients: [3,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83]
+func eval_poly(x: Int) -> Int {
+    -- Horner's method: start from highest degree coefficient
+    var result = 83
+    result = (result * x + 79) % 1000000007
+    result = (result * x + 73) % 1000000007
+    result = (result * x + 71) % 1000000007
+    result = (result * x + 67) % 1000000007
+    result = (result * x + 61) % 1000000007
+    result = (result * x + 59) % 1000000007
+    result = (result * x + 53) % 1000000007
+    result = (result * x + 47) % 1000000007
+    result = (result * x + 43) % 1000000007
+    result = (result * x + 41) % 1000000007
+    result = (result * x + 37) % 1000000007
+    result = (result * x + 31) % 1000000007
+    result = (result * x + 29) % 1000000007
+    result = (result * x + 23) % 1000000007
+    result = (result * x + 19) % 1000000007
+    result = (result * x + 17) % 1000000007
+    result = (result * x + 13) % 1000000007
+    result = (result * x + 11) % 1000000007
+    result = (result * x + 7) % 1000000007
+    result = (result * x + 3) % 1000000007
+    if result < 0 {
+        result = result + 1000000007
+    }
+    return result
+}
+
+-- Evaluate polynomial for a single index
+func eval_for_index(i: Int) -> Int {
+    val x = (i * 31 + 7) % 100003
+    return eval_poly(x)
+}
+
+func main() {
+    -- Correctness tests
+    println("poly(0): {eval_poly(0)}")
+    println("poly(1): {eval_poly(1)}")
+    println("poly(2): {eval_poly(2)}")
+    println("poly(100): {eval_poly(100)}")
+
+    val n = 5000000
+
+    -- Parallel computation (exercises parallel-for dispatch)
+    val start = Time.now_ms()
+    for i in n parallel {
+        var r = eval_for_index(i)
+    }
+    val elapsed = Time.now_ms() - start
+
+    -- Sequential verification: compute total sum
+    var total_sum = 0
+    var idx = 0
+    while idx < n {
+        total_sum = (total_sum + eval_for_index(idx)) % 1000000007
+        idx = idx + 1
+    }
+
+    println("N: {n}")
+    println("degree: 20")
+    println("total eval sum: {total_sum}")
+
+    -- Sequential verification on small range
+    var verify_sum = 0
+    var j = 0
+    while j < 1000 {
+        verify_sum = (verify_sum + eval_for_index(j)) % 1000000007
+        j = j + 1
+    }
+    println("verify sum [0,1000): {verify_sum}")
+
+    println("")
+    println("=== Benchmark: Parallel Polynomial Eval ===")
+    println("N: {n}")
+    println("Degree: 20")
+    println("Total time: {elapsed} ms")
+}

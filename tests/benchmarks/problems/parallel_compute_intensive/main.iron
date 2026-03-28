@@ -1,0 +1,74 @@
+import time
+
+-- Parallel Compute Intensive: count divisors across large ranges
+-- Each parallel iteration processes a chunk of numbers independently.
+-- Uses conditional println to prevent dead code elimination in parallel body.
+
+func count_divisors(n: Int) -> Int {
+  var count = 0
+  var d = 1
+  while d * d <= n {
+    if n % d == 0 {
+      count = count + 1
+      if d != n / d {
+        count = count + 1
+      }
+    }
+    d = d + 1
+  }
+  return count
+}
+
+func heavy_work(idx: Int) -> Int {
+  val base = idx * 500 + 1
+  var total = 0
+  var k = 0
+  while k < 500 {
+    total = total + count_divisors(base + k)
+    k = k + 1
+  }
+  if total == -1 {
+    println("x")
+  }
+  return total
+}
+
+func main() {
+  val n = 2000
+
+  -- Correctness: compute checksum sequentially
+  var checksum = 0
+  for i in range(n) {
+    checksum = checksum + heavy_work(i)
+  }
+  println("checksum: {checksum}")
+
+  -- Benchmark: sequential
+  val iterations = 3
+  var seq_accum = 0
+  val start_seq = Time.now_ms()
+  for iter in range(iterations) {
+    for i in range(n) {
+      seq_accum = seq_accum + heavy_work(i)
+    }
+  }
+  val elapsed_seq = Time.now_ms() - start_seq
+
+  -- Benchmark: parallel
+  val start_par = Time.now_ms()
+  for iter in range(iterations) {
+    for i in n parallel {
+      val x = heavy_work(i)
+    }
+  }
+  val elapsed_par = Time.now_ms() - start_par
+
+  println("")
+  println("=== Benchmark: Parallel Compute Intensive ===")
+  println("Work items: {n}")
+  println("Iterations: {iterations}")
+  println("Sequential time: {elapsed_seq} ms")
+  println("Parallel time: {elapsed_par} ms")
+  println("Seq verify: {seq_accum}")
+  println("Total time: {elapsed_par} ms")
+}

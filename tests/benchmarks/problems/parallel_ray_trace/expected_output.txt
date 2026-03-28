@@ -1,0 +1,4 @@
+Color checksum: 84792081
+pixel(0): 2
+pixel(500500): 107
+pixel(999999): 8

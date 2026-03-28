@@ -217,7 +217,7 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     mkdir -p "$iron_build_dir"
 
     # ── Step 1: Compile C reference ────────────────────────────────────
-    if ! $CC -std=c17 -O3 -o "$c_bin" "$c_src" -lm 2>"$TMPDIR/c_compile_err"; then
+    if ! $CC -std=c17 -O3 -o "$c_bin" "$c_src" -lm -lpthread 2>"$TMPDIR/c_compile_err"; then
         echo "[ERROR] $problem_name: C compilation failed"
         if [ $VERBOSE -eq 1 ]; then
             cat "$TMPDIR/c_compile_err"
