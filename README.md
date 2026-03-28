@@ -3,9 +3,17 @@
 This is the main source code repository for [Iron]. It contains the compiler,
 standard library, and documentation.
 
-> **Alpha v0.0.1** — early release, expect breaking changes.
+> **Alpha v0.0.2** — early release, expect breaking changes.
 
 [Iron]: https://github.com/victorl2/iron-lang
+
+## Install
+
+```sh
+curl -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh
+```
+
+Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x86_64) on the [releases page](https://github.com/victorl2/iron-lang/releases).
 
 ## Why Iron?
 
@@ -22,10 +30,10 @@ standard library, and documentation.
 Read the [language overview](docs/language_definition.md) for a tour of the
 language and its features.
 
-## Installing from Source
+## Building from Source
 
-If you want to build Iron from source, see [INSTALL.md](INSTALL.md) for
-step-by-step instructions on macOS, Linux, and Windows.
+If you prefer to build from source, see [INSTALL.md](INSTALL.md) for
+step-by-step instructions on macOS, Linux, and Windows. Requires CMake 3.25+ and a C17 compiler.
 
 ## Getting Help
 
