@@ -296,6 +296,8 @@ void iron_runtime_shutdown(void);
  */
 #define IRON_LIST_DECL(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_create(void); \
+    Iron_List_##suffix Iron_List_##suffix##_create_with_capacity(int64_t cap); \
+    Iron_List_##suffix Iron_List_##suffix##_clone(const Iron_List_##suffix *src); \
     void               Iron_List_##suffix##_push(Iron_List_##suffix *self, T item); \
     T                  Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index); \
     void               Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item); \
@@ -308,6 +310,25 @@ void iron_runtime_shutdown(void);
         Iron_List_##suffix l; \
         l.items = NULL; l.count = 0; l.capacity = 0; \
         return l; \
+    } \
+    Iron_List_##suffix Iron_List_##suffix##_create_with_capacity(int64_t cap) { \
+        Iron_List_##suffix l; \
+        l.count = 0; \
+        l.capacity = cap; \
+        l.items = cap > 0 ? (T *)malloc((size_t)cap * sizeof(T)) : NULL; \
+        return l; \
+    } \
+    Iron_List_##suffix Iron_List_##suffix##_clone(const Iron_List_##suffix *src) { \
+        Iron_List_##suffix dst; \
+        dst.count = src->count; \
+        dst.capacity = src->count; \
+        if (src->count > 0) { \
+            dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
+            memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
+        } else { \
+            dst.items = NULL; \
+        } \
+        return dst; \
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
         if (self->count >= self->capacity) { \
@@ -347,6 +368,8 @@ void iron_runtime_shutdown(void);
  */
 #define IRON_MAP_DECL(K, V, ksuffix, vsuffix) \
     Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create(void); \
+    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create_with_capacity(int64_t cap); \
+    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_clone(const Iron_Map_##ksuffix##_##vsuffix *src); \
     void  Iron_Map_##ksuffix##_##vsuffix##_put(Iron_Map_##ksuffix##_##vsuffix *self, K key, V value); \
     V     Iron_Map_##ksuffix##_##vsuffix##_get(const Iron_Map_##ksuffix##_##vsuffix *self, K key); \
     bool  Iron_Map_##ksuffix##_##vsuffix##_has(const Iron_Map_##ksuffix##_##vsuffix *self, K key); \
@@ -359,6 +382,29 @@ void iron_runtime_shutdown(void);
         Iron_Map_##ksuffix##_##vsuffix m; \
         m.keys = NULL; m.values = NULL; m.count = 0; m.capacity = 0; \
         return m; \
+    } \
+    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create_with_capacity(int64_t cap) { \
+        Iron_Map_##ksuffix##_##vsuffix m; \
+        m.count = 0; \
+        m.capacity = cap; \
+        m.keys   = cap > 0 ? (K *)malloc((size_t)cap * sizeof(K)) : NULL; \
+        m.values = cap > 0 ? (V *)malloc((size_t)cap * sizeof(V)) : NULL; \
+        return m; \
+    } \
+    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_clone(const Iron_Map_##ksuffix##_##vsuffix *src) { \
+        Iron_Map_##ksuffix##_##vsuffix dst; \
+        dst.count = src->count; \
+        dst.capacity = src->count; \
+        if (src->count > 0) { \
+            dst.keys   = (K *)malloc((size_t)src->count * sizeof(K)); \
+            dst.values = (V *)malloc((size_t)src->count * sizeof(V)); \
+            memcpy(dst.keys,   src->keys,   (size_t)src->count * sizeof(K)); \
+            memcpy(dst.values, src->values, (size_t)src->count * sizeof(V)); \
+        } else { \
+            dst.keys = NULL; \
+            dst.values = NULL; \
+        } \
+        return dst; \
     } \
     void Iron_Map_##ksuffix##_##vsuffix##_put(Iron_Map_##ksuffix##_##vsuffix *self, K key, V value) { \
         for (int64_t i = 0; i < self->count; i++) { \
@@ -420,6 +466,8 @@ void iron_runtime_shutdown(void);
  */
 #define IRON_SET_DECL(T, suffix) \
     Iron_Set_##suffix Iron_Set_##suffix##_create(void); \
+    Iron_Set_##suffix Iron_Set_##suffix##_create_with_capacity(int64_t cap); \
+    Iron_Set_##suffix Iron_Set_##suffix##_clone(const Iron_Set_##suffix *src); \
     void    Iron_Set_##suffix##_add(Iron_Set_##suffix *self, T item); \
     bool    Iron_Set_##suffix##_contains(const Iron_Set_##suffix *self, T item); \
     void    Iron_Set_##suffix##_remove(Iron_Set_##suffix *self, T item); \
@@ -431,6 +479,25 @@ void iron_runtime_shutdown(void);
         Iron_Set_##suffix s; \
         s.items = NULL; s.count = 0; s.capacity = 0; \
         return s; \
+    } \
+    Iron_Set_##suffix Iron_Set_##suffix##_create_with_capacity(int64_t cap) { \
+        Iron_Set_##suffix s; \
+        s.count = 0; \
+        s.capacity = cap; \
+        s.items = cap > 0 ? (T *)malloc((size_t)cap * sizeof(T)) : NULL; \
+        return s; \
+    } \
+    Iron_Set_##suffix Iron_Set_##suffix##_clone(const Iron_Set_##suffix *src) { \
+        Iron_Set_##suffix dst; \
+        dst.count = src->count; \
+        dst.capacity = src->count; \
+        if (src->count > 0) { \
+            dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
+            memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
+        } else { \
+            dst.items = NULL; \
+        } \
+        return dst; \
     } \
     void Iron_Set_##suffix##_add(Iron_Set_##suffix *self, T item) { \
         for (int64_t i = 0; i < self->count; i++) { \
