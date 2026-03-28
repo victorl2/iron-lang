@@ -7,6 +7,8 @@ build_dbg/
 build_debug/
 build_release/
 .iron-build/
+build-check/
+build-verify/
 
 # Compiled binaries (root-level test outputs from iron build)
 hello
