@@ -643,7 +643,7 @@ static void optimize_array_repr(IronIR_Module *module, EmitCtx *ctx) {
          * LOAD(alloca) -> loaded value is "tainted".
          * RETURN(tainted_value) -> revoke the original array_lit. */
         struct { IronIR_ValueId key; IronIR_ValueId value; } *sa_map = NULL;
-        /* Mark all stack array lits and fill() with constant count */
+        /* Mark all stack array lits and ALL fill() calls (constant or dynamic count) */
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronIR_Block *block = fn->blocks[bi];
             for (int ii = 0; ii < block->instr_count; ii++) {
@@ -651,7 +651,7 @@ static void optimize_array_repr(IronIR_Module *module, EmitCtx *ctx) {
                 if (instr->kind == IRON_IR_ARRAY_LIT && instr->array_lit.use_stack_repr) {
                     hmput(sa_map, instr->id, instr->id);
                 }
-                /* __builtin_fill with constant count <= 256 */
+                /* __builtin_fill — all calls (constant or dynamic count) */
                 if (instr->kind == IRON_IR_CALL && instr->call.arg_count == 2 &&
                     instr->type && instr->type->kind == IRON_TYPE_ARRAY) {
                     IronIR_ValueId fptr = instr->call.func_ptr;
@@ -661,15 +661,7 @@ static void optimize_array_repr(IronIR_Module *module, EmitCtx *ctx) {
                         fn->value_table[fptr]->kind == IRON_IR_FUNC_REF &&
                         strcmp(fn->value_table[fptr]->func_ref.func_name,
                                "__builtin_fill") == 0) {
-                        IronIR_ValueId count_id = instr->call.args[0];
-                        IronIR_Instr *ci = NULL;
-                        if (count_id < (IronIR_ValueId)arrlen(fn->value_table))
-                            ci = fn->value_table[count_id];
-                        if (ci && ci->kind == IRON_IR_CONST_INT &&
-                            ci->const_int.value > 0 &&
-                            ci->const_int.value <= 256) {
-                            hmput(sa_map, instr->id, instr->id);
-                        }
+                        hmput(sa_map, instr->id, instr->id);
                     }
                 }
             }
@@ -1387,7 +1379,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 }
 
                 if (use_stack) {
-                    /* Emit as stack array with fill loop */
+                    /* Emit as stack array with fill loop (constant count) */
                     const char *elem_type = "int64_t";
                     if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
                         instr->type->array.elem)
@@ -1411,24 +1403,57 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                     /* Mark as stack array */
                     mark_stack_array(ctx, instr->id, instr->id);
                 } else {
-                    /* Heap path: create() + push loop */
-                    const char *list_type = emit_type_to_c(instr->type, ctx);
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "%s ", list_type);
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
-                    emit_val(sb, instr->call.args[0]);
-                    iron_strbuf_appendf(sb, "; _fill_i++) {\n");
-                    emit_indent(sb, ind + 1);
-                    iron_strbuf_appendf(sb, "%s_push(&", list_type);
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, ", ");
-                    emit_val(sb, instr->call.args[1]);
-                    iron_strbuf_appendf(sb, ");\n");
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "}\n");
+                    /* Check if dynamic-count fill is stack-eligible (VLA) */
+                    IronIR_ValueId sa = get_stack_array_origin(ctx, instr->id);
+                    if (sa != IRON_IR_VALUE_INVALID) {
+                        /* VLA path: stack-allocated variable-length array */
+                        const char *elem_type = "int64_t";
+                        if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
+                            instr->type->array.elem)
+                            elem_type = emit_type_to_c(instr->type->array.elem, ctx);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s ", elem_type);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "[");
+                        emit_val(sb, instr->call.args[0]);
+                        iron_strbuf_appendf(sb, "];\n");
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
+                        emit_val(sb, instr->call.args[0]);
+                        iron_strbuf_appendf(sb, "; _fill_i++) ");
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "[_fill_i] = ");
+                        emit_val(sb, instr->call.args[1]);
+                        iron_strbuf_appendf(sb, ";\n");
+                        /* Emit companion length variable */
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "int64_t ");
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "_len = ");
+                        emit_val(sb, instr->call.args[0]);
+                        iron_strbuf_appendf(sb, ";\n");
+                        /* Mark as stack array */
+                        mark_stack_array(ctx, instr->id, instr->id);
+                    } else {
+                        /* Heap path: create() + push loop */
+                        const char *list_type = emit_type_to_c(instr->type, ctx);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s ", list_type);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
+                        emit_val(sb, instr->call.args[0]);
+                        iron_strbuf_appendf(sb, "; _fill_i++) {\n");
+                        emit_indent(sb, ind + 1);
+                        iron_strbuf_appendf(sb, "%s_push(&", list_type);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, ", ");
+                        emit_val(sb, instr->call.args[1]);
+                        iron_strbuf_appendf(sb, ");\n");
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "}\n");
+                    }
                 }
                 break;
             }
@@ -2366,7 +2391,7 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
                 if (instr->kind == IRON_IR_ARRAY_LIT && instr->array_lit.use_stack_repr) {
                     hmput(sa_pre, instr->id, instr->id);
                 }
-                /* __builtin_fill with constant count <= 256 -> stack array candidate */
+                /* __builtin_fill — all calls (constant or dynamic count) */
                 if (instr->kind == IRON_IR_CALL && instr->call.arg_count == 2 &&
                     instr->type && instr->type->kind == IRON_TYPE_ARRAY) {
                     IronIR_ValueId fptr = instr->call.func_ptr;
@@ -2376,17 +2401,9 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
                         fn->value_table[fptr]->kind == IRON_IR_FUNC_REF &&
                         strcmp(fn->value_table[fptr]->func_ref.func_name,
                                "__builtin_fill") == 0) {
-                        IronIR_ValueId count_id = instr->call.args[0];
-                        IronIR_Instr *ci = NULL;
-                        if (count_id < (IronIR_ValueId)arrlen(fn->value_table))
-                            ci = fn->value_table[count_id];
-                        if (ci && ci->kind == IRON_IR_CONST_INT &&
-                            ci->const_int.value > 0 &&
-                            ci->const_int.value <= 256) {
-                            /* Skip if revoked by escape analysis */
-                            if (hmgeti(ctx->revoked_fill_ids, instr->id) < 0) {
-                                hmput(sa_pre, instr->id, instr->id);
-                            }
+                        /* Skip if revoked by escape analysis */
+                        if (hmgeti(ctx->revoked_fill_ids, instr->id) < 0) {
+                            hmput(sa_pre, instr->id, instr->id);
                         }
                     }
                 }
