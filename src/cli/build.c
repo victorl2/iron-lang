@@ -17,6 +17,9 @@
   #include <sys/wait.h>
   #include <libgen.h>
 #endif
+#ifdef __APPLE__
+  #include <mach-o/dyld.h>
+#endif
 
 /* IRON_SOURCE_DIR is injected by CMake at build time — absolute path to src/ */
 #ifndef IRON_SOURCE_DIR
@@ -65,6 +68,68 @@ static char *win_dirname(char *path) {
 #define basename(p)  win_basename(p)
 #define dirname(p)   win_dirname(p)
 #endif
+
+/* ── Runtime path resolution ─────────────────────────────────────────────── */
+
+/* resolve_self_dir: fills buf with the directory containing this binary.
+   Returns 0 on success, -1 on error. */
+static int resolve_self_dir(char *buf, size_t buf_size) {
+#ifdef __APPLE__
+    uint32_t size = (uint32_t)buf_size;
+    if (_NSGetExecutablePath(buf, &size) != 0) return -1;
+#elif defined(__linux__)
+    ssize_t n = readlink("/proc/self/exe", buf, buf_size - 1);
+    if (n < 0) return -1;
+    buf[n] = '\0';
+#elif defined(_WIN32)
+    DWORD n = GetModuleFileNameA(NULL, buf, (DWORD)buf_size);
+    if (n == 0 || n >= (DWORD)buf_size) return -1;
+#else
+    return -1;
+#endif
+    /* Truncate at last path separator to get directory */
+    char *last = strrchr(buf, '/');
+#ifdef _WIN32
+    char *last_win = strrchr(buf, '\\');
+    if (last_win > last) last = last_win;
+#endif
+    if (last) *last = '\0';
+    return 0;
+}
+
+/* get_iron_lib_dir: returns malloc'd path to the lib/ or src/ base directory.
+   For installed builds: resolves to sibling ../lib/ of the binary directory.
+   For dev builds: falls back to IRON_SOURCE_DIR compile-time define.
+   Caller must free(). */
+static char *get_iron_lib_dir(void) {
+    char self_dir[4096];
+    if (resolve_self_dir(self_dir, sizeof(self_dir)) == 0) {
+        /* Try sibling ../lib/ directory (installed layout) */
+        size_t dlen = strlen(self_dir);
+        /* Truncate to parent dir (go up from bin/) */
+        char *parent_slash = strrchr(self_dir, '/');
+#ifdef _WIN32
+        char *parent_slash_win = strrchr(self_dir, '\\');
+        if (parent_slash_win > parent_slash) parent_slash = parent_slash_win;
+#endif
+        if (parent_slash) {
+            *parent_slash = '\0';
+            dlen = strlen(self_dir);
+        }
+        size_t lib_len = dlen + strlen("/lib") + 1;
+        char *lib_path = (char *)malloc(lib_len);
+        if (lib_path) {
+            snprintf(lib_path, lib_len, "%s/lib", self_dir);
+            struct stat st;
+            if (stat(lib_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                return lib_path;
+            }
+            free(lib_path);
+        }
+    }
+    /* Fallback: compile-time IRON_SOURCE_DIR (dev builds) */
+    return strdup(IRON_SOURCE_DIR);
+}
 
 /* ── Helper: read a file into a heap-allocated string ────────────────────── */
 
@@ -253,14 +318,14 @@ static char *write_temp_c(const char *c_src, bool debug_build,
 #endif
 }
 
-/* ── Helper: build a path within IRON_SOURCE_DIR ─────────────────────────── */
+/* ── Helper: build a path from a base directory and relative path ─────────── */
 
-static char *make_src_path(const char *rel) {
-    size_t base_len = strlen(IRON_SOURCE_DIR);
+static char *make_path(const char *base, const char *rel) {
+    size_t base_len = strlen(base);
     size_t rel_len  = strlen(rel);
     char *out = (char *)malloc(base_len + 1 + rel_len + 1);
     if (!out) return NULL;
-    memcpy(out, IRON_SOURCE_DIR, base_len);
+    memcpy(out, base, base_len);
     out[base_len] = '/';
     memcpy(out + base_len + 1, rel, rel_len + 1);
     return out;
@@ -279,33 +344,39 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **sl_math_out, char **sl_io_out,
                            char **sl_time_out, char **sl_log_out,
                            IronBuildOpts opts,
-                           char **rl_src_out, char **rl_i_flag_out) {
+                           char **rl_src_out, char **rl_i_flag_out,
+                           char **base_dir_out) {
+    /* Resolve runtime base directory at runtime */
+    char *base_dir = get_iron_lib_dir();
+    if (!base_dir) return 1;
+    *base_dir_out = base_dir;
+
     /* Build -I flag for headers */
-    size_t src_i_len = strlen("-I") + strlen(IRON_SOURCE_DIR) + 1;
+    size_t src_i_len = strlen("-I") + strlen(base_dir) + 1;
     char *src_i_flag = (char *)malloc(src_i_len);
     if (!src_i_flag) return 1;
-    snprintf(src_i_flag, src_i_len, "-I%s", IRON_SOURCE_DIR);
+    snprintf(src_i_flag, src_i_len, "-I%s", base_dir);
     *src_i_flag_out = src_i_flag;
 
     /* Also add vendor dir for stb_ds.h */
-    size_t vendor_i_len = strlen("-I") + strlen(IRON_SOURCE_DIR) + strlen("/vendor") + 1;
+    size_t vendor_i_len = strlen("-I") + strlen(base_dir) + strlen("/vendor") + 1;
     char *vendor_i_flag = (char *)malloc(vendor_i_len);
     if (!vendor_i_flag) return 1;
-    snprintf(vendor_i_flag, vendor_i_len, "-I%s/vendor", IRON_SOURCE_DIR);
+    snprintf(vendor_i_flag, vendor_i_len, "-I%s/vendor", base_dir);
     *vendor_i_flag_out = vendor_i_flag;
 
-    *rt_stb_out     = make_src_path("util/stb_ds_impl.c");
-    *rt_arena_out   = make_src_path("util/arena.c");
-    *rt_strbuf_out  = make_src_path("util/strbuf.c");
-    *rt_string_out  = make_src_path("runtime/iron_string.c");
-    *rt_rc_out      = make_src_path("runtime/iron_rc.c");
-    *rt_builtin_out = make_src_path("runtime/iron_builtins.c");
-    *rt_threads_out = make_src_path("runtime/iron_threads.c");
-    *rt_collect_out = make_src_path("runtime/iron_collections.c");
-    *sl_math_out    = make_src_path("stdlib/iron_math.c");
-    *sl_io_out      = make_src_path("stdlib/iron_io.c");
-    *sl_time_out    = make_src_path("stdlib/iron_time.c");
-    *sl_log_out     = make_src_path("stdlib/iron_log.c");
+    *rt_stb_out     = make_path(base_dir, "util/stb_ds_impl.c");
+    *rt_arena_out   = make_path(base_dir, "util/arena.c");
+    *rt_strbuf_out  = make_path(base_dir, "util/strbuf.c");
+    *rt_string_out  = make_path(base_dir, "runtime/iron_string.c");
+    *rt_rc_out      = make_path(base_dir, "runtime/iron_rc.c");
+    *rt_builtin_out = make_path(base_dir, "runtime/iron_builtins.c");
+    *rt_threads_out = make_path(base_dir, "runtime/iron_threads.c");
+    *rt_collect_out = make_path(base_dir, "runtime/iron_collections.c");
+    *sl_math_out    = make_path(base_dir, "stdlib/iron_math.c");
+    *sl_io_out      = make_path(base_dir, "stdlib/iron_io.c");
+    *sl_time_out    = make_path(base_dir, "stdlib/iron_time.c");
+    *sl_log_out     = make_path(base_dir, "stdlib/iron_log.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
@@ -314,11 +385,11 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     }
 
     if (opts.use_raylib) {
-        *rl_src_out = make_src_path("vendor/raylib/raylib.c");
-        size_t rl_i_len = strlen("-I") + strlen(IRON_SOURCE_DIR) + strlen("/vendor/raylib") + 1;
+        *rl_src_out = make_path(base_dir, "vendor/raylib/raylib.c");
+        size_t rl_i_len = strlen("-I") + strlen(base_dir) + strlen("/vendor/raylib") + 1;
         char *rl_i_flag = (char *)malloc(rl_i_len);
         if (!rl_i_flag) return 1;
-        snprintf(rl_i_flag, rl_i_len, "-I%s/vendor/raylib", IRON_SOURCE_DIR);
+        snprintf(rl_i_flag, rl_i_len, "-I%s/vendor/raylib", base_dir);
         *rl_i_flag_out = rl_i_flag;
     }
 
@@ -398,12 +469,14 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     return 0;
 }
 
-static void free_src_list(char *src_i_flag, char *vendor_i_flag,
+static void free_src_list(char *base_dir,
+                           char *src_i_flag, char *vendor_i_flag,
                            char *rt_stb, char *rt_arena, char *rt_strbuf,
                            char *rt_string, char *rt_rc, char *rt_builtin,
                            char *rt_threads, char *rt_collect,
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *rl_src, char *rl_i_flag) {
+    free(base_dir);
     free(src_i_flag); free(vendor_i_flag);
     free(rt_stb); free(rt_arena); free(rt_strbuf);
     free(rt_string); free(rt_rc); free(rt_builtin);
@@ -416,6 +489,7 @@ static int invoke_clang(const char *c_file, const char *output,
                          const char *src_dir, IronBuildOpts opts) {
     (void)src_dir;
 
+    char *base_dir = NULL;
     char *src_i_flag = NULL, *vendor_i_flag = NULL;
     char *rt_stb = NULL, *rt_arena = NULL, *rt_strbuf = NULL;
     char *rt_string = NULL, *rt_rc = NULL, *rt_builtin = NULL;
@@ -432,8 +506,8 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_string, &rt_rc, &rt_builtin,
                        &rt_threads, &rt_collect,
                        &sl_math, &sl_io, &sl_time, &sl_log,
-                       opts, &rl_src, &rl_i_flag) != 0) {
-        free_src_list(src_i_flag, vendor_i_flag,
+                       opts, &rl_src, &rl_i_flag, &base_dir) != 0) {
+        free_src_list(base_dir, src_i_flag, vendor_i_flag,
                       rt_stb, rt_arena, rt_strbuf,
                       rt_string, rt_rc, rt_builtin,
                       rt_threads, rt_collect,
@@ -464,7 +538,7 @@ static int invoke_clang(const char *c_file, const char *output,
     si.cb = sizeof(si);
     memset(&pi, 0, sizeof(pi));
 
-    free_src_list(src_i_flag, vendor_i_flag,
+    free_src_list(base_dir, src_i_flag, vendor_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect,
@@ -491,7 +565,7 @@ static int invoke_clang(const char *c_file, const char *output,
     int status = posix_spawnp(&pid, "clang", NULL, NULL,
                                (char *const *)argv_buf, environ);
 
-    free_src_list(src_i_flag, vendor_i_flag,
+    free_src_list(base_dir, src_i_flag, vendor_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect,
@@ -520,10 +594,14 @@ static int invoke_clang(const char *c_file, const char *output,
 
 int iron_build(const char *source_path, const char *output_path,
                IronBuildOpts opts) {
+    /* Resolve runtime lib/src base directory once for this build */
+    char *base_dir = get_iron_lib_dir();
+    if (!base_dir) return 1;
+
     /* 1. Read source file */
     long src_size = 0;
     char *source = read_file(source_path, &src_size);
-    if (!source) return 1;
+    if (!source) { free(base_dir); return 1; }
 
     /* 1b. Check iron.toml for raylib = true */
     {
@@ -549,8 +627,8 @@ int iron_build(const char *source_path, const char *output_path,
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
     if (strstr(source, "import raylib") != NULL) {
         opts.use_raylib = true;
-        /* Locate raylib.iron relative to IRON_SOURCE_DIR */
-        char *rl_path = make_src_path("stdlib/raylib.iron");
+        /* Locate raylib.iron relative to base_dir */
+        char *rl_path = make_path(base_dir, "stdlib/raylib.iron");
         if (rl_path) {
             long rl_size = 0;
             char *rl_src = read_file(rl_path, &rl_size);
@@ -573,7 +651,7 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 1d. Detect "import math" and prepend math.iron */
     if (strstr(source, "import math") != NULL) {
-        char *math_path = make_src_path("stdlib/math.iron");
+        char *math_path = make_path(base_dir, "stdlib/math.iron");
         if (math_path) {
             long math_size = 0;
             char *math_src = read_file(math_path, &math_size);
@@ -595,7 +673,7 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 1e. Detect "import io" and prepend io.iron */
     if (strstr(source, "import io") != NULL) {
-        char *io_path = make_src_path("stdlib/io.iron");
+        char *io_path = make_path(base_dir, "stdlib/io.iron");
         if (io_path) {
             long io_size = 0;
             char *io_src = read_file(io_path, &io_size);
@@ -617,7 +695,7 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 1f. Detect "import time" and prepend time.iron */
     if (strstr(source, "import time") != NULL) {
-        char *time_path = make_src_path("stdlib/time.iron");
+        char *time_path = make_path(base_dir, "stdlib/time.iron");
         if (time_path) {
             long time_size = 0;
             char *time_src = read_file(time_path, &time_size);
@@ -639,7 +717,7 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 1g. Detect "import log" and prepend log.iron */
     if (strstr(source, "import log") != NULL) {
-        char *log_path = make_src_path("stdlib/log.iron");
+        char *log_path = make_path(base_dir, "stdlib/log.iron");
         if (log_path) {
             long log_size = 0;
             char *log_src = read_file(log_path, &log_size);
@@ -673,6 +751,7 @@ int iron_build(const char *source_path, const char *output_path,
         iron_diaglist_free(&diags);
         iron_arena_free(&arena);
         free(source);
+        free(base_dir);
         return 1;
     }
 
@@ -689,6 +768,7 @@ int iron_build(const char *source_path, const char *output_path,
         iron_diaglist_free(&diags);
         iron_arena_free(&arena);
         free(source);
+        free(base_dir);
         return 1;
     }
 
@@ -709,6 +789,7 @@ int iron_build(const char *source_path, const char *output_path,
         iron_diaglist_free(&diags);
         iron_arena_free(&arena);
         free(source);
+        free(base_dir);
         return 1;
     }
 
@@ -724,6 +805,7 @@ int iron_build(const char *source_path, const char *output_path,
         iron_arena_free(&ir_arena);
         iron_arena_free(&arena);
         free(source);
+        free(base_dir);
         return 1;
     }
 
@@ -747,6 +829,7 @@ int iron_build(const char *source_path, const char *output_path,
         iron_diaglist_free(&diags);
         iron_arena_free(&arena);
         free(source);
+        free(base_dir);
         return 1;
     }
 
@@ -767,6 +850,7 @@ int iron_build(const char *source_path, const char *output_path,
             iron_diaglist_free(&diags);
             iron_arena_free(&arena);
             free(source);
+            free(base_dir);
             return 1;
         }
         binary_name = derived_output;
@@ -779,6 +863,7 @@ int iron_build(const char *source_path, const char *output_path,
         iron_diaglist_free(&diags);
         iron_arena_free(&arena);
         free(source);
+        free(base_dir);
         return 1;
     }
 
@@ -799,6 +884,7 @@ int iron_build(const char *source_path, const char *output_path,
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
     free(source);
+    free(base_dir);
 
     if (ret != 0) {
         free(derived_output);
