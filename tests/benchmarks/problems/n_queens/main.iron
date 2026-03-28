@@ -1,0 +1,82 @@
+import time
+
+-- N-Queens: use iterative approach to avoid global mutable state issues
+
+func n_queens(n: Int) -> Int {
+    -- Iterative backtracking using arrays as stacks
+    -- queens[row] = column where queen is placed on that row
+    var queens = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var row = 0
+    var count = 0
+
+    while row >= 0 {
+        -- Try to place queen in current row starting from queens[row]
+        var placed = 0
+        var col = queens[row]
+        while col < n {
+            -- Check if col is valid
+            var valid = 1
+            var r = 0
+            while r < row {
+                if queens[r] == col {
+                    valid = 0
+                }
+                val diff = row - r
+                var col_diff = queens[r] - col
+                if col_diff < 0 {
+                    col_diff = 0 - col_diff
+                }
+                if diff == col_diff {
+                    valid = 0
+                }
+                r = r + 1
+            }
+            if valid == 1 {
+                queens[row] = col
+                placed = 1
+                col = n
+            } else {
+                col = col + 1
+            }
+        }
+
+        if placed == 1 {
+            if row == n - 1 {
+                count = count + 1
+                -- Backtrack: increment col and continue
+                queens[row] = queens[row] + 1
+            } else {
+                row = row + 1
+                queens[row] = 0
+            }
+        } else {
+            queens[row] = 0
+            row = row - 1
+            if row >= 0 {
+                queens[row] = queens[row] + 1
+            }
+        }
+    }
+    return count
+}
+
+func main() {
+    println("N=4: {n_queens(4)} solutions (expected 2)")
+    println("N=8: {n_queens(8)} solutions (expected 92)")
+    println("N=12: {n_queens(12)} solutions (expected 14200)")
+
+    val iterations = 100
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = n_queens(12)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: N-Queens ===")
+    println("N=12")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+    println("Memory: (see process stats)")
+}

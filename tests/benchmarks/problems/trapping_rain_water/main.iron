@@ -1,0 +1,53 @@
+import time
+
+func trap(height: [Int], n: Int) -> Int {
+    var left = 0
+    var right = n - 1
+    var left_max = 0
+    var right_max = 0
+    var water = 0
+
+    while left < right {
+        if height[left] < height[right] {
+            if height[left] >= left_max {
+                left_max = height[left]
+            } else {
+                water = water + left_max - height[left]
+            }
+            left = left + 1
+        } else {
+            if height[right] >= right_max {
+                right_max = height[right]
+            } else {
+                water = water + right_max - height[right]
+            }
+            right = right - 1
+        }
+    }
+    return water
+}
+
+func main() {
+    val h1 = [0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1]
+    val h2 = [4, 2, 0, 3, 2, 5]
+    println("Test 1: {trap(h1, 12)} (expected 6)")
+    println("Test 2: {trap(h2, 6)} (expected 9)")
+
+    val h3 = [3, 0, 2, 0, 4, 0, 1, 0, 3, 0, 2, 0, 5, 0, 1, 0, 4, 0, 2, 0]
+    println("Test 3: {trap(h3, 20)}")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = trap(h3, 20)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Trapping Rain Water ===")
+    println("Array size: 20")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+    println("Memory: (see process stats)")
+}

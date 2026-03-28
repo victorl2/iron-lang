@@ -262,6 +262,14 @@ if(NOT WIN32)
     )
 endif()
 
+# ── Benchmark smoke test ───────────────────────────────────────────────────
+add_test(NAME benchmark_smoke
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmarks/run_benchmarks.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(benchmark_smoke PROPERTIES
+    TIMEOUT 300
+    LABELS "benchmark")
+
 # ---- Install rules ----
 install(TARGETS ironc iron DESTINATION bin)
 
