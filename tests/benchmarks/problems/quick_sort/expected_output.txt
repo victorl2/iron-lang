@@ -1,0 +1,4 @@
+Test 1: 169
+Test 2: 55 (expected 55)
+Test 3: 10 (expected 10)
+Test 4: 12879260

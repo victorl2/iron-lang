@@ -1,0 +1,54 @@
+import time
+
+func majority_element(arr: [Int], n: Int) -> Int {
+    var candidate = arr[0]
+    var count = 1
+    var i = 1
+    while i < n {
+        if count == 0 {
+            candidate = arr[i]
+            count = 1
+        } elif arr[i] == candidate {
+            count = count + 1
+        } else {
+            count = count - 1
+        }
+        i = i + 1
+    }
+    return candidate
+}
+
+func main() {
+    val a1 = [3, 2, 3]
+    println("Test 1: {majority_element(a1, 3)} (expected 3)")
+
+    val a2 = [2, 2, 1, 1, 1, 2, 2]
+    println("Test 2: {majority_element(a2, 7)} (expected 2)")
+
+    val a3 = [1]
+    println("Test 3: {majority_element(a3, 1)} (expected 1)")
+
+    -- Benchmark: 200 elements, majority is 42 (appears 120 times)
+    var bench = fill(200, 0)
+    for i in range(200) {
+        if i < 120 {
+            bench[i] = 42
+        } else {
+            bench[i] = i % 41
+        }
+    }
+    println("Test 4: {majority_element(bench, 200)} (expected 42)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = majority_element(bench, 200)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Majority Element ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

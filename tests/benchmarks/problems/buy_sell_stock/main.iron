@@ -1,0 +1,49 @@
+import time
+
+func max_profit(prices: [Int], n: Int) -> Int {
+    var min_price = prices[0]
+    var best = 0
+    var i = 1
+    while i < n {
+        if prices[i] < min_price {
+            min_price = prices[i]
+        }
+        val profit = prices[i] - min_price
+        if profit > best {
+            best = profit
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func main() {
+    val a1 = [7, 1, 5, 3, 6, 4]
+    println("Test 1: {max_profit(a1, 6)} (expected 5)")
+
+    val a2 = [7, 6, 4, 3, 1]
+    println("Test 2: {max_profit(a2, 5)} (expected 0)")
+
+    val a3 = [2, 4, 1, 7, 5, 3, 6, 8]
+    println("Test 3: {max_profit(a3, 8)} (expected 7)")
+
+    -- Benchmark: 200 elements
+    var bench = fill(200, 0)
+    for i in range(200) {
+        bench[i] = (i * 31 + 17) % 500
+    }
+    println("Test 4: {max_profit(bench, 200)}")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = max_profit(bench, 200)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Buy Sell Stock ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}
