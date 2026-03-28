@@ -405,7 +405,7 @@
         <h3>Advanced</h3>
         <a href="#modules">Modules</a>
         <a href="#comptime">Compile-Time Eval</a>
-        <a href="#game-dev">Game-Dev Blocks</a>
+        <a href="#managed-blocks">Managed Blocks</a>
       </div>
       <div class="sidebar-section">
         <h3>Reference</h3>
@@ -418,11 +418,11 @@
     <!-- ── Content ──────────────────────────────── -->
     <main class="content">
       <h1>Iron Language Reference</h1>
-      <p class="subtitle">Complete guide to the Iron programming language &mdash; a compiled, strongly-typed language designed for game development.</p>
+      <p class="subtitle">Complete guide to the Iron programming language &mdash; a compiled, strongly-typed language built for clarity, legibility, and performance.</p>
 
       <!-- Overview -->
       <h2 id="overview">Overview</h2>
-      <p><strong>Iron</strong> is a compiled, performant programming language focused on game development. It compiles to C and produces native standalone binaries.</p>
+      <p><strong>Iron</strong> is a compiled, performant programming language focused on clarity, legibility, and performance. It compiles to C and produces native standalone binaries.</p>
       <ul>
         <li>File extension: <code>.iron</code></li>
         <li>CLI: <code>iron build</code>, <code>iron run</code>, <code>iron test</code>, <code>iron check</code>, <code>iron fmt</code></li>
@@ -908,8 +908,8 @@ score.<span class="fn">lock</span>(<span class="kw">func</span>(<span class="kw"
       <p><strong>Can use:</strong> math, loops, conditionals, file reads (embed assets), string manipulation.</p>
       <p><strong>Cannot use:</strong> <code>heap</code>, <code>free</code>, <code>rc</code>, runtime APIs (raylib, OS, network).</p>
 
-      <!-- Game-Dev Blocks -->
-      <h2 id="game-dev">Game-Dev Blocks</h2>
+      <!-- Managed Blocks -->
+      <h2 id="managed-blocks">Managed Blocks</h2>
       <p>Managed blocks that auto-wrap begin/end pairs. The <code>draw</code> block automatically calls <code>BeginDrawing()</code>/<code>EndDrawing()</code>.</p>
       <div class="code-block"><pre><span class="kw">draw</span> {
   <span class="fn">clear</span>(<span class="pr">DARKGRAY</span>)
