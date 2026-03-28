@@ -30,6 +30,7 @@
 
 #include "pkg/color.h"
 #include "pkg/init.h"
+#include "pkg/pkg_build.h"
 #include "pkg/iron_pkg.h"
 
 #ifndef IRON_VERSION_STRING
@@ -293,10 +294,8 @@ int main(int argc, char **argv) {
             return forward_to_ironc(argc, argv);
         }
 
-        /* No file arg: package mode (Phase 13 Plan 02 implements full iron.toml support) */
-        fprintf(stderr, "error: no iron.toml found in current directory\n");
-        fprintf(stderr, "hint: run 'iron init' to create a new project, or pass a .iron file\n");
-        return 1;
+        /* No file arg: package mode */
+        return cmd_package(cmd, argc, argv);
     }
 
     /* Unknown command */
