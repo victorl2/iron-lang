@@ -3,12 +3,27 @@
 
 #include <stdbool.h>
 
+/* Parsed representation of a single dependency from [dependencies]. */
+typedef struct {
+    char *name;     /* key name in [dependencies] */
+    char *git;      /* git = "owner/repo" */
+    char *version;  /* version = "X.Y.Z" */
+} IronDep;
+
 /* Parsed representation of an iron.toml project file. */
 typedef struct {
-    char *name;      /* [project] name = "..." */
-    char *version;   /* [project] version = "..." */
-    char *entry;     /* [project] entry = "..." */
-    bool  raylib;    /* [dependencies] raylib = true */
+    /* [package] fields (was [project]) */
+    char *name;        /* name = "..." (required) */
+    char *version;     /* version = "..." (required) */
+    char *entry;       /* entry = "..." (preserved for backward compat, ignored by iron) */
+    char *type;        /* type = "bin" or "lib" (default "bin") */
+    char *description; /* description = "..." (optional) */
+
+    /* [dependencies] */
+    bool   raylib;       /* raylib = true (backward compat) */
+    IronDep *deps;       /* heap array of parsed inline-table deps */
+    int    dep_count;
+    int    dep_capacity;
 } IronProject;
 
 /* Parse iron.toml at the given path.
