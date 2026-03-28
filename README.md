@@ -32,8 +32,7 @@ language and its features.
 
 ## Building from Source
 
-If you prefer to build from source, see [INSTALL.md](INSTALL.md) for
-step-by-step instructions on macOS, Linux, and Windows. Requires CMake 3.25+ and a C17 compiler.
+If you prefer to build from source, see [INSTALL.md](INSTALL.md) for instructions.
 
 ## Getting Help
 
