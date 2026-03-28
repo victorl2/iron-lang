@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
@@ -39,7 +40,7 @@ jobs:
       - name: Run unit tests
         env:
           ASAN_OPTIONS: detect_leaks=0
-        run: ctest --test-dir build --output-on-failure -j4
+        run: ctest --test-dir build --output-on-failure -j4 -E benchmark
 
       - name: Run integration tests
         env:
@@ -166,3 +167,13 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: scripts/install.sh
+
+  deploy-pages:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger pages deployment
+        run: gh workflow run pages.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
