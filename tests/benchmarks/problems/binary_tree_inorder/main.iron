@@ -1,0 +1,75 @@
+import time
+
+-- Iterative inorder traversal of binary tree stored as array
+-- Parent i has children 2*i+1 (left) and 2*i+2 (right)
+-- Returns checksum: sum(value * visit_order)
+
+func inorder_checksum(vals: [Int], size: Int) -> Int {
+    var stack = fill(64, 0)
+    var top = 0
+    var curr = 0
+    var checksum = 0
+    var order = 1
+    var has_curr = 1
+
+    var done = 0
+    while done == 0 {
+        while has_curr == 1 {
+            stack[top] = curr
+            top = top + 1
+            val lc = 2 * curr + 1
+            if lc < size {
+                curr = lc
+            } else {
+                has_curr = 0
+            }
+        }
+        if top == 0 {
+            done = 1
+        } else {
+            top = top - 1
+            curr = stack[top]
+            checksum = checksum + vals[curr] * order
+            order = order + 1
+            val rc = 2 * curr + 2
+            if rc < size {
+                curr = rc
+                has_curr = 1
+            } else {
+                has_curr = 0
+            }
+        }
+    }
+    return checksum
+}
+
+func main() {
+    -- 31-node complete BST (5 levels)
+    val tree_vals = [50, 25, 75, 12, 37, 62, 87, 6, 18, 31, 43, 56, 68, 81, 93,
+                     3, 9, 15, 21, 28, 34, 40, 46, 53, 59, 65, 71, 78, 84, 90, 96]
+    val tree_size = 31
+
+    println("Test 1: {inorder_checksum(tree_vals, tree_size)} (expected 32312)")
+
+    -- Small tree: [2, 1, 3]
+    val small = [2, 1, 3]
+    println("Test 2: {inorder_checksum(small, 3)} (expected 14)")
+
+    -- Single node
+    val single = [42]
+    println("Test 3: {inorder_checksum(single, 1)} (expected 42)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = inorder_checksum(tree_vals, tree_size)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Binary Tree Inorder ===")
+    println("Tree size: {tree_size}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

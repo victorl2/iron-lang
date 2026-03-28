@@ -1,0 +1,107 @@
+import time
+
+-- Is graph bipartite? BFS coloring
+-- Adjacency matrix: adj[i * n + j] = 1 means edge between i and j
+-- color: -1=unvisited, 0=color A, 1=color B
+
+func is_bipartite(adj: [Int], n: Int) -> Int {
+    var color = fill(20, -1)
+    var queue = fill(400, 0)
+
+    var start = 0
+    while start < n {
+        if color[start] == -1 {
+            color[start] = 0
+            var q_front = 0
+            var q_back = 0
+            queue[q_back] = start
+            q_back = q_back + 1
+
+            while q_front < q_back {
+                val node = queue[q_front]
+                q_front = q_front + 1
+                var j = 0
+                while j < n {
+                    if adj[node * n + j] == 1 {
+                        if color[j] == -1 {
+                            color[j] = 1 - color[node]
+                            queue[q_back] = j
+                            q_back = q_back + 1
+                        } elif color[j] == color[node] {
+                            return 0
+                        }
+                    }
+                    j = j + 1
+                }
+            }
+        }
+        start = start + 1
+    }
+    return 1
+}
+
+func main() {
+    val n = 20
+
+    -- Test 1: bipartite - even nodes connect to odd neighbors
+    var adj1 = fill(n * n, 0)
+    var i = 0
+    while i < n {
+        if i + 1 < n {
+            adj1[i * n + i + 1] = 1
+            adj1[(i + 1) * n + i] = 1
+        }
+        i = i + 2
+    }
+    println("Test 1: {is_bipartite(adj1, n)} (expected 1)")
+
+    -- Test 2: triangle (not bipartite)
+    var adj2 = fill(n * n, 0)
+    adj2[0 * n + 1] = 1
+    adj2[1 * n + 0] = 1
+    adj2[1 * n + 2] = 1
+    adj2[2 * n + 1] = 1
+    adj2[0 * n + 2] = 1
+    adj2[2 * n + 0] = 1
+    println("Test 2: {is_bipartite(adj2, n)} (expected 0)")
+
+    -- Test 3: square (bipartite)
+    var adj3 = fill(n * n, 0)
+    adj3[0 * n + 1] = 1
+    adj3[1 * n + 0] = 1
+    adj3[1 * n + 2] = 1
+    adj3[2 * n + 1] = 1
+    adj3[2 * n + 3] = 1
+    adj3[3 * n + 2] = 1
+    adj3[3 * n + 0] = 1
+    adj3[0 * n + 3] = 1
+    println("Test 3: {is_bipartite(adj3, n)} (expected 1)")
+
+    -- Test 4: pentagon (not bipartite)
+    var adj4 = fill(n * n, 0)
+    adj4[0 * n + 1] = 1
+    adj4[1 * n + 0] = 1
+    adj4[1 * n + 2] = 1
+    adj4[2 * n + 1] = 1
+    adj4[2 * n + 3] = 1
+    adj4[3 * n + 2] = 1
+    adj4[3 * n + 4] = 1
+    adj4[4 * n + 3] = 1
+    adj4[4 * n + 0] = 1
+    adj4[0 * n + 4] = 1
+    println("Test 4: {is_bipartite(adj4, n)} (expected 0)")
+
+    val iterations = 200000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = is_bipartite(adj1, n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Graph Bipartite ===")
+    println("Nodes: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

@@ -1,0 +1,93 @@
+import time
+
+-- DFS traversal order of directed graph using explicit stack
+-- Returns checksum: sum(node * (visit_order + 1))
+-- adj[i * n + j] = 1 means edge from i to j
+
+func dfs_checksum(adj: [Int], n: Int, start_node: Int) -> Int {
+    var visited = fill(30, 0)
+    var stack = fill(900, 0)
+    var top = 0
+    stack[top] = start_node
+    top = top + 1
+    var checksum = 0
+    var order = 0
+
+    while top > 0 {
+        top = top - 1
+        val node = stack[top]
+        if visited[node] == 0 {
+            visited[node] = 1
+            checksum = checksum + node * (order + 1)
+            order = order + 1
+            -- Push neighbors in reverse order so smallest is processed first
+            var j = n - 1
+            while j >= 0 {
+                if adj[node * n + j] == 1 {
+                    if visited[j] == 0 {
+                        stack[top] = j
+                        top = top + 1
+                    }
+                }
+                j = j - 1
+            }
+        }
+    }
+    return checksum
+}
+
+func main() {
+    val n = 30
+
+    -- Test 1: chain 0->1->2->...->29
+    var adj1 = fill(n * n, 0)
+    var i = 0
+    while i < 29 {
+        adj1[i * n + i + 1] = 1
+        i = i + 1
+    }
+    println("Test 1: {dfs_checksum(adj1, n, 0)} (expected 8990)")
+
+    -- Test 2: binary tree-like: i -> 2i+1, i -> 2i+2 (for i < 15)
+    var adj2 = fill(n * n, 0)
+    i = 0
+    while i < 15 {
+        if 2 * i + 1 < n {
+            adj2[i * n + 2 * i + 1] = 1
+        }
+        if 2 * i + 2 < n {
+            adj2[i * n + 2 * i + 2] = 1
+        }
+        i = i + 1
+    }
+    println("Test 2: {dfs_checksum(adj2, n, 0)} (expected 8035)")
+
+    -- Test 3: star from node 0
+    var adj3 = fill(n * n, 0)
+    i = 1
+    while i < n {
+        adj3[0 * n + i] = 1
+        i = i + 1
+    }
+    println("Test 3: {dfs_checksum(adj3, n, 0)} (expected 8990)")
+
+    -- Test 4: disconnected, only 0->1->2 reachable
+    var adj4 = fill(n * n, 0)
+    adj4[0 * n + 1] = 1
+    adj4[1 * n + 2] = 1
+    println("Test 4: {dfs_checksum(adj4, n, 0)} (expected 8)")
+
+    val iterations = 200000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = dfs_checksum(adj2, n, 0)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Graph DFS Traversal ===")
+    println("Nodes: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

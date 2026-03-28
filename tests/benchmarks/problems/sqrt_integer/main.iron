@@ -1,0 +1,47 @@
+import time
+
+-- Integer square root via binary search
+-- Find largest x such that x*x <= n
+
+func isqrt(n: Int) -> Int {
+    if n < 2 {
+        return n
+    }
+    var lo = 1
+    var hi = n
+    if hi > 1500000000 {
+        hi = 1500000000
+    }
+    while lo <= hi {
+        val mid = lo + (hi - lo) / 2
+        -- Use mid <= n/mid to avoid overflow
+        if mid <= n / mid {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return hi
+}
+
+func main() {
+    println("Test 1: {isqrt(2000000000)} (expected 44721)")
+    println("Test 2: {isqrt(100)} (expected 10)")
+    println("Test 3: {isqrt(1)} (expected 1)")
+    println("Test 4: {isqrt(0)} (expected 0)")
+    println("Test 5: {isqrt(26)} (expected 5)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = isqrt(2000000000)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Integer Square Root ===")
+    println("n=2000000000")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

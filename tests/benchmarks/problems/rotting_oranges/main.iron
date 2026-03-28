@@ -1,0 +1,124 @@
+import time
+
+-- Rotting Oranges: BFS to find min time for all oranges to rot
+-- Grid: 0=empty, 1=fresh, 2=rotten
+
+func rotting_oranges(grid: [Int], rows: Int, cols: Int) -> Int {
+    var g = grid
+    var queue = fill(200, 0)
+    var q_front = 0
+    var q_back = 0
+    var fresh = 0
+
+    for i in range(rows * cols) {
+        if g[i] == 2 {
+            queue[q_back] = i
+            q_back = q_back + 1
+        } elif g[i] == 1 {
+            fresh = fresh + 1
+        }
+    }
+
+    if fresh == 0 {
+        return 0
+    }
+
+    var minutes = 0
+    while q_front < q_back {
+        val size = q_back - q_front
+        var any_rotted = 0
+        var s = 0
+        while s < size {
+            val pos = queue[q_front]
+            q_front = q_front + 1
+            val r = pos / cols
+            val c = pos - r * cols
+
+            -- up
+            if r > 0 {
+                if g[(r - 1) * cols + c] == 1 {
+                    g[(r - 1) * cols + c] = 2
+                    fresh = fresh - 1
+                    queue[q_back] = (r - 1) * cols + c
+                    q_back = q_back + 1
+                    any_rotted = 1
+                }
+            }
+            -- down
+            if r < rows - 1 {
+                if g[(r + 1) * cols + c] == 1 {
+                    g[(r + 1) * cols + c] = 2
+                    fresh = fresh - 1
+                    queue[q_back] = (r + 1) * cols + c
+                    q_back = q_back + 1
+                    any_rotted = 1
+                }
+            }
+            -- left
+            if c > 0 {
+                if g[r * cols + c - 1] == 1 {
+                    g[r * cols + c - 1] = 2
+                    fresh = fresh - 1
+                    queue[q_back] = r * cols + c - 1
+                    q_back = q_back + 1
+                    any_rotted = 1
+                }
+            }
+            -- right
+            if c < cols - 1 {
+                if g[r * cols + c + 1] == 1 {
+                    g[r * cols + c + 1] = 2
+                    fresh = fresh - 1
+                    queue[q_back] = r * cols + c + 1
+                    q_back = q_back + 1
+                    any_rotted = 1
+                }
+            }
+            s = s + 1
+        }
+        if any_rotted == 1 {
+            minutes = minutes + 1
+        }
+    }
+
+    if fresh == 0 {
+        return minutes
+    }
+    return -1
+}
+
+func make_grid_10x10() -> [Int] {
+    -- 10x10 grid all fresh, rotten at (0,0)
+    var g = fill(100, 1)
+    g[0] = 2
+    return g
+}
+
+func main() {
+    val g1 = make_grid_10x10()
+    println("Test 1: {rotting_oranges(g1, 10, 10)} (expected 18)")
+
+    val g2 = [2, 1, 1, 1, 1, 0, 0, 1, 1]
+    println("Test 2: {rotting_oranges(g2, 3, 3)} (expected 4)")
+
+    val g3 = [2, 1, 1, 0, 1, 1, 1, 0, 1]
+    println("Test 3: {rotting_oranges(g3, 3, 3)} (expected -1)")
+
+    val g4 = [2, 2, 2, 2, 2, 2]
+    println("Test 4: {rotting_oranges(g4, 2, 3)} (expected 0)")
+
+    val iterations = 200000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        val g = make_grid_10x10()
+        result = rotting_oranges(g, 10, 10)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Rotting Oranges ===")
+    println("Grid: 10x10")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

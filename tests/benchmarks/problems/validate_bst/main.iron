@@ -1,0 +1,84 @@
+import time
+
+-- Validate BST using iterative inorder traversal
+-- A valid BST has strictly increasing inorder traversal
+
+func validate_bst(vals: [Int], size: Int) -> Int {
+    var stack = fill(64, 0)
+    var top = 0
+    var curr = 0
+    var has_curr = 1
+    var prev = -999999999
+
+    while has_curr == 1 {
+        stack[top] = curr
+        top = top + 1
+        val lc = 2 * curr + 1
+        if lc < size {
+            curr = lc
+        } else {
+            has_curr = 0
+        }
+    }
+
+    while top > 0 {
+        top = top - 1
+        curr = stack[top]
+        if vals[curr] <= prev {
+            return 0
+        }
+        prev = vals[curr]
+
+        val rc = 2 * curr + 2
+        if rc < size {
+            curr = rc
+            has_curr = 1
+            while has_curr == 1 {
+                stack[top] = curr
+                top = top + 1
+                val lc2 = 2 * curr + 1
+                if lc2 < size {
+                    curr = lc2
+                } else {
+                    has_curr = 0
+                }
+            }
+        }
+    }
+    return 1
+}
+
+func main() {
+    -- Valid BST: 31-node complete BST
+    val tree_vals = [50, 25, 75, 12, 37, 62, 87, 6, 18, 31, 43, 56, 68, 81, 93,
+                     3, 9, 15, 21, 28, 34, 40, 46, 53, 59, 65, 71, 78, 84, 90, 96]
+    val tree_size = 31
+    println("Test 1: {validate_bst(tree_vals, tree_size)} (expected 1)")
+
+    -- Invalid: left child > parent
+    val bad_tree = [50, 100, 75, 12, 37, 62, 87, 6, 18, 31, 43, 56, 68, 81, 93,
+                    3, 9, 15, 21, 28, 34, 40, 46, 53, 59, 65, 71, 78, 84, 90, 96]
+    println("Test 2: {validate_bst(bad_tree, tree_size)} (expected 0)")
+
+    -- Small valid BST
+    val small = [2, 1, 3]
+    println("Test 3: {validate_bst(small, 3)} (expected 1)")
+
+    -- Single node
+    val single = [42]
+    println("Test 4: {validate_bst(single, 1)} (expected 1)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = validate_bst(tree_vals, tree_size)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Validate BST ===")
+    println("Tree size: {tree_size}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

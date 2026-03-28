@@ -1,0 +1,68 @@
+import time
+
+-- BFS level-order traversal of binary tree stored as array
+-- Returns checksum: sum(value * (bfs_position + 1))
+
+func level_order_checksum(vals: [Int], size: Int) -> Int {
+    if size == 0 {
+        return 0
+    }
+    var queue = fill(64, 0)
+    var q_front = 0
+    var q_back = 0
+    queue[q_back] = 0
+    q_back = q_back + 1
+
+    var checksum = 0
+    var pos = 1
+
+    while q_front < q_back {
+        val node = queue[q_front]
+        q_front = q_front + 1
+        checksum = checksum + vals[node] * pos
+        pos = pos + 1
+
+        val lc = 2 * node + 1
+        val rc = 2 * node + 2
+        if lc < size {
+            queue[q_back] = lc
+            q_back = q_back + 1
+        }
+        if rc < size {
+            queue[q_back] = rc
+            q_back = q_back + 1
+        }
+    }
+    return checksum
+}
+
+func main() {
+    val tree_vals = [50, 25, 75, 12, 37, 62, 87, 6, 18, 31, 43, 56, 68, 81, 93,
+                     3, 9, 15, 21, 28, 34, 40, 46, 53, 59, 65, 71, 78, 84, 90, 96]
+    val tree_size = 31
+
+    println("Test 1: {level_order_checksum(tree_vals, tree_size)} (expected 27349)")
+
+    val small = [2, 1, 3]
+    println("Test 2: {level_order_checksum(small, 3)} (expected 13)")
+
+    val single = [42]
+    println("Test 3: {level_order_checksum(single, 1)} (expected 42)")
+
+    val tree7 = [10, 5, 15, 3, 7, 12, 20]
+    println("Test 4: {level_order_checksum(tree7, 7)} (expected 324)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = level_order_checksum(tree_vals, tree_size)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Level Order Traversal ===")
+    println("Tree size: {tree_size}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

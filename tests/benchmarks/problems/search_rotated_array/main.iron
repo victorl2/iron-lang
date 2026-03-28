@@ -1,0 +1,65 @@
+import time
+
+-- Search in rotated sorted array using modified binary search
+
+func search_rotated(arr: [Int], n: Int, target: Int) -> Int {
+    var lo = 0
+    var hi = n - 1
+    while lo <= hi {
+        val mid = lo + (hi - lo) / 2
+        if arr[mid] == target {
+            return mid
+        }
+        if arr[lo] <= arr[mid] {
+            -- Left half is sorted
+            if arr[lo] <= target {
+                if target < arr[mid] {
+                    hi = mid - 1
+                } else {
+                    lo = mid + 1
+                }
+            } else {
+                lo = mid + 1
+            }
+        } else {
+            -- Right half is sorted
+            if arr[mid] < target {
+                if target <= arr[hi] {
+                    lo = mid + 1
+                } else {
+                    hi = mid - 1
+                }
+            } else {
+                hi = mid - 1
+            }
+        }
+    }
+    return -1
+}
+
+func main() {
+    -- Rotated array: [50,51,...,99,0,1,...,49]
+    var arr = fill(100, 0)
+    for i in range(100) {
+        arr[i] = (i + 50) % 100
+    }
+
+    println("Test 1: {search_rotated(arr, 100, 75)} (expected 25)")
+    println("Test 2: {search_rotated(arr, 100, 10)} (expected 60)")
+    println("Test 3: {search_rotated(arr, 100, 200)} (expected -1)")
+    println("Test 4: {search_rotated(arr, 100, 50)} (expected 0)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = search_rotated(arr, 100, 75)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Search Rotated Array ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}
