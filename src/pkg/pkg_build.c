@@ -25,6 +25,8 @@
 #include "pkg/color.h"
 #include "pkg/iron_pkg.h"
 #include "pkg/pkg_build.h"
+#include "pkg/resolver.h"
+#include "pkg/fetcher.h"
 
 /* ── Platform timing ────────────────────────────────────────────────────── */
 
@@ -89,6 +91,198 @@ static char *get_project_dir(const char *toml_path) {
 #endif
     if (sep) *sep = '\0';
     return copy;
+}
+
+/* ── Source collection helpers ──────────────────────────────────────────── */
+
+/* qsort comparator for filename strings */
+static int fname_cmp(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
+}
+
+/*
+ * Append contents of a file to the combined output.
+ * Returns 0 on success, -1 on failure.
+ */
+static int append_file(FILE *out, const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        fwrite(buf, 1, n, out);
+    }
+    fclose(f);
+    fprintf(out, "\n");
+    return 0;
+}
+
+/*
+ * Collect all .iron files from a dependency's directory and write to out.
+ * Looks in {dir}/src/ first, falls back to {dir}/ if no src/.
+ * lib.iron is written first (if it exists), then remaining files alphabetically.
+ */
+static void collect_iron_files(FILE *out, const char *dir) {
+    char src_dir[2048];
+    snprintf(src_dir, sizeof(src_dir), "%s/src", dir);
+
+    const char *scan_dir = src_dir;
+    struct stat st;
+    if (stat(src_dir, &st) != 0) {
+        scan_dir = dir; /* no src/ subdir, scan root */
+    }
+
+#ifndef _WIN32
+    DIR *d = opendir(scan_dir);
+    if (!d) return;
+
+    /* Collect filenames */
+    char **names = NULL;
+    int count = 0, cap = 0;
+
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        size_t nlen = strlen(ent->d_name);
+        if (nlen < 6 || strcmp(ent->d_name + nlen - 5, ".iron") != 0) continue;
+
+        if (count >= cap) {
+            cap = cap == 0 ? 16 : cap * 2;
+            names = (char **)realloc(names, sizeof(char *) * (size_t)cap);
+        }
+        names[count++] = strdup(ent->d_name);
+    }
+    closedir(d);
+
+    if (count == 0) {
+        free(names);
+        return;
+    }
+
+    /* Sort alphabetically */
+    qsort(names, (size_t)count, sizeof(char *), fname_cmp);
+
+    /* Move lib.iron to front if present */
+    for (int i = 0; i < count; i++) {
+        if (strcmp(names[i], "lib.iron") == 0 && i > 0) {
+            char *tmp = names[i];
+            memmove(&names[1], &names[0], sizeof(char *) * (size_t)i);
+            names[0] = tmp;
+            break;
+        }
+    }
+
+    /* Write each file */
+    for (int i = 0; i < count; i++) {
+        char fpath[2048];
+        snprintf(fpath, sizeof(fpath), "%s/%s", scan_dir, names[i]);
+        append_file(out, fpath);
+        free(names[i]);
+    }
+    free(names);
+#else
+    /* Windows: FindFirstFile/FindNextFile */
+    char pattern[2048];
+    snprintf(pattern, sizeof(pattern), "%s\\*.iron", scan_dir);
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA(pattern, &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+
+    char **names = NULL;
+    int count = 0, cap = 0;
+
+    do {
+        if (count >= cap) {
+            cap = cap == 0 ? 16 : cap * 2;
+            names = (char **)realloc(names, sizeof(char *) * (size_t)cap);
+        }
+        names[count++] = strdup(fd.cFileName);
+    } while (FindNextFileA(hFind, &fd));
+    FindClose(hFind);
+
+    qsort(names, (size_t)count, sizeof(char *), fname_cmp);
+
+    for (int i = 0; i < count; i++) {
+        if (strcmp(names[i], "lib.iron") == 0 && i > 0) {
+            char *tmp = names[i];
+            memmove(&names[1], &names[0], sizeof(char *) * (size_t)i);
+            names[0] = tmp;
+            break;
+        }
+    }
+
+    for (int i = 0; i < count; i++) {
+        char fpath[2048];
+        snprintf(fpath, sizeof(fpath), "%s\\%s", scan_dir, names[i]);
+        append_file(out, fpath);
+        free(names[i]);
+    }
+    free(names);
+#endif
+}
+
+/*
+ * Collect all .iron files from project's src/ directory.
+ * main.iron is written last (entry point).
+ * lib.iron is written first (if it exists).
+ */
+static void collect_project_files(FILE *out, const char *proj_dir) {
+    char src_dir[2048];
+    snprintf(src_dir, sizeof(src_dir), "%s/src", proj_dir);
+
+#ifndef _WIN32
+    DIR *d = opendir(src_dir);
+    if (!d) return;
+
+    char **names = NULL;
+    int count = 0, cap = 0;
+
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        size_t nlen = strlen(ent->d_name);
+        if (nlen < 6 || strcmp(ent->d_name + nlen - 5, ".iron") != 0) continue;
+        /* Skip main.iron — write it last */
+        if (strcmp(ent->d_name, "main.iron") == 0) continue;
+
+        if (count >= cap) {
+            cap = cap == 0 ? 16 : cap * 2;
+            names = (char **)realloc(names, sizeof(char *) * (size_t)cap);
+        }
+        names[count++] = strdup(ent->d_name);
+    }
+    closedir(d);
+
+    /* Sort alphabetically */
+    if (count > 1) {
+        qsort(names, (size_t)count, sizeof(char *), fname_cmp);
+    }
+
+    /* Move lib.iron to front if present */
+    for (int i = 0; i < count; i++) {
+        if (strcmp(names[i], "lib.iron") == 0 && i > 0) {
+            char *tmp = names[i];
+            memmove(&names[1], &names[0], sizeof(char *) * (size_t)i);
+            names[0] = tmp;
+            break;
+        }
+    }
+
+    /* Write non-main files */
+    for (int i = 0; i < count; i++) {
+        char fpath[2048];
+        snprintf(fpath, sizeof(fpath), "%s/%s", src_dir, names[i]);
+        append_file(out, fpath);
+        free(names[i]);
+    }
+    free(names);
+#endif
+
+    /* Write main.iron last (if it exists) */
+    char main_path[2048];
+    snprintf(main_path, sizeof(main_path), "%s/src/main.iron", proj_dir);
+    struct stat mst;
+    if (stat(main_path, &mst) == 0) {
+        append_file(out, main_path);
+    }
 }
 
 /* ── cmd_build (handles both build and run) ─────────────────────────────── */
@@ -167,22 +361,61 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     snprintf(output_path, sizeof(output_path), "%s/target/%s", proj_dir, proj->name);
 #endif
 
-    /* 6. Print compiling status */
+    /* 6. Resolve dependencies (if any) */
+    ResolvedDeps resolved = {0};
+    if (proj->dep_count > 0) {
+        int dep_ret = resolve_dependencies(proj, proj_dir, colors, &resolved);
+        if (dep_ret != 0) {
+            free(proj_dir); free(toml_path); iron_toml_free(proj);
+            return 1;
+        }
+    }
+
+    /* 7. Build source: concatenate deps + project into target/combined.iron */
+    char combined_path[4096];
+    snprintf(combined_path, sizeof(combined_path), "%s/target/combined.iron", proj_dir);
+
+    if (resolved.count > 0) {
+        FILE *combined = fopen(combined_path, "w");
+        if (!combined) {
+            iron_print_error(colors, "cannot create target/combined.iron");
+            resolved_deps_free(&resolved);
+            free(proj_dir); free(toml_path); iron_toml_free(proj);
+            return 1;
+        }
+
+        /* Write dep source files in topological order (leaves first) */
+        for (int i = 0; i < resolved.count; i++) {
+            fprintf(combined, "// -- dependency: %s --\n", resolved.deps[i].name);
+            collect_iron_files(combined, resolved.deps[i].cache_path);
+        }
+
+        /* Write project source files (main.iron last) */
+        fprintf(combined, "// -- project: %s --\n", proj->name);
+        collect_project_files(combined, proj_dir);
+
+        fclose(combined);
+    }
+
+    /* Use combined source when deps present, otherwise use entry point directly */
+    char *build_source = (resolved.count > 0) ? combined_path : entry_path;
+
+    /* 8. Print compiling status */
     char detail[512];
     snprintf(detail, sizeof(detail), "%s v%s", proj->name, proj->version);
     iron_print_status(colors, "Compiling", detail);
 
-    /* 7. Time the build */
+    /* 9. Time the build */
     double t_start = get_time_sec();
 
-    /* 8. Invoke ironc: ironc build <entry> --output <output_path> [--verbose] */
+    /* 10. Invoke ironc: ironc build <source> --output <output_path> [--verbose] */
     char *ironc = find_ironc();
 
     int arg_count = 0;
     char *spawn_argv[16];
     spawn_argv[arg_count++] = ironc;
     spawn_argv[arg_count++] = "build";
-    spawn_argv[arg_count++] = entry_path;
+    spawn_argv[arg_count++] = build_source;
     spawn_argv[arg_count++] = "--output";
     spawn_argv[arg_count++] = output_path;
     if (verbose) spawn_argv[arg_count++] = "--verbose";
@@ -192,7 +425,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
     double elapsed = get_time_sec() - t_start;
 
-    /* 9. Report result */
+    /* 11. Report result */
     if (ret == 0) {
         snprintf(detail, sizeof(detail), "dev [unoptimized] in %.2fs", elapsed);
         iron_print_status(colors, "Finished", detail);
@@ -205,6 +438,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
             char **exec_argv = (char **)malloc(sizeof(char *) * (size_t)exec_argc);
             if (!exec_argv) {
                 fprintf(stderr, "error: out of memory\n");
+                resolved_deps_free(&resolved);
                 free(ironc); free(proj_dir); free(toml_path); iron_toml_free(proj);
                 return 1;
             }
@@ -220,6 +454,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     }
     /* ironc errors already printed to stderr — pass through unchanged */
 
+    resolved_deps_free(&resolved);
     free(ironc);
     free(proj_dir);
     free(toml_path);

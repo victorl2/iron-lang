@@ -5,9 +5,12 @@
 
 /* Parsed representation of a single dependency from [dependencies]. */
 typedef struct {
-    char *name;     /* key name in [dependencies] */
-    char *git;      /* git = "owner/repo" */
-    char *version;  /* version = "X.Y.Z" */
+    char *name;       /* key name in [dependencies] */
+    char *git;        /* git = "owner/repo" */
+    char *version;    /* version = "X.Y.Z" */
+    /* Filled in by resolver: */
+    char *sha;        /* 40-char commit SHA (from iron.lock or GitHub API) */
+    char *cache_path; /* absolute path: ~/.iron/cache/{owner}/{repo}@{sha}/ */
 } IronDep;
 
 /* Parsed representation of an iron.toml project file. */
