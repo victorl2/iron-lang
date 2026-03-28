@@ -43,8 +43,8 @@ main() {
 
     echo "Installing iron ${VERSION} for ${TARGET}..."
 
-    # Create install directory
-    mkdir -p "$INSTALL_DIR"
+    # Create install directories
+    mkdir -p "$IRON_HOME/bin" "$IRON_HOME/lib"
 
     # Download and extract
     TMPDIR="$(mktemp -d)"
@@ -52,8 +52,8 @@ main() {
 
     echo "Downloading ${URL}..."
     curl -sSfL "$URL" -o "${TMPDIR}/${ARCHIVE}"
-    LC_ALL=C tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$INSTALL_DIR"
-    chmod +x "${INSTALL_DIR}/iron"
+    LC_ALL=C tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$IRON_HOME"
+    chmod +x "${IRON_HOME}/bin/iron" "${IRON_HOME}/bin/ironc"
 
     # Create env file (like rustup's ~/.cargo/env)
     cat > "$ENV_FILE" << 'ENVEOF'
@@ -95,7 +95,8 @@ ENVEOF
     fi
 
     echo ""
-    echo "Iron ${VERSION} installed to ${INSTALL_DIR}/iron"
+    echo "Iron ${VERSION} installed to ${IRON_HOME}"
+    echo "  Binaries: ${IRON_HOME}/bin/iron, ${IRON_HOME}/bin/ironc"
     echo ""
     echo "To get started you may need to restart your shell or run:"
     echo '  source "$HOME/.iron/env"'
