@@ -1,0 +1,73 @@
+import time
+
+func partition(arr: [Int], lo: Int, hi: Int) -> Int {
+    val pivot = arr[hi]
+    var i = lo - 1
+    var j = lo
+    while j < hi {
+        if arr[j] <= pivot {
+            i = i + 1
+            val tmp = arr[i]
+            arr[i] = arr[j]
+            arr[j] = tmp
+        }
+        j = j + 1
+    }
+    val tmp = arr[i + 1]
+    arr[i + 1] = arr[hi]
+    arr[hi] = tmp
+    return i + 1
+}
+
+func quicksort(arr: [Int], lo: Int, hi: Int) -> Int {
+    if lo < hi {
+        val p = partition(arr, lo, hi)
+        val d1 = quicksort(arr, lo, p - 1)
+        val d2 = quicksort(arr, p + 1, hi)
+    }
+    return 0
+}
+
+func quick_sort_checksum(orig: [Int], n: Int) -> Int {
+    var arr = fill(n, 0)
+    for i in range(n) {
+        arr[i] = orig[i]
+    }
+    val dummy = quicksort(arr, 0, n - 1)
+    var sum = 0
+    for i in range(n) {
+        sum = sum + arr[i] * (i + 1)
+    }
+    return sum
+}
+
+func main() {
+    val a1 = [3, 6, 8, 10, 1, 2, 1]
+    println("Test 1: {quick_sort_checksum(a1, 7)}")
+
+    val a2 = [5, 4, 3, 2, 1]
+    println("Test 2: {quick_sort_checksum(a2, 5)} (expected 55)")
+
+    val a3 = [1, 1, 1, 1]
+    println("Test 3: {quick_sort_checksum(a3, 4)} (expected 10)")
+
+    -- Benchmark: 200 elements
+    var bench = fill(200, 0)
+    for i in range(200) {
+        bench[i] = (i * 37 + 13) % 1000
+    }
+    println("Test 4: {quick_sort_checksum(bench, 200)}")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = quick_sort_checksum(bench, 200)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Quick Sort ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

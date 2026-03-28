@@ -1,0 +1,38 @@
+import time
+
+func climb_stairs(n: Int) -> Int {
+    if n <= 2 {
+        return n
+    }
+    var prev2 = 1
+    var prev1 = 2
+    var i = 3
+    while i <= n {
+        val curr = prev1 + prev2
+        prev2 = prev1
+        prev1 = curr
+        i = i + 1
+    }
+    return prev1
+}
+
+func main() {
+    println("Test 1: {climb_stairs(5)} (expected 8)")
+    println("Test 2: {climb_stairs(10)} (expected 89)")
+    println("Test 3: {climb_stairs(35)} (expected 14930352)")
+
+    val iterations = 250000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = climb_stairs(35)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Climbing Stairs ===")
+    println("n=35")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

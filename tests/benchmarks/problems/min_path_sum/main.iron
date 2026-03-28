@@ -1,0 +1,58 @@
+import time
+
+func min_path_sum(grid: [Int], rows: Int, cols: Int) -> Int {
+    var dp = fill(rows * cols, 0)
+    dp[0] = grid[0]
+    var j = 1
+    while j < cols {
+        dp[j] = dp[j - 1] + grid[j]
+        j = j + 1
+    }
+    var i = 1
+    while i < rows {
+        val row = i * cols
+        val prev_row = (i - 1) * cols
+        dp[row] = dp[prev_row] + grid[row]
+        j = 1
+        while j < cols {
+            val up = dp[prev_row + j]
+            val left = dp[row + (j - 1)]
+            var mn = up
+            if left < mn {
+                mn = left
+            }
+            dp[row + j] = mn + grid[row + j]
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return dp[(rows - 1) * cols + (cols - 1)]
+}
+
+func main() {
+    val g1 = [1, 3, 1, 1, 5, 1, 4, 2, 1]
+    println("Test 1: {min_path_sum(g1, 3, 3)} (expected 7)")
+
+    var bench = fill(400, 0)
+    for i in range(20) {
+        for j in range(20) {
+            bench[i * 20 + j] = (i * 3 + j * 7 + 5) % 10 + 1
+        }
+    }
+    println("Test 2: {min_path_sum(bench, 20, 20)} (expected 131)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = min_path_sum(bench, 20, 20)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Min Path Sum ===")
+    println("Grid: 20x20")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

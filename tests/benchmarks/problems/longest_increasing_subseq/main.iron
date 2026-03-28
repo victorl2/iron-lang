@@ -1,0 +1,50 @@
+import time
+
+func lis(arr: [Int], n: Int) -> Int {
+    var dp = fill(n, 1)
+    var best = 1
+    var i = 1
+    while i < n {
+        var j = 0
+        while j < i {
+            if arr[j] < arr[i] {
+                val v = dp[j] + 1
+                if v > dp[i] {
+                    dp[i] = v
+                }
+            }
+            j = j + 1
+        }
+        if dp[i] > best {
+            best = dp[i]
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func main() {
+    val a1 = [10, 9, 2, 5, 3, 7, 101, 18]
+    println("Test 1: {lis(a1, 8)} (expected 4)")
+
+    var bench = fill(50, 0)
+    for i in range(50) {
+        bench[i] = (i * 17 + 5) % 37
+    }
+    println("Test 2: {lis(bench, 50)} (expected 6)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = lis(bench, 50)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Longest Increasing Subsequence ===")
+    println("Array size: 50")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

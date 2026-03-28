@@ -1,0 +1,63 @@
+import time
+
+-- Longest Substring Without Repeating Characters
+-- Values 1-26 represent letters a-z. Sliding window + frequency array.
+
+func longest_no_repeat(arr: [Int], n: Int) -> Int {
+    var freq = fill(27, 0)
+    var left = 0
+    var best = 0
+
+    for right in range(n) {
+        val c = arr[right]
+        freq[c] = freq[c] + 1
+
+        while freq[c] > 1 {
+            val lc = arr[left]
+            freq[lc] = freq[lc] - 1
+            left = left + 1
+        }
+
+        val window = right - left + 1
+        if window > best {
+            best = window
+        }
+    }
+    return best
+}
+
+func main() {
+    -- Test 1: "abcabcbb" -> [1,2,3,1,2,3,2,2]
+    val t1 = [1, 2, 3, 1, 2, 3, 2, 2]
+    println("Test 1: {longest_no_repeat(t1, 8)} (expected 3)")
+
+    -- Test 2: "bbbbb" -> [2,2,2,2,2]
+    val t2 = [2, 2, 2, 2, 2]
+    println("Test 2: {longest_no_repeat(t2, 5)} (expected 1)")
+
+    -- Test 3: "pwwkew" -> [16,23,23,11,5,23]
+    val t3 = [16, 23, 23, 11, 5, 23]
+    println("Test 3: {longest_no_repeat(t3, 6)} (expected 3)")
+
+    -- Build benchmark array of 100 elements cycling 1-26
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = (i * 7 + 3) % 26 + 1
+    }
+    val bench_result = longest_no_repeat(bench, 100)
+    println("Test 4: {bench_result}")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = longest_no_repeat(bench, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Longest Substring No Repeat ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

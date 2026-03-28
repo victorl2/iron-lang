@@ -1,0 +1,7 @@
+Test 1 step_a(0): 7 (expected 7)
+Test 2 compose_6(0): 57785 (expected 57785)
+Test 3 compose_6(1): 9723 (expected 9723)
+Test 4 pipeline(0,1): 57785 (expected 57785)
+Test 5 pipeline(0,10): 39262 (expected 39262)
+Test 6 multi_arg(1,2,3): 17760 (expected 17760)
+Test 7 bench(200): 9955108 (expected 9955108)

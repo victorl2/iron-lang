@@ -218,6 +218,7 @@ struct IronIR_Instr {
             Iron_Type      *elem_type;
             IronIR_ValueId *elements;    /* stb_ds array */
             int             element_count;
+            bool            use_stack_repr;  /* emit as C stack array instead of Iron_List_T */
         } array_lit;
 
         /* IRON_IR_SLICE */

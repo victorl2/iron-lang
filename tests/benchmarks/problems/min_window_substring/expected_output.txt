@@ -1,0 +1,2 @@
+Test 1: len=4 (expected 4)
+Test 2: len=1 (expected 1)

@@ -1,0 +1,74 @@
+import time
+
+-- Deep recursion: recursive sum and mutual recursion stress test
+-- Tests stack depth handling and recursive call overhead
+
+func recursive_sum(n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return n + recursive_sum(n - 1)
+}
+
+-- Mutual recursion: is_even and is_odd call each other
+func is_even(n: Int) -> Int {
+    if n == 0 {
+        return 1
+    }
+    return is_odd(n - 1)
+}
+
+func is_odd(n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    return is_even(n - 1)
+}
+
+-- Recursive power with accumulator
+func rec_power(base: Int, exp: Int, mod: Int) -> Int {
+    if exp == 0 {
+        return 1
+    }
+    if exp % 2 == 0 {
+        val half = rec_power(base, exp / 2, mod)
+        return (half * half) % mod
+    }
+    return (base * rec_power(base, exp - 1, mod)) % mod
+}
+
+func bench_recursion(depth: Int) -> Int {
+    val sum = recursive_sum(depth)
+    val even_check = is_even(depth)
+    val odd_check = is_odd(depth)
+    val pow_val = rec_power(3, depth % 30, 1000000007)
+    return sum + even_check * 10000 + odd_check * 100 + pow_val
+}
+
+func main() {
+    -- Tests
+    println("Test 1 sum(10): {recursive_sum(10)} (expected 55)")
+    println("Test 2 sum(100): {recursive_sum(100)} (expected 5050)")
+    println("Test 3 is_even(4): {is_even(4)} (expected 1)")
+    println("Test 4 is_odd(7): {is_odd(7)} (expected 1)")
+    println("Test 5 is_even(7): {is_even(7)} (expected 0)")
+    println("Test 6 power(2,10): {rec_power(2, 10, 1000000007)} (expected 1024)")
+
+    val check = bench_recursion(1000)
+    println("Test 7 bench(1000): {check}")
+
+    -- Benchmark: depth=1000
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = bench_recursion(1000)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Deep Recursion Sum ===")
+    println("Depth: 1000")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

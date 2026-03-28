@@ -1,0 +1,4 @@
+Test 1: 6 (expected 6)
+Test 2: 0 (expected 0)
+Test 3: 24 (expected 24)
+Test 4: 7200

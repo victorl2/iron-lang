@@ -1,0 +1,57 @@
+import time
+
+func counting_sort_checksum(orig: [Int], n: Int, max_val: Int) -> Int {
+    var arr = fill(n, 0)
+    for i in range(n) {
+        arr[i] = orig[i]
+    }
+
+    var count = fill(max_val, 0)
+    for i in range(n) {
+        count[arr[i]] = count[arr[i]] + 1
+    }
+
+    var idx = 0
+    for v in range(max_val) {
+        var c = 0
+        while c < count[v] {
+            arr[idx] = v
+            idx = idx + 1
+            c = c + 1
+        }
+    }
+
+    var sum = 0
+    for i in range(n) {
+        sum = sum + arr[i] * (i + 1)
+    }
+    return sum
+}
+
+func main() {
+    val a1 = [4, 2, 2, 8, 3, 3, 1]
+    println("Test 1: {counting_sort_checksum(a1, 7, 10)}")
+
+    val a2 = [0, 0, 1, 1, 2, 2]
+    println("Test 2: {counting_sort_checksum(a2, 6, 3)}")
+
+    -- Benchmark: 200 elements, arr[i] = (i*31+7) % 100
+    var bench = fill(200, 0)
+    for i in range(200) {
+        bench[i] = (i * 31 + 7) % 100
+    }
+    println("Test 3: {counting_sort_checksum(bench, 200, 100)}")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = counting_sort_checksum(bench, 200, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Counting Sort ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

@@ -1,0 +1,54 @@
+import time
+
+func target_sum(nums: [Int], n: Int, target: Int, max_s: Int) -> Int {
+    var total = 0
+    for i in range(n) {
+        total = total + nums[i]
+    }
+    val sum = total + target
+    var dp = fill(max_s + 1, 0)
+    if sum % 2 != 0 {
+        return 0
+    }
+    if sum < 0 {
+        return 0
+    }
+    val s = sum / 2
+    dp[0] = 1
+    var i = 0
+    while i < n {
+        var j = s
+        while j >= nums[i] {
+            dp[j] = dp[j] + dp[j - nums[i]]
+            j = j - 1
+        }
+        i = i + 1
+    }
+    return dp[s]
+}
+
+func main() {
+    val a1 = [1, 1, 1, 1, 1]
+    println("Test 1: {target_sum(a1, 5, 3, 100)} (expected 5)")
+
+    var bench = fill(15, 0)
+    for i in range(15) {
+        bench[i] = (i % 5) + 1
+    }
+    println("Test 2: {target_sum(bench, 15, 3, 100)} (expected 1932)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = target_sum(bench, 15, 3, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Target Sum ===")
+    println("Array size: 15")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

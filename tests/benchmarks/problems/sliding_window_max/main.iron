@@ -1,0 +1,66 @@
+import time
+
+-- Sliding Window Maximum using array-simulated deque
+-- Returns sum of all window maximums as checksum
+
+func sliding_max(arr: [Int], n: Int, k: Int) -> Int {
+    -- Deque simulated with array and front/back pointers
+    var dq = fill(200, 0)
+    var front = 0
+    var back = 0
+    var total = 0
+
+    for i in range(n) {
+        -- Remove elements outside window from front
+        while front < back and dq[front] <= i - k {
+            front = front + 1
+        }
+        -- Remove smaller elements from back
+        while front < back and arr[dq[back - 1]] <= arr[i] {
+            back = back - 1
+        }
+        -- Push to back
+        dq[back] = i
+        back = back + 1
+
+        if i >= k - 1 {
+            total = total + arr[dq[front]]
+        }
+    }
+    return total
+}
+
+func main() {
+    -- Test 1: [1,3,-1,-3,5,3,6,7], k=3 => maxes sum=29
+    val t1 = [1, 3, -1, -3, 5, 3, 6, 7]
+    println("Test 1: {sliding_max(t1, 8, 3)} (expected 29)")
+
+    -- Test 2: [1], k=1 => sum=1
+    val t2 = [1]
+    println("Test 2: {sliding_max(t2, 1, 1)} (expected 1)")
+
+    -- Test 3: [9,8,7,6,5,4,3,2,1], k=3 => sum=42
+    val t3 = [9, 8, 7, 6, 5, 4, 3, 2, 1]
+    println("Test 3: {sliding_max(t3, 9, 3)} (expected 42)")
+
+    -- Build benchmark: 100 elements, window=10
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = (i * 17 + 23) % 100 + 1
+    }
+    println("Test 4: {sliding_max(bench, 100, 10)} (expected 8515)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = sliding_max(bench, 100, 10)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Sliding Window Maximum ===")
+    println("Array size: 100, Window: 10")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

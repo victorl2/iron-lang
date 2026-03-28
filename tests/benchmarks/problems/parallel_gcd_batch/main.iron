@@ -1,0 +1,64 @@
+import time
+
+-- Parallel GCD Batch: compute GCD for N pairs of large numbers
+-- Tests parallel-for with pure computation per element
+
+func gcd(a: Int, b: Int) -> Int {
+    var x = a
+    var y = b
+    while y > 0 {
+        val temp = y
+        y = x % y
+        x = temp
+    }
+    return x
+}
+
+-- Compute gcd for a single index with deterministic pair generation
+func gcd_for_index(i: Int) -> Int {
+    val a = (i * 1000003 + 500009) % 999983 + 1
+    val b = (i * 999979 + 100003) % 999979 + 1
+    return gcd(a, b)
+}
+
+func main() {
+    -- Correctness tests
+    println("gcd(12, 8): {gcd(12, 8)}")
+    println("gcd(100, 75): {gcd(100, 75)}")
+    println("gcd(17, 13): {gcd(17, 13)}")
+    println("gcd(1000000, 999999): {gcd(1000000, 999999)}")
+
+    val n = 10000000
+
+    -- Parallel computation (exercises parallel-for dispatch)
+    val start = Time.now_ms()
+    for i in n parallel {
+        var g = gcd_for_index(i)
+    }
+    val elapsed = Time.now_ms() - start
+
+    -- Sequential verification: compute total sum
+    var total_sum = 0
+    var idx = 0
+    while idx < n {
+        total_sum = total_sum + gcd_for_index(idx)
+        idx = idx + 1
+    }
+
+    println("N: {n}")
+    println("total gcd sum: {total_sum}")
+
+    -- Sequential verification on small range
+    var verify_sum = 0
+    var j = 0
+    while j < 1000 {
+        verify_sum = verify_sum + gcd_for_index(j)
+        j = j + 1
+    }
+    println("verify sum [0,1000): {verify_sum}")
+
+    println("")
+    println("=== Benchmark: Parallel GCD Batch ===")
+    println("N: {n}")
+    println("Total time: {elapsed} ms")
+}

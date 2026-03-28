@@ -1,0 +1,4 @@
+Verification checksum: 98224122
+chunk(0): 6359040
+chunk(1): 6304041
+chunk(999): 7212038

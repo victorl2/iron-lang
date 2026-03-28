@@ -1,0 +1,46 @@
+import time
+
+-- Parallel Fibonacci Tree: compute fib(30 + i % 4) for i in [0, 16)
+-- Each fib call is O(2^n) recursive — heavy independent tasks
+-- Sequential verification computes expected sum
+
+func fib(n: Int) -> Int {
+  if n <= 1 {
+    return n
+  }
+  return fib(n - 1) + fib(n - 2)
+}
+
+func main() {
+  -- Sequential verification: compute sum of fib(30 + i % 4) for i in [0, 16)
+  var expected_sum = 0
+  for i in range(16) {
+    val idx = i - (i / 4) * 4
+    val f = fib(30 + idx)
+    expected_sum = expected_sum + f
+  }
+  println("Fib sum (16 tasks): {expected_sum}")
+
+  -- Print individual fib values for verification
+  println("fib(30): {fib(30)}")
+  println("fib(31): {fib(31)}")
+  println("fib(32): {fib(32)}")
+  println("fib(33): {fib(33)}")
+
+  -- Benchmark: parallel-for with 16 heavy fib tasks
+  val iterations = 5
+  val start_time = Time.now_ms()
+  for it in range(iterations) {
+    for i in 16 parallel {
+      val idx = i - (i / 4) * 4
+      var r = fib(30 + idx)
+    }
+  }
+  val elapsed = Time.now_ms() - start_time
+
+  println("")
+  println("=== Benchmark: Parallel Fibonacci Tree ===")
+  println("Tasks: 16")
+  println("Iterations: {iterations}")
+  println("Total time: {elapsed} ms")
+}

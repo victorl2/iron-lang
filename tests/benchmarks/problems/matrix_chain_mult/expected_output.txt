@@ -1,0 +1,3 @@
+Test 1: 4500 (expected 4500)
+Test 2: 26000 (expected 26000)
+Test 3: 5199 (expected 5199)

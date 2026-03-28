@@ -1,0 +1,4 @@
+Test 1 sum row 5: 32 (expected 32)
+Test 2 sum row 10: 1024 (expected 1024)
+Test 3 sum row 20: 1048576 (expected 1048576)
+Bench check: 17179869184

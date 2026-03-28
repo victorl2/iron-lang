@@ -1,0 +1,64 @@
+import time
+
+-- Generate all subsets using bitmask, compute sum of subset sums
+
+func subsets_bitmask(arr: [Int], n: Int) -> Int {
+    var total = 1
+    for i in range(n) {
+        total = total * 2
+    }
+    var grand_sum = 0
+    var mask = 0
+    while mask < total {
+        var subset_sum = 0
+        for i in range(n) {
+            -- Check if bit i is set in mask
+            var bit = mask
+            var k = 0
+            while k < i {
+                bit = bit / 2
+                k = k + 1
+            }
+            if bit % 2 == 1 {
+                subset_sum = subset_sum + arr[i]
+            }
+        }
+        grand_sum = grand_sum + subset_sum
+        mask = mask + 1
+    }
+    return grand_sum
+}
+
+func main() {
+    val a1 = [1, 2, 3]
+    println("Test 1: {subsets_bitmask(a1, 3)} (expected 24)")
+
+    val a2 = [1]
+    println("Test 2: {subsets_bitmask(a2, 1)} (expected 1)")
+
+    val a3 = [1, 2, 3, 4, 5]
+    println("Test 3: {subsets_bitmask(a3, 5)} (expected 240)")
+
+    -- Benchmark: 18 elements, 100 iterations
+    val n = 18
+    var arr = fill(n, 0)
+    for i in range(n) {
+        arr[i] = i + 1
+    }
+    val check = subsets_bitmask(arr, n)
+    println("Bench check: {check}")
+
+    val iterations = 100
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = subsets_bitmask(arr, n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Subsets Bitmask ===")
+    println("Set size: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

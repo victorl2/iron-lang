@@ -1,0 +1,7 @@
+Test 1 sum(10): 55 (expected 55)
+Test 2 sum(100): 5050 (expected 5050)
+Test 3 is_even(4): 1 (expected 1)
+Test 4 is_odd(7): 1 (expected 1)
+Test 5 is_even(7): 0 (expected 0)
+Test 6 power(2,10): 1024 (expected 1024)
+Test 7 bench(1000): 569549

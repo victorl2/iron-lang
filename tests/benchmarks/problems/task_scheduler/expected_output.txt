@@ -1,0 +1,4 @@
+Test 1: 8 (expected 8)
+Test 2: 6 (expected 6)
+Test 3: 16 (expected 16)
+Bench check: 50

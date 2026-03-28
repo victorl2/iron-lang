@@ -1,0 +1,48 @@
+import time
+
+-- Sieve of Eratosthenes: count primes up to n
+
+func sieve(n: Int) -> Int {
+    var is_prime = fill(n + 1, 1)
+    is_prime[0] = 0
+    is_prime[1] = 0
+
+    var i = 2
+    while i * i <= n {
+        if is_prime[i] == 1 {
+            var j = i * i
+            while j <= n {
+                is_prime[j] = 0
+                j = j + i
+            }
+        }
+        i = i + 1
+    }
+
+    var count = 0
+    for k in range(n + 1) {
+        count = count + is_prime[k]
+    }
+    return count
+}
+
+func main() {
+    println("Test 1: {sieve(10)} (expected 4)")
+    println("Test 2: {sieve(100)} (expected 25)")
+    println("Test 3: {sieve(1000)} (expected 168)")
+    println("Test 4: {sieve(10000)} (expected 1229)")
+
+    val iterations = 10000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = sieve(10000)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Sieve of Eratosthenes ===")
+    println("n=10000")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

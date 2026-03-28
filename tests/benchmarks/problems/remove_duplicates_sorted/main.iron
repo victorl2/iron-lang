@@ -1,0 +1,56 @@
+import time
+
+func remove_duplicates(arr: [Int], n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    var write = 1
+    var i = 1
+    while i < n {
+        if arr[i] != arr[i - 1] {
+            arr[write] = arr[i]
+            write = write + 1
+        }
+        i = i + 1
+    }
+    return write
+}
+
+func main() {
+    var a1 = [1, 1, 2]
+    println("Test 1: {remove_duplicates(a1, 3)} (expected 2)")
+
+    var a2 = [0, 0, 1, 1, 1, 2, 2, 3, 3, 4]
+    println("Test 2: {remove_duplicates(a2, 10)} (expected 5)")
+
+    var a3 = [1, 2, 3, 4, 5]
+    println("Test 3: {remove_duplicates(a3, 5)} (expected 5)")
+
+    -- Benchmark: sorted array with duplicates, arr[i] = i / 2
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = i / 2
+    }
+    var bench_copy = fill(100, 0)
+    for i in range(100) {
+        bench_copy[i] = bench[i]
+    }
+    println("Test 4: {remove_duplicates(bench_copy, 100)} (expected 50)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        var tmp = fill(100, 0)
+        for i in range(100) {
+            tmp[i] = bench[i]
+        }
+        result = remove_duplicates(tmp, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Remove Duplicates Sorted ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

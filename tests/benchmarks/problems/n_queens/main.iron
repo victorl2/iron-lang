@@ -1,0 +1,57 @@
+import time
+
+-- N-Queens: recursive backtracking with O(1) conflict detection
+-- Uses cols[], diag1[], diag2[] arrays for fast validity checking
+
+func solve(row: Int, n: Int, cols: [Int], diag1: [Int], diag2: [Int]) -> Int {
+    if row == n {
+        return 1
+    }
+    var count = 0
+    var col = 0
+    while col < n {
+        if cols[col] == 0 {
+            if diag1[row - col + n] == 0 {
+                if diag2[row + col] == 0 {
+                    cols[col] = 1
+                    diag1[row - col + n] = 1
+                    diag2[row + col] = 1
+                    count = count + solve(row + 1, n, cols, diag1, diag2)
+                    cols[col] = 0
+                    diag1[row - col + n] = 0
+                    diag2[row + col] = 0
+                }
+            }
+        }
+        col = col + 1
+    }
+    return count
+}
+
+func n_queens(n: Int) -> Int {
+    var cols = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var diag1 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var diag2 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    return solve(0, n, cols, diag1, diag2)
+}
+
+func main() {
+    println("N=4: {n_queens(4)} solutions (expected 2)")
+    println("N=8: {n_queens(8)} solutions (expected 92)")
+    println("N=12: {n_queens(12)} solutions (expected 14200)")
+
+    val iterations = 100
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = n_queens(12)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: N-Queens ===")
+    println("N=12")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+    println("Memory: (see process stats)")
+}

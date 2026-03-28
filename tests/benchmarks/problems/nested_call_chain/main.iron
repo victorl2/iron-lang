@@ -1,0 +1,88 @@
+import time
+
+-- Nested function calls: deep call chains f(g(h(x))) and multi-level composition
+-- Tests function call overhead, argument passing, and return value propagation
+
+func step_a(x: Int) -> Int {
+    return (x * 31 + 7) % 100003
+}
+
+func step_b(x: Int) -> Int {
+    return (x * 37 + 13) % 100003
+}
+
+func step_c(x: Int) -> Int {
+    return (x * 41 + 17) % 100003
+}
+
+func step_d(x: Int) -> Int {
+    return (x * 43 + 19) % 100003
+}
+
+func step_e(x: Int) -> Int {
+    return (x * 47 + 23) % 100003
+}
+
+func step_f(x: Int) -> Int {
+    return (x * 53 + 29) % 100003
+}
+
+func compose_6(x: Int) -> Int {
+    -- Deep nested: f(e(d(c(b(a(x))))))
+    return step_f(step_e(step_d(step_c(step_b(step_a(x))))))
+}
+
+func pipeline(x: Int, rounds: Int) -> Int {
+    var v = x
+    var i = 0
+    while i < rounds {
+        v = compose_6(v)
+        i = i + 1
+    }
+    return v
+}
+
+func multi_arg_chain(a: Int, b: Int, c: Int) -> Int {
+    -- Exercise multi-argument passing in nested calls
+    return step_a(step_b(a) + step_c(b)) + step_d(step_e(b) + step_f(c))
+}
+
+func bench_nested(n: Int) -> Int {
+    var checksum = 0
+    var i = 0
+    while i < n {
+        val v1 = pipeline(i, 10)
+        val v2 = multi_arg_chain(i, i + 1, i + 2)
+        checksum = checksum + (v1 + v2) % 100000
+        i = i + 1
+    }
+    return checksum
+}
+
+func main() {
+    -- Tests
+    println("Test 1 step_a(0): {step_a(0)} (expected 7)")
+    println("Test 2 compose_6(0): {compose_6(0)} (expected 57785)")
+    println("Test 3 compose_6(1): {compose_6(1)} (expected 9723)")
+    println("Test 4 pipeline(0,1): {pipeline(0, 1)} (expected 57785)")
+    println("Test 5 pipeline(0,10): {pipeline(0, 10)} (expected 39262)")
+    println("Test 6 multi_arg(1,2,3): {multi_arg_chain(1, 2, 3)} (expected 17760)")
+
+    val check = bench_nested(200)
+    println("Test 7 bench(200): {check} (expected 9955108)")
+
+    -- Benchmark
+    val iterations = 15000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = bench_nested(200)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Nested Call Chain ===")
+    println("Elements: 200")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

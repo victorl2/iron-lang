@@ -1,0 +1,61 @@
+import time
+
+-- Daily Temperatures: for each day, find days until warmer temperature
+-- Uses monotonic stack. Returns checksum (sum of all wait days).
+
+func daily_temps(temps: [Int], n: Int) -> Int {
+    var result = fill(200, 0)
+    var stack = fill(200, 0)
+    var top = 0
+
+    for i in range(n) {
+        while top > 0 and temps[stack[top - 1]] < temps[i] {
+            top = top - 1
+            val idx = stack[top]
+            result[idx] = i - idx
+        }
+        stack[top] = i
+        top = top + 1
+    }
+
+    var checksum = 0
+    for i in range(n) {
+        checksum = checksum + result[i]
+    }
+    return checksum
+}
+
+func main() {
+    -- Test 1: [73,74,75,71,69,72,76,73] => [1,1,4,2,1,1,0,0] checksum=10
+    val t1 = [73, 74, 75, 71, 69, 72, 76, 73]
+    println("Test 1: {daily_temps(t1, 8)} (expected 10)")
+
+    -- Test 2: [30,40,50,60] => [1,1,1,0] checksum=3
+    val t2 = [30, 40, 50, 60]
+    println("Test 2: {daily_temps(t2, 4)} (expected 3)")
+
+    -- Test 3: [30,60,90] => [1,1,0] checksum=2
+    val t3 = [30, 60, 90]
+    println("Test 3: {daily_temps(t3, 3)} (expected 2)")
+
+    -- Build benchmark: 100 elements
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = (i * 17 + 50) % 100 + 1
+    }
+    println("Test 4: {daily_temps(bench, 100)} (expected 225)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = daily_temps(bench, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Daily Temperatures ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

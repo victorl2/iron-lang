@@ -1,0 +1,95 @@
+import time
+
+-- Activity Selection: Max non-overlapping intervals
+-- Sort by end time (insertion sort), then greedy pick
+
+func sort_by_end(starts: [Int], ends: [Int], n: Int) {
+    var i = 1
+    while i < n {
+        val key_s = starts[i]
+        val key_e = ends[i]
+        var j = i - 1
+        while j >= 0 {
+            if ends[j] > key_e {
+                starts[j + 1] = starts[j]
+                ends[j + 1] = ends[j]
+                j = j - 1
+            } else {
+                j = -1
+            }
+        }
+        starts[j + 1] = key_s
+        ends[j + 1] = key_e
+        i = i + 1
+    }
+}
+
+func activity_selection(starts: [Int], ends: [Int], n: Int) -> Int {
+    sort_by_end(starts, ends, n)
+    var count = 1
+    var last_end = ends[0]
+    var i = 1
+    while i < n {
+        if starts[i] >= last_end {
+            count = count + 1
+            last_end = ends[i]
+        }
+        i = i + 1
+    }
+    return count
+}
+
+func main() {
+    -- Test 1: simple
+    var s1 = [1, 3, 0, 5, 8, 5]
+    var e1 = [2, 4, 6, 7, 9, 9]
+    println("Test 1: {activity_selection(s1, e1, 6)} (expected 4)")
+
+    -- Test 2: all overlapping
+    var s2 = [0, 0, 0, 0]
+    var e2 = [10, 10, 10, 10]
+    println("Test 2: {activity_selection(s2, e2, 4)} (expected 1)")
+
+    -- Test 3: no overlap
+    var s3 = [0, 2, 4, 6, 8]
+    var e3 = [1, 3, 5, 7, 9]
+    println("Test 3: {activity_selection(s3, e3, 5)} (expected 5)")
+
+    -- Benchmark: 50 intervals
+    val n = 50
+    var starts = fill(n, 0)
+    var ends = fill(n, 0)
+    for i in range(n) {
+        starts[i] = (i * 7 + 3) % 100
+        ends[i] = starts[i] + (i % 5) + 1
+    }
+
+    -- Verify
+    var bench_starts = fill(n, 0)
+    var bench_ends = fill(n, 0)
+    for i in range(n) {
+        bench_starts[i] = starts[i]
+        bench_ends[i] = ends[i]
+    }
+    val check = activity_selection(bench_starts, bench_ends, n)
+    println("Bench check: {check}")
+
+    val iterations = 200000
+    val start_time = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        -- Reset arrays each iteration
+        for i in range(n) {
+            bench_starts[i] = starts[i]
+            bench_ends[i] = ends[i]
+        }
+        result = activity_selection(bench_starts, bench_ends, n)
+    }
+    val elapsed = Time.now_ms() - start_time
+
+    println("")
+    println("=== Benchmark: Activity Selection ===")
+    println("Intervals: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}
