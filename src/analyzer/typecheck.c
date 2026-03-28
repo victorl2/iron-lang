@@ -1326,6 +1326,37 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.program             = program;
     sh_new_strdup(ctx.narrowed);
 
+    /* Check top-level val/var declarations first so their init expressions
+     * have resolved_type set before function bodies reference them.
+     * The resolver already defined these symbols (with type=NULL).
+     * We type-check the init and update the existing symbol's type. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl) continue;
+
+        if (decl->kind == IRON_NODE_VAL_DECL) {
+            Iron_ValDecl *vd = (Iron_ValDecl *)decl;
+            Iron_Type *init_type = NULL;
+            if (vd->init) init_type = check_expr(&ctx, vd->init);
+            Iron_Type *decl_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            vd->declared_type = decl_type;
+            /* Update the resolver's existing symbol with the resolved type */
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, vd->name);
+            if (sym) sym->type = decl_type;
+        } else if (decl->kind == IRON_NODE_VAR_DECL) {
+            Iron_VarDecl *vd = (Iron_VarDecl *)decl;
+            Iron_Type *init_type = NULL;
+            if (vd->init) init_type = check_expr(&ctx, vd->init);
+            Iron_Type *decl_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            vd->declared_type = decl_type;
+            /* Update the resolver's existing symbol with the resolved type */
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, vd->name);
+            if (sym) sym->type = decl_type;
+        }
+    }
+
     /* Check all func and method decls */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];

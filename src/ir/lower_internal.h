@@ -67,9 +67,14 @@ typedef struct {
     int            loop_scope_depth;
 
     /* Global constant table: name -> Iron_Node* init expression
-     * For top-level val declarations (including comptime). Lowered lazily
+     * For top-level val/var declarations (including comptime). Lowered lazily
      * when first referenced via IDENT in any function body. */
     struct { char *key; Iron_Node *value; } *global_constants_map;
+
+    /* Set of global names that are mutable (var declarations).
+     * When a global var is lazily lowered, it uses alloca+store instead of
+     * val_binding_map, so mutations (e.g., arr[i] = x) work correctly. */
+    struct { char *key; int value; } *global_mutable_set;
 } IronIR_LowerCtx;
 
 /* ── Shared helper declarations (defined in lower.c) ─────────────────── */
