@@ -132,6 +132,19 @@ target_compile_definitions(ironc PRIVATE
     IRON_BINARY_NAME="ironc"
 )
 
+# ── iron package manager executable ─────────────────────────────────────────
+# iron does NOT link iron_compiler or iron_runtime -- clean process boundary.
+# It only spawns ironc as a subprocess.
+add_executable(iron
+    src/pkg/main.c
+)
+target_include_directories(iron PRIVATE src)
+target_compile_definitions(iron PRIVATE
+    IRON_VERSION_STRING="${PROJECT_VERSION}"
+    IRON_GIT_HASH="${IRON_GIT_HASH}"
+    IRON_BUILD_DATE="${IRON_BUILD_DATE}"
+)
+
 # ── CLI smoke tests ──────────────────────────────────────────────────────────
 add_test(
     NAME test_ironc_help
@@ -147,4 +160,21 @@ add_test(
 )
 set_tests_properties(test_ironc_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^ironc [0-9]"
+)
+
+# iron CLI tests
+add_test(
+    NAME test_iron_help
+    COMMAND iron
+)
+set_tests_properties(test_iron_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "Package Commands:"
+)
+
+add_test(
+    NAME test_iron_version
+    COMMAND iron --version
+)
+set_tests_properties(test_iron_version PROPERTIES
+    PASS_REGULAR_EXPRESSION "^iron [0-9]"
 )
