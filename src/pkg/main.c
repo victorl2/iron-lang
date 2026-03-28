@@ -2,6 +2,7 @@
  * iron - The Iron package manager
  *
  * Discovers and invokes `ironc` for single-file workflows.
+ * Implements iron init, build, run, check, test for iron.toml projects.
  * Shows Cargo-style help for package commands.
  *
  * Design: iron does NOT link iron_compiler — clean process boundary.
@@ -26,6 +27,10 @@
 #  include <spawn.h>
 #  include <sys/wait.h>
 #endif
+
+#include "pkg/color.h"
+#include "pkg/init.h"
+#include "pkg/iron_pkg.h"
 
 #ifndef IRON_VERSION_STRING
 #define IRON_VERSION_STRING "0.0.2"
@@ -70,7 +75,7 @@ static int resolve_self_path(char *buf, size_t buf_size) {
  * Strategy: resolve own path, replace "iron" with "ironc" in filename.
  * Falls back to "ironc" (PATH search) if sibling not found.
  */
-static char *find_ironc(void) {
+char *find_ironc(void) {
     char self_path[4096];
     if (resolve_self_path(self_path, sizeof(self_path)) != 0) {
         return strdup("ironc");
@@ -116,6 +121,58 @@ static char *find_ironc(void) {
     return strdup("ironc");
 }
 
+/* ── Subprocess invocation ──────────────────────────────────────────────── */
+
+/*
+ * spawn_and_wait: spawn an arbitrary program with argv (NULL-terminated).
+ * Returns the child exit code, or 1 on spawn failure.
+ */
+int spawn_and_wait(const char *prog, char *const argv[]) {
+#ifdef _WIN32
+    /* Build command line string for CreateProcess */
+    char cmd[32768];
+    int pos = snprintf(cmd, sizeof(cmd), "\"%s\"", prog);
+    for (int i = 1; argv[i] != NULL && pos < (int)sizeof(cmd) - 1; i++) {
+        pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " \"%s\"", argv[i]);
+    }
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    memset(&pi, 0, sizeof(pi));
+
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        fprintf(stderr, "error: failed to spawn %s (error %lu)\n", prog, GetLastError());
+        return 1;
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return (int)exit_code;
+#else
+    pid_t pid;
+    int status = posix_spawnp(&pid, prog, NULL, NULL,
+                               (char *const *)argv, environ);
+    if (status != 0) {
+        fprintf(stderr, "error: failed to spawn %s: %s\n", prog, strerror(status));
+        return 1;
+    }
+
+    int wstatus;
+    if (waitpid(pid, &wstatus, 0) < 0) {
+        fprintf(stderr, "error: waitpid failed: %s\n", strerror(errno));
+        return 1;
+    }
+    if (WIFEXITED(wstatus)) {
+        return WEXITSTATUS(wstatus);
+    }
+    return 1;
+#endif
+}
+
 /* ── Argument inspection ────────────────────────────────────────────────── */
 
 /*
@@ -133,42 +190,13 @@ static int has_iron_file_arg(int argc, char **argv) {
     return 0;
 }
 
-/* ── Subprocess invocation ──────────────────────────────────────────────── */
-
 /*
  * forward_to_ironc: spawn ironc with argv[1..] forwarded verbatim.
  * Returns ironc's exit code.
  */
-static int forward_to_ironc(int argc, char **argv) {
+int forward_to_ironc(int argc, char **argv) {
     char *ironc_path = find_ironc();
 
-#ifdef _WIN32
-    /* Build command line string for CreateProcess */
-    char cmd[32768];
-    int pos = snprintf(cmd, sizeof(cmd), "\"%s\"", ironc_path);
-    for (int i = 1; i < argc && pos < (int)sizeof(cmd) - 1; i++) {
-        pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " \"%s\"", argv[i]);
-    }
-
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    memset(&si, 0, sizeof(si));
-    si.cb = sizeof(si);
-    memset(&pi, 0, sizeof(pi));
-
-    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-        fprintf(stderr, "error: failed to spawn ironc (error %lu)\n", GetLastError());
-        free(ironc_path);
-        return 1;
-    }
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    DWORD exit_code;
-    GetExitCodeProcess(pi.hProcess, &exit_code);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    free(ironc_path);
-    return (int)exit_code;
-#else
     /* Build argv array: [ironc_path, argv[1], argv[2], ..., NULL] */
     char **new_argv = (char **)malloc((size_t)(argc + 1) * sizeof(char *));
     if (!new_argv) {
@@ -182,27 +210,10 @@ static int forward_to_ironc(int argc, char **argv) {
     }
     new_argv[argc] = NULL;
 
-    pid_t pid;
-    int status = posix_spawnp(&pid, ironc_path, NULL, NULL,
-                               (char *const *)new_argv, environ);
+    int ret = spawn_and_wait(ironc_path, (char *const *)new_argv);
     free(new_argv);
-    if (status != 0) {
-        fprintf(stderr, "error: failed to spawn ironc: %s\n", strerror(status));
-        free(ironc_path);
-        return 1;
-    }
     free(ironc_path);
-
-    int wstatus;
-    if (waitpid(pid, &wstatus, 0) < 0) {
-        fprintf(stderr, "error: waitpid failed: %s\n", strerror(errno));
-        return 1;
-    }
-    if (WIFEXITED(wstatus)) {
-        return WEXITSTATUS(wstatus);
-    }
-    return 1;
-#endif
+    return ret;
 }
 
 /* ── Help and version ───────────────────────────────────────────────────── */
@@ -212,16 +223,32 @@ static void print_version(void) {
            IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
 }
 
-static void print_help(void) {
+static void print_help(bool colors) {
     print_version();
     printf("The Iron package manager\n\n");
     printf("Usage: iron <command> [options] [args]\n\n");
     printf("Package Commands:\n");
-    printf("  build    Build the current package or a .iron file\n");
-    printf("  run      Run the current package or a .iron file\n");
-    printf("  check    Type-check without producing a binary\n");
-    printf("  fmt      Format Iron source code\n");
-    printf("  test     Discover and run tests\n");
+    if (colors) {
+        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "init" IRON_COLOR_RESET
+               "     Create a new Iron project\n");
+        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "build" IRON_COLOR_RESET
+               "    Build the current package or a .iron file\n");
+        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "run" IRON_COLOR_RESET
+               "      Run the current package or a .iron file\n");
+        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "check" IRON_COLOR_RESET
+               "    Type-check without producing a binary\n");
+        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "fmt" IRON_COLOR_RESET
+               "      Format Iron source code\n");
+        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "test" IRON_COLOR_RESET
+               "     Discover and run tests\n");
+    } else {
+        printf("  init     Create a new Iron project\n");
+        printf("  build    Build the current package or a .iron file\n");
+        printf("  run      Run the current package or a .iron file\n");
+        printf("  check    Type-check without producing a binary\n");
+        printf("  fmt      Format Iron source code\n");
+        printf("  test     Discover and run tests\n");
+    }
     printf("\nSee also: ironc -- raw compiler for direct file compilation\n");
     printf("\nOptions:\n");
     printf("  --version    Print version and exit\n");
@@ -231,9 +258,11 @@ static void print_help(void) {
 /* ── Entry point ────────────────────────────────────────────────────────── */
 
 int main(int argc, char **argv) {
+    bool colors = iron_color_init();
+
     /* No args: show help (exit 0 — Cargo-style, unlike ironc which exits 1) */
     if (argc < 2) {
-        print_help();
+        print_help(colors);
         return 0;
     }
 
@@ -245,8 +274,13 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0) {
-        print_help();
+        print_help(colors);
         return 0;
+    }
+
+    /* init subcommand */
+    if (strcmp(cmd, "init") == 0) {
+        return cmd_init(argc, argv);
     }
 
     /* Known subcommands */
@@ -259,20 +293,14 @@ int main(int argc, char **argv) {
             return forward_to_ironc(argc, argv);
         }
 
-        /* No file arg: package mode (Phase 13 will implement full iron.toml support) */
+        /* No file arg: package mode (Phase 13 Plan 02 implements full iron.toml support) */
         fprintf(stderr, "error: no iron.toml found in current directory\n");
         fprintf(stderr, "hint: run 'iron init' to create a new project, or pass a .iron file\n");
         return 1;
     }
 
-    /* init subcommand — stub for Phase 13 */
-    if (strcmp(cmd, "init") == 0) {
-        fprintf(stderr, "error: 'iron init' is not yet implemented\n");
-        return 1;
-    }
-
     /* Unknown command */
     fprintf(stderr, "iron: unknown command '%s'\n\n", cmd);
-    print_help();
+    print_help(colors);
     return 1;
 }
