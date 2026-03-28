@@ -1,0 +1,167 @@
+import time
+
+-- Merge k sorted lists using a manual min-heap on flat arrays
+-- heap_vals[i] = value, heap_li[i] = list index, heap_ei[i] = element index
+
+func heap_down(hv: [Int], hli: [Int], hei: [Int], size: Int, idx: Int) -> [Int] {
+    -- Returns updated arrays packed as: hv ++ hli ++ hei (we return hv only, mutate in-place via copy)
+    var vals = hv
+    var lis = hli
+    var eis = hei
+    var i = idx
+    var cont = 1
+    while cont == 1 {
+        var smallest = i
+        val l = 2 * i + 1
+        val r = 2 * i + 2
+        if l < size {
+            if vals[l] < vals[smallest] {
+                smallest = l
+            }
+        }
+        if r < size {
+            if vals[r] < vals[smallest] {
+                smallest = r
+            }
+        }
+        if smallest == i {
+            cont = 0
+        } else {
+            -- swap vals
+            val tv = vals[i]
+            vals[i] = vals[smallest]
+            vals[smallest] = tv
+            -- swap lis
+            val tl = lis[i]
+            lis[i] = lis[smallest]
+            lis[smallest] = tl
+            -- swap eis
+            val te = eis[i]
+            eis[i] = eis[smallest]
+            eis[smallest] = te
+            i = smallest
+        }
+    }
+    return vals
+}
+
+func main() {
+    -- 10 sorted lists of 10 elements each (keeping small for Iron array limits)
+    -- list0: 0,10,20,...,90  list1: 1,11,21,...,91  etc.
+    val list0 = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]
+    val list1 = [1, 11, 21, 31, 41, 51, 61, 71, 81, 91]
+    val list2 = [2, 12, 22, 32, 42, 52, 62, 72, 82, 92]
+    val list3 = [3, 13, 23, 33, 43, 53, 63, 73, 83, 93]
+    val list4 = [4, 14, 24, 34, 44, 54, 64, 74, 84, 94]
+    val list5 = [5, 15, 25, 35, 45, 55, 65, 75, 85, 95]
+    val list6 = [6, 16, 26, 36, 46, 56, 66, 76, 86, 96]
+    val list7 = [7, 17, 27, 37, 47, 57, 67, 77, 87, 97]
+    val list8 = [8, 18, 28, 38, 48, 58, 68, 78, 88, 98]
+    val list9 = [9, 19, 29, 39, 49, 59, 69, 79, 89, 99]
+
+    val sizes = [10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+    val k = 10
+    val list_size = 10
+
+    -- Simple merge: repeatedly find minimum across k list pointers
+    -- (not using heap due to Iron array-by-value constraints, using linear scan)
+    var output = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var ptrs = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var out_idx = 0
+    val total = k * list_size
+
+    var step = 0
+    while step < total {
+        -- Find minimum value across all list pointers
+        var min_val = 999999
+        var min_k = -1
+        var ki = 0
+        while ki < k {
+            if ptrs[ki] < list_size {
+                var cur_val = 0
+                if ki == 0 { cur_val = list0[ptrs[ki]] }
+                if ki == 1 { cur_val = list1[ptrs[ki]] }
+                if ki == 2 { cur_val = list2[ptrs[ki]] }
+                if ki == 3 { cur_val = list3[ptrs[ki]] }
+                if ki == 4 { cur_val = list4[ptrs[ki]] }
+                if ki == 5 { cur_val = list5[ptrs[ki]] }
+                if ki == 6 { cur_val = list6[ptrs[ki]] }
+                if ki == 7 { cur_val = list7[ptrs[ki]] }
+                if ki == 8 { cur_val = list8[ptrs[ki]] }
+                if ki == 9 { cur_val = list9[ptrs[ki]] }
+                if cur_val < min_val {
+                    min_val = cur_val
+                    min_k = ki
+                }
+            }
+            ki = ki + 1
+        }
+        output[out_idx] = min_val
+        out_idx = out_idx + 1
+        ptrs[min_k] = ptrs[min_k] + 1
+        step = step + 1
+    }
+
+    -- Verify sorted
+    var is_sorted = 1
+    var vi = 1
+    while vi < total {
+        if output[vi] < output[vi - 1] {
+            is_sorted = 0
+        }
+        vi = vi + 1
+    }
+    println("Merged {total} elements, sorted: {is_sorted}")
+
+    -- Benchmark: just the merging logic (reset ptrs each time)
+    val iterations = 100000
+    val start = Time.now_ms()
+    var bench_result = 0
+    for it in range(iterations) {
+        var pi = 0
+        while pi < k {
+            ptrs[pi] = 0
+            pi = pi + 1
+        }
+        out_idx = 0
+        step = 0
+        while step < total {
+            var min_val = 999999
+            var min_k = -1
+            var ki2 = 0
+            while ki2 < k {
+                if ptrs[ki2] < list_size {
+                    var cur_val = 0
+                    if ki2 == 0 { cur_val = list0[ptrs[ki2]] }
+                    if ki2 == 1 { cur_val = list1[ptrs[ki2]] }
+                    if ki2 == 2 { cur_val = list2[ptrs[ki2]] }
+                    if ki2 == 3 { cur_val = list3[ptrs[ki2]] }
+                    if ki2 == 4 { cur_val = list4[ptrs[ki2]] }
+                    if ki2 == 5 { cur_val = list5[ptrs[ki2]] }
+                    if ki2 == 6 { cur_val = list6[ptrs[ki2]] }
+                    if ki2 == 7 { cur_val = list7[ptrs[ki2]] }
+                    if ki2 == 8 { cur_val = list8[ptrs[ki2]] }
+                    if ki2 == 9 { cur_val = list9[ptrs[ki2]] }
+                    if cur_val < min_val {
+                        min_val = cur_val
+                        min_k = ki2
+                    }
+                }
+                ki2 = ki2 + 1
+            }
+            output[out_idx] = min_val
+            out_idx = out_idx + 1
+            ptrs[min_k] = ptrs[min_k] + 1
+            step = step + 1
+        }
+        bench_result = out_idx
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Merge k Sorted Lists ===")
+    println("k={k} lists, {list_size} elements each")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+    println("Memory: (see process stats)")
+}

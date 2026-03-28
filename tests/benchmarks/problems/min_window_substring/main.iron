@@ -1,0 +1,89 @@
+import time
+
+-- Sliding window. Returns [start, length]
+func min_window(s: [Int], sn: Int, t: [Int], tn: Int) -> Int {
+    -- need[c] and have[c] for chars 0-26
+    var need = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var have = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    var ti = 0
+    while ti < tn {
+        val ch = t[ti]
+        need[ch] = need[ch] + 1
+        ti = ti + 1
+    }
+
+    var required = 0
+    var ci = 1
+    while ci <= 26 {
+        if need[ci] > 0 {
+            required = required + 1
+        }
+        ci = ci + 1
+    }
+
+    var formed = 0
+    var left = 0
+    var best_len = sn + 1
+
+    var right = 0
+    while right < sn {
+        val c = s[right]
+        have[c] = have[c] + 1
+        if need[c] > 0 {
+            if have[c] == need[c] {
+                formed = formed + 1
+            }
+        }
+
+        while formed == required {
+            val wlen = right - left + 1
+            if wlen < best_len {
+                best_len = wlen
+            }
+            val lc = s[left]
+            have[lc] = have[lc] - 1
+            if need[lc] > 0 {
+                if have[lc] < need[lc] {
+                    formed = formed - 1
+                }
+            }
+            left = left + 1
+        }
+        right = right + 1
+    }
+
+    if best_len > sn {
+        return -1
+    }
+    return best_len
+}
+
+func main() {
+    val s1 = [1, 4, 15, 2, 5, 3, 15, 4, 5, 2, 1, 14, 3]
+    val t1 = [1, 2, 3]
+    println("Test 1: len={min_window(s1, 13, t1, 3)} (expected 4)")
+
+    val s2 = [1]
+    val t2 = [1]
+    println("Test 2: len={min_window(s2, 1, t2, 1)} (expected 1)")
+
+    val s3 = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5]
+    val t3 = [1, 3, 5]
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = min_window(s3, 20, t3, 3)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Minimum Window Substring ===")
+    println("String: 20, Target: 3")
+    println("Iterations: {iterations}")
+    println("Result len: {result}")
+    println("Total time: {elapsed} ms")
+    println("Memory: (see process stats)")
+}

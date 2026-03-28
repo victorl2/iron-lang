@@ -1,0 +1,78 @@
+import time
+
+-- Simplified DP approach using Two-Pass O(1) space algorithm
+-- '(' encoded as 1, ')' as 0
+func longest_valid(s: [Int], n: Int) -> Int {
+    var left = 0
+    var right = 0
+    var max_len = 0
+
+    -- Left to right pass
+    var i = 0
+    while i < n {
+        if s[i] == 1 {
+            left = left + 1
+        } else {
+            right = right + 1
+        }
+        if left == right {
+            if left + right > max_len {
+                max_len = left + right
+            }
+        }
+        if right > left {
+            left = 0
+            right = 0
+        }
+        i = i + 1
+    }
+
+    -- Right to left pass
+    left = 0
+    right = 0
+    i = n - 1
+    while i >= 0 {
+        if s[i] == 1 {
+            left = left + 1
+        } else {
+            right = right + 1
+        }
+        if left == right {
+            if left + right > max_len {
+                max_len = left + right
+            }
+        }
+        if left > right {
+            left = 0
+            right = 0
+        }
+        i = i - 1
+    }
+    return max_len
+}
+
+func main() {
+    val t1 = [1, 0]
+    val t2 = [1, 0, 0, 1]
+    println("Test 1: {longest_valid(t1, 2)} (expected 2)")
+    println("Test 2: {longest_valid(t2, 4)} (expected 2)")
+
+    -- 10 '(' followed by 10 ')' => longest valid = 20
+    val s = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    println("Test 3: {longest_valid(s, 20)} (expected 20)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = longest_valid(s, 20)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Longest Valid Parentheses ===")
+    println("String length: 20")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+    println("Memory: (see process stats)")
+}
