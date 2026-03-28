@@ -137,6 +137,7 @@ target_compile_definitions(ironc PRIVATE
 # It only spawns ironc as a subprocess.
 add_executable(iron
     src/pkg/main.c
+    src/pkg/init.c
     src/cli/toml.c
 )
 target_include_directories(iron PRIVATE src)
@@ -187,6 +188,21 @@ add_test(
 set_tests_properties(test_iron_no_color PROPERTIES
     PASS_REGULAR_EXPRESSION "Package Commands:"
 )
+
+# iron init tests
+if(NOT WIN32)
+    add_test(
+        NAME test_iron_init
+        COMMAND ${CMAKE_COMMAND} -E env PATH=$<TARGET_FILE_DIR:iron>:$ENV{PATH}
+            sh -c "rm -rf /tmp/iron_test_init && mkdir -p /tmp/iron_test_init && cd /tmp/iron_test_init && $<TARGET_FILE:iron> init && test -f iron.toml && test -f src/main.iron && test -f .gitignore && grep -q '\\[package\\]' iron.toml && grep -q 'println' src/main.iron"
+    )
+
+    add_test(
+        NAME test_iron_init_lib
+        COMMAND ${CMAKE_COMMAND} -E env PATH=$<TARGET_FILE_DIR:iron>:$ENV{PATH}
+            sh -c "rm -rf /tmp/iron_test_init_lib && mkdir -p /tmp/iron_test_init_lib && cd /tmp/iron_test_init_lib && $<TARGET_FILE:iron> init --lib && test -f iron.toml && test -f src/lib.iron && grep -q 'type = \"lib\"' iron.toml"
+    )
+endif()
 
 # ---- Install rules ----
 install(TARGETS ironc iron DESTINATION bin)
