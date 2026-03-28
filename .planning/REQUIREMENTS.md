@@ -196,7 +196,7 @@ Requirements for the Package Manager milestone. Each maps to roadmap phases.
 - [x] **CLI2-01**: Current compiler binary renamed to `ironc` with all existing subcommands (build, run, check, fmt, test)
 - [x] **CLI2-02**: New `iron` CLI binary as package manager that invokes `ironc` behind the scenes
 - [x] **CLI2-03**: `iron` auto-detects context: if `iron.toml` exists use package mode, if given a `.iron` file forward to `ironc`
-- [ ] **CLI2-04**: Both `iron` and `ironc` installed together and added to PATH via the install script
+- [x] **CLI2-04**: Both `iron` and `ironc` installed together and added to PATH via the install script
 - [ ] **CLI2-05**: Colored CLI output — Cargo-style colors (green success, red errors, cyan info), respects `NO_COLOR` env var and `isatty()`
 
 ### Project Management
@@ -419,7 +419,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CLI2-01 | Phase 12 | Complete |
 | CLI2-02 | Phase 12 | Complete |
 | CLI2-03 | Phase 12 | Complete |
-| CLI2-04 | Phase 12 | Pending |
+| CLI2-04 | Phase 12 | Complete |
 | CLI2-05 | Phase 13 | Pending |
 | PROJ-01 | Phase 13 | Pending |
 | PROJ-02 | Phase 13 | Pending |
