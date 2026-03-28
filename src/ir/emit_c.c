@@ -78,6 +78,11 @@ typedef struct {
      * that were initially eligible for stack allocation but were revoked
      * because they escape the function. */
     struct { IronIR_ValueId key; bool value; } *revoked_fill_ids;           /* stb_ds hashmap */
+
+    /* Read-only parameter alias tracking: maps alloca ValueId -> param ValueId.
+     * For parameters that are never modified (only read), we skip the
+     * alloca+store+load chain and reference the parameter value directly. */
+    struct { IronIR_ValueId key; IronIR_ValueId value; } *param_alias_ids;  /* stb_ds hashmap */
 } EmitCtx;
 
 /* ── Array parameter passing mode (PARAM-01/PARAM-02) ────────────────────── */
@@ -1095,6 +1100,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     /* ── Memory ─────────────────────────────────────────────────────────── */
 
     case IRON_IR_ALLOCA: {
+        /* Skip alloca for read-only parameter aliases — no variable needed */
+        if (hmgeti(ctx->param_alias_ids, instr->id) >= 0) break;
+
         /* Check if this alloca holds a stack array (determined by pre-scan) */
         IronIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->id);
         if (sa_origin != IRON_IR_VALUE_INVALID) {
@@ -1138,6 +1146,21 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     }
 
     case IRON_IR_LOAD: {
+        /* Load from a read-only parameter alias: reference the param directly */
+        {
+            ptrdiff_t pa_idx = hmgeti(ctx->param_alias_ids, instr->load.ptr);
+            if (pa_idx >= 0) {
+                IronIR_ValueId param_val = ctx->param_alias_ids[pa_idx].value;
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = ");
+                emit_val(sb, param_val);
+                iron_strbuf_appendf(sb, ";\n");
+                break;
+            }
+        }
+
         IronIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->load.ptr);
         if (sa_origin != IRON_IR_VALUE_INVALID) {
             /* Loading from a stack-array alloca: emit as pointer copy */
@@ -1184,6 +1207,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     }
 
     case IRON_IR_STORE: {
+        /* Skip store into read-only parameter alias alloca */
+        if (hmgeti(ctx->param_alias_ids, instr->store.ptr) >= 0) break;
+
         /* Check if we're storing a stack array into an alloca */
         IronIR_ValueId sa_ptr = get_stack_array_origin(ctx, instr->store.ptr);
         IronIR_ValueId sa_val = get_stack_array_origin(ctx, instr->store.value);
@@ -2321,6 +2347,10 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
     hmfree(ctx->escaped_heap_ids);
     ctx->escaped_heap_ids = NULL;
 
+    /* Reset per-function parameter alias tracking */
+    hmfree(ctx->param_alias_ids);
+    ctx->param_alias_ids = NULL;
+
     /* Pre-scan: identify allocas that receive stack arrays via STORE.
      * Build a mapping from STORE(alloca_ptr, stack_array_val) so that
      * the alloca can be emitted as elem_type* instead of Iron_List_T,
@@ -2506,6 +2536,41 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
             hmput(ctx->heap_array_ids, ha_pre[i].key, ha_pre[i].value);
         }
         hmfree(ha_pre);
+    }
+
+    /* ── Read-only parameter alias pre-scan ────────────────────────────────
+     * Detect parameter allocas that are:
+     *   1. Stored to exactly once (the initial param store in the entry block)
+     *   2. Never stored to again in any other block
+     *   3. Not already handled by pointer-mode array params (stack_array_ids)
+     * For such allocas, we skip the alloca decl and store, and make loads
+     * reference the parameter value ID directly. */
+    {
+        for (int pi = 0; pi < fn->param_count; pi++) {
+            IronIR_ValueId param_val = (IronIR_ValueId)(pi * 2 + 1);
+            IronIR_ValueId alloca_id = (IronIR_ValueId)(pi * 2 + 2);
+
+            /* Skip if this alloca is already tracked as a stack array (pointer-mode param) */
+            if (hmgeti(ctx->stack_array_ids, alloca_id) >= 0) continue;
+
+            /* Count stores to this alloca across ALL blocks */
+            int store_count = 0;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronIR_Block *block = fn->blocks[bi];
+                for (int ii = 0; ii < block->instr_count; ii++) {
+                    IronIR_Instr *instr = block->instrs[ii];
+                    if (instr->kind == IRON_IR_STORE &&
+                        instr->store.ptr == alloca_id) {
+                        store_count++;
+                    }
+                }
+            }
+
+            /* Only alias if stored exactly once (the initial param store) */
+            if (store_count == 1) {
+                hmput(ctx->param_alias_ids, alloca_id, param_val);
+            }
+        }
     }
 
     emit_func_signature(sb, fn, ctx, false);
@@ -2964,6 +3029,7 @@ const char *iron_ir_emit_c(IronIR_Module *module, Iron_Arena *arena,
     hmfree(ctx.escaped_heap_ids);
     shfree(ctx.array_param_modes);
     hmfree(ctx.revoked_fill_ids);
+    hmfree(ctx.param_alias_ids);
 
     return result;
 }
