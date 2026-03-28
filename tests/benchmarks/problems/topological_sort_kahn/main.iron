@@ -92,7 +92,7 @@ func main() {
     adj4[2 * n + 0] = 1
     println("Test 4: {kahn_checksum(adj4, n)} (expected -1)")
 
-    val iterations = 200000
+    val iterations = 2000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

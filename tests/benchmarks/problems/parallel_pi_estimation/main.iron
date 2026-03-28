@@ -5,27 +5,20 @@ import time
 -- Sequential merge computes pi approximation
 
 func monte_carlo_chunk(chunk_id: Int, num_points: Int) -> Int {
-  var seed = chunk_id * 6364136223 + 1
+  -- Park-Miller LCG: no signed overflow, deterministic across platforms
+  var seed = (chunk_id * 6364136223 + 1) % 1000000007
+  if seed < 0 {
+    seed = seed + 1000000007
+  }
   var hits = 0
   var j = 0
   while j < num_points {
-    -- Generate x coordinate
-    seed = seed * 1103515245 + 12345
-    var sx = seed
-    if sx < 0 {
-      sx = 0 - sx
-    }
-    val x = sx - (sx / 1000000) * 1000000
+    seed = (seed * 48271) % 2147483647
+    val x = seed - (seed / 1000000) * 1000000
 
-    -- Generate y coordinate
-    seed = seed * 1103515245 + 12345
-    var sy = seed
-    if sy < 0 {
-      sy = 0 - sy
-    }
-    val y = sy - (sy / 1000000) * 1000000
+    seed = (seed * 48271) % 2147483647
+    val y = seed - (seed / 1000000) * 1000000
 
-    -- Check if inside unit circle (scaled)
     if x * x + y * y <= 1000000 * 1000000 {
       hits = hits + 1
     }

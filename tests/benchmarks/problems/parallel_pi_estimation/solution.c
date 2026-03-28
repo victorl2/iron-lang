@@ -9,18 +9,16 @@
 #define ITERATIONS 200
 
 static int64_t monte_carlo_chunk(int64_t chunk_id, int64_t num_points) {
-    int64_t seed = chunk_id * 6364136223LL + 1;
+    /* Use modular PRNG to avoid signed overflow UB across platforms */
+    int64_t seed = (chunk_id * 6364136223LL + 1) % 1000000007;
+    if (seed < 0) seed += 1000000007;
     int64_t hits = 0;
     for (int64_t j = 0; j < num_points; j++) {
-        seed = seed * 1103515245LL + 12345;
-        int64_t sx = seed;
-        if (sx < 0) sx = -sx;
-        int64_t x = sx % 1000000;
+        seed = (seed * 48271LL) % 2147483647LL; /* Park-Miller LCG */
+        int64_t x = seed % 1000000;
 
-        seed = seed * 1103515245LL + 12345;
-        int64_t sy = seed;
-        if (sy < 0) sy = -sy;
-        int64_t y = sy % 1000000;
+        seed = (seed * 48271LL) % 2147483647LL;
+        int64_t y = seed % 1000000;
 
         if (x * x + y * y <= 1000000LL * 1000000LL) {
             hits++;

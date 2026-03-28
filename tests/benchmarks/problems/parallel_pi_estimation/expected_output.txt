@@ -1,3 +1,3 @@
-Total hits: 503302
+Total hits: 502871
 Total points: 640000
-Pi estimate x10000: 31456
+Pi estimate x10000: 31429
