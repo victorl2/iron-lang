@@ -1,0 +1,55 @@
+import time
+
+func decode_ways(digits: [Int], n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    var dp = fill(n + 1, 0)
+    dp[0] = 1
+    if digits[0] != 0 {
+        dp[1] = 1
+    }
+    var i = 2
+    while i <= n {
+        if digits[i - 1] != 0 {
+            dp[i] = dp[i - 1]
+        }
+        val two = digits[i - 2] * 10 + digits[i - 1]
+        if two >= 10 {
+            if two <= 26 {
+                dp[i] = dp[i] + dp[i - 2]
+            }
+        }
+        i = i + 1
+    }
+    return dp[n]
+}
+
+func main() {
+    val d1 = [1, 2]
+    println("Test 1: {decode_ways(d1, 2)} (expected 2)")
+    val d2 = [2, 2, 6]
+    println("Test 2: {decode_ways(d2, 3)} (expected 3)")
+
+    -- 20-digit sequence: 1,2,3,1,2,3,...
+    var bench = fill(20, 0)
+    for i in range(20) {
+        bench[i] = (i % 3) + 1
+    }
+    println("Test 3: {decode_ways(bench, 20)} (expected 1458)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = decode_ways(bench, 20)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Decode Ways ===")
+    println("Digits: 20")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

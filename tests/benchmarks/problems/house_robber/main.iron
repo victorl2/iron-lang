@@ -1,0 +1,56 @@
+import time
+
+func house_robber(nums: [Int], n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    if n == 1 {
+        return nums[0]
+    }
+    var prev2 = nums[0]
+    var prev1 = nums[1]
+    if prev2 > prev1 {
+        prev1 = prev2
+    }
+    var i = 2
+    while i < n {
+        val pick = prev2 + nums[i]
+        var curr = prev1
+        if pick > curr {
+            curr = pick
+        }
+        prev2 = prev1
+        prev1 = curr
+        i = i + 1
+    }
+    return prev1
+}
+
+func main() {
+    val a1 = [1, 2, 3, 1]
+    println("Test 1: {house_robber(a1, 4)} (expected 4)")
+    val a2 = [2, 7, 9, 3, 1]
+    println("Test 2: {house_robber(a2, 5)} (expected 12)")
+
+    var bench = fill(50, 0)
+    for i in range(50) {
+        bench[i] = (i * 17 + 11) % 100
+    }
+    val bench_result = house_robber(bench, 50)
+    println("Test 3: {bench_result} (expected 1379)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = house_robber(bench, 50)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: House Robber ===")
+    println("Array size: 50")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

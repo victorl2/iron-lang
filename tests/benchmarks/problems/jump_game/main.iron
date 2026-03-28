@@ -1,0 +1,45 @@
+import time
+
+func jump_game(nums: [Int], n: Int) -> Int {
+    var max_reach = 0
+    var i = 0
+    while i < n {
+        if i > max_reach {
+            return 0
+        }
+        val r = i + nums[i]
+        if r > max_reach {
+            max_reach = r
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func main() {
+    val a1 = [2, 3, 1, 1, 4]
+    println("Test 1: {jump_game(a1, 5)} (expected 1)")
+    val a2 = [3, 2, 1, 0, 4]
+    println("Test 2: {jump_game(a2, 5)} (expected 0)")
+
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = (i * 3 + 1) % 5 + 1
+    }
+    println("Test 3: {jump_game(bench, 100)} (expected 1)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = jump_game(bench, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Jump Game ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

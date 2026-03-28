@@ -1,0 +1,44 @@
+import time
+
+func coin_change(coins: [Int], nc: Int, amount: Int) -> Int {
+    var dp = fill(amount + 1, 999999)
+    dp[0] = 0
+    var c = 0
+    while c < nc {
+        var a = coins[c]
+        while a <= amount {
+            val val_ = dp[a - coins[c]] + 1
+            if val_ < dp[a] {
+                dp[a] = val_
+            }
+            a = a + 1
+        }
+        c = c + 1
+    }
+    if dp[amount] >= 999999 {
+        return -1
+    }
+    return dp[amount]
+}
+
+func main() {
+    val coins = [1, 5, 10, 25]
+    println("Test 1: {coin_change(coins, 4, 30)} (expected 2)")
+    println("Test 2: {coin_change(coins, 4, 100)} (expected 4)")
+    println("Test 3: {coin_change(coins, 4, 63)} (expected 6)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = coin_change(coins, 4, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Coin Change ===")
+    println("Amount: 100, Coins: [1,5,10,25]")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

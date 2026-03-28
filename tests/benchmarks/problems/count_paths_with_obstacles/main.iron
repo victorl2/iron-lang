@@ -1,0 +1,74 @@
+import time
+
+func count_paths_obstacles(grid: [Int], rows: Int, cols: Int) -> Int {
+    var dp = fill(rows * cols, 0)
+    if grid[0] == 1 {
+        return 0
+    }
+    dp[0] = 1
+    var j = 1
+    while j < cols {
+        if grid[j] == 0 {
+            if dp[j - 1] == 1 {
+                dp[j] = 1
+            }
+        }
+        j = j + 1
+    }
+    var i = 1
+    while i < rows {
+        if grid[i * cols] == 0 {
+            if dp[(i - 1) * cols] == 1 {
+                dp[i * cols] = 1
+            }
+        }
+        j = 1
+        while j < cols {
+            if grid[i * cols + j] == 1 {
+                dp[i * cols + j] = 0
+            } else {
+                dp[i * cols + j] = dp[(i - 1) * cols + j] + dp[i * cols + (j - 1)]
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return dp[(rows - 1) * cols + (cols - 1)]
+}
+
+func main() {
+    val g1 = [0, 0, 0, 0, 1, 0, 0, 0, 0]
+    println("Test 1: {count_paths_obstacles(g1, 3, 3)} (expected 2)")
+
+    -- 15x15 grid with some obstacles
+    var bench = fill(225, 0)
+    for i in range(15) {
+        for j in range(15) {
+            if (i * 3 + j * 7) % 11 == 0 {
+                if i > 0 {
+                    if j > 0 {
+                        bench[i * 15 + j] = 1
+                    }
+                }
+            }
+        }
+    }
+    -- Make sure destination is clear
+    bench[14 * 15 + 14] = 0
+    println("Test 2: {count_paths_obstacles(bench, 15, 15)} (expected 1449957)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = count_paths_obstacles(bench, 15, 15)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Count Paths With Obstacles ===")
+    println("Grid: 15x15")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}
