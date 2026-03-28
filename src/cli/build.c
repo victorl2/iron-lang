@@ -337,6 +337,7 @@ static char *make_path(const char *base, const char *rel) {
 static int build_src_list(const char **argv_buf, int *ai_out,
                            const char *c_file, const char *output,
                            char **src_i_flag_out, char **vendor_i_flag_out,
+                           char **stdlib_i_flag_out,
                            char **rt_stb_out, char **rt_arena_out,
                            char **rt_strbuf_out, char **rt_string_out,
                            char **rt_rc_out, char **rt_builtin_out,
@@ -364,6 +365,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (!vendor_i_flag) return 1;
     snprintf(vendor_i_flag, vendor_i_len, "-I%s/vendor", base_dir);
     *vendor_i_flag_out = vendor_i_flag;
+
+    /* Also add stdlib dir so stdlib *.c files can find their own *.h headers */
+    size_t stdlib_i_len = strlen("-I") + strlen(base_dir) + strlen("/stdlib") + 1;
+    char *stdlib_i_flag = (char *)malloc(stdlib_i_len);
+    if (!stdlib_i_flag) return 1;
+    snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", base_dir);
+    *stdlib_i_flag_out = stdlib_i_flag;
 
     *rt_stb_out     = make_path(base_dir, "util/stb_ds_impl.c");
     *rt_arena_out   = make_path(base_dir, "util/arena.c");
@@ -413,6 +421,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_log_out;
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
+    argv_buf[ai++] = stdlib_i_flag;
     /* Output flag for clang-cl */
     {
         static char out_flag[1024];
@@ -440,6 +449,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_log_out;
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
+    argv_buf[ai++] = stdlib_i_flag;
     argv_buf[ai++] = "-lm";
     argv_buf[ai++] = "-lpthread";
 #endif
@@ -471,13 +481,14 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 
 static void free_src_list(char *base_dir,
                            char *src_i_flag, char *vendor_i_flag,
+                           char *stdlib_i_flag,
                            char *rt_stb, char *rt_arena, char *rt_strbuf,
                            char *rt_string, char *rt_rc, char *rt_builtin,
                            char *rt_threads, char *rt_collect,
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *rl_src, char *rl_i_flag) {
     free(base_dir);
-    free(src_i_flag); free(vendor_i_flag);
+    free(src_i_flag); free(vendor_i_flag); free(stdlib_i_flag);
     free(rt_stb); free(rt_arena); free(rt_strbuf);
     free(rt_string); free(rt_rc); free(rt_builtin);
     free(rt_threads); free(rt_collect);
@@ -490,7 +501,7 @@ static int invoke_clang(const char *c_file, const char *output,
     (void)src_dir;
 
     char *base_dir = NULL;
-    char *src_i_flag = NULL, *vendor_i_flag = NULL;
+    char *src_i_flag = NULL, *vendor_i_flag = NULL, *stdlib_i_flag = NULL;
     char *rt_stb = NULL, *rt_arena = NULL, *rt_strbuf = NULL;
     char *rt_string = NULL, *rt_rc = NULL, *rt_builtin = NULL;
     char *rt_threads = NULL, *rt_collect = NULL;
@@ -501,13 +512,13 @@ static int invoke_clang(const char *c_file, const char *output,
     int ai = 0;
 
     if (build_src_list(argv_buf, &ai, c_file, output,
-                       &src_i_flag, &vendor_i_flag,
+                       &src_i_flag, &vendor_i_flag, &stdlib_i_flag,
                        &rt_stb, &rt_arena, &rt_strbuf,
                        &rt_string, &rt_rc, &rt_builtin,
                        &rt_threads, &rt_collect,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        opts, &rl_src, &rl_i_flag, &base_dir) != 0) {
-        free_src_list(base_dir, src_i_flag, vendor_i_flag,
+        free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                       rt_stb, rt_arena, rt_strbuf,
                       rt_string, rt_rc, rt_builtin,
                       rt_threads, rt_collect,
@@ -538,7 +549,7 @@ static int invoke_clang(const char *c_file, const char *output,
     si.cb = sizeof(si);
     memset(&pi, 0, sizeof(pi));
 
-    free_src_list(base_dir, src_i_flag, vendor_i_flag,
+    free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect,
@@ -565,7 +576,7 @@ static int invoke_clang(const char *c_file, const char *output,
     int status = posix_spawnp(&pid, "clang", NULL, NULL,
                                (char *const *)argv_buf, environ);
 
-    free_src_list(base_dir, src_i_flag, vendor_i_flag,
+    free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect,

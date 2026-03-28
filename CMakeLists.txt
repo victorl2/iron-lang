@@ -195,7 +195,7 @@ install(FILES
 )
 # Install all header files from src/ that ironc passes via -I (runtime, vendor)
 install(DIRECTORY src/vendor/ DESTINATION lib/vendor)
-# Install stdlib C implementations
-install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.c")
+# Install stdlib C implementations and headers
+install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
 # Install stdlib .iron files
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.iron")
