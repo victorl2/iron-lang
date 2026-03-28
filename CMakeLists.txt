@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 0.0.2 LANGUAGES C)
+project(iron VERSION 0.0.3 LANGUAGES C)
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
