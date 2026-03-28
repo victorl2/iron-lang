@@ -1,0 +1,71 @@
+import time
+
+-- Run Length Encoding on Int arrays
+-- Encode consecutive same values. Returns checksum = sum of (value*100 + count) for each run.
+
+func rle_encode(arr: [Int], n: Int) -> Int {
+    if n == 0 { return 0 }
+    var checksum = 0
+    var i = 0
+    while i < n {
+        val v = arr[i]
+        var count = 1
+        while i + count < n and arr[i + count] == v {
+            count = count + 1
+        }
+        checksum = checksum + v * 100 + count
+        i = i + count
+    }
+    return checksum
+}
+
+func rle_decode_len(arr: [Int], n: Int) -> Int {
+    -- Decode the RLE: count total decoded length
+    -- Input is pairs: [value, count, value, count, ...]
+    var total = 0
+    var i = 0
+    while i < n {
+        total = total + arr[i + 1]
+        i = i + 2
+    }
+    return total
+}
+
+func main() {
+    -- Test 1: [1,1,1,2,2,3] => checksum 606
+    val t1 = [1, 1, 1, 2, 2, 3]
+    println("Test 1: {rle_encode(t1, 6)} (expected 606)")
+
+    -- Test 2: [5,5,5,5,5] => checksum 505
+    val t2 = [5, 5, 5, 5, 5]
+    println("Test 2: {rle_encode(t2, 5)} (expected 505)")
+
+    -- Test 3: [1,2,3,4,5] => checksum 1505
+    val t3 = [1, 2, 3, 4, 5]
+    println("Test 3: {rle_encode(t3, 5)} (expected 1505)")
+
+    -- Test decode: [1,3,2,2,3,1] => total length 6
+    val d1 = [1, 3, 2, 2, 3, 1]
+    println("Test 4: {rle_decode_len(d1, 6)} (expected 6)")
+
+    -- Build benchmark: 100 elements with runs of 4
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = (i / 4) % 26 + 1
+    }
+    println("Test 5: {rle_encode(bench, 100)} (expected 32600)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = rle_encode(bench, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Run Length Encoding ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

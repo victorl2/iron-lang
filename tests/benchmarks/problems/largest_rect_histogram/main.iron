@@ -1,0 +1,67 @@
+import time
+
+-- Largest Rectangle in Histogram using monotonic stack
+
+func largest_rect(heights: [Int], n: Int) -> Int {
+    var stack = fill(200, 0)
+    var top = 0
+    var max_area = 0
+
+    for i in range(n + 1) {
+        var h = 0
+        if i < n {
+            h = heights[i]
+        }
+
+        while top > 0 and heights[stack[top - 1]] > h {
+            top = top - 1
+            val height = heights[stack[top]]
+            var width = i
+            if top > 0 {
+                width = i - stack[top - 1] - 1
+            }
+            val area = height * width
+            if area > max_area {
+                max_area = area
+            }
+        }
+        stack[top] = i
+        top = top + 1
+    }
+    return max_area
+}
+
+func main() {
+    -- Test 1: [2,1,5,6,2,3] => 10
+    val t1 = [2, 1, 5, 6, 2, 3]
+    println("Test 1: {largest_rect(t1, 6)} (expected 10)")
+
+    -- Test 2: [2,4] => 4
+    val t2 = [2, 4]
+    println("Test 2: {largest_rect(t2, 2)} (expected 4)")
+
+    -- Test 3: [6,2,5,4,5,1,6] => 12
+    val t3 = [6, 2, 5, 4, 5, 1, 6]
+    println("Test 3: {largest_rect(t3, 7)} (expected 12)")
+
+    -- Build benchmark: 50 elements
+    var bench = fill(50, 0)
+    for i in range(50) {
+        bench[i] = (i * 17 + 23) % 50 + 1
+    }
+    println("Test 4: {largest_rect(bench, 50)} (expected 252)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = largest_rect(bench, 50)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Largest Rectangle in Histogram ===")
+    println("Array size: 50")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

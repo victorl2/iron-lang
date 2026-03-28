@@ -1,0 +1,89 @@
+import time
+
+-- Rabin-Karp hash-based string matching on Int arrays (1-26)
+-- Rolling hash with base 31, mod 1000000007
+
+func rabin_karp(text: [Int], tlen: Int, pattern: [Int], plen: Int) -> Int {
+    if plen > tlen { return 0 }
+
+    val base = 31
+    val mod = 1000000007
+
+    -- Compute highest power: base^(plen-1) % mod
+    var high_pow = 1
+    for i in range(plen - 1) {
+        high_pow = (high_pow * base) % mod
+    }
+
+    -- Compute pattern hash
+    var ph = 0
+    for i in range(plen) {
+        ph = (ph * base + pattern[i]) % mod
+    }
+
+    -- Compute first window hash
+    var th = 0
+    for i in range(plen) {
+        th = (th * base + text[i]) % mod
+    }
+
+    var count = 0
+    for i in range(tlen - plen + 1) {
+        if th == ph {
+            -- Verify match
+            var match = 1
+            var j = 0
+            while j < plen {
+                if text[i + j] != pattern[j] {
+                    match = 0
+                    j = plen
+                } else {
+                    j = j + 1
+                }
+            }
+            if match == 1 {
+                count = count + 1
+            }
+        }
+        if i < tlen - plen {
+            th = ((th - text[i] * high_pow % mod + mod) % mod * base + text[i + plen]) % mod
+        }
+    }
+    return count
+}
+
+func main() {
+    val t1 = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+    val p1 = [1, 2, 3]
+    println("Test 1: {rabin_karp(t1, 9, p1, 3)} (expected 3)")
+
+    val t2 = [1, 1, 1, 1, 1]
+    val p2 = [1, 1]
+    println("Test 2: {rabin_karp(t2, 5, p2, 2)} (expected 4)")
+
+    val t3 = [1, 2, 3, 4, 5]
+    val p3 = [6, 7]
+    println("Test 3: {rabin_karp(t3, 5, p3, 2)} (expected 0)")
+
+    -- Build benchmark: text of 200, pattern of 10
+    var text = fill(200, 0)
+    for i in range(200) {
+        text[i] = (i * 7 + 3) % 26 + 1
+    }
+    val pat = [16, 23, 4, 11, 18, 25, 6, 13, 20, 1]
+    println("Test 4: {rabin_karp(text, 200, pat, 10)} (expected 7)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = rabin_karp(text, 200, pat, 10)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Rabin-Karp ===")
+    println("Text size: 200, Pattern size: 10")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

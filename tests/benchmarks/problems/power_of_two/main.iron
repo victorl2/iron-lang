@@ -1,0 +1,48 @@
+import time
+
+-- Power of Two: check if n is a power of 2
+-- Since Iron lacks bitwise operators, divide by 2 repeatedly.
+
+func is_power_of_two(n: Int) -> Int {
+    if n <= 0 { return 0 }
+    var x = n
+    while x > 1 {
+        if x % 2 != 0 {
+            return 0
+        }
+        x = x / 2
+    }
+    return 1
+}
+
+func count_powers_of_two(limit: Int) -> Int {
+    var count = 0
+    var n = 1
+    while n <= limit {
+        if is_power_of_two(n) == 1 {
+            count = count + 1
+        }
+        n = n + 1
+    }
+    return count
+}
+
+func main() {
+    println("Test 1: {is_power_of_two(1)} (expected 1)")
+    println("Test 2: {is_power_of_two(16)} (expected 1)")
+    println("Test 3: {is_power_of_two(3)} (expected 0)")
+    println("Test 4: {is_power_of_two(0)} (expected 0)")
+    println("Test 5: {count_powers_of_two(1000000)} (expected 20)")
+
+    val iterations = 1
+    val start = Time.now_ms()
+    var result = 0
+    result = count_powers_of_two(1000000)
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Power of Two ===")
+    println("Range: 1 to 1000000")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

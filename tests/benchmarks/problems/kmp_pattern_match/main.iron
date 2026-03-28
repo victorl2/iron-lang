@@ -1,0 +1,79 @@
+import time
+
+-- KMP Pattern Matching on Int arrays (1-26 for a-z)
+-- Build failure function, then search. Returns count of matches.
+
+func kmp_search(text: [Int], tlen: Int, pattern: [Int], plen: Int) -> Int {
+    if plen == 0 { return 0 }
+
+    -- Build failure function
+    var fail = fill(300, 0)
+    var k = 0
+    var i = 1
+    while i < plen {
+        while k > 0 and pattern[k] != pattern[i] {
+            k = fail[k - 1]
+        }
+        if pattern[k] == pattern[i] {
+            k = k + 1
+        }
+        fail[i] = k
+        i = i + 1
+    }
+
+    -- Search
+    var count = 0
+    var q = 0
+    for j in range(tlen) {
+        while q > 0 and pattern[q] != text[j] {
+            q = fail[q - 1]
+        }
+        if pattern[q] == text[j] {
+            q = q + 1
+        }
+        if q == plen {
+            count = count + 1
+            q = fail[q - 1]
+        }
+    }
+    return count
+}
+
+func main() {
+    -- Test 1: [1,2,3,1,2,3,1,2,3] search for [1,2,3]
+    val t1 = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+    val p1 = [1, 2, 3]
+    println("Test 1: {kmp_search(t1, 9, p1, 3)} (expected 3)")
+
+    -- Test 2: [1,1,1,1,1] search for [1,1]
+    val t2 = [1, 1, 1, 1, 1]
+    val p2 = [1, 1]
+    println("Test 2: {kmp_search(t2, 5, p2, 2)} (expected 4)")
+
+    -- Test 3: [1,2,3,4,5] search for [6,7]
+    val t3 = [1, 2, 3, 4, 5]
+    val p3 = [6, 7]
+    println("Test 3: {kmp_search(t3, 5, p3, 2)} (expected 0)")
+
+    -- Build benchmark: text of 200 elements, pattern of 10
+    var text = fill(200, 0)
+    for i in range(200) {
+        text[i] = (i * 7 + 3) % 26 + 1
+    }
+    val pat = [16, 23, 4, 11, 18, 25, 6, 13, 20, 1]
+    println("Test 4: {kmp_search(text, 200, pat, 10)} (expected 7)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = kmp_search(text, 200, pat, 10)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: KMP Pattern Match ===")
+    println("Text size: 200, Pattern size: 10")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

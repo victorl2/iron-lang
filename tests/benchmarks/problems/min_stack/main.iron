@@ -1,0 +1,93 @@
+import time
+
+-- Min Stack: stack supporting O(1) getMin using two parallel arrays
+-- Operations generated deterministically. Returns checksum of all getMin queries.
+
+func min_stack_ops(n: Int) -> Int {
+    var data = fill(2000, 0)
+    var mins = fill(2000, 0)
+    var top = 0
+    var checksum = 0
+
+    for i in range(n) {
+        val r = (i * 13 + 7) % 10
+        if r < 5 or top < 3 {
+            -- push
+            val v = (i * 31 + 17) % 100 + 1
+            data[top] = v
+            if top == 0 {
+                mins[top] = v
+            } else {
+                if v < mins[top - 1] {
+                    mins[top] = v
+                } else {
+                    mins[top] = mins[top - 1]
+                }
+            }
+            top = top + 1
+        } elif r < 7 {
+            -- pop
+            if top > 0 {
+                top = top - 1
+            }
+        } else {
+            -- getMin
+            if top > 0 {
+                checksum = checksum + mins[top - 1]
+            }
+        }
+    }
+    return checksum
+}
+
+func main() {
+    -- Small tests with explicit ops
+    -- Test 1: push 5, push 3, push 7, getMin=3, pop, getMin=3, push 1, getMin=1 => 7
+    var d1 = fill(10, 0)
+    var m1 = fill(10, 0)
+    var top1 = 0
+    var cs1 = 0
+
+    -- push 5
+    d1[0] = 5
+    m1[0] = 5
+    top1 = 1
+    -- push 3
+    d1[1] = 3
+    m1[1] = 3
+    top1 = 2
+    -- push 7
+    d1[2] = 7
+    m1[2] = 3
+    top1 = 3
+    -- getMin
+    cs1 = cs1 + m1[top1 - 1]
+    -- pop
+    top1 = top1 - 1
+    -- getMin
+    cs1 = cs1 + m1[top1 - 1]
+    -- push 1
+    d1[top1] = 1
+    m1[top1] = 1
+    top1 = top1 + 1
+    -- getMin
+    cs1 = cs1 + m1[top1 - 1]
+    println("Test 1: {cs1} (expected 7)")
+
+    -- Test 2: 1000 operations
+    println("Test 2: {min_stack_ops(1000)} (expected 1845)")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = min_stack_ops(1000)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Min Stack ===")
+    println("Operations: 1000")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

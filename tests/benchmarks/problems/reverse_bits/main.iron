@@ -1,0 +1,35 @@
+import time
+
+-- Reverse Bits of a 32-bit integer using arithmetic (mod/div)
+-- Since Iron lacks bitwise operators, use result*2 + (x%2) and x/2
+
+func reverse_bits(n: Int) -> Int {
+    var result = 0
+    var x = n
+    for i in range(32) {
+        result = result * 2 + (x % 2)
+        x = x / 2
+    }
+    return result
+}
+
+func main() {
+    println("Test 1: {reverse_bits(43261596)} (expected 964176192)")
+    println("Test 2: {reverse_bits(1)} (expected 2147483648)")
+    println("Test 3: {reverse_bits(0)} (expected 0)")
+
+    -- Benchmark: sum of reverse_bits for 1M values
+    var total = 0
+    val start = Time.now_ms()
+    for i in range(1000000) {
+        total = total + reverse_bits(i)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("Test 4: {total} (expected 2147474564972544)")
+
+    println("")
+    println("=== Benchmark: Reverse Bits ===")
+    println("Values: 1000000")
+    println("Total time: {elapsed} ms")
+}

@@ -1,0 +1,63 @@
+import time
+
+-- Generate Parentheses: count all valid combinations of n pairs
+-- Uses iterative backtracking with explicit stack
+
+func count_parens(n: Int) -> Int {
+    -- State stack: each entry stores (open_count, close_count)
+    -- We use two parallel arrays
+    var open_stack = fill(500, 0)
+    var close_stack = fill(500, 0)
+    var top = 0
+    var count = 0
+
+    -- Push initial state
+    open_stack[top] = 0
+    close_stack[top] = 0
+    top = top + 1
+
+    while top > 0 {
+        top = top - 1
+        val open_c = open_stack[top]
+        val close_c = close_stack[top]
+
+        if open_c == n and close_c == n {
+            count = count + 1
+        } else {
+            -- Try adding close paren
+            if close_c < open_c {
+                open_stack[top] = open_c
+                close_stack[top] = close_c + 1
+                top = top + 1
+            }
+            -- Try adding open paren
+            if open_c < n {
+                open_stack[top] = open_c + 1
+                close_stack[top] = close_c
+                top = top + 1
+            }
+        }
+    }
+    return count
+}
+
+func main() {
+    println("Test 1: {count_parens(1)} (expected 1)")
+    println("Test 2: {count_parens(3)} (expected 5)")
+    println("Test 3: {count_parens(5)} (expected 42)")
+    println("Test 4: {count_parens(12)} (expected 208012)")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = count_parens(12)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Generate Parentheses ===")
+    println("n=12")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

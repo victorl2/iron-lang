@@ -1,0 +1,72 @@
+import time
+
+-- Evaluate Reverse Polish Notation using stack
+-- Encoding: non-negative integers are operands
+-- Operators: -1 = +, -2 = -, -3 = *, -4 = /
+
+func eval_rpn(tokens: [Int], n: Int) -> Int {
+    var stack = fill(100, 0)
+    var top = 0
+
+    for i in range(n) {
+        val t = tokens[i]
+        if t >= 0 {
+            stack[top] = t
+            top = top + 1
+        } else {
+            top = top - 1
+            val b = stack[top]
+            top = top - 1
+            val a = stack[top]
+            var r = 0
+            if t == -1 {
+                r = a + b
+            }
+            if t == -2 {
+                r = a - b
+            }
+            if t == -3 {
+                r = a * b
+            }
+            if t == -4 {
+                r = a / b
+            }
+            stack[top] = r
+            top = top + 1
+        }
+    }
+    return stack[0]
+}
+
+func main() {
+    -- Test 1: 2 1 + 3 * = (2+1)*3 = 9
+    val t1 = [2, 1, -1, 3, -3]
+    println("Test 1: {eval_rpn(t1, 5)} (expected 9)")
+
+    -- Test 2: 4 13 5 / + = 4 + (13/5) = 4 + 2 = 6
+    val t2 = [4, 13, 5, -4, -1]
+    println("Test 2: {eval_rpn(t2, 5)} (expected 6)")
+
+    -- Test 3: 3 4 + 2 * 7 / = ((3+4)*2)/7 = 2
+    val t3 = [3, 4, -1, 2, -3, 7, -4]
+    println("Test 3: {eval_rpn(t3, 7)} (expected 2)")
+
+    -- Benchmark: 21 tokens
+    -- 5 3 + 2 * 4 - 6 / 7 + 8 * 3 - 2 + 9 * 1 - = 638
+    val bench = [5, 3, -1, 2, -3, 4, -2, 6, -4, 7, -1, 8, -3, 3, -2, 2, -1, 9, -3, 1, -2]
+    println("Test 4: {eval_rpn(bench, 21)} (expected 638)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = eval_rpn(bench, 21)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Evaluate Reverse Polish Notation ===")
+    println("Tokens: 21")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

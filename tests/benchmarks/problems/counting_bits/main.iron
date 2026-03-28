@@ -1,0 +1,36 @@
+import time
+
+-- Counting Bits: count 1-bits for every number 0..n using DP
+-- bits[i] = bits[i / 2] + (i % 2). Returns sum of all bit counts.
+
+func counting_bits(n: Int) -> Int {
+    var bits = fill(n + 1, 0)
+    var total = 0
+    for i in range(n) {
+        val idx = i + 1
+        bits[idx] = bits[idx / 2] + (idx % 2)
+        total = total + bits[idx]
+    }
+    return total
+}
+
+func main() {
+    println("Test 1: {counting_bits(2)} (expected 2)")
+    println("Test 2: {counting_bits(5)} (expected 7)")
+    println("Test 3: {counting_bits(10)} (expected 17)")
+    println("Test 4: {counting_bits(1000)} (expected 4938)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = counting_bits(1000)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Counting Bits ===")
+    println("n=1000")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

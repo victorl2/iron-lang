@@ -1,0 +1,70 @@
+import time
+
+-- Longest Palindromic Substring (length) using expand-around-center
+-- Works on Int arrays (1-26 for a-z)
+
+func longest_palindrome(arr: [Int], n: Int) -> Int {
+    var best = 1
+
+    for center in range(n) {
+        -- Odd length palindromes
+        var left = center
+        var right = center
+        while left >= 0 and right < n and arr[left] == arr[right] {
+            val length = right - left + 1
+            if length > best {
+                best = length
+            }
+            left = left - 1
+            right = right + 1
+        }
+
+        -- Even length palindromes
+        left = center
+        right = center + 1
+        while left >= 0 and right < n and arr[left] == arr[right] {
+            val length = right - left + 1
+            if length > best {
+                best = length
+            }
+            left = left - 1
+            right = right + 1
+        }
+    }
+    return best
+}
+
+func main() {
+    -- Test 1: "babad" -> [2,1,2,1,4] => palindrome "bab" or "aba", length 3
+    val t1 = [2, 1, 2, 1, 4]
+    println("Test 1: {longest_palindrome(t1, 5)} (expected 3)")
+
+    -- Test 2: "cbbd" -> [3,2,2,4] => palindrome "bb", length 2
+    val t2 = [3, 2, 2, 4]
+    println("Test 2: {longest_palindrome(t2, 4)} (expected 2)")
+
+    -- Test 3: "racecar" -> [18,1,3,5,3,1,18] => full palindrome, length 7
+    val t3 = [18, 1, 3, 5, 3, 1, 18]
+    println("Test 3: {longest_palindrome(t3, 7)} (expected 7)")
+
+    -- Build benchmark: 100 elements
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = (i * 7 + 3) % 26 + 1
+    }
+    println("Test 4: {longest_palindrome(bench, 100)} (expected 1)")
+
+    val iterations = 200000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = longest_palindrome(bench, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Longest Palindromic Substring ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}
