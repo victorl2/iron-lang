@@ -1,0 +1,4 @@
+Test 1: 25 (expected 25)
+Test 2: 60 (expected 60)
+Test 3: -1 (expected -1)
+Test 4: 0 (expected 0)

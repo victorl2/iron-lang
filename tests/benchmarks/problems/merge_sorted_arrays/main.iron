@@ -1,0 +1,72 @@
+import time
+
+func merge_sorted(a: [Int], na: Int, b: [Int], nb: Int, out: [Int]) -> Int {
+    var i = 0
+    var j = 0
+    var k = 0
+    while i < na {
+        if j < nb {
+            if a[i] <= b[j] {
+                out[k] = a[i]
+                i = i + 1
+            } else {
+                out[k] = b[j]
+                j = j + 1
+            }
+        } else {
+            out[k] = a[i]
+            i = i + 1
+        }
+        k = k + 1
+    }
+    while j < nb {
+        out[k] = b[j]
+        j = j + 1
+        k = k + 1
+    }
+    var sum = 0
+    for x in range(na + nb) {
+        sum = sum + out[x]
+    }
+    return sum
+}
+
+func main() {
+    val a1 = [1, 3, 5, 7]
+    val b1 = [2, 4, 6, 8]
+    var o1 = fill(8, 0)
+    println("Test 1: {merge_sorted(a1, 4, b1, 4, o1)} (expected 36)")
+
+    val a2 = [1]
+    val b2 = [2, 3, 4]
+    var o2 = fill(4, 0)
+    println("Test 2: {merge_sorted(a2, 1, b2, 3, o2)} (expected 10)")
+
+    val a3 = [1, 2, 3]
+    val b3 = [1, 2, 3]
+    var o3 = fill(6, 0)
+    println("Test 3: {merge_sorted(a3, 3, b3, 3, o3)} (expected 12)")
+
+    -- Benchmark: two sorted arrays of 50 each
+    var bench_a = fill(50, 0)
+    var bench_b = fill(50, 0)
+    for i in range(50) {
+        bench_a[i] = i * 2
+        bench_b[i] = i * 2 + 1
+    }
+    var obench = fill(100, 0)
+    println("Test 4: {merge_sorted(bench_a, 50, bench_b, 50, obench)} (expected 4950)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = merge_sorted(bench_a, 50, bench_b, 50, obench)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Merge Sorted Arrays ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

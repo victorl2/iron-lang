@@ -1,0 +1,102 @@
+import time
+
+-- Dijkstra's shortest path with adjacency matrix, linear scan for min
+-- adj[i * n + j] = weight (0 means no edge)
+
+func dijkstra(adj: [Int], n: Int, src: Int, dst: Int) -> Int {
+    val INF = 999999999
+    var dist = fill(20, INF)
+    var visited = fill(20, 0)
+    dist[src] = 0
+
+    var iter = 0
+    while iter < n {
+        -- Find unvisited node with minimum distance
+        var u = -1
+        var min_d = INF
+        var i = 0
+        while i < n {
+            if visited[i] == 0 {
+                if dist[i] < min_d {
+                    min_d = dist[i]
+                    u = i
+                }
+            }
+            i = i + 1
+        }
+        if u == -1 {
+            iter = n
+        } else {
+            visited[u] = 1
+            -- Relax neighbors
+            var v = 0
+            while v < n {
+                val w = adj[u * n + v]
+                if w > 0 {
+                    if visited[v] == 0 {
+                        if dist[u] + w < dist[v] {
+                            dist[v] = dist[u] + w
+                        }
+                    }
+                }
+                v = v + 1
+            }
+            iter = iter + 1
+        }
+    }
+    return dist[dst]
+}
+
+func main() {
+    val n = 20
+
+    -- Test 1: chain 0->1->2->...->19 weight 1
+    var adj1 = fill(n * n, 0)
+    var i = 0
+    while i < 19 {
+        adj1[i * n + i + 1] = 1
+        i = i + 1
+    }
+    println("Test 1: {dijkstra(adj1, n, 0, 19)} (expected 19)")
+
+    -- Test 2: shortcut via node 10
+    var adj2 = fill(n * n, 0)
+    i = 0
+    while i < 19 {
+        adj2[i * n + i + 1] = 3
+        i = i + 1
+    }
+    adj2[0 * n + 10] = 5
+    adj2[10 * n + 19] = 5
+    println("Test 2: {dijkstra(adj2, n, 0, 19)} (expected 10)")
+
+    -- Test 3: unreachable
+    var adj3 = fill(n * n, 0)
+    adj3[0 * n + 1] = 1
+    println("Test 3: {dijkstra(adj3, n, 0, 19)} (expected 999999999)")
+
+    -- Test 4: multiple paths
+    var adj4 = fill(n * n, 0)
+    adj4[0 * n + 1] = 10
+    adj4[0 * n + 2] = 3
+    adj4[1 * n + 3] = 2
+    adj4[2 * n + 1] = 4
+    adj4[2 * n + 3] = 8
+    adj4[2 * n + 4] = 2
+    adj4[4 * n + 3] = 1
+    println("Test 4: {dijkstra(adj4, n, 0, 3)} (expected 6)")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = dijkstra(adj2, n, 0, 19)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Shortest Path Dijkstra ===")
+    println("Nodes: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

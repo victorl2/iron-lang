@@ -1,0 +1,2 @@
+Image size: 500x500
+Blur checksum: 31853834

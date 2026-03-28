@@ -1,0 +1,55 @@
+import time
+
+func lps(seq: [Int], n: Int) -> Int {
+    var dp = fill(n * n, 0)
+    for i in range(n) {
+        dp[i * n + i] = 1
+    }
+    var cl = 2
+    while cl <= n {
+        var i = 0
+        while i <= n - cl {
+            val j = i + cl - 1
+            if seq[i] == seq[j] {
+                dp[i * n + j] = dp[(i + 1) * n + (j - 1)] + 2
+            } else {
+                val a = dp[(i + 1) * n + j]
+                val b = dp[i * n + (j - 1)]
+                if a > b {
+                    dp[i * n + j] = a
+                } else {
+                    dp[i * n + j] = b
+                }
+            }
+            i = i + 1
+        }
+        cl = cl + 1
+    }
+    return dp[0 * n + (n - 1)]
+}
+
+func main() {
+    val s1 = [2, 2, 1, 2, 2, 1, 2]
+    println("Test 1: {lps(s1, 7)} (expected 6)")
+
+    var bench = fill(30, 0)
+    for i in range(30) {
+        bench[i] = (i * 7 + 3) % 5
+    }
+    println("Test 2: {lps(bench, 30)} (expected 11)")
+
+    val iterations = 200000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = lps(bench, 30)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Longest Palindromic Subsequence ===")
+    println("Sequence length: 30")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

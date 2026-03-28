@@ -1,0 +1,134 @@
+import time
+
+-- Flood fill: change all connected cells of same color to new color
+-- Grid stored as 1D array: grid[r * cols + c]
+
+func flood_fill(grid: [Int], rows: Int, cols: Int, sr: Int, sc: Int, new_color: Int) {
+    val old_color = grid[sr * cols + sc]
+    if old_color == new_color {
+        return
+    }
+
+    var stack = fill(400, 0)
+    var top = 0
+    stack[top] = sr * cols + sc
+    top = top + 1
+    grid[sr * cols + sc] = new_color
+
+    while top > 0 {
+        top = top - 1
+        val pos = stack[top]
+        val cr = pos / cols
+        val cc = pos - cr * cols
+
+        -- up
+        if cr > 0 {
+            if grid[(cr - 1) * cols + cc] == old_color {
+                grid[(cr - 1) * cols + cc] = new_color
+                stack[top] = (cr - 1) * cols + cc
+                top = top + 1
+            }
+        }
+        -- down
+        if cr < rows - 1 {
+            if grid[(cr + 1) * cols + cc] == old_color {
+                grid[(cr + 1) * cols + cc] = new_color
+                stack[top] = (cr + 1) * cols + cc
+                top = top + 1
+            }
+        }
+        -- left
+        if cc > 0 {
+            if grid[cr * cols + cc - 1] == old_color {
+                grid[cr * cols + cc - 1] = new_color
+                stack[top] = cr * cols + cc - 1
+                top = top + 1
+            }
+        }
+        -- right
+        if cc < cols - 1 {
+            if grid[cr * cols + cc + 1] == old_color {
+                grid[cr * cols + cc + 1] = new_color
+                stack[top] = cr * cols + cc + 1
+                top = top + 1
+            }
+        }
+    }
+}
+
+func checksum(grid: [Int], size: Int) -> Int {
+    var s = 0
+    for i in range(size) {
+        s = s + grid[i] * (i + 1)
+    }
+    return s
+}
+
+func init_grid(grid: [Int]) {
+    -- Fill all with 1
+    for i in range(400) {
+        grid[i] = 1
+    }
+    -- Region of 2s in top-left
+    var i = 0
+    while i < 8 {
+        var j = 0
+        while j < 8 {
+            grid[i * 20 + j] = 2
+            j = j + 1
+        }
+        i = i + 1
+    }
+    -- Region of 3s in center
+    i = 8
+    while i < 14 {
+        var j = 8
+        while j < 14 {
+            grid[i * 20 + j] = 3
+            j = j + 1
+        }
+        i = i + 1
+    }
+    -- Barrier of 0s
+    i = 0
+    while i < 20 {
+        grid[i * 20 + 7] = 0
+        grid[7 * 20 + i] = 0
+        i = i + 1
+    }
+}
+
+func main() {
+    var grid = fill(400, 0)
+
+    -- Test 1: fill region of 2s starting at (0,0) with color 5
+    init_grid(grid)
+    flood_fill(grid, 20, 20, 0, 0, 5)
+    println("Test 1: {checksum(grid, 400)} (expected 101870)")
+
+    -- Test 2: fill region of 1s starting at (0,10) with color 7
+    init_grid(grid)
+    flood_fill(grid, 20, 20, 0, 10, 7)
+    println("Test 2: {checksum(grid, 400)} (expected 130010)")
+
+    -- Test 3: fill same color (no-op)
+    init_grid(grid)
+    flood_fill(grid, 20, 20, 0, 0, 2)
+    println("Test 3: {checksum(grid, 400)} (expected 92462)")
+
+    val iterations = 50000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        init_grid(grid)
+        flood_fill(grid, 20, 20, 0, 0, 5)
+        result = checksum(grid, 400)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Flood Fill ===")
+    println("Grid: 20x20")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

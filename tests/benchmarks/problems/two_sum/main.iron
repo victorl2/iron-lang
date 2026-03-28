@@ -1,0 +1,47 @@
+import time
+
+func two_sum(arr: [Int], n: Int, target: Int) -> Int {
+    for i in range(n) {
+        val vi = arr[i]
+        var j = i + 1
+        while j < n {
+            if vi + arr[j] == target {
+                return i * 1000 + j
+            }
+            j = j + 1
+        }
+    }
+    return -1
+}
+
+func main() {
+    val a1 = [2, 7, 11, 15]
+    println("Test 1: {two_sum(a1, 4, 9)} (expected 1)")
+
+    val a2 = [3, 2, 4]
+    println("Test 2: {two_sum(a2, 3, 6)} (expected 1002)")
+
+    val a3 = [1, 5, 3, 7, 2, 8, 4, 6, 9, 10]
+    println("Test 3: {two_sum(a3, 10, 19)} (expected 8009)")
+
+    -- Build a larger array for benchmark: 200 elements (0..199)
+    var bench_arr = fill(200, 0)
+    for i in range(200) {
+        bench_arr[i] = i
+    }
+    -- target = 199 + 198 = 397, answer at indices 198 and 199
+    println("Test 4: {two_sum(bench_arr, 200, 397)} (expected 198199)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = two_sum(bench_arr, 200, 397)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Two Sum ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

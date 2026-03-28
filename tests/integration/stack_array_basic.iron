@@ -1,0 +1,38 @@
+-- Stack array basic tests: verify that known-size arrays compile to
+-- C stack arrays and produce correct results with direct indexing.
+
+func main() {
+  -- Test 1: Immutable array with direct indexing
+  val arr = [10, 20, 30, 40, 50]
+  println("{arr[0]}, {arr[2]}, {arr[4]}")
+
+  -- Test 2: Mutable array with set and get
+  var nums = [1, 2, 3]
+  nums[0] = 100
+  nums[2] = 300
+  println("{nums[0]}, {nums[1]}, {nums[2]}")
+
+  -- Test 3: len() on stack array
+  val data = [5, 10, 15, 20]
+  println("len = {len(data)}")
+
+  -- Test 4: Array in for loop (iteration with direct indexing)
+  val items = [1, 2, 3, 4, 5]
+  var sum = 0
+  for x in items {
+    sum = sum + x
+  }
+  println("sum = {sum}")
+
+  -- Test 5: Nested control flow with mutable array
+  var arr2 = [0, 0, 0]
+  val cond = 1
+  if cond > 0 {
+    arr2[0] = 10
+    arr2[1] = 20
+  } else {
+    arr2[0] = 99
+  }
+  arr2[2] = 30
+  println("{arr2[0]}, {arr2[1]}, {arr2[2]}")
+}

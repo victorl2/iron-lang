@@ -1,0 +1,77 @@
+import time
+
+func sort_colors(arr: [Int], n: Int) -> Int {
+    var lo = 0
+    var mid = 0
+    var hi = n - 1
+    while mid <= hi {
+        if arr[mid] == 0 {
+            val tmp = arr[lo]
+            arr[lo] = arr[mid]
+            arr[mid] = tmp
+            lo = lo + 1
+            mid = mid + 1
+        } elif arr[mid] == 1 {
+            mid = mid + 1
+        } else {
+            val tmp = arr[hi]
+            arr[hi] = arr[mid]
+            arr[mid] = tmp
+            hi = hi - 1
+        }
+    }
+    -- Checksum: count of 0s * 10000 + count of 1s * 100 + count of 2s
+    var c0 = 0
+    var c1 = 0
+    var c2 = 0
+    for i in range(n) {
+        if arr[i] == 0 {
+            c0 = c0 + 1
+        } elif arr[i] == 1 {
+            c1 = c1 + 1
+        } else {
+            c2 = c2 + 1
+        }
+    }
+    return c0 * 10000 + c1 * 100 + c2
+}
+
+func main() {
+    var a1 = [2, 0, 2, 1, 1, 0]
+    println("Test 1: {sort_colors(a1, 6)} (expected 20202)")
+
+    var a2 = [2, 0, 1]
+    println("Test 2: {sort_colors(a2, 3)} (expected 10101)")
+
+    var a3 = [0, 0, 0, 1, 1, 2, 2, 2]
+    println("Test 3: {sort_colors(a3, 8)} (expected 30203)")
+
+    -- Benchmark: 100 elements, arr[i] = (i*7+3)%3
+    var bench_orig = fill(100, 0)
+    for i in range(100) {
+        bench_orig[i] = (i * 7 + 3) % 3
+    }
+
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = bench_orig[i]
+    }
+    println("Test 4: {sort_colors(bench, 100)}")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        var tmp = fill(100, 0)
+        for i in range(100) {
+            tmp[i] = bench_orig[i]
+        }
+        result = sort_colors(tmp, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Sort Colors ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

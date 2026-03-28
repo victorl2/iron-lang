@@ -1,0 +1,58 @@
+import time
+
+-- Find peak element in array using binary search
+-- A peak is an element greater than its neighbors
+-- Returns index of any peak
+
+func find_peak(arr: [Int], n: Int) -> Int {
+    var lo = 0
+    var hi = n - 1
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if arr[mid] < arr[mid + 1] {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+func main() {
+    -- Test 1: mountain array peaking at index 69
+    var arr1 = fill(100, 0)
+    for i in range(100) {
+        if i < 70 {
+            arr1[i] = i
+        } else {
+            arr1[i] = 139 - i
+        }
+    }
+    println("Test 1: {find_peak(arr1, 100)} (expected 69)")
+
+    -- Test 2: small mountain
+    val arr2 = [1, 3, 5, 7, 6, 4, 2]
+    println("Test 2: {find_peak(arr2, 7)} (expected 3)")
+
+    -- Test 3: ascending (peak at end)
+    val arr3 = [1, 2, 3, 4, 5]
+    println("Test 3: {find_peak(arr3, 5)} (expected 4)")
+
+    -- Test 4: descending (peak at start)
+    val arr4 = [5, 4, 3, 2, 1]
+    println("Test 4: {find_peak(arr4, 5)} (expected 0)")
+
+    val iterations = 5000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = find_peak(arr1, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Find Peak Element ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

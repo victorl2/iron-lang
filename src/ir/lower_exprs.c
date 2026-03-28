@@ -155,17 +155,34 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             return iron_ir_load(fn, ctx->current_block, slot,
                                 id->resolved_type, span)->id;
         }
-        /* Check global_constants_map (top-level val/comptime declarations).
+        /* Check global_constants_map (top-level val/var declarations).
          * Lower the init expression lazily in the current function context.
          * For comptime "hello", init_node is a STRING_LIT after comptime eval.
-         * Cache in val_binding_map so subsequent references don't re-lower. */
+         * Mutable globals (var) use alloca+store/load so mutations work.
+         * Immutable globals (val) are cached in val_binding_map directly. */
         {
             int gidx = shgeti(ctx->global_constants_map, id->name);
             if (gidx >= 0) {
                 Iron_Node *init_node = ctx->global_constants_map[gidx].value;
                 /* Lower the init expression in the current function context */
                 IronIR_ValueId val = lower_expr(ctx, init_node);
-                /* Cache in val_binding_map for subsequent references */
+
+                /* Check if this global is mutable (var) */
+                int midx = shgeti(ctx->global_mutable_set, id->name);
+                if (midx >= 0) {
+                    /* Mutable global: alloca in entry block, store init, register
+                     * in var_alloca_map so subsequent reads/writes use load/store. */
+                    IronIR_Block *entry = fn->blocks[0];
+                    Iron_Type *var_type = id->resolved_type;
+                    IronIR_Instr *slot = iron_ir_alloca(fn, entry, var_type,
+                                                         id->name, span);
+                    iron_ir_store(fn, ctx->current_block, slot->id, val, span);
+                    shput(ctx->var_alloca_map, id->name, slot->id);
+                    return iron_ir_load(fn, ctx->current_block, slot->id,
+                                        var_type, span)->id;
+                }
+
+                /* Immutable global: cache in val_binding_map */
                 shput(ctx->val_binding_map, id->name, val);
                 return val;
             }
@@ -346,6 +363,39 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
                                             arr_val, "count", int_type, span)->id;
                 }
             }
+        }
+
+        /* Special case: fill(count, value) -> [T].
+         * Emits a FUNC_REF to "__builtin_fill" + CALL so the emitter can
+         * generate an inline C loop that creates an Iron_List_T. */
+        if (call->callee && call->callee->kind == IRON_NODE_IDENT &&
+            call->arg_count == 2) {
+            Iron_Ident *fn_id = (Iron_Ident *)call->callee;
+            if (strcmp(fn_id->name, "fill") == 0) {
+                IronIR_ValueId count_val = lower_expr(ctx, call->args[0]);
+                IronIR_ValueId value_val = lower_expr(ctx, call->args[1]);
+                IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
+                                                            "__builtin_fill",
+                                                            NULL, span)->id;
+                IronIR_ValueId *args = NULL;
+                arrput(args, count_val);
+                arrput(args, value_val);
+                IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+                                                      NULL, func_ptr,
+                                                      args, 2,
+                                                      call->resolved_type, span)->id;
+                arrfree(args);
+                return result;
+            }
+        }
+
+        /* Primitive type cast: Float(x), Int(x), etc.
+         * The type checker sets is_primitive_cast when the callee is a
+         * primitive type name with exactly one argument. Emit CAST. */
+        if (call->is_primitive_cast && call->arg_count == 1) {
+            IronIR_ValueId arg_val = lower_expr(ctx, call->args[0]);
+            return iron_ir_cast(fn, ctx->current_block, arg_val,
+                                call->resolved_type, span)->id;
         }
 
         /* Direct call: callee is a simple identifier */

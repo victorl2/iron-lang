@@ -1,0 +1,121 @@
+import time
+
+func insertion_sort(arr: [Int], n: Int) -> Int {
+    var i = 1
+    while i < n {
+        val key = arr[i]
+        var j = i - 1
+        var done = 0
+        while j >= 0 {
+            if done == 0 {
+                if arr[j] > key {
+                    arr[j + 1] = arr[j]
+                    j = j - 1
+                } else {
+                    done = 1
+                }
+            } else {
+                j = -1
+            }
+        }
+        arr[j + 1] = key
+        i = i + 1
+    }
+    return 0
+}
+
+func skip_dup_lo(arr: [Int], lo: Int, hi: Int, lv: Int) -> Int {
+    var l = lo
+    while l < hi {
+        if arr[l] == lv {
+            l = l + 1
+        } else {
+            return l
+        }
+    }
+    return l
+}
+
+func skip_dup_hi(arr: [Int], lo: Int, hi: Int, hv: Int) -> Int {
+    var h = hi
+    while h > lo {
+        if arr[h] == hv {
+            h = h - 1
+        } else {
+            return h
+        }
+    }
+    return h
+}
+
+func three_sum_count(orig: [Int], n: Int) -> Int {
+    var arr = fill(n, 0)
+    for i in range(n) {
+        arr[i] = orig[i]
+    }
+    val dummy = insertion_sort(arr, n)
+
+    var count = 0
+    var i = 0
+    while i < n - 2 {
+        var do_work = 1
+        if i > 0 {
+            if arr[i] == arr[i - 1] {
+                do_work = 0
+            }
+        }
+        if do_work == 1 {
+            var lo = i + 1
+            var hi = n - 1
+            while lo < hi {
+                val s = arr[i] + arr[lo] + arr[hi]
+                if s == 0 {
+                    count = count + 1
+                    val lv = arr[lo]
+                    val hv = arr[hi]
+                    lo = lo + 1
+                    hi = hi - 1
+                    lo = skip_dup_lo(arr, lo, hi, lv)
+                    hi = skip_dup_hi(arr, lo, hi, hv)
+                } elif s < 0 {
+                    lo = lo + 1
+                } else {
+                    hi = hi - 1
+                }
+            }
+        }
+        i = i + 1
+    }
+    return count
+}
+
+func main() {
+    val a1 = [-1, 0, 1, 2, -1, -4]
+    println("Test 1: {three_sum_count(a1, 6)} (expected 2)")
+
+    val a2 = [0, 0, 0, 0]
+    println("Test 2: {three_sum_count(a2, 4)} (expected 1)")
+
+    val a3 = [-2, 0, 1, 1, 2]
+    println("Test 3: {three_sum_count(a3, 5)} (expected 2)")
+
+    var bench = fill(50, 0)
+    for i in range(50) {
+        bench[i] = i - 25
+    }
+    val bench_result = three_sum_count(bench, 50)
+    println("Test 4: {bench_result}")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = three_sum_count(bench, 50)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Three Sum ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

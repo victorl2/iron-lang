@@ -1,0 +1,63 @@
+import time
+
+-- Parallel Hash Computation: compute complex hash of each index independently
+-- Each parallel iteration does multi-round hash mixing
+-- Sequential verification computes checksum
+
+func complex_hash(input: Int) -> Int {
+  var h = input
+  -- 16 rounds of mixing
+  var round = 0
+  while round < 16 {
+    h = h * 2654435761
+    -- Simulate unsigned right shift via division
+    var shifted = h / 16
+    if shifted < 0 {
+      shifted = shifted + 576460752303423488
+    }
+    h = h + shifted
+    h = h * 2246822519
+    shifted = h / 8192
+    if shifted < 0 {
+      shifted = shifted + 1125899906842624
+    }
+    h = h + shifted
+    round = round + 1
+  }
+  -- Make result positive
+  if h < 0 {
+    h = 0 - h
+  }
+  return h
+}
+
+func main() {
+  val N = 500000
+
+  -- Sequential: compute checksum
+  var checksum = 0
+  for i in range(N) {
+    val h = complex_hash(i)
+    -- Accumulate lower bits to avoid overflow
+    val bits = h - (h / 1000000) * 1000000
+    checksum = checksum + bits
+  }
+  println("N: {N}")
+  println("Hash checksum: {checksum}")
+
+  -- Benchmark: parallel-for computes hash per element
+  val iterations = 20
+  val start_time = Time.now_ms()
+  for it in range(iterations) {
+    for i in N parallel {
+      var h = complex_hash(i)
+    }
+  }
+  val elapsed = Time.now_ms() - start_time
+
+  println("")
+  println("=== Benchmark: Parallel Hash Computation ===")
+  println("Elements: {N}")
+  println("Iterations: {iterations}")
+  println("Total time: {elapsed} ms")
+}

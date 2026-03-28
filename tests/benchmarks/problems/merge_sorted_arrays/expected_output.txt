@@ -1,0 +1,4 @@
+Test 1: 36 (expected 36)
+Test 2: 10 (expected 10)
+Test 3: 12 (expected 12)
+Test 4: 4950 (expected 4950)

@@ -1,0 +1,85 @@
+import time
+
+-- Nth fibonacci via matrix exponentiation
+-- [[F(n+1), F(n)], [F(n), F(n-1)]] = [[1,1],[1,0]]^n
+-- Using flat 4-element arrays for 2x2 matrices
+-- Output written to mutable parameter c to avoid heap allocation
+
+func mat_mul(a: [Int], b: [Int], mod: Int, c: [Int]) {
+    val c0 = (a[0] * b[0] + a[1] * b[2]) % mod
+    val c1 = (a[0] * b[1] + a[1] * b[3]) % mod
+    val c2 = (a[2] * b[0] + a[3] * b[2]) % mod
+    val c3 = (a[2] * b[1] + a[3] * b[3]) % mod
+    c[0] = c0
+    c[1] = c1
+    c[2] = c2
+    c[3] = c3
+}
+
+func mat_pow(m: [Int], n: Int, mod: Int, result: [Int]) {
+    -- Identity matrix
+    result[0] = 1
+    result[1] = 0
+    result[2] = 0
+    result[3] = 1
+
+    var base = [m[0], m[1], m[2], m[3]]
+    var temp = [0, 0, 0, 0]
+
+    var exp = n
+    while exp > 0 {
+        if exp % 2 == 1 {
+            mat_mul(result, base, mod, temp)
+            result[0] = temp[0]
+            result[1] = temp[1]
+            result[2] = temp[2]
+            result[3] = temp[3]
+        }
+        mat_mul(base, base, mod, temp)
+        base[0] = temp[0]
+        base[1] = temp[1]
+        base[2] = temp[2]
+        base[3] = temp[3]
+        exp = exp / 2
+    }
+}
+
+func fibonacci(n: Int, mod: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    if n == 1 {
+        return 1
+    }
+    val m = [1, 1, 1, 0]
+    var result = [0, 0, 0, 0]
+    mat_pow(m, n, mod, result)
+    return result[1]
+}
+
+func main() {
+    val mod = 1000000007
+    println("Test 1 fib(10): {fibonacci(10, mod)} (expected 55)")
+    println("Test 2 fib(20): {fibonacci(20, mod)} (expected 6765)")
+    println("Test 3 fib(50): {fibonacci(50, mod)} (expected 586268941)")
+
+    -- Benchmark: n=50, 1M iterations
+    val n = 50
+    val check = fibonacci(n, mod)
+    println("Bench check: {check}")
+
+    val iterations = 3000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = result + fibonacci(n + (it % 3), mod)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Fibonacci Matrix ===")
+    println("n={n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+    println("Result: {result}")
+}

@@ -1,0 +1,68 @@
+import time
+
+-- Parallel Image Blur: apply 3x3 box blur to a simulated image
+-- Each parallel iteration computes blur for one row (read-only from source)
+-- Sequential checksum verification
+
+func compute_blur_row(row: Int, width: Int, height: Int) -> Int {
+  -- Simulate reading a deterministic image and computing blur for one row
+  -- Image pixel value at (r, c) = (r * width + c) % 256
+  var row_sum = 0
+  var c = 0
+  while c < width {
+    var acc = 0
+    var count = 0
+    -- 3x3 kernel centered on (row, c)
+    var dr = 0 - 1
+    while dr <= 1 {
+      var dc = 0 - 1
+      while dc <= 1 {
+        val nr = row + dr
+        val nc = c + dc
+        if nr >= 0 {
+          if nr < height {
+            if nc >= 0 {
+              if nc < width {
+                val pixel = (nr * width + nc) - ((nr * width + nc) / 256) * 256
+                acc = acc + pixel
+                count = count + 1
+              }
+            }
+          }
+        }
+        dc = dc + 1
+      }
+      dr = dr + 1
+    }
+    val blurred = acc / count
+    row_sum = row_sum + blurred
+    c = c + 1
+  }
+  return row_sum
+}
+
+func main() {
+  -- Sequential: compute checksum (sum of all blurred row sums)
+  var checksum = 0
+  for r in range(500) {
+    checksum = checksum + compute_blur_row(r, 500, 500)
+  }
+  println("Image size: 500x500")
+  println("Blur checksum: {checksum}")
+
+  -- Benchmark: parallel-for computes blur per row
+  val iterations = 500
+  val start_time = Time.now_ms()
+  for it in range(iterations) {
+    for r in 500 parallel {
+      var s = compute_blur_row(r, 500, 500)
+    }
+  }
+  val elapsed = Time.now_ms() - start_time
+
+  println("")
+  println("=== Benchmark: Parallel Image Blur ===")
+  println("Image: 500x500")
+  println("Iterations: {iterations}")
+  println("Total time: {elapsed} ms")
+}

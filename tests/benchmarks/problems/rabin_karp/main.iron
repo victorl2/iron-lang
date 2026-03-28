@@ -1,0 +1,86 @@
+import time
+
+-- Rabin-Karp hash-based string matching on Int arrays (1-26)
+-- Rolling hash with base 31, mod 1000000007
+
+func verify_match(text: [Int], start: Int, pattern: [Int], plen: Int) -> Int {
+    var j = 0
+    while j < plen {
+        if text[start + j] != pattern[j] {
+            return 0
+        }
+        j = j + 1
+    }
+    return 1
+}
+
+func rabin_karp(text: [Int], tlen: Int, pattern: [Int], plen: Int) -> Int {
+    if plen > tlen { return 0 }
+
+    val base = 31
+    val mod_val = 1000000007
+
+    var high_pow = 1
+    for i in range(plen - 1) {
+        high_pow = (high_pow * base) % mod_val
+    }
+
+    var ph = 0
+    for i in range(plen) {
+        ph = (ph * base + pattern[i]) % mod_val
+    }
+
+    var th = 0
+    for i in range(plen) {
+        th = (th * base + text[i]) % mod_val
+    }
+
+    var count = 0
+    var i = 0
+    while i < tlen - plen + 1 {
+        if th == ph {
+            count = count + verify_match(text, i, pattern, plen)
+        }
+        if i < tlen - plen {
+            th = ((th - text[i] * high_pow % mod_val + mod_val) % mod_val * base + text[i + plen]) % mod_val
+        }
+        i = i + 1
+    }
+    return count
+}
+
+func main() {
+    val t1 = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+    val p1 = [1, 2, 3]
+    println("Test 1: {rabin_karp(t1, 9, p1, 3)} (expected 3)")
+
+    val t2 = [1, 1, 1, 1, 1]
+    val p2 = [1, 1]
+    println("Test 2: {rabin_karp(t2, 5, p2, 2)} (expected 4)")
+
+    val t3 = [1, 2, 3, 4, 5]
+    val p3 = [6, 7]
+    println("Test 3: {rabin_karp(t3, 5, p3, 2)} (expected 0)")
+
+    -- Build benchmark: text of 200, pattern of 10
+    var text = fill(200, 0)
+    for i in range(200) {
+        text[i] = (i * 7 + 3) % 26 + 1
+    }
+    val pat = [16, 23, 4, 11, 18, 25, 6, 13, 20, 1]
+    println("Test 4: {rabin_karp(text, 200, pat, 10)} (expected 7)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = rabin_karp(text, 200, pat, 10)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Rabin-Karp ===")
+    println("Text size: 200, Pattern size: 10")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

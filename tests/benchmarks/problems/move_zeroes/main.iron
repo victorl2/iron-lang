@@ -1,0 +1,66 @@
+import time
+
+func move_zeroes(arr: [Int], n: Int) -> Int {
+    var write = 0
+    for i in range(n) {
+        if arr[i] != 0 {
+            arr[write] = arr[i]
+            write = write + 1
+        }
+    }
+    var i = write
+    while i < n {
+        arr[i] = 0
+        i = i + 1
+    }
+    -- Checksum: sum of arr[i] * (i+1)
+    var sum = 0
+    for j in range(n) {
+        sum = sum + arr[j] * (j + 1)
+    }
+    return sum
+}
+
+func main() {
+    var a1 = [0, 1, 0, 3, 12]
+    println("Test 1: {move_zeroes(a1, 5)}")
+
+    var a2 = [0]
+    println("Test 2: {move_zeroes(a2, 1)} (expected 0)")
+
+    var a3 = [1, 0, 2, 0, 3, 0, 4]
+    println("Test 3: {move_zeroes(a3, 7)}")
+
+    -- Benchmark: 100 elements, arr[i] = 0 if i%3==0, else i
+    var bench_orig = fill(100, 0)
+    for i in range(100) {
+        if i % 3 == 0 {
+            bench_orig[i] = 0
+        } else {
+            bench_orig[i] = i
+        }
+    }
+
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = bench_orig[i]
+    }
+    println("Test 4: {move_zeroes(bench, 100)}")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        var tmp = fill(100, 0)
+        for i in range(100) {
+            tmp[i] = bench_orig[i]
+        }
+        result = move_zeroes(tmp, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Move Zeroes ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

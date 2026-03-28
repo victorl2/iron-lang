@@ -1,0 +1,66 @@
+import time
+
+-- Parallel Reduce Sum: heavy per-element computation in parallel.
+-- Each parallel iteration counts divisors of numbers in a range.
+-- Uses conditional println to prevent dead code elimination in parallel body.
+
+func count_divisors(n: Int) -> Int {
+    var count = 0
+    var d = 1
+    while d * d <= n {
+        if n % d == 0 {
+            count = count + 1
+            if d != n / d {
+                count = count + 1
+            }
+        }
+        d = d + 1
+    }
+    return count
+}
+
+func heavy_reduce_work(idx: Int) -> Int {
+    val base = idx * 500 + 1
+    var total = 0
+    var k = 0
+    while k < 500 {
+        total = total + count_divisors(base + k)
+        k = k + 1
+    }
+    if total == -1 {
+        println("x")
+    }
+    return total
+}
+
+func main() {
+    val N = 2000
+
+    -- Correctness: compute checksum sequentially
+    var checksum = 0
+    for i in range(N) {
+        checksum = checksum + heavy_reduce_work(i)
+    }
+    println("Checksum: {checksum}")
+
+    -- Verify individual values
+    println("work(0): {heavy_reduce_work(0)}")
+    println("work(1): {heavy_reduce_work(1)}")
+    println("work(999): {heavy_reduce_work(999)}")
+
+    -- Benchmark: parallel computation
+    val iterations = 3
+    val start = Time.now_ms()
+    for iter in range(iterations) {
+        for idx in N parallel {
+            val x = heavy_reduce_work(idx)
+        }
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Parallel Reduce Sum ===")
+    println("N={N}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

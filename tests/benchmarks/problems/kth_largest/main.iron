@@ -1,0 +1,73 @@
+import time
+
+func qs_partition(arr: [Int], lo: Int, hi: Int) -> Int {
+    val pivot = arr[hi]
+    var i = lo - 1
+    var j = lo
+    while j < hi {
+        if arr[j] <= pivot {
+            i = i + 1
+            val tmp = arr[i]
+            arr[i] = arr[j]
+            arr[j] = tmp
+        }
+        j = j + 1
+    }
+    val tmp = arr[i + 1]
+    arr[i + 1] = arr[hi]
+    arr[hi] = tmp
+    return i + 1
+}
+
+func quickselect(arr: [Int], lo: Int, hi: Int, k: Int) -> Int {
+    if lo == hi {
+        return arr[lo]
+    }
+    val p = qs_partition(arr, lo, hi)
+    if k == p {
+        return arr[p]
+    }
+    if k < p {
+        return quickselect(arr, lo, p - 1, k)
+    }
+    return quickselect(arr, p + 1, hi, k)
+}
+
+func kth_largest(orig: [Int], n: Int, k: Int) -> Int {
+    var arr = fill(n, 0)
+    for i in range(n) {
+        arr[i] = orig[i]
+    }
+    return quickselect(arr, 0, n - 1, n - k)
+}
+
+func main() {
+    val a1 = [3, 2, 1, 5, 6, 4]
+    println("Test 1: {kth_largest(a1, 6, 2)} (expected 5)")
+
+    val a2 = [3, 2, 3, 1, 2, 4, 5, 5, 6]
+    println("Test 2: {kth_largest(a2, 9, 4)} (expected 4)")
+
+    val a3 = [1]
+    println("Test 3: {kth_largest(a3, 1, 1)} (expected 1)")
+
+    -- Benchmark: 200 elements
+    var bench = fill(200, 0)
+    for i in range(200) {
+        bench[i] = (i * 37 + 13) % 1000
+    }
+    println("Test 4: {kth_largest(bench, 200, 50)}")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = kth_largest(bench, 200, 50)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Kth Largest ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

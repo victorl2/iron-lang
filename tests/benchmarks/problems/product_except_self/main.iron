@@ -1,0 +1,64 @@
+import time
+
+func product_except_self(nums: [Int], n: Int, out: [Int]) -> Int {
+    -- Left pass
+    out[0] = 1
+    var i = 1
+    while i < n {
+        out[i] = out[i - 1] * nums[i - 1]
+        i = i + 1
+    }
+    -- Right pass
+    var right = 1
+    i = n - 2
+    while i >= 0 {
+        right = right * nums[i + 1]
+        out[i] = out[i] * right
+        i = i - 1
+    }
+    -- Checksum: sum of output
+    var sum = 0
+    for j in range(n) {
+        sum = sum + out[j]
+    }
+    return sum
+}
+
+func main() {
+    val a1 = [1, 2, 3, 4]
+    var o1 = fill(4, 0)
+    println("Test 1: {product_except_self(a1, 4, o1)} (expected 50)")
+
+    val a2 = [-1, 1, 0, -3, 3]
+    var o2 = fill(5, 0)
+    println("Test 2: {product_except_self(a2, 5, o2)} (expected 9)")
+
+    val a3 = [2, 3, 4, 5]
+    var o3 = fill(4, 0)
+    println("Test 3: {product_except_self(a3, 4, o3)} (expected 154)")
+
+    -- Benchmark: 50 elements, mostly 1s with some 2s
+    var bench = fill(50, 0)
+    for i in range(50) {
+        if i % 10 == 0 {
+            bench[i] = 2
+        } else {
+            bench[i] = 1
+        }
+    }
+    var obench = fill(50, 0)
+    println("Test 4: {product_except_self(bench, 50, obench)}")
+
+    val iterations = 500000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = product_except_self(bench, 50, obench)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Product Except Self ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

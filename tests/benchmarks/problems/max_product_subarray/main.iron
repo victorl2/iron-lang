@@ -1,0 +1,65 @@
+import time
+
+func max_product(nums: [Int], n: Int) -> Int {
+    var max_so_far = nums[0]
+    var cur_max = nums[0]
+    var cur_min = nums[0]
+    var i = 1
+    while i < n {
+        val a = cur_max * nums[i]
+        val b = cur_min * nums[i]
+        val c = nums[i]
+        -- cur_max = max(a, b, c)
+        cur_max = a
+        if b > cur_max {
+            cur_max = b
+        }
+        if c > cur_max {
+            cur_max = c
+        }
+        -- cur_min = min(a, b, c)
+        cur_min = a
+        if b < cur_min {
+            cur_min = b
+        }
+        if c < cur_min {
+            cur_min = c
+        }
+        if cur_max > max_so_far {
+            max_so_far = cur_max
+        }
+        i = i + 1
+    }
+    return max_so_far
+}
+
+func main() {
+    val a1 = [2, 3, -2, 4]
+    println("Test 1: {max_product(a1, 4)} (expected 6)")
+
+    val a2 = [-2, 0, -1]
+    println("Test 2: {max_product(a2, 3)} (expected 0)")
+
+    val a3 = [-2, 3, -4]
+    println("Test 3: {max_product(a3, 3)} (expected 24)")
+
+    -- Benchmark: 50 elements
+    var bench = fill(50, 0)
+    for i in range(50) {
+        bench[i] = ((i * 13 + 7) % 11) - 5
+    }
+    println("Test 4: {max_product(bench, 50)}")
+
+    val iterations = 10000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = max_product(bench, 50)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Max Product Subarray ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

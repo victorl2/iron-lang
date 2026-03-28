@@ -1,0 +1,91 @@
+import time
+
+-- Parallel Sort Verification: each parallel iteration does heavy
+-- divisor-counting and primality testing over a range of numbers.
+-- Uses conditional println to prevent dead code elimination in parallel body.
+
+func count_divisors(n: Int) -> Int {
+    var count = 0
+    var d = 1
+    while d * d <= n {
+        if n % d == 0 {
+            count = count + 1
+            if d != n / d {
+                count = count + 1
+            }
+        }
+        d = d + 1
+    }
+    return count
+}
+
+func is_prime(n: Int) -> Int {
+    if n < 2 {
+        return 0
+    }
+    if n < 4 {
+        return 1
+    }
+    if n - (n / 2) * 2 == 0 {
+        return 0
+    }
+    var d = 3
+    while d * d <= n {
+        if n - (n / d) * d == 0 {
+            return 0
+        }
+        d = d + 2
+    }
+    return 1
+}
+
+func verify_chunk(chunk_id: Int) -> Int {
+    val CHUNK_SIZE = 500
+    val base = chunk_id * CHUNK_SIZE + 100000
+    var div_sum = 0
+    var prime_count = 0
+    var i = 0
+    while i < CHUNK_SIZE {
+        val num = base + i
+        div_sum = div_sum + count_divisors(num)
+        prime_count = prime_count + is_prime(num)
+        i = i + 1
+    }
+    val result = div_sum * 1000 + prime_count
+    if result == -1 {
+        println("x")
+    }
+    return result
+}
+
+func main() {
+    val NUM_CHUNKS = 2000
+
+    -- Correctness
+    var checksum = 0
+    var c = 0
+    while c < NUM_CHUNKS {
+        checksum = checksum + verify_chunk(c) % 100000
+        c = c + 1
+    }
+    println("Verification checksum: {checksum}")
+    println("chunk(0): {verify_chunk(0)}")
+    println("chunk(1): {verify_chunk(1)}")
+    println("chunk(999): {verify_chunk(999)}")
+
+    -- Benchmark: parallel verification
+    val iterations = 3
+    val start = Time.now_ms()
+    for iter in range(iterations) {
+        for chunk_id in NUM_CHUNKS parallel {
+            val h = verify_chunk(chunk_id)
+        }
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Parallel Sort Merge ===")
+    println("Chunks: {NUM_CHUNKS}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

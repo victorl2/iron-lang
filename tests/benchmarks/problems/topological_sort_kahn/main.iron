@@ -1,0 +1,108 @@
+import time
+
+-- Kahn's algorithm: BFS-based topological sort
+-- Returns checksum of ordering: sum(node * (position+1)), or -1 if cycle
+-- adj[i * n + j] = 1 means edge from i to j
+
+func kahn_checksum(adj: [Int], n: Int) -> Int {
+    -- Compute in-degrees
+    var in_deg = fill(20, 0)
+    var i = 0
+    while i < n {
+        var j = 0
+        while j < n {
+            if adj[i * n + j] == 1 {
+                in_deg[j] = in_deg[j] + 1
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+
+    -- Initialize queue with nodes having in-degree 0
+    var queue = fill(20, 0)
+    var q_front = 0
+    var q_back = 0
+    i = 0
+    while i < n {
+        if in_deg[i] == 0 {
+            queue[q_back] = i
+            q_back = q_back + 1
+        }
+        i = i + 1
+    }
+
+    var checksum = 0
+    var count = 0
+    var pos = 0
+    while q_front < q_back {
+        val node = queue[q_front]
+        q_front = q_front + 1
+        checksum = checksum + node * (pos + 1)
+        pos = pos + 1
+        count = count + 1
+
+        var j = 0
+        while j < n {
+            if adj[node * n + j] == 1 {
+                in_deg[j] = in_deg[j] - 1
+                if in_deg[j] == 0 {
+                    queue[q_back] = j
+                    q_back = q_back + 1
+                }
+            }
+            j = j + 1
+        }
+    }
+
+    if count == n {
+        return checksum
+    }
+    return -1
+}
+
+func main() {
+    val n = 20
+
+    -- Test 1: chain 0->1->2->...->19
+    var adj1 = fill(n * n, 0)
+    var i = 0
+    while i < 19 {
+        adj1[i * n + i + 1] = 1
+        i = i + 1
+    }
+    println("Test 1: {kahn_checksum(adj1, n)} (expected 2660)")
+
+    -- Test 2: no edges
+    var adj2 = fill(n * n, 0)
+    println("Test 2: {kahn_checksum(adj2, n)} (expected 2660)")
+
+    -- Test 3: diamond 0->{1,2}, 1->3, 2->3, nodes 4-19 independent
+    var adj3 = fill(n * n, 0)
+    adj3[0 * n + 1] = 1
+    adj3[0 * n + 2] = 1
+    adj3[1 * n + 3] = 1
+    adj3[2 * n + 3] = 1
+    println("Test 3: {kahn_checksum(adj3, n)} (expected 2204)")
+
+    -- Test 4: cycle 0->1->2->0
+    var adj4 = fill(n * n, 0)
+    adj4[0 * n + 1] = 1
+    adj4[1 * n + 2] = 1
+    adj4[2 * n + 0] = 1
+    println("Test 4: {kahn_checksum(adj4, n)} (expected -1)")
+
+    val iterations = 2000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = kahn_checksum(adj1, n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Topological Sort Kahn ===")
+    println("Nodes: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

@@ -1,0 +1,56 @@
+import time
+
+-- XOR not available in Iron, use frequency counting approach
+func single_number(arr: [Int], n: Int) -> Int {
+    -- Find max value to size the frequency array
+    var max_val = 0
+    for i in range(n) {
+        var v = arr[i]
+        if v < 0 { v = 0 - v }
+        if v > max_val { max_val = v }
+    }
+    var freq = fill(max_val + 1, 0)
+    for i in range(n) {
+        freq[arr[i]] = freq[arr[i]] + 1
+    }
+    var result = 0
+    for i in range(n) {
+        if freq[arr[i]] == 1 {
+            result = arr[i]
+        }
+    }
+    return result
+}
+
+func main() {
+    val a1 = [2, 2, 1]
+    println("Test 1: {single_number(a1, 3)} (expected 1)")
+
+    val a2 = [4, 1, 2, 1, 2]
+    println("Test 2: {single_number(a2, 5)} (expected 4)")
+
+    val a3 = [1]
+    println("Test 3: {single_number(a3, 1)} (expected 1)")
+
+    -- Benchmark: 201 elements, pairs of 1..100 plus single 42
+    var bench = fill(201, 0)
+    for i in range(100) {
+        bench[i * 2] = i + 1
+        bench[i * 2 + 1] = i + 1
+    }
+    bench[200] = 42
+    println("Test 4: {single_number(bench, 201)} (expected 42)")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = single_number(bench, 201)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Single Number ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

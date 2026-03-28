@@ -1,0 +1,87 @@
+import time
+
+-- Parallel Mandelbrot: compute escape iteration counts for a grid.
+-- Each parallel iteration computes one row of the Mandelbrot set.
+-- Uses integer fixed-point arithmetic (Iron has no floats).
+-- Fixed-point: multiply by 10000, so 2.0 = 20000, range [-25000, 10000] x [-15000, 15000]
+
+func mandelbrot_row_checksum(row: Int) -> Int {
+  val width = 2000
+  val height = 2000
+  val max_iter = 100
+  -- Map row to y in [-15000, 15000] (fixed-point * 10000)
+  val y0 = 0 - 15000 + row * 30000 / height
+  var row_sum = 0
+  var col = 0
+  while col < width {
+    -- Map col to x in [-25000, 10000]
+    val x0 = 0 - 25000 + col * 35000 / width
+    var x = 0
+    var y = 0
+    var iter = 0
+    while iter < max_iter {
+      -- Check |z|^2 <= 4.0 => x*x + y*y <= 4 * 10000^2 = 400000000
+      val x2 = x * x / 10000
+      val y2 = y * y / 10000
+      if x2 + y2 > 40000 {
+        iter = max_iter + iter + 1
+      } else {
+        val xtemp = x2 - y2 + x0
+        y = 2 * x * y / 10000 + y0
+        x = xtemp
+        iter = iter + 1
+      }
+    }
+    -- Extract actual iteration count
+    if iter > max_iter {
+      row_sum = row_sum + (iter - max_iter - 1)
+    } else {
+      row_sum = row_sum + max_iter
+    }
+    col = col + 1
+  }
+  if row_sum == -999999999 {
+    println("x")
+  }
+  return row_sum
+}
+
+func main() {
+  val height = 2000
+
+  -- Correctness: compute checksum
+  var checksum = 0
+  for i in range(height) {
+    checksum = checksum + mandelbrot_row_checksum(i)
+  }
+  println("checksum: {checksum}")
+
+  -- Benchmark: sequential
+  val iterations = 3
+  var seq_total = 0
+  val start_seq = Time.now_ms()
+  for iter in range(iterations) {
+    for i in range(height) {
+      seq_total = seq_total + mandelbrot_row_checksum(i)
+    }
+  }
+  val elapsed_seq = Time.now_ms() - start_seq
+
+  -- Benchmark: parallel
+  val start_par = Time.now_ms()
+  for iter in range(iterations) {
+    for i in height parallel {
+      val x = mandelbrot_row_checksum(i)
+    }
+  }
+  val elapsed_par = Time.now_ms() - start_par
+
+  println("")
+  println("=== Benchmark: Parallel Mandelbrot ===")
+  println("Grid: 2000x{height}")
+  println("Iterations: {iterations}")
+  println("Sequential time: {elapsed_seq} ms")
+  println("Parallel time: {elapsed_par} ms")
+  println("Seq verify: {seq_total}")
+  println("Total time: {elapsed_par} ms")
+}

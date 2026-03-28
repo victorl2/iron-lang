@@ -1,0 +1,153 @@
+import time
+
+-- Connected components using Union-Find with path compression
+-- Edge lists stored as two parallel arrays
+
+func find(parent: [Int], x: Int) -> [Int] {
+    var p = parent
+    var node = x
+    while p[node] != node {
+        p[node] = p[p[node]]
+        node = p[node]
+    }
+    return p
+}
+
+func find_root(parent: [Int], x: Int) -> Int {
+    var node = x
+    while parent[node] != node {
+        node = parent[node]
+    }
+    return node
+}
+
+func unite(parent: [Int], rnk: [Int], x: Int, y: Int) -> [Int] {
+    var p = parent
+    var r = rnk
+    var rx = find_root(p, x)
+    var ry = find_root(p, y)
+    if rx != ry {
+        if r[rx] < r[ry] {
+            val t = rx
+            rx = ry
+            ry = t
+        }
+        p[ry] = rx
+        if r[rx] == r[ry] {
+            r[rx] = r[rx] + 1
+        }
+    }
+    -- pack parent and rank into one return: use parent only, rank via side channel
+    return p
+}
+
+func count_components(edges_a: [Int], edges_b: [Int], num_edges: Int, n: Int) -> Int {
+    var parent = fill(50, 0)
+    var rnk = fill(50, 0)
+    for i in range(n) {
+        parent[i] = i
+    }
+
+    var e = 0
+    while e < num_edges {
+        val x = edges_a[e]
+        val y = edges_b[e]
+        val rx = find_root(parent, x)
+        val ry = find_root(parent, y)
+        if rx != ry {
+            var real_rx = rx
+            var real_ry = ry
+            if rnk[real_rx] < rnk[real_ry] {
+                val t = real_rx
+                real_rx = real_ry
+                real_ry = t
+            }
+            parent[real_ry] = real_rx
+            if rnk[real_rx] == rnk[real_ry] {
+                rnk[real_rx] = rnk[real_rx] + 1
+            }
+        }
+        -- path compression
+        var node = x
+        while parent[node] != node {
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        }
+        node = y
+        while parent[node] != node {
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        }
+        e = e + 1
+    }
+
+    var count = 0
+    for i in range(n) {
+        if find_root(parent, i) == i {
+            count = count + 1
+        }
+    }
+    return count
+}
+
+func main() {
+    val n = 50
+
+    -- Test 1: no edges -> 50 components
+    val ea1 = fill(1, 0)
+    val eb1 = fill(1, 0)
+    println("Test 1: {count_components(ea1, eb1, 0, n)} (expected 50)")
+
+    -- Test 2: chain 0-1-2-...-49 -> 1 component
+    var ea2 = fill(49, 0)
+    var eb2 = fill(49, 0)
+    var i = 0
+    while i < 49 {
+        ea2[i] = i
+        eb2[i] = i + 1
+        i = i + 1
+    }
+    println("Test 2: {count_components(ea2, eb2, 49, n)} (expected 1)")
+
+    -- Test 3: 10 clusters of 5 nodes -> 10 components
+    var ea3 = fill(40, 0)
+    var eb3 = fill(40, 0)
+    var idx = 0
+    var c = 0
+    while c < 10 {
+        var j = 1
+        while j < 5 {
+            ea3[idx] = c * 5
+            eb3[idx] = c * 5 + j
+            idx = idx + 1
+            j = j + 1
+        }
+        c = c + 1
+    }
+    println("Test 3: {count_components(ea3, eb3, idx, n)} (expected 10)")
+
+    -- Test 4: pairs -> 25 components
+    var ea4 = fill(25, 0)
+    var eb4 = fill(25, 0)
+    i = 0
+    while i < 25 {
+        ea4[i] = i * 2
+        eb4[i] = i * 2 + 1
+        i = i + 1
+    }
+    println("Test 4: {count_components(ea4, eb4, 25, n)} (expected 25)")
+
+    val iterations = 200000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = count_components(ea3, eb3, 40, n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Connected Components ===")
+    println("Nodes: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

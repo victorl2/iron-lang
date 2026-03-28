@@ -1,0 +1,119 @@
+import time
+
+-- Course Schedule: can finish all courses? Cycle detection via DFS
+-- Adjacency matrix: adj[i * n + j] = 1 means course i depends on course j
+-- States: 0=unvisited, 1=visiting, 2=visited
+
+func can_finish(adj: [Int], n: Int) -> Int {
+    var state = fill(n, 0)
+    var stack = fill(400, 0)
+    var stack_type = fill(400, 0)  -- 0 = enter, 1 = exit
+    var top = 0
+
+    var start = 0
+    while start < n {
+        if state[start] == 0 {
+            stack[top] = start
+            stack_type[top] = 0
+            top = top + 1
+
+            while top > 0 {
+                top = top - 1
+                val node = stack[top]
+                val typ = stack_type[top]
+
+                if typ == 1 {
+                    state[node] = 2
+                } else {
+                    if state[node] == 1 {
+                        return 0
+                    }
+                    if state[node] == 0 {
+                        state[node] = 1
+                        -- Push exit marker
+                        stack[top] = node
+                        stack_type[top] = 1
+                        top = top + 1
+                        -- Push neighbors
+                        var j = 0
+                        while j < n {
+                            if adj[node * n + j] == 1 {
+                                if state[j] == 1 {
+                                    return 0
+                                }
+                                if state[j] == 0 {
+                                    stack[top] = j
+                                    stack_type[top] = 0
+                                    top = top + 1
+                                }
+                            }
+                            j = j + 1
+                        }
+                    }
+                }
+            }
+        }
+        start = start + 1
+    }
+    return 1
+}
+
+func main() {
+    val n = 20
+
+    -- Test 1: DAG (no cycle) - chain 0->1->2->...->19
+    var adj1 = fill(n * n, 0)
+    var i = 0
+    while i < n - 1 {
+        adj1[i * n + i + 1] = 1
+        i = i + 1
+    }
+    println("Test 1: {can_finish(adj1, n)} (expected 1)")
+
+    -- Test 2: cycle 0->1->2->0
+    var adj2 = fill(n * n, 0)
+    adj2[0 * n + 1] = 1
+    adj2[1 * n + 2] = 1
+    adj2[2 * n + 0] = 1
+    println("Test 2: {can_finish(adj2, n)} (expected 0)")
+
+    -- Test 3: complex DAG with multiple paths, no cycle
+    var adj3 = fill(n * n, 0)
+    adj3[0 * n + 1] = 1
+    adj3[0 * n + 2] = 1
+    adj3[1 * n + 3] = 1
+    adj3[2 * n + 3] = 1
+    adj3[3 * n + 4] = 1
+    adj3[5 * n + 6] = 1
+    adj3[6 * n + 7] = 1
+    adj3[7 * n + 8] = 1
+    adj3[10 * n + 11] = 1
+    adj3[11 * n + 12] = 1
+    println("Test 3: {can_finish(adj3, n)} (expected 1)")
+
+    -- Test 4: larger cycle buried deep
+    var adj4 = fill(n * n, 0)
+    adj4[0 * n + 1] = 1
+    adj4[1 * n + 2] = 1
+    adj4[2 * n + 3] = 1
+    adj4[3 * n + 4] = 1
+    adj4[4 * n + 5] = 1
+    adj4[5 * n + 6] = 1
+    adj4[6 * n + 7] = 1
+    adj4[7 * n + 3] = 1
+    println("Test 4: {can_finish(adj4, n)} (expected 0)")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = can_finish(adj3, n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Course Schedule ===")
+    println("Nodes: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

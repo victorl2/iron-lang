@@ -1,0 +1,4 @@
+Test 1: 49 (expected 49)
+Test 2: 1 (expected 1)
+Test 3: 16 (expected 16)
+Test 4: 8342

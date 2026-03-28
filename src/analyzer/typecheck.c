@@ -410,6 +410,43 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Ident *callee_id = (Iron_Ident *)ce->callee;
                 Iron_Symbol *callee_sym = iron_scope_lookup(ctx->global_scope, callee_id->name);
                 if (callee_sym && callee_sym->sym_kind == IRON_SYM_TYPE) {
+                    /* Primitive type cast: Float(x), Int(x), Bool(x), etc.
+                     * When the target type is a numeric/bool primitive and
+                     * exactly one argument is provided, treat as a cast. */
+                    Iron_Type *target_t = callee_sym->type;
+                    if (target_t && ce->arg_count == 1) {
+                        bool is_numeric_or_bool = false;
+                        switch (target_t->kind) {
+                            case IRON_TYPE_INT:
+                            case IRON_TYPE_INT8:
+                            case IRON_TYPE_INT16:
+                            case IRON_TYPE_INT32:
+                            case IRON_TYPE_INT64:
+                            case IRON_TYPE_UINT:
+                            case IRON_TYPE_UINT8:
+                            case IRON_TYPE_UINT16:
+                            case IRON_TYPE_UINT32:
+                            case IRON_TYPE_UINT64:
+                            case IRON_TYPE_FLOAT:
+                            case IRON_TYPE_FLOAT32:
+                            case IRON_TYPE_FLOAT64:
+                            case IRON_TYPE_BOOL:
+                                is_numeric_or_bool = true;
+                                break;
+                            default:
+                                break;
+                        }
+                        if (is_numeric_or_bool) {
+                            /* Type-check the argument */
+                            check_expr(ctx, ce->args[0]);
+                            /* Mark as primitive cast for the lowerer */
+                            ce->is_primitive_cast = true;
+                            result = target_t;
+                            ce->resolved_type = result;
+                            callee_id->resolved_type = result;
+                            break;
+                        }
+                    }
                     /* Treat as construction: validate args against fields */
                     Iron_ObjectDecl *od = (Iron_ObjectDecl *)callee_sym->decl_node;
                     int field_count = od ? od->field_count : 0;
@@ -480,6 +517,33 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         ce->resolved_type = result;
                         break;
                     }
+                }
+            }
+
+            /* Special case: fill(count, value) -> [T].
+             * Registered as fill(Int, Int) -> [Int] but we infer the element
+             * type from the second argument to support fill(n, 0.0) -> [Float]. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT &&
+                ce->arg_count == 2) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                if (strcmp(fn_id->name, "fill") == 0) {
+                    Iron_Type *count_t = check_expr(ctx, ce->args[0]);
+                    Iron_Type *val_t   = check_expr(ctx, ce->args[1]);
+                    /* Count must be Int */
+                    if (count_t && count_t->kind != IRON_TYPE_INT &&
+                        count_t->kind != IRON_TYPE_ERROR) {
+                        emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[0]->span,
+                                   "fill() first argument must be Int", NULL);
+                    }
+                    /* Return type is [T] where T is the type of val */
+                    if (val_t) {
+                        result = iron_type_make_array(ctx->arena, val_t, -1);
+                    } else {
+                        result = iron_type_make_array(ctx->arena,
+                                   iron_type_make_primitive(IRON_TYPE_INT), -1);
+                    }
+                    ce->resolved_type = result;
+                    break;
                 }
             }
 
@@ -1288,6 +1352,37 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.narrowed            = NULL;
     ctx.program             = program;
     sh_new_strdup(ctx.narrowed);
+
+    /* Check top-level val/var declarations first so their init expressions
+     * have resolved_type set before function bodies reference them.
+     * The resolver already defined these symbols (with type=NULL).
+     * We type-check the init and update the existing symbol's type. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl) continue;
+
+        if (decl->kind == IRON_NODE_VAL_DECL) {
+            Iron_ValDecl *vd = (Iron_ValDecl *)decl;
+            Iron_Type *init_type = NULL;
+            if (vd->init) init_type = check_expr(&ctx, vd->init);
+            Iron_Type *decl_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            vd->declared_type = decl_type;
+            /* Update the resolver's existing symbol with the resolved type */
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, vd->name);
+            if (sym) sym->type = decl_type;
+        } else if (decl->kind == IRON_NODE_VAR_DECL) {
+            Iron_VarDecl *vd = (Iron_VarDecl *)decl;
+            Iron_Type *init_type = NULL;
+            if (vd->init) init_type = check_expr(&ctx, vd->init);
+            Iron_Type *decl_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            vd->declared_type = decl_type;
+            /* Update the resolver's existing symbol with the resolved type */
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, vd->name);
+            if (sym) sym->type = decl_type;
+        }
+    }
 
     /* Check all func and method decls */
     for (int i = 0; i < program->decl_count; i++) {

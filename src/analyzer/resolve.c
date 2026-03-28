@@ -728,6 +728,46 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             sym->type = fn;
             iron_scope_define(ctx.global_scope, arena, sym);
         }
+        /* fill(Int, Int) -> [Int]  (type checker special-cases to infer [T]) */
+        {
+            Iron_Type *arr_t = iron_type_make_array(arena, int_t, -1);
+            Iron_Type *params[2] = { int_t, int_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 2, arr_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "fill",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
+    }
+
+    /* Register primitive type names (Int, Float, Bool, etc.) as IRON_SYM_TYPE
+     * so that Float(x), Int(x), Bool(x) casts resolve during name resolution.
+     * Each symbol's type is the corresponding primitive type singleton. */
+    {
+        Iron_Span no_span = {0};
+        static const struct { const char *name; Iron_TypeKind kind; } prims[] = {
+            { "Int",     IRON_TYPE_INT     },
+            { "Int8",    IRON_TYPE_INT8    },
+            { "Int16",   IRON_TYPE_INT16   },
+            { "Int32",   IRON_TYPE_INT32   },
+            { "Int64",   IRON_TYPE_INT64   },
+            { "UInt",    IRON_TYPE_UINT    },
+            { "UInt8",   IRON_TYPE_UINT8   },
+            { "UInt16",  IRON_TYPE_UINT16  },
+            { "UInt32",  IRON_TYPE_UINT32  },
+            { "UInt64",  IRON_TYPE_UINT64  },
+            { "Float",   IRON_TYPE_FLOAT   },
+            { "Float32", IRON_TYPE_FLOAT32 },
+            { "Float64", IRON_TYPE_FLOAT64 },
+            { "Bool",    IRON_TYPE_BOOL    },
+        };
+        for (int pi = 0; pi < (int)(sizeof(prims)/sizeof(prims[0])); pi++) {
+            Iron_Type *pt = iron_type_make_primitive(prims[pi].kind);
+            Iron_Symbol *sym = iron_symbol_create(arena, prims[pi].name,
+                                                   IRON_SYM_TYPE, NULL, no_span);
+            sym->type = pt;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
     }
 
     /* Pass 1a: Collect all top-level declarations into global scope */

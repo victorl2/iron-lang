@@ -1,0 +1,50 @@
+import time
+
+-- Matrix chain multiplication: dims has n+1 elements for n matrices
+-- dims[i] x dims[i+1] is the dimension of matrix i
+func matrix_chain(dims: [Int], n: Int) -> Int {
+    var dp = fill(n * n, 0)
+    var cl = 2
+    while cl <= n {
+        var i = 0
+        while i <= n - cl {
+            val j = i + cl - 1
+            dp[i * n + j] = 999999999
+            var k = i
+            while k < j {
+                val cost = dp[i * n + k] + dp[(k + 1) * n + j] + dims[i] * dims[k + 1] * dims[j + 1]
+                if cost < dp[i * n + j] {
+                    dp[i * n + j] = cost
+                }
+                k = k + 1
+            }
+            i = i + 1
+        }
+        cl = cl + 1
+    }
+    return dp[0 * n + (n - 1)]
+}
+
+func main() {
+    val d1 = [10, 30, 5, 60]
+    println("Test 1: {matrix_chain(d1, 3)} (expected 4500)")
+    val d2 = [40, 20, 30, 10, 30]
+    println("Test 2: {matrix_chain(d2, 4)} (expected 26000)")
+    val d3 = [5, 10, 3, 12, 5, 50, 6, 8, 15, 20, 25]
+    println("Test 3: {matrix_chain(d3, 10)} (expected 5199)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = matrix_chain(d3, 10)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Matrix Chain Multiplication ===")
+    println("Matrices: 10")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}
