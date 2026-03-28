@@ -92,7 +92,7 @@ export PATH="/path/to/iron-lang/build:$PATH"
 
 ```bash
 iron --version       # Print version
-iron run examples/hello.iron   # Compile and run a program
+iron run docs/examples/hello.iron   # Compile and run a program
 ```
 
 ## Running Tests
