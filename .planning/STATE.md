@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: Roadmap ready, awaiting plan-phase
-stopped_at: Completed 12-02-PLAN.md (iron package manager binary with ironc forwarding)
-last_updated: "2026-03-28T02:20:15.827Z"
+stopped_at: Completed 12-03-PLAN.md (install pipeline, install.sh, CI, e2e verification)
+last_updated: "2026-03-28T02:29:12.792Z"
 last_activity: 2026-03-27 — Roadmap created for v0.0.3-alpha (Phases 12-14)
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -53,6 +53,7 @@ Last activity: 2026-03-27 — Roadmap created for v0.0.3-alpha (Phases 12-14)
 | Phase 11-release-pipeline-versioning | 2 | ~4 min | 2 min |
 | Phase 12-binary-split-and-installation P01 | 18 | 3 tasks | 8 files |
 | Phase 12-binary-split-and-installation P02 | 12 | 2 tasks | 2 files |
+| Phase 12-binary-split-and-installation P03 | 25 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Recent decisions affecting current work:
 - [Phase 12-binary-split-and-installation]: Static duplication of resolve_self_dir/get_iron_lib_dir in build.c and check.c — shared header factored out later
 - [Phase 12-binary-split-and-installation]: iron exits 0 for bare invocation (Cargo-style); ironc exits 1 — iron is user-facing, ironc is developer-facing raw compiler
 - [Phase 12-binary-split-and-installation]: iron binary does NOT link iron_compiler — clean process boundary via subprocess invocation (posix_spawnp / CreateProcessA)
+- [Phase 12-binary-split-and-installation]: CMake install uses FILES_MATCHING *.c *.h for stdlib — generated C needs stdlib/iron_math.h, stdlib C files need bare iron_math.h
+- [Phase 12-binary-split-and-installation]: -I{lib}/stdlib added to clang invocation — stdlib C files at installed prefix need explicit include path for their own headers
 
 ### v0.0.2-alpha Accumulated Context (preserved)
 
@@ -113,6 +116,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T02:20:15.825Z
-Stopped at: Completed 12-02-PLAN.md (iron package manager binary with ironc forwarding)
+Last session: 2026-03-28T02:29:12.789Z
+Stopped at: Completed 12-03-PLAN.md (install pipeline, install.sh, CI, e2e verification)
 Resume file: None
