@@ -410,6 +410,43 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Ident *callee_id = (Iron_Ident *)ce->callee;
                 Iron_Symbol *callee_sym = iron_scope_lookup(ctx->global_scope, callee_id->name);
                 if (callee_sym && callee_sym->sym_kind == IRON_SYM_TYPE) {
+                    /* Primitive type cast: Float(x), Int(x), Bool(x), etc.
+                     * When the target type is a numeric/bool primitive and
+                     * exactly one argument is provided, treat as a cast. */
+                    Iron_Type *target_t = callee_sym->type;
+                    if (target_t && ce->arg_count == 1) {
+                        bool is_numeric_or_bool = false;
+                        switch (target_t->kind) {
+                            case IRON_TYPE_INT:
+                            case IRON_TYPE_INT8:
+                            case IRON_TYPE_INT16:
+                            case IRON_TYPE_INT32:
+                            case IRON_TYPE_INT64:
+                            case IRON_TYPE_UINT:
+                            case IRON_TYPE_UINT8:
+                            case IRON_TYPE_UINT16:
+                            case IRON_TYPE_UINT32:
+                            case IRON_TYPE_UINT64:
+                            case IRON_TYPE_FLOAT:
+                            case IRON_TYPE_FLOAT32:
+                            case IRON_TYPE_FLOAT64:
+                            case IRON_TYPE_BOOL:
+                                is_numeric_or_bool = true;
+                                break;
+                            default:
+                                break;
+                        }
+                        if (is_numeric_or_bool) {
+                            /* Type-check the argument */
+                            check_expr(ctx, ce->args[0]);
+                            /* Mark as primitive cast for the lowerer */
+                            ce->is_primitive_cast = true;
+                            result = target_t;
+                            ce->resolved_type = result;
+                            callee_id->resolved_type = result;
+                            break;
+                        }
+                    }
                     /* Treat as construction: validate args against fields */
                     Iron_ObjectDecl *od = (Iron_ObjectDecl *)callee_sym->decl_node;
                     int field_count = od ? od->field_count : 0;

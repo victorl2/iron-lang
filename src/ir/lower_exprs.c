@@ -348,6 +348,15 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             }
         }
 
+        /* Primitive type cast: Float(x), Int(x), etc.
+         * The type checker sets is_primitive_cast when the callee is a
+         * primitive type name with exactly one argument. Emit CAST. */
+        if (call->is_primitive_cast && call->arg_count == 1) {
+            IronIR_ValueId arg_val = lower_expr(ctx, call->args[0]);
+            return iron_ir_cast(fn, ctx->current_block, arg_val,
+                                call->resolved_type, span)->id;
+        }
+
         /* Direct call: callee is a simple identifier */
         if (call->callee && call->callee->kind == IRON_NODE_IDENT) {
             Iron_Ident *callee_id = (Iron_Ident *)call->callee;
