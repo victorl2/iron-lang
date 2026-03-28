@@ -875,21 +875,18 @@ ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class
   <section class="install" id="install">
     <div class="install-inner">
       <h2>Get started in seconds</h2>
-      <p>Clone, build, and run your first Iron program.</p>
+      <p>Install Iron with a single command. macOS and Linux supported.</p>
       <div class="install-steps">
         <div class="install-step">
           <div class="step-num">1</div>
-          <code>git clone https://github.com/victorl2/iron-lang.git</code>
+          <code>curl -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code>
         </div>
         <div class="install-step">
           <div class="step-num">2</div>
-          <code>cd iron-lang && cmake -B build && cmake --build build</code>
-        </div>
-        <div class="install-step">
-          <div class="step-num">3</div>
-          <code>./build/iron run examples/hello.iron</code>
+          <code>iron run hello.iron</code>
         </div>
       </div>
+      <p style="margin-top: 1.5rem; margin-bottom: 0; font-size: 0.9rem;">Want to build from source instead? See the <a href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md" style="color: var(--accent);">install guide</a>.</p>
       <div class="install-hello">
         <div class="code-window">
           <div class="code-titlebar">
