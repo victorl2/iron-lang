@@ -1594,15 +1594,17 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             struct { IronIR_ValueId key; bool value; } *freed = NULL;
             for (ptrdiff_t hi = 0; hi < hmlen(ctx->heap_array_ids); hi++) {
                 IronIR_ValueId orig = ctx->heap_array_ids[hi].value;
-                /* Skip if already freed, or if this array escapes */
+                /* Skip if already freed, if this array escapes, or if it's a stack array */
                 if (hmgeti(freed, orig) >= 0) continue;
                 if (hmgeti(ctx->escaped_heap_ids, orig) >= 0) continue;
+                if (hmgeti(ctx->stack_array_ids, orig) >= 0) continue;
                 hmput(freed, orig, true);
 
                 /* Look up the original instruction to get the list type */
                 if (orig < (IronIR_ValueId)arrlen(fn->value_table) &&
                     fn->value_table[orig] != NULL) {
                     IronIR_Instr *orig_instr = fn->value_table[orig];
+                    /* (debug removed) */
                     const char *list_type = NULL;
                     if (orig_instr->kind == IRON_IR_ARRAY_LIT) {
                         Iron_Type *arr_type = iron_type_make_array(
@@ -1613,7 +1615,8 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                         /* __builtin_fill result */
                         list_type = emit_type_to_c(orig_instr->type, ctx);
                     }
-                    if (list_type) {
+                    if (list_type &&
+                        get_stack_array_origin(ctx, orig) == IRON_IR_VALUE_INVALID) {
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s_free(&_v%u);\n",
                                             list_type, (unsigned)orig);
@@ -2449,6 +2452,22 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
             }
         }
 
+        /* Phase B2: remove any ha_pre entries whose origin is a stack array.
+         * This handles fill() calls that were promoted to stack arrays. */
+        {
+            IronIR_ValueId *to_remove = NULL;
+            for (ptrdiff_t i = 0; i < hmlen(ha_pre); i++) {
+                IronIR_ValueId orig = ha_pre[i].value;
+                if (hmgeti(ctx->stack_array_ids, orig) >= 0) {
+                    arrput(to_remove, ha_pre[i].key);
+                }
+            }
+            for (int i = 0; i < (int)arrlen(to_remove); i++) {
+                hmdel(ha_pre, to_remove[i]);
+            }
+            arrfree(to_remove);
+        }
+
         /* Phase C: mark escaping arrays */
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronIR_Block *block = fn->blocks[bi];
@@ -2488,8 +2507,10 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
             }
         }
 
-        /* Seed the ctx heap_array_ids map */
+        /* Seed the ctx heap_array_ids map (skip stack arrays) */
         for (ptrdiff_t i = 0; i < hmlen(ha_pre); i++) {
+            IronIR_ValueId orig = ha_pre[i].value;
+            if (hmgeti(ctx->stack_array_ids, orig) >= 0) continue;
             hmput(ctx->heap_array_ids, ha_pre[i].key, ha_pre[i].value);
         }
         hmfree(ha_pre);
