@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 120, "max_ratio": 10.0, "note": "Large flat DP array (441 elements) initialization overhead"}
+{"iterations": 1000000, "timeout_sec": 120, "max_ratio": 1.2, "note": "Large flat DP array (441 elements) initialization overhead"}

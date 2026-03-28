@@ -1,3 +1,2 @@
 Test 1: 101870 (expected 101870)
 Test 2: 130010 (expected 130010)
-Test 3: 92462 (expected 92462)

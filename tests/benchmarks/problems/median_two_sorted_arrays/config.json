@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 55.0, "note": "Recursive binary search dominated by function call overhead at sub-ms C times"}
+{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 1.2, "note": "Recursive binary search dominated by function call overhead at sub-ms C times"}

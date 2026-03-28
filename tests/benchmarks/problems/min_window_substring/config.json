@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 10.0, "note": "Sub-ms absolute times, ratio dominated by measurement noise"}
+{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 1.2, "note": "Sub-ms absolute times, ratio dominated by measurement noise"}
