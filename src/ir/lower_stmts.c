@@ -89,6 +89,18 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 IronIR_ValueId arr   = lower_expr(ctx, idx->object);
                 IronIR_ValueId index = lower_expr(ctx, idx->index);
                 iron_ir_set_index(fn, ctx->current_block, arr, index, rhs, span);
+                /* For arrays stored in a var alloca, the SET_INDEX modifies
+                 * the loaded copy via pointer.  Store back to the alloca so
+                 * subsequent loads see the updated array.  This mirrors the
+                 * SET_FIELD store-back pattern above. */
+                if (idx->object->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *arr_id = (Iron_Ident *)idx->object;
+                    ptrdiff_t slot_idx = shgeti(ctx->var_alloca_map, arr_id->name);
+                    if (slot_idx >= 0) {
+                        IronIR_ValueId slot = ctx->var_alloca_map[slot_idx].value;
+                        iron_ir_store(fn, ctx->current_block, slot, arr, span);
+                    }
+                }
             } else {
                 emit_poison(ctx, NULL, span);
             }
