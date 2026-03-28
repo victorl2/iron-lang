@@ -356,6 +356,47 @@ static void phi_eliminate(IronIR_Module *module) {
                 insert_store_before_terminator_instr(pred, store);
             }
 
+            /* 2b. Find the block containing this phi and ensure ALL its
+             * predecessors have a store for the alloca.  Predecessors not
+             * covered by the phi operands (e.g., elif branches with array
+             * indexing that introduce intermediate ValueIds) get a default
+             * store using the first phi value as a safe fallback. */
+            {
+                IronIR_Block *phi_block = NULL;
+                for (int bi = 0; bi < fn->block_count; bi++) {
+                    IronIR_Block *blk = fn->blocks[bi];
+                    for (int ii = 0; ii < blk->instr_count; ii++) {
+                        if (blk->instrs[ii] == phi) {
+                            phi_block = blk;
+                            break;
+                        }
+                    }
+                    if (phi_block) break;
+                }
+                if (phi_block && phi->phi.count > 0) {
+                    IronIR_ValueId default_val = phi->phi.values[0];
+                    for (int pi2 = 0; pi2 < (int)arrlen(phi_block->preds); pi2++) {
+                        IronIR_BlockId pred_id = phi_block->preds[pi2];
+                        /* Check if this predecessor is already covered */
+                        bool covered = false;
+                        for (int k = 0; k < phi->phi.count; k++) {
+                            if (phi->phi.pred_blocks[k] == pred_id) {
+                                covered = true;
+                                break;
+                            }
+                        }
+                        if (!covered) {
+                            IronIR_Block *pred = find_block(fn, pred_id);
+                            if (pred) {
+                                IronIR_Instr *store = make_store_instr(
+                                    fn, alloca_id, default_val, span);
+                                insert_store_before_terminator_instr(pred, store);
+                            }
+                        }
+                    }
+                }
+            }
+
             /* 3. Replace phi with a LOAD from the alloca */
             phi->kind     = IRON_IR_LOAD;
             phi->load.ptr = alloca_id;
