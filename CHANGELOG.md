@@ -49,7 +49,7 @@ First public alpha release of the Iron programming language.
 - Compiles to C, then to native binary via clang/gcc
 - `-O3` optimization for release builds
 
-### Game Development
+### Graphics & FFI
 
 - Raylib bindings (`raylib.iron`)
 - `draw {}` blocks for render passes
