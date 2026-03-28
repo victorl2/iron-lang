@@ -365,6 +365,30 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             }
         }
 
+        /* Special case: fill(count, value) -> [T].
+         * Emits a FUNC_REF to "__builtin_fill" + CALL so the emitter can
+         * generate an inline C loop that creates an Iron_List_T. */
+        if (call->callee && call->callee->kind == IRON_NODE_IDENT &&
+            call->arg_count == 2) {
+            Iron_Ident *fn_id = (Iron_Ident *)call->callee;
+            if (strcmp(fn_id->name, "fill") == 0) {
+                IronIR_ValueId count_val = lower_expr(ctx, call->args[0]);
+                IronIR_ValueId value_val = lower_expr(ctx, call->args[1]);
+                IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
+                                                            "__builtin_fill",
+                                                            NULL, span)->id;
+                IronIR_ValueId *args = NULL;
+                arrput(args, count_val);
+                arrput(args, value_val);
+                IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+                                                      NULL, func_ptr,
+                                                      args, 2,
+                                                      call->resolved_type, span)->id;
+                arrfree(args);
+                return result;
+            }
+        }
+
         /* Primitive type cast: Float(x), Int(x), etc.
          * The type checker sets is_primitive_cast when the callee is a
          * primitive type name with exactly one argument. Emit CAST. */

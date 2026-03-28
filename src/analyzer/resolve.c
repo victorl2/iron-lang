@@ -728,6 +728,16 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             sym->type = fn;
             iron_scope_define(ctx.global_scope, arena, sym);
         }
+        /* fill(Int, Int) -> [Int]  (type checker special-cases to infer [T]) */
+        {
+            Iron_Type *arr_t = iron_type_make_array(arena, int_t, -1);
+            Iron_Type *params[2] = { int_t, int_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 2, arr_t);
+            Iron_Symbol *sym = iron_symbol_create(arena, "fill",
+                                                   IRON_SYM_FUNCTION, NULL, no_span);
+            sym->type = fn;
+            iron_scope_define(ctx.global_scope, arena, sym);
+        }
     }
 
     /* Register primitive type names (Int, Float, Bool, etc.) as IRON_SYM_TYPE

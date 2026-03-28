@@ -520,6 +520,33 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Special case: fill(count, value) -> [T].
+             * Registered as fill(Int, Int) -> [Int] but we infer the element
+             * type from the second argument to support fill(n, 0.0) -> [Float]. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT &&
+                ce->arg_count == 2) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                if (strcmp(fn_id->name, "fill") == 0) {
+                    Iron_Type *count_t = check_expr(ctx, ce->args[0]);
+                    Iron_Type *val_t   = check_expr(ctx, ce->args[1]);
+                    /* Count must be Int */
+                    if (count_t && count_t->kind != IRON_TYPE_INT &&
+                        count_t->kind != IRON_TYPE_ERROR) {
+                        emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[0]->span,
+                                   "fill() first argument must be Int", NULL);
+                    }
+                    /* Return type is [T] where T is the type of val */
+                    if (val_t) {
+                        result = iron_type_make_array(ctx->arena, val_t, -1);
+                    } else {
+                        result = iron_type_make_array(ctx->arena,
+                                   iron_type_make_primitive(IRON_TYPE_INT), -1);
+                    }
+                    ce->resolved_type = result;
+                    break;
+                }
+            }
+
             /* Check arg count */
             int expected_count = callee_type->func.param_count;
             if (ce->arg_count != expected_count) {
