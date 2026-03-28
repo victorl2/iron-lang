@@ -1,0 +1,4 @@
+Test 1 n=3: 6 (expected 6)
+Test 2 n=5: 120 (expected 120)
+Test 3 n=8: 40320 (expected 40320)
+Bench check n=10: 3628800

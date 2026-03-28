@@ -1,0 +1,99 @@
+import time
+
+-- Spiral Matrix: Traverse matrix in spiral order, return sum of elements * position
+
+func spiral_sum(mat: [Int], rows: Int, cols: Int) -> Int {
+    var top = 0
+    var bottom = rows - 1
+    var left = 0
+    var right = cols - 1
+    var sum = 0
+    var pos = 1
+
+    while top <= bottom {
+        if left > right {
+            top = bottom + 1
+        } else {
+            -- Traverse right
+            var j = left
+            while j <= right {
+                sum = sum + mat[top * cols + j] * pos
+                pos = pos + 1
+                j = j + 1
+            }
+            top = top + 1
+
+            -- Traverse down
+            var i = top
+            while i <= bottom {
+                sum = sum + mat[i * cols + right] * pos
+                pos = pos + 1
+                i = i + 1
+            }
+            right = right - 1
+
+            -- Traverse left
+            if top <= bottom {
+                j = right
+                while j >= left {
+                    sum = sum + mat[bottom * cols + j] * pos
+                    pos = pos + 1
+                    j = j - 1
+                }
+                bottom = bottom - 1
+            }
+
+            -- Traverse up
+            if left <= right {
+                i = bottom
+                while i >= top {
+                    sum = sum + mat[i * cols + left] * pos
+                    pos = pos + 1
+                    i = i - 1
+                }
+                left = left + 1
+            }
+        }
+    }
+    return sum
+}
+
+func main() {
+    -- Test 1: 3x3
+    val m1 = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    println("Test 1: {spiral_sum(m1, 3, 3)} (expected 257)")
+
+    -- Test 2: 2x3
+    val m2 = [1, 2, 3, 4, 5, 6]
+    println("Test 2: {spiral_sum(m2, 2, 3)} (expected 87)")
+
+    -- Test 3: 1x1
+    val m3 = [42]
+    println("Test 3: {spiral_sum(m3, 1, 1)} (expected 42)")
+
+    -- Benchmark: 10x10
+    val rows = 10
+    val cols = 10
+    var mat = fill(rows * cols, 0)
+    for i in range(rows) {
+        for j in range(cols) {
+            mat[i * cols + j] = i * cols + j + 1
+        }
+    }
+    val check = spiral_sum(mat, rows, cols)
+    println("Bench check: {check}")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = spiral_sum(mat, rows, cols)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Spiral Matrix ===")
+    println("Matrix: {rows}x{cols}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

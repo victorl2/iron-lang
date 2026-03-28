@@ -1,0 +1,62 @@
+import time
+
+-- Gas Station: Can complete circular tour? Greedy single pass.
+-- Returns starting index or -1 if impossible.
+
+func gas_station(gas: [Int], cost: [Int], n: Int) -> Int {
+    var total_tank = 0
+    var curr_tank = 0
+    var start = 0
+    for i in range(n) {
+        val diff = gas[i] - cost[i]
+        total_tank = total_tank + diff
+        curr_tank = curr_tank + diff
+        if curr_tank < 0 {
+            start = i + 1
+            curr_tank = 0
+        }
+    }
+    if total_tank >= 0 {
+        return start
+    }
+    return -1
+}
+
+func main() {
+    val g1 = [1, 2, 3, 4, 5]
+    val c1 = [3, 4, 5, 1, 2]
+    println("Test 1: {gas_station(g1, c1, 5)} (expected 3)")
+
+    val g2 = [2, 3, 4]
+    val c2 = [3, 4, 3]
+    println("Test 2: {gas_station(g2, c2, 3)} (expected -1)")
+
+    val g3 = [5, 1, 2, 3, 4]
+    val c3 = [4, 4, 1, 5, 1]
+    println("Test 3: {gas_station(g3, c3, 5)} (expected 4)")
+
+    -- Benchmark: 50 stations
+    val n = 50
+    var gas = fill(n, 0)
+    var cost = fill(n, 0)
+    for i in range(n) {
+        gas[i] = (i * 13 + 7) % 20 + 1
+        cost[i] = (i * 11 + 3) % 20 + 1
+    }
+    val check = gas_station(gas, cost, n)
+    println("Bench check: {check}")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = gas_station(gas, cost, n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Gas Station ===")
+    println("Stations: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

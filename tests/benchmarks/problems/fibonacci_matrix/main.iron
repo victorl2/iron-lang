@@ -1,0 +1,75 @@
+import time
+
+-- Nth fibonacci via matrix exponentiation
+-- [[F(n+1), F(n)], [F(n), F(n-1)]] = [[1,1],[1,0]]^n
+-- Using flat 4-element arrays for 2x2 matrices
+
+func mat_mul(a: [Int], b: [Int], mod: Int) -> [Int] {
+    var c = fill(4, 0)
+    c[0] = (a[0] * b[0] + a[1] * b[2]) % mod
+    c[1] = (a[0] * b[1] + a[1] * b[3]) % mod
+    c[2] = (a[2] * b[0] + a[3] * b[2]) % mod
+    c[3] = (a[2] * b[1] + a[3] * b[3]) % mod
+    return c
+}
+
+func mat_pow(m: [Int], n: Int, mod: Int) -> [Int] {
+    -- Identity matrix
+    var result = fill(4, 0)
+    result[0] = 1
+    result[3] = 1
+
+    var base = fill(4, 0)
+    base[0] = m[0]
+    base[1] = m[1]
+    base[2] = m[2]
+    base[3] = m[3]
+
+    var exp = n
+    while exp > 0 {
+        if exp % 2 == 1 {
+            result = mat_mul(result, base, mod)
+        }
+        base = mat_mul(base, base, mod)
+        exp = exp / 2
+    }
+    return result
+}
+
+func fibonacci(n: Int, mod: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    if n == 1 {
+        return 1
+    }
+    val m = [1, 1, 1, 0]
+    val result = mat_pow(m, n, mod)
+    return result[1]
+}
+
+func main() {
+    val mod = 1000000007
+    println("Test 1 fib(10): {fibonacci(10, mod)} (expected 55)")
+    println("Test 2 fib(20): {fibonacci(20, mod)} (expected 6765)")
+    println("Test 3 fib(50): {fibonacci(50, mod)} (expected 586268941)")
+
+    -- Benchmark: n=50, 1M iterations
+    val n = 50
+    val check = fibonacci(n, mod)
+    println("Bench check: {check}")
+
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = fibonacci(n, mod)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Fibonacci Matrix ===")
+    println("n={n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

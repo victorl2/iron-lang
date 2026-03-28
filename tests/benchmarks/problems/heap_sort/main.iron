@@ -1,0 +1,99 @@
+import time
+
+-- Heap Sort: Build max-heap, extract max
+
+func heap_down(arr: [Int], size: Int, idx: Int) {
+    var i = idx
+    var cont = 1
+    while cont == 1 {
+        var largest = i
+        val l = 2 * i + 1
+        val r = 2 * i + 2
+        if l < size {
+            if arr[l] > arr[largest] { largest = l }
+        }
+        if r < size {
+            if arr[r] > arr[largest] { largest = r }
+        }
+        if largest == i {
+            cont = 0
+        } else {
+            val temp = arr[i]
+            arr[i] = arr[largest]
+            arr[largest] = temp
+            i = largest
+        }
+    }
+}
+
+func heap_sort(arr: [Int], n: Int) {
+    -- Build max heap
+    var i = n / 2 - 1
+    while i >= 0 {
+        heap_down(arr, n, i)
+        i = i - 1
+    }
+    -- Extract elements
+    i = n - 1
+    while i > 0 {
+        val temp = arr[0]
+        arr[0] = arr[i]
+        arr[i] = temp
+        heap_down(arr, i, 0)
+        i = i - 1
+    }
+}
+
+func checksum(arr: [Int], n: Int) -> Int {
+    var sum = 0
+    for i in range(n) {
+        sum = sum + arr[i] * (i + 1)
+    }
+    return sum
+}
+
+func main() {
+    var a1 = [5, 3, 8, 1, 2, 7, 4, 6]
+    heap_sort(a1, 8)
+    println("Test 1: {a1[0]} {a1[1]} {a1[2]} {a1[3]} {a1[4]} {a1[5]} {a1[6]} {a1[7]} (expected 1 2 3 4 5 6 7 8)")
+
+    var a2 = [1]
+    heap_sort(a2, 1)
+    println("Test 2: {a2[0]} (expected 1)")
+
+    var a3 = [3, 1, 2]
+    heap_sort(a3, 3)
+    println("Test 3: {a3[0]} {a3[1]} {a3[2]} (expected 1 2 3)")
+
+    -- Benchmark: 200 elements
+    val n = 200
+    var orig = fill(n, 0)
+    for i in range(n) {
+        orig[i] = (i * 17 + 31) % 1000
+    }
+    var bench = fill(n, 0)
+    for i in range(n) {
+        bench[i] = orig[i]
+    }
+    heap_sort(bench, n)
+    val check = checksum(bench, n)
+    println("Bench check: {check}")
+
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        for i in range(n) {
+            bench[i] = orig[i]
+        }
+        heap_sort(bench, n)
+        result = bench[0]
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Heap Sort ===")
+    println("Array size: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

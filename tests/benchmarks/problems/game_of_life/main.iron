@@ -1,0 +1,100 @@
+import time
+
+-- Conway's Game of Life: One generation step
+-- Rules: live cell with 2-3 neighbors survives, dead cell with exactly 3 becomes alive
+
+func game_of_life(grid: [Int], rows: Int, cols: Int, out: [Int]) {
+    for i in range(rows) {
+        for j in range(cols) {
+            var neighbors = 0
+            -- Check all 8 directions
+            var di = -1
+            while di <= 1 {
+                var dj = -1
+                while dj <= 1 {
+                    val is_self = di * di + dj * dj
+                    if is_self > 0 {
+                        val ni = i + di
+                        val nj = j + dj
+                        if ni >= 0 {
+                            if ni < rows {
+                                if nj >= 0 {
+                                    if nj < cols {
+                                        neighbors = neighbors + grid[ni * cols + nj]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    dj = dj + 1
+                }
+                di = di + 1
+            }
+            val cell = grid[i * cols + j]
+            if cell == 1 {
+                if neighbors == 2 {
+                    out[i * cols + j] = 1
+                } elif neighbors == 3 {
+                    out[i * cols + j] = 1
+                } else {
+                    out[i * cols + j] = 0
+                }
+            } else {
+                if neighbors == 3 {
+                    out[i * cols + j] = 1
+                } else {
+                    out[i * cols + j] = 0
+                }
+            }
+        }
+    }
+}
+
+func count_alive(grid: [Int], n: Int) -> Int {
+    var count = 0
+    for i in range(n) {
+        if grid[i] == 1 {
+            count = count + 1
+        }
+    }
+    return count
+}
+
+func main() {
+    -- Test 1: Blinker (3x3 embedded in 5x5)
+    var g1 = [0,0,0,0,0, 0,0,1,0,0, 0,0,1,0,0, 0,0,1,0,0, 0,0,0,0,0]
+    var o1 = fill(25, 0)
+    game_of_life(g1, 5, 5, o1)
+    println("Test 1 alive: {count_alive(o1, 25)} (expected 3)")
+    println("Test 1 center: {o1[11]} {o1[12]} {o1[13]} (expected 1 1 1)")
+
+    -- Benchmark: 20x20 grid
+    val rows = 20
+    val cols = 20
+    val total = rows * cols
+    var grid = fill(total, 0)
+    for i in range(total) {
+        if (i * 7 + 3) % 3 == 0 {
+            grid[i] = 1
+        }
+    }
+    var out = fill(total, 0)
+    game_of_life(grid, rows, cols, out)
+    val check = count_alive(out, total)
+    println("Bench check: {check}")
+
+    val iterations = 200000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        game_of_life(grid, rows, cols, out)
+        result = count_alive(out, total)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Game of Life ===")
+    println("Grid: {rows}x{cols}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

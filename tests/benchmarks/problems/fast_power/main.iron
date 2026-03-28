@@ -1,0 +1,44 @@
+import time
+
+-- Modular exponentiation using binary method (fast power)
+
+func fast_power(base: Int, exp: Int, mod: Int) -> Int {
+    var result = 1
+    var b = base % mod
+    var e = exp
+    while e > 0 {
+        if e % 2 == 1 {
+            result = (result * b) % mod
+        }
+        e = e / 2
+        b = (b * b) % mod
+    }
+    return result
+}
+
+func main() {
+    println("Test 1: {fast_power(2, 10, 1000)} (expected 24)")
+    println("Test 2: {fast_power(3, 13, 1000000007)} (expected 1594323)")
+    println("Test 3: {fast_power(7, 256, 1000000007)} (expected 699853951)")
+
+    -- Benchmark: base=3, exp=1000000, mod=1000000007
+    val base = 3
+    val exp = 1000000
+    val mod = 1000000007
+    val check = fast_power(base, exp, mod)
+    println("Bench check: {check}")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = fast_power(base, exp, mod)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Fast Power ===")
+    println("base={base}, exp={exp}, mod={mod}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

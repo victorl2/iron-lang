@@ -1,0 +1,105 @@
+import time
+
+-- Next Permutation: Find next lexicographic permutation in-place
+-- Returns 1 if next permutation found, 0 if wrapped around to first
+
+func next_permutation(arr: [Int], n: Int) -> Int {
+    -- Find largest i such that arr[i] < arr[i+1]
+    var i = n - 2
+    var found = 0
+    while i >= 0 {
+        if arr[i] < arr[i + 1] {
+            found = 1
+            -- Find largest j > i such that arr[j] > arr[i]
+            var j = n - 1
+            while j > i {
+                if arr[j] > arr[i] {
+                    -- Swap arr[i] and arr[j]
+                    val temp = arr[i]
+                    arr[i] = arr[j]
+                    arr[j] = temp
+                    j = -1
+                } else {
+                    j = j - 1
+                }
+            }
+            -- Reverse from i+1 to end
+            var left = i + 1
+            var right = n - 1
+            while left < right {
+                val temp = arr[left]
+                arr[left] = arr[right]
+                arr[right] = temp
+                left = left + 1
+                right = right - 1
+            }
+            i = -1
+        } else {
+            i = i - 1
+        }
+    }
+    if found == 0 {
+        -- Reverse entire array (wrap to first permutation)
+        var left = 0
+        var right = n - 1
+        while left < right {
+            val temp = arr[left]
+            arr[left] = arr[right]
+            arr[right] = temp
+            left = left + 1
+            right = right - 1
+        }
+    }
+    return found
+}
+
+func checksum(arr: [Int], n: Int) -> Int {
+    var sum = 0
+    for i in range(n) {
+        sum = sum + arr[i] * (i + 1)
+    }
+    return sum
+}
+
+func main() {
+    -- Test 1
+    var a1 = [1, 2, 3]
+    next_permutation(a1, 3)
+    println("Test 1: {a1[0]} {a1[1]} {a1[2]} (expected 1 3 2)")
+
+    -- Test 2
+    var a2 = [3, 2, 1]
+    next_permutation(a2, 3)
+    println("Test 2: {a2[0]} {a2[1]} {a2[2]} (expected 1 2 3)")
+
+    -- Test 3
+    var a3 = [1, 5, 1]
+    next_permutation(a3, 3)
+    println("Test 3: {a3[0]} {a3[1]} {a3[2]} (expected 5 1 1)")
+
+    -- Benchmark: array of 20 elements, apply next_permutation 500K times
+    val n = 20
+    var arr = fill(n, 0)
+    for i in range(n) {
+        arr[i] = i + 1
+    }
+    val check_before = checksum(arr, n)
+    println("Bench init checksum: {check_before}")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = result + next_permutation(arr, n)
+    }
+    val elapsed = Time.now_ms() - start
+    val check_after = checksum(arr, n)
+
+    println("Bench after checksum: {check_after}")
+
+    println("")
+    println("=== Benchmark: Next Permutation ===")
+    println("Array size: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

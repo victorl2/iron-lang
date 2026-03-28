@@ -1,0 +1,69 @@
+import time
+
+-- Task Scheduler: Min intervals to finish tasks with cooldown.
+-- Frequency counting approach: result = max(total_tasks, (max_freq - 1) * (cooldown + 1) + count_of_max)
+
+func task_scheduler(tasks: [Int], n: Int, cooldown: Int) -> Int {
+    -- Count frequencies (tasks are values 0-25 representing A-Z)
+    var freq = fill(26, 0)
+    for i in range(n) {
+        freq[tasks[i]] = freq[tasks[i]] + 1
+    }
+
+    -- Find max frequency
+    var max_freq = 0
+    for i in range(26) {
+        if freq[i] > max_freq {
+            max_freq = freq[i]
+        }
+    }
+
+    -- Count how many tasks have max frequency
+    var max_count = 0
+    for i in range(26) {
+        if freq[i] == max_freq {
+            max_count = max_count + 1
+        }
+    }
+
+    val formula_result = (max_freq - 1) * (cooldown + 1) + max_count
+    if n > formula_result {
+        return n
+    }
+    return formula_result
+}
+
+func main() {
+    -- Tasks: A=0, B=1, etc.
+    val t1 = [0, 0, 0, 1, 1, 1]
+    println("Test 1: {task_scheduler(t1, 6, 2)} (expected 8)")
+
+    val t2 = [0, 0, 0, 1, 1, 1]
+    println("Test 2: {task_scheduler(t2, 6, 0)} (expected 6)")
+
+    val t3 = [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6]
+    println("Test 3: {task_scheduler(t3, 12, 2)} (expected 16)")
+
+    -- Benchmark: 50 tasks, cooldown 3
+    val n = 50
+    var tasks = fill(n, 0)
+    for i in range(n) {
+        tasks[i] = (i * 7 + 3) % 10
+    }
+    val check = task_scheduler(tasks, n, 3)
+    println("Bench check: {check}")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = task_scheduler(tasks, n, 3)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Task Scheduler ===")
+    println("Tasks: {n}, Cooldown: 3")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}
