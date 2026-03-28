@@ -58,6 +58,7 @@ int main(int argc, char **argv) {
     bool debug_build = false;
     bool force_comptime = false;
     const char *source_file = NULL;
+    const char *output_file = NULL;
     const char **run_args = NULL;
     int run_arg_count = 0;
 
@@ -68,6 +69,13 @@ int main(int argc, char **argv) {
             debug_build = true;
         } else if (strcmp(argv[i], "--force-comptime") == 0) {
             force_comptime = true;
+        } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-o") == 0) {
+            if (i + 1 < argc) {
+                output_file = argv[++i];
+            } else {
+                fprintf(stderr, "%s: --output requires a path argument\n", IRON_BINARY_NAME);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--") == 0) {
             /* Everything after -- is passed to the program (iron run) */
             run_args = (const char **)&argv[i + 1];
@@ -92,7 +100,7 @@ int main(int argc, char **argv) {
             .use_raylib     = false,
             .force_comptime = force_comptime
         };
-        return iron_build(source_file, NULL, opts);
+        return iron_build(source_file, output_file, opts);
     }
 
     if (strcmp(cmd, "run") == 0) {
@@ -109,7 +117,7 @@ int main(int argc, char **argv) {
             .use_raylib     = false,
             .force_comptime = force_comptime
         };
-        return iron_build(source_file, NULL, opts);
+        return iron_build(source_file, output_file, opts);
     }
 
     if (strcmp(cmd, "check") == 0) {
