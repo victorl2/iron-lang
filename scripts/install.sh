@@ -2,7 +2,9 @@
 set -eu
 
 REPO="victorl2/iron-lang"
-INSTALL_DIR="$HOME/.iron/bin"
+IRON_HOME="$HOME/.iron"
+INSTALL_DIR="$IRON_HOME/bin"
+ENV_FILE="$IRON_HOME/env"
 
 main() {
     # Detect OS
@@ -50,19 +52,33 @@ main() {
 
     echo "Downloading ${URL}..."
     curl -sSfL "$URL" -o "${TMPDIR}/${ARCHIVE}"
-    tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$INSTALL_DIR"
+    LC_ALL=C tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$INSTALL_DIR"
     chmod +x "${INSTALL_DIR}/iron"
 
-    # Update PATH in shell profiles
-    PATH_LINE='export PATH="$HOME/.iron/bin:$PATH"'
+    # Create env file (like rustup's ~/.cargo/env)
+    cat > "$ENV_FILE" << 'ENVEOF'
+# Iron language environment
+# source this file to add iron to your PATH
+export PATH="$HOME/.iron/bin:$PATH"
+ENVEOF
+
+    # Source env from shell profiles
+    SOURCE_LINE='. "$HOME/.iron/env"'
 
     add_to_profile() {
         PROFILE="$1"
         if [ -f "$PROFILE" ]; then
-            if ! grep -q '.iron/bin' "$PROFILE" 2>/dev/null; then
+            # Remove old-style direct PATH export from previous installs
+            if grep -q '.iron/bin' "$PROFILE" 2>/dev/null && ! grep -q '.iron/env' "$PROFILE" 2>/dev/null; then
+                sed -i.bak '/.iron\/bin/d' "$PROFILE"
+                # Also remove the "# Iron language" comment left by old installer
+                sed -i.bak '/^# Iron language$/d' "$PROFILE"
+                rm -f "${PROFILE}.bak"
+            fi
+            if ! grep -q '.iron/env' "$PROFILE" 2>/dev/null; then
                 echo "" >> "$PROFILE"
                 echo "# Iron language" >> "$PROFILE"
-                echo "$PATH_LINE" >> "$PROFILE"
+                echo "$SOURCE_LINE" >> "$PROFILE"
                 echo "  Updated $PROFILE"
             fi
         fi
@@ -71,17 +87,18 @@ main() {
     echo ""
     add_to_profile "$HOME/.bashrc"
     add_to_profile "$HOME/.zshrc"
+    add_to_profile "$HOME/.bash_profile"
 
-    # Also add to .profile for login shells if neither bashrc/zshrc exists
-    if [ ! -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ]; then
+    # Also add to .profile for login shells if no other profile exists
+    if [ ! -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && [ ! -f "$HOME/.bash_profile" ]; then
         add_to_profile "$HOME/.profile"
     fi
 
     echo ""
     echo "Iron ${VERSION} installed to ${INSTALL_DIR}/iron"
     echo ""
-    echo "Restart your shell or run:"
-    echo "  export PATH=\"\$HOME/.iron/bin:\$PATH\""
+    echo "To get started you may need to restart your shell or run:"
+    echo '  source "$HOME/.iron/env"'
     echo ""
     echo "Then verify with:"
     echo "  iron --version"
