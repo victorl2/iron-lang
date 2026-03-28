@@ -87,15 +87,18 @@ func rotting_oranges(grid: [Int], rows: Int, cols: Int) -> Int {
     return -1
 }
 
-func make_grid_10x10() -> [Int] {
-    -- 10x10 grid all fresh, rotten at (0,0)
-    var g = fill(100, 1)
+func init_grid_10x10(g: [Int]) {
+    var i = 0
+    while i < 100 {
+        g[i] = 1
+        i = i + 1
+    }
     g[0] = 2
-    return g
 }
 
 func main() {
-    val g1 = make_grid_10x10()
+    var g1 = fill(100, 0)
+    init_grid_10x10(g1)
     println("Test 1: {rotting_oranges(g1, 10, 10)} (expected 18)")
 
     val g2 = [2, 1, 1, 1, 1, 0, 0, 1, 1]
@@ -110,8 +113,9 @@ func main() {
     val iterations = 200000
     val start = Time.now_ms()
     var result = 0
+    var g = fill(100, 0)
     for it in range(iterations) {
-        val g = make_grid_10x10()
+        init_grid_10x10(g)
         result = rotting_oranges(g, 10, 10)
     }
     val elapsed = Time.now_ms() - start

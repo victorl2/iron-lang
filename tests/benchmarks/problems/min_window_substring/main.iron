@@ -68,20 +68,23 @@ func main() {
     val t2 = [1]
     println("Test 2: len={min_window(s2, 1, t2, 1)} (expected 1)")
 
-    val s3 = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5]
+    var s3 = fill(200, 0)
+    for i in range(200) {
+        s3[i] = (i % 5) + 1
+    }
     val t3 = [1, 3, 5]
 
-    val iterations = 10000000
+    val iterations = 200000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
-        result = min_window(s3, 20, t3, 3)
+        result = min_window(s3, 200, t3, 3)
     }
     val elapsed = Time.now_ms() - start
 
     println("")
     println("=== Benchmark: Minimum Window Substring ===")
-    println("String: 20, Target: 3")
+    println("String: 200, Target: 3")
     println("Iterations: {iterations}")
     println("Result len: {result}")
     println("Total time: {elapsed} ms")

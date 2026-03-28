@@ -38,17 +38,20 @@ int main(void) {
     printf("Test 1: %d (expected 2)\n", longestValidParentheses(t1, 2));
     printf("Test 2: %d (expected 2)\n", longestValidParentheses(t2, 4));
 
-    int s[] = {1,1,1,1,1,1,1,1,1,1, 0,0,0,0,0,0,0,0,0,0};
-    printf("Test 3: %d (expected 20)\n", longestValidParentheses(s, 20));
+    /* 100 '(' followed by 100 ')' => longest valid = 200 */
+    int s[200];
+    for (int i = 0; i < 100; i++) s[i] = 1;
+    for (int i = 100; i < 200; i++) s[i] = 0;
+    printf("Test 3: %d (expected 200)\n", longestValidParentheses(s, 200));
 
     long mem_before = get_memory_kb();
-    int iterations = 10000000;
+    int iterations = 200000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = longestValidParentheses(s, 20);
+        result = longestValidParentheses(s, 200);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -57,7 +60,7 @@ int main(void) {
                       + (end.tv_nsec - start.tv_nsec) / 1e6;
 
     printf("\n=== Benchmark: Longest Valid Parentheses ===\n");
-    printf("String length: 20\n");
+    printf("String length: 200\n");
     printf("Iterations: %d\n", iterations);
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);

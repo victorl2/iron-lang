@@ -21,7 +21,7 @@ func main() {
     println("Test 2: {climb_stairs(10)} (expected 89)")
     println("Test 3: {climb_stairs(35)} (expected 14930352)")
 
-    val iterations = 10000000
+    val iterations = 250000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

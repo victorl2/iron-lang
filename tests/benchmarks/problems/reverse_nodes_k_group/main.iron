@@ -1,6 +1,6 @@
 import time
 
-func reverse_k_group(vals: [Int], nxt: [Int], n: Int, k: Int) -> [Int] {
+func reverse_k_group(vals: [Int], nxt: [Int], n: Int, k: Int, output: [Int]) {
     -- Count nodes
     var count = 0
     var cur = 0
@@ -10,7 +10,6 @@ func reverse_k_group(vals: [Int], nxt: [Int], n: Int, k: Int) -> [Int] {
     }
 
     val groups = count / k
-    var output = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     var buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     var idx = 0
     cur = 0
@@ -39,7 +38,6 @@ func reverse_k_group(vals: [Int], nxt: [Int], n: Int, k: Int) -> [Int] {
         idx = idx + 1
         cur = nxt[cur]
     }
-    return output
 }
 
 func main() {
@@ -51,15 +49,16 @@ func main() {
     nxt[48] = 49
     nxt[49] = -1
 
-    val out = reverse_k_group(vals, nxt, n, 3)
+    var out = fill(50, 0)
+    reverse_k_group(vals, nxt, n, 3, out)
     println("First 12: {out[0]} {out[1]} {out[2]} {out[3]} {out[4]} {out[5]} {out[6]} {out[7]} {out[8]} {out[9]} {out[10]} {out[11]}")
 
     val iterations = 1000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
-        val r = reverse_k_group(vals, nxt, n, 3)
-        result = r[0]
+        reverse_k_group(vals, nxt, n, 3, out)
+        result = out[0]
     }
     val elapsed = Time.now_ms() - start
 

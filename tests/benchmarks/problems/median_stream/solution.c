@@ -122,12 +122,13 @@ int main(void) {
     printf("Bench check: %lld\n", median_stream(nums, n));
 
     long mem_before = get_memory_kb();
-    int iterations = 100000;
+    int64_t iterations = 200000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;
-    for (int it = 0; it < iterations; it++) {
+    for (int64_t it = 0; it < iterations; it++) {
+        nums[0] = (int64_t)((it * 7 + 13) % 200);
         result = median_stream(nums, n);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -138,7 +139,7 @@ int main(void) {
 
     printf("\n=== Benchmark: Median Stream ===\n");
     printf("Stream size: %lld\n", n);
-    printf("Iterations: %d\n", iterations);
+    printf("Iterations: %lld\n", iterations);
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);

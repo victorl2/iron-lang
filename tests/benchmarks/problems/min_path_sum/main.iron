@@ -10,16 +10,18 @@ func min_path_sum(grid: [Int], rows: Int, cols: Int) -> Int {
     }
     var i = 1
     while i < rows {
-        dp[i * cols] = dp[(i - 1) * cols] + grid[i * cols]
+        val row = i * cols
+        val prev_row = (i - 1) * cols
+        dp[row] = dp[prev_row] + grid[row]
         j = 1
         while j < cols {
-            val up = dp[(i - 1) * cols + j]
-            val left = dp[i * cols + (j - 1)]
+            val up = dp[prev_row + j]
+            val left = dp[row + (j - 1)]
             var mn = up
             if left < mn {
                 mn = left
             }
-            dp[i * cols + j] = mn + grid[i * cols + j]
+            dp[row + j] = mn + grid[row + j]
             j = j + 1
         }
         i = i + 1

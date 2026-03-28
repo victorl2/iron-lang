@@ -3,13 +3,12 @@ import time
 -- Count islands in a 2D grid using DFS flood fill
 -- Grid stored as 1D array: grid[r * cols + c]
 
-func dfs_fill(grid: [Int], rows: Int, cols: Int, r: Int, c: Int) -> [Int] {
-    var g = grid
+func dfs_fill(grid: [Int], rows: Int, cols: Int, r: Int, c: Int) {
     var stack = fill(400, 0)
     var top = 0
     stack[top] = r * cols + c
     top = top + 1
-    g[r * cols + c] = 0
+    grid[r * cols + c] = 0
 
     while top > 0 {
         top = top - 1
@@ -19,59 +18,61 @@ func dfs_fill(grid: [Int], rows: Int, cols: Int, r: Int, c: Int) -> [Int] {
 
         -- up
         if cr > 0 {
-            if g[(cr - 1) * cols + cc] == 1 {
-                g[(cr - 1) * cols + cc] = 0
+            if grid[(cr - 1) * cols + cc] == 1 {
+                grid[(cr - 1) * cols + cc] = 0
                 stack[top] = (cr - 1) * cols + cc
                 top = top + 1
             }
         }
         -- down
         if cr < rows - 1 {
-            if g[(cr + 1) * cols + cc] == 1 {
-                g[(cr + 1) * cols + cc] = 0
+            if grid[(cr + 1) * cols + cc] == 1 {
+                grid[(cr + 1) * cols + cc] = 0
                 stack[top] = (cr + 1) * cols + cc
                 top = top + 1
             }
         }
         -- left
         if cc > 0 {
-            if g[cr * cols + cc - 1] == 1 {
-                g[cr * cols + cc - 1] = 0
+            if grid[cr * cols + cc - 1] == 1 {
+                grid[cr * cols + cc - 1] = 0
                 stack[top] = cr * cols + cc - 1
                 top = top + 1
             }
         }
         -- right
         if cc < cols - 1 {
-            if g[cr * cols + cc + 1] == 1 {
-                g[cr * cols + cc + 1] = 0
+            if grid[cr * cols + cc + 1] == 1 {
+                grid[cr * cols + cc + 1] = 0
                 stack[top] = cr * cols + cc + 1
                 top = top + 1
             }
         }
     }
-    return g
 }
 
 func num_islands(grid: [Int], rows: Int, cols: Int) -> Int {
-    var g = grid
     var count = 0
     for r in range(rows) {
         for c in range(cols) {
-            if g[r * cols + c] == 1 {
+            if grid[r * cols + c] == 1 {
                 count = count + 1
-                g = dfs_fill(g, rows, cols, r, c)
+                dfs_fill(grid, rows, cols, r, c)
             }
         }
     }
     return count
 }
 
-func make_grid() -> [Int] {
-    -- 20x20 grid with known island pattern
-    var grid = fill(400, 0)
-    -- Island 1: top-left block
+func init_grid(grid: [Int]) {
+    -- Clear all to 0
     var i = 0
+    while i < 400 {
+        grid[i] = 0
+        i = i + 1
+    }
+    -- Island 1: top-left block
+    i = 0
     while i < 5 {
         var j = 0
         while j < 5 {
@@ -112,25 +113,26 @@ func make_grid() -> [Int] {
     }
     -- Island 5: bottom-right single cell
     grid[19 * 20 + 19] = 1
-    return grid
 }
 
 func main() {
-    val grid1 = make_grid()
+    var grid1 = fill(400, 0)
+    init_grid(grid1)
     println("Test 1: {num_islands(grid1, 20, 20)} (expected 5)")
 
     -- Small test
-    val grid2 = [1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1]
+    var grid2 = [1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1]
     println("Test 2: {num_islands(grid2, 4, 5)} (expected 3)")
 
-    val grid3 = [1, 0, 1, 0, 1, 0, 1, 0, 1]
+    var grid3 = [1, 0, 1, 0, 1, 0, 1, 0, 1]
     println("Test 3: {num_islands(grid3, 3, 3)} (expected 5)")
 
     val iterations = 100000
     val start = Time.now_ms()
     var result = 0
+    var g = fill(400, 0)
     for it in range(iterations) {
-        val g = make_grid()
+        init_grid(g)
         result = num_islands(g, 20, 20)
     }
     val elapsed = Time.now_ms() - start

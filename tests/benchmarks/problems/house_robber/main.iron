@@ -39,7 +39,7 @@ func main() {
     val bench_result = house_robber(bench, 50)
     println("Test 3: {bench_result} (expected 1379)")
 
-    val iterations = 10000000
+    val iterations = 200000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

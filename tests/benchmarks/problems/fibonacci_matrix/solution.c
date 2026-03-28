@@ -51,13 +51,13 @@ int main(void) {
     printf("Bench check: %lld\n", fibonacci(n, mod));
 
     long mem_before = get_memory_kb();
-    int iterations = 1000000;
+    int iterations = 3000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = fibonacci(n, mod);
+        result += fibonacci(n + (it % 3), mod);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -71,6 +71,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %lld\n", result);
 
     return 0;
 }

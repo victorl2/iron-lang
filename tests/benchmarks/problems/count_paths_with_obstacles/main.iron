@@ -17,17 +17,19 @@ func count_paths_obstacles(grid: [Int], rows: Int, cols: Int) -> Int {
     }
     var i = 1
     while i < rows {
-        if grid[i * cols] == 0 {
-            if dp[(i - 1) * cols] == 1 {
-                dp[i * cols] = 1
+        val row = i * cols
+        val prev_row = (i - 1) * cols
+        if grid[row] == 0 {
+            if dp[prev_row] == 1 {
+                dp[row] = 1
             }
         }
         j = 1
         while j < cols {
-            if grid[i * cols + j] == 1 {
-                dp[i * cols + j] = 0
+            if grid[row + j] == 1 {
+                dp[row + j] = 0
             } else {
-                dp[i * cols + j] = dp[(i - 1) * cols + j] + dp[i * cols + (j - 1)]
+                dp[row + j] = dp[prev_row + j] + dp[row + (j - 1)]
             }
             j = j + 1
         }

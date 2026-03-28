@@ -501,111 +501,148 @@ static IronIR_Func *find_ir_func(EmitCtx *ctx, const char *ir_name) {
 static void analyze_array_param_modes(EmitCtx *ctx) {
     IronIR_Module *module = ctx->module;
 
-    for (int fi = 0; fi < module->func_count; fi++) {
-        IronIR_Func *fn = module->funcs[fi];
-        if (fn->is_extern || fn->block_count == 0) continue;
+    /* Iterate until convergence: if a callee's array param already has
+     * pointer mode, passing an array to it shouldn't disqualify the caller.
+     * First pass resolves leaf functions; subsequent passes propagate. */
+    for (int iteration = 0; iteration < 8; iteration++) {
+        bool changed = false;
 
-        for (int pi = 0; pi < fn->param_count; pi++) {
-            Iron_Type *pt = fn->params[pi].type;
-            if (!pt || pt->kind != IRON_TYPE_ARRAY) continue;
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronIR_Func *fn = module->funcs[fi];
+            if (fn->is_extern || fn->block_count == 0) continue;
 
-            IronIR_ValueId param_val_id = (IronIR_ValueId)(pi * 2 + 1);
-            IronIR_ValueId alloca_id    = (IronIR_ValueId)(pi * 2 + 2);
+            for (int pi = 0; pi < fn->param_count; pi++) {
+                Iron_Type *pt = fn->params[pi].type;
+                if (!pt || pt->kind != IRON_TYPE_ARRAY) continue;
 
-            /* Build alias set: param_val and alloca, plus LOADs from alloca */
-            struct { IronIR_ValueId key; bool value; } *aliases = NULL;
-            hmput(aliases, param_val_id, true);
-            hmput(aliases, alloca_id, true);
+                /* Skip if already resolved */
+                ArrayParamMode existing = get_array_param_mode(ctx, fn->name, pi);
+                if (existing != ARRAY_PARAM_LIST) continue;
 
-            for (int bi = 0; bi < fn->block_count; bi++) {
-                IronIR_Block *block = fn->blocks[bi];
-                for (int ii = 0; ii < block->instr_count; ii++) {
-                    IronIR_Instr *instr = block->instrs[ii];
-                    if (instr->kind == IRON_IR_LOAD) {
-                        if (hmgeti(aliases, instr->load.ptr) >= 0) {
-                            hmput(aliases, instr->id, true);
+                IronIR_ValueId param_val_id = (IronIR_ValueId)(pi * 2 + 1);
+                IronIR_ValueId alloca_id    = (IronIR_ValueId)(pi * 2 + 2);
+
+                /* Build alias set: param_val and alloca, plus LOADs from alloca */
+                struct { IronIR_ValueId key; bool value; } *aliases = NULL;
+                hmput(aliases, param_val_id, true);
+                hmput(aliases, alloca_id, true);
+
+                for (int bi = 0; bi < fn->block_count; bi++) {
+                    IronIR_Block *block = fn->blocks[bi];
+                    for (int ii = 0; ii < block->instr_count; ii++) {
+                        IronIR_Instr *instr = block->instrs[ii];
+                        if (instr->kind == IRON_IR_LOAD) {
+                            if (hmgeti(aliases, instr->load.ptr) >= 0) {
+                                hmput(aliases, instr->id, true);
+                            }
                         }
                     }
                 }
-            }
 
-            /* Scan for disqualifying uses */
-            bool has_write = false;
-            bool disqualified = false;
+                /* Scan for disqualifying uses */
+                bool has_write = false;
+                bool disqualified = false;
 
-            for (int bi = 0; bi < fn->block_count && !disqualified; bi++) {
-                IronIR_Block *block = fn->blocks[bi];
-                for (int ii = 0; ii < block->instr_count && !disqualified; ii++) {
-                    IronIR_Instr *instr = block->instrs[ii];
+                for (int bi = 0; bi < fn->block_count && !disqualified; bi++) {
+                    IronIR_Block *block = fn->blocks[bi];
+                    for (int ii = 0; ii < block->instr_count && !disqualified; ii++) {
+                        IronIR_Instr *instr = block->instrs[ii];
 
-                    switch (instr->kind) {
-                    case IRON_IR_GET_INDEX:
-                        break;
-                    case IRON_IR_SET_INDEX:
-                        if (hmgeti(aliases, instr->index.array) >= 0)
-                            has_write = true;
-                        break;
-                    case IRON_IR_GET_FIELD:
-                        break;
-                    case IRON_IR_STORE:
-                        /* store(param_alloca, param_val) is the entry-block pattern - ok.
-                         * store(alias, non-alias) = reassignment - disqualify.
-                         * store(non-alias, alias) = copying param to another var - disqualify. */
-                        if (hmgeti(aliases, instr->store.ptr) >= 0 &&
-                            hmgeti(aliases, instr->store.value) < 0) {
-                            disqualified = true;
-                        }
-                        if (hmgeti(aliases, instr->store.ptr) < 0 &&
-                            hmgeti(aliases, instr->store.value) >= 0) {
-                            disqualified = true;
-                        }
-                        break;
-                    case IRON_IR_CALL:
-                        for (int ai = 0; ai < instr->call.arg_count; ai++) {
-                            if (hmgeti(aliases, instr->call.args[ai]) >= 0)
+                        switch (instr->kind) {
+                        case IRON_IR_GET_INDEX:
+                            break;
+                        case IRON_IR_SET_INDEX:
+                            if (hmgeti(aliases, instr->index.array) >= 0)
+                                has_write = true;
+                            break;
+                        case IRON_IR_GET_FIELD:
+                            break;
+                        case IRON_IR_STORE:
+                            if (hmgeti(aliases, instr->store.ptr) >= 0 &&
+                                hmgeti(aliases, instr->store.value) < 0) {
                                 disqualified = true;
-                        }
-                        break;
-                    case IRON_IR_RETURN:
-                        if (!instr->ret.is_void &&
-                            hmgeti(aliases, instr->ret.value) >= 0)
-                            disqualified = true;
-                        break;
-                    case IRON_IR_SET_FIELD:
-                        if (hmgeti(aliases, instr->field.value) >= 0)
-                            disqualified = true;
-                        break;
-                    case IRON_IR_CONSTRUCT:
-                        for (int fj = 0; fj < instr->construct.field_count; fj++) {
-                            if (hmgeti(aliases, instr->construct.field_vals[fj]) >= 0)
+                            }
+                            if (hmgeti(aliases, instr->store.ptr) < 0 &&
+                                hmgeti(aliases, instr->store.value) >= 0) {
                                 disqualified = true;
-                        }
-                        break;
-                    case IRON_IR_MAKE_CLOSURE:
-                        for (int ci = 0; ci < instr->make_closure.capture_count; ci++) {
-                            if (hmgeti(aliases, instr->make_closure.captures[ci]) >= 0)
+                            }
+                            break;
+                        case IRON_IR_CALL:
+                            for (int ai = 0; ai < instr->call.arg_count; ai++) {
+                                if (hmgeti(aliases, instr->call.args[ai]) < 0) continue;
+                                /* Check if callee accepts pointer mode for this param */
+                                const char *callee_name = NULL;
+                                if (instr->call.func_decl && !instr->call.func_decl->is_extern)
+                                    callee_name = instr->call.func_decl->name;
+                                else if (!instr->call.func_decl) {
+                                    IronIR_ValueId fptr = instr->call.func_ptr;
+                                    if (fptr != IRON_IR_VALUE_INVALID &&
+                                        fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                                        fn->value_table[fptr] != NULL &&
+                                        fn->value_table[fptr]->kind == IRON_IR_FUNC_REF)
+                                        callee_name = fn->value_table[fptr]->func_ref.func_name;
+                                }
+                                if (callee_name) {
+                                    /* Recursive call: same function, same param index.
+                                     * The param will get the same mode we're computing. */
+                                    if (strcmp(callee_name, fn->name) == 0 && ai == pi) {
+                                        has_write = true; /* conservative: assume mutable */
+                                        continue;
+                                    }
+                                    ArrayParamMode cpm = get_array_param_mode(ctx, callee_name, ai);
+                                    if (cpm == ARRAY_PARAM_CONST_PTR || cpm == ARRAY_PARAM_MUT_PTR) {
+                                        /* Callee uses pointer mode — propagate write flag */
+                                        if (cpm == ARRAY_PARAM_MUT_PTR) has_write = true;
+                                        continue; /* not an escape */
+                                    }
+                                }
                                 disqualified = true;
+                            }
+                            break;
+                        case IRON_IR_RETURN:
+                            if (!instr->ret.is_void &&
+                                hmgeti(aliases, instr->ret.value) >= 0)
+                                disqualified = true;
+                            break;
+                        case IRON_IR_SET_FIELD:
+                            if (hmgeti(aliases, instr->field.value) >= 0)
+                                disqualified = true;
+                            break;
+                        case IRON_IR_CONSTRUCT:
+                            for (int fj = 0; fj < instr->construct.field_count; fj++) {
+                                if (hmgeti(aliases, instr->construct.field_vals[fj]) >= 0)
+                                    disqualified = true;
+                            }
+                            break;
+                        case IRON_IR_MAKE_CLOSURE:
+                            for (int ci = 0; ci < instr->make_closure.capture_count; ci++) {
+                                if (hmgeti(aliases, instr->make_closure.captures[ci]) >= 0)
+                                    disqualified = true;
+                            }
+                            break;
+                        case IRON_IR_SLICE:
+                            if (hmgeti(aliases, instr->slice.array) >= 0)
+                                disqualified = true;
+                            break;
+                        default:
+                            break;
                         }
-                        break;
-                    case IRON_IR_SLICE:
-                        if (hmgeti(aliases, instr->slice.array) >= 0)
-                            disqualified = true;
-                        break;
-                    default:
-                        break;
                     }
                 }
-            }
 
-            hmfree(aliases);
+                hmfree(aliases);
 
-            if (!disqualified) {
-                ArrayParamMode mode = has_write
-                    ? ARRAY_PARAM_MUT_PTR : ARRAY_PARAM_CONST_PTR;
-                const char *key = make_param_mode_key(fn->name, pi, ctx->arena);
-                shput(ctx->array_param_modes, key, (int)mode);
+                if (!disqualified) {
+                    ArrayParamMode mode = has_write
+                        ? ARRAY_PARAM_MUT_PTR : ARRAY_PARAM_CONST_PTR;
+                    const char *key = make_param_mode_key(fn->name, pi, ctx->arena);
+                    shput(ctx->array_param_modes, key, (int)mode);
+                    changed = true;
+                }
             }
         }
+
+        if (!changed) break;
     }
 }
 
@@ -673,7 +710,26 @@ static void optimize_array_repr(IronIR_Module *module, EmitCtx *ctx) {
                 IronIR_Instr *instr = block->instrs[ii];
                 if (instr->kind == IRON_IR_STORE) {
                     ptrdiff_t vi = hmgeti(sa_map, instr->store.value);
-                    if (vi >= 0) hmput(sa_map, instr->store.ptr, sa_map[vi].value);
+                    if (vi >= 0) {
+                        hmput(sa_map, instr->store.ptr, sa_map[vi].value);
+                    } else {
+                        /* If the alloca already holds a stack array but is now
+                         * receiving a non-stack value (e.g. a function call
+                         * return), revoke the original fill/array_lit to avoid
+                         * type mismatch (int64_t* vs Iron_List_T). */
+                        ptrdiff_t pi = hmgeti(sa_map, instr->store.ptr);
+                        if (pi >= 0) {
+                            IronIR_ValueId orig = sa_map[pi].value;
+                            if (orig < (IronIR_ValueId)arrlen(fn->value_table) &&
+                                fn->value_table[orig]) {
+                                if (fn->value_table[orig]->kind == IRON_IR_ARRAY_LIT)
+                                    fn->value_table[orig]->array_lit.use_stack_repr = false;
+                                else
+                                    hmput(ctx->revoked_fill_ids, orig, true);
+                            }
+                            hmdel(sa_map, instr->store.ptr);
+                        }
+                    }
                 } else if (instr->kind == IRON_IR_LOAD) {
                     ptrdiff_t vi = hmgeti(sa_map, instr->load.ptr);
                     if (vi >= 0) hmput(sa_map, instr->id, sa_map[vi].value);
@@ -1447,17 +1503,20 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                     /* Check if dynamic-count fill is stack-eligible (VLA) */
                     IronIR_ValueId sa = get_stack_array_origin(ctx, instr->id);
                     if (sa != IRON_IR_VALUE_INVALID) {
-                        /* VLA path: stack-allocated variable-length array */
+                        /* VLA path: stack-allocated variable-length array.
+                         * Use alloca() instead of C99 VLA to avoid
+                         * "goto bypasses VLA initialization" errors. */
                         const char *elem_type = "int64_t";
                         if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
                             instr->type->array.elem)
                             elem_type = emit_type_to_c(instr->type->array.elem, ctx);
                         emit_indent(sb, ind);
-                        iron_strbuf_appendf(sb, "%s ", elem_type);
+                        iron_strbuf_appendf(sb, "%s *", elem_type);
                         emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, "[");
+                        iron_strbuf_appendf(sb, " = (%s *)alloca(sizeof(%s) * ",
+                                            elem_type, elem_type);
                         emit_val(sb, instr->call.args[0]);
-                        iron_strbuf_appendf(sb, "];\n");
+                        iron_strbuf_appendf(sb, ");\n");
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
                         emit_val(sb, instr->call.args[0]);

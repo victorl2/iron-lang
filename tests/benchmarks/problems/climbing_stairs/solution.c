@@ -18,7 +18,7 @@ int main(void) {
     printf("Test 2: %lld (expected 89)\n", (long long)climb_stairs(10));
     printf("Test 3: %lld (expected 14930352)\n", (long long)climb_stairs(35));
 
-    int iterations = 10000000;
+    int iterations = 250000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

@@ -53,7 +53,7 @@ func main() {
     val check = task_scheduler(tasks, n, 3)
     println("Bench check: {check}")
 
-    val iterations = 500000
+    val iterations = 500000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

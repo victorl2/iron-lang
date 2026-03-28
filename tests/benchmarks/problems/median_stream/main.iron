@@ -83,8 +83,8 @@ func heap_down_min(h: [Int], size: Int, idx: Int) {
 
 func median_stream(nums: [Int], n: Int) -> Int {
     -- max_heap: lower half, min_heap: upper half
-    var max_heap = fill(n, 0)
-    var min_heap = fill(n, 0)
+    var max_heap = fill(100, 0)
+    var min_heap = fill(100, 0)
     var max_size = 0
     var min_size = 0
     var last_median = 0
@@ -159,10 +159,11 @@ func main() {
     val check = median_stream(nums, n)
     println("Bench check: {check}")
 
-    val iterations = 100000
+    val iterations = 200000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
+        nums[0] = (it * 7 + 13) % 200
         result = median_stream(nums, n)
     }
     val elapsed = Time.now_ms() - start

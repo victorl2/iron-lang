@@ -59,18 +59,19 @@ int main(void) {
     WinResult r2 = minWindow(s2, 1, t2, 1);
     printf("Test 2: len=%d (expected 1)\n", r2.len);
 
-    /* Benchmark */
-    int s3[] = {1,2,3,4,5,1,2,3,4,5,1,2,3,4,5,1,2,3,4,5};
+    /* Benchmark: 200 elements, repeating 1-5 pattern */
+    int s3[200];
+    for (int i = 0; i < 200; i++) s3[i] = (i % 5) + 1;
     int t3[] = {1,3,5};
 
     long mem_before = get_memory_kb();
-    int iterations = 10000000;
+    int iterations = 200000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int result = 0;
     for (int it = 0; it < iterations; it++) {
-        WinResult r = minWindow(s3, 20, t3, 3);
+        WinResult r = minWindow(s3, 200, t3, 3);
         result = r.len;
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -80,7 +81,7 @@ int main(void) {
                       + (end.tv_nsec - start.tv_nsec) / 1e6;
 
     printf("\n=== Benchmark: Minimum Window Substring ===\n");
-    printf("String: 20, Target: 3\n");
+    printf("String: 200, Target: 3\n");
     printf("Iterations: %d\n", iterations);
     printf("Result len: %d\n", (int)result);
     printf("Total time: %.3f ms\n", elapsed_ms);
