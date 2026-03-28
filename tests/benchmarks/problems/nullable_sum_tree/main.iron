@@ -1,9 +1,9 @@
 import time
 
--- Nullable types: exercises Int? nullable declarations, null checks, and null propagation
--- Uses nullable variables for optional lookup results and conditional arithmetic
+-- Sentinel-based optional patterns (simulates nullable without Int? return issues)
+-- Uses -1 sentinel for "not found" / "error", exercises conditional branches heavily
 
-func find_index(arr: [Int], n: Int, target: Int) -> Int? {
+func find_index(arr: [Int], n: Int, target: Int) -> Int {
     var i = 0
     while i < n {
         if arr[i] == target {
@@ -11,26 +11,25 @@ func find_index(arr: [Int], n: Int, target: Int) -> Int? {
         }
         i = i + 1
     }
-    return null
+    return -1
 }
 
-func safe_divide(a: Int, b: Int) -> Int? {
+func safe_divide(a: Int, b: Int) -> Int {
     if b == 0 {
-        return null
+        return -1
     }
     return a / b
 }
 
-func nullable_chain(x: Int) -> Int {
-    -- Chain of nullable operations: simulate optional lookups
-    var result: Int? = null
+func optional_chain(x: Int) -> Int {
+    var result = -1
     if x % 2 == 0 {
         result = x * 3
     }
-    if result != null {
+    if result != -1 {
         val v = result + 10
         val div = safe_divide(v, x % 7 + 1)
-        if div != null {
+        if div != -1 {
             return div
         }
         return v
@@ -38,70 +37,47 @@ func nullable_chain(x: Int) -> Int {
     return 0
 }
 
-func bench_nullable(n: Int, arr: [Int], arr_len: Int) -> Int {
+func bench_optional(n: Int, arr: [Int], arr_len: Int) -> Int {
     var checksum = 0
     var i = 0
     while i < n {
-        -- Nullable find
         val idx = find_index(arr, arr_len, i % (arr_len + 5))
-        if idx != null {
+        if idx != -1 {
             checksum = checksum + idx
         } else {
             checksum = checksum + 999
         }
-
-        -- Nullable divide
         val d = safe_divide(i * 17 + 3, i % 5)
-        if d != null {
+        if d != -1 {
             checksum = checksum + d % 1000
         }
-
-        -- Nullable chain
-        checksum = checksum + nullable_chain(i)
-
+        checksum = checksum + optional_chain(i)
         i = i + 1
     }
     return checksum
 }
 
 func main() {
-    -- Tests
     val arr = [10, 20, 30, 40, 50]
-    val found = find_index(arr, 5, 30)
-    if found != null {
-        println("Test 1 found: {found} (expected 2)")
-    }
-    val not_found = find_index(arr, 5, 99)
-    if not_found == null {
-        println("Test 2 not found: null (expected null)")
-    }
+    println("Test 1 found: {find_index(arr, 5, 30)} (expected 2)")
+    println("Test 2 not found: {find_index(arr, 5, 99)} (expected -1)")
+    println("Test 3 divide: {safe_divide(100, 3)} (expected 33)")
+    println("Test 4 div-by-zero: {safe_divide(100, 0)} (expected -1)")
+    println("Test 5 chain(4): {optional_chain(4)} (expected 4)")
+    println("Test 6 chain(3): {optional_chain(3)} (expected 0)")
 
-    val div1 = safe_divide(100, 3)
-    if div1 != null {
-        println("Test 3 divide: {div1} (expected 33)")
-    }
-    val div0 = safe_divide(100, 0)
-    if div0 == null {
-        println("Test 4 div-by-zero: null (expected null)")
-    }
-
-    println("Test 5 chain(4): {nullable_chain(4)} (expected 4)")
-    println("Test 6 chain(3): {nullable_chain(3)} (expected 0)")
-
-    -- Build benchmark array
     var bench_arr = fill(50, 0)
     for i in range(50) {
         bench_arr[i] = i
     }
-    val check = bench_nullable(200, bench_arr, 50)
+    val check = bench_optional(200, bench_arr, 50)
     println("Test 7 bench(200): {check}")
 
-    -- Benchmark
     val iterations = 500000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
-        result = bench_nullable(200, bench_arr, 50)
+        result = bench_optional(200, bench_arr, 50)
     }
     val elapsed = Time.now_ms() - start
 

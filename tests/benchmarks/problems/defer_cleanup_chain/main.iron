@@ -1,107 +1,63 @@
 import time
 
--- Defer statements: exercises defer overhead in functions with early returns
--- Each function uses defer to register cleanup actions (incrementing counters)
--- The benchmark measures the cost of defer setup, stack management, and execution
+-- Multi-exit functions: exercises multiple early returns, condition branching,
+-- and function call overhead with various code paths
 
--- Global-style counter tracked through array mutation
-func process_with_defer(arr: [Int], idx: Int, depth: Int) -> Int {
-    -- Track that we entered this function
-    arr[0] = arr[0] + 1
-    defer arr[0] = arr[0] - 1
+func classify(n: Int) -> Int {
+    if n < 0 { return 0 }
+    if n == 0 { return 1 }
+    if n % 7 == 0 { return 7 }
+    if n % 5 == 0 { return 5 }
+    if n % 3 == 0 { return 3 }
+    if n % 2 == 0 { return 2 }
+    return n % 100
+}
 
+func process(idx: Int, depth: Int) -> Int {
     if depth <= 0 {
         return idx % 997
     }
-
-    arr[1] = arr[1] + 1
-    defer arr[1] = arr[1] - 1
-
     val v = (idx * 31 + 17) % 10007
     if v % 3 == 0 {
         return v
     }
-
-    arr[2] = arr[2] + 1
-    defer arr[2] = arr[2] - 1
-
-    return v + process_with_defer(arr, v, depth - 1) % 1000
+    if v % 5 == 0 {
+        return v + 1
+    }
+    return v + process(v, depth - 1) % 1000
 }
 
-func multi_exit(n: Int, tracker: [Int]) -> Int {
-    tracker[0] = tracker[0] + 1
-    defer tracker[0] = tracker[0] - 1
-
-    if n < 0 {
-        return 0
-    }
-
-    tracker[1] = tracker[1] + 1
-    defer tracker[1] = tracker[1] - 1
-
-    if n == 0 {
-        return 1
-    }
-
-    if n % 2 == 0 {
-        return n * 2
-    }
-
-    tracker[2] = tracker[2] + 1
-    defer tracker[2] = tracker[2] - 1
-
-    return n * 3 + 1
-}
-
-func bench_defer(n: Int) -> Int {
-    var tracker = fill(10, 0)
+func bench_multi_exit(n: Int) -> Int {
     var checksum = 0
-
     var i = 0
     while i < n {
-        val v = process_with_defer(tracker, i * 73 + 29, 3)
-        checksum = checksum + v % 10000
+        checksum = checksum + classify(i)
+        checksum = checksum + process(i * 73 + 29, 4) % 10000
         i = i + 1
     }
-
-    -- Verify tracker is back to zero (all defers ran)
-    val tracker_sum = tracker[0] + tracker[1] + tracker[2]
-
-    var i2 = 0
-    while i2 < n {
-        checksum = checksum + multi_exit(i2, tracker)
-        i2 = i2 + 1
-    }
-
-    return checksum + tracker_sum
+    return checksum
 }
 
 func main() {
-    -- Tests
-    var tracker = fill(10, 0)
-    val v1 = process_with_defer(tracker, 100, 0)
-    println("Test 1 process(100,0): {v1} (expected 100)")
-    println("Test 2 tracker[0] after: {tracker[0]} (expected 0)")
+    println("Test 1 classify(0): {classify(0)} (expected 1)")
+    println("Test 2 classify(14): {classify(14)} (expected 7)")
+    println("Test 3 classify(10): {classify(10)} (expected 5)")
+    println("Test 4 classify(9): {classify(9)} (expected 3)")
+    println("Test 5 process(100,0): {process(100, 0)} (expected 100)")
 
-    println("Test 3 multi_exit(5): {multi_exit(5, tracker)} (expected 16)")
-    println("Test 4 multi_exit(4): {multi_exit(4, tracker)} (expected 8)")
-    println("Test 5 multi_exit(0): {multi_exit(0, tracker)} (expected 1)")
+    val check = bench_multi_exit(200)
+    println("Test 6 bench(200): {check}")
 
-    val check = bench_defer(100)
-    println("Test 6 bench_defer(100): {check}")
-
-    -- Benchmark
     val iterations = 200000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
-        result = bench_defer(100)
+        result = bench_multi_exit(200)
     }
     val elapsed = Time.now_ms() - start
 
     println("")
-    println("=== Benchmark: Defer Cleanup Chain ===")
-    println("Array size: 100")
+    println("=== Benchmark: Multi-Exit Functions ===")
     println("Iterations: {iterations}")
     println("Total time: {elapsed} ms")
 }

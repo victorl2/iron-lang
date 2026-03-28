@@ -50,9 +50,9 @@ func transition(state: Int, event: Int) -> Int {
     return 0
 }
 
-func classify(val: Int) -> Int {
+func classify(v: Int) -> Int {
     -- Return a category based on value range using match
-    val bucket = val % 10
+    val bucket = v % 10
     match bucket {
         0 { return 100 }
         1 { return 200 }
