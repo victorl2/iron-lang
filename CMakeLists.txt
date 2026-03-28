@@ -138,6 +138,7 @@ target_compile_definitions(ironc PRIVATE
 add_executable(iron
     src/pkg/main.c
     src/pkg/init.c
+    src/pkg/pkg_build.c
     src/cli/toml.c
 )
 target_include_directories(iron PRIVATE src)
@@ -201,6 +202,40 @@ if(NOT WIN32)
         NAME test_iron_init_lib
         COMMAND ${CMAKE_COMMAND} -E env PATH=$<TARGET_FILE_DIR:iron>:$ENV{PATH}
             sh -c "rm -rf /tmp/iron_test_init_lib && mkdir -p /tmp/iron_test_init_lib && cd /tmp/iron_test_init_lib && $<TARGET_FILE:iron> init --lib && test -f iron.toml && test -f src/lib.iron && grep -q 'type = \"lib\"' iron.toml"
+    )
+endif()
+
+# iron package-mode tests
+if(NOT WIN32)
+    # iron build in package mode
+    add_test(
+        NAME test_iron_build_package
+        COMMAND sh -c "rm -rf /tmp/iron_test_build && mkdir -p /tmp/iron_test_build && cd /tmp/iron_test_build && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> build && test -f target/iron_test_build"
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_iron_build_package PROPERTIES
+        ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
+    )
+
+    # iron run in package mode
+    add_test(
+        NAME test_iron_run_package
+        COMMAND sh -c "rm -rf /tmp/iron_test_run && mkdir -p /tmp/iron_test_run && cd /tmp/iron_test_run && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> run"
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_iron_run_package PROPERTIES
+        PASS_REGULAR_EXPRESSION "Hello, Iron!"
+        ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
+    )
+
+    # iron check in package mode
+    add_test(
+        NAME test_iron_check_package
+        COMMAND sh -c "rm -rf /tmp/iron_test_check && mkdir -p /tmp/iron_test_check && cd /tmp/iron_test_check && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> check"
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_iron_check_package PROPERTIES
+        ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
     )
 endif()
 
