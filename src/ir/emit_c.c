@@ -57,7 +57,31 @@ typedef struct {
      * can emit direct C array access instead of Iron_List_T function calls.
      * A value of 0 (IRON_IR_VALUE_INVALID) means not a stack array. */
     struct { IronIR_ValueId key; IronIR_ValueId value; } *stack_array_ids;  /* stb_ds hashmap */
+
+    /* Heap-array lifecycle tracking (COLL-04): maps ValueId -> original
+     * ARRAY_LIT ValueId for heap-allocated lists (use_stack_repr == false).
+     * Propagated through alloca/store/load chains.  Used to emit _free()
+     * calls before RETURN for non-escaping heap arrays. */
+    struct { IronIR_ValueId key; IronIR_ValueId value; } *heap_array_ids;   /* stb_ds hashmap */
+
+    /* Set of heap-array ARRAY_LIT ValueIds that escape the function (via
+     * RETURN, SET_FIELD, CONSTRUCT field, CALL arg, or MAKE_CLOSURE capture).
+     * These must NOT be freed before return. */
+    struct { IronIR_ValueId key; bool value; } *escaped_heap_ids;           /* stb_ds hashmap */
+
+    /* Array parameter passing modes (PARAM-01/PARAM-02):
+     * Maps "func_name\tparam_index" -> ArrayParamMode (as int).
+     * Determined by analyze_array_param_modes() before emission begins. */
+    struct { char *key; int value; } *array_param_modes;                    /* stb_ds string map */
 } EmitCtx;
+
+/* ── Array parameter passing mode (PARAM-01/PARAM-02) ────────────────────── */
+
+typedef enum {
+    ARRAY_PARAM_LIST,      /* keep as Iron_List_T (default, safe fallback) */
+    ARRAY_PARAM_CONST_PTR, /* const T* + len (read-only parameter) */
+    ARRAY_PARAM_MUT_PTR    /* T* + len (mutable, no resize) */
+} ArrayParamMode;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
 
@@ -414,11 +438,172 @@ static void phi_eliminate(IronIR_Module *module) {
     }
 }
 
+/* ── Array parameter mode helpers (PARAM-01/PARAM-02) ────────────────────── */
+
+/* Build a key for the array_param_modes map: "func_name\tparam_index" */
+static const char *make_param_mode_key(const char *func_name, int param_index,
+                                        Iron_Arena *arena) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", param_index);
+    size_t fn_len = strlen(func_name);
+    size_t idx_len = strlen(buf);
+    size_t total = fn_len + 1 + idx_len + 1;
+    char *key = (char *)iron_arena_alloc(arena, total, 1);
+    memcpy(key, func_name, fn_len);
+    key[fn_len] = '\t';
+    memcpy(key + fn_len + 1, buf, idx_len + 1);
+    return key;
+}
+
+/* Look up the ArrayParamMode for a given function + param index. */
+static ArrayParamMode get_array_param_mode(EmitCtx *ctx, const char *func_name,
+                                            int param_index) {
+    const char *key = make_param_mode_key(func_name, param_index, ctx->arena);
+    ptrdiff_t idx = shgeti(ctx->array_param_modes, key);
+    if (idx >= 0) return (ArrayParamMode)ctx->array_param_modes[idx].value;
+    return ARRAY_PARAM_LIST;
+}
+
+/* Find an IronIR_Func in the module by IR name. */
+static IronIR_Func *find_ir_func(EmitCtx *ctx, const char *ir_name) {
+    if (!ir_name) return NULL;
+    for (int i = 0; i < ctx->module->func_count; i++) {
+        if (strcmp(ctx->module->funcs[i]->name, ir_name) == 0)
+            return ctx->module->funcs[i];
+    }
+    return NULL;
+}
+
+/* Analyze all functions and determine which array parameters can be passed
+ * as pointer+length instead of Iron_List_T.
+ *
+ * A parameter qualifies when it is ONLY used for:
+ *   - GET_INDEX (read access)
+ *   - SET_INDEX (write access, mutable ptr)
+ *   - GET_FIELD .count (len() builtin)
+ *   - STORE of param value into its own alloca (entry-block pattern)
+ *
+ * Disqualified when:
+ *   - Loaded alias is stored into another alloca (var a = arr pattern)
+ *   - Alias passed as CALL argument
+ *   - Alias used in RETURN, SET_FIELD, CONSTRUCT, MAKE_CLOSURE, SLICE
+ *   - Alloca is reassigned with a non-alias value */
+static void analyze_array_param_modes(EmitCtx *ctx) {
+    IronIR_Module *module = ctx->module;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        for (int pi = 0; pi < fn->param_count; pi++) {
+            Iron_Type *pt = fn->params[pi].type;
+            if (!pt || pt->kind != IRON_TYPE_ARRAY) continue;
+
+            IronIR_ValueId param_val_id = (IronIR_ValueId)(pi * 2 + 1);
+            IronIR_ValueId alloca_id    = (IronIR_ValueId)(pi * 2 + 2);
+
+            /* Build alias set: param_val and alloca, plus LOADs from alloca */
+            struct { IronIR_ValueId key; bool value; } *aliases = NULL;
+            hmput(aliases, param_val_id, true);
+            hmput(aliases, alloca_id, true);
+
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronIR_Block *block = fn->blocks[bi];
+                for (int ii = 0; ii < block->instr_count; ii++) {
+                    IronIR_Instr *instr = block->instrs[ii];
+                    if (instr->kind == IRON_IR_LOAD) {
+                        if (hmgeti(aliases, instr->load.ptr) >= 0) {
+                            hmput(aliases, instr->id, true);
+                        }
+                    }
+                }
+            }
+
+            /* Scan for disqualifying uses */
+            bool has_write = false;
+            bool disqualified = false;
+
+            for (int bi = 0; bi < fn->block_count && !disqualified; bi++) {
+                IronIR_Block *block = fn->blocks[bi];
+                for (int ii = 0; ii < block->instr_count && !disqualified; ii++) {
+                    IronIR_Instr *instr = block->instrs[ii];
+
+                    switch (instr->kind) {
+                    case IRON_IR_GET_INDEX:
+                        break;
+                    case IRON_IR_SET_INDEX:
+                        if (hmgeti(aliases, instr->index.array) >= 0)
+                            has_write = true;
+                        break;
+                    case IRON_IR_GET_FIELD:
+                        break;
+                    case IRON_IR_STORE:
+                        /* store(param_alloca, param_val) is the entry-block pattern - ok.
+                         * store(alias, non-alias) = reassignment - disqualify.
+                         * store(non-alias, alias) = copying param to another var - disqualify. */
+                        if (hmgeti(aliases, instr->store.ptr) >= 0 &&
+                            hmgeti(aliases, instr->store.value) < 0) {
+                            disqualified = true;
+                        }
+                        if (hmgeti(aliases, instr->store.ptr) < 0 &&
+                            hmgeti(aliases, instr->store.value) >= 0) {
+                            disqualified = true;
+                        }
+                        break;
+                    case IRON_IR_CALL:
+                        for (int ai = 0; ai < instr->call.arg_count; ai++) {
+                            if (hmgeti(aliases, instr->call.args[ai]) >= 0)
+                                disqualified = true;
+                        }
+                        break;
+                    case IRON_IR_RETURN:
+                        if (!instr->ret.is_void &&
+                            hmgeti(aliases, instr->ret.value) >= 0)
+                            disqualified = true;
+                        break;
+                    case IRON_IR_SET_FIELD:
+                        if (hmgeti(aliases, instr->field.value) >= 0)
+                            disqualified = true;
+                        break;
+                    case IRON_IR_CONSTRUCT:
+                        for (int fj = 0; fj < instr->construct.field_count; fj++) {
+                            if (hmgeti(aliases, instr->construct.field_vals[fj]) >= 0)
+                                disqualified = true;
+                        }
+                        break;
+                    case IRON_IR_MAKE_CLOSURE:
+                        for (int ci = 0; ci < instr->make_closure.capture_count; ci++) {
+                            if (hmgeti(aliases, instr->make_closure.captures[ci]) >= 0)
+                                disqualified = true;
+                        }
+                        break;
+                    case IRON_IR_SLICE:
+                        if (hmgeti(aliases, instr->slice.array) >= 0)
+                            disqualified = true;
+                        break;
+                    default:
+                        break;
+                    }
+                }
+            }
+
+            hmfree(aliases);
+
+            if (!disqualified) {
+                ArrayParamMode mode = has_write
+                    ? ARRAY_PARAM_MUT_PTR : ARRAY_PARAM_CONST_PTR;
+                const char *key = make_param_mode_key(fn->name, pi, ctx->arena);
+                shput(ctx->array_param_modes, key, (int)mode);
+            }
+        }
+    }
+}
+
 /* ── Stack-array optimization pre-pass (ARR-01) ─────────────────────────── */
 
 /* Mark ARRAY_LIT instructions with known element counts <= 256 as
  * stack-array eligible.  This runs after phi elimination so the IR is stable. */
-static void optimize_array_repr(IronIR_Module *module) {
+static void optimize_array_repr(IronIR_Module *module, EmitCtx *ctx) {
     for (int fi = 0; fi < module->func_count; fi++) {
         IronIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
@@ -489,11 +674,34 @@ static void optimize_array_repr(IronIR_Module *module) {
                     }
                 }
                 /* Check if stack array is passed as argument to a function call.
-                 * Functions expect Iron_List_T, so we must revoke stack repr. */
+                 * If the callee param uses pointer mode (PARAM-01/02), the stack
+                 * array can be passed directly. Otherwise revoke stack repr. */
                 if (instr->kind == IRON_IR_CALL) {
+                    /* Resolve callee IR name for pointer-mode check */
+                    const char *call_ir_name = NULL;
+                    if (instr->call.func_decl && !instr->call.func_decl->is_extern) {
+                        call_ir_name = instr->call.func_decl->name;
+                    } else if (!instr->call.func_decl) {
+                        IronIR_ValueId fptr = instr->call.func_ptr;
+                        if (fptr != IRON_IR_VALUE_INVALID &&
+                            fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[fptr] != NULL &&
+                            fn->value_table[fptr]->kind == IRON_IR_FUNC_REF) {
+                            const char *rn = fn->value_table[fptr]->func_ref.func_name;
+                            IronIR_Func *cf = find_ir_func(ctx, rn);
+                            if (cf && !cf->is_extern) call_ir_name = rn;
+                        }
+                    }
                     for (int ai = 0; ai < instr->call.arg_count; ai++) {
                         ptrdiff_t vi = hmgeti(sa_map, instr->call.args[ai]);
                         if (vi >= 0) {
+                            /* Check if callee accepts pointer mode for this param */
+                            ArrayParamMode cpmode = ARRAY_PARAM_LIST;
+                            if (call_ir_name)
+                                cpmode = get_array_param_mode(ctx, call_ir_name, ai);
+                            if (cpmode == ARRAY_PARAM_CONST_PTR ||
+                                cpmode == ARRAY_PARAM_MUT_PTR)
+                                continue; /* callee accepts pointer+len */
                             IronIR_ValueId orig = sa_map[vi].value;
                             if (orig < (IronIR_ValueId)arrlen(fn->value_table) &&
                                 fn->value_table[orig]) {
@@ -1169,9 +1377,52 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             }
         }
 
+        /* PARAM-01/02: Resolve callee IR name for pointer-mode check */
+        const char *callee_ir_name = NULL;
+        if (instr->call.func_decl && !instr->call.func_decl->is_extern) {
+            callee_ir_name = instr->call.func_decl->name;
+        } else if (!instr->call.func_decl) {
+            IronIR_ValueId fptr2 = instr->call.func_ptr;
+            if (fptr2 != IRON_IR_VALUE_INVALID &&
+                fptr2 < (IronIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[fptr2] != NULL &&
+                fn->value_table[fptr2]->kind == IRON_IR_FUNC_REF) {
+                const char *rn2 = fn->value_table[fptr2]->func_ref.func_name;
+                IronIR_Func *cf = find_ir_func(ctx, rn2);
+                if (cf && !cf->is_extern) callee_ir_name = rn2;
+            }
+        }
+
+        bool first_arg = true;
         for (int i = 0; i < instr->call.arg_count; i++) {
-            if (i > 0) iron_strbuf_appendf(sb, ", ");
+            if (!first_arg) iron_strbuf_appendf(sb, ", ");
+            first_arg = false;
             IronIR_ValueId arg_id = instr->call.args[i];
+
+            /* PARAM-01/02: Check if callee expects pointer+length */
+            ArrayParamMode callee_pmode = ARRAY_PARAM_LIST;
+            if (callee_ir_name)
+                callee_pmode = get_array_param_mode(ctx, callee_ir_name, i);
+
+            if (callee_pmode == ARRAY_PARAM_CONST_PTR ||
+                callee_pmode == ARRAY_PARAM_MUT_PTR) {
+                IronIR_ValueId sa_origin = get_stack_array_origin(ctx, arg_id);
+                if (sa_origin != IRON_IR_VALUE_INVALID) {
+                    /* Stack array: pass pointer + companion length */
+                    emit_val(sb, arg_id);
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_val(sb, arg_id);
+                    iron_strbuf_appendf(sb, "_len");
+                } else {
+                    /* Iron_List_T: extract .items and .count */
+                    emit_val(sb, arg_id);
+                    iron_strbuf_appendf(sb, ".items, ");
+                    emit_val(sb, arg_id);
+                    iron_strbuf_appendf(sb, ".count");
+                }
+                continue;
+            }
+
             /* For extern calls, convert Iron_String arguments to const char* */
             bool is_string_arg = false;
             if (is_extern_call && arg_id != IRON_IR_VALUE_INVALID &&
@@ -1230,7 +1481,44 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         break;
     }
 
-    case IRON_IR_RETURN:
+    case IRON_IR_RETURN: {
+        /* COLL-04: Emit _free() for non-escaping heap arrays before return.
+         * We iterate over all unique original ARRAY_LIT ids tracked in
+         * heap_array_ids and free those that haven't escaped. */
+        if (ctx->heap_array_ids) {
+            /* Collect unique original ARRAY_LIT ids to avoid double-free */
+            struct { IronIR_ValueId key; bool value; } *freed = NULL;
+            for (ptrdiff_t hi = 0; hi < hmlen(ctx->heap_array_ids); hi++) {
+                IronIR_ValueId orig = ctx->heap_array_ids[hi].value;
+                /* Skip if already freed, or if this array escapes */
+                if (hmgeti(freed, orig) >= 0) continue;
+                if (hmgeti(ctx->escaped_heap_ids, orig) >= 0) continue;
+                hmput(freed, orig, true);
+
+                /* Look up the original instruction to get the list type */
+                if (orig < (IronIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[orig] != NULL) {
+                    IronIR_Instr *orig_instr = fn->value_table[orig];
+                    const char *list_type = NULL;
+                    if (orig_instr->kind == IRON_IR_ARRAY_LIT) {
+                        Iron_Type *arr_type = iron_type_make_array(
+                            ctx->arena, orig_instr->array_lit.elem_type, -1);
+                        list_type = emit_type_to_c(arr_type, ctx);
+                    } else if (orig_instr->type &&
+                               orig_instr->type->kind == IRON_TYPE_ARRAY) {
+                        /* __builtin_fill result */
+                        list_type = emit_type_to_c(orig_instr->type, ctx);
+                    }
+                    if (list_type) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s_free(&_v%u);\n",
+                                            list_type, (unsigned)orig);
+                    }
+                }
+            }
+            hmfree(freed);
+        }
+
         emit_indent(sb, ind);
         if (instr->ret.is_void) {
             iron_strbuf_appendf(sb, "return;\n");
@@ -1240,6 +1528,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             iron_strbuf_appendf(sb, ";\n");
         }
         break;
+    }
 
     /* ── Cast ───────────────────────────────────────────────────────────── */
 
@@ -1889,11 +2178,22 @@ static void emit_func_signature(Iron_StrBuf *sb, IronIR_Func *fn,
          * block (store alloca_slot = param_val_id) resolves correctly. */
         Iron_Type *pt = fn->params[i].type;
         int param_val_id = i * 2 + 1;
-        if (pt) {
+        /* PARAM-01/02: Check if this array param uses pointer mode */
+        ArrayParamMode pmode = ARRAY_PARAM_LIST;
+        if (pt && pt->kind == IRON_TYPE_ARRAY)
+            pmode = get_array_param_mode(ctx, fn->name, i);
+        if (pmode == ARRAY_PARAM_CONST_PTR) {
+            const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
+            iron_strbuf_appendf(sb, "const %s *_v%d, int64_t _v%d_len",
+                                elem_c, param_val_id, param_val_id);
+        } else if (pmode == ARRAY_PARAM_MUT_PTR) {
+            const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
+            iron_strbuf_appendf(sb, "%s *_v%d, int64_t _v%d_len",
+                                elem_c, param_val_id, param_val_id);
+        } else if (pt) {
             iron_strbuf_appendf(sb, "%s _v%d",
                                 emit_type_to_c(pt, ctx), param_val_id);
         } else {
-            /* Unknown type — use void* */
             iron_strbuf_appendf(sb, "void* _v%d", param_val_id);
         }
     }
@@ -1916,6 +2216,12 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
     hmfree(ctx->stack_array_ids);
     ctx->stack_array_ids = NULL;
 
+    /* Reset per-function heap-array lifecycle tracking */
+    hmfree(ctx->heap_array_ids);
+    ctx->heap_array_ids = NULL;
+    hmfree(ctx->escaped_heap_ids);
+    ctx->escaped_heap_ids = NULL;
+
     /* Pre-scan: identify allocas that receive stack arrays via STORE.
      * Build a mapping from STORE(alloca_ptr, stack_array_val) so that
      * the alloca can be emitted as elem_type* instead of Iron_List_T,
@@ -1931,6 +2237,17 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
                 if (instr->kind == IRON_IR_ARRAY_LIT && instr->array_lit.use_stack_repr) {
                     hmput(sa_pre, instr->id, instr->id);
                 }
+            }
+        }
+        /* Phase A2 (PARAM-01/02): inject pointer-mode array params so
+         * propagation in Phase B reaches allocas receiving param values. */
+        for (int ppi = 0; ppi < fn->param_count; ppi++) {
+            Iron_Type *ppt = fn->params[ppi].type;
+            if (!ppt || ppt->kind != IRON_TYPE_ARRAY) continue;
+            ArrayParamMode pmode = get_array_param_mode(ctx, fn->name, ppi);
+            if (pmode == ARRAY_PARAM_CONST_PTR || pmode == ARRAY_PARAM_MUT_PTR) {
+                IronIR_ValueId pvid = (IronIR_ValueId)(ppi * 2 + 1);
+                hmput(sa_pre, pvid, pvid);
             }
         }
         /* Phase B: propagate through STORE and LOAD chains */
@@ -1952,6 +2269,99 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
             hmput(ctx->stack_array_ids, sa_pre[i].key, sa_pre[i].value);
         }
         hmfree(sa_pre);
+    }
+
+    /* ── Heap-array lifecycle pre-scan (COLL-04) ────────────────────────────
+     * Collect all heap-allocated ARRAY_LIT instructions (!use_stack_repr)
+     * and __builtin_fill CALL instructions.  Propagate through STORE/LOAD
+     * chains.  Then determine which escape (via RETURN, SET_FIELD,
+     * CONSTRUCT, CALL arg, or MAKE_CLOSURE capture). */
+    {
+        struct { IronIR_ValueId key; IronIR_ValueId value; } *ha_pre = NULL;
+
+        /* Phase A: collect all heap-array literal IDs and builtin_fill results */
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *block = fn->blocks[bi];
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                IronIR_Instr *instr = block->instrs[ii];
+                if (instr->kind == IRON_IR_ARRAY_LIT && !instr->array_lit.use_stack_repr) {
+                    hmput(ha_pre, instr->id, instr->id);
+                }
+                /* __builtin_fill calls also produce heap lists */
+                if (instr->kind == IRON_IR_CALL && instr->type &&
+                    instr->type->kind == IRON_TYPE_ARRAY) {
+                    IronIR_ValueId fptr = instr->call.func_ptr;
+                    if (fptr != IRON_IR_VALUE_INVALID &&
+                        fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                        fn->value_table[fptr] != NULL &&
+                        fn->value_table[fptr]->kind == IRON_IR_FUNC_REF &&
+                        strcmp(fn->value_table[fptr]->func_ref.func_name,
+                               "__builtin_fill") == 0) {
+                        hmput(ha_pre, instr->id, instr->id);
+                    }
+                }
+            }
+        }
+
+        /* Phase B: propagate through STORE/LOAD chains */
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *block = fn->blocks[bi];
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                IronIR_Instr *instr = block->instrs[ii];
+                if (instr->kind == IRON_IR_STORE) {
+                    ptrdiff_t vi = hmgeti(ha_pre, instr->store.value);
+                    if (vi >= 0) hmput(ha_pre, instr->store.ptr, ha_pre[vi].value);
+                } else if (instr->kind == IRON_IR_LOAD) {
+                    ptrdiff_t vi = hmgeti(ha_pre, instr->load.ptr);
+                    if (vi >= 0) hmput(ha_pre, instr->id, ha_pre[vi].value);
+                }
+            }
+        }
+
+        /* Phase C: mark escaping arrays */
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *block = fn->blocks[bi];
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                IronIR_Instr *instr = block->instrs[ii];
+                /* Escapes via RETURN */
+                if (instr->kind == IRON_IR_RETURN && !instr->ret.is_void) {
+                    ptrdiff_t vi = hmgeti(ha_pre, instr->ret.value);
+                    if (vi >= 0) hmput(ctx->escaped_heap_ids, ha_pre[vi].value, true);
+                }
+                /* Escapes via SET_FIELD (stored into object) */
+                if (instr->kind == IRON_IR_SET_FIELD) {
+                    ptrdiff_t vi = hmgeti(ha_pre, instr->field.value);
+                    if (vi >= 0) hmput(ctx->escaped_heap_ids, ha_pre[vi].value, true);
+                }
+                /* Escapes via CONSTRUCT (embedded in struct) */
+                if (instr->kind == IRON_IR_CONSTRUCT) {
+                    for (int fi2 = 0; fi2 < instr->construct.field_count; fi2++) {
+                        ptrdiff_t vi = hmgeti(ha_pre, instr->construct.field_vals[fi2]);
+                        if (vi >= 0) hmput(ctx->escaped_heap_ids, ha_pre[vi].value, true);
+                    }
+                }
+                /* Escapes via CALL argument (passed to another function) */
+                if (instr->kind == IRON_IR_CALL) {
+                    for (int ai = 0; ai < instr->call.arg_count; ai++) {
+                        ptrdiff_t vi = hmgeti(ha_pre, instr->call.args[ai]);
+                        if (vi >= 0) hmput(ctx->escaped_heap_ids, ha_pre[vi].value, true);
+                    }
+                }
+                /* Escapes via MAKE_CLOSURE capture */
+                if (instr->kind == IRON_IR_MAKE_CLOSURE) {
+                    for (int ci = 0; ci < instr->make_closure.capture_count; ci++) {
+                        ptrdiff_t vi = hmgeti(ha_pre, instr->make_closure.captures[ci]);
+                        if (vi >= 0) hmput(ctx->escaped_heap_ids, ha_pre[vi].value, true);
+                    }
+                }
+            }
+        }
+
+        /* Seed the ctx heap_array_ids map */
+        for (ptrdiff_t i = 0; i < hmlen(ha_pre); i++) {
+            hmput(ctx->heap_array_ids, ha_pre[i].key, ha_pre[i].value);
+        }
+        hmfree(ha_pre);
     }
 
     emit_func_signature(sb, fn, ctx, false);
@@ -2298,8 +2708,11 @@ const char *iron_ir_emit_c(IronIR_Module *module, Iron_Arena *arena,
     /* ── Phase 0: Phi elimination ─────────────────────────────────────────── */
     phi_eliminate(module);
 
+    /* ── Phase 0a: Array parameter mode analysis (PARAM-01/02) ───────────── */
+    analyze_array_param_modes(&ctx);
+
     /* ── Phase 0b: Array representation optimization (ARR-01) ────────────── */
-    optimize_array_repr(module);
+    optimize_array_repr(module, &ctx);
 
     /* ── Phase 1: Includes ───────────────────────────────────────────────── */
     iron_strbuf_appendf(&ctx.includes,
@@ -2403,6 +2816,8 @@ const char *iron_ir_emit_c(IronIR_Module *module, Iron_Arena *arena,
     arrfree(ctx.emitted_optionals);
     shfree(ctx.mono_registry);
     hmfree(ctx.stack_array_ids);
+    hmfree(ctx.heap_array_ids);
+    hmfree(ctx.escaped_heap_ids);
 
     return result;
 }
