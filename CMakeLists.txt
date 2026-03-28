@@ -178,3 +178,24 @@ add_test(
 set_tests_properties(test_iron_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^iron [0-9]"
 )
+
+# ---- Install rules ----
+install(TARGETS ironc iron DESTINATION bin)
+
+# Install runtime C source files (needed by ironc at compile time)
+install(DIRECTORY src/runtime/ DESTINATION lib/runtime FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
+# Install util files used by the build pipeline
+install(FILES
+    src/util/stb_ds_impl.c
+    src/util/arena.c
+    src/util/arena.h
+    src/util/strbuf.c
+    src/util/strbuf.h
+    DESTINATION lib/util
+)
+# Install all header files from src/ that ironc passes via -I (runtime, vendor)
+install(DIRECTORY src/vendor/ DESTINATION lib/vendor)
+# Install stdlib C implementations
+install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.c")
+# Install stdlib .iron files
+install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.iron")

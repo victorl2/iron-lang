@@ -74,13 +74,19 @@ jobs:
         if: runner.os == 'Windows'
         run: ctest --test-dir build --output-on-failure --config Debug -j4
 
+      - name: Verify binaries exist (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          test -x build/iron && echo "iron binary OK"
+          test -x build/ironc && echo "ironc binary OK"
+
       - name: Run integration tests (Unix only)
         if: runner.os != 'Windows'
         env:
           ASAN_OPTIONS: detect_leaks=0
         run: |
           chmod +x tests/integration/run_integration.sh
-          tests/integration/run_integration.sh build/iron
+          tests/integration/run_integration.sh build/ironc
 
       - name: Verify sanitizers (Unix only)
         if: runner.os != 'Windows'
