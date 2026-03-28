@@ -4,9 +4,16 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.0.2-alpha)'
+        required: true
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
 
 jobs:
   test:
@@ -107,8 +114,7 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"
+          VERSION="${RELEASE_TAG#v}"
           ARCHIVE="iron-${VERSION}-${{ matrix.target }}.tar.gz"
           mkdir -p staging
           cp build/iron staging/
@@ -120,7 +126,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $VERSION = "${{ github.event.release.tag_name }}".TrimStart("v")
+          $VERSION = "${{ env.RELEASE_TAG }}".TrimStart("v")
           $ARCHIVE = "iron-${VERSION}-${{ matrix.target }}.zip"
           New-Item -ItemType Directory -Force -Path staging
           Copy-Item build\Release\iron.exe staging\
@@ -131,6 +137,7 @@ jobs:
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.ARCHIVE }}
 
   upload-install-script:
@@ -142,4 +149,5 @@ jobs:
       - name: Upload install script
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: scripts/install.sh
