@@ -10,7 +10,7 @@ standard library, and documentation.
 ## Install
 
 ```sh
-curl -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh
+curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh
 ```
 
 Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x86_64) on the [releases page](https://github.com/victorl2/iron-lang/releases).
