@@ -1,0 +1,16 @@
+{
+  "commit": "b6ac1dd",
+  "date": "2026-03-28",
+  "problems": {
+    "edit_distance": {"c_ms": 341.359, "iron_ms": 210, "ratio": 0.6, "iron_mem_kb": 1520, "c_mem_kb": 1296},
+    "longest_valid_parens": {"c_ms": 0.495, "iron_ms": 1, "ratio": 2.0, "iron_mem_kb": 1568, "c_mem_kb": 1280},
+    "median_two_sorted_arrays": {"c_ms": 0.320, "iron_ms": 6, "ratio": 18.8, "iron_mem_kb": 1520, "c_mem_kb": 1264},
+    "merge_k_sorted_lists": {"c_ms": 181.312, "iron_ms": 143, "ratio": 0.8, "iron_mem_kb": 1552, "c_mem_kb": 1280},
+    "min_window_substring": {"c_ms": 0.486, "iron_ms": 2, "ratio": 4.1, "iron_mem_kb": 1568, "c_mem_kb": 1280},
+    "n_queens": {"c_ms": 3545.954, "iron_ms": 6980, "ratio": 2.0, "iron_mem_kb": 1536, "c_mem_kb": 1280},
+    "regex_matching": {"c_ms": 615.350, "iron_ms": 3896, "ratio": 6.3, "iron_mem_kb": 1696, "c_mem_kb": 1296},
+    "reverse_nodes_k_group": {"c_ms": 90.991, "iron_ms": 436, "ratio": 4.8, "iron_mem_kb": 503568, "c_mem_kb": 1264},
+    "trapping_rain_water": {"c_ms": 57.783, "iron_ms": 19, "ratio": 0.3, "iron_mem_kb": 1520, "c_mem_kb": 1264},
+    "wildcard_matching": {"c_ms": 19.796, "iron_ms": 19, "ratio": 1.0, "iron_mem_kb": 1552, "c_mem_kb": 1280}
+  }
+}
