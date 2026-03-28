@@ -5,7 +5,7 @@ if(NOT WIN32)
         NAME test_integration
         COMMAND ${CMAKE_SOURCE_DIR}/tests/run_tests.sh
                 integration
-                ${CMAKE_BINARY_DIR}/iron
+                ${CMAKE_BINARY_DIR}/ironc
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(test_integration PROPERTIES LABELS "integration")

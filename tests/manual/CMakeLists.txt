@@ -5,7 +5,7 @@ if(NOT WIN32)
         NAME test_manual
         COMMAND ${CMAKE_SOURCE_DIR}/tests/run_tests.sh
                 manual
-                ${CMAKE_BINARY_DIR}/iron
+                ${CMAKE_BINARY_DIR}/ironc
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(test_manual PROPERTIES LABELS "manual")
