@@ -52,18 +52,11 @@ if [ ! -x "$IRONC" ]; then
     exit 1
 fi
 
-# Find a C compiler: prefer clang, fall back to gcc, then cc
-CC=""
-for candidate in clang gcc cc; do
-    if command -v "$candidate" &>/dev/null; then
-        CC="$candidate"
-        break
-    fi
-done
-if [ -z "$CC" ]; then
-    echo "ERROR: no C compiler found (tried clang, gcc, cc)"
+if ! command -v clang &>/dev/null; then
+    echo "ERROR: clang not found in PATH"
     exit 1
 fi
+CC="clang"
 
 mkdir -p "$TMPDIR"
 trap 'rm -rf "$TMPDIR"' EXIT
