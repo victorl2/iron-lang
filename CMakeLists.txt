@@ -137,6 +137,7 @@ target_compile_definitions(ironc PRIVATE
 # It only spawns ironc as a subprocess.
 add_executable(iron
     src/pkg/main.c
+    src/cli/toml.c
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE
@@ -177,6 +178,14 @@ add_test(
 )
 set_tests_properties(test_iron_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^iron [0-9]"
+)
+
+add_test(
+    NAME test_iron_no_color
+    COMMAND ${CMAKE_COMMAND} -E env NO_COLOR=1 $<TARGET_FILE:iron>
+)
+set_tests_properties(test_iron_no_color PROPERTIES
+    PASS_REGULAR_EXPRESSION "Package Commands:"
 )
 
 # ---- Install rules ----
