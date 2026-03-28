@@ -17,13 +17,16 @@
 #ifndef IRON_BUILD_DATE
 #define IRON_BUILD_DATE "unknown"
 #endif
+#ifndef IRON_BINARY_NAME
+#define IRON_BINARY_NAME "ironc"
+#endif
 
 static void print_version(void) {
-    printf("iron %s (%s %s)\n", IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
+    printf("%s %s (%s %s)\n", IRON_BINARY_NAME, IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
 }
 
 static void print_usage(void) {
-    fprintf(stderr, "Usage: iron <command> [options] <file>\n\n");
+    fprintf(stderr, "Usage: %s <command> [options] <file>\n\n", IRON_BINARY_NAME);
     fprintf(stderr, "Commands:\n");
     fprintf(stderr, "  build   Compile .iron file to native binary\n");
     fprintf(stderr, "  run     Compile and execute .iron file\n");
@@ -77,7 +80,7 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "build") == 0) {
         if (!source_file) {
-            fprintf(stderr, "iron build: missing source file\n");
+            fprintf(stderr, "%s build: missing source file\n", IRON_BINARY_NAME);
             return 1;
         }
         IronBuildOpts opts = {
@@ -94,7 +97,7 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "run") == 0) {
         if (!source_file) {
-            fprintf(stderr, "iron run: missing source file\n");
+            fprintf(stderr, "%s run: missing source file\n", IRON_BINARY_NAME);
             return 1;
         }
         IronBuildOpts opts = {
@@ -111,7 +114,7 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "check") == 0) {
         if (!source_file) {
-            fprintf(stderr, "iron check: missing source file\n");
+            fprintf(stderr, "%s check: missing source file\n", IRON_BINARY_NAME);
             return 1;
         }
         return iron_check(source_file, verbose);
@@ -119,7 +122,7 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "fmt") == 0) {
         if (!source_file) {
-            fprintf(stderr, "iron fmt: missing file argument\nUsage: iron fmt <file.iron>\n");
+            fprintf(stderr, "%s fmt: missing file argument\nUsage: %s fmt <file.iron>\n", IRON_BINARY_NAME, IRON_BINARY_NAME);
             return 1;
         }
         return iron_fmt(source_file);
@@ -129,7 +132,7 @@ int main(int argc, char **argv) {
         return iron_test(source_file ? source_file : ".");
     }
 
-    fprintf(stderr, "iron: unknown command '%s'\n", cmd);
+    fprintf(stderr, "%s: unknown command '%s'\n", IRON_BINARY_NAME, cmd);
     print_usage();
     return 1;
 }

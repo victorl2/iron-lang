@@ -108,8 +108,8 @@ add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
 
-# ── iron CLI executable ─────────────────────────────────────────────────────
-add_executable(iron
+# ── ironc compiler executable ────────────────────────────────────────────────
+add_executable(ironc
     src/cli/main.c
     src/cli/build.c
     src/cli/check.c
@@ -117,27 +117,34 @@ add_executable(iron
     src/cli/test_runner.c
     src/cli/toml.c
 )
-target_include_directories(iron PRIVATE src)
+target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)
-  target_link_libraries(iron iron_compiler iron_runtime iron_stdlib m pthread)
+  target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib m pthread)
 else()
-  target_link_libraries(iron iron_compiler iron_runtime iron_stdlib)
+  target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib)
 endif()
 # Inject the absolute path to src/ so the CLI can find runtime sources at build time
-target_compile_definitions(iron PRIVATE
+target_compile_definitions(ironc PRIVATE
     IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
     IRON_VERSION_STRING="${PROJECT_VERSION}"
     IRON_GIT_HASH="${IRON_GIT_HASH}"
     IRON_BUILD_DATE="${IRON_BUILD_DATE}"
+    IRON_BINARY_NAME="ironc"
 )
 
-# ── CLI smoke test ──────────────────────────────────────────────────────────
-# iron with no args exits with code 1, but outputs "Usage: iron" to stderr.
-# PASS_REGULAR_EXPRESSION matches stderr+stdout output regardless of exit code.
+# ── CLI smoke tests ──────────────────────────────────────────────────────────
 add_test(
-    NAME test_cli_help
-    COMMAND iron
+    NAME test_ironc_help
+    COMMAND ironc
 )
-set_tests_properties(test_cli_help PROPERTIES
-    PASS_REGULAR_EXPRESSION "Usage: iron"
+set_tests_properties(test_ironc_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "Usage: ironc"
+)
+
+add_test(
+    NAME test_ironc_version
+    COMMAND ironc --version
+)
+set_tests_properties(test_ironc_version PROPERTIES
+    PASS_REGULAR_EXPRESSION "^ironc [0-9]"
 )
