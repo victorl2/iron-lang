@@ -1068,8 +1068,20 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 instr->alloca.alloc_type->array.elem) {
                 elem_c = emit_type_to_c(instr->alloca.alloc_type->array.elem, ctx);
             }
+            /* PARAM-01: Check if origin is a const pointer param.
+             * Origin pvid = pi*2+1, so pi = (pvid-1)/2. If the param
+             * has CONST_PTR mode, emit const qualifier on the pointer. */
+            bool is_const_origin = false;
+            if (sa_origin != IRON_IR_VALUE_INVALID && (sa_origin & 1) &&
+                sa_origin <= (IronIR_ValueId)(fn->param_count * 2)) {
+                int pi_idx = (int)(sa_origin - 1) / 2;
+                if (pi_idx < fn->param_count) {
+                    ArrayParamMode pm = get_array_param_mode(ctx, fn->name, pi_idx);
+                    if (pm == ARRAY_PARAM_CONST_PTR) is_const_origin = true;
+                }
+            }
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s *", elem_c);
+            iron_strbuf_appendf(sb, "%s%s *", is_const_origin ? "const " : "", elem_c);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, ";\n");
             /* Also emit companion length variable for this alloca */
@@ -1097,8 +1109,18 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 instr->type->array.elem) {
                 elem_c = emit_type_to_c(instr->type->array.elem, ctx);
             }
+            /* PARAM-01: preserve const qualifier from origin */
+            bool is_const_origin = false;
+            if (sa_origin != IRON_IR_VALUE_INVALID && (sa_origin & 1) &&
+                sa_origin <= (IronIR_ValueId)(fn->param_count * 2)) {
+                int pi_idx = (int)(sa_origin - 1) / 2;
+                if (pi_idx < fn->param_count) {
+                    ArrayParamMode pm = get_array_param_mode(ctx, fn->name, pi_idx);
+                    if (pm == ARRAY_PARAM_CONST_PTR) is_const_origin = true;
+                }
+            }
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s *", elem_c);
+            iron_strbuf_appendf(sb, "%s%s *", is_const_origin ? "const " : "", elem_c);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->load.ptr);
@@ -2818,6 +2840,7 @@ const char *iron_ir_emit_c(IronIR_Module *module, Iron_Arena *arena,
     hmfree(ctx.stack_array_ids);
     hmfree(ctx.heap_array_ids);
     hmfree(ctx.escaped_heap_ids);
+    shfree(ctx.array_param_modes);
 
     return result;
 }
