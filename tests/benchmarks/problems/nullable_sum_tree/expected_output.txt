@@ -1,0 +1,7 @@
+Test 1 found: 2 (expected 2)
+Test 2 not found: null (expected null)
+Test 3 divide: 33 (expected 33)
+Test 4 div-by-zero: null (expected null)
+Test 5 chain(4): 4 (expected 4)
+Test 6 chain(3): 0 (expected 0)
+Test 7 bench(200): 102815

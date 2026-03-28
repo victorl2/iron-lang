@@ -1,0 +1,69 @@
+import time
+
+-- Object method dispatch: struct creation, field access, method calls
+-- Simulate a 2D point with distance-squared computation via methods
+
+object Point {
+    var x: Int
+    var y: Int
+}
+
+func Point.distance_sq(other: Point) -> Int {
+    val dx = self.x - other.x
+    val dy = self.y - other.y
+    return dx * dx + dy * dy
+}
+
+func Point.translate(dx: Int, dy: Int) -> Point {
+    return Point(self.x + dx, self.y + dy)
+}
+
+func Point.manhattan() -> Int {
+    var ax = self.x
+    var ay = self.y
+    if ax < 0 { ax = 0 - ax }
+    if ay < 0 { ay = 0 - ay }
+    return ax + ay
+}
+
+func compute_checksum(n: Int) -> Int {
+    var origin = Point(0, 0)
+    var checksum = 0
+    var i = 0
+    while i < n {
+        val p = Point(i * 3 - n, i * 7 % 100 - 50)
+        val moved = p.translate(10, -5)
+        val dsq = moved.distance_sq(origin)
+        checksum = checksum + dsq % 1000000 + moved.manhattan() % 1000
+        i = i + 1
+    }
+    return checksum
+}
+
+func main() {
+    -- Tests
+    val p1 = Point(3, 4)
+    val p2 = Point(0, 0)
+    println("Test 1 dist_sq: {p1.distance_sq(p2)} (expected 25)")
+    println("Test 2 manhattan: {p1.manhattan()} (expected 7)")
+
+    val p3 = p1.translate(1, -1)
+    println("Test 3 translate: {p3.x},{p3.y} (expected 4,3)")
+
+    println("Test 4 checksum(100): {compute_checksum(100)} (expected 1189670)")
+
+    -- Benchmark
+    val iterations = 100000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = compute_checksum(100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Object Method Dispatch ===")
+    println("Points per call: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

@@ -1,0 +1,6 @@
+Test 1 process(100,0): 100 (expected 100)
+Test 2 tracker[0] after: 0 (expected 0)
+Test 3 multi_exit(5): 16 (expected 16)
+Test 4 multi_exit(4): 8 (expected 8)
+Test 5 multi_exit(0): 1 (expected 1)
+Test 6 bench_defer(100): 523715
