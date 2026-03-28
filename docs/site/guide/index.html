@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Package Manager Guide — Iron Language</title>
+  <meta name="description" content="Complete guide to the Iron package manager: creating projects, managing dependencies, building, and publishing Iron packages.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sidebar-width: 260px;
+
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+
+    /* ── Navigation ──────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      height: 56px;
+      background: rgba(8, 8, 15, 0.9);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 1.5rem;
+      gap: 2rem;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: var(--text);
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .nav-logo:hover { color: var(--text); }
+
+    .nav-logo-icon {
+      width: 26px;
+      height: 26px;
+      background: var(--accent);
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 800;
+      color: white;
+    }
+
+    nav a:not(.nav-logo) {
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    nav a:not(.nav-logo):hover { color: var(--text); }
+    nav a.active-link { color: var(--text); }
+
+    /* ── Layout ──────────────────────────────────── */
+    .layout {
+      display: flex;
+      margin-top: 56px;
+      min-height: calc(100vh - 56px);
+    }
+
+    .sidebar {
+      width: var(--sidebar-width);
+      position: fixed;
+      top: 56px;
+      bottom: 0;
+      left: 0;
+      overflow-y: auto;
+      padding: 1.5rem 1rem;
+      border-right: 1px solid var(--border);
+      background: var(--bg-primary);
+    }
+
+    .sidebar-section {
+      margin-bottom: 1.5rem;
+    }
+
+    .sidebar-section h3 {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      padding-left: 0.75rem;
+    }
+
+    .sidebar-section a {
+      display: block;
+      padding: 0.3rem 0.75rem;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .sidebar-section a:hover {
+      color: var(--text);
+      background: var(--bg-surface);
+    }
+
+    .sidebar-section a.active {
+      color: var(--accent);
+      background: rgba(232, 89, 12, 0.08);
+    }
+
+    /* ── Main content ────────────────────────────── */
+    .content {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      max-width: 860px;
+      padding: 2.5rem 3rem 4rem;
+    }
+
+    .content h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+
+    .content .subtitle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .content h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .content h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .content p {
+      margin-bottom: 1rem;
+      color: var(--text-secondary);
+    }
+
+    .content ul, .content ol {
+      margin-bottom: 1rem;
+      padding-left: 1.5rem;
+      color: var(--text-secondary);
+    }
+
+    .content li {
+      margin-bottom: 0.4rem;
+    }
+
+    .content code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      background: var(--bg-code);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .content pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+
+    .content pre code {
+      background: none;
+      padding: 0;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+
+    .content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+    }
+
+    .content th, .content td {
+      text-align: left;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .content th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .content td code {
+      font-size: 0.82rem;
+    }
+
+    .callout {
+      background: var(--bg-surface);
+      border-left: 3px solid var(--accent);
+      padding: 1rem 1.25rem;
+      border-radius: 0 6px 6px 0;
+      margin-bottom: 1.5rem;
+    }
+
+    .callout p { margin-bottom: 0; }
+
+    .callout-title {
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.3rem;
+      font-size: 0.9rem;
+    }
+
+    /* Syntax highlighting in pre blocks */
+    .kw { color: var(--syn-kw); }
+    .ty { color: var(--syn-ty); }
+    .st { color: var(--syn-st); }
+    .cm { color: var(--syn-cm); }
+    .fn { color: var(--syn-fn); }
+    .nu { color: var(--syn-nu); }
+
+    /* ── Responsive ──────────────────────────────── */
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .content { margin-left: 0; padding: 2rem 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/" class="nav-logo">
+      <div class="nav-logo-icon">Fe</div>
+      Iron
+    </a>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/guide/" class="active-link">Guide</a>
+    <a href="/install/">Install</a>
+    <a href="https://github.com/victorl2/iron-lang">GitHub</a>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Getting Started</h3>
+        <a href="#overview">Overview</a>
+        <a href="#toolchain">The Toolchain</a>
+        <a href="#creating-a-project">Creating a Project</a>
+        <a href="#project-structure">Project Structure</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>iron.toml</h3>
+        <a href="#iron-toml">Manifest Format</a>
+        <a href="#package-section">Package Section</a>
+        <a href="#dependencies-section">Dependencies</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Commands</h3>
+        <a href="#iron-init">iron init</a>
+        <a href="#iron-build">iron build</a>
+        <a href="#iron-run">iron run</a>
+        <a href="#iron-check">iron check</a>
+        <a href="#iron-test">iron test</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Dependencies</h3>
+        <a href="#adding-deps">Adding Dependencies</a>
+        <a href="#how-resolution-works">How Resolution Works</a>
+        <a href="#iron-lock">The Lockfile</a>
+        <a href="#cache">Cache</a>
+        <a href="#transitive-deps">Transitive Dependencies</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Reference</h3>
+        <a href="#environment-variables">Environment Variables</a>
+        <a href="#error-messages">Error Messages</a>
+        <a href="#faq">FAQ</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Package Manager Guide</h1>
+      <p class="subtitle">Create, build, and manage Iron projects and their dependencies.</p>
+
+      <!-- ── Overview ──────────────────────────── -->
+      <h2 id="overview">Overview</h2>
+      <p>Iron ships a two-binary toolchain inspired by Rust's Cargo/rustc split:</p>
+      <table>
+        <tr><th>Binary</th><th>Role</th><th>Analogy</th></tr>
+        <tr><td><code>iron</code></td><td>Package manager &mdash; projects, dependencies, builds</td><td>Cargo</td></tr>
+        <tr><td><code>ironc</code></td><td>Raw compiler &mdash; compiles single .iron files to native binaries</td><td>rustc</td></tr>
+      </table>
+      <p>For most workflows, you only interact with <code>iron</code>. It reads your project manifest (<code>iron.toml</code>), resolves dependencies, and invokes <code>ironc</code> behind the scenes.</p>
+
+      <!-- ── Toolchain ─────────────────────────── -->
+      <h2 id="toolchain">The Toolchain</h2>
+      <p><code>iron</code> and <code>ironc</code> are installed side by side in <code>~/.iron/bin/</code>. The <code>iron</code> binary discovers <code>ironc</code> automatically as a sibling binary &mdash; no configuration needed.</p>
+      <h3>When to use which</h3>
+      <table>
+        <tr><th>Use case</th><th>Command</th></tr>
+        <tr><td>Create a new project</td><td><code>iron init</code></td></tr>
+        <tr><td>Build a project</td><td><code>iron build</code></td></tr>
+        <tr><td>Compile a single file</td><td><code>ironc build hello.iron</code></td></tr>
+        <tr><td>Quick script</td><td><code>iron run script.iron</code></td></tr>
+      </table>
+      <p><code>iron</code> also transparently forwards single-file commands to <code>ironc</code>. If you run <code>iron build hello.iron</code> (with a <code>.iron</code> file argument), it silently delegates to <code>ironc</code>.</p>
+
+      <!-- ── Creating a Project ────────────────── -->
+      <h2 id="creating-a-project">Creating a Project</h2>
+      <h3>Binary project</h3>
+<pre><code>$ <span class="fn">iron init</span>
+  <span class="st">Created</span> binary project `my-project`
+
+$ tree
+.
+&#9500;&#9472;&#9472; iron.toml
+&#9500;&#9472;&#9472; .gitignore
+&#9492;&#9472;&#9472; src/
+    &#9492;&#9472;&#9472; main.iron</code></pre>
+
+      <h3>Library project</h3>
+<pre><code>$ <span class="fn">iron init --lib</span>
+  <span class="st">Created</span> library project `my-lib`
+
+$ tree
+.
+&#9500;&#9472;&#9472; iron.toml
+&#9500;&#9472;&#9472; .gitignore
+&#9492;&#9472;&#9472; src/
+    &#9492;&#9472;&#9472; lib.iron</code></pre>
+
+      <p><code>iron init</code> works in non-empty directories. It creates files that don't exist and skips files that already do &mdash; safe to run in an existing repo.</p>
+
+      <!-- ── Project Structure ─────────────────── -->
+      <h2 id="project-structure">Project Structure</h2>
+<pre><code>my-game/
+&#9500;&#9472;&#9472; iron.toml          <span class="cm"># Project manifest</span>
+&#9500;&#9472;&#9472; iron.lock          <span class="cm"># Lockfile (auto-generated, commit to VCS)</span>
+&#9500;&#9472;&#9472; .gitignore         <span class="cm"># Ignores target/</span>
+&#9500;&#9472;&#9472; src/
+&#9474;   &#9492;&#9472;&#9472; main.iron      <span class="cm"># Entry point (bin) or lib.iron (lib)</span>
+&#9500;&#9472;&#9472; tests/
+&#9474;   &#9492;&#9472;&#9472; test_math.iron <span class="cm"># Test files discovered by iron test</span>
+&#9492;&#9472;&#9472; target/
+    &#9500;&#9472;&#9472; my-game        <span class="cm"># Built binary</span>
+    &#9492;&#9472;&#9472; combined.iron  <span class="cm"># Concatenated source (when deps exist)</span></code></pre>
+
+      <div class="callout">
+        <div class="callout-title">Conventions</div>
+        <p>Entry point is determined by convention: <code>src/main.iron</code> for binaries, <code>src/lib.iron</code> for libraries. No <code>entry</code> field needed.</p>
+      </div>
+
+      <!-- ── iron.toml ────────────────────────── -->
+      <h2 id="iron-toml">iron.toml &mdash; Manifest Format</h2>
+      <p>The manifest file describes your package and its dependencies.</p>
+
+      <h3 id="package-section">[package]</h3>
+<pre><code><span class="cm">[package]</span>
+<span class="kw">name</span>        = <span class="st">"my-game"</span>
+<span class="kw">version</span>     = <span class="st">"0.1.0"</span>
+<span class="kw">type</span>        = <span class="st">"bin"</span>           <span class="cm"># "bin" (default) or "lib"</span>
+<span class="kw">description</span> = <span class="st">"A cool project"</span> <span class="cm"># optional</span></code></pre>
+
+      <table>
+        <tr><th>Field</th><th>Required</th><th>Description</th></tr>
+        <tr><td><code>name</code></td><td>Yes</td><td>Package name (used for binary output filename)</td></tr>
+        <tr><td><code>version</code></td><td>Yes</td><td>Semantic version string</td></tr>
+        <tr><td><code>type</code></td><td>No</td><td><code>"bin"</code> (default) or <code>"lib"</code></td></tr>
+        <tr><td><code>description</code></td><td>No</td><td>Short description of the package</td></tr>
+      </table>
+
+      <h3 id="dependencies-section">[dependencies]</h3>
+<pre><code><span class="cm">[dependencies]</span>
+<span class="kw">raylib</span>   = <span class="nu">true</span>                                          <span class="cm"># built-in</span>
+<span class="kw">iron-ecs</span> = { <span class="kw">git</span> = <span class="st">"user/iron-ecs"</span>, <span class="kw">version</span> = <span class="st">"0.1.0"</span> }  <span class="cm"># GitHub dep</span></code></pre>
+
+      <p>Dependencies are specified as inline TOML tables with two fields:</p>
+      <table>
+        <tr><th>Field</th><th>Format</th><th>Description</th></tr>
+        <tr><td><code>git</code></td><td><code>"owner/repo"</code></td><td>GitHub repository in short form</td></tr>
+        <tr><td><code>version</code></td><td><code>"X.Y.Z"</code></td><td>Version tag to resolve (tries <code>vX.Y.Z</code> then <code>X.Y.Z</code>)</td></tr>
+      </table>
+
+      <div class="callout">
+        <div class="callout-title">GitHub-only (alpha)</div>
+        <p>During alpha, dependencies are resolved exclusively from GitHub. The <code>git</code> field uses the short <code>owner/repo</code> format &mdash; Iron prepends <code>https://github.com/</code> automatically.</p>
+      </div>
+
+      <!-- ── Commands ────────────────────────────── -->
+      <h2 id="iron-init">iron init</h2>
+      <p>Create a new Iron project in the current directory.</p>
+<pre><code>$ <span class="fn">iron init</span>          <span class="cm"># binary project</span>
+$ <span class="fn">iron init --lib</span>    <span class="cm"># library project</span></code></pre>
+      <p>Creates <code>iron.toml</code>, <code>src/main.iron</code> (or <code>src/lib.iron</code>), and <code>.gitignore</code>. Runs <code>git init</code> if not already in a git repo. Skips existing files.</p>
+
+      <h2 id="iron-build">iron build</h2>
+      <p>Build the current package.</p>
+<pre><code>$ <span class="fn">iron build</span>
+   <span class="kw">Downloading</span> iron-ecs v0.1.0 (user/iron-ecs)
+   <span class="kw">Compiling</span> my-game v0.1.0
+    <span class="st">Finished</span> dev [unoptimized] in 0.42s</code></pre>
+      <p>Reads <code>iron.toml</code>, resolves and fetches dependencies, concatenates source files, and invokes <code>ironc</code>. Output binary is placed in <code>target/</code>.</p>
+      <table>
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td><code>--verbose</code></td><td>Show generated C code (passed through to ironc)</td></tr>
+      </table>
+
+      <h2 id="iron-run">iron run</h2>
+      <p>Build and immediately execute the package binary.</p>
+<pre><code>$ <span class="fn">iron run</span>
+   <span class="kw">Compiling</span> my-game v0.1.0
+    <span class="st">Finished</span> dev [unoptimized] in 0.38s
+     <span class="fn">Running</span> target/my-game
+Hello, Iron!</code></pre>
+      <p>Arguments after <code>--</code> are passed to the built binary:</p>
+<pre><code>$ <span class="fn">iron run -- --port 8080</span></code></pre>
+
+      <h2 id="iron-check">iron check</h2>
+      <p>Type-check the package without producing a binary. Fast feedback loop.</p>
+<pre><code>$ <span class="fn">iron check</span>
+    <span class="kw">Checking</span> my-game v0.1.0
+    <span class="st">Finished</span> check completed</code></pre>
+
+      <h2 id="iron-test">iron test</h2>
+      <p>Discover and run all <code>.iron</code> files in the <code>tests/</code> directory.</p>
+<pre><code>$ <span class="fn">iron test</span>
+     <span class="kw">Testing</span> my-game v0.1.0
+     <span class="fn">Running</span> test_math.iron
+     <span class="fn">Running</span> test_strings.iron
+    <span class="st">Finished</span> 2 test(s) passed</code></pre>
+
+      <!-- ── Dependencies ────────────────────────── -->
+      <h2 id="adding-deps">Adding Dependencies</h2>
+      <p>Edit <code>iron.toml</code> to add a dependency:</p>
+<pre><code><span class="cm">[dependencies]</span>
+<span class="kw">iron-math</span> = { <span class="kw">git</span> = <span class="st">"user/iron-math"</span>, <span class="kw">version</span> = <span class="st">"0.2.0"</span> }</code></pre>
+      <p>On the next <code>iron build</code>, Iron will:</p>
+      <ol>
+        <li>Resolve the version tag to a commit SHA via the GitHub API</li>
+        <li>Download and extract the source tarball into <code>~/.iron/cache/</code></li>
+        <li>Concatenate dependency source files with your project source</li>
+        <li>Write the resolved SHA to <code>iron.lock</code></li>
+      </ol>
+
+      <h2 id="how-resolution-works">How Resolution Works</h2>
+      <h3>Tag resolution</h3>
+      <p>Iron resolves version tags to 40-character commit SHAs using the GitHub REST API:</p>
+      <ol>
+        <li>Try <code>v{version}</code> tag first (e.g., <code>v0.2.0</code>)</li>
+        <li>Fall back to <code>{version}</code> (e.g., <code>0.2.0</code>)</li>
+        <li>Handle annotated tags with a two-step API dereference</li>
+      </ol>
+      <p>The resolved SHA (never a mutable tag name) is stored in <code>iron.lock</code> for reproducibility.</p>
+
+      <h3>Build composition</h3>
+      <p>Iron concatenates all source files into <code>target/combined.iron</code> in this order:</p>
+      <ol>
+        <li><strong>Transitive deps</strong> (leaf dependencies first)</li>
+        <li><strong>Direct deps</strong> (in <code>iron.toml</code> declaration order)</li>
+        <li><strong>Project source</strong> (<code>src/*.iron</code> alphabetically, <code>main.iron</code> last)</li>
+      </ol>
+      <p>Within each dependency, <code>lib.iron</code> is placed first (if it exists), then remaining files alphabetically.</p>
+
+      <h2 id="iron-lock">The Lockfile</h2>
+      <p><code>iron.lock</code> pins every dependency to an exact commit SHA. It is auto-generated on first build and should be <strong>committed to version control</strong>.</p>
+<pre><code><span class="cm"># This file is auto-generated by iron. Do not edit manually.</span>
+
+<span class="kw">lock_version</span> = <span class="nu">1</span>
+
+<span class="cm">[[package]]</span>
+<span class="kw">name</span>    = <span class="st">"iron-ecs"</span>
+<span class="kw">version</span> = <span class="st">"0.1.0"</span>
+<span class="kw">git</span>     = <span class="st">"user/iron-ecs"</span>
+<span class="kw">sha</span>     = <span class="st">"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"</span></code></pre>
+
+      <h3>Lockfile behavior</h3>
+      <table>
+        <tr><th>Scenario</th><th>What happens</th></tr>
+        <tr><td>No <code>iron.lock</code></td><td>All deps resolved via GitHub API, lockfile created</td></tr>
+        <tr><td>Lockfile exists</td><td>Locked SHAs used directly (no API calls)</td></tr>
+        <tr><td>New dep in <code>iron.toml</code></td><td>Only new dep resolved, existing entries preserved</td></tr>
+        <tr><td>Dep removed from <code>iron.toml</code></td><td>Entry pruned from lockfile on next build</td></tr>
+        <tr><td>Cache deleted</td><td>Re-fetched using exact SHAs from lockfile</td></tr>
+      </table>
+
+      <h2 id="cache">Cache</h2>
+      <p>Downloaded dependency sources are stored globally in <code>~/.iron/cache/</code>:</p>
+<pre><code>~/.iron/cache/
+&#9492;&#9472;&#9472; user/
+    &#9492;&#9472;&#9472; iron-ecs@a1b2c3d4.../
+        &#9500;&#9472;&#9472; iron.toml
+        &#9492;&#9472;&#9472; src/
+            &#9492;&#9472;&#9472; lib.iron</code></pre>
+      <p>The cache is shared across all projects on the machine. A second project using the same dependency at the same version reuses the cached source without re-downloading.</p>
+      <p>To force a clean re-fetch, delete the cache: <code>rm -rf ~/.iron/cache/</code></p>
+
+      <h2 id="transitive-deps">Transitive Dependencies</h2>
+      <p>If your dependency has its own <code>[dependencies]</code> in its <code>iron.toml</code>, Iron resolves them recursively. All transitive deps are flattened into <code>iron.lock</code>.</p>
+
+      <h3>Diamond dependencies</h3>
+      <p>If A depends on B and C, and both B and C depend on D at the same version, D is included only once.</p>
+
+      <h3>Version conflicts</h3>
+      <p>If two dependencies require different versions of the same transitive dep, Iron refuses to build and shows which deps conflict:</p>
+<pre><code><span class="kw">error:</span> version conflict for user/iron-math
+  iron-ecs requires v0.2.0
+  iron-physics requires v0.1.0
+
+  hint: align dependency versions in the respective iron.toml files</code></pre>
+
+      <h3>Circular dependencies</h3>
+      <p>If A depends on B which depends on A, Iron detects the cycle and prints the full chain:</p>
+<pre><code><span class="kw">error:</span> circular dependency detected
+  -> user/iron-ecs
+    -> user/iron-math
+      -> user/iron-ecs  (cycle)
+
+  hint: remove the circular dependency from one of the packages</code></pre>
+
+      <!-- ── Reference ───────────────────────────── -->
+      <h2 id="environment-variables">Environment Variables</h2>
+      <table>
+        <tr><th>Variable</th><th>Description</th></tr>
+        <tr><td><code>IRON_GITHUB_TOKEN</code></td><td>GitHub auth token for API requests (5000/hr vs 60/hr). Checked first.</td></tr>
+        <tr><td><code>GITHUB_TOKEN</code></td><td>Fallback auth token (auto-set in GitHub Actions). Checked second.</td></tr>
+        <tr><td><code>NO_COLOR</code></td><td>Disable colored output when set to any value.</td></tr>
+        <tr><td><code>FORCE_COLOR</code></td><td>Force colored output even when not a TTY.</td></tr>
+      </table>
+      <div class="callout">
+        <div class="callout-title">CI tip</div>
+        <p>In GitHub Actions, <code>GITHUB_TOKEN</code> is set automatically. No configuration needed for dependency resolution in CI.</p>
+      </div>
+
+      <h2 id="error-messages">Error Messages</h2>
+      <table>
+        <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+        <tr><td>tag 'X' not found for owner/repo</td><td>Version tag doesn't exist on GitHub</td><td>Check that the repo has the tag (with or without <code>v</code> prefix)</td></tr>
+        <tr><td>GitHub API rate limit exceeded</td><td>Too many unauthenticated requests</td><td>Set <code>IRON_GITHUB_TOKEN</code> for 5000 req/hr</td></tr>
+        <tr><td>circular dependency detected</td><td>Dep graph has a cycle</td><td>Remove the circular dep from one package</td></tr>
+        <tr><td>version conflict for ...</td><td>Two deps need different versions of the same transitive dep</td><td>Align versions across your dependency tree</td></tr>
+        <tr><td>has no iron.toml</td><td>A dependency is not a valid Iron package</td><td>Ensure the dep has an <code>iron.toml</code> at its root</td></tr>
+        <tr><td>no iron.toml found</td><td>Not in a project directory</td><td>Run <code>iron init</code> or <code>cd</code> into a project</td></tr>
+      </table>
+
+      <h2 id="faq">FAQ</h2>
+      <h3>Do I commit iron.lock?</h3>
+      <p><strong>Yes.</strong> The lockfile ensures reproducible builds. Without it, teammates and CI may resolve different commits.</p>
+
+      <h3>Can I use private repos?</h3>
+      <p>Not yet. Alpha supports public GitHub repositories only. Private repo auth is planned for a future release.</p>
+
+      <h3>What about semver ranges?</h3>
+      <p>Iron pins to exact commit SHAs, not version ranges. The ecosystem is currently too small for version conflict resolution. Semver ranges may be added in a future milestone.</p>
+
+      <h3>Where are deps downloaded?</h3>
+      <p>To <code>~/.iron/cache/</code> (global, shared across all projects). Delete this directory to force a clean re-fetch.</p>
+
+      <h3>Can I use local path dependencies?</h3>
+      <p>Not yet. Local path dependencies (<code>path = "../my-lib"</code>) are planned for a future release.</p>
+
+      <h3>How do I update a dependency?</h3>
+      <p>Delete the dep's entry from <code>iron.lock</code> and re-run <code>iron build</code>. It will re-resolve the tag to the latest commit SHA. An <code>iron update</code> command is planned.</p>
+
+    </main>
+  </div>
+
+  <script>
+    // Highlight active sidebar link on scroll
+    const sections = document.querySelectorAll('h2[id], h3[id]');
+    const sidebarLinks = document.querySelectorAll('.sidebar-section a');
+
+    function updateActive() {
+      let current = '';
+      sections.forEach(section => {
+        if (window.scrollY >= section.offsetTop - 100) {
+          current = section.id;
+        }
+      });
+      sidebarLinks.forEach(link => {
+        link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+      });
+    }
+
+    window.addEventListener('scroll', updateActive);
+    updateActive();
+  </script>
+</body>
+</html>
