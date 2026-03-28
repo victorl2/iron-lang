@@ -23,13 +23,13 @@ func level_order_checksum(vals: [Int], size: Int) -> Int {
         pos = pos + 1
 
         val lc = 2 * node + 1
-        val rc = 2 * node + 2
+        val rch = 2 * node + 2
         if lc < size {
             queue[q_back] = lc
             q_back = q_back + 1
         }
-        if rc < size {
-            queue[q_back] = rc
+        if rch < size {
+            queue[q_back] = rch
             q_back = q_back + 1
         }
     }

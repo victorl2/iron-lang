@@ -1,17 +1,17 @@
 import time
 
 -- Kth smallest element in a row/col sorted matrix
--- Uses min-heap simulation on flat array
+-- Uses min-h simulation on flat array
 -- Heap entries: [value, row, col] stored as value * 10000 + row * 100 + col
 
-func heap_up(heap: [Int], idx: Int) {
+func heap_up(h: [Int], idx: Int) {
     var i = idx
     while i > 0 {
         val parent = (i - 1) / 2
-        if heap[i] < heap[parent] {
-            val temp = heap[i]
-            heap[i] = heap[parent]
-            heap[parent] = temp
+        if h[i] < h[parent] {
+            val temp = h[i]
+            h[i] = h[parent]
+            h[parent] = temp
             i = parent
         } else {
             i = 0
@@ -19,7 +19,7 @@ func heap_up(heap: [Int], idx: Int) {
     }
 }
 
-func heap_down_min(heap: [Int], size: Int, idx: Int) {
+func heap_down_min(h: [Int], size: Int, idx: Int) {
     var i = idx
     var cont = 1
     while cont == 1 {
@@ -27,57 +27,57 @@ func heap_down_min(heap: [Int], size: Int, idx: Int) {
         val l = 2 * i + 1
         val r = 2 * i + 2
         if l < size {
-            if heap[l] < heap[smallest] { smallest = l }
+            if h[l] < h[smallest] { smallest = l }
         }
         if r < size {
-            if heap[r] < heap[smallest] { smallest = r }
+            if h[r] < h[smallest] { smallest = r }
         }
         if smallest == i {
             cont = 0
         } else {
-            val temp = heap[i]
-            heap[i] = heap[smallest]
-            heap[smallest] = temp
+            val temp = h[i]
+            h[i] = h[smallest]
+            h[smallest] = temp
             i = smallest
         }
     }
 }
 
 func kth_smallest(mat: [Int], rows: Int, cols: Int, k: Int) -> Int {
-    -- Min-heap: store encoded value (val * 10000 + row * 100 + col)
-    var heap = fill(rows * cols, 0)
+    -- Min-h: store encoded value (val * 10000 + row * 100 + col)
+    var h = fill(rows * cols, 0)
     var heap_size = 0
 
     -- Insert first element of each row
     var r = 0
     while r < rows {
         val encoded = mat[r * cols + 0] * 10000 + r * 100 + 0
-        heap[heap_size] = encoded
+        h[heap_size] = encoded
         heap_size = heap_size + 1
-        heap_up(heap, heap_size - 1)
+        heap_up(h, heap_size - 1)
         r = r + 1
     }
 
     var count = 0
     var result = 0
     while count < k {
-        val top = heap[0]
+        val top = h[0]
         result = top / 10000
         val row = (top % 10000) / 100
         val col = top % 100
 
         -- Remove top
         heap_size = heap_size - 1
-        heap[0] = heap[heap_size]
-        heap_down_min(heap, heap_size, 0)
+        h[0] = h[heap_size]
+        heap_down_min(h, heap_size, 0)
 
         -- Push next element from same row
         val next_col = col + 1
         if next_col < cols {
             val encoded = mat[row * cols + next_col] * 10000 + row * 100 + next_col
-            heap[heap_size] = encoded
+            h[heap_size] = encoded
             heap_size = heap_size + 1
-            heap_up(heap, heap_size - 1)
+            heap_up(h, heap_size - 1)
         }
         count = count + 1
     }

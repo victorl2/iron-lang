@@ -3,51 +3,48 @@ import time
 -- Rabin-Karp hash-based string matching on Int arrays (1-26)
 -- Rolling hash with base 31, mod 1000000007
 
+func verify_match(text: [Int], start: Int, pattern: [Int], plen: Int) -> Int {
+    var j = 0
+    while j < plen {
+        if text[start + j] != pattern[j] {
+            return 0
+        }
+        j = j + 1
+    }
+    return 1
+}
+
 func rabin_karp(text: [Int], tlen: Int, pattern: [Int], plen: Int) -> Int {
     if plen > tlen { return 0 }
 
     val base = 31
-    val mod = 1000000007
+    val mod_val = 1000000007
 
-    -- Compute highest power: base^(plen-1) % mod
     var high_pow = 1
     for i in range(plen - 1) {
-        high_pow = (high_pow * base) % mod
+        high_pow = (high_pow * base) % mod_val
     }
 
-    -- Compute pattern hash
     var ph = 0
     for i in range(plen) {
-        ph = (ph * base + pattern[i]) % mod
+        ph = (ph * base + pattern[i]) % mod_val
     }
 
-    -- Compute first window hash
     var th = 0
     for i in range(plen) {
-        th = (th * base + text[i]) % mod
+        th = (th * base + text[i]) % mod_val
     }
 
     var count = 0
-    for i in range(tlen - plen + 1) {
+    var i = 0
+    while i < tlen - plen + 1 {
         if th == ph {
-            -- Verify match
-            var match = 1
-            var j = 0
-            while j < plen {
-                if text[i + j] != pattern[j] {
-                    match = 0
-                    j = plen
-                } else {
-                    j = j + 1
-                }
-            }
-            if match == 1 {
-                count = count + 1
-            }
+            count = count + verify_match(text, i, pattern, plen)
         }
         if i < tlen - plen {
-            th = ((th - text[i] * high_pow % mod + mod) % mod * base + text[i + plen]) % mod
+            th = ((th - text[i] * high_pow % mod_val + mod_val) % mod_val * base + text[i + plen]) % mod_val
         }
+        i = i + 1
     }
     return count
 }

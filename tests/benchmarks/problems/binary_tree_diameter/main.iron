@@ -16,14 +16,14 @@ func diameter(vals: [Int], size: Int) -> Int {
     var i = size - 1
     while i >= 0 {
         val lc = 2 * i + 1
-        val rc = 2 * i + 2
+        val rch = 2 * i + 2
         var lh = 0
         var rh = 0
         if lc < size {
             lh = height[lc]
         }
-        if rc < size {
-            rh = height[rc]
+        if rch < size {
+            rh = height[rch]
         }
 
         val d = lh + rh

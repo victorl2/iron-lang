@@ -3,6 +3,17 @@ import time
 -- Word break: check if string s can be segmented into dictionary words
 -- Dictionary is encoded as a flat array with lengths stored separately
 -- dict_flat contains all words concatenated, dict_starts[i] = start index of word i
+func match_word(s: [Int], pos: Int, dict_flat: [Int], wstart: Int, wlen: Int) -> Int {
+    var k = 0
+    while k < wlen {
+        if s[pos + k] != dict_flat[wstart + k] {
+            return 0
+        }
+        k = k + 1
+    }
+    return 1
+}
+
 func word_break(s: [Int], sn: Int, dict_flat: [Int], dict_starts: [Int], dict_lens: [Int], nd: Int) -> Int {
     var dp = fill(sn + 1, 0)
     dp[0] = 1
@@ -11,22 +22,10 @@ func word_break(s: [Int], sn: Int, dict_flat: [Int], dict_starts: [Int], dict_le
         var w = 0
         while w < nd {
             val wlen = dict_lens[w]
-            if wlen <= i {
-                if dp[i - wlen] == 1 {
-                    var match = 1
-                    var k = 0
-                    while k < wlen {
-                        if s[i - wlen + k] != dict_flat[dict_starts[w] + k] {
-                            match = 0
-                            k = wlen
-                        } else {
-                            k = k + 1
-                        }
-                    }
-                    if match == 1 {
-                        dp[i] = 1
-                        w = nd
-                    }
+            if wlen <= i and dp[i - wlen] == 1 {
+                if match_word(s, i - wlen, dict_flat, dict_starts[w], wlen) == 1 {
+                    dp[i] = 1
+                    w = nd
                 }
             }
             w = w + 1

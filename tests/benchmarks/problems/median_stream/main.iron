@@ -3,14 +3,14 @@ import time
 -- Running median via two heaps (max-heap for lower half, min-heap for upper half)
 -- Using integer median (floor of average when even count)
 
-func heap_up_max(heap: [Int], idx: Int) {
+func heap_up_max(h: [Int], idx: Int) {
     var i = idx
     while i > 0 {
         val parent = (i - 1) / 2
-        if heap[i] > heap[parent] {
-            val temp = heap[i]
-            heap[i] = heap[parent]
-            heap[parent] = temp
+        if h[i] > h[parent] {
+            val temp = h[i]
+            h[i] = h[parent]
+            h[parent] = temp
             i = parent
         } else {
             i = 0
@@ -18,7 +18,7 @@ func heap_up_max(heap: [Int], idx: Int) {
     }
 }
 
-func heap_down_max(heap: [Int], size: Int, idx: Int) {
+func heap_down_max(h: [Int], size: Int, idx: Int) {
     var i = idx
     var cont = 1
     while cont == 1 {
@@ -26,30 +26,30 @@ func heap_down_max(heap: [Int], size: Int, idx: Int) {
         val l = 2 * i + 1
         val r = 2 * i + 2
         if l < size {
-            if heap[l] > heap[largest] { largest = l }
+            if h[l] > h[largest] { largest = l }
         }
         if r < size {
-            if heap[r] > heap[largest] { largest = r }
+            if h[r] > h[largest] { largest = r }
         }
         if largest == i {
             cont = 0
         } else {
-            val temp = heap[i]
-            heap[i] = heap[largest]
-            heap[largest] = temp
+            val temp = h[i]
+            h[i] = h[largest]
+            h[largest] = temp
             i = largest
         }
     }
 }
 
-func heap_up_min(heap: [Int], idx: Int) {
+func heap_up_min(h: [Int], idx: Int) {
     var i = idx
     while i > 0 {
         val parent = (i - 1) / 2
-        if heap[i] < heap[parent] {
-            val temp = heap[i]
-            heap[i] = heap[parent]
-            heap[parent] = temp
+        if h[i] < h[parent] {
+            val temp = h[i]
+            h[i] = h[parent]
+            h[parent] = temp
             i = parent
         } else {
             i = 0
@@ -57,7 +57,7 @@ func heap_up_min(heap: [Int], idx: Int) {
     }
 }
 
-func heap_down_min(heap: [Int], size: Int, idx: Int) {
+func heap_down_min(h: [Int], size: Int, idx: Int) {
     var i = idx
     var cont = 1
     while cont == 1 {
@@ -65,17 +65,17 @@ func heap_down_min(heap: [Int], size: Int, idx: Int) {
         val l = 2 * i + 1
         val r = 2 * i + 2
         if l < size {
-            if heap[l] < heap[smallest] { smallest = l }
+            if h[l] < h[smallest] { smallest = l }
         }
         if r < size {
-            if heap[r] < heap[smallest] { smallest = r }
+            if h[r] < h[smallest] { smallest = r }
         }
         if smallest == i {
             cont = 0
         } else {
-            val temp = heap[i]
-            heap[i] = heap[smallest]
-            heap[smallest] = temp
+            val temp = h[i]
+            h[i] = h[smallest]
+            h[smallest] = temp
             i = smallest
         }
     }

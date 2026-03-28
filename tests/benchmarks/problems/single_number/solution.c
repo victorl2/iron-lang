@@ -4,11 +4,20 @@
 #include <time.h>
 #include <sys/resource.h>
 
+/* Frequency counting to match Iron (no XOR operator in Iron) */
 int64_t single_number(int64_t* arr, int64_t n) {
+    int64_t max_val = 0;
+    for (int64_t i = 0; i < n; i++) {
+        int64_t v = arr[i] < 0 ? -arr[i] : arr[i];
+        if (v > max_val) max_val = v;
+    }
+    int64_t *freq = (int64_t *)calloc(max_val + 1, sizeof(int64_t));
+    for (int64_t i = 0; i < n; i++) freq[arr[i]]++;
     int64_t result = 0;
     for (int64_t i = 0; i < n; i++) {
-        result = result ^ arr[i];
+        if (freq[arr[i]] == 1) result = arr[i];
     }
+    free(freq);
     return result;
 }
 

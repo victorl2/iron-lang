@@ -29,9 +29,9 @@ func validate_bst(vals: [Int], size: Int) -> Int {
         }
         prev = vals[curr]
 
-        val rc = 2 * curr + 2
-        if rc < size {
-            curr = rc
+        val rch = 2 * curr + 2
+        if rch < size {
+            curr = rch
             has_curr = 1
             while has_curr == 1 {
                 stack[top] = curr

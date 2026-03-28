@@ -31,9 +31,9 @@ func inorder_checksum(vals: [Int], size: Int) -> Int {
             curr = stack[top]
             checksum = checksum + vals[curr] * order
             order = order + 1
-            val rc = 2 * curr + 2
-            if rc < size {
-                curr = rc
+            val rch = 2 * curr + 2
+            if rch < size {
+                curr = rch
                 has_curr = 1
             } else {
                 has_curr = 0

@@ -24,14 +24,14 @@ func max_depth(vals: [Int], size: Int) -> Int {
         }
 
         val lc = 2 * node + 1
-        val rc = 2 * node + 2
+        val rch = 2 * node + 2
         if lc < size {
             stack_node[top] = lc
             stack_depth[top] = depth + 1
             top = top + 1
         }
-        if rc < size {
-            stack_node[top] = rc
+        if rch < size {
+            stack_node[top] = rch
             stack_depth[top] = depth + 1
             top = top + 1
         }
