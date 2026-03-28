@@ -260,7 +260,7 @@ Plans:
   2. `iron build main.iron` continues to work and produce the same output as before (backward compat fallback); a file argument triggers single-file mode with an optional deprecation hint
   3. The `iron` binary discovers `ironc` at runtime by resolving its own executable path and checking for a sibling binary — no compile-time hardcoded paths, no `IRON_SOURCE_DIR` dependency
   4. `cmake --install` (or the install script) installs both `iron` and `ironc` to the same directory and adds that directory to PATH
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 12-01-PLAN.md — Rename CMake target to ironc, add runtime path resolution
@@ -308,6 +308,6 @@ Phases execute in numeric order: 12 -> 13 -> 14
 | 9. C Emission and Cutover | v0.0.2-alpha | 4/4 | Complete | 2026-03-27 |
 | 10. Test Hardening | v0.0.2-alpha | 5/5 | Complete | 2026-03-27 |
 | 11. Release Pipeline & Versioning | v0.0.2-alpha | 2/2 | Complete | 2026-03-27 |
-| 12. Binary Split and Installation | 2/3 | In Progress|  | - |
+| 12. Binary Split and Installation | 3/3 | Complete   | 2026-03-28 | - |
 | 13. Project Workflow | v0.0.3-alpha | 0/? | Not started | - |
 | 14. Dependency Resolution and Lockfile | v0.0.3-alpha | 0/? | Not started | - |

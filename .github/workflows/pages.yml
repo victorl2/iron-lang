@@ -2,6 +2,8 @@ name: Deploy Website
 
 on:
   workflow_dispatch:
+  release:
+    types: [published]
   push:
     branches: [main]
     paths:
@@ -25,6 +27,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inject release version
+        run: |
+          VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unreleased")
+          sed -i "s/__IRON_VERSION__/${VERSION}/g" docs/site/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
