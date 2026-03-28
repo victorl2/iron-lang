@@ -46,7 +46,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
         run: |
           chmod +x tests/integration/run_integration.sh
-          tests/integration/run_integration.sh build/iron
+          tests/integration/run_integration.sh build/ironc
 
   build:
     needs: test
@@ -97,27 +97,35 @@ jobs:
 
       - name: Build (Unix)
         if: runner.os != 'Windows'
-        run: cmake --build build --target iron
+        run: cmake --build build
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: cmake --build build --config Release --target iron
+        run: cmake --build build --config Release
 
       - name: Verify version output (Unix)
         if: runner.os != 'Windows'
-        run: ./build/iron --version
+        run: |
+          ./build/ironc --version
+          ./build/iron --version
 
       - name: Verify version output (Windows)
         if: runner.os == 'Windows'
-        run: build\Release\iron.exe --version
+        run: |
+          build\Release\ironc.exe --version
+          build\Release\iron.exe --version
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           VERSION="${RELEASE_TAG#v}"
           ARCHIVE="iron-${VERSION}-${{ matrix.target }}.tar.gz"
-          mkdir -p staging
-          cp build/iron staging/
+          mkdir -p staging/bin staging/lib/runtime staging/lib/util staging/lib/stdlib staging/lib/vendor
+          cp build/iron build/ironc staging/bin/
+          cp src/runtime/*.c src/runtime/*.h staging/lib/runtime/
+          cp src/util/stb_ds_impl.c src/util/arena.c src/util/arena.h src/util/strbuf.c src/util/strbuf.h staging/lib/util/
+          cp src/stdlib/*.c src/stdlib/*.iron staging/lib/stdlib/
+          cp -r src/vendor/* staging/lib/vendor/
           cp LICENSE staging/
           tar -czf "${ARCHIVE}" -C staging .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -128,8 +136,15 @@ jobs:
         run: |
           $VERSION = "${{ env.RELEASE_TAG }}".TrimStart("v")
           $ARCHIVE = "iron-${VERSION}-${{ matrix.target }}.zip"
-          New-Item -ItemType Directory -Force -Path staging
-          Copy-Item build\Release\iron.exe staging\
+          New-Item -ItemType Directory -Force -Path staging/bin, staging/lib/runtime, staging/lib/util, staging/lib/stdlib, staging/lib/vendor
+          Copy-Item build\Release\iron.exe staging\bin\
+          Copy-Item build\Release\ironc.exe staging\bin\
+          Copy-Item src\runtime\*.c staging\lib\runtime\
+          Copy-Item src\runtime\*.h staging\lib\runtime\
+          Copy-Item src\util\stb_ds_impl.c, src\util\arena.c, src\util\arena.h, src\util\strbuf.c, src\util\strbuf.h staging\lib\util\
+          Copy-Item src\stdlib\*.c staging\lib\stdlib\
+          Copy-Item src\stdlib\*.iron staging\lib\stdlib\
+          Copy-Item -Recurse src\vendor\* staging\lib\vendor\
           Copy-Item LICENSE staging\
           Compress-Archive -Path staging\* -DestinationPath $ARCHIVE
           echo "ARCHIVE=$ARCHIVE" >> $env:GITHUB_ENV
