@@ -1,0 +1,26 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/benchmarks/**'
+      - '.github/workflows/benchmark.yml'
+
+jobs:
+  benchmark:
+    runs-on: macos-14  # ARM64 for consistent results
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build compiler
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Run benchmarks
+        run: bash tests/benchmarks/run_benchmarks.sh --verbose
+
+      - name: Check regression
+        run: bash tests/benchmarks/run_benchmarks.sh --check-regression
