@@ -49,7 +49,7 @@ func main() {
     println("Test 3: {search_rotated(arr, 100, 200)} (expected -1)")
     println("Test 4: {search_rotated(arr, 100, 50)} (expected 0)")
 
-    val iterations = 1000000
+    val iterations = 10000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

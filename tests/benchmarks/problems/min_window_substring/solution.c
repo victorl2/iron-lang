@@ -64,7 +64,7 @@ int main(void) {
     int t3[] = {1,3,5};
 
     long mem_before = get_memory_kb();
-    int iterations = 1000000;
+    int iterations = 10000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

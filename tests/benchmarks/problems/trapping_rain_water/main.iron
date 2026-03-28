@@ -36,7 +36,7 @@ func main() {
     val h3 = [3, 0, 2, 0, 4, 0, 1, 0, 3, 0, 2, 0, 5, 0, 1, 0, 4, 0, 2, 0]
     println("Test 3: {trap(h3, 20)}")
 
-    val iterations = 1000000
+    val iterations = 10000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

@@ -73,7 +73,7 @@ func main() {
     val check = bench_optional(200, bench_arr, 50)
     println("Test 7 bench(200): {check}")
 
-    val iterations = 500000
+    val iterations = 5000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

@@ -48,7 +48,7 @@ int main(void) {
     printf("Test 4: %lld (expected 1)\n", longest_palindrome(bench, 100));
 
     long mem_before = get_memory_kb();
-    int iterations = 200000;
+    int iterations = 5000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

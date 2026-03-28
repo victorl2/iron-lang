@@ -54,7 +54,7 @@ func main() {
     }
     println("Test 4: {longest_palindrome(bench, 100)} (expected 1)")
 
-    val iterations = 200000
+    val iterations = 5000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

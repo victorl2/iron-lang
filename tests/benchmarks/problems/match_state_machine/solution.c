@@ -77,7 +77,7 @@ int main(void) {
     int64_t check = simulate(200);
     printf("Test 7 simulate(200): %lld\n", (long long)check);
 
-    int iterations = 500000;
+    int iterations = 5000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

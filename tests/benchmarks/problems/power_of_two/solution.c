@@ -36,12 +36,14 @@ int main(void) {
     printf("Test 5: %lld (expected 20)\n", count_powers_of_two(1000000));
 
     long mem_before = get_memory_kb();
-    int iterations = 1;
+    int iterations = 10000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;
-    result = count_powers_of_two(1000000);
+    for (int it = 0; it < iterations; it++) {
+        result = count_powers_of_two(1000);
+    }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
     long mem_after = get_memory_kb();

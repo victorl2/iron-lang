@@ -46,7 +46,7 @@ func main() {
     val check = gas_station(gas, cost, n)
     println("Bench check: {check}")
 
-    val iterations = 1000000
+    val iterations = 5000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

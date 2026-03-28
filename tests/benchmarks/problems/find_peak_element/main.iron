@@ -42,7 +42,7 @@ func main() {
     val arr4 = [5, 4, 3, 2, 1]
     println("Test 4: {find_peak(arr4, 5)} (expected 0)")
 
-    val iterations = 1000000
+    val iterations = 5000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

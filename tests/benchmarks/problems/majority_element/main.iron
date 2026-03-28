@@ -39,7 +39,7 @@ func main() {
     }
     println("Test 4: {majority_element(bench, 200)} (expected 42)")
 
-    val iterations = 1000000
+    val iterations = 10000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

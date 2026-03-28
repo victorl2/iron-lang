@@ -38,7 +38,7 @@ int main(void) {
     int64_t arr4[] = {5, 4, 3, 2, 1};
     printf("Test 4: %lld (expected 0)\n", find_peak(arr4, 5));
 
-    int iterations = 1000000;
+    int iterations = 5000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

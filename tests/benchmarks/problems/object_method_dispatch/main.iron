@@ -53,7 +53,7 @@ func main() {
     println("Test 4 checksum(100): {compute_checksum(100)} (expected 1189670)")
 
     -- Benchmark
-    val iterations = 100000
+    val iterations = 5000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

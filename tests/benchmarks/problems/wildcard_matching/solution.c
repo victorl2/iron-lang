@@ -50,7 +50,7 @@ int main(void) {
     int p5[] = {101,1,101,2,101,3,101};
 
     long mem_before = get_memory_kb();
-    int iterations = 1000000;
+    int iterations = 5000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

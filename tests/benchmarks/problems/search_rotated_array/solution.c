@@ -35,7 +35,7 @@ int main(void) {
     printf("Test 4: %d (expected 0)\n", search_rotated(arr, 100, 50));
 
     long mem_before = get_memory_kb();
-    int iterations = 1000000;
+    int iterations = 10000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
