@@ -2065,17 +2065,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     }
 
     case IRON_IR_FUNC_REF: {
-        /* Skip builtin pseudo-functions that are handled inline at CALL sites */
-        if (instr->func_ref.func_name &&
-            strncmp(instr->func_ref.func_name, "__builtin_", 10) == 0) {
-            /* No C code needed — handled inline when the CALL is emitted */
-            break;
-        }
-        const char *c_name = resolve_func_c_name(ctx, instr->func_ref.func_name);
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "void* ");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (void*)%s;\n", c_name);
+        /* FUNC_REF values are resolved directly from the value_table at CALL
+         * sites (see the IRON_IR_CALL case), so the emitted void* cast is
+         * dead code.  Skip emission entirely for all FUNC_REF instructions. */
         break;
     }
 
