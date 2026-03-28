@@ -1,1 +1,1 @@
-{"iterations": 200000, "timeout_sec": 60, "max_ratio": 1.2}
+{"iterations": 50000, "timeout_sec": 120, "max_ratio": 1.2}

@@ -52,8 +52,16 @@ if [ ! -x "$IRONC" ]; then
     exit 1
 fi
 
-if ! command -v clang &>/dev/null; then
-    echo "ERROR: clang not found in PATH"
+# Find a C compiler: prefer clang, fall back to gcc, then cc
+CC=""
+for candidate in clang gcc cc; do
+    if command -v "$candidate" &>/dev/null; then
+        CC="$candidate"
+        break
+    fi
+done
+if [ -z "$CC" ]; then
+    echo "ERROR: no C compiler found (tried clang, gcc, cc)"
     exit 1
 fi
 
@@ -216,7 +224,7 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     mkdir -p "$iron_build_dir"
 
     # ── Step 1: Compile C reference ────────────────────────────────────
-    if ! clang -std=c17 -O3 -o "$c_bin" "$c_src" -lm 2>"$TMPDIR/c_compile_err"; then
+    if ! $CC -std=c17 -O3 -o "$c_bin" "$c_src" -lm 2>"$TMPDIR/c_compile_err"; then
         echo "[ERROR] $problem_name: C compilation failed"
         if [ $VERBOSE -eq 1 ]; then
             cat "$TMPDIR/c_compile_err"

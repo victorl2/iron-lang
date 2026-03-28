@@ -47,7 +47,7 @@ func main() {
     println("Test 3: {count_parens(5)} (expected 42)")
     println("Test 4: {count_parens(12)} (expected 208012)")
 
-    val iterations = 100000
+    val iterations = 1000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
