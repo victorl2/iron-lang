@@ -278,6 +278,8 @@ void iron_toml_free(IronProject *proj) {
         free(proj->deps[i].name);
         free(proj->deps[i].git);
         free(proj->deps[i].version);
+        free(proj->deps[i].sha);
+        free(proj->deps[i].cache_path);
     }
     free(proj->deps);
     free(proj);
