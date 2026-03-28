@@ -371,11 +371,35 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         }
     }
 
-    /* 7. Build source: concatenate deps + project into target/combined.iron */
+    /* 7. Build source: concatenate deps + project into target/combined.iron
+     * Use combined source when deps exist OR when project has multiple .iron files. */
     char combined_path[4096];
     snprintf(combined_path, sizeof(combined_path), "%s/target/combined.iron", proj_dir);
 
-    if (resolved.count > 0) {
+    /* Check if project has multiple .iron files in src/ */
+    bool multi_file = false;
+    {
+        char src_path[4096];
+        snprintf(src_path, sizeof(src_path), "%s/src", proj_dir);
+#ifndef _WIN32
+        DIR *src_d = opendir(src_path);
+        if (src_d) {
+            int iron_count = 0;
+            struct dirent *src_ent;
+            while ((src_ent = readdir(src_d)) != NULL) {
+                size_t nlen = strlen(src_ent->d_name);
+                if (nlen >= 6 && strcmp(src_ent->d_name + nlen - 5, ".iron") == 0)
+                    iron_count++;
+            }
+            closedir(src_d);
+            if (iron_count > 1) multi_file = true;
+        }
+#endif
+    }
+
+    bool use_combined = (resolved.count > 0 || multi_file);
+
+    if (use_combined) {
         FILE *combined = fopen(combined_path, "w");
         if (!combined) {
             iron_print_error(colors, "cannot create target/combined.iron");
@@ -386,19 +410,19 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
         /* Write dep source files in topological order (leaves first) */
         for (int i = 0; i < resolved.count; i++) {
-            fprintf(combined, "// -- dependency: %s --\n", resolved.deps[i].name);
+            fprintf(combined, "-- dependency: %s\n", resolved.deps[i].name);
             collect_iron_files(combined, resolved.deps[i].cache_path);
         }
 
         /* Write project source files (main.iron last) */
-        fprintf(combined, "// -- project: %s --\n", proj->name);
+        fprintf(combined, "-- project: %s\n", proj->name);
         collect_project_files(combined, proj_dir);
 
         fclose(combined);
     }
 
-    /* Use combined source when deps present, otherwise use entry point directly */
-    char *build_source = (resolved.count > 0) ? combined_path : entry_path;
+    /* Use combined source when active, otherwise use entry point directly */
+    char *build_source = use_combined ? combined_path : entry_path;
 
     /* 8. Print compiling status */
     char detail[512];
@@ -553,47 +577,25 @@ static int cmd_test(int argc, char **argv) {
     iron_print_status(colors, "Testing", detail);
 
     char *ironc = find_ironc();
-    int total = 0, passed = 0, failed = 0;
 
 #ifndef _WIN32
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-        size_t nlen = strlen(ent->d_name);
-        if (nlen < 6 || strcmp(ent->d_name + nlen - 5, ".iron") != 0) continue;
-
-        char file_path[4096];
-        snprintf(file_path, sizeof(file_path), "%s/%s", tests_dir, ent->d_name);
-
-        total++;
-        iron_print_status(colors, "Running", ent->d_name);
-
-        char *spawn_argv[] = { ironc, "test", file_path, NULL };
-        int ret = spawn_and_wait(ironc, spawn_argv);
-        if (ret == 0) {
-            passed++;
-        } else {
-            failed++;
-        }
-    }
     closedir(d);
 #endif
 
-    /* Summary */
-    if (failed == 0 && total > 0) {
-        snprintf(detail, sizeof(detail), "%d test(s) passed", passed);
-        iron_print_status(colors, "Finished", detail);
-    } else if (failed > 0) {
-        snprintf(detail, sizeof(detail), "%d passed, %d failed", passed, failed);
-        iron_print_error(colors, detail);
-    } else {
-        iron_print_status(colors, "Finished", "no test files found in tests/");
+    /* Delegate to ironc test with the tests/ directory.
+     * ironc test expects a directory path and discovers .iron files itself. */
+    char *spawn_argv[] = { ironc, "test", tests_dir, NULL };
+    int ret = spawn_and_wait(ironc, spawn_argv);
+
+    if (ret == 0) {
+        iron_print_status(colors, "Finished", "all tests passed");
     }
 
     free(ironc);
     free(proj_dir);
     free(toml_path);
     iron_toml_free(proj);
-    return failed > 0 ? 1 : 0;
+    return ret;
 }
 
 /* ── cmd_package dispatcher ─────────────────────────────────────────────── */

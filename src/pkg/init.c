@@ -114,8 +114,8 @@ int cmd_init(int argc, char **argv) {
     /* ── source file ────────────────────────────────────────────────────── */
     if (is_lib) {
         const char *lib_content =
-            "func greet(name: str) -> str {\n"
-            "    return \"Hello, \" + name + \"!\"\n"
+            "func greet(name: String) {\n"
+            "    println(\"Hello, {name}!\")\n"
             "}\n";
         if (write_if_absent("src/lib.iron", lib_content) < 0) return 1;
     } else {
