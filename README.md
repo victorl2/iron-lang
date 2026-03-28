@@ -36,7 +36,7 @@ If you prefer to build from source, see [INSTALL.md](INSTALL.md) for instruction
 
 ## Getting Help
 
-This project is in early alpha. If you run into issues, please
+This project is in early alpha. If you run into problems, please
 [open an issue](https://github.com/victorl2/iron-lang/issues) on GitHub.
 
 ## Contributing

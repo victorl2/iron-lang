@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Install Iron</title>
   <meta name="description" content="Install the Iron programming language on macOS or Linux with a single command.">
+  <meta property="og:title" content="Install Iron">
+  <meta property="og:description" content="Install the Iron programming language on macOS or Linux with a single command.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ironlang.dev/install/">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,6 +25,7 @@
       --accent: #e8590c;
       --accent-hover: #ff6b1a;
       --accent-glow: rgba(232, 89, 12, 0.12);
+      --accent-subtle: rgba(232, 89, 12, 0.06);
       --text: #e2e8f0;
       --text-secondary: #94a3b8;
       --text-muted: #64748b;
@@ -41,10 +46,21 @@
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
 
     a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
     a:hover { color: var(--accent-hover); }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      background: var(--bg-surface);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+    }
 
     /* ── Navigation ─────────────────────────────────────── */
     nav {
@@ -110,6 +126,7 @@
     }
 
     .nav-links a:hover { color: var(--text); }
+    .nav-links .active-link { color: var(--text); }
 
     .nav-links .gh-link {
       display: flex;
@@ -140,32 +157,87 @@
       transition: 0.3s;
     }
 
-    /* ── Install page ──────────────────────────────────── */
-    .install-page {
-      padding: 8rem 2rem 4rem;
-      max-width: 720px;
+    /* ── Page layout ───────────────────────────────────── */
+    main {
+      flex: 1;
+      padding: 0 2rem;
+    }
+
+    .install-hero {
+      max-width: 740px;
+      margin: 0 auto;
+      padding-top: 8rem;
+      padding-bottom: 3.5rem;
+      text-align: center;
+    }
+
+    .install-hero h1 {
+      font-size: 3rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.15;
+      margin-bottom: 1.25rem;
+    }
+
+    .install-hero h1 .highlight {
+      background: linear-gradient(135deg, var(--accent), #ff8c42);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .install-hero .subtitle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      line-height: 1.7;
+      max-width: 520px;
       margin: 0 auto;
     }
 
-    .install-page h1 {
-      font-size: 2.5rem;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      margin-bottom: 1rem;
+    /* ── Platform detection ─────────────────────────────── */
+    .platform-section {
+      max-width: 740px;
+      margin: 0 auto;
+      padding-bottom: 4rem;
     }
 
-    .platform-detect {
+    .platform-banner {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.5rem;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
       color: var(--text-secondary);
-      font-size: 1.05rem;
-      line-height: 1.7;
-      margin-bottom: 2.5rem;
+      line-height: 1.6;
     }
 
-    .platform-detect strong {
+    .platform-banner strong {
       color: var(--text);
     }
 
-    /* ── Unix install ──────────────────────────────────── */
+    .platform-icon {
+      flex-shrink: 0;
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(232, 89, 12, 0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .platform-icon svg {
+      width: 20px;
+      height: 20px;
+      fill: var(--accent);
+    }
+
+    /* ── Install sections (toggled by JS) ──────────────── */
     .install-unix,
     .install-windows,
     .install-unknown {
@@ -178,90 +250,310 @@
       display: block;
     }
 
-    .command-box {
+    /* ── Terminal command box ───────────────────────────── */
+    .terminal {
       background: var(--bg-code);
       border: 1px solid var(--border-light);
       border-radius: var(--radius);
-      padding: 1.25rem 1.5rem;
-      font-family: var(--font-mono);
-      font-size: 0.9rem;
-      color: var(--text);
-      overflow-x: auto;
-      position: relative;
+      overflow: hidden;
       margin-bottom: 1.5rem;
-      line-height: 1.7;
     }
 
-    .command-box code {
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0.7rem 1rem;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green { background: #28c840; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      margin-right: 46px; /* offset for dots to visually center */
+    }
+
+    .terminal-body {
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      position: relative;
+    }
+
+    .terminal-prompt {
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-weight: 500;
+      font-size: 0.9rem;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .terminal-cmd {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.65;
+      word-break: break-all;
       user-select: all;
+      flex: 1;
     }
 
     .copy-btn {
       position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
+      top: 50%;
+      right: 1rem;
+      transform: translateY(-50%);
       background: var(--bg-card);
       border: 1px solid var(--border-light);
       border-radius: 6px;
-      color: var(--text-secondary);
+      color: var(--text-muted);
       cursor: pointer;
-      padding: 0.35rem 0.6rem;
+      padding: 0.4rem 0.65rem;
       font-size: 0.75rem;
       font-family: var(--font-sans);
+      font-weight: 500;
       transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
     }
 
     .copy-btn:hover {
       color: var(--text);
       border-color: var(--accent);
+      background: var(--accent-glow);
     }
 
-    .install-note {
+    .copy-btn.copied {
+      color: #4ade80;
+      border-color: rgba(74, 222, 128, 0.3);
+      background: rgba(74, 222, 128, 0.06);
+    }
+
+    .copy-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    /* ── Info text ──────────────────────────────────────── */
+    .install-detail {
       color: var(--text-secondary);
-      font-size: 0.95rem;
-      line-height: 1.7;
+      font-size: 0.92rem;
+      line-height: 1.75;
+    }
+
+    .install-detail a {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-color: rgba(232, 89, 12, 0.4);
+    }
+
+    .install-detail a:hover {
+      text-decoration-color: var(--accent);
+    }
+
+    /* ── Divider ───────────────────────────────────────── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 3.5rem 0;
+    }
+
+    /* ── What you get ──────────────────────────────────── */
+    .what-you-get {
+      max-width: 740px;
+      margin: 0 auto;
+      padding-bottom: 1rem;
+    }
+
+    .what-you-get h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
       margin-bottom: 1.5rem;
     }
 
-    .install-note a {
-      text-decoration: underline;
-      text-underline-offset: 3px;
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      padding: 1.1rem 1.35rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.2s;
+    }
+
+    .step:hover {
+      border-color: var(--border-light);
+    }
+
+    .step-num {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .step-desc {
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+
+    .step-desc code {
+      font-size: 0.82em;
     }
 
     /* ── Other methods ─────────────────────────────────── */
     .other-methods {
-      margin-top: 3rem;
-      padding-top: 2.5rem;
-      border-top: 1px solid var(--border);
+      max-width: 740px;
+      margin: 0 auto;
+      padding-bottom: 4rem;
     }
 
     .other-methods h2 {
       font-size: 1.5rem;
       font-weight: 700;
+      letter-spacing: -0.02em;
       margin-bottom: 1.5rem;
     }
 
-    .method {
-      margin-bottom: 2rem;
+    .methods-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
     }
 
-    .method h3 {
-      font-size: 1.1rem;
+    .method-card {
+      padding: 1.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.25s, background 0.25s;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .method-card:hover {
+      border-color: var(--border-light);
+      background: var(--bg-card);
+    }
+
+    .method-card-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(232, 89, 12, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .method-card-icon svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--accent);
+    }
+
+    .method-card h3 {
+      font-size: 1rem;
       font-weight: 600;
       margin-bottom: 0.5rem;
     }
 
-    .method p {
+    .method-card p {
       color: var(--text-secondary);
-      font-size: 0.95rem;
+      font-size: 0.88rem;
+      line-height: 1.65;
+      flex: 1;
+    }
+
+    .method-card .method-link {
+      margin-top: 1rem;
+      font-size: 0.88rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .method-card .method-link svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+      transition: transform 0.2s;
+    }
+
+    .method-card:hover .method-link svg {
+      transform: translateX(2px);
+    }
+
+    /* ── Windows notice ────────────────────────────────── */
+    .notice-box {
+      background: rgba(232, 89, 12, 0.04);
+      border: 1px solid rgba(232, 89, 12, 0.15);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.92rem;
+      color: var(--text-secondary);
       line-height: 1.7;
+    }
+
+    .notice-box strong {
+      color: var(--text);
     }
 
     /* ── Footer ────────────────────────────────────────── */
     footer {
       border-top: 1px solid var(--border);
-      padding: 2.5rem 2rem;
-      margin-top: 4rem;
+      padding: 2rem;
+      margin-top: auto;
     }
 
     .footer-inner {
@@ -270,19 +562,42 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       color: var(--text-muted);
     }
 
     .footer-inner a {
       color: var(--text-secondary);
       text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-color: var(--border-light);
     }
+
+    .footer-inner a:hover {
+      color: var(--text);
+    }
+
+    /* ── Entrance animations ───────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .install-hero { animation: fadeUp 0.5s ease-out both; }
+    .platform-section { animation: fadeUp 0.5s ease-out 0.1s both; }
+    .what-you-get { animation: fadeUp 0.5s ease-out 0.2s both; }
+    .other-methods { animation: fadeUp 0.5s ease-out 0.3s both; }
 
     /* ── Responsive ────────────────────────────────────── */
     @media (max-width: 640px) {
-      .install-page h1 { font-size: 1.75rem; }
-      .command-box { font-size: 0.8rem; padding: 1rem; }
+      .install-hero { padding-top: 6.5rem; padding-bottom: 2.5rem; }
+      .install-hero h1 { font-size: 2rem; }
+      .install-hero .subtitle { font-size: 1rem; }
+      .terminal-body { padding: 1rem; }
+      .terminal-cmd { font-size: 0.78rem; }
+      .platform-banner { flex-direction: column; text-align: center; gap: 0.6rem; padding: 1.25rem; }
+      .methods-grid { grid-template-columns: 1fr; }
+      .copy-btn span { display: none; }
       .nav-links { display: none; }
       .nav-links.open {
         display: flex;
@@ -311,7 +626,7 @@
       </a>
       <ul class="nav-links" id="navLinks">
         <li><a href="/docs/">Documentation</a></li>
-        <li><a href="/install/">Install</a></li>
+        <li><a href="/install/" class="active-link">Install</a></li>
         <li>
           <a href="https://github.com/victorl2/iron-lang" class="gh-link">
             <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -327,79 +642,177 @@
     </div>
   </nav>
 
-  <!-- ── Install content ──────────────────────────────── -->
-  <main class="install-page">
-    <h1>Install Iron</h1>
+  <main>
+    <!-- ── Hero ──────────────────────────────────────── -->
+    <section class="install-hero">
+      <h1>Install <span class="highlight">Iron</span></h1>
+      <p class="subtitle">Get up and running with a single command. Pre-built binaries are available for macOS and Linux.</p>
+    </section>
 
-    <!-- Unix (macOS / Linux) -->
-    <div class="install-unix" id="installUnix">
-      <p class="platform-detect" id="platformMsg">
-        It looks like you're running <strong id="platformName">a Unix-like OS</strong>.
-        To install Iron, run the following in your terminal:
-      </p>
-      <div class="command-box">
-        <button class="copy-btn" id="copyBtn">Copy</button>
-        <code id="installCmd">curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code>
+    <!-- ── Platform-specific install ─────────────────── -->
+    <section class="platform-section">
+
+      <!-- Unix (macOS / Linux) -->
+      <div class="install-unix" id="installUnix">
+        <div class="platform-banner">
+          <div class="platform-icon" id="platformIconContainer">
+            <!-- macOS icon (default, swapped by JS for Linux) -->
+            <svg id="platformIcon" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          </div>
+          <div>
+            It looks like you're running <strong id="platformName">macOS</strong>. Run the following in your terminal to install Iron:
+          </div>
+        </div>
+
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+            <div class="terminal-title">Terminal</div>
+          </div>
+          <div class="terminal-body">
+            <span class="terminal-prompt">$</span>
+            <code class="terminal-cmd">curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code>
+            <button class="copy-btn" aria-label="Copy to clipboard">
+              <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+
+        <p class="install-detail">
+          This downloads and runs <a href="https://github.com/victorl2/iron-lang/blob/main/scripts/install.sh">install.sh</a>, which installs the <code>iron</code> binary to <code>~/.iron/bin</code> and configures your shell PATH. You may need to restart your terminal or run <code>source "$HOME/.iron/env"</code> to get started.
+        </p>
       </div>
-      <p class="install-note">
-        This downloads and runs <a href="https://github.com/victorl2/iron-lang/blob/main/scripts/install.sh">install.sh</a>,
-        which installs the <code>iron</code> binary to <code>~/.iron/bin</code>
-        and configures your shell PATH automatically.
-      </p>
-    </div>
 
-    <!-- Windows -->
-    <div class="install-windows" id="installWindows">
-      <p class="platform-detect">
-        It looks like you're running <strong>Windows</strong>.
-        Iron currently supports <strong>macOS</strong> and <strong>Linux</strong>.
-      </p>
-      <p class="install-note">
-        You can install Iron using <strong>WSL</strong> (Windows Subsystem for Linux).
-        Open a WSL terminal and run:
-      </p>
-      <div class="command-box">
-        <button class="copy-btn" id="copyBtnWsl">Copy</button>
-        <code>curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code>
+      <!-- Windows -->
+      <div class="install-windows" id="installWindows">
+        <div class="platform-banner">
+          <div class="platform-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 12V6.75l6-1.32v6.48L3 12zm17-9v8.75l-10 .08V5.21L20 3zm-10 9.34l10-.08V21l-10-1.67V12.34zM3 12.08l6 .09v6.52l-6-1.31V12.08z"/></svg>
+          </div>
+          <div>
+            It looks like you're running <strong>Windows</strong>. Iron currently supports <strong>macOS</strong> and <strong>Linux</strong>.
+          </div>
+        </div>
+
+        <div class="notice-box">
+          You can install Iron using <strong>WSL</strong> (Windows Subsystem for Linux). Open a WSL terminal and run the command below. Native Windows support is planned.
+        </div>
+
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+            <div class="terminal-title">WSL Terminal</div>
+          </div>
+          <div class="terminal-body">
+            <span class="terminal-prompt">$</span>
+            <code class="terminal-cmd">curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code>
+            <button class="copy-btn" aria-label="Copy to clipboard">
+              <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+
+        <p class="install-detail">
+          See the <a href="https://github.com/victorl2/iron-lang">GitHub repository</a> for updates on native Windows support.
+        </p>
       </div>
-      <p class="install-note">
-        Native Windows support is planned. See the <a href="https://github.com/victorl2/iron-lang">GitHub repo</a> for updates.
-      </p>
-    </div>
 
-    <!-- Unknown / fallback -->
-    <div class="install-unknown" id="installUnknown">
-      <p class="platform-detect">
-        Could not detect your platform. Iron supports <strong>macOS</strong> and <strong>Linux</strong>.
-        If you're on one of these, run the following in your terminal:
-      </p>
-      <div class="command-box">
-        <button class="copy-btn" id="copyBtnUnknown">Copy</button>
-        <code>curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code>
+      <!-- Unknown / fallback -->
+      <div class="install-unknown" id="installUnknown">
+        <div class="platform-banner">
+          <div class="platform-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+          </div>
+          <div>
+            Could not detect your platform. Iron supports <strong>macOS</strong> and <strong>Linux</strong>. If you're on a supported OS, run the following in your terminal:
+          </div>
+        </div>
+
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+            <div class="terminal-title">Terminal</div>
+          </div>
+          <div class="terminal-body">
+            <span class="terminal-prompt">$</span>
+            <code class="terminal-cmd">curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code>
+            <button class="copy-btn" aria-label="Copy to clipboard">
+              <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
 
-    <!-- ── Other installation methods ─────────────────── -->
-    <div class="other-methods">
+    <!-- ── What the installer does ────────────────────── -->
+    <section class="what-you-get">
+      <h2>What the installer does</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <div class="step-title">Downloads the latest release</div>
+            <div class="step-desc">Fetches the correct pre-built binary for your OS and architecture from GitHub releases.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <div class="step-title">Installs the binary</div>
+            <div class="step-desc">Places the <code>iron</code> executable in <code>~/.iron/bin</code> and creates an env file at <code>~/.iron/env</code>.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <div class="step-title">Configures your PATH</div>
+            <div class="step-desc">Updates your shell profile (<code>.bashrc</code>, <code>.zshrc</code>, or <code>.bash_profile</code>) to source <code>~/.iron/env</code> on startup.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider" style="max-width: 740px; margin-left: auto; margin-right: auto;">
+
+    <!-- ── Other methods ──────────────────────────────── -->
+    <section class="other-methods">
       <h2>Other installation methods</h2>
-
-      <div class="method">
-        <h3>Download a release</h3>
-        <p>
-          Pre-built binaries for macOS (arm64, x86_64) and Linux (x86_64) are available on the
-          <a href="https://github.com/victorl2/iron-lang/releases">releases page</a>.
-        </p>
+      <div class="methods-grid">
+        <div class="method-card">
+          <div class="method-card-icon">
+            <!-- Download / package icon -->
+            <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          </div>
+          <h3>Download a release</h3>
+          <p>Pre-built binaries for macOS (arm64, x86_64) and Linux (x86_64) are available on the releases page.</p>
+          <a class="method-link" href="https://github.com/victorl2/iron-lang/releases">
+            View releases
+            <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </a>
+        </div>
+        <div class="method-card">
+          <div class="method-card-icon">
+            <!-- Build / wrench icon -->
+            <svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+          </div>
+          <h3>Build from source</h3>
+          <p>Build the compiler yourself. Requires a C compiler and standard build tools.</p>
+          <a class="method-link" href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md">
+            Build instructions
+            <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </a>
+        </div>
       </div>
-
-      <div class="method">
-        <h3>Build from source</h3>
-        <p>
-          If you prefer to build from source or want to contribute, see the
-          <a href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md">install guide</a>
-          for instructions.
-        </p>
-      </div>
-    </div>
+    </section>
   </main>
 
   <!-- ── Footer ───────────────────────────────────────── -->
@@ -428,8 +841,11 @@
         document.getElementById('installWindows').classList.add('active');
       } else if (isMac || isLinux) {
         document.getElementById('installUnix').classList.add('active');
-        var name = isMac ? 'macOS' : 'Linux';
-        document.getElementById('platformName').textContent = name;
+        if (isLinux) {
+          document.getElementById('platformName').textContent = 'Linux';
+          // Swap to Linux (Tux) icon
+          document.getElementById('platformIcon').innerHTML = '<path d="M12.5 2c-1.6 0-2.9 1.3-3.1 3-.2 1.3.3 2.5.8 3.4C9 9.1 8 10.4 8 12c0 .3 0 .5.1.8C6.1 13.5 5 15 5 17c0 2.8 3.1 5 7 5s7-2.2 7-5c0-2-1.1-3.5-3.1-4.2.1-.3.1-.5.1-.8 0-1.6-1-2.9-2.2-3.6.5-.9 1-2.1.8-3.4-.2-1.7-1.5-3-3.1-3zM10 17.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm4 0c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/>';
+        }
       } else {
         document.getElementById('installUnknown').classList.add('active');
       }
@@ -438,10 +854,17 @@
     // Copy buttons
     document.querySelectorAll('.copy-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        var code = btn.parentElement.querySelector('code');
+        var code = btn.parentElement.querySelector('.terminal-cmd');
         navigator.clipboard.writeText(code.textContent).then(function() {
-          btn.textContent = 'Copied!';
-          setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+          btn.classList.add('copied');
+          var label = btn.querySelector('span');
+          if (label) label.textContent = 'Copied!';
+          btn.querySelector('svg').innerHTML = '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>';
+          setTimeout(function() {
+            btn.classList.remove('copied');
+            if (label) label.textContent = 'Copy';
+            btn.querySelector('svg').innerHTML = '<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>';
+          }, 2000);
         });
       });
     });
