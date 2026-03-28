@@ -394,16 +394,16 @@ void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node) {
                     /* Jump to pre_header */
                     iron_ir_jump(fn, ctx->current_block, pre_header->id, span);
 
-                    /* Pre-header: store initial value 0 */
+                    /* Pre-header: store initial value 0 and compute bound once */
                     switch_block(ctx, pre_header);
                     IronIR_Instr *zero = iron_ir_const_int(fn, pre_header, 0, int_type, span);
                     iron_ir_store(fn, pre_header, slot->id, zero->id, span);
+                    IronIR_ValueId bound  = lower_expr(ctx, fs->iterable);
                     iron_ir_jump(fn, pre_header, header->id, span);
 
-                    /* Header: load counter, get bound, compare */
+                    /* Header: load counter, compare against pre-computed bound */
                     switch_block(ctx, header);
                     IronIR_Instr *counter = iron_ir_load(fn, header, slot->id, int_type, span);
-                    IronIR_ValueId bound  = lower_expr(ctx, fs->iterable);
                     IronIR_Instr *cmp     = iron_ir_binop(fn, header, IRON_IR_LT,
                                                            counter->id, bound,
                                                            bool_type, span);
