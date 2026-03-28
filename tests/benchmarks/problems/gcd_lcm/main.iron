@@ -1,0 +1,54 @@
+import time
+
+-- GCD via Euclidean algorithm, LCM via GCD
+
+func gcd(a: Int, b: Int) -> Int {
+    var x = a
+    var y = b
+    if x < 0 { x = 0 - x }
+    if y < 0 { y = 0 - y }
+    while y > 0 {
+        val temp = y
+        y = x % y
+        x = temp
+    }
+    return x
+}
+
+func lcm(a: Int, b: Int) -> Int {
+    val g = gcd(a, b)
+    if g == 0 {
+        return 0
+    }
+    return (a / g) * b
+}
+
+func main() {
+    println("Test 1 gcd: {gcd(12, 8)} (expected 4)")
+    println("Test 1 lcm: {lcm(12, 8)} (expected 24)")
+    println("Test 2 gcd: {gcd(100, 75)} (expected 25)")
+    println("Test 2 lcm: {lcm(100, 75)} (expected 300)")
+    println("Test 3 gcd: {gcd(17, 13)} (expected 1)")
+    println("Test 3 lcm: {lcm(17, 13)} (expected 221)")
+
+    -- Benchmark: 1M pairs
+    val iterations = 1000000
+    val start = Time.now_ms()
+    var sum_gcd = 0
+    var sum_lcm = 0
+    for i in range(iterations) {
+        val a = (i * 13 + 7) % 10000 + 1
+        val b = (i * 17 + 11) % 10000 + 1
+        sum_gcd = sum_gcd + gcd(a, b)
+        sum_lcm = sum_lcm + lcm(a, b) % 100000
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("Bench gcd sum: {sum_gcd}")
+    println("Bench lcm sum mod: {sum_lcm}")
+
+    println("")
+    println("=== Benchmark: GCD/LCM ===")
+    println("Pairs: {iterations}")
+    println("Total time: {elapsed} ms")
+}

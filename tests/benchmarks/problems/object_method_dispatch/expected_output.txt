@@ -1,0 +1,4 @@
+Test 1 dist_sq: 25 (expected 25)
+Test 2 manhattan: 7 (expected 7)
+Test 3 translate: 4,3 (expected 4,3)
+Test 4 checksum(100): 1189670 (expected 1189670)

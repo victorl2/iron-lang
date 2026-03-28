@@ -1,0 +1,3 @@
+N=4: 2 solutions (expected 2)
+N=8: 92 solutions (expected 92)
+N=12: 14200 solutions (expected 14200)

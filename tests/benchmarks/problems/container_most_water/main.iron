@@ -1,0 +1,55 @@
+import time
+
+func max_area(height: [Int], n: Int) -> Int {
+    var left = 0
+    var right = n - 1
+    var best = 0
+    while left < right {
+        val w = right - left
+        var h = height[left]
+        if height[right] < h {
+            h = height[right]
+        }
+        val area = w * h
+        if area > best {
+            best = area
+        }
+        if height[left] < height[right] {
+            left = left + 1
+        } else {
+            right = right - 1
+        }
+    }
+    return best
+}
+
+func main() {
+    val a1 = [1, 8, 6, 2, 5, 4, 8, 3, 7]
+    println("Test 1: {max_area(a1, 9)} (expected 49)")
+
+    val a2 = [1, 1]
+    println("Test 2: {max_area(a2, 2)} (expected 1)")
+
+    val a3 = [4, 3, 2, 1, 4]
+    println("Test 3: {max_area(a3, 5)} (expected 16)")
+
+    var bench = fill(100, 0)
+    for i in range(100) {
+        bench[i] = (i * 7 + 13) % 100
+    }
+    val bench_result = max_area(bench, 100)
+    println("Test 4: {bench_result}")
+
+    val iterations = 10000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = max_area(bench, 100)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Container With Most Water ===")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

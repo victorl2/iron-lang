@@ -1,0 +1,65 @@
+import time
+
+-- Pascal's Triangle: Generate row n iteratively
+-- C(n, k) = C(n, k-1) * (n - k + 1) / k
+
+func pascal_row_sum(n: Int) -> Int {
+    var row = fill(n + 1, 0)
+    row[0] = 1
+    var k = 1
+    while k <= n {
+        row[k] = row[k - 1] * (n - k + 1) / k
+        k = k + 1
+    }
+    -- Return sum of all elements (should be 2^n)
+    var sum = 0
+    k = 0
+    while k <= n {
+        sum = sum + row[k]
+        k = k + 1
+    }
+    return sum
+}
+
+func pascal_row_checksum(n: Int) -> Int {
+    var row = fill(n + 1, 0)
+    row[0] = 1
+    var k = 1
+    while k <= n {
+        row[k] = row[k - 1] * (n - k + 1) / k
+        k = k + 1
+    }
+    -- Weighted checksum
+    var sum = 0
+    k = 0
+    while k <= n {
+        sum = sum + row[k] * (k + 1)
+        k = k + 1
+    }
+    return sum
+}
+
+func main() {
+    println("Test 1 sum row 5: {pascal_row_sum(5)} (expected 32)")
+    println("Test 2 sum row 10: {pascal_row_sum(10)} (expected 1024)")
+    println("Test 3 sum row 20: {pascal_row_sum(20)} (expected 1048576)")
+
+    -- Benchmark: n=30
+    val n = 30
+    val check = pascal_row_checksum(n)
+    println("Bench check: {check}")
+
+    val iterations = 500000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = pascal_row_checksum(n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Pascal Triangle ===")
+    println("Row: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

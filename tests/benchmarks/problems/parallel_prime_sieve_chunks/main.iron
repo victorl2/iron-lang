@@ -1,0 +1,67 @@
+import time
+
+-- Parallel Prime Sieve: check primality of numbers in [2, N)
+-- Parallel-for does CPU-bound trial division per iteration
+-- Sequential verification computes prime count and checksum
+
+func is_prime(n: Int) -> Int {
+  if n < 2 {
+    return 0
+  }
+  if n < 4 {
+    return 1
+  }
+  if n - (n / 2) * 2 == 0 {
+    return 0
+  }
+  if n - (n / 3) * 3 == 0 {
+    return 0
+  }
+  var d = 5
+  while d * d <= n {
+    if n - (n / d) * d == 0 {
+      return 0
+    }
+    val d2 = d + 2
+    if n - (n / d2) * d2 == 0 {
+      return 0
+    }
+    d = d + 6
+  }
+  return 1
+}
+
+func main() {
+  val N = 100000
+
+  -- Sequential: compute prime count and checksum for verification
+  var prime_count = 0
+  var checksum = 0
+  for i in range(N) {
+    val num = i + 2
+    val p = is_prime(num)
+    prime_count = prime_count + p
+    if p == 1 {
+      checksum = checksum + num
+    }
+  }
+  println("Prime count [2, {N + 2}): {prime_count}")
+  println("Checksum: {checksum}")
+
+  -- Benchmark: parallel-for does primality test per iteration
+  val iterations = 500
+  val start_time = Time.now_ms()
+  for it in range(iterations) {
+    for i in N parallel {
+      val num = i + 2
+      var r = is_prime(num)
+    }
+  }
+  val elapsed = Time.now_ms() - start_time
+
+  println("")
+  println("=== Benchmark: Parallel Prime Sieve ===")
+  println("Range: [2, {N + 2})")
+  println("Iterations: {iterations}")
+  println("Total time: {elapsed} ms")
+}

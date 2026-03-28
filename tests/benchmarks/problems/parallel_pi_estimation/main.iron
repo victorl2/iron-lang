@@ -1,0 +1,58 @@
+import time
+
+-- Parallel Pi Estimation using deterministic PRNG
+-- Each parallel iteration runs a Monte Carlo chunk with its own seed
+-- Sequential merge computes pi approximation
+
+func monte_carlo_chunk(chunk_id: Int, num_points: Int) -> Int {
+  -- Park-Miller LCG: no signed overflow, deterministic across platforms
+  var seed = (chunk_id * 6364136223 + 1) % 1000000007
+  if seed < 0 {
+    seed = seed + 1000000007
+  }
+  var hits = 0
+  var j = 0
+  while j < num_points {
+    seed = (seed * 48271) % 2147483647
+    val x = seed - (seed / 1000000) * 1000000
+
+    seed = (seed * 48271) % 2147483647
+    val y = seed - (seed / 1000000) * 1000000
+
+    if x * x + y * y <= 1000000 * 1000000 {
+      hits = hits + 1
+    }
+    j = j + 1
+  }
+  return hits
+}
+
+func main() {
+  -- Sequential: compute total hits
+  var total_hits = 0
+  for i in range(64) {
+    total_hits = total_hits + monte_carlo_chunk(i, 10000)
+  }
+  val total_points = 64 * 10000
+  val pi_est = 4 * total_hits * 10000 / total_points
+  println("Total hits: {total_hits}")
+  println("Total points: {total_points}")
+  println("Pi estimate x10000: {pi_est}")
+
+  -- Benchmark: parallel-for does monte carlo per chunk
+  val iterations = 200
+  val start_time = Time.now_ms()
+  for it in range(iterations) {
+    for i in 64 parallel {
+      var r = monte_carlo_chunk(i, 10000)
+    }
+  }
+  val elapsed = Time.now_ms() - start_time
+
+  println("")
+  println("=== Benchmark: Parallel Pi Estimation ===")
+  println("Chunks: 64")
+  println("Points per chunk: 10000")
+  println("Iterations: {iterations}")
+  println("Total time: {elapsed} ms")
+}

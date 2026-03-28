@@ -1,0 +1,4 @@
+Test 1 fib(10): 55 (expected 55)
+Test 2 fib(20): 6765 (expected 6765)
+Test 3 fib(50): 586268941 (expected 586268941)
+Bench check: 586268941

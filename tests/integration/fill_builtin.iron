@@ -1,0 +1,26 @@
+-- fill_builtin.iron - Test the fill(n, val) builtin for dynamic array construction.
+
+func main() {
+  -- Test 1: Basic fill
+  val arr = fill(5, 42)
+  println("len = {len(arr)}")
+  println("{arr[0]}, {arr[2]}, {arr[4]}")
+
+  -- Test 2: Fill with zero
+  val zeros = fill(3, 0)
+  println("{zeros[0]}, {zeros[1]}, {zeros[2]}")
+
+  -- Test 3: Fill and mutate
+  var data = fill(4, 10)
+  data[1] = 20
+  data[3] = 40
+  println("{data[0]}, {data[1]}, {data[2]}, {data[3]}")
+
+  -- Test 4: Fill used in loop
+  val items = fill(5, 1)
+  var sum = 0
+  for x in items {
+    sum = sum + x
+  }
+  println("sum = {sum}")
+}

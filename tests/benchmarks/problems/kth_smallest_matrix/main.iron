@@ -1,0 +1,122 @@
+import time
+
+-- Kth smallest element in a row/col sorted matrix
+-- Uses min-h simulation on flat array
+-- Heap entries: [value, row, col] stored as value * 10000 + row * 100 + col
+
+func heap_up(h: [Int], idx: Int) {
+    var i = idx
+    while i > 0 {
+        val parent = (i - 1) / 2
+        if h[i] < h[parent] {
+            val temp = h[i]
+            h[i] = h[parent]
+            h[parent] = temp
+            i = parent
+        } else {
+            i = 0
+        }
+    }
+}
+
+func heap_down_min(h: [Int], size: Int, idx: Int) {
+    var i = idx
+    var cont = 1
+    while cont == 1 {
+        var smallest = i
+        val l = 2 * i + 1
+        val r = 2 * i + 2
+        if l < size {
+            if h[l] < h[smallest] { smallest = l }
+        }
+        if r < size {
+            if h[r] < h[smallest] { smallest = r }
+        }
+        if smallest == i {
+            cont = 0
+        } else {
+            val temp = h[i]
+            h[i] = h[smallest]
+            h[smallest] = temp
+            i = smallest
+        }
+    }
+}
+
+func kth_smallest(mat: [Int], rows: Int, cols: Int, k: Int) -> Int {
+    -- Min-h: store encoded value (val * 10000 + row * 100 + col)
+    var h = fill(rows * cols, 0)
+    var heap_size = 0
+
+    -- Insert first element of each row
+    var r = 0
+    while r < rows {
+        val encoded = mat[r * cols + 0] * 10000 + r * 100 + 0
+        h[heap_size] = encoded
+        heap_size = heap_size + 1
+        heap_up(h, heap_size - 1)
+        r = r + 1
+    }
+
+    var count = 0
+    var result = 0
+    while count < k {
+        val top = h[0]
+        result = top / 10000
+        val row = (top % 10000) / 100
+        val col = top % 100
+
+        -- Remove top
+        heap_size = heap_size - 1
+        h[0] = h[heap_size]
+        heap_down_min(h, heap_size, 0)
+
+        -- Push next element from same row
+        val next_col = col + 1
+        if next_col < cols {
+            val encoded = mat[row * cols + next_col] * 10000 + row * 100 + next_col
+            h[heap_size] = encoded
+            heap_size = heap_size + 1
+            heap_up(h, heap_size - 1)
+        }
+        count = count + 1
+    }
+    return result
+}
+
+func main() {
+    -- Test 1: 3x3 matrix
+    val m1 = [1, 5, 9, 10, 11, 13, 12, 13, 15]
+    println("Test 1: {kth_smallest(m1, 3, 3, 8)} (expected 13)")
+
+    -- Test 2: 2x2
+    val m2 = [1, 2, 3, 4]
+    println("Test 2: {kth_smallest(m2, 2, 2, 3)} (expected 3)")
+
+    -- Benchmark: 10x10 sorted matrix
+    val rows = 10
+    val cols = 10
+    var mat = fill(rows * cols, 0)
+    for i in range(rows) {
+        for j in range(cols) {
+            mat[i * cols + j] = i * 10 + j + 1
+        }
+    }
+    val k = 50
+    val check = kth_smallest(mat, rows, cols, k)
+    println("Bench check k=50: {check}")
+
+    val iterations = 500000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = kth_smallest(mat, rows, cols, k)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Kth Smallest in Matrix ===")
+    println("Matrix: {rows}x{cols}, k={k}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

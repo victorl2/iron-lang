@@ -1,0 +1,87 @@
+import time
+
+-- Rotate NxN matrix 90 degrees clockwise in-place
+-- Step 1: Transpose (swap [i][j] with [j][i])
+-- Step 2: Reverse each row
+
+func rotate_image(mat: [Int], n: Int) {
+    -- Transpose
+    var i = 0
+    while i < n {
+        var j = i + 1
+        while j < n {
+            val temp = mat[i * n + j]
+            mat[i * n + j] = mat[j * n + i]
+            mat[j * n + i] = temp
+            j = j + 1
+        }
+        i = i + 1
+    }
+    -- Reverse each row
+    i = 0
+    while i < n {
+        var left = 0
+        var right = n - 1
+        while left < right {
+            val temp = mat[i * n + left]
+            mat[i * n + left] = mat[i * n + right]
+            mat[i * n + right] = temp
+            left = left + 1
+            right = right - 1
+        }
+        i = i + 1
+    }
+}
+
+func checksum(mat: [Int], n: Int) -> Int {
+    var sum = 0
+    for i in range(n * n) {
+        sum = sum + mat[i] * (i + 1)
+    }
+    return sum
+}
+
+func main() {
+    -- Test 1: 3x3
+    var m1 = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    rotate_image(m1, 3)
+    println("Test 1: {m1[0]} {m1[1]} {m1[2]} {m1[3]} {m1[4]} {m1[5]} {m1[6]} {m1[7]} {m1[8]}")
+
+    -- Test 2: 2x2
+    var m2 = [1, 2, 3, 4]
+    rotate_image(m2, 2)
+    println("Test 2: {m2[0]} {m2[1]} {m2[2]} {m2[3]}")
+
+    -- Benchmark: 20x20
+    val n = 20
+    val total = n * n
+    var orig = fill(total, 0)
+    for i in range(total) {
+        orig[i] = i + 1
+    }
+    var mat = fill(total, 0)
+    for i in range(total) {
+        mat[i] = orig[i]
+    }
+    rotate_image(mat, n)
+    val check = checksum(mat, n)
+    println("Bench check: {check}")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        for i in range(total) {
+            mat[i] = orig[i]
+        }
+        rotate_image(mat, n)
+        result = mat[0]
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Rotate Image ===")
+    println("Matrix: {n}x{n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

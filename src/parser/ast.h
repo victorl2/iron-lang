@@ -393,6 +393,7 @@ typedef struct {
     Iron_Node         *callee;
     Iron_Node        **args;
     int                arg_count;
+    bool               is_primitive_cast; /* true when Float(x), Int(x), etc. */
 } Iron_CallExpr;
 
 typedef struct {

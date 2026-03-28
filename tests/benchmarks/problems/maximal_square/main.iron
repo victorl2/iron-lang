@@ -1,0 +1,69 @@
+import time
+
+func maximal_square(matrix: [Int], rows: Int, cols: Int) -> Int {
+    var dp = fill(rows * cols, 0)
+    var best = 0
+    var i = 0
+    while i < rows {
+        var j = 0
+        while j < cols {
+            if matrix[i * cols + j] == 0 {
+                dp[i * cols + j] = 0
+            } elif i == 0 {
+                dp[i * cols + j] = 1
+            } elif j == 0 {
+                dp[i * cols + j] = 1
+            } else {
+                val a = dp[(i - 1) * cols + j]
+                val b = dp[i * cols + (j - 1)]
+                val c = dp[(i - 1) * cols + (j - 1)]
+                var mn = a
+                if b < mn {
+                    mn = b
+                }
+                if c < mn {
+                    mn = c
+                }
+                dp[i * cols + j] = mn + 1
+            }
+            if dp[i * cols + j] > best {
+                best = dp[i * cols + j]
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return best * best
+}
+
+func main() {
+    val m1 = [1, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0]
+    println("Test 1: {maximal_square(m1, 4, 5)} (expected 4)")
+
+    var bench = fill(400, 0)
+    for i in range(20) {
+        for j in range(20) {
+            if (i * 5 + j * 3) % 11 == 0 {
+                bench[i * 20 + j] = 0
+            } else {
+                bench[i * 20 + j] = 1
+            }
+        }
+    }
+    println("Test 2: {maximal_square(bench, 20, 20)} (expected 16)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = maximal_square(bench, 20, 20)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Maximal Square ===")
+    println("Matrix: 20x20")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

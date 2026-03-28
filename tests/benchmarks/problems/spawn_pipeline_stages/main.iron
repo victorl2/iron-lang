@@ -1,0 +1,101 @@
+import time
+
+-- Spawn Pipeline Stages: 3-stage pipeline (generate -> process -> aggregate)
+-- Tests spawn + parallel-for composition for data parallelism
+
+func generate_value(i: Int) -> Int {
+    return (i * 73 + 29) % 10007
+}
+
+-- Transform a single element (heavy computation: 40 iterations)
+func transform_element(value: Int, idx: Int) -> Int {
+    var result = value
+    var k = 0
+    while k < 40 {
+        result = (result * 31 + idx + k) % 1000000007
+        k = k + 1
+    }
+    return result
+}
+
+-- Compute transform for a single index given the generated value
+func transform_for_index(i: Int) -> Int {
+    val v = generate_value(i)
+    return transform_element(v, i)
+}
+
+-- Heavy background work to overlap with main thread computation
+func background_work(n: Int) -> Int {
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = (sum + (i * 31 + 17) % 100003) % 1000000007
+        i = i + 1
+    }
+    return sum
+}
+
+func main() {
+    val data_size = 500000
+
+    -- Stage 1: Generate data (sequential, deterministic)
+    var data = fill(data_size, 0)
+    var i = 0
+    while i < data_size {
+        data[i] = generate_value(i)
+        i = i + 1
+    }
+    println("stage 1: generated {data_size} elements")
+    println("data[0]: {data[0]}")
+    println("data[999]: {data[999]}")
+
+    -- Spawn background workers to overlap with stage 2
+    val start = Time.now_ms()
+    spawn("bg_worker1") {
+        var r = background_work(5000000)
+    }
+    spawn("bg_worker2") {
+        var r = background_work(5000000)
+    }
+
+    -- Stage 2: Parallel transform using parallel-for
+    for j in data_size parallel {
+        var r = transform_for_index(j)
+    }
+
+    -- Main thread transforms all elements sequentially for deterministic output
+    var output = fill(data_size, 0)
+    var k = 0
+    while k < data_size {
+        output[k] = transform_element(data[k], k)
+        k = k + 1
+    }
+
+    println("stage 2: transformed {data_size} elements")
+    println("output[0]: {output[0]}")
+    println("output[999]: {output[999]}")
+
+    -- Stage 3: Aggregate (sequential)
+    var result = 0
+    var m = 0
+    while m < data_size {
+        result = (result + output[m]) % 1000000007
+        m = m + 1
+    }
+    println("stage 3: aggregate = {result}")
+
+    -- Verification: small sequential transform check
+    var verify = 0
+    var v = 0
+    while v < 100 {
+        verify = (verify + transform_element(data[v], v)) % 1000000007
+        v = v + 1
+    }
+    println("verify first 100: {verify}")
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Spawn Pipeline Stages ===")
+    println("Data size: {data_size}")
+    println("Total time: {elapsed} ms")
+}

@@ -1,0 +1,56 @@
+import time
+
+func lcs(a: [Int], na: Int, b: [Int], nb: Int) -> Int {
+    val rows = na + 1
+    val cols = nb + 1
+    var dp = fill(rows * cols, 0)
+    var i = 1
+    while i <= na {
+        var j = 1
+        while j <= nb {
+            if a[i - 1] == b[j - 1] {
+                dp[i * cols + j] = dp[(i - 1) * cols + (j - 1)] + 1
+            } else {
+                val up = dp[(i - 1) * cols + j]
+                val left = dp[i * cols + (j - 1)]
+                if up > left {
+                    dp[i * cols + j] = up
+                } else {
+                    dp[i * cols + j] = left
+                }
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return dp[na * cols + nb]
+}
+
+func main() {
+    val a1 = [1, 3, 4, 1, 2, 3]
+    val b1 = [3, 1, 4, 2, 3]
+    println("Test 1: {lcs(a1, 6, b1, 5)} (expected 4)")
+
+    var a2 = fill(20, 0)
+    var b2 = fill(20, 0)
+    for i in range(20) {
+        a2[i] = (i * 7 + 3) % 10
+        b2[i] = (i * 11 + 5) % 10
+    }
+    println("Test 2: {lcs(a2, 20, b2, 20)} (expected 7)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = lcs(a2, 20, b2, 20)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Longest Common Subsequence ===")
+    println("Sequence lengths: 20, 20")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}

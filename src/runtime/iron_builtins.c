@@ -51,7 +51,4 @@ void Iron_assert(bool cond, Iron_String msg) {
 }
 
 /* ── range ──────────────────────────────────────────────────────────────── */
-
-int64_t Iron_range(int64_t n) {
-    return n;
-}
+/* Iron_range is now static inline in iron_runtime.h */

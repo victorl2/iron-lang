@@ -1,0 +1,87 @@
+import time
+
+-- Parallel String Search: each parallel iteration does primality testing
+-- on a range of numbers derived from block index, simulating heavy
+-- pattern-matching work per text block.
+-- Uses conditional println to prevent dead code elimination in parallel body.
+
+func is_prime(n: Int) -> Int {
+    if n < 2 {
+        return 0
+    }
+    if n < 4 {
+        return 1
+    }
+    if n - (n / 2) * 2 == 0 {
+        return 0
+    }
+    if n - (n / 3) * 3 == 0 {
+        return 0
+    }
+    var d = 5
+    while d * d <= n {
+        if n - (n / d) * d == 0 {
+            return 0
+        }
+        val d2 = d + 2
+        if n - (n / d2) * d2 == 0 {
+            return 0
+        }
+        d = d + 6
+    }
+    return 1
+}
+
+func search_block(block_id: Int) -> Int {
+    val BLOCK_SIZE = 300
+    val base = block_id * BLOCK_SIZE + 1000000
+    var prime_count = 0
+    var hash = 0
+    var i = 0
+    while i < BLOCK_SIZE {
+        val num = base + i
+        val p = is_prime(num)
+        prime_count = prime_count + p
+        if p == 1 {
+            hash = hash + num
+        }
+        i = i + 1
+    }
+    val result = prime_count * 100000 + hash % 100000
+    if result == -1 {
+        println("x")
+    }
+    return result
+}
+
+func main() {
+    val NUM_BLOCKS = 10000
+
+    -- Correctness
+    var checksum = 0
+    var b = 0
+    while b < NUM_BLOCKS {
+        checksum = checksum + search_block(b) % 100000
+        b = b + 1
+    }
+    println("Search checksum: {checksum}")
+    println("block(0): {search_block(0)}")
+    println("block(1): {search_block(1)}")
+    println("block(999): {search_block(999)}")
+
+    -- Benchmark: parallel search
+    val iterations = 3
+    val start = Time.now_ms()
+    for iter in range(iterations) {
+        for idx in NUM_BLOCKS parallel {
+            val h = search_block(idx)
+        }
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Parallel String Search ===")
+    println("Blocks: {NUM_BLOCKS}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

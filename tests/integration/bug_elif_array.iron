@@ -1,0 +1,15 @@
+func main() {
+  val arr = [10, 20, 30]
+  val idx = 1
+  var result = 0
+
+  if idx == 0 {
+    result = arr[0]
+  } elif idx == 1 {
+    result = arr[1]
+  } else {
+    result = arr[2]
+  }
+
+  println("result = {result}")
+}

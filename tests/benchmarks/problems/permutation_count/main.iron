@@ -1,0 +1,58 @@
+import time
+
+-- Count permutations using Heap's algorithm (count-only, no output)
+
+func permutation_count(n: Int) -> Int {
+    var arr = fill(n, 0)
+    for i in range(n) {
+        arr[i] = i
+    }
+    var c = fill(n, 0)
+    var count = 1
+    var i = 0
+    while i < n {
+        if c[i] < i {
+            if i % 2 == 0 {
+                val temp = arr[0]
+                arr[0] = arr[i]
+                arr[i] = temp
+            } else {
+                val temp = arr[c[i]]
+                arr[c[i]] = arr[i]
+                arr[i] = temp
+            }
+            count = count + 1
+            c[i] = c[i] + 1
+            i = 0
+        } else {
+            c[i] = 0
+            i = i + 1
+        }
+    }
+    return count
+}
+
+func main() {
+    println("Test 1 n=3: {permutation_count(3)} (expected 6)")
+    println("Test 2 n=5: {permutation_count(5)} (expected 120)")
+    println("Test 3 n=8: {permutation_count(8)} (expected 40320)")
+
+    -- Benchmark: n=10
+    val n = 10
+    val check = permutation_count(n)
+    println("Bench check n=10: {check}")
+
+    val iterations = 500
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = permutation_count(n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Permutation Count ===")
+    println("n={n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

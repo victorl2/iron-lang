@@ -1,0 +1,77 @@
+import time
+
+-- Parallel Collatz Lengths: compute Collatz sequence length for [1, N)
+-- Tests parallel-for with variable-cost iterations (1 to ~400 steps each)
+
+func collatz_length(n: Int) -> Int {
+    var x = n
+    var steps = 0
+    while x != 1 {
+        if x % 2 == 0 {
+            x = x / 2
+        } else {
+            x = 3 * x + 1
+        }
+        steps = steps + 1
+    }
+    return steps
+}
+
+-- Compute sum of collatz lengths for range [lo+1, hi]
+func collatz_range_sum(lo: Int, hi: Int) -> Int {
+    var sum = 0
+    var i = lo
+    while i < hi {
+        sum = sum + collatz_length(i + 1)
+        i = i + 1
+    }
+    return sum
+}
+
+func main() {
+    -- Correctness tests
+    println("collatz(1): {collatz_length(1)}")
+    println("collatz(2): {collatz_length(2)}")
+    println("collatz(3): {collatz_length(3)}")
+    println("collatz(6): {collatz_length(6)}")
+    println("collatz(27): {collatz_length(27)}")
+
+    val n = 500000
+
+    -- Parallel computation (exercises the parallel-for dispatch)
+    val start = Time.now_ms()
+    for i in n parallel {
+        var len = collatz_length(i + 1)
+    }
+    val elapsed = Time.now_ms() - start
+
+    -- Sequential verification: compute total sum
+    var total_sum = 0
+    var idx = 0
+    while idx < n {
+        total_sum = total_sum + collatz_length(idx + 1)
+        idx = idx + 1
+    }
+
+    println("N: {n}")
+    println("total collatz sum: {total_sum}")
+
+    -- Verification: find max collatz length in [1, 1000]
+    var max_len = 0
+    var max_n = 0
+    var j = 1
+    while j <= 1000 {
+        val len = collatz_length(j)
+        if len > max_len {
+            max_len = len
+            max_n = j
+        }
+        j = j + 1
+    }
+    println("max collatz in [1,1000]: n={max_n} len={max_len}")
+
+    println("")
+    println("=== Benchmark: Parallel Collatz Lengths ===")
+    println("N: {n}")
+    println("Total time: {elapsed} ms")
+}

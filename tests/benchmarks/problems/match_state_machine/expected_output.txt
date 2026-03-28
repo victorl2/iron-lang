@@ -1,0 +1,7 @@
+Test 1 transition(0,0): 3 (expected 3)
+Test 2 transition(3,3): 1 (expected 1)
+Test 3 transition(1,1): 2 (expected 2)
+Test 4 transition(2,2): 3 (expected 3)
+Test 5 transition(1,4): 4 (expected 4)
+Test 6 classify(7): 800 (expected 800)
+Test 7 simulate(200): 157124

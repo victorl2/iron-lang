@@ -203,6 +203,7 @@ static void lower_global_constants(IronIR_LowerCtx *ctx) {
         const char *var_name = NULL;
         Iron_Node  *init_expr = NULL;
 
+        bool is_var = false;
         if (decl->kind == IRON_NODE_VAL_DECL) {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
             var_name  = vd->name;
@@ -211,12 +212,16 @@ static void lower_global_constants(IronIR_LowerCtx *ctx) {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
             var_name  = vd->name;
             init_expr = vd->init;
+            is_var = true;
         }
 
         if (!var_name || !init_expr) continue;
 
         /* Store in global_constants_map: name -> AST init node */
         shput(ctx->global_constants_map, var_name, init_expr);
+        if (is_var) {
+            shput(ctx->global_mutable_set, var_name, 1);
+        }
     }
 }
 
@@ -359,6 +364,7 @@ IronIR_Module *iron_ir_lower(Iron_Program *program, Iron_Scope *global_scope,
     shfree(ctx.var_alloca_map);
     shfree(ctx.param_map);
     shfree(ctx.global_constants_map);
+    shfree(ctx.global_mutable_set);
 
     /* Return NULL if any errors occurred */
     if (diags->error_count > 0) {

@@ -1,0 +1,73 @@
+import time
+
+-- Binary tree diameter: longest path between any two nodes
+-- Uses iterative post-order traversal with stack
+
+func diameter(vals: [Int], size: Int) -> Int {
+    if size == 0 {
+        return 0
+    }
+    -- Iterative post-order: compute height of each node, track max diameter
+    -- Use arrays to store heights, process nodes in reverse level order
+    var height = fill(64, 0)
+    var max_diam = 0
+
+    -- Process nodes from last to first (reverse level order = post-order for complete tree)
+    var i = size - 1
+    while i >= 0 {
+        val lc = 2 * i + 1
+        val rch = 2 * i + 2
+        var lh = 0
+        var rh = 0
+        if lc < size {
+            lh = height[lc]
+        }
+        if rch < size {
+            rh = height[rch]
+        }
+
+        val d = lh + rh
+        if d > max_diam {
+            max_diam = d
+        }
+
+        if lh > rh {
+            height[i] = 1 + lh
+        } else {
+            height[i] = 1 + rh
+        }
+        i = i - 1
+    }
+    return max_diam
+}
+
+func main() {
+    val tree_vals = [50, 25, 75, 12, 37, 62, 87, 6, 18, 31, 43, 56, 68, 81, 93,
+                     3, 9, 15, 21, 28, 34, 40, 46, 53, 59, 65, 71, 78, 84, 90, 96]
+    val tree_size = 31
+
+    println("Test 1: {diameter(tree_vals, tree_size)} (expected 8)")
+
+    val small = [2, 1, 3]
+    println("Test 2: {diameter(small, 3)} (expected 2)")
+
+    val single = [42]
+    println("Test 3: {diameter(single, 1)} (expected 0)")
+
+    val tree7 = [10, 5, 15, 3, 7, 12, 20]
+    println("Test 4: {diameter(tree7, 7)} (expected 4)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = diameter(tree_vals, tree_size)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Binary Tree Diameter ===")
+    println("Tree size: {tree_size}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

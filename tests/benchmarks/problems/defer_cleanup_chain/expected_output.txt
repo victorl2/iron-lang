@@ -1,0 +1,6 @@
+Test 1 classify(0): 1 (expected 1)
+Test 2 classify(14): 7 (expected 7)
+Test 3 classify(10): 5 (expected 5)
+Test 4 classify(9): 3 (expected 3)
+Test 5 process(100,0): 100 (expected 100)
+Test 6 bench(200): 1003677

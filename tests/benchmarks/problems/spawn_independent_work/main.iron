@@ -1,0 +1,88 @@
+import time
+
+-- Spawn Independent Work: 8 spawned tasks + main thread each do heavy computation
+-- Tests spawn for fire-and-forget parallelism with independent workloads
+
+func heavy_compute(offset: Int, work_size: Int) -> Int {
+    var sum = 0
+    var i = 0
+    while i < work_size {
+        val v = (i + offset) % 100003
+        sum = sum + v * v
+        sum = sum % 1000000007
+        i = i + 1
+    }
+    return sum
+}
+
+func main() {
+    val work_size = 5000000
+
+    -- Spawn 8 independent tasks (fire-and-forget)
+    val start = Time.now_ms()
+    spawn("task0") {
+        var r = heavy_compute(0, 5000000)
+    }
+    spawn("task1") {
+        var r = heavy_compute(7, 5000000)
+    }
+    spawn("task2") {
+        var r = heavy_compute(13, 5000000)
+    }
+    spawn("task3") {
+        var r = heavy_compute(29, 5000000)
+    }
+    spawn("task4") {
+        var r = heavy_compute(37, 5000000)
+    }
+    spawn("task5") {
+        var r = heavy_compute(53, 5000000)
+    }
+    spawn("task6") {
+        var r = heavy_compute(67, 5000000)
+    }
+    spawn("task7") {
+        var r = heavy_compute(97, 5000000)
+    }
+
+    -- Main thread also does work
+    val main_result = heavy_compute(101, 5000000)
+    val elapsed = Time.now_ms() - start
+
+    -- Sequential verification: recompute all results from main thread
+    val r0 = heavy_compute(0, 5000000)
+    val r1 = heavy_compute(7, 5000000)
+    val r2 = heavy_compute(13, 5000000)
+    val r3 = heavy_compute(29, 5000000)
+    val r4 = heavy_compute(37, 5000000)
+    val r5 = heavy_compute(53, 5000000)
+    val r6 = heavy_compute(67, 5000000)
+    val r7 = heavy_compute(97, 5000000)
+
+    var checksum = main_result
+    checksum = (checksum + r0) % 1000000007
+    checksum = (checksum + r1) % 1000000007
+    checksum = (checksum + r2) % 1000000007
+    checksum = (checksum + r3) % 1000000007
+    checksum = (checksum + r4) % 1000000007
+    checksum = (checksum + r5) % 1000000007
+    checksum = (checksum + r6) % 1000000007
+    checksum = (checksum + r7) % 1000000007
+
+    println("task 0: {r0}")
+    println("task 1: {r1}")
+    println("task 2: {r2}")
+    println("task 3: {r3}")
+    println("task 4: {r4}")
+    println("task 5: {r5}")
+    println("task 6: {r6}")
+    println("task 7: {r7}")
+    println("main: {main_result}")
+    println("checksum: {checksum}")
+
+    println("")
+    println("=== Benchmark: Spawn Independent Work ===")
+    println("Tasks: 9 (8 spawned + main)")
+    println("Work per task: {work_size} iterations")
+    println("Total time: {elapsed} ms")
+}

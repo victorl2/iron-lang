@@ -1,0 +1,77 @@
+import time
+
+-- Find first and last position of target in sorted array
+-- Uses two binary searches
+
+func find_first(arr: [Int], n: Int, target: Int) -> Int {
+    var lo = 0
+    var hi = n - 1
+    var result = -1
+    while lo <= hi {
+        val mid = lo + (hi - lo) / 2
+        if arr[mid] == target {
+            result = mid
+            hi = mid - 1
+        } elif arr[mid] < target {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return result
+}
+
+func find_last(arr: [Int], n: Int, target: Int) -> Int {
+    var lo = 0
+    var hi = n - 1
+    var result = -1
+    while lo <= hi {
+        val mid = lo + (hi - lo) / 2
+        if arr[mid] == target {
+            result = mid
+            lo = mid + 1
+        } elif arr[mid] < target {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return result
+}
+
+func find_first_last(arr: [Int], n: Int, target: Int) -> Int {
+    -- Return encoded result: first * 1000 + last (both -1 if not found)
+    val f = find_first(arr, n, target)
+    val l = find_last(arr, n, target)
+    if f == -1 {
+        return -1
+    }
+    return f * 1000 + l
+}
+
+func main() {
+    -- Sorted array with duplicates: [0,0,0,0,0,1,1,1,1,1,...,19,19,19,19,19]
+    var arr = fill(100, 0)
+    for i in range(100) {
+        arr[i] = i / 5
+    }
+
+    println("Test 1: {find_first_last(arr, 100, 5)} (expected 25029)")
+    println("Test 2: {find_first_last(arr, 100, 0)} (expected 4)")
+    println("Test 3: {find_first_last(arr, 100, 19)} (expected 95099)")
+    println("Test 4: {find_first_last(arr, 100, 99)} (expected -1)")
+
+    val iterations = 5000000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = find_first_last(arr, 100, 5)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Find First Last ===")
+    println("Array size: 100")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+}

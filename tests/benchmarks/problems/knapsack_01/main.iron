@@ -1,0 +1,52 @@
+import time
+
+func knapsack(weights: [Int], values: [Int], n: Int, capacity: Int) -> Int {
+    val rows = n + 1
+    val cols = capacity + 1
+    var dp = fill(rows * cols, 0)
+    var i = 1
+    while i <= n {
+        var w = 0
+        while w <= capacity {
+            dp[i * cols + w] = dp[(i - 1) * cols + w]
+            if weights[i - 1] <= w {
+                val val_ = dp[(i - 1) * cols + (w - weights[i - 1])] + values[i - 1]
+                if val_ > dp[i * cols + w] {
+                    dp[i * cols + w] = val_
+                }
+            }
+            w = w + 1
+        }
+        i = i + 1
+    }
+    return dp[n * cols + capacity]
+}
+
+func main() {
+    val w1 = [2, 3, 4, 5]
+    val v1 = [3, 4, 5, 6]
+    println("Test 1: {knapsack(w1, v1, 4, 10)} (expected 13)")
+
+    var w2 = fill(20, 0)
+    var v2 = fill(20, 0)
+    for i in range(20) {
+        w2[i] = (i % 5) + 1
+        v2[i] = (i * 3 + 2) % 20 + 1
+    }
+    println("Test 2: {knapsack(w2, v2, 20, 50)} (expected 202)")
+
+    val iterations = 500000
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = knapsack(w2, v2, 20, 50)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: 0/1 Knapsack ===")
+    println("Items: 20, Capacity: 50")
+    println("Iterations: {iterations}")
+    println("Result: {result}")
+    println("Total time: {elapsed} ms")
+}
