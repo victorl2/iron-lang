@@ -139,6 +139,9 @@ add_executable(iron
     src/pkg/main.c
     src/pkg/init.c
     src/pkg/pkg_build.c
+    src/pkg/fetcher.c
+    src/pkg/resolver.c
+    src/pkg/lockfile.c
     src/cli/toml.c
 )
 target_include_directories(iron PRIVATE src)
@@ -235,6 +238,26 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_iron_check_package PROPERTIES
+        ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
+    )
+
+    # Regression: iron build still works for projects with no dependencies
+    add_test(
+        NAME test_iron_build_no_deps_still_works
+        COMMAND sh -c "set -e && rm -rf /tmp/iron_test_nodeps && mkdir -p /tmp/iron_test_nodeps && cd /tmp/iron_test_nodeps && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> build && test -f target/iron_test_nodeps && ./target/iron_test_nodeps | grep -q Hello"
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_iron_build_no_deps_still_works PROPERTIES
+        ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
+    )
+
+    # Test: iron build creates NO iron.lock when project has no deps
+    add_test(
+        NAME test_iron_dep_lockfile
+        COMMAND sh -c "set -e && rm -rf /tmp/iron_test_dep && mkdir -p /tmp/iron_test_dep/src && printf '[package]\nname = \"test-dep-project\"\nversion = \"0.1.0\"\n\n[dependencies]\n' > /tmp/iron_test_dep/iron.toml && printf 'func main() {\n    println(\"hello deps\")\n}\n' > /tmp/iron_test_dep/src/main.iron && cd /tmp/iron_test_dep && $<TARGET_FILE:iron> build && test -f target/test-dep-project && test ! -f iron.lock"
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_iron_dep_lockfile PROPERTIES
         ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
     )
 endif()
