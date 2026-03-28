@@ -1,6 +1,6 @@
 # Iron Language Definition
 
-**Iron** — a compiled, performant programming language focused on game development, leveraging raylib.
+**Iron** — a compiled, performant programming language focused on clarity, legibility, and performance.
 
 - File extension: `.iron`
 - CLI: `iron build`, `iron run`, `iron test`
@@ -851,7 +851,7 @@ func main() {
 
 ---
 
-## Game-Dev Blocks
+## Managed Blocks
 
 Managed blocks that auto-wrap begin/end pairs.
 

@@ -21,7 +21,7 @@ Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x8
 
 - **Control:** You manage memory explicitly — stack, heap, reference counting — with compiler-assisted safety nets. No borrow checker, no hidden allocations.
 
-- **Game-dev first:** Designed for game development from day one. Thread pools, parallel loops, `draw {}` blocks, and concurrency primitives are all first-class features.
+- **Concurrency:** Thread pools, parallel loops, and concurrency primitives are first-class language features, not library afterthoughts.
 
 - **Legibility:** No operator overloading, no implicit conversions, no hidden control flow. When you read Iron code, you know what it does.
 
