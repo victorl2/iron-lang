@@ -1227,6 +1227,221 @@ static bool run_dce(IronIR_Module *module) {
     return changed;
 }
 
+/* ── Expression inlining analysis (Phase 16) ────────────────────────────── */
+
+/* Returns true if the instruction kind can be emitted as an inline sub-expression.
+ * Must be pure AND not require multi-statement emission. */
+static bool instr_is_inline_expressible(IronIR_InstrKind kind) {
+    if (!iron_ir_instr_is_pure(kind)) return false;
+    /* Multi-statement emission patterns cannot be inlined as sub-expressions */
+    if (kind == IRON_IR_ARRAY_LIT) return false;
+    if (kind == IRON_IR_INTERP_STRING) return false;
+    /* ALLOCA produces an address, not a value expression */
+    if (kind == IRON_IR_ALLOCA) return false;
+    /* CONST_STRING emits iron_string_from_literal() which is fine to inline,
+     * but string constants are already cheap as named vars — keep separate. */
+    if (kind == IRON_IR_CONST_STRING) return false;
+    return true;
+}
+
+/* Pure builtin function names that are safe to inline (treat as pure calls).
+ * These are runtime helpers with no side effects. */
+static bool is_pure_builtin(const char *name) {
+    if (!name) return false;
+    static const char *pure_builtins[] = {
+        "abs", "min", "max", "len", "cap",
+        "iron_abs", "iron_min", "iron_max",
+        "iron_string_concat", "iron_string_eq", "iron_string_cstr",
+        "iron_string_len", "iron_string_from_cstr", "iron_string_from_literal",
+        NULL
+    };
+    for (int i = 0; pure_builtins[i]; i++) {
+        if (strcmp(name, pure_builtins[i]) == 0) return true;
+    }
+    return false;
+}
+
+/* Phase 1 + 2 function purity analysis.
+ * Populates info->func_purity with { func_name -> true } for provably pure functions.
+ * Conservative: functions that cannot be proven pure are not added to the map. */
+static void compute_func_purity(IronIR_Module *module, IronIR_OptimizeInfo *info) {
+    if (!module || module->func_count == 0) return;
+
+    /* Phase 1: mark functions with no CALLs and all-pure instructions */
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        bool all_pure = true;
+        bool has_call = false;
+        for (int bi = 0; bi < fn->block_count && all_pure; bi++) {
+            IronIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count && all_pure; ii++) {
+                IronIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_IR_CALL) {
+                    has_call = true;
+                    /* Don't mark impure yet — will check callees in phase 2 */
+                } else if (!iron_ir_instr_is_pure(in->kind) &&
+                           in->kind != IRON_IR_RETURN &&
+                           in->kind != IRON_IR_JUMP &&
+                           in->kind != IRON_IR_ALLOCA &&
+                           in->kind != IRON_IR_STORE) {
+                    /* Side-effecting non-call instruction (not a structural one) */
+                    all_pure = false;
+                }
+            }
+        }
+        if (all_pure && !has_call) {
+            hmput(info->func_purity, (char*)fn->name, true);
+        }
+    }
+
+    /* Phase 2: fixpoint — functions with only pure-callee calls */
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronIR_Func *fn = module->funcs[fi];
+            if (fn->is_extern || fn->block_count == 0) continue;
+            /* Already marked pure — skip */
+            if (hmgeti(info->func_purity, (char*)fn->name) >= 0) continue;
+
+            bool all_pure = true;
+            for (int bi = 0; bi < fn->block_count && all_pure; bi++) {
+                IronIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count && all_pure; ii++) {
+                    IronIR_Instr *in = blk->instrs[ii];
+                    if (in->kind == IRON_IR_CALL) {
+                        /* Check if callee is known pure */
+                        const char *callee_name = NULL;
+                        if (!in->call.func_decl) {
+                            IronIR_ValueId fptr = in->call.func_ptr;
+                            if (fptr != IRON_IR_VALUE_INVALID &&
+                                fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                                fn->value_table[fptr] != NULL &&
+                                fn->value_table[fptr]->kind == IRON_IR_FUNC_REF) {
+                                callee_name = fn->value_table[fptr]->func_ref.func_name;
+                            }
+                        } else {
+                            callee_name = in->call.func_decl->name;
+                        }
+                        if (!callee_name) { all_pure = false; break; }
+                        bool callee_pure = is_pure_builtin(callee_name) ||
+                                          hmgeti(info->func_purity, (char*)callee_name) >= 0;
+                        if (!callee_pure) all_pure = false;
+                    } else if (!iron_ir_instr_is_pure(in->kind) &&
+                               in->kind != IRON_IR_RETURN &&
+                               in->kind != IRON_IR_JUMP &&
+                               in->kind != IRON_IR_ALLOCA &&
+                               in->kind != IRON_IR_STORE) {
+                        all_pure = false;
+                    }
+                }
+            }
+            if (all_pure) {
+                hmput(info->func_purity, (char*)fn->name, true);
+                changed = true;
+            }
+        }
+    }
+}
+
+/* Compute use-count map for one function.
+ * Counts how many times each ValueId is referenced as an operand (including terminators).
+ * Populates info->use_counts. */
+void iron_ir_compute_use_counts(IronIR_Func *fn, IronIR_OptimizeInfo *info) {
+    IronIR_ValueId ops[MAX_OPERANDS];
+    int op_count = 0;
+
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronIR_Instr *in = blk->instrs[ii];
+            opt_collect_operands(in, ops, &op_count);
+            for (int oi = 0; oi < op_count; oi++) {
+                IronIR_ValueId vid = ops[oi];
+                ptrdiff_t idx = hmgeti(info->use_counts, vid);
+                if (idx >= 0) {
+                    info->use_counts[idx].value++;
+                } else {
+                    IronIR_UseCountEntry e; e.key = vid; e.value = 1;
+                    hmput(info->use_counts, vid, 1);
+                }
+            }
+        }
+    }
+}
+
+/* Build value->block map for one function.
+ * Maps each defined ValueId to the BlockId of the block that defines it.
+ * Populates info->value_block. */
+void iron_ir_compute_value_block(IronIR_Func *fn, IronIR_OptimizeInfo *info) {
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronIR_Instr *in = blk->instrs[ii];
+            if (in->id != IRON_IR_VALUE_INVALID) {
+                hmput(info->value_block, in->id, blk->id);
+            }
+        }
+    }
+}
+
+/* Build inline-eligible map for one function.
+ * An instruction is inline-eligible if:
+ *   - its use count is exactly 1
+ *   - it is expressible as an inline sub-expression (instr_is_inline_expressible)
+ *     OR it is a CALL to a provably-pure function
+ *   - it is NOT a stack-array-tracked value
+ * Requires use_counts, value_block, and func_purity maps to be populated.
+ * Populates info->inline_eligible. */
+void iron_ir_compute_inline_eligible(IronIR_Func *fn,
+                                      IronIR_OptimizeInfo *info) {
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronIR_Instr *in = blk->instrs[ii];
+            if (in->id == IRON_IR_VALUE_INVALID) continue;
+
+            /* Must have exactly one use */
+            ptrdiff_t uc_idx = hmgeti(info->use_counts, in->id);
+            if (uc_idx < 0 || info->use_counts[uc_idx].value != 1) continue;
+
+            /* Skip stack-array-tracked values */
+            if (info->stack_array_ids &&
+                hmgeti(info->stack_array_ids, in->id) >= 0) continue;
+
+            bool eligible = false;
+            if (instr_is_inline_expressible(in->kind)) {
+                eligible = true;
+            } else if (in->kind == IRON_IR_CALL) {
+                /* Check if callee is pure */
+                const char *callee_name = NULL;
+                if (!in->call.func_decl) {
+                    IronIR_ValueId fptr = in->call.func_ptr;
+                    if (fptr != IRON_IR_VALUE_INVALID &&
+                        fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                        fn->value_table[fptr] != NULL &&
+                        fn->value_table[fptr]->kind == IRON_IR_FUNC_REF) {
+                        callee_name = fn->value_table[fptr]->func_ref.func_name;
+                    }
+                } else {
+                    callee_name = in->call.func_decl->name;
+                }
+                if (callee_name) {
+                    eligible = is_pure_builtin(callee_name) ||
+                               (info->func_purity &&
+                                hmgeti(info->func_purity, (char*)callee_name) >= 0);
+                }
+            }
+
+            if (eligible) {
+                hmput(info->inline_eligible, in->id, true);
+            }
+        }
+    }
+}
+
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 bool iron_ir_instr_is_pure(IronIR_InstrKind kind) {
@@ -1252,6 +1467,12 @@ bool iron_ir_instr_is_pure(IronIR_InstrKind kind) {
     default:
         return false;
     }
+}
+
+void iron_ir_compute_inline_info(IronIR_Module *module, IronIR_OptimizeInfo *info) {
+    if (!module || !info) return;
+    /* Compute module-wide function purity analysis (only once per module) */
+    compute_func_purity(module, info);
 }
 
 bool iron_ir_optimize(IronIR_Module *module, IronIR_OptimizeInfo *info,
@@ -1316,6 +1537,16 @@ bool iron_ir_optimize(IronIR_Module *module, IronIR_OptimizeInfo *info,
     }
 
     iron_diaglist_free(&verify_diags);
+
+    /* Phase 16: compute module-wide function purity and set up inline info */
+    if (!skip_new_passes) {
+        iron_ir_compute_inline_info(module, info);
+        if (dump_passes) {
+            fprintf(stderr, "=== After inline-info: %td pure functions ===\n",
+                    hmlen(info->func_purity));
+        }
+    }
+
     return any_changed;
 }
 
@@ -1326,4 +1557,9 @@ void iron_ir_optimize_info_free(IronIR_OptimizeInfo *info) {
     hmfree(info->escaped_heap_ids);
     shfree(info->array_param_modes);
     hmfree(info->revoked_fill_ids);
+    /* Phase 16 maps */
+    hmfree(info->use_counts);
+    hmfree(info->inline_eligible);
+    shfree(info->func_purity);
+    hmfree(info->value_block);
 }
