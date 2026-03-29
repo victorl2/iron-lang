@@ -9,10 +9,10 @@ Requirements for IR optimization and High IR architecture milestone. Each maps t
 
 ### IR Optimization
 
-- [ ] **IROPT-01**: Copy propagation eliminates trivial LOAD copies by replacing all uses of copied values with their originals
+- [x] **IROPT-01**: Copy propagation eliminates trivial LOAD copies by replacing all uses of copied values with their originals
 - [ ] **IROPT-02**: Expression inlining reconstructs compound C expressions for single-use pure values during emission
-- [ ] **IROPT-03**: Dead code elimination removes instructions whose results are never referenced
-- [ ] **IROPT-04**: Constant folding evaluates compile-time constant arithmetic and propagates through store/load chains
+- [x] **IROPT-03**: Dead code elimination removes instructions whose results are never referenced
+- [x] **IROPT-04**: Constant folding evaluates compile-time constant arithmetic and propagates through store/load chains
 - [ ] **IROPT-05**: Strength reduction replaces `i * cols + j` loop patterns with induction variables
 - [ ] **IROPT-06**: Redundant STORE/LOAD elimination removes pairs where no intervening instruction modifies the stored value
 
@@ -76,10 +76,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IROPT-01 | Phase 15 | Pending |
+| IROPT-01 | Phase 15 | Complete |
 | IROPT-02 | Phase 16 | Pending |
-| IROPT-03 | Phase 15 | Pending |
-| IROPT-04 | Phase 15 | Pending |
+| IROPT-03 | Phase 15 | Complete |
+| IROPT-04 | Phase 15 | Complete |
 | IROPT-05 | Phase 17 | Pending |
 | IROPT-06 | Phase 17 | Pending |
 | BENCH-01 | Phase 18 | Pending |
