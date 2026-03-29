@@ -1,0 +1,28 @@
+-- Test: store/load elimination optimization
+-- Verifies that redundant STORE/LOAD pairs are eliminated while
+-- preserving correct semantics for array SET_INDEX patterns.
+
+func main() {
+    -- Pattern 1: Scalar variable with multiple assignments — store/load elim
+    -- should eliminate the redundant reload after the second assignment
+    var x = 10
+    x = 20
+    var y = x + 5
+    println("{y}")
+
+    -- Pattern 2: Array with SET_INDEX — must NOT incorrectly eliminate
+    -- the load after set_index (correctness check)
+    var arr = [1, 2, 3, 4, 5]
+    arr[2] = 99
+    val elem = arr[2]
+    println("{elem}")
+
+    -- Pattern 3: Multiple scalar updates in sequence
+    var total = 0
+    var i = 0
+    while i < 5 {
+        total = total + i * 2
+        i = i + 1
+    }
+    println("{total}")
+}
