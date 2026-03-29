@@ -325,7 +325,7 @@ Plans:
   2. Copy propagation replaces all uses of a trivially copied value with the original; an IR dump of `val x = y` shows the copy eliminated and downstream uses referencing y directly
   3. Dead code elimination removes instructions whose results are never referenced by any other instruction or terminator; an IR dump of a function with an unused arithmetic result shows the instruction absent
   4. Constant folding evaluates `3 + 4` to `7` at compile time and propagates constants through store/load chains; the emitted C contains the literal `7` rather than `3 + 4`
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 15-01-PLAN.md — Extract passes from emit_c.c into ir_optimize module, wire CLI flags
@@ -406,7 +406,7 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 12. Binary Split and Installation | v0.0.3-alpha | 3/3 | Complete | 2026-03-28 |
 | 13. Project Workflow | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
 | 14. Dependency Resolution and Lockfile | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
-| 15. Copy Propagation, DCE & Constant Folding | 1/3 | In Progress|  | - |
+| 15. Copy Propagation, DCE & Constant Folding | 2/3 | In Progress|  | - |
 | 16. Expression Inlining | v0.0.5-alpha | 0/0 | Not started | - |
 | 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 0/0 | Not started | - |
 | 18. Benchmark Validation | v0.0.5-alpha | 0/0 | Not started | - |
