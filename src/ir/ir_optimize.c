@@ -1241,6 +1241,10 @@ static bool instr_is_inline_expressible(IronIR_InstrKind kind) {
     /* CONST_STRING emits iron_string_from_literal() which is fine to inline,
      * but string constants are already cheap as named vars — keep separate. */
     if (kind == IRON_IR_CONST_STRING) return false;
+    /* MAKE_CLOSURE emits a multi-statement env struct alloc + capture assignment.
+     * emit_expr_to_buf falls back to emit_val for it, so it must not be
+     * marked inline-eligible (its result void* would become undeclared). */
+    if (kind == IRON_IR_MAKE_CLOSURE) return false;
     return true;
 }
 
@@ -1395,8 +1399,104 @@ void iron_ir_compute_value_block(IronIR_Func *fn, IronIR_OptimizeInfo *info) {
  *   - it is NOT a stack-array-tracked value
  * Requires use_counts, value_block, and func_purity maps to be populated.
  * Populates info->inline_eligible. */
+/* Returns true if instruction kind mutates memory (STORE, SET_INDEX, SET_FIELD,
+ * CALL, HEAP_ALLOC, RC_ALLOC, FREE).  Used to detect ordering hazards. */
+static bool instr_mutates_memory(IronIR_InstrKind kind) {
+    switch (kind) {
+    case IRON_IR_STORE:
+    case IRON_IR_SET_INDEX:
+    case IRON_IR_SET_FIELD:
+    case IRON_IR_CALL:
+    case IRON_IR_HEAP_ALLOC:
+    case IRON_IR_RC_ALLOC:
+    case IRON_IR_FREE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void iron_ir_compute_inline_eligible(IronIR_Func *fn,
                                       IronIR_OptimizeInfo *info) {
+    /* Build exclusion sets for values that must NOT be inlined:
+     *   1. Values used by INTERP_STRING parts (referenced by name in format strings)
+     *   2. Array-typed values (their companion _len var / .items/.count access needs a named decl)
+     *   3. Values used cross-block (def-block != use-block causes undeclared identifiers
+     *      because emit_expr_to_buf falls back to emit_val but the declaration was skipped)
+     *   4. Values used by MAKE_CLOSURE captures, PARALLEL_FOR range_val/captures, SPAWN
+     *      pool_val — emit_instr uses emit_val (template pattern) for these, not
+     *      emit_expr_to_buf, so they must retain named variable declarations.
+     *   5. Values that have a memory-mutating instruction between their definition and
+     *      use site within the same block (ordering hazard: the inlined expression would
+     *      read memory after it was modified, producing wrong results).
+     */
+
+    /* Map: ValueId -> BlockId of (first) use site */
+    struct { IronIR_ValueId key; IronIR_BlockId value; } *use_site_block = NULL;
+    /* Map: ValueId -> instr index of (first) use site within its block */
+    struct { IronIR_ValueId key; int value; }            *use_site_pos  = NULL;
+    /* Set of values excluded from inlining */
+    struct { IronIR_ValueId key; bool value; } *excluded = NULL;
+
+    /* Pass 1: collect exclusions and use-site blocks/positions */
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronIR_Instr *in = blk->instrs[ii];
+
+            /* INTERP_STRING parts: referenced by name in format strings */
+            if (in->kind == IRON_IR_INTERP_STRING) {
+                for (int pi = 0; pi < in->interp_string.part_count; pi++) {
+                    hmput(excluded, in->interp_string.parts[pi], true);
+                }
+            }
+
+            /* MAKE_CLOSURE captures: emit_instr uses emit_val for these */
+            if (in->kind == IRON_IR_MAKE_CLOSURE) {
+                for (int ci = 0; ci < in->make_closure.capture_count; ci++) {
+                    hmput(excluded, in->make_closure.captures[ci], true);
+                }
+            }
+
+            /* PARALLEL_FOR range_val and captures: emit_instr uses emit_val */
+            if (in->kind == IRON_IR_PARALLEL_FOR) {
+                if (in->parallel_for.range_val != IRON_IR_VALUE_INVALID)
+                    hmput(excluded, in->parallel_for.range_val, true);
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++) {
+                    hmput(excluded, in->parallel_for.captures[ci], true);
+                }
+            }
+
+            /* SPAWN pool_val: emit_instr uses emit_val */
+            if (in->kind == IRON_IR_SPAWN) {
+                if (in->spawn.pool_val != IRON_IR_VALUE_INVALID)
+                    hmput(excluded, in->spawn.pool_val, true);
+            }
+
+            /* Record use-site block/position for all operands; mark cross-block uses */
+            IronIR_ValueId ops[MAX_OPERANDS];
+            int op_count = 0;
+            opt_collect_operands(in, ops, &op_count);
+            for (int oi = 0; oi < op_count; oi++) {
+                IronIR_ValueId op = ops[oi];
+                ptrdiff_t ub_idx = hmgeti(use_site_block, op);
+                if (ub_idx < 0) {
+                    /* First use: record block and position */
+                    hmput(use_site_block, op, blk->id);
+                    hmput(use_site_pos,   op, ii);
+                } else {
+                    /* Subsequent use: if in different block, exclude */
+                    if ((IronIR_BlockId)use_site_block[ub_idx].value != blk->id) {
+                        hmput(excluded, op, true);
+                    }
+                    /* Multiple uses in same block → not single-use, already caught
+                     * by use_count check in Pass 2 */
+                }
+            }
+        }
+    }
+
+    /* Pass 2: mark eligible instructions */
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronIR_Block *blk = fn->blocks[bi];
         for (int ii = 0; ii < blk->instr_count; ii++) {
@@ -1410,6 +1510,39 @@ void iron_ir_compute_inline_eligible(IronIR_Func *fn,
             /* Skip stack-array-tracked values */
             if (info->stack_array_ids &&
                 hmgeti(info->stack_array_ids, in->id) >= 0) continue;
+
+            /* Skip explicitly excluded values */
+            if (hmgeti(excluded, in->id) >= 0) continue;
+
+            /* Skip cross-block: use site must be same block as definition */
+            {
+                ptrdiff_t ub_idx = hmgeti(use_site_block, in->id);
+                if (ub_idx >= 0 &&
+                    (IronIR_BlockId)use_site_block[ub_idx].value != blk->id) {
+                    continue;
+                }
+            }
+
+            /* Skip array-typed values — companion _len and .items/.count access
+             * requires a named variable declaration */
+            if (in->type && in->type->kind == IRON_TYPE_ARRAY) continue;
+
+            /* Skip ordering hazard: if any memory-mutating instruction exists
+             * between this value's definition (ii) and its use site within the
+             * same block, inlining would read memory after mutation. */
+            {
+                ptrdiff_t up_idx = hmgeti(use_site_pos, in->id);
+                if (up_idx >= 0) {
+                    int use_pos = use_site_pos[up_idx].value;
+                    bool hazard = false;
+                    for (int ki = ii + 1; ki < use_pos && !hazard; ki++) {
+                        if (instr_mutates_memory(blk->instrs[ki]->kind)) {
+                            hazard = true;
+                        }
+                    }
+                    if (hazard) continue;
+                }
+            }
 
             bool eligible = false;
             if (instr_is_inline_expressible(in->kind)) {
@@ -1440,6 +1573,9 @@ void iron_ir_compute_inline_eligible(IronIR_Func *fn,
             }
         }
     }
+    hmfree(use_site_block);
+    hmfree(use_site_pos);
+    hmfree(excluded);
 }
 
 /* ── Public API ───────────────────────────────────────────────────────────── */

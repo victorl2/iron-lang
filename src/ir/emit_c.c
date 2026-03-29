@@ -61,6 +61,14 @@ typedef struct {
      * For parameters that are never modified (only read), we skip the
      * alloca+store+load chain and reference the parameter value directly. */
     struct { IronIR_ValueId key; IronIR_ValueId value; } *param_alias_ids;  /* stb_ds hashmap */
+
+    /* Expression inlining: per-function maps built in emit_func_body pre-scan.
+     * inline_eligible: ValueId -> true (values to skip and reconstruct at use site).
+     * value_block: ValueId -> BlockId (for block-boundary enforcement).
+     * current_block_id: set before each emit_instr call. */
+    IronIR_InlineEligEntry *inline_eligible;  /* per-function inline eligibility map */
+    IronIR_ValueBlockEntry *value_block;      /* per-function value->block map */
+    IronIR_BlockId          current_block_id; /* set before each emit_instr call */
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -340,9 +348,383 @@ static void mark_stack_array(EmitCtx *ctx, IronIR_ValueId id,
 
 /* (resolve_stack_array_origin removed — pre-scan in emit_func_body handles propagation) */
 
+/* Forward declaration — emit_instr and emit_expr_to_buf are mutually recursive */
+static void emit_expr_to_buf(Iron_StrBuf *sb, IronIR_ValueId vid,
+                              IronIR_Func *fn, EmitCtx *ctx,
+                              IronIR_BlockId use_block_id, int depth);
+
+/* ── Expression inlining recursive helper ─────────────────────────────────── */
+
+/* Recursively build a C expression string for vid.
+ * If vid is inline-eligible (single-use pure, same block), reconstructs the
+ * producing instruction as a sub-expression. Otherwise emits `_vN`.
+ * Always parenthesizes compound expressions for safety. */
+static void emit_expr_to_buf(Iron_StrBuf *sb, IronIR_ValueId vid,
+                              IronIR_Func *fn, EmitCtx *ctx,
+                              IronIR_BlockId use_block_id, int depth) {
+    if (vid == IRON_IR_VALUE_INVALID) {
+        iron_strbuf_appendf(sb, "_v_invalid");
+        return;
+    }
+
+    /* Step 1: Check inline eligibility */
+    if (!ctx->inline_eligible || hmgeti(ctx->inline_eligible, vid) < 0) {
+        emit_val(sb, vid);
+        return;
+    }
+
+    /* Step 2: Block-boundary check — only inline within same block */
+    if (ctx->value_block) {
+        ptrdiff_t vb_idx = hmgeti(ctx->value_block, vid);
+        if (vb_idx < 0 || (IronIR_BlockId)ctx->value_block[vb_idx].value != use_block_id) {
+            emit_val(sb, vid);
+            return;
+        }
+    }
+
+    /* Step 3: Stack-array exclusion */
+    if (ctx->opt_info->stack_array_ids &&
+        hmgeti(ctx->opt_info->stack_array_ids, vid) >= 0) {
+        emit_val(sb, vid);
+        return;
+    }
+
+    /* Step 4: Look up the producing instruction */
+    if (vid >= (IronIR_ValueId)arrlen(fn->value_table) || fn->value_table[vid] == NULL) {
+        emit_val(sb, vid);
+        return;
+    }
+    IronIR_Instr *instr = fn->value_table[vid];
+
+    /* Step 5: Deep-expression anchor comment */
+    if (depth > 3) {
+        iron_strbuf_appendf(sb, "/* _v%u */ ", vid);
+    }
+
+    /* Step 6: Build expression based on instruction kind */
+    switch (instr->kind) {
+
+    /* Binary ops */
+    case IRON_IR_ADD:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " + ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_SUB:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " - ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_MUL:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " * ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_DIV:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " / ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_MOD:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " %% ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_EQ:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " == ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_NEQ:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " != ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_LT:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " < ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_LTE:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " <= ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_GT:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " > ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_GTE:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " >= ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_AND:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " && ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_OR:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " || ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+
+    /* Unary ops */
+    case IRON_IR_NEG:
+        iron_strbuf_appendf(sb, "(-");
+        emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_IR_NOT:
+        iron_strbuf_appendf(sb, "(!");
+        emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+
+    /* Constants */
+    case IRON_IR_CONST_INT:
+        iron_strbuf_appendf(sb, "((%s)%lldLL)",
+                            emit_type_to_c(instr->type, ctx),
+                            (long long)instr->const_int.value);
+        break;
+    case IRON_IR_CONST_FLOAT:
+        iron_strbuf_appendf(sb, "%g", instr->const_float.value);
+        break;
+    case IRON_IR_CONST_BOOL:
+        iron_strbuf_appendf(sb, "%s", instr->const_bool.value ? "true" : "false");
+        break;
+    case IRON_IR_CONST_NULL:
+        iron_strbuf_appendf(sb, "NULL");
+        break;
+
+    /* LOAD: pass through to the stored value (alloca variable) */
+    case IRON_IR_LOAD: {
+        /* Check for param alias — inline as the param value */
+        if (ctx->param_alias_ids) {
+            ptrdiff_t pa_idx = hmgeti(ctx->param_alias_ids, instr->load.ptr);
+            if (pa_idx >= 0) {
+                emit_val(sb, ctx->param_alias_ids[pa_idx].value);
+                break;
+            }
+        }
+        /* Stack array load: can't inline as expression, fall back */
+        if (get_stack_array_origin(ctx, instr->load.ptr) != IRON_IR_VALUE_INVALID) {
+            emit_val(sb, vid);
+            break;
+        }
+        /* Regular load: inline as the alloca variable directly */
+        emit_expr_to_buf(sb, instr->load.ptr, fn, ctx, use_block_id, depth+1);
+        break;
+    }
+
+    /* CAST */
+    case IRON_IR_CAST: {
+        const char *src_t = emit_type_to_c(instr->type, ctx);  /* type of input is cast.value's type */
+        const char *dst_t = emit_type_to_c(instr->cast.target_type, ctx);
+        (void)src_t; /* comment just uses type names — keep dst */
+        iron_strbuf_appendf(sb, "(/* cast */ (%s)", dst_t);
+        emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    }
+
+    /* GET_FIELD */
+    case IRON_IR_GET_FIELD: {
+        /* Stack array .count is a special case — emits as _vN_len */
+        if (get_stack_array_origin(ctx, instr->field.object) != IRON_IR_VALUE_INVALID &&
+            instr->field.field && strcmp(instr->field.field, "count") == 0) {
+            emit_val(sb, instr->field.object);
+            iron_strbuf_appendf(sb, "_len");
+            break;
+        }
+        bool obj_is_ptr = false;
+        if (instr->field.object < (IronIR_ValueId)arrlen(fn->value_table) &&
+            fn->value_table[instr->field.object]) {
+            IronIR_InstrKind k = fn->value_table[instr->field.object]->kind;
+            obj_is_ptr = (k == IRON_IR_HEAP_ALLOC || k == IRON_IR_RC_ALLOC);
+        }
+        emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, "%s%s", obj_is_ptr ? "->" : ".", instr->field.field);
+        break;
+    }
+
+    /* GET_INDEX */
+    case IRON_IR_GET_INDEX: {
+        IronIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->index.array);
+        if (sa_origin != IRON_IR_VALUE_INVALID) {
+            emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "[");
+            emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "]");
+        } else {
+            /* Check direct array type */
+            bool use_direct = false;
+            if (instr->index.array < (IronIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[instr->index.array]) {
+                Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
+                if (arr_t && arr_t->kind == IRON_TYPE_ARRAY) use_direct = true;
+            }
+            if (use_direct) {
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
+                iron_strbuf_appendf(sb, ".items[");
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
+                iron_strbuf_appendf(sb, "]");
+            } else {
+                /* Fall back — too complex to inline */
+                emit_val(sb, vid);
+            }
+        }
+        break;
+    }
+
+    /* CONSTRUCT */
+    case IRON_IR_CONSTRUCT: {
+        const char *c_type = emit_type_to_c(instr->construct.type, ctx);
+        /* Type name for comment */
+        const char *type_name = c_type;
+        if (instr->construct.type && instr->construct.type->kind == IRON_TYPE_OBJECT &&
+            instr->construct.type->object.decl) {
+            type_name = instr->construct.type->object.decl->name;
+        }
+        iron_strbuf_appendf(sb, "/* %s */ (%s){", type_name, c_type);
+        if (instr->construct.type &&
+            instr->construct.type->kind == IRON_TYPE_OBJECT &&
+            instr->construct.type->object.decl) {
+            Iron_ObjectDecl *od = instr->construct.type->object.decl;
+            int field_start = 0;
+            if (od->extends_name) {
+                if (instr->construct.field_count > 0) {
+                    iron_strbuf_appendf(sb, " ._base = ");
+                    emit_expr_to_buf(sb, instr->construct.field_vals[0], fn, ctx, use_block_id, depth+1);
+                    field_start = 1;
+                    if (instr->construct.field_count > 1) iron_strbuf_appendf(sb, ",");
+                }
+            }
+            int od_field_idx = 0;
+            for (int i = field_start; i < instr->construct.field_count; i++) {
+                if (i > field_start) iron_strbuf_appendf(sb, ",");
+                if (od_field_idx < od->field_count) {
+                    Iron_Field *f = (Iron_Field *)od->fields[od_field_idx++];
+                    iron_strbuf_appendf(sb, " .%s = ", f->name);
+                } else {
+                    iron_strbuf_appendf(sb, " ");
+                }
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, use_block_id, depth+1);
+            }
+        } else {
+            for (int i = 0; i < instr->construct.field_count; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, ", ");
+                else iron_strbuf_appendf(sb, " ");
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, use_block_id, depth+1);
+            }
+        }
+        iron_strbuf_appendf(sb, " }");
+        break;
+    }
+
+    /* CALL (pure calls only — must be in inline_eligible to reach here) */
+    case IRON_IR_CALL: {
+        /* Get callee name for comment */
+        const char *callee_c = NULL;
+        const char *callee_short = "call";
+        if (instr->call.func_decl) {
+            if (instr->call.func_decl->is_extern && instr->call.func_decl->extern_c_name) {
+                callee_c = instr->call.func_decl->extern_c_name;
+            } else {
+                callee_c = mangle_func_name(instr->call.func_decl->name, ctx->arena);
+            }
+            callee_short = instr->call.func_decl->name;
+        } else {
+            IronIR_ValueId fptr = instr->call.func_ptr;
+            if (fptr != IRON_IR_VALUE_INVALID &&
+                fptr < (IronIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[fptr] != NULL &&
+                fn->value_table[fptr]->kind == IRON_IR_FUNC_REF) {
+                const char *ir_name = fn->value_table[fptr]->func_ref.func_name;
+                callee_c = resolve_func_c_name(ctx, ir_name);
+                callee_short = ir_name;
+            }
+        }
+        if (!callee_c) {
+            /* Can't inline indirect call with unknown target */
+            emit_val(sb, vid);
+            break;
+        }
+        iron_strbuf_appendf(sb, "/* %s */ %s(", callee_short, callee_c);
+        for (int i = 0; i < instr->call.arg_count; i++) {
+            if (i > 0) iron_strbuf_appendf(sb, ", ");
+            emit_expr_to_buf(sb, instr->call.args[i], fn, ctx, use_block_id, depth+1);
+        }
+        iron_strbuf_appendf(sb, ")");
+        break;
+    }
+
+    /* IS_NULL / IS_NOT_NULL */
+    case IRON_IR_IS_NULL:
+        iron_strbuf_appendf(sb, "(!");
+        emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ".has_value)");
+        break;
+    case IRON_IR_IS_NOT_NULL:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ".has_value)");
+        break;
+
+    /* FUNC_REF */
+    case IRON_IR_FUNC_REF:
+        iron_strbuf_appendf(sb, "%s",
+                            resolve_func_c_name(ctx, instr->func_ref.func_name));
+        break;
+
+    /* MAKE_CLOSURE / SLICE — complex multi-statement patterns, fall back */
+    case IRON_IR_MAKE_CLOSURE:
+    case IRON_IR_SLICE:
+    default:
+        emit_val(sb, vid);
+        break;
+    }
+}
+
 static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                         IronIR_Func *fn, EmitCtx *ctx) {
     int ind = ctx->indent;
+
+    /* Expression inlining: skip emission of inlineable values — they will be
+     * reconstructed inline at their single use site by emit_expr_to_buf(). */
+    if (instr->id != IRON_IR_VALUE_INVALID &&
+        ctx->inline_eligible &&
+        hmgeti(ctx->inline_eligible, instr->id) >= 0) {
+        return;  /* deferred to use site */
+    }
 
     switch (instr->kind) {
 
@@ -397,9 +779,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " + ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -408,9 +790,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " - ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -419,9 +801,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " * ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -430,9 +812,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " / ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -441,9 +823,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " %% ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -454,9 +836,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " == ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -465,9 +847,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " != ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -476,9 +858,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " < ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -487,9 +869,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " <= ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -498,9 +880,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " > ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -509,9 +891,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " >= ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -522,9 +904,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " && ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -533,9 +915,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->binop.left);
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " || ");
-        emit_val(sb, instr->binop.right);
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -546,7 +928,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = -");
-        emit_val(sb, instr->unop.operand);
+        emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -555,7 +937,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = !");
-        emit_val(sb, instr->unop.operand);
+        emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 
@@ -680,7 +1062,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             emit_indent(sb, ind);
             emit_val(sb, instr->store.ptr);
             iron_strbuf_appendf(sb, " = ");
-            emit_val(sb, instr->store.value);
+            emit_expr_to_buf(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
             /* Propagate companion length */
             emit_indent(sb, ind);
@@ -693,7 +1075,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             emit_indent(sb, ind);
             emit_val(sb, instr->store.ptr);
             iron_strbuf_appendf(sb, " = ");
-            emit_val(sb, instr->store.value);
+            emit_expr_to_buf(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
         }
         break;
@@ -720,7 +1102,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->field.object);
+        emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
         /* Use -> when the object value comes from a heap or rc allocation
          * (those produce pointer types in the emitted C). */
         bool obj_is_ptr = false;
@@ -736,7 +1118,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     case IRON_IR_SET_FIELD: {
         /* object.field = value or object->field = value for heap/rc */
         emit_indent(sb, ind);
-        emit_val(sb, instr->field.object);
+        emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
         bool obj_is_ptr = false;
         if (instr->field.object < (IronIR_ValueId)arrlen(fn->value_table) &&
             fn->value_table[instr->field.object]) {
@@ -744,7 +1126,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             obj_is_ptr = (k == IRON_IR_HEAP_ALLOC || k == IRON_IR_RC_ALLOC);
         }
         iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr ? "->" : ".", instr->field.field);
-        emit_val(sb, instr->field.value);
+        emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
     }
@@ -758,9 +1140,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
-            emit_val(sb, instr->index.array);
+            emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, "[");
-            emit_val(sb, instr->index.index);
+            emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, "];\n");
         } else {
             /* Check if the array has an array type — if so, inline .items[idx]
@@ -778,9 +1160,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = ");
-                emit_val(sb, instr->index.array);
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ".items[");
-                emit_val(sb, instr->index.index);
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, "];\n");
             } else {
                 /* Fallback: result = Iron_List_<suffix>_get(&array, index) */
@@ -794,9 +1176,9 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = %s_get(&", list_type);
-                emit_val(sb, instr->index.array);
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
-                emit_val(sb, instr->index.index);
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ");\n");
             }
         }
@@ -809,11 +1191,11 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         if (sa_origin != IRON_IR_VALUE_INVALID) {
             /* Direct C indexing: array[index] = value; */
             emit_indent(sb, ind);
-            emit_val(sb, instr->index.array);
+            emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, "[");
-            emit_val(sb, instr->index.index);
+            emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, "] = ");
-            emit_val(sb, instr->index.value);
+            emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
         } else {
             /* Check if the array has an array type — if so, inline .items[idx]
@@ -828,11 +1210,11 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             if (use_direct) {
                 /* Direct field access: array.items[index] = value; */
                 emit_indent(sb, ind);
-                emit_val(sb, instr->index.array);
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ".items[");
-                emit_val(sb, instr->index.index);
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, "] = ");
-                emit_val(sb, instr->index.value);
+                emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ";\n");
             } else {
                 /* Fallback: Iron_List_<suffix>_set(&array, index, value) */
@@ -844,11 +1226,11 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 }
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s_set(&", list_type);
-                emit_val(sb, instr->index.array);
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
-                emit_val(sb, instr->index.index);
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
-                emit_val(sb, instr->index.value);
+                emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ");\n");
             }
         }
@@ -904,7 +1286,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                                          (long long)fill_count);
                     emit_val(sb, instr->id);
                     iron_strbuf_appendf(sb, "[_fill_i] = ");
-                    emit_val(sb, instr->call.args[1]);
+                    emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ";\n");
                     /* Emit companion length variable */
                     emit_indent(sb, ind);
@@ -929,22 +1311,22 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                         emit_val(sb, instr->id);
                         iron_strbuf_appendf(sb, " = (%s *)alloca(sizeof(%s) * ",
                                             elem_type, elem_type);
-                        emit_val(sb, instr->call.args[0]);
+                        emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ");\n");
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
-                        emit_val(sb, instr->call.args[0]);
+                        emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, "; _fill_i++) ");
                         emit_val(sb, instr->id);
                         iron_strbuf_appendf(sb, "[_fill_i] = ");
-                        emit_val(sb, instr->call.args[1]);
+                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ";\n");
                         /* Emit companion length variable */
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "int64_t ");
                         emit_val(sb, instr->id);
                         iron_strbuf_appendf(sb, "_len = ");
-                        emit_val(sb, instr->call.args[0]);
+                        emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ";\n");
                         /* Mark as stack array */
                         mark_stack_array(ctx, instr->id, instr->id);
@@ -957,13 +1339,13 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                         iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
-                        emit_val(sb, instr->call.args[0]);
+                        emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, "; _fill_i++) {\n");
                         emit_indent(sb, ind + 1);
                         iron_strbuf_appendf(sb, "%s_push(&", list_type);
                         emit_val(sb, instr->id);
                         iron_strbuf_appendf(sb, ", ");
-                        emit_val(sb, instr->call.args[1]);
+                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ");\n");
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "}\n");
@@ -1104,10 +1486,10 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             }
             if (is_string_arg) {
                 iron_strbuf_appendf(sb, "iron_string_cstr(&");
-                emit_val(sb, arg_id);
+                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ")");
             } else {
-                emit_val(sb, arg_id);
+                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
             }
         }
         iron_strbuf_appendf(sb, ");\n");
@@ -1125,7 +1507,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     case IRON_IR_BRANCH:
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "if (");
-        emit_val(sb, instr->branch.cond);
+        emit_expr_to_buf(sb, instr->branch.cond, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ") goto %s; else goto %s;\n",
                             resolve_label(fn, instr->branch.then_block, ctx->arena),
                             resolve_label(fn, instr->branch.else_block, ctx->arena));
@@ -1134,7 +1516,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     case IRON_IR_SWITCH: {
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "switch (");
-        emit_val(sb, instr->sw.subject);
+        emit_expr_to_buf(sb, instr->sw.subject, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ") {\n");
         for (int i = 0; i < instr->sw.case_count; i++) {
             emit_indent(sb, ind + 1);
@@ -1196,7 +1578,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             iron_strbuf_appendf(sb, "return;\n");
         } else {
             iron_strbuf_appendf(sb, "return ");
-            emit_val(sb, instr->ret.value);
+            emit_expr_to_buf(sb, instr->ret.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
         }
         break;
@@ -1210,7 +1592,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s ", target_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)", target_c);
-        emit_val(sb, instr->cast.value);
+        emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
     }
@@ -1232,7 +1614,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "*");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->heap_alloc.inner_val);
+        emit_expr_to_buf(sb, instr->heap_alloc.inner_val, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
     }
@@ -1255,7 +1637,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "*");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->rc_alloc.inner_val);
+        emit_expr_to_buf(sb, instr->rc_alloc.inner_val, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
     }
@@ -1263,7 +1645,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
     case IRON_IR_FREE:
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "free(");
-        emit_val(sb, instr->free_instr.value);
+        emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ");\n");
         break;
 
@@ -1287,7 +1669,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             if (od->extends_name) {
                 if (instr->construct.field_count > 0) {
                     iron_strbuf_appendf(sb, " ._base = ");
-                    emit_val(sb, instr->construct.field_vals[0]);
+                    emit_expr_to_buf(sb, instr->construct.field_vals[0], fn, ctx, ctx->current_block_id, 0);
                     field_start = 1;
                     if (instr->construct.field_count > 1)
                         iron_strbuf_appendf(sb, ",");
@@ -1302,14 +1684,14 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 } else {
                     iron_strbuf_appendf(sb, " ");
                 }
-                emit_val(sb, instr->construct.field_vals[i]);
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, ctx->current_block_id, 0);
             }
         } else {
             /* Fallback: positional initialization */
             for (int i = 0; i < instr->construct.field_count; i++) {
                 if (i > 0) iron_strbuf_appendf(sb, ", ");
                 else iron_strbuf_appendf(sb, " ");
-                emit_val(sb, instr->construct.field_vals[i]);
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, ctx->current_block_id, 0);
             }
         }
         iron_strbuf_appendf(sb, " };\n");
@@ -1330,7 +1712,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             iron_strbuf_appendf(sb, "[] = {");
             for (int i = 0; i < instr->array_lit.element_count; i++) {
                 if (i > 0) iron_strbuf_appendf(sb, ", ");
-                emit_val(sb, instr->array_lit.elements[i]);
+                emit_expr_to_buf(sb, instr->array_lit.elements[i], fn, ctx, ctx->current_block_id, 0);
             }
             iron_strbuf_appendf(sb, "};\n");
             /* Emit companion length variable */
@@ -1354,7 +1736,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                 iron_strbuf_appendf(sb, "%s_push(&", list_type);
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, ", ");
-                emit_val(sb, instr->array_lit.elements[i]);
+                emit_expr_to_buf(sb, instr->array_lit.elements[i], fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ");\n");
             }
         }
@@ -1368,18 +1750,18 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "Iron_List ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = iron_list_slice(");
-        emit_val(sb, instr->slice.array);
+        emit_expr_to_buf(sb, instr->slice.array, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ", ");
         if (instr->slice.start == IRON_IR_VALUE_INVALID) {
             iron_strbuf_appendf(sb, "0");
         } else {
-            emit_val(sb, instr->slice.start);
+            emit_expr_to_buf(sb, instr->slice.start, fn, ctx, ctx->current_block_id, 0);
         }
         iron_strbuf_appendf(sb, ", ");
         if (instr->slice.end == IRON_IR_VALUE_INVALID) {
             iron_strbuf_appendf(sb, "-1");
         } else {
-            emit_val(sb, instr->slice.end);
+            emit_expr_to_buf(sb, instr->slice.end, fn, ctx, ctx->current_block_id, 0);
         }
         iron_strbuf_appendf(sb, ");\n");
         break;
@@ -1392,7 +1774,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = !");
-        emit_val(sb, instr->null_check.value);
+        emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".has_value;\n");
         break;
 
@@ -1401,7 +1783,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->null_check.value);
+        emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".has_value;\n");
         break;
 
@@ -2104,6 +2486,36 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
         }
     }
 
+    /* ── Expression inlining pre-scan ────────────────────────────────────────
+     * Build per-function inline_eligible and value_block maps.
+     * Only runs when the optimizer has populated func_purity (module-wide analysis). */
+    {
+        /* Reset per-function inlining maps */
+        hmfree(ctx->inline_eligible);
+        ctx->inline_eligible = NULL;
+        hmfree(ctx->value_block);
+        ctx->value_block = NULL;
+
+        if (ctx->opt_info && ctx->opt_info->func_purity != NULL) {
+            /* Compute per-function analysis using ir_optimize helpers */
+            hmfree(ctx->opt_info->use_counts);
+            ctx->opt_info->use_counts = NULL;
+            iron_ir_compute_use_counts(fn, ctx->opt_info);
+
+            hmfree(ctx->opt_info->value_block);
+            ctx->opt_info->value_block = NULL;
+            iron_ir_compute_value_block(fn, ctx->opt_info);
+
+            hmfree(ctx->opt_info->inline_eligible);
+            ctx->opt_info->inline_eligible = NULL;
+            iron_ir_compute_inline_eligible(fn, ctx->opt_info);
+
+            /* Copy maps to ctx for emit_instr/emit_expr_to_buf access */
+            ctx->inline_eligible = ctx->opt_info->inline_eligible;
+            ctx->value_block     = ctx->opt_info->value_block;
+        }
+    }
+
     emit_func_signature(sb, fn, ctx, false);
     iron_strbuf_appendf(sb, " {\n");
 
@@ -2111,6 +2523,7 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
 
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronIR_Block *block = fn->blocks[bi];
+        ctx->current_block_id = block->id;  /* for block-boundary enforcement in emit_expr_to_buf */
 
         /* Emit block label — unique per block to avoid duplicate-label errors */
         iron_strbuf_appendf(sb, "%s:;\n",
@@ -2130,6 +2543,11 @@ static void emit_func_body(EmitCtx *ctx, IronIR_Func *fn) {
 
     ctx->indent = 0;
     iron_strbuf_appendf(sb, "}\n\n");
+
+    /* Cleanup per-function inlining maps */
+    ctx->inline_eligible = NULL;
+    ctx->value_block = NULL;
+    /* Note: opt_info maps are owned by opt_info and freed by iron_ir_optimize_info_free() */
 }
 
 /* ── Type declaration emission ────────────────────────────────────────────── */
