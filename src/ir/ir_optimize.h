@@ -14,6 +14,13 @@ typedef struct { IronIR_ValueId key; bool value; }     IronIR_InlineEligEntry;
 typedef struct { char *key; bool value; }              IronIR_FuncPurityEntry;
 typedef struct { IronIR_ValueId key; uint32_t value; } IronIR_ValueBlockEntry;
 
+/* ── Store/load elimination types (Phase 17) ───────────────────────────────── */
+
+/* Maps alloca ValueId -> last-stored ValueId (per-block tracking). */
+typedef struct { IronIR_ValueId key; IronIR_ValueId value; } IronIR_StoreTrackEntry;
+/* Maps alloca ValueId -> escaped (passed to call/stored into memory/returned). */
+typedef struct { IronIR_ValueId key; bool value; }           IronIR_EscapeEntry;
+
 /* ── Array parameter passing mode ──────────────────────────────────────────── */
 
 typedef enum {

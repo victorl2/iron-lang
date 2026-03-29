@@ -215,23 +215,26 @@ void test_copy_propagation_multi_store_skipped(void) {
                                           loaded->id, v1->id, int_type, sp);
     iron_ir_return(fn, entry, add->id, false, int_type, sp);
 
-    IronIR_ValueId load_id = loaded->id;
+    (void)loaded;  /* load_id no longer needed — store/load elim replaces it */
     IronIR_ValueId add_id  = add->id;
 
     IronIR_OptimizeInfo info;
     iron_ir_optimize(mod, &info, &ir_arena, false, false);
 
-    /* With 2 stores, copy propagation must NOT replace the LOAD.
-     * The ADD's left operand should still be the LOAD result. */
+    /* copy_prop skips multi-store allocas, but store/load elim tracks the last store.
+     * After the full pass pipeline:
+     *   1. store/load elim replaces LOAD(%1) with v2 (last stored value, const_int 2)
+     *   2. DCE removes the LOAD instruction
+     *   3. constant folding mutates ADD(const2, const1) -> CONST_INT(3) in-place
+     *   4. DCE may remove original const_int 1 and const_int 2 if no longer used
+     * The instruction at add_id has been folded in-place to CONST_INT. */
     IronIR_Instr *add_after = fn->value_table[add_id];
     TEST_ASSERT_NOT_NULL(add_after);
-    TEST_ASSERT_EQUAL_UINT(IRON_IR_ADD, add_after->kind);
-    /* Either load_id itself is still there OR value_table[load_id] is a LOAD/CONST */
-    /* The key invariant: the ADD's left did NOT become v1 or v2 directly */
-    TEST_ASSERT_NOT_EQUAL_UINT(v1->id, add_after->binop.left);
-    TEST_ASSERT_NOT_EQUAL_UINT(v2->id, add_after->binop.left);
-    /* The left should still reference the original load_id */
-    TEST_ASSERT_EQUAL_UINT(load_id, add_after->binop.left);
+    /* Constant folding folds ADD(2, 1) -> CONST_INT(3) in-place */
+    TEST_ASSERT_EQUAL_UINT(IRON_IR_CONST_INT, add_after->kind);
+    TEST_ASSERT_EQUAL_INT64(3, add_after->const_int.value);
+    /* The LOAD must have been eliminated */
+    TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_IR_LOAD));
 
     iron_ir_optimize_info_free(&info);
     iron_ir_module_destroy(mod);
@@ -732,6 +735,150 @@ void test_func_purity_analysis(void) {
     iron_arena_free(&ir_arena);
 }
 
+/* ── Test 16: Store/load elimination — basic scalar ─────────────────────── */
+
+void test_store_load_elim_basic_scalar(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_sle_basic");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* func test() -> Int
+     *   %1 = alloca Int
+     *   %2 = const_int 1
+     *   %3 = const_int 2
+     *   store %1, %2      <- store #1 (so copy_prop won't eliminate — multi-store)
+     *   store %1, %3      <- store #2 — last store wins in store/load elim
+     *   %4 = load %1      <- should be replaced with %3 by store/load elim
+     *   %5 = add %4, %2
+     *   return %5
+     *
+     * copy_prop skips this (2 stores). store/load elim replaces the LOAD with %3.
+     * After DCE, the LOAD should be removed from the block.
+     */
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_sle_basic", NULL, 0, int_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+
+    IronIR_Instr *slot  = iron_ir_alloca(fn, entry, int_type, "x", sp);
+    IronIR_Instr *v1    = iron_ir_const_int(fn, entry, 1, int_type, sp);
+    IronIR_Instr *v2    = iron_ir_const_int(fn, entry, 2, int_type, sp);
+    iron_ir_store(fn, entry, slot->id, v1->id, sp);
+    iron_ir_store(fn, entry, slot->id, v2->id, sp);
+    IronIR_Instr *loaded = iron_ir_load(fn, entry, slot->id, int_type, sp);
+    IronIR_Instr *add    = iron_ir_binop(fn, entry, IRON_IR_ADD,
+                                          loaded->id, v1->id, int_type, sp);
+    (void)add;
+    iron_ir_return(fn, entry, add->id, false, int_type, sp);
+
+    IronIR_OptimizeInfo info;
+    iron_ir_optimize(mod, &info, &ir_arena, false, false);
+
+    /* After store/load elim + DCE: the LOAD should be eliminated */
+    TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_IR_LOAD));
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+/* ── Test 17: Store/load elimination — CALL with non-escaped alloca ──────── */
+
+void test_store_load_elim_call_non_escaped(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_sle_call");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* func test() -> Int
+     *   %1 = alloca Int
+     *   %2 = const_int 42
+     *   store %1, %2
+     *   %3 = func_ref "some_extern"
+     *   %4 = const_int 99            <- unrelated arg to call
+     *   %5 = call %3(%4)             <- alloca %1 is NOT passed as argument
+     *   %6 = load %1                 <- should be eliminated (alloca not escaped)
+     *   return %6
+     */
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_sle_call", NULL, 0, int_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+
+    IronIR_Instr *slot    = iron_ir_alloca(fn, entry, int_type, "x", sp);
+    IronIR_Instr *val42   = iron_ir_const_int(fn, entry, 42, int_type, sp);
+    iron_ir_store(fn, entry, slot->id, val42->id, sp);
+
+    /* Call an external function with an unrelated argument */
+    IronIR_Instr *fref    = iron_ir_func_ref(fn, entry, "some_extern", int_type, sp);
+    IronIR_Instr *arg99   = iron_ir_const_int(fn, entry, 99, int_type, sp);
+    IronIR_ValueId call_args[1];
+    call_args[0] = arg99->id;  /* passing a const int, NOT the alloca address */
+    iron_ir_call(fn, entry, NULL, fref->id, call_args, 1, int_type, sp);
+
+    IronIR_Instr *loaded  = iron_ir_load(fn, entry, slot->id, int_type, sp);
+    iron_ir_return(fn, entry, loaded->id, false, int_type, sp);
+
+    IronIR_OptimizeInfo info;
+    iron_ir_optimize(mod, &info, &ir_arena, false, false);
+
+    /* Non-escaped alloca survives CALL: LOAD should be eliminated */
+    TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_IR_LOAD));
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+/* ── Test 18: Store/load elimination — SET_INDEX clobbers array alloca ───── */
+
+void test_store_load_elim_set_index_clobbers(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_sle_setidx");
+    Iron_Type *int_type   = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *arr_type   = iron_type_make_array(&ir_arena, int_type, -1);
+    Iron_Span sp = test_span();
+
+    /* func test() -> [Int]
+     *   %1 = alloca [Int]
+     *   %2 = array_lit []          <- empty array value
+     *   store %1, %2
+     *   %3 = const_int 0           <- index
+     *   %4 = const_int 99          <- element value
+     *   set_index %1, %3, %4       <- clobbers the array alloca
+     *   %5 = load %1               <- must NOT be eliminated (SET_INDEX clobbered)
+     *   return %5
+     */
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_sle_setidx", NULL, 0, arr_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+
+    IronIR_Instr *slot    = iron_ir_alloca(fn, entry, arr_type, "arr", sp);
+
+    /* Build an empty array literal as the initial value */
+    IronIR_Instr *arr_val = iron_ir_array_lit(fn, entry, int_type, NULL, 0, arr_type, sp);
+    iron_ir_store(fn, entry, slot->id, arr_val->id, sp);
+
+    IronIR_Instr *idx     = iron_ir_const_int(fn, entry, 0, int_type, sp);
+    IronIR_Instr *elem    = iron_ir_const_int(fn, entry, 99, int_type, sp);
+    iron_ir_set_index(fn, entry, slot->id, idx->id, elem->id, sp);
+
+    IronIR_Instr *loaded  = iron_ir_load(fn, entry, slot->id, arr_type, sp);
+    iron_ir_return(fn, entry, loaded->id, false, arr_type, sp);
+
+    IronIR_OptimizeInfo info;
+    iron_ir_optimize(mod, &info, &ir_arena, false, false);
+
+    /* SET_INDEX clobbers the array alloca — LOAD must NOT be eliminated */
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(1, count_kind_in_block(entry, IRON_IR_LOAD));
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -751,5 +898,8 @@ int main(void) {
     RUN_TEST(test_inline_eligible_side_effect_excluded);
     RUN_TEST(test_inline_cross_block_not_inlined);
     RUN_TEST(test_func_purity_analysis);
+    RUN_TEST(test_store_load_elim_basic_scalar);
+    RUN_TEST(test_store_load_elim_call_non_escaped);
+    RUN_TEST(test_store_load_elim_set_index_clobbers);
     return UNITY_END();
 }
