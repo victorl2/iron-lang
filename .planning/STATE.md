@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 16-03-PLAN.md
-last_updated: "2026-03-29T18:53:35.897Z"
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-03-29T22:41:15.791Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 9
+  completed_plans: 7
   percent: 0
 ---
 
@@ -50,6 +50,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 16 P01 | 120 | 3 tasks | 5 files |
 | Phase 16-expression-inlining P02 | 21 | 2 tasks | 9 files |
 | Phase 16-expression-inlining P03 | 5 | 1 tasks | 1 files |
+| Phase 17-strength-reduction-store-load-elimination P01 | 60 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,7 @@ Recent decisions affecting current work:
 - [Phase 16-expression-inlining]: Synthetic param ID reservation in unit tests: manually advance fn->next_value_id and populate value_table NULL slots before alloca to match lowerer i*2+1 convention for non-foldable IR test inputs
 - [Phase 16-expression-inlining]: median_two_sorted_arrays benchmark fails 1.5x target at 4.2x — root cause is int64_t vs int array width and extra length params, not fixable by expression inlining
 - [Phase 16-expression-inlining]: BRANCH instruction missing from compute_func_purity exclusion list — find_median_sorted incorrectly shows 0 pure functions; minor issue for future cleanup
+- [Phase 17-01]: Store/load elim uses intra-block tracking only; non-escaped allocas survive CALL; SET_INDEX counted as mutation in copy-prop; GET_INDEX/GET_FIELD excluded from inline-eligible when operand is parameter
 
 ### Pending Todos
 
@@ -89,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T18:53:35.895Z
-Stopped at: Completed 16-03-PLAN.md
+Last session: 2026-03-29T22:41:15.788Z
+Stopped at: Completed 17-01-PLAN.md
 Resume file: None
