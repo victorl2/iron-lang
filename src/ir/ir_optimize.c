@@ -1799,6 +1799,806 @@ void iron_ir_compute_inline_eligible(IronIR_Func *fn,
     hmfree(excluded);
 }
 
+/* ── Strength reduction pass (Phase 17-02) ───────────────────────────────── */
+
+/* Rebuild the preds/succs arrays for all blocks in the function by scanning
+ * terminator instructions (JUMP, BRANCH, SWITCH).
+ * This is required before domtree/loop analysis since the IR constructors do
+ * not auto-populate these edges. */
+static void rebuild_cfg_edges(IronIR_Func *fn) {
+    /* Clear existing edges */
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        arrfree(blk->succs);
+        arrfree(blk->preds);
+        blk->succs = NULL;
+        blk->preds = NULL;
+    }
+
+    /* Scan terminators and build edge lists */
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronIR_Instr *instr = blk->instrs[ii];
+            switch (instr->kind) {
+            case IRON_IR_JUMP: {
+                IronIR_BlockId target = instr->jump.target;
+                arrput(blk->succs, target);
+                IronIR_Block *tblk = find_block(fn, target);
+                if (tblk) arrput(tblk->preds, blk->id);
+                break;
+            }
+            case IRON_IR_BRANCH: {
+                IronIR_BlockId then_id = instr->branch.then_block;
+                IronIR_BlockId else_id = instr->branch.else_block;
+                arrput(blk->succs, then_id);
+                arrput(blk->succs, else_id);
+                IronIR_Block *tb = find_block(fn, then_id);
+                IronIR_Block *eb = find_block(fn, else_id);
+                if (tb) arrput(tb->preds, blk->id);
+                if (eb) arrput(eb->preds, blk->id);
+                break;
+            }
+            case IRON_IR_SWITCH: {
+                IronIR_BlockId def_id = instr->sw.default_block;
+                arrput(blk->succs, def_id);
+                IronIR_Block *db = find_block(fn, def_id);
+                if (db) arrput(db->preds, blk->id);
+                for (int ci = 0; ci < instr->sw.case_count; ci++) {
+                    IronIR_BlockId cid = instr->sw.case_blocks[ci];
+                    arrput(blk->succs, cid);
+                    IronIR_Block *cb = find_block(fn, cid);
+                    if (cb) arrput(cb->preds, blk->id);
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+    }
+}
+
+/* Build reverse post-order (RPO) of blocks by DFS from entry (fn->blocks[0]).
+ * Returns a stb_ds array of BlockIds in RPO order. Caller must arrfree(). */
+static IronIR_BlockId *build_rpo(IronIR_Func *fn) {
+    if (fn->block_count == 0) return NULL;
+
+    /* Visited set: BlockId -> bool */
+    struct { IronIR_BlockId key; bool value; } *visited = NULL;
+    /* Post-order accumulator (we'll reverse it) */
+    IronIR_BlockId *postorder = NULL;
+
+    /* Iterative DFS using an explicit stack */
+    /* Stack entry: block_id and successor index (for iterative post-order) */
+    typedef struct { IronIR_BlockId bid; int succ_idx; } StackFrame;
+    StackFrame *stack = NULL;
+
+    IronIR_BlockId entry_id = fn->blocks[0]->id;
+    StackFrame sf; sf.bid = entry_id; sf.succ_idx = 0;
+    arrput(stack, sf);
+    hmput(visited, entry_id, true);
+
+    while (arrlen(stack) > 0) {
+        StackFrame *top = &stack[arrlen(stack) - 1];
+        IronIR_Block *blk = find_block(fn, top->bid);
+        if (!blk || top->succ_idx >= (int)arrlen(blk->succs)) {
+            /* All successors visited — emit this block to post-order */
+            arrput(postorder, top->bid);
+            arrpop(stack);
+        } else {
+            IronIR_BlockId succ_id = blk->succs[top->succ_idx++];
+            if (hmgeti(visited, succ_id) < 0) {
+                hmput(visited, succ_id, true);
+                StackFrame nsf; nsf.bid = succ_id; nsf.succ_idx = 0;
+                arrput(stack, nsf);
+            }
+        }
+    }
+
+    /* Reverse post-order = reverse of postorder array */
+    IronIR_BlockId *rpo = NULL;
+    for (int i = (int)arrlen(postorder) - 1; i >= 0; i--) {
+        arrput(rpo, postorder[i]);
+    }
+
+    hmfree(visited);
+    arrfree(postorder);
+    arrfree(stack);
+    return rpo;
+}
+
+/* Build dominator tree using the iterative algorithm.
+ * Returns a stb_ds hashmap: BlockId -> idom BlockId.
+ * Caller must hmfree() the result. */
+static IronIR_DomEntry *build_domtree(IronIR_Func *fn) {
+    if (fn->block_count == 0) return NULL;
+
+    IronIR_DomEntry *idom = NULL;
+    IronIR_BlockId entry_id = fn->blocks[0]->id;
+
+    /* Build RPO for traversal order */
+    IronIR_BlockId *rpo = build_rpo(fn);
+    int rpo_len = (int)arrlen(rpo);
+    if (rpo_len == 0) { arrfree(rpo); return NULL; }
+
+    /* Build RPO index map: BlockId -> position in RPO (for intersection walk) */
+    struct { IronIR_BlockId key; int value; } *rpo_idx = NULL;
+    for (int i = 0; i < rpo_len; i++) {
+        hmput(rpo_idx, rpo[i], i);
+    }
+
+    /* Initialize: idom[entry] = entry, all others undefined */
+    hmput(idom, entry_id, entry_id);
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        /* Process blocks in RPO order (skip entry) */
+        for (int ri = 1; ri < rpo_len; ri++) {
+            IronIR_BlockId bid = rpo[ri];
+            IronIR_Block *blk  = find_block(fn, bid);
+            if (!blk) continue;
+
+            /* Find first processed predecessor */
+            IronIR_BlockId new_idom = 0;
+            bool found_first = false;
+
+            for (int pi = 0; pi < (int)arrlen(blk->preds); pi++) {
+                IronIR_BlockId pred = blk->preds[pi];
+                if (hmgeti(idom, pred) >= 0) {
+                    /* This predecessor has been processed */
+                    if (!found_first) {
+                        new_idom = pred;
+                        found_first = true;
+                    } else {
+                        /* Intersection: walk up from both until they meet */
+                        IronIR_BlockId a = new_idom;
+                        IronIR_BlockId b = pred;
+                        while (a != b) {
+                            /* Walk the one with higher RPO index (further from entry) up */
+                            ptrdiff_t ai = hmgeti(rpo_idx, a);
+                            ptrdiff_t bi = hmgeti(rpo_idx, b);
+                            int a_pos = (ai >= 0) ? rpo_idx[ai].value : rpo_len;
+                            int b_pos = (bi >= 0) ? rpo_idx[bi].value : rpo_len;
+                            while (a_pos > b_pos) {
+                                ptrdiff_t idom_idx = hmgeti(idom, a);
+                                if (idom_idx < 0) break;
+                                a = idom[idom_idx].value;
+                                ptrdiff_t ai2 = hmgeti(rpo_idx, a);
+                                a_pos = (ai2 >= 0) ? rpo_idx[ai2].value : rpo_len;
+                            }
+                            while (b_pos > a_pos) {
+                                ptrdiff_t idom_idx = hmgeti(idom, b);
+                                if (idom_idx < 0) break;
+                                b = idom[idom_idx].value;
+                                ptrdiff_t bi2 = hmgeti(rpo_idx, b);
+                                b_pos = (bi2 >= 0) ? rpo_idx[bi2].value : rpo_len;
+                            }
+                        }
+                        new_idom = a;
+                    }
+                }
+            }
+
+            if (found_first) {
+                ptrdiff_t cur_idx = hmgeti(idom, bid);
+                if (cur_idx < 0 || idom[cur_idx].value != new_idom) {
+                    hmput(idom, bid, new_idom);
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    hmfree(rpo_idx);
+    arrfree(rpo);
+    return idom;
+}
+
+/* Returns true if block 'a' dominates block 'b' in the given idom tree. */
+static bool dominates(IronIR_DomEntry *idom, IronIR_BlockId a, IronIR_BlockId b) {
+    IronIR_BlockId cur = b;
+    int limit = 1000; /* cycle guard */
+    while (limit-- > 0) {
+        if (cur == a) return true;
+        ptrdiff_t idx = hmgeti(idom, cur);
+        if (idx < 0) return false;
+        IronIR_BlockId parent = idom[idx].value;
+        if (parent == cur) return (cur == a); /* reached root */
+        cur = parent;
+    }
+    return false;
+}
+
+/* Detect loop induction variable in latch block.
+ * Looks for STORE to alloca where stored value traces to ADD(LOAD(same_alloca), CONST_INT).
+ * Returns the alloca ID, or IRON_IR_VALUE_INVALID if not found. */
+static IronIR_ValueId detect_indvar(IronIR_Func *fn, IronIR_Block *latch) {
+    for (int ii = 0; ii < latch->instr_count; ii++) {
+        IronIR_Instr *instr = latch->instrs[ii];
+        if (instr->kind != IRON_IR_STORE) continue;
+
+        IronIR_ValueId ptr   = instr->store.ptr;
+        IronIR_ValueId val   = instr->store.value;
+
+        /* ptr must be an ALLOCA */
+        if ((ptrdiff_t)ptr >= arrlen(fn->value_table) || !fn->value_table[ptr]) continue;
+        if (fn->value_table[ptr]->kind != IRON_IR_ALLOCA) continue;
+
+        /* val must be ADD(LOAD(ptr), CONST_INT) or ADD(CONST_INT, LOAD(ptr)) */
+        if ((ptrdiff_t)val >= arrlen(fn->value_table) || !fn->value_table[val]) continue;
+        IronIR_Instr *val_instr = fn->value_table[val];
+        if (val_instr->kind != IRON_IR_ADD) continue;
+
+        IronIR_ValueId left  = val_instr->binop.left;
+        IronIR_ValueId right = val_instr->binop.right;
+
+        /* Check if left is LOAD(ptr) and right is CONST_INT, or vice versa */
+        bool left_is_load_ptr = false;
+        bool right_is_load_ptr = false;
+        bool right_is_const = false;
+        bool left_is_const = false;
+
+        if ((ptrdiff_t)left < arrlen(fn->value_table) && fn->value_table[left]) {
+            IronIR_Instr *li = fn->value_table[left];
+            if (li->kind == IRON_IR_LOAD && li->load.ptr == ptr) left_is_load_ptr = true;
+            if (li->kind == IRON_IR_CONST_INT) left_is_const = true;
+        }
+        if ((ptrdiff_t)right < arrlen(fn->value_table) && fn->value_table[right]) {
+            IronIR_Instr *ri = fn->value_table[right];
+            if (ri->kind == IRON_IR_LOAD && ri->load.ptr == ptr) right_is_load_ptr = true;
+            if (ri->kind == IRON_IR_CONST_INT) right_is_const = true;
+        }
+
+        if ((left_is_load_ptr && right_is_const) ||
+            (right_is_load_ptr && left_is_const)) {
+            return ptr;
+        }
+    }
+    return IRON_IR_VALUE_INVALID;
+}
+
+/* Build loop info for all natural loops in a function.
+ * Returns a stb_ds array of IronIR_LoopInfo structs.
+ * Caller must free: for each loop, hmfree(loop.body_blocks); then arrfree(loops). */
+static IronIR_LoopInfo *build_loop_info(IronIR_Func *fn, IronIR_DomEntry *idom,
+                                         int *loop_count_out) {
+    IronIR_LoopInfo *loops = NULL;
+    *loop_count_out = 0;
+    if (!idom || fn->block_count == 0) return NULL;
+
+    /* Find all back edges: b -> s where s dominates b */
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int si = 0; si < (int)arrlen(blk->succs); si++) {
+            IronIR_BlockId succ_id = blk->succs[si];
+            /* Check if succ dominates blk -> back edge */
+            if (!dominates(idom, succ_id, blk->id)) continue;
+
+            /* Found back edge: blk is latch, succ_id is header */
+            IronIR_LoopInfo loop;
+            memset(&loop, 0, sizeof(loop));
+            loop.header    = succ_id;
+            loop.latch     = blk->id;
+            loop.preheader = 0;
+            loop.body_blocks = NULL;
+            loop.indvar_alloca = IRON_IR_VALUE_INVALID;
+            loop.indvar_step   = IRON_IR_VALUE_INVALID;
+            loop.indvar_init   = IRON_IR_VALUE_INVALID;
+            loop.parent = NULL;
+
+            /* Collect loop body: all blocks from which latch is reachable
+             * without going through the header. Start from latch, walk preds. */
+            hmput(loop.body_blocks, succ_id, true);   /* header is in the loop */
+            hmput(loop.body_blocks, blk->id, true);   /* latch is in the loop */
+
+            /* Worklist: blocks to process */
+            IronIR_BlockId *worklist = NULL;
+            arrput(worklist, blk->id);
+
+            while (arrlen(worklist) > 0) {
+                IronIR_BlockId cur = worklist[arrlen(worklist) - 1];
+                arrpop(worklist);
+                IronIR_Block *cur_blk = find_block(fn, cur);
+                if (!cur_blk) continue;
+
+                for (int pi = 0; pi < (int)arrlen(cur_blk->preds); pi++) {
+                    IronIR_BlockId pred_id = cur_blk->preds[pi];
+                    if (hmgeti(loop.body_blocks, pred_id) < 0) {
+                        hmput(loop.body_blocks, pred_id, true);
+                        if (pred_id != succ_id) { /* don't go above header */
+                            arrput(worklist, pred_id);
+                        }
+                    }
+                }
+            }
+            arrfree(worklist);
+
+            /* Identify preheader: a predecessor of header NOT in the loop body,
+             * with header as its only successor */
+            IronIR_Block *header_blk = find_block(fn, succ_id);
+            if (header_blk) {
+                int non_loop_pred_count = 0;
+                IronIR_BlockId candidate_preheader = 0;
+                for (int pi = 0; pi < (int)arrlen(header_blk->preds); pi++) {
+                    IronIR_BlockId pred_id = header_blk->preds[pi];
+                    if (hmgeti(loop.body_blocks, pred_id) < 0) {
+                        /* This predecessor is outside the loop */
+                        non_loop_pred_count++;
+                        candidate_preheader = pred_id;
+                    }
+                }
+                if (non_loop_pred_count == 1) {
+                    /* Check that the candidate preheader's only successor is the header */
+                    IronIR_Block *pre_blk = find_block(fn, candidate_preheader);
+                    if (pre_blk && arrlen(pre_blk->succs) == 1 &&
+                        pre_blk->succs[0] == succ_id) {
+                        loop.preheader = candidate_preheader;
+                    }
+                }
+            }
+
+            /* Detect induction variable from latch block */
+            IronIR_Block *latch_blk = find_block(fn, blk->id);
+            if (latch_blk) {
+                loop.indvar_alloca = detect_indvar(fn, latch_blk);
+            }
+
+            /* Find initial value: look for STORE to indvar_alloca in preheader or entry */
+            if (loop.indvar_alloca != IRON_IR_VALUE_INVALID) {
+                /* Check preheader first, then entry block */
+                IronIR_BlockId search_blocks[2];
+                int n_search = 0;
+                if (loop.preheader) search_blocks[n_search++] = loop.preheader;
+                if (fn->blocks[0]->id != loop.header &&
+                    fn->blocks[0]->id != loop.preheader) {
+                    search_blocks[n_search++] = fn->blocks[0]->id;
+                }
+
+                for (int sb = 0; sb < n_search && loop.indvar_init == IRON_IR_VALUE_INVALID; sb++) {
+                    IronIR_Block *search_blk = find_block(fn, search_blocks[sb]);
+                    if (!search_blk) continue;
+                    for (int ii = 0; ii < search_blk->instr_count; ii++) {
+                        IronIR_Instr *si = search_blk->instrs[ii];
+                        if (si->kind == IRON_IR_STORE &&
+                            si->store.ptr == loop.indvar_alloca) {
+                            loop.indvar_init = si->store.value;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            arrput(loops, loop);
+            (*loop_count_out)++;
+        }
+    }
+
+    /* Build nested loop tree: if header H1 of loop L1 is in body of loop L2,
+     * then L1.parent = &L2 */
+    for (int i = 0; i < *loop_count_out; i++) {
+        for (int j = 0; j < *loop_count_out; j++) {
+            if (i == j) continue;
+            /* Is loops[i].header in loops[j].body_blocks? */
+            if (hmgeti(loops[j].body_blocks, loops[i].header) >= 0 &&
+                loops[i].header != loops[j].header) {
+                /* loops[i] is nested inside loops[j] */
+                if (!loops[i].parent) {
+                    loops[i].parent = &loops[j];
+                }
+            }
+        }
+    }
+
+    return loops;
+}
+
+/* Returns true if the value 'val' is loop-invariant with respect to 'loop'.
+ * A value is invariant if its defining instruction is not inside the loop body,
+ * or if it is a constant.
+ * Special case: LOAD from an alloca that has NO stores in the loop body is invariant. */
+static bool is_loop_invariant(IronIR_Func *fn, IronIR_LoopInfo *loop, IronIR_ValueId val) {
+    if (val == IRON_IR_VALUE_INVALID) return false;
+    if ((ptrdiff_t)val >= arrlen(fn->value_table)) return false;
+    IronIR_Instr *def = fn->value_table[val];
+    if (!def) return false;
+
+    /* Constants are always invariant */
+    switch (def->kind) {
+    case IRON_IR_CONST_INT:
+    case IRON_IR_CONST_FLOAT:
+    case IRON_IR_CONST_BOOL:
+    case IRON_IR_CONST_STRING:
+    case IRON_IR_CONST_NULL:
+        return true;
+    default:
+        break;
+    }
+
+    /* Find which block defines this value */
+    IronIR_BlockId def_block = 0;
+    bool found = false;
+    for (int bi = 0; bi < fn->block_count && !found; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            if (blk->instrs[ii] == def) {
+                def_block = blk->id;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) return false;
+
+    /* If defining block is NOT in the loop body, it's invariant */
+    if (hmgeti(loop->body_blocks, def_block) < 0) return true;
+
+    /* Special case: LOAD from an alloca with no stores inside the loop body */
+    if (def->kind == IRON_IR_LOAD) {
+        IronIR_ValueId ptr = def->load.ptr;
+        if ((ptrdiff_t)ptr < arrlen(fn->value_table) && fn->value_table[ptr] &&
+            fn->value_table[ptr]->kind == IRON_IR_ALLOCA) {
+            /* Count stores to this alloca inside the loop body */
+            int store_count = 0;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronIR_Block *blk = fn->blocks[bi];
+                if (hmgeti(loop->body_blocks, blk->id) < 0) continue;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronIR_Instr *instr = blk->instrs[ii];
+                    if (instr->kind == IRON_IR_STORE && instr->store.ptr == ptr) {
+                        store_count++;
+                    }
+                }
+            }
+            if (store_count == 0) return true;
+        }
+    }
+
+    return false;
+}
+
+/* Check if instr is a MUL where one operand traces to the loop induction variable
+ * (via LOAD of indvar_alloca) and the other is loop-invariant.
+ * If so, sets *out_invariant to the invariant operand ID and returns true. */
+static bool detect_affine_mul(IronIR_Func *fn, IronIR_LoopInfo *loop,
+                               IronIR_Instr *instr, IronIR_ValueId *out_invariant) {
+    if (instr->kind != IRON_IR_MUL) return false;
+    if (loop->indvar_alloca == IRON_IR_VALUE_INVALID) return false;
+
+    IronIR_ValueId left  = instr->binop.left;
+    IronIR_ValueId right = instr->binop.right;
+
+    /* Trace through LOADs: check if an operand loads from indvar_alloca */
+    bool left_is_indvar = false;
+    bool right_is_indvar = false;
+
+    if ((ptrdiff_t)left < arrlen(fn->value_table) && fn->value_table[left]) {
+        IronIR_Instr *li = fn->value_table[left];
+        if (li->kind == IRON_IR_LOAD && li->load.ptr == loop->indvar_alloca) {
+            left_is_indvar = true;
+        }
+    }
+    if ((ptrdiff_t)right < arrlen(fn->value_table) && fn->value_table[right]) {
+        IronIR_Instr *ri = fn->value_table[right];
+        if (ri->kind == IRON_IR_LOAD && ri->load.ptr == loop->indvar_alloca) {
+            right_is_indvar = true;
+        }
+    }
+
+    if (left_is_indvar && is_loop_invariant(fn, loop, right)) {
+        *out_invariant = right;
+        return true;
+    }
+    if (right_is_indvar && is_loop_invariant(fn, loop, left)) {
+        *out_invariant = left;
+        return true;
+    }
+    return false;
+}
+
+/* Create a new binop instruction (without appending to any block).
+ * Assigns a new value ID and grows value_table. */
+static IronIR_Instr *make_binop_instr(IronIR_Func *fn, IronIR_InstrKind kind,
+                                       IronIR_ValueId left, IronIR_ValueId right,
+                                       Iron_Type *type, Iron_Span span) {
+    IronIR_Instr *instr = ARENA_ALLOC(fn->arena, IronIR_Instr);
+    memset(instr, 0, sizeof(*instr));
+    instr->kind         = kind;
+    instr->type         = type;
+    instr->span         = span;
+    instr->binop.left   = left;
+    instr->binop.right  = right;
+    instr->id           = fn->next_value_id++;
+    while (arrlen(fn->value_table) <= (ptrdiff_t)instr->id) {
+        arrput(fn->value_table, NULL);
+    }
+    fn->value_table[instr->id] = instr;
+    return instr;
+}
+
+/* Create a new LOAD instruction (without appending to any block). */
+static IronIR_Instr *make_load_instr(IronIR_Func *fn, IronIR_ValueId ptr,
+                                      Iron_Type *type, Iron_Span span) {
+    IronIR_Instr *instr = ARENA_ALLOC(fn->arena, IronIR_Instr);
+    memset(instr, 0, sizeof(*instr));
+    instr->kind     = IRON_IR_LOAD;
+    instr->type     = type;
+    instr->span     = span;
+    instr->load.ptr = ptr;
+    instr->id       = fn->next_value_id++;
+    while (arrlen(fn->value_table) <= (ptrdiff_t)instr->id) {
+        arrput(fn->value_table, NULL);
+    }
+    fn->value_table[instr->id] = instr;
+    return instr;
+}
+
+/* Insert a pre-built instruction at the START of a block (after existing ALLOCAs). */
+static void insert_alloca_into_entry(IronIR_Block *block, IronIR_Instr *alloca_instr) {
+    /* Find insertion point: after the last ALLOCA */
+    int insert_idx = 0;
+    for (int i = 0; i < block->instr_count; i++) {
+        if (block->instrs[i]->kind == IRON_IR_ALLOCA) {
+            insert_idx = i + 1;
+        } else {
+            break;
+        }
+    }
+
+    /* Shift instructions to make room */
+    arrput(block->instrs, NULL);
+    block->instr_count++;
+    for (int i = block->instr_count - 1; i > insert_idx; i--) {
+        block->instrs[i] = block->instrs[i - 1];
+    }
+    block->instrs[insert_idx] = alloca_instr;
+}
+
+/* Dedup key for strength reduction: (invariant_val, loop_header) */
+typedef struct { IronIR_ValueId inv_val; IronIR_BlockId loop_header; } SRDedupKey;
+typedef struct { SRDedupKey key; IronIR_ValueId value; } SRDedupEntry;
+
+static bool sr_dedup_key_eq(SRDedupKey a, SRDedupKey b) {
+    return a.inv_val == b.inv_val && a.loop_header == b.loop_header;
+}
+
+/* Run strength reduction pass on the module.
+ * For each natural loop with a valid preheader and induction variable:
+ * - Scan body blocks for MUL(indvar_load, invariant)
+ * - Replace with a new induction variable ALLOCA:
+ *     preheader: store iv_alloca, init_val * invariant
+ *     latch:     iv = iv + invariant (before terminator)
+ *     body:      replace MUL result with LOAD iv_alloca
+ * Returns true if any changes were made. */
+static bool run_strength_reduction(IronIR_Module *module) {
+    bool any_changed = false;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        /* Rebuild CFG edges (preds/succs) by scanning terminators.
+         * The IR constructors do not auto-populate these arrays. */
+        rebuild_cfg_edges(fn);
+
+        /* Build dominator tree */
+        IronIR_DomEntry *idom = build_domtree(fn);
+        if (!idom) continue;
+
+        /* Build loop info */
+        int loop_count = 0;
+        IronIR_LoopInfo *loops = build_loop_info(fn, idom, &loop_count);
+
+        bool fn_changed = false;
+
+        for (int li = 0; li < loop_count; li++) {
+            IronIR_LoopInfo *loop = &loops[li];
+
+            /* Skip loops without preheader or induction variable */
+            if (!loop->preheader) continue;
+            if (loop->indvar_alloca == IRON_IR_VALUE_INVALID) continue;
+            if (loop->indvar_init == IRON_IR_VALUE_INVALID) continue;
+
+            /* Get int type from indvar alloca */
+            IronIR_Instr *iv_alloca_instr = fn->value_table[loop->indvar_alloca];
+            if (!iv_alloca_instr) continue;
+            Iron_Type *int_type = iv_alloca_instr->alloca.alloc_type;
+            Iron_Span span      = iv_alloca_instr->span;
+
+            /* Collect all MUL instructions in loop body blocks that match the pattern */
+            /* Dedup: same (invariant_val, loop_header) -> same new IV alloca */
+            SRDedupEntry *dedup_map = NULL;  /* (inv_val, header) -> iv_alloca_id */
+            ValueReplEntry *repl_map = NULL; /* MUL_result_id -> LOAD_of_iv_id */
+
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronIR_Block *blk = fn->blocks[bi];
+                /* Only process blocks in the loop body (not the latch itself for MULs) */
+                if (hmgeti(loop->body_blocks, blk->id) < 0) continue;
+                if (blk->id == loop->latch) continue; /* skip latch for MUL search */
+
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronIR_Instr *instr = blk->instrs[ii];
+                    IronIR_ValueId inv_val = IRON_IR_VALUE_INVALID;
+
+                    if (!detect_affine_mul(fn, loop, instr, &inv_val)) continue;
+
+                    /* Check dedup: has this (inv_val, loop->header) been created? */
+                    SRDedupKey dk; dk.inv_val = inv_val; dk.loop_header = loop->header;
+
+                    IronIR_ValueId new_iv_alloca = IRON_IR_VALUE_INVALID;
+                    bool found_dedup = false;
+
+                    for (int di = 0; di < (int)hmlen(dedup_map); di++) {
+                        if (sr_dedup_key_eq(dedup_map[di].key, dk)) {
+                            new_iv_alloca = dedup_map[di].value;
+                            found_dedup = true;
+                            break;
+                        }
+                    }
+
+                    if (!found_dedup) {
+                        /* Create new ALLOCA for the derived induction variable */
+                        IronIR_Instr *new_alloca = make_alloca_instr(fn, int_type, span);
+                        new_iv_alloca = new_alloca->id;
+
+                        /* Create a step alloca to hold the loop-invariant step value.
+                         * This ensures the step value (inv_val, which may be defined in
+                         * a body block) is hoisted to a location visible from the latch. */
+                        IronIR_Instr *step_alloca = make_alloca_instr(fn, int_type, span);
+                        IronIR_ValueId step_alloca_id = step_alloca->id;
+
+                        /* Insert both ALLOCAs into entry block after existing ALLOCAs */
+                        IronIR_Block *entry_blk = fn->blocks[0];
+                        insert_alloca_into_entry(entry_blk, new_alloca);
+                        insert_alloca_into_entry(entry_blk, step_alloca);
+
+                        /* In the preheader block (before its terminator):
+                         *   - store step_alloca, inv_val         (hoist step to entry scope)
+                         *   - init_mul = MUL indvar_init, inv_val
+                         *   - store new_iv_alloca, init_mul
+                         * We must use inv_val for the step_store here since inv_val IS
+                         * in scope in the preheader (the preheader dominates the loop body
+                         * where inv_val is defined — no, wait, inv_val might be defined
+                         * in the body block which comes AFTER the preheader).
+                         * Safe approach: if inv_val's defining block is in the loop body,
+                         * we need to find the value in the preheader.
+                         * For CONST_INT/CONST_BOOL/CONST_FLOAT: create a new const in preheader.
+                         * For other loop-invariant values: copy from their alloca. */
+                        IronIR_Block *preheader_blk = find_block(fn, loop->preheader);
+                        IronIR_Block *latch_blk     = find_block(fn, loop->latch);
+
+                        /* Determine the safe step value to use in preheader and latch.
+                         * inv_val may be defined in the body block; hoist it by copying
+                         * to step_alloca in the preheader if it's a constant, or by
+                         * finding its alloca source if it's a LOAD from an invariant alloca. */
+                        IronIR_ValueId safe_step_val = inv_val; /* default: use directly */
+
+                        /* Check if inv_val's defining instruction is in a loop body block */
+                        bool inv_in_body = false;
+                        if ((ptrdiff_t)inv_val < arrlen(fn->value_table) && fn->value_table[inv_val]) {
+                            IronIR_Instr *inv_def = fn->value_table[inv_val];
+                            for (int xbi = 0; xbi < fn->block_count; xbi++) {
+                                IronIR_Block *xblk = fn->blocks[xbi];
+                                if (hmgeti(loop->body_blocks, xblk->id) < 0) continue;
+                                for (int xii = 0; xii < xblk->instr_count; xii++) {
+                                    if (xblk->instrs[xii] == inv_def) {
+                                        inv_in_body = true;
+                                        break;
+                                    }
+                                }
+                                if (inv_in_body) break;
+                            }
+                        }
+
+                        if (inv_in_body) {
+                            /* inv_val is defined inside the loop body. We need a preheader-safe
+                             * copy of the step value. For CONST_INT, create a new const in entry. */
+                            IronIR_Instr *inv_def = fn->value_table[inv_val];
+                            if (inv_def && inv_def->kind == IRON_IR_CONST_INT) {
+                                /* Create a fresh CONST_INT in entry block for the step */
+                                IronIR_Instr *step_const = ARENA_ALLOC(fn->arena, IronIR_Instr);
+                                memset(step_const, 0, sizeof(*step_const));
+                                step_const->kind = IRON_IR_CONST_INT;
+                                step_const->type = int_type;
+                                step_const->span = span;
+                                step_const->const_int.value = inv_def->const_int.value;
+                                step_const->id = fn->next_value_id++;
+                                while (arrlen(fn->value_table) <= (ptrdiff_t)step_const->id) {
+                                    arrput(fn->value_table, NULL);
+                                }
+                                fn->value_table[step_const->id] = step_const;
+                                /* Insert into entry block at start (after ALLOCAs) */
+                                IronIR_Instr *step_store_pre = make_store_instr(fn, step_alloca_id,
+                                                                                  step_const->id, span);
+                                insert_store_before_terminator_instr(preheader_blk, step_const);
+                                insert_store_before_terminator_instr(preheader_blk, step_store_pre);
+                                safe_step_val = step_const->id;
+                            } else {
+                                /* For other invariant types (LOAD from invariant alloca, etc.):
+                                 * store inv_val to step_alloca in the body block's predecessor.
+                                 * Since we can't safely use inv_val in the preheader,
+                                 * skip this transformation. */
+                                /* Free the allocated ALLOCAs by nulling them (DCE will clean up) */
+                                fn->value_table[new_iv_alloca] = NULL;
+                                fn->value_table[step_alloca_id] = NULL;
+                                continue;
+                            }
+                        } else {
+                            /* inv_val is defined outside the loop body (safe to reference). */
+                            IronIR_Instr *step_store_pre = make_store_instr(fn, step_alloca_id,
+                                                                              inv_val, span);
+                            insert_store_before_terminator_instr(preheader_blk, step_store_pre);
+                        }
+
+                        /* In preheader: init_mul = MUL(indvar_init, safe_step_val),
+                         *               store new_iv_alloca, init_mul */
+                        IronIR_Instr *init_mul = make_binop_instr(fn, IRON_IR_MUL,
+                                                                    loop->indvar_init,
+                                                                    safe_step_val, int_type, span);
+                        IronIR_Instr *init_store = make_store_instr(fn, new_iv_alloca,
+                                                                      init_mul->id, span);
+                        insert_store_before_terminator_instr(preheader_blk, init_mul);
+                        insert_store_before_terminator_instr(preheader_blk, init_store);
+
+                        /* In the latch block, before its terminator:
+                         *   load_iv   = LOAD new_iv_alloca
+                         *   load_step = LOAD step_alloca
+                         *   stepped   = ADD load_iv, load_step
+                         *   STORE new_iv_alloca, stepped */
+                        IronIR_Instr *load_iv   = make_load_instr(fn, new_iv_alloca,
+                                                                    int_type, span);
+                        IronIR_Instr *load_step = make_load_instr(fn, step_alloca_id,
+                                                                    int_type, span);
+                        IronIR_Instr *stepped   = make_binop_instr(fn, IRON_IR_ADD,
+                                                                     load_iv->id, load_step->id,
+                                                                     int_type, span);
+                        IronIR_Instr *store_iv  = make_store_instr(fn, new_iv_alloca,
+                                                                     stepped->id, span);
+
+                        insert_store_before_terminator_instr(latch_blk, load_iv);
+                        insert_store_before_terminator_instr(latch_blk, load_step);
+                        insert_store_before_terminator_instr(latch_blk, stepped);
+                        insert_store_before_terminator_instr(latch_blk, store_iv);
+
+                        /* Record in dedup map */
+                        SRDedupEntry de; de.key = dk; de.value = new_iv_alloca;
+                        arrput(dedup_map, de);
+                    }
+
+                    /* Rewrite the MUL instruction in-place to a LOAD of the new IV alloca.
+                     * The MUL's value ID stays the same so all existing uses remain valid.
+                     * Note: load.ptr overlaps with binop.left in the union — set kind
+                     * BEFORE writing load.ptr to avoid the union alias issue. */
+                    instr->kind     = IRON_IR_LOAD;
+                    instr->load.ptr = new_iv_alloca;
+                    /* binop.right is not aliased by any load field; clear it for cleanliness.
+                     * binop.left is the same as load.ptr — do NOT clear it after setting ptr. */
+                    instr->binop.right = IRON_IR_VALUE_INVALID;
+                    (void)repl_map; /* no external replacements needed — rewrite in place */
+
+                    fn_changed = true;
+                }
+            }
+
+            /* Free dedup map (it's a plain array, not a stb_ds hashmap) */
+            arrfree(dedup_map);
+            hmfree(repl_map);
+        }
+
+        /* Free loop info */
+        for (int li = 0; li < loop_count; li++) {
+            hmfree(loops[li].body_blocks);
+        }
+        arrfree(loops);
+        hmfree(idom);
+
+        if (fn_changed) any_changed = true;
+    }
+
+    return any_changed;
+}
+
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 bool iron_ir_instr_is_pure(IronIR_InstrKind kind) {
@@ -1893,6 +2693,13 @@ bool iron_ir_optimize(IronIR_Module *module, IronIR_OptimizeInfo *info,
         if (dump_passes) {
             char *ir_text = iron_ir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After store-load-elim (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
+        }
+        iron_ir_verify(module, &verify_diags, arena);
+
+        changed |= run_strength_reduction(module);
+        if (dump_passes) {
+            char *ir_text = iron_ir_print(module, true);
+            if (ir_text) { fprintf(stderr, "=== After strength-reduction (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
         iron_ir_verify(module, &verify_diags, arena);
 
