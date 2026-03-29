@@ -5,6 +5,15 @@
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
+/* ── Expression inlining map types ─────────────────────────────────────────── */
+
+/* Named typedefs required for stb_ds hmput with struct map fields (Phase 15-02 pattern).
+ * C prohibits assignment between distinct anonymous struct types. */
+typedef struct { IronIR_ValueId key; int32_t value; }  IronIR_UseCountEntry;
+typedef struct { IronIR_ValueId key; bool value; }     IronIR_InlineEligEntry;
+typedef struct { char *key; bool value; }              IronIR_FuncPurityEntry;
+typedef struct { IronIR_ValueId key; uint32_t value; } IronIR_ValueBlockEntry;
+
 /* ── Array parameter passing mode ──────────────────────────────────────────── */
 
 typedef enum {
@@ -23,6 +32,14 @@ typedef struct {
     struct { IronIR_ValueId key; bool value; }           *escaped_heap_ids;
     struct { char *key; int value; }                     *array_param_modes;
     struct { IronIR_ValueId key; bool value; }           *revoked_fill_ids;
+
+    /* Expression inlining analysis — computed by iron_ir_compute_inline_info().
+     * use_counts/inline_eligible/value_block are per-function and reset each func in emit_func_body.
+     * func_purity is per-module and computed once. */
+    IronIR_UseCountEntry   *use_counts;       /* per-function: ValueId -> use count */
+    IronIR_InlineEligEntry *inline_eligible;  /* per-function: ValueId -> inlineable */
+    IronIR_FuncPurityEntry *func_purity;      /* per-module: func_name -> pure */
+    IronIR_ValueBlockEntry *value_block;      /* per-function: ValueId -> defining BlockId */
 } IronIR_OptimizeInfo;
 
 /* Run all optimization passes on the module in place.
@@ -36,6 +53,16 @@ bool iron_ir_optimize(IronIR_Module *module, IronIR_OptimizeInfo *info,
 
 /* Free stb_ds maps inside an OptimizeInfo. */
 void iron_ir_optimize_info_free(IronIR_OptimizeInfo *info);
+
+/* Compute module-wide function purity analysis and store on info->func_purity.
+ * Must be called after iron_ir_optimize() for all passes to have run. */
+void iron_ir_compute_inline_info(IronIR_Module *module, IronIR_OptimizeInfo *info);
+
+/* Per-function analysis helpers — called from emit_func_body in emit_c.c.
+ * Each resets and rebuilds the corresponding map on info. */
+void iron_ir_compute_use_counts(IronIR_Func *fn, IronIR_OptimizeInfo *info);
+void iron_ir_compute_value_block(IronIR_Func *fn, IronIR_OptimizeInfo *info);
+void iron_ir_compute_inline_eligible(IronIR_Func *fn, IronIR_OptimizeInfo *info);
 
 /* Returns true if the instruction kind has no observable side effects. */
 bool iron_ir_instr_is_pure(IronIR_InstrKind kind);

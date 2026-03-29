@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-03-29T13:45:00.000Z"
-last_activity: 2026-03-29 — Roadmap created for v0.0.5-alpha
+stopped_at: Completed 15-03-PLAN.md
+last_updated: "2026-03-29T13:43:11.736Z"
+last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -46,6 +46,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 13: Project Workflow | 2 | Complete |
 | Phase 14: Dependency Resolution and Lockfile | 2 | Complete |
 | Phase 15 P01 | 45 | 2 tasks | 9 files |
+| Phase 15-copy-propagation-dce-constant-folding P03 | 29 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,8 @@ Recent decisions affecting current work:
 - [Phase 15]: emit_c.c is now pure emission; all IR transformations live in ir_optimize.c enabling standalone testability
 - [Phase 15-02]: Named typedefs required for stb_ds hmput with anonymous struct maps — C prohibits assignment between distinct anonymous struct types
 - [Phase 15-02]: Emission-only unit tests use skip_new_passes=true to isolate emitter from optimizer effects; optimizer correctly removes unused constants and folds arithmetic
+- [Phase 15-03]: Test 2 (copy prop) verifies LOAD elimination via DCE rather than operand check, because constant folding eliminates the ADD before assertion
+- [Phase 15-03]: [Phase 15-03]: Iron integration tests require println("{val}") string interpolation for integer output; println only accepts String type
 
 ### Pending Todos
 
@@ -76,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T13:45:00.000Z
-Stopped at: Completed 15-02-PLAN.md
+Last session: 2026-03-29T13:43:11.734Z
+Stopped at: Completed 15-03-PLAN.md
 Resume file: None
