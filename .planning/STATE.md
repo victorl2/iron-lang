@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-03-29T12:48:08.361Z"
+stopped_at: Completed 15-02-PLAN.md
+last_updated: "2026-03-29T13:45:00.000Z"
 last_activity: 2026-03-29 — Roadmap created for v0.0.5-alpha
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 Phase: 15 of 20 (Copy Propagation, DCE & Constant Folding)
 Plan: 0 of 0 in current phase (not yet planned)
 Status: Ready to plan
-Last activity: 2026-03-29 — Roadmap created for v0.0.5-alpha
+Last activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -63,6 +63,8 @@ Recent decisions affecting current work:
 - [Phase 15]: IronIR_OptimizeInfo unified bridge struct carries all 5 maps from optimizer to emitter; build.c owns lifetime via iron_ir_optimize_info_free()
 - [Phase 15]: iron_ir_optimize() accepts Iron_Arena* because IronIR_Module has no module-level arena (arena is per-IronIR_Func)
 - [Phase 15]: emit_c.c is now pure emission; all IR transformations live in ir_optimize.c enabling standalone testability
+- [Phase 15-02]: Named typedefs required for stb_ds hmput with anonymous struct maps — C prohibits assignment between distinct anonymous struct types
+- [Phase 15-02]: Emission-only unit tests use skip_new_passes=true to isolate emitter from optimizer effects; optimizer correctly removes unused constants and folds arithmetic
 
 ### Pending Todos
 
@@ -74,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T12:48:08.359Z
-Stopped at: Completed 15-01-PLAN.md
+Last session: 2026-03-29T13:45:00.000Z
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None
