@@ -16,17 +16,37 @@ on:
 
 jobs:
   benchmark:
-    runs-on: [macos-26, ubuntu-24.04]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+          - os: macos-26
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
     # Benchmarks are informational — do not block merge on threshold failures.
     # Performance regressions are tracked via --check-regression against baselines.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
       - name: Build compiler
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build -j$(sysctl -n hw.ncpu)
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -G Ninja
+          cmake --build build
 
       - name: Run benchmarks
         continue-on-error: true
