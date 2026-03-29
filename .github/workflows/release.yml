@@ -54,10 +54,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            target: linux-x86_64
+          - os: ubuntu-24.04
           - os: macos-26
-          - os: macos-26=intel
+          - os: macos-26-intel
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
