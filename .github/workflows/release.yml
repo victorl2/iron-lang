@@ -56,13 +56,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x86_64
-            archive_ext: tar.gz
+            cmake_extra: ""
           - os: macos-latest
             target: macos-arm64
-            archive_ext: tar.gz
-          - os: macos-15-large
+            cmake_extra: ""
+          - os: macos-latest
             target: macos-x86_64
-            archive_ext: tar.gz
+            cmake_extra: "-DCMAKE_OSX_ARCHITECTURES=x86_64"
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
@@ -85,15 +85,23 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang \
-            -G Ninja
+            -G Ninja \
+            ${{ matrix.cmake_extra }}
 
       - name: Build
         run: cmake --build build
 
       - name: Verify version output
+        if: matrix.target != 'macos-x86_64'
         run: |
           ./build/ironc --version
           ./build/iron --version
+
+      - name: Verify binary architecture
+        if: startsWith(matrix.target, 'macos-')
+        run: |
+          file ./build/ironc
+          file ./build/iron
 
       - name: Package
         run: |
