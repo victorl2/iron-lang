@@ -38,6 +38,8 @@ static void print_usage(void) {
     fprintf(stderr, "  --verbose         Show generated C code\n");
     fprintf(stderr, "  --debug-build     Keep .iron-build/ directory\n");
     fprintf(stderr, "  --force-comptime  Skip comptime evaluation cache\n");
+    fprintf(stderr, "  --dump-ir-passes  Print IR after each optimization pass\n");
+    fprintf(stderr, "  --no-optimize     Skip optimization passes (for A/B comparison)\n");
 }
 
 int main(int argc, char **argv) {
@@ -57,6 +59,8 @@ int main(int argc, char **argv) {
     bool verbose = false;
     bool debug_build = false;
     bool force_comptime = false;
+    bool dump_ir_passes = false;
+    bool no_optimize = false;
     const char *source_file = NULL;
     const char *output_file = NULL;
     const char **run_args = NULL;
@@ -69,6 +73,10 @@ int main(int argc, char **argv) {
             debug_build = true;
         } else if (strcmp(argv[i], "--force-comptime") == 0) {
             force_comptime = true;
+        } else if (strcmp(argv[i], "--dump-ir-passes") == 0) {
+            dump_ir_passes = true;
+        } else if (strcmp(argv[i], "--no-optimize") == 0) {
+            no_optimize = true;
         } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 output_file = argv[++i];
@@ -98,7 +106,9 @@ int main(int argc, char **argv) {
             .run_args       = NULL,
             .run_arg_count  = 0,
             .use_raylib     = false,
-            .force_comptime = force_comptime
+            .force_comptime = force_comptime,
+            .dump_ir_passes = dump_ir_passes,
+            .no_optimize    = no_optimize
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -115,7 +125,9 @@ int main(int argc, char **argv) {
             .run_args       = run_args,
             .run_arg_count  = run_arg_count,
             .use_raylib     = false,
-            .force_comptime = force_comptime
+            .force_comptime = force_comptime,
+            .dump_ir_passes = dump_ir_passes,
+            .no_optimize    = no_optimize
         };
         return iron_build(source_file, output_file, opts);
     }
