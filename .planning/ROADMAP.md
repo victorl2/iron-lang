@@ -340,7 +340,7 @@ Plans:
   1. A single-use pure IR value (arithmetic, comparison, field access) is inlined into its use site during C emission rather than assigned to a temporary variable; `int t1 = a + b; int t2 = t1 * c;` becomes `int t2 = (a + b) * c;`
   2. Values with multiple uses, side effects (calls, stores), or that cross basic block boundaries are NOT inlined and remain as named temporaries
   3. The median_two_sorted_arrays benchmark shows measurable improvement toward the 1.2x target (was 4.5x before optimization passes)
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 16-01-PLAN.md — Use-count analysis, function purity, inline eligibility infrastructure, emit_expr_to_buf, unit tests
@@ -412,7 +412,7 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 13. Project Workflow | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
 | 14. Dependency Resolution and Lockfile | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
 | 15. Copy Propagation, DCE & Constant Folding | 3/3 | Complete    | 2026-03-29 | - |
-| 16. Expression Inlining | 1/3 | In Progress|  | - |
+| 16. Expression Inlining | 2/3 | In Progress|  | - |
 | 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 0/0 | Not started | - |
 | 18. Benchmark Validation | v0.0.5-alpha | 0/0 | Not started | - |
 | 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 0/0 | Not started | - |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-03-29T18:23:20.248Z"
+stopped_at: Completed 16-02-PLAN.md
+last_updated: "2026-03-29T18:46:48.792Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -48,6 +48,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 15 P01 | 45 | 2 tasks | 9 files |
 | Phase 15-copy-propagation-dce-constant-folding P03 | 29 | 2 tasks | 8 files |
 | Phase 16 P01 | 120 | 3 tasks | 5 files |
+| Phase 16-expression-inlining P02 | 21 | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Recent decisions affecting current work:
 - [Phase 16]: Expression inlining: instr_mutates_memory() ordering hazard detection prevents inlining pure values past STORE/SET_INDEX/SET_FIELD/CALL
 - [Phase 16]: MAKE_CLOSURE excluded from instr_is_inline_expressible — multi-statement env struct alloc requires named void* variable
 - [Phase 16]: PARALLEL_FOR range_val and MAKE_CLOSURE captures explicitly excluded from inlining — emit_instr uses emit_val template pattern for these
+- [Phase 16-expression-inlining]: Lambda closures test simplified: (Int)->Int type annotation syntax rejected by Iron parser; outer-variable capture not yet supported; test uses non-capturing lambdas
+- [Phase 16-expression-inlining]: Synthetic param ID reservation in unit tests: manually advance fn->next_value_id and populate value_table NULL slots before alloca to match lowerer i*2+1 convention for non-foldable IR test inputs
 
 ### Pending Todos
 
@@ -83,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T18:23:20.246Z
-Stopped at: Completed 16-01-PLAN.md
+Last session: 2026-03-29T18:46:48.790Z
+Stopped at: Completed 16-02-PLAN.md
 Resume file: None
