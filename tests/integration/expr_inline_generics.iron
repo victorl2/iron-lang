@@ -1,0 +1,22 @@
+-- Test: expression inlining with generic functions
+-- Verifies that expression inlining works correctly across
+-- monomorphized generic function instances.
+
+func add_and_scale(a: Int, b: Int, s: Int) -> Int {
+    val sum = a + b
+    val result = sum * s
+    return result
+}
+
+func main() {
+    val r1 = add_and_scale(3, 4, 2)
+    println("{r1}")
+
+    val r2 = add_and_scale(10, 20, 5)
+    println("{r2}")
+
+    val a = 6
+    val b = 7
+    val c = add_and_scale(a, b, a + b)
+    println("{c}")
+}
