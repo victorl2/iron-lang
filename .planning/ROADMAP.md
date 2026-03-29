@@ -355,7 +355,7 @@ Plans:
   1. A loop containing `i * cols + j` for array indexing is transformed to use an induction variable that increments by `cols` each outer iteration; the emitted C shows addition instead of multiplication inside the inner loop
   2. A STORE immediately followed by a LOAD of the same address with no intervening modification is reduced to a single STORE with the loaded value replaced by the stored value; the IR dump confirms the redundant LOAD is removed
   3. All 127 benchmarks and integration tests continue to pass after both passes are applied; no correctness regressions
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 17-01-PLAN.md — Store/load elimination with escape analysis, 3 unit tests
@@ -418,7 +418,7 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 14. Dependency Resolution and Lockfile | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
 | 15. Copy Propagation, DCE & Constant Folding | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 16. Expression Inlining | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
-| 17. Strength Reduction & Store/Load Elimination | 1/3 | In Progress|  | - |
+| 17. Strength Reduction & Store/Load Elimination | 2/3 | In Progress|  | - |
 | 18. Benchmark Validation | v0.0.5-alpha | 0/0 | Not started | - |
 | 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 0/0 | Not started | - |
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 0/0 | Not started | - |

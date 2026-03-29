@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-03-29T22:41:15.791Z"
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-03-29T23:14:55.703Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -51,6 +51,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 16-expression-inlining P02 | 21 | 2 tasks | 9 files |
 | Phase 16-expression-inlining P03 | 5 | 1 tasks | 1 files |
 | Phase 17-strength-reduction-store-load-elimination P01 | 60 | 1 tasks | 3 files |
+| Phase 17-strength-reduction-store-load-elimination P02 | 32 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase 16-expression-inlining]: median_two_sorted_arrays benchmark fails 1.5x target at 4.2x — root cause is int64_t vs int array width and extra length params, not fixable by expression inlining
 - [Phase 16-expression-inlining]: BRANCH instruction missing from compute_func_purity exclusion list — find_median_sorted incorrectly shows 0 pure functions; minor issue for future cleanup
 - [Phase 17-01]: Store/load elim uses intra-block tracking only; non-escaped allocas survive CALL; SET_INDEX counted as mutation in copy-prop; GET_INDEX/GET_FIELD excluded from inline-eligible when operand is parameter
+- [Phase 17-02]: rebuild_cfg_edges() must be called before domtree: IR constructors do not auto-populate preds/succs arrays
+- [Phase 17-02]: Strength reduction inv_val hoisting: loop-body-defined invariants stored to step_alloca in preheader for C-scope safety
+- [Phase 17-02]: MUL rewritten in-place: load.ptr overlaps binop.left in union — never set binop.left after setting load.ptr
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T22:41:15.788Z
-Stopped at: Completed 17-01-PLAN.md
+Last session: 2026-03-29T23:14:55.700Z
+Stopped at: Completed 17-02-PLAN.md
 Resume file: None
