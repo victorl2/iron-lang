@@ -13,8 +13,8 @@ Requirements for IR optimization and High IR architecture milestone. Each maps t
 - [x] **IROPT-02**: Expression inlining reconstructs compound C expressions for single-use pure values during emission
 - [x] **IROPT-03**: Dead code elimination removes instructions whose results are never referenced
 - [x] **IROPT-04**: Constant folding evaluates compile-time constant arithmetic and propagates through store/load chains
-- [ ] **IROPT-05**: Strength reduction replaces `i * cols + j` loop patterns with induction variables
-- [ ] **IROPT-06**: Redundant STORE/LOAD elimination removes pairs where no intervening instruction modifies the stored value
+- [x] **IROPT-05**: Strength reduction replaces `i * cols + j` loop patterns with induction variables
+- [x] **IROPT-06**: Redundant STORE/LOAD elimination removes pairs where no intervening instruction modifies the stored value
 
 ### Benchmark Parity
 
@@ -80,8 +80,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | IROPT-02 | Phase 16 | Complete |
 | IROPT-03 | Phase 15 | Complete |
 | IROPT-04 | Phase 15 | Complete |
-| IROPT-05 | Phase 17 | Pending |
-| IROPT-06 | Phase 17 | Pending |
+| IROPT-05 | Phase 17 | Complete |
+| IROPT-06 | Phase 17 | Complete |
 | BENCH-01 | Phase 18 | Pending |
 | BENCH-02 | Phase 18 | Pending |
 | BENCH-03 | Phase 18 | Pending |
