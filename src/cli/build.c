@@ -32,6 +32,7 @@
 #include "analyzer/analyzer.h"
 #include "ir/lower.h"
 #include "ir/emit_c.h"
+#include "ir/ir_optimize.h"
 #include "ir/print.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
@@ -829,8 +830,13 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 7a. IR optimization passes */
+    IronIR_OptimizeInfo optimize_info;
+    iron_ir_optimize(ir_module, &optimize_info, &arena,
+                     opts.dump_ir_passes, opts.no_optimize);
+
     /* 8. Emit C from IR */
-    const char *c_src = iron_ir_emit_c(ir_module, &arena, &diags);
+    const char *c_src = iron_ir_emit_c(ir_module, &arena, &diags, &optimize_info);
 
     iron_ir_module_destroy(ir_module);
     iron_arena_free(&ir_arena);
@@ -838,11 +844,14 @@ int iron_build(const char *source_path, const char *output_path,
     if (!c_src || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
         iron_diaglist_free(&diags);
+        iron_ir_optimize_info_free(&optimize_info);
         iron_arena_free(&arena);
         free(source);
         free(base_dir);
         return 1;
     }
+
+    iron_ir_optimize_info_free(&optimize_info);
 
     /* 9. Verbose: print generated C */
     if (opts.verbose) {
