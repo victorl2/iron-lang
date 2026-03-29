@@ -969,7 +969,9 @@ static bool run_copy_propagation(IronIR_Module *module) {
         if (fn->is_extern || fn->block_count == 0) continue;
 
         /* Step 1: Count stores per alloca.
-         * Key: alloca ValueId. Value: { store_count, stored_value } */
+         * Key: alloca ValueId. Value: { store_count, stored_value }
+         * A SET_INDEX targeting an alloca also counts as a mutation (increments count)
+         * so that copy propagation does not forward the original STORE value past it. */
         StoreInfoEntry *store_info = NULL;
 
         for (int bi = 0; bi < fn->block_count; bi++) {
@@ -989,6 +991,25 @@ static bool run_copy_propagation(IronIR_Module *module) {
                             sv.count = 1;
                             sv.val   = in->store.value;
                             hmput(store_info, ptr, sv);
+                        } else {
+                            store_info[idx].value.count++;
+                        }
+                    }
+                } else if (in->kind == IRON_IR_SET_INDEX) {
+                    /* SET_INDEX mutates an element of an array alloca — treat as a
+                     * second mutation so copy_prop will not forward the whole-array
+                     * STORE value past this instruction. */
+                    IronIR_ValueId arr = in->index.array;
+                    if (arr != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)arr < arrlen(fn->value_table) &&
+                        fn->value_table[arr] != NULL &&
+                        fn->value_table[arr]->kind == IRON_IR_ALLOCA) {
+                        ptrdiff_t idx = hmgeti(store_info, arr);
+                        if (idx < 0) {
+                            StoreInfoVal sv;
+                            sv.count = 2;  /* signal: not safe for copy-prop */
+                            sv.val   = IRON_IR_VALUE_INVALID;
+                            hmput(store_info, arr, sv);
                         } else {
                             store_info[idx].value.count++;
                         }
@@ -1224,6 +1245,185 @@ static bool run_dce(IronIR_Module *module) {
         hmfree(live);
         arrfree(worklist);
     }
+    return changed;
+}
+
+/* ── Store/load elimination pass (Phase 17) ─────────────────────────────── */
+
+/* Compute the set of ALLOCA value IDs whose address escapes this function.
+ * An alloca "escapes" if its ValueId appears as:
+ *   - A CALL argument (address passed to callee)
+ *   - The VALUE field of a STORE (address written into memory, not the pointed-to value)
+ *   - The return value of a RETURN instruction
+ * Returns a stb_ds hashmap (IronIR_EscapeEntry *).  Caller must hmfree() it. */
+static IronIR_EscapeEntry *compute_escape_set(IronIR_Func *fn) {
+    IronIR_EscapeEntry *escaped = NULL;
+
+    /* Seed all allocas as non-escaped */
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronIR_Instr *in = blk->instrs[ii];
+            if (in->kind == IRON_IR_ALLOCA) {
+                hmput(escaped, in->id, false);
+            }
+        }
+    }
+
+    /* Walk all instructions; for each, check whether any alloca ID escapes */
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronIR_Instr *in = blk->instrs[ii];
+
+            switch (in->kind) {
+            case IRON_IR_CALL:
+                /* If an alloca address is passed as a call argument, it escapes */
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    IronIR_ValueId arg = in->call.args[ai];
+                    ptrdiff_t idx = hmgeti(escaped, arg);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+
+            case IRON_IR_STORE:
+                /* If an alloca address is the VALUE being stored (not the ptr), it escapes */
+                {
+                    ptrdiff_t idx = hmgeti(escaped, in->store.value);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+
+            case IRON_IR_RETURN:
+                if (!in->ret.is_void) {
+                    ptrdiff_t idx = hmgeti(escaped, in->ret.value);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+
+            default:
+                break;
+            }
+        }
+    }
+
+    return escaped;
+}
+
+/* Redundant store/load elimination pass.
+ *
+ * For each basic block, performs a forward scan tracking the last value stored
+ * to each alloca.  When a LOAD of that alloca is encountered, the LOAD result
+ * is replaced with the stored value (added to repl_map).  After the block scan,
+ * apply_replacements() propagates the substitution to all operands.
+ *
+ * Invalidation rules (conservative but correct):
+ *   STORE to alloca A  -> update last_store[A] = stored_value
+ *   SET_INDEX on A     -> delete last_store[A]  (array element mutated)
+ *   SET_FIELD on obj O -> delete last_store[O]  (field mutated)
+ *   CALL               -> delete escaped allocas from last_store
+ *
+ * Only intra-block: last_store is reset at the start of each block.
+ * Returns true if any replacement was made. */
+static bool run_store_load_elim(IronIR_Module *module) {
+    bool changed = false;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        /* Build the escape map for this function */
+        IronIR_EscapeEntry *escape_set = compute_escape_set(fn);
+
+        /* Collect replacements across all blocks, then apply in second pass */
+        ValueReplEntry *repl_map = NULL;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *blk = fn->blocks[bi];
+
+            /* Reset per-block last-store tracking */
+            IronIR_StoreTrackEntry *last_store = NULL;
+
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronIR_Instr *in = blk->instrs[ii];
+
+                switch (in->kind) {
+                case IRON_IR_STORE:
+                    /* Only track stores to known alloca slots */
+                    if (in->store.ptr != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)in->store.ptr < arrlen(fn->value_table) &&
+                        fn->value_table[in->store.ptr] != NULL &&
+                        fn->value_table[in->store.ptr]->kind == IRON_IR_ALLOCA) {
+                        hmput(last_store, in->store.ptr, in->store.value);
+                    }
+                    break;
+
+                case IRON_IR_LOAD:
+                    /* If we have a tracked value for this alloca, queue a replacement */
+                    if (in->id != IRON_IR_VALUE_INVALID &&
+                        in->load.ptr != IRON_IR_VALUE_INVALID) {
+                        ptrdiff_t idx = hmgeti(last_store, in->load.ptr);
+                        if (idx >= 0) {
+                            IronIR_ValueId stored_val = last_store[idx].value;
+                            if (stored_val != IRON_IR_VALUE_INVALID) {
+                                hmput(repl_map, in->id, stored_val);
+                                changed = true;
+                            }
+                        }
+                    }
+                    break;
+
+                case IRON_IR_SET_INDEX:
+                    /* SET_INDEX mutates the array element — invalidate that alloca */
+                    hmdel(last_store, in->index.array);
+                    break;
+
+                case IRON_IR_SET_FIELD:
+                    /* SET_FIELD mutates a struct field — invalidate that alloca */
+                    hmdel(last_store, in->field.object);
+                    break;
+
+                case IRON_IR_CALL:
+                    /* For escaped allocas: their content may be modified by callee */
+                    {
+                        /* Collect keys to delete (cannot delete while iterating) */
+                        IronIR_ValueId *to_delete = NULL;
+                        for (ptrdiff_t ei = 0; ei < hmlen(last_store); ei++) {
+                            IronIR_ValueId alloca_id = last_store[ei].key;
+                            ptrdiff_t esc_idx = hmgeti(escape_set, alloca_id);
+                            if (esc_idx >= 0 && escape_set[esc_idx].value) {
+                                arrput(to_delete, alloca_id);
+                            }
+                        }
+                        for (int di = 0; di < (int)arrlen(to_delete); di++) {
+                            hmdel(last_store, to_delete[di]);
+                        }
+                        arrfree(to_delete);
+                    }
+                    break;
+
+                default:
+                    break;
+                }
+            }
+
+            hmfree(last_store);
+        }
+
+        /* Apply all replacements in a second pass */
+        if (hmlen(repl_map) > 0) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    apply_replacements(blk->instrs[ii], repl_map);
+                }
+            }
+        }
+
+        hmfree(repl_map);
+        hmfree(escape_set);
+    }
+
     return changed;
 }
 
@@ -1547,6 +1747,27 @@ void iron_ir_compute_inline_eligible(IronIR_Func *fn,
             bool eligible = false;
             if (instr_is_inline_expressible(in->kind)) {
                 eligible = true;
+                /* GET_INDEX/GET_FIELD: if the object/array operand is a function
+                 * parameter (not in value_table), emit_expr_to_buf's inline path
+                 * cannot determine the type and falls back to emit_val(_vN) without
+                 * ever emitting a declaration.  Mark such operands NOT inline-eligible
+                 * so the emitter emits a proper named variable declaration. */
+                if (in->kind == IRON_IR_GET_INDEX) {
+                    IronIR_ValueId arr = in->index.array;
+                    if (arr == IRON_IR_VALUE_INVALID ||
+                        (ptrdiff_t)arr >= arrlen(fn->value_table) ||
+                        fn->value_table[arr] == NULL) {
+                        eligible = false;
+                    }
+                }
+                if (in->kind == IRON_IR_GET_FIELD) {
+                    IronIR_ValueId obj = in->field.object;
+                    if (obj == IRON_IR_VALUE_INVALID ||
+                        (ptrdiff_t)obj >= arrlen(fn->value_table) ||
+                        fn->value_table[obj] == NULL) {
+                        eligible = false;
+                    }
+                }
             } else if (in->kind == IRON_IR_CALL) {
                 /* Check if callee is pure */
                 const char *callee_name = NULL;
@@ -1665,6 +1886,13 @@ bool iron_ir_optimize(IronIR_Module *module, IronIR_OptimizeInfo *info,
         if (dump_passes) {
             char *ir_text = iron_ir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After dce (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
+        }
+        iron_ir_verify(module, &verify_diags, arena);
+
+        changed |= run_store_load_elim(module);
+        if (dump_passes) {
+            char *ir_text = iron_ir_print(module, true);
+            if (ir_text) { fprintf(stderr, "=== After store-load-elim (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
         iron_ir_verify(module, &verify_diags, arena);
 
