@@ -1,0 +1,15 @@
+-- Test: copy propagation trivial case
+-- Verifies that copy propagation correctly handles the val x = y pattern
+-- without changing observable program behavior.
+
+func main() {
+    val a = 10
+    val b = a
+    val c = b + 5
+    println("{c}")
+
+    val x = 42
+    val y = x
+    val z = y
+    println("{z}")
+}

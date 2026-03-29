@@ -1,0 +1,16 @@
+-- Test: constant folding of arithmetic expressions
+-- Verifies that constant expressions are evaluated at compile time.
+
+func main() {
+    val a = 3 + 4
+    println("{a}")
+
+    val b = 10 * 5 - 8
+    println("{b}")
+
+    val c = 100 / 10
+    println("{c}")
+
+    val d = 17 % 5
+    println("{d}")
+}

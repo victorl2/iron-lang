@@ -1,0 +1,12 @@
+-- Test: dead code elimination of unused arithmetic
+-- Verifies that dead values are eliminated without affecting live code.
+
+func main() {
+    val x = 10
+    val y = 20
+    val unused = x + y
+    val also_unused = x * y * 3
+    val used = x - 3
+    println("{used}")
+    println("{x + y}")
+}
