@@ -3,6 +3,14 @@ name: Release
 on:
   release:
     types: [published]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'scripts/install.sh'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
     inputs:
       tag:
@@ -14,7 +22,7 @@ permissions:
   actions: write
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+  RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag || 'v0.0.0-dryrun' }}
 
 jobs:
   test:
@@ -104,12 +112,14 @@ jobs:
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload release asset
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.ARCHIVE }}
 
   upload-install-script:
+    if: github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -122,6 +132,7 @@ jobs:
           files: scripts/install.sh
 
   deploy-pages:
+    if: github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
     steps:
