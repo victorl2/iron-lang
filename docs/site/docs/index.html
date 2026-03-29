@@ -96,17 +96,29 @@
     .nav-right {
       margin-left: auto;
       display: flex;
-      gap: 1.5rem;
+      gap: 0.25rem;
       align-items: center;
     }
 
     .nav-right a {
-      color: var(--text-secondary);
+      color: var(--text-muted);
       font-size: 0.85rem;
       font-weight: 500;
+      letter-spacing: -0.01em;
+      transition: color 0.2s, background 0.2s;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
     }
 
-    .nav-right a:hover { color: var(--text); }
+    .nav-right a:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .nav-right a.active-link {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.08);
+    }
 
     .sidebar-toggle {
       display: none;
@@ -114,10 +126,79 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       color: var(--text-secondary);
-      padding: 0.35rem 0.6rem;
+      padding: 0.4rem 0.65rem;
       font-size: 0.8rem;
       cursor: pointer;
       font-family: var(--font-sans);
+      font-weight: 500;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .sidebar-toggle:hover {
+      color: var(--text);
+      border-color: var(--border-light);
+    }
+
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.5rem;
+      margin-left: auto;
+    }
+
+    .nav-hamburger span {
+      display: block;
+      width: 20px;
+      height: 2px;
+      background: var(--text-secondary);
+      margin: 4px 0;
+      transition: 0.3s;
+      transform-origin: center;
+    }
+
+    .nav-hamburger.active span:nth-child(1) {
+      transform: rotate(45deg) translate(4px, 4px);
+    }
+
+    .nav-hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .nav-hamburger.active span:nth-child(3) {
+      transform: rotate(-45deg) translate(4px, -4px);
+    }
+
+    /* ── Overlays ───────────────────────────────── */
+    .sidebar-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 49;
+      background: rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s, visibility 0.3s;
+    }
+
+    .sidebar-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .nav-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 89;
+      background: rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s, visibility 0.25s;
+    }
+
+    .nav-overlay.active {
+      opacity: 1;
+      visibility: visible;
     }
 
     /* ── Layout ───────────────────────────────────── */
@@ -186,6 +267,7 @@
       min-width: 0;
       padding: 3rem 4rem 6rem;
       max-width: 900px;
+      overflow-wrap: break-word;
     }
 
     .content h1 {
@@ -319,21 +401,121 @@
 
     .callout p { margin: 0; color: var(--text-secondary); font-size: 0.92rem; }
 
+    /* ── Table overflow on mobile ────────────────── */
+    .content .doc-table {
+      display: block;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
     /* ── Responsive ──────────────────────────────── */
     @media (max-width: 900px) {
       .sidebar {
         transform: translateX(-100%);
-        transition: transform 0.3s;
+        transition: transform 0.3s ease;
         z-index: 50;
+        box-shadow: none;
+        width: 280px;
       }
-      .sidebar.open { transform: translateX(0); }
+      .sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+      }
       .content {
         margin-left: 0;
-        padding: 2rem 1.5rem 4rem;
+        padding: 2rem 2rem 4rem;
+        max-width: 100%;
+        overflow-x: hidden;
       }
       .sidebar-toggle { display: block; }
       .content h1 { font-size: 2rem; }
       .content h2 { font-size: 1.3rem; }
+    }
+
+    @media (max-width: 640px) {
+      .nav-right {
+        position: absolute;
+        top: 56px;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        background: rgba(12, 12, 22, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border);
+        padding: 0.75rem 1.5rem;
+        gap: 0;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-8px);
+        transition: opacity 0.25s, visibility 0.25s, transform 0.25s;
+      }
+      .nav-right.open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+      .nav-right a {
+        padding: 0.6rem 0.5rem;
+        font-size: 0.95rem;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        border-radius: 8px;
+      }
+      .nav-right a:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .nav-hamburger { display: block; }
+      .content {
+        padding: 1.75rem 1.25rem 3rem;
+      }
+      .content h1 { font-size: 1.75rem; }
+      .content h2 { font-size: 1.2rem; margin-top: 3rem; }
+      .content h3 { font-size: 1.05rem; }
+      .code-block pre {
+        font-size: 0.75rem;
+        padding: 1rem;
+      }
+      nav { padding: 0 1rem; }
+      .sidebar { width: 85vw; max-width: 300px; }
+      .sidebar-section a {
+        padding: 0.45rem 1.5rem;
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .content {
+        padding: 1.25rem 1rem 2.5rem;
+      }
+      .content h1 { font-size: 1.5rem; }
+      .content h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+      .content h3 { font-size: 1rem; }
+      .content p { font-size: 0.92rem; }
+      .content li { font-size: 0.92rem; }
+      .code-block pre {
+        font-size: 0.7rem;
+        padding: 0.85rem;
+        line-height: 1.6;
+      }
+      .doc-table th, .doc-table td {
+        padding: 0.45rem 0.65rem;
+        font-size: 0.8rem;
+      }
+      .doc-table th { font-size: 0.72rem; }
+      .callout { padding: 0.85rem 1rem; }
+      .callout p { font-size: 0.88rem; }
+      nav { padding: 0 0.75rem; }
+      .sidebar-toggle { font-size: 0.75rem; padding: 0.35rem 0.55rem; }
+    }
+
+    @media (max-width: 360px) {
+      .content { padding: 1rem 0.75rem 2rem; }
+      .content h1 { font-size: 1.35rem; }
+      .code-block pre { font-size: 0.65rem; padding: 0.75rem; }
     }
   </style>
 </head>
@@ -345,13 +527,20 @@
       <div class="nav-logo-icon">Fe</div>
       Iron
     </a>
-    <div class="nav-right">
+    <div class="nav-right" id="navRight">
       <a href="/">Home</a>
-      <a href="/guide/">Guide</a>
+      <a href="/guide/">Package Manager</a>
       <a href="/install/">Install</a>
-      <a href="https://github.com/victorl2/iron-lang">GitHub</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
     </div>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
   </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="nav-overlay" id="navOverlay"></div>
 
   <div class="docs-layout">
     <!-- ── Sidebar ──────────────────────────────── -->
@@ -1117,40 +1306,81 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
   </div>
 
   <script>
-    // Sidebar toggle (mobile)
-    document.getElementById('sidebarToggle').addEventListener('click', function() {
-      document.getElementById('sidebar').classList.toggle('open');
-    });
+    (function() {
+      var sidebar = document.getElementById('sidebar');
+      var sidebarToggle = document.getElementById('sidebarToggle');
+      var sidebarOverlay = document.getElementById('sidebarOverlay');
+      var navToggle = document.getElementById('navToggle');
+      var navRight = document.getElementById('navRight');
+      var navOverlay = document.getElementById('navOverlay');
 
-    // Close sidebar when clicking a link (mobile)
-    document.querySelectorAll('.sidebar a').forEach(function(link) {
-      link.addEventListener('click', function() {
-        document.getElementById('sidebar').classList.remove('open');
+      // Sidebar toggle
+      function closeSidebar() {
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('active');
+      }
+
+      sidebarToggle.addEventListener('click', function() {
+        var isOpen = sidebar.classList.toggle('open');
+        sidebarOverlay.classList.toggle('active');
       });
-    });
 
-    // Highlight active sidebar link on scroll
-    var sections = document.querySelectorAll('.content h2[id], .content h3[id]');
-    var sidebarLinks = document.querySelectorAll('.sidebar a');
+      sidebarOverlay.addEventListener('click', closeSidebar);
 
-    function updateActive() {
-      var scrollPos = window.scrollY + 80;
-      var current = '';
-      sections.forEach(function(section) {
-        if (section.offsetTop <= scrollPos) {
-          current = section.id;
+      document.querySelectorAll('.sidebar a').forEach(function(link) {
+        link.addEventListener('click', closeSidebar);
+      });
+
+      // Nav hamburger toggle
+      function closeNav() {
+        navRight.classList.remove('open');
+        navToggle.classList.remove('active');
+        navOverlay.classList.remove('active');
+      }
+
+      navToggle.addEventListener('click', function() {
+        var isOpen = navRight.classList.toggle('open');
+        navToggle.classList.toggle('active');
+        navOverlay.classList.toggle('active');
+      });
+
+      navOverlay.addEventListener('click', closeNav);
+
+      navRight.querySelectorAll('a').forEach(function(a) {
+        a.addEventListener('click', closeNav);
+      });
+
+      // Escape key closes both
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          closeSidebar();
+          closeNav();
         }
       });
-      sidebarLinks.forEach(function(link) {
-        link.classList.remove('active');
-        if (link.getAttribute('href') === '#' + current) {
-          link.classList.add('active');
-        }
-      });
-    }
 
-    window.addEventListener('scroll', updateActive);
-    updateActive();
+      // Highlight active sidebar link on scroll
+      var sections = document.querySelectorAll('.content h2[id], .content h3[id]');
+      var sidebarLinks = document.querySelectorAll('.sidebar a');
+
+      function updateActive() {
+        var scrollPos = window.scrollY + 80;
+        var current = '';
+        sections.forEach(function(section) {
+          if (section.offsetTop <= scrollPos) {
+            current = section.id;
+          }
+        });
+        sidebarLinks.forEach(function(link) {
+          link.classList.remove('active');
+          if (link.getAttribute('href') === '#' + current) {
+            link.classList.add('active');
+          }
+        });
+      }
+
+      window.addEventListener('scroll', updateActive);
+      updateActive();
+    })();
   </script>
 </body>
 </html>
