@@ -10,7 +10,7 @@ on:
 
 jobs:
   benchmark:
-    runs-on: macos-14  # ARM64 for consistent results
+    runs-on: macos-26  # ARM64 for consistent results
     # Benchmarks are informational — do not block merge on threshold failures.
     # Performance regressions are tracked via --check-regression against baselines.
     continue-on-error: true
