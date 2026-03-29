@@ -70,10 +70,11 @@ void test_emit_hello_world(void) {
     /* return void */
     iron_ir_return(fn, entry, IRON_IR_VALUE_INVALID, true, NULL, sp);
 
-    /* Emit */
+    /* Emit — skip new passes (copy-prop/const-fold/DCE) so the unused
+     * const_string survives in the IR and iron_string_from_literal is emitted. */
     Iron_Arena out_arena = iron_arena_create(131072);
     IronIR_OptimizeInfo opt_info_1;
-    iron_ir_optimize(mod, &opt_info_1, &out_arena, false, false);
+    iron_ir_optimize(mod, &opt_info_1, &out_arena, false, true);
     const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_1);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -116,9 +117,11 @@ void test_emit_arithmetic(void) {
     /* return %3 */
     iron_ir_return(fn, entry, sum->id, false, int_type, sp);
 
+    /* Skip new passes (copy-prop/const-fold/DCE) so constant folding doesn't
+     * eliminate the ADD before emission — this test is checking emitter output. */
     Iron_Arena out_arena = iron_arena_create(131072);
     IronIR_OptimizeInfo opt_info_2;
-    iron_ir_optimize(mod, &opt_info_2, &out_arena, false, false);
+    iron_ir_optimize(mod, &opt_info_2, &out_arena, false, true);
     const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_2);
 
     TEST_ASSERT_NOT_NULL(result);

@@ -12,6 +12,7 @@
 #include "ir/ir_optimize.h"
 #include "ir/print.h"
 #include "ir/verify.h"
+#include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
@@ -602,6 +603,630 @@ static void optimize_array_repr(IronIR_Module *module, IronIR_OptimizeInfo *info
     }
 }
 
+/* ── New optimization passes (Plan 02) ───────────────────────────────────── */
+
+#ifndef MAX_OPERANDS
+#define MAX_OPERANDS 64
+#endif
+
+/* Named type for the value-replacement hashmap (used by copy propagation). */
+typedef struct { IronIR_ValueId key; IronIR_ValueId value; } ValueReplEntry;
+
+/* Named type for the per-alloca store-count info hashmap. */
+typedef struct { int count; IronIR_ValueId val; } StoreInfoVal;
+typedef struct { IronIR_ValueId key; StoreInfoVal value; } StoreInfoEntry;
+
+/* Apply replacement map to all ValueId operands of instr.
+ * Returns true if any operand was changed. */
+static bool apply_replacements(IronIR_Instr *instr, ValueReplEntry *repl_map) {
+    bool changed = false;
+
+#define REPL(field) do { \
+    if ((field) != IRON_IR_VALUE_INVALID) { \
+        ptrdiff_t _idx = hmgeti(repl_map, (field)); \
+        if (_idx >= 0) { (field) = repl_map[_idx].value; changed = true; } \
+    } \
+} while (0)
+
+    switch (instr->kind) {
+    case IRON_IR_CONST_INT: case IRON_IR_CONST_FLOAT:
+    case IRON_IR_CONST_BOOL: case IRON_IR_CONST_STRING:
+    case IRON_IR_CONST_NULL: case IRON_IR_FUNC_REF:
+        break; /* no operands */
+
+    case IRON_IR_ADD: case IRON_IR_SUB: case IRON_IR_MUL:
+    case IRON_IR_DIV: case IRON_IR_MOD:
+    case IRON_IR_EQ: case IRON_IR_NEQ: case IRON_IR_LT:
+    case IRON_IR_LTE: case IRON_IR_GT: case IRON_IR_GTE:
+    case IRON_IR_AND: case IRON_IR_OR:
+        REPL(instr->binop.left);
+        REPL(instr->binop.right);
+        break;
+
+    case IRON_IR_NEG: case IRON_IR_NOT:
+        REPL(instr->unop.operand);
+        break;
+
+    case IRON_IR_ALLOCA:
+        break; /* no value operands */
+
+    case IRON_IR_LOAD:
+        REPL(instr->load.ptr);
+        break;
+
+    case IRON_IR_STORE:
+        REPL(instr->store.ptr);
+        REPL(instr->store.value);
+        break;
+
+    case IRON_IR_GET_FIELD:
+        REPL(instr->field.object);
+        break;
+
+    case IRON_IR_SET_FIELD:
+        REPL(instr->field.object);
+        REPL(instr->field.value);
+        break;
+
+    case IRON_IR_GET_INDEX:
+        REPL(instr->index.array);
+        REPL(instr->index.index);
+        break;
+
+    case IRON_IR_SET_INDEX:
+        REPL(instr->index.array);
+        REPL(instr->index.index);
+        REPL(instr->index.value);
+        break;
+
+    case IRON_IR_CALL:
+        if (instr->call.func_decl == NULL) {
+            REPL(instr->call.func_ptr);
+        }
+        for (int i = 0; i < instr->call.arg_count; i++)
+            REPL(instr->call.args[i]);
+        break;
+
+    case IRON_IR_CAST:
+        REPL(instr->cast.value);
+        break;
+
+    case IRON_IR_HEAP_ALLOC:
+        REPL(instr->heap_alloc.inner_val);
+        break;
+
+    case IRON_IR_RC_ALLOC:
+        REPL(instr->rc_alloc.inner_val);
+        break;
+
+    case IRON_IR_FREE:
+        REPL(instr->free_instr.value);
+        break;
+
+    case IRON_IR_CONSTRUCT:
+        for (int i = 0; i < instr->construct.field_count; i++)
+            REPL(instr->construct.field_vals[i]);
+        break;
+
+    case IRON_IR_ARRAY_LIT:
+        for (int i = 0; i < instr->array_lit.element_count; i++)
+            REPL(instr->array_lit.elements[i]);
+        break;
+
+    case IRON_IR_SLICE:
+        REPL(instr->slice.array);
+        REPL(instr->slice.start);
+        REPL(instr->slice.end);
+        break;
+
+    case IRON_IR_IS_NULL: case IRON_IR_IS_NOT_NULL:
+        REPL(instr->null_check.value);
+        break;
+
+    case IRON_IR_INTERP_STRING:
+        for (int i = 0; i < instr->interp_string.part_count; i++)
+            REPL(instr->interp_string.parts[i]);
+        break;
+
+    case IRON_IR_MAKE_CLOSURE:
+        for (int i = 0; i < instr->make_closure.capture_count; i++)
+            REPL(instr->make_closure.captures[i]);
+        break;
+
+    case IRON_IR_SPAWN:
+        REPL(instr->spawn.pool_val);
+        break;
+
+    case IRON_IR_PARALLEL_FOR:
+        REPL(instr->parallel_for.range_val);
+        REPL(instr->parallel_for.pool_val);
+        for (int i = 0; i < instr->parallel_for.capture_count; i++)
+            REPL(instr->parallel_for.captures[i]);
+        break;
+
+    case IRON_IR_AWAIT:
+        REPL(instr->await.handle);
+        break;
+
+    case IRON_IR_BRANCH:
+        REPL(instr->branch.cond);
+        break;
+
+    case IRON_IR_SWITCH:
+        REPL(instr->sw.subject);
+        break;
+
+    case IRON_IR_RETURN:
+        if (!instr->ret.is_void)
+            REPL(instr->ret.value);
+        break;
+
+    case IRON_IR_JUMP:
+        break; /* no value operands */
+
+    case IRON_IR_PHI:
+        for (int i = 0; i < instr->phi.count; i++)
+            REPL(instr->phi.values[i]);
+        break;
+
+    case IRON_IR_POISON:
+        break; /* no operands */
+
+    default:
+        break;
+    }
+
+#undef REPL
+    return changed;
+}
+
+/* Collect all ValueId operands of instr into out[].
+ * Mirrors verify.c's collect_operands exactly. */
+static void opt_collect_operands(const IronIR_Instr *instr,
+                                  IronIR_ValueId *out, int *count) {
+    *count = 0;
+#define PUSH(v) do { if ((v) != IRON_IR_VALUE_INVALID && *count < MAX_OPERANDS) out[(*count)++] = (v); } while(0)
+
+    switch (instr->kind) {
+    case IRON_IR_CONST_INT:
+    case IRON_IR_CONST_FLOAT:
+    case IRON_IR_CONST_BOOL:
+    case IRON_IR_CONST_STRING:
+    case IRON_IR_CONST_NULL:
+    case IRON_IR_FUNC_REF:
+        break;
+
+    case IRON_IR_ADD:
+    case IRON_IR_SUB:
+    case IRON_IR_MUL:
+    case IRON_IR_DIV:
+    case IRON_IR_MOD:
+    case IRON_IR_EQ:
+    case IRON_IR_NEQ:
+    case IRON_IR_LT:
+    case IRON_IR_LTE:
+    case IRON_IR_GT:
+    case IRON_IR_GTE:
+    case IRON_IR_AND:
+    case IRON_IR_OR:
+        PUSH(instr->binop.left);
+        PUSH(instr->binop.right);
+        break;
+
+    case IRON_IR_NEG:
+    case IRON_IR_NOT:
+        PUSH(instr->unop.operand);
+        break;
+
+    case IRON_IR_ALLOCA:
+        break;
+
+    case IRON_IR_LOAD:
+        PUSH(instr->load.ptr);
+        break;
+
+    case IRON_IR_STORE:
+        PUSH(instr->store.ptr);
+        PUSH(instr->store.value);
+        break;
+
+    case IRON_IR_GET_FIELD:
+        PUSH(instr->field.object);
+        break;
+
+    case IRON_IR_SET_FIELD:
+        PUSH(instr->field.object);
+        PUSH(instr->field.value);
+        break;
+
+    case IRON_IR_GET_INDEX:
+        PUSH(instr->index.array);
+        PUSH(instr->index.index);
+        break;
+
+    case IRON_IR_SET_INDEX:
+        PUSH(instr->index.array);
+        PUSH(instr->index.index);
+        PUSH(instr->index.value);
+        break;
+
+    case IRON_IR_CALL:
+        if (instr->call.func_decl == NULL) {
+            PUSH(instr->call.func_ptr);
+        }
+        for (int i = 0; i < instr->call.arg_count; i++) {
+            PUSH(instr->call.args[i]);
+        }
+        break;
+
+    case IRON_IR_JUMP:
+        break;
+
+    case IRON_IR_BRANCH:
+        PUSH(instr->branch.cond);
+        break;
+
+    case IRON_IR_SWITCH:
+        PUSH(instr->sw.subject);
+        break;
+
+    case IRON_IR_RETURN:
+        if (!instr->ret.is_void) {
+            PUSH(instr->ret.value);
+        }
+        break;
+
+    case IRON_IR_CAST:
+        PUSH(instr->cast.value);
+        break;
+
+    case IRON_IR_HEAP_ALLOC:
+        PUSH(instr->heap_alloc.inner_val);
+        break;
+
+    case IRON_IR_RC_ALLOC:
+        PUSH(instr->rc_alloc.inner_val);
+        break;
+
+    case IRON_IR_FREE:
+        PUSH(instr->free_instr.value);
+        break;
+
+    case IRON_IR_CONSTRUCT:
+        for (int i = 0; i < instr->construct.field_count; i++) {
+            PUSH(instr->construct.field_vals[i]);
+        }
+        break;
+
+    case IRON_IR_ARRAY_LIT:
+        for (int i = 0; i < instr->array_lit.element_count; i++) {
+            PUSH(instr->array_lit.elements[i]);
+        }
+        break;
+
+    case IRON_IR_SLICE:
+        PUSH(instr->slice.array);
+        PUSH(instr->slice.start);
+        PUSH(instr->slice.end);
+        break;
+
+    case IRON_IR_IS_NULL:
+    case IRON_IR_IS_NOT_NULL:
+        PUSH(instr->null_check.value);
+        break;
+
+    case IRON_IR_INTERP_STRING:
+        for (int i = 0; i < instr->interp_string.part_count; i++) {
+            PUSH(instr->interp_string.parts[i]);
+        }
+        break;
+
+    case IRON_IR_MAKE_CLOSURE:
+        for (int i = 0; i < instr->make_closure.capture_count; i++) {
+            PUSH(instr->make_closure.captures[i]);
+        }
+        break;
+
+    case IRON_IR_SPAWN:
+        PUSH(instr->spawn.pool_val);
+        break;
+
+    case IRON_IR_PARALLEL_FOR:
+        PUSH(instr->parallel_for.range_val);
+        PUSH(instr->parallel_for.pool_val);
+        for (int i = 0; i < instr->parallel_for.capture_count; i++) {
+            PUSH(instr->parallel_for.captures[i]);
+        }
+        break;
+
+    case IRON_IR_AWAIT:
+        PUSH(instr->await.handle);
+        break;
+
+    case IRON_IR_PHI:
+        for (int i = 0; i < instr->phi.count; i++) {
+            PUSH(instr->phi.values[i]);
+        }
+        break;
+
+    case IRON_IR_POISON:
+        break;
+
+    default:
+        break;
+    }
+
+#undef PUSH
+}
+
+/* Copy Propagation: eliminate LOAD of single-store allocas.
+ * For each alloca stored exactly once, replace all LOADs of that alloca
+ * with the stored value, then rewrite all operands referencing the LOAD result. */
+static bool run_copy_propagation(IronIR_Module *module) {
+    bool changed = false;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        /* Step 1: Count stores per alloca.
+         * Key: alloca ValueId. Value: { store_count, stored_value } */
+        StoreInfoEntry *store_info = NULL;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_IR_STORE) {
+                    IronIR_ValueId ptr = in->store.ptr;
+                    /* Only track stores to ALLOCA values */
+                    if (ptr != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)ptr < arrlen(fn->value_table) &&
+                        fn->value_table[ptr] != NULL &&
+                        fn->value_table[ptr]->kind == IRON_IR_ALLOCA) {
+                        ptrdiff_t idx = hmgeti(store_info, ptr);
+                        if (idx < 0) {
+                            StoreInfoVal sv;
+                            sv.count = 1;
+                            sv.val   = in->store.value;
+                            hmput(store_info, ptr, sv);
+                        } else {
+                            store_info[idx].value.count++;
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Step 2: Build replacement map for LOADs of single-store allocas.
+         * load_result_id -> stored_value */
+        ValueReplEntry *repl_map = NULL;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_IR_LOAD && in->id != IRON_IR_VALUE_INVALID) {
+                    IronIR_ValueId ptr = in->load.ptr;
+                    ptrdiff_t idx = hmgeti(store_info, ptr);
+                    if (idx >= 0 && store_info[idx].value.count == 1) {
+                        IronIR_ValueId replacement = store_info[idx].value.val;
+                        if (replacement != IRON_IR_VALUE_INVALID) {
+                            hmput(repl_map, in->id, replacement);
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Step 3: Apply replacements to all operands in all instructions */
+        if (hmlen(repl_map) > 0) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    if (apply_replacements(blk->instrs[ii], repl_map)) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        hmfree(store_info);
+        hmfree(repl_map);
+    }
+    return changed;
+}
+
+static bool is_arithmetic_binop(IronIR_InstrKind kind) {
+    return kind == IRON_IR_ADD || kind == IRON_IR_SUB ||
+           kind == IRON_IR_MUL || kind == IRON_IR_DIV ||
+           kind == IRON_IR_MOD;
+}
+
+static bool is_comparison_binop(IronIR_InstrKind kind) {
+    return kind == IRON_IR_EQ  || kind == IRON_IR_NEQ ||
+           kind == IRON_IR_LT  || kind == IRON_IR_LTE ||
+           kind == IRON_IR_GT  || kind == IRON_IR_GTE;
+}
+
+/* Constant Folding: evaluate CONST_INT op CONST_INT at compile time.
+ * Also folds integer comparisons to CONST_BOOL. */
+static bool run_constant_folding(IronIR_Module *module) {
+    bool changed = false;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronIR_Instr *in = blk->instrs[ii];
+
+                if (is_arithmetic_binop(in->kind)) {
+                    IronIR_Instr *left_def  = NULL;
+                    IronIR_Instr *right_def = NULL;
+                    if (in->binop.left != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)in->binop.left < arrlen(fn->value_table))
+                        left_def = fn->value_table[in->binop.left];
+                    if (in->binop.right != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)in->binop.right < arrlen(fn->value_table))
+                        right_def = fn->value_table[in->binop.right];
+
+                    if (left_def && right_def &&
+                        left_def->kind == IRON_IR_CONST_INT &&
+                        right_def->kind == IRON_IR_CONST_INT) {
+                        int64_t L = left_def->const_int.value;
+                        int64_t R = right_def->const_int.value;
+                        int64_t result = 0;
+                        bool can_fold = true;
+                        switch (in->kind) {
+                            case IRON_IR_ADD: result = L + R; break;
+                            case IRON_IR_SUB: result = L - R; break;
+                            case IRON_IR_MUL: result = L * R; break;
+                            case IRON_IR_DIV:
+                                if (R == 0) { can_fold = false; break; }
+                                result = L / R; break;
+                            case IRON_IR_MOD:
+                                if (R == 0) { can_fold = false; break; }
+                                result = L % R; break;
+                            default: can_fold = false; break;
+                        }
+                        if (can_fold) {
+                            in->kind = IRON_IR_CONST_INT;
+                            in->const_int.value = result;
+                            changed = true;
+                        }
+                    }
+                }
+
+                if (is_comparison_binop(in->kind)) {
+                    IronIR_Instr *left_def  = NULL;
+                    IronIR_Instr *right_def = NULL;
+                    if (in->binop.left != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)in->binop.left < arrlen(fn->value_table))
+                        left_def = fn->value_table[in->binop.left];
+                    if (in->binop.right != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)in->binop.right < arrlen(fn->value_table))
+                        right_def = fn->value_table[in->binop.right];
+
+                    if (left_def && right_def &&
+                        left_def->kind == IRON_IR_CONST_INT &&
+                        right_def->kind == IRON_IR_CONST_INT) {
+                        int64_t L = left_def->const_int.value;
+                        int64_t R = right_def->const_int.value;
+                        bool result = false;
+                        switch (in->kind) {
+                            case IRON_IR_EQ:  result = (L == R); break;
+                            case IRON_IR_NEQ: result = (L != R); break;
+                            case IRON_IR_LT:  result = (L < R);  break;
+                            case IRON_IR_LTE: result = (L <= R); break;
+                            case IRON_IR_GT:  result = (L > R);  break;
+                            case IRON_IR_GTE: result = (L >= R); break;
+                            default: break;
+                        }
+                        in->kind = IRON_IR_CONST_BOOL;
+                        in->const_bool.value = result;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    return changed;
+}
+
+/* DCE: remove pure instructions whose results are never referenced.
+ * Algorithm: seed live set with all side-effecting instructions,
+ * propagate liveness transitively through operands, remove non-live pure instrs. */
+static bool run_dce(IronIR_Module *module) {
+    bool changed = false;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        /* Step 1: Seed live set with side-effecting instructions */
+        struct { IronIR_ValueId key; bool value; } *live = NULL;
+        IronIR_ValueId *worklist = NULL; /* stb_ds dynamic array */
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronIR_Instr *in = blk->instrs[ii];
+                /* Live if: side-effecting, or has no result (STORE, terminators) */
+                if (!iron_ir_instr_is_pure(in->kind) ||
+                    in->id == IRON_IR_VALUE_INVALID) {
+                    if (in->id != IRON_IR_VALUE_INVALID) {
+                        hmput(live, in->id, true);
+                    }
+                    /* Mark this instruction's operands as live seeds */
+                    IronIR_ValueId ops[MAX_OPERANDS];
+                    int op_count = 0;
+                    opt_collect_operands(in, ops, &op_count);
+                    for (int oi = 0; oi < op_count; oi++) {
+                        if (hmgeti(live, ops[oi]) < 0) {
+                            hmput(live, ops[oi], true);
+                            arrput(worklist, ops[oi]);
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Step 2: Worklist propagation — mark operands of live instrs as live */
+        for (int wi = 0; wi < (int)arrlen(worklist); wi++) {
+            IronIR_ValueId vid = worklist[wi];
+            if (vid == IRON_IR_VALUE_INVALID ||
+                (ptrdiff_t)vid >= arrlen(fn->value_table) ||
+                fn->value_table[vid] == NULL) continue;
+
+            IronIR_Instr *prod = fn->value_table[vid];
+            IronIR_ValueId ops[MAX_OPERANDS];
+            int op_count = 0;
+            opt_collect_operands(prod, ops, &op_count);
+            for (int oi = 0; oi < op_count; oi++) {
+                if (hmgeti(live, ops[oi]) < 0) {
+                    hmput(live, ops[oi], true);
+                    arrput(worklist, ops[oi]);
+                }
+            }
+        }
+
+        /* Step 3: Remove non-live pure instructions */
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronIR_Block *blk = fn->blocks[bi];
+            int new_count = 0;
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronIR_Instr *in = blk->instrs[ii];
+                bool is_live = false;
+
+                /* Always keep side-effecting instructions and terminators */
+                if (!iron_ir_instr_is_pure(in->kind) ||
+                    in->id == IRON_IR_VALUE_INVALID) {
+                    is_live = true;
+                } else {
+                    /* Pure instruction — keep only if its result is in live set */
+                    is_live = (hmgeti(live, in->id) >= 0);
+                }
+
+                if (is_live) {
+                    blk->instrs[new_count++] = in;
+                } else {
+                    /* Null out value_table entry for dead instruction */
+                    if (in->id != IRON_IR_VALUE_INVALID &&
+                        (ptrdiff_t)in->id < arrlen(fn->value_table)) {
+                        fn->value_table[in->id] = NULL;
+                    }
+                    changed = true;
+                }
+            }
+            blk->instr_count = new_count;
+        }
+
+        hmfree(live);
+        arrfree(worklist);
+    }
+    return changed;
+}
+
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 bool iron_ir_instr_is_pure(IronIR_InstrKind kind) {
@@ -657,9 +1282,41 @@ bool iron_ir_optimize(IronIR_Module *module, IronIR_OptimizeInfo *info,
 
     if (skip_new_passes) return false;
 
-    /* Fixpoint loop: copy-prop -> const-fold -> DCE (stubs for now) */
-    /* Will be implemented in Plan 02 */
-    return false;
+    /* Fixpoint loop: copy-prop -> const-fold -> DCE */
+    bool any_changed = false;
+    Iron_DiagList verify_diags;
+    memset(&verify_diags, 0, sizeof(verify_diags));
+
+    for (int iter = 0; iter < 32; iter++) {
+        bool changed = false;
+
+        changed |= run_copy_propagation(module);
+        if (dump_passes) {
+            char *ir_text = iron_ir_print(module, true);
+            if (ir_text) { fprintf(stderr, "=== After copy-prop (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
+        }
+        iron_ir_verify(module, &verify_diags, arena);
+
+        changed |= run_constant_folding(module);
+        if (dump_passes) {
+            char *ir_text = iron_ir_print(module, true);
+            if (ir_text) { fprintf(stderr, "=== After const-fold (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
+        }
+        iron_ir_verify(module, &verify_diags, arena);
+
+        changed |= run_dce(module);
+        if (dump_passes) {
+            char *ir_text = iron_ir_print(module, true);
+            if (ir_text) { fprintf(stderr, "=== After dce (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
+        }
+        iron_ir_verify(module, &verify_diags, arena);
+
+        if (!changed) break;
+        any_changed = true;
+    }
+
+    iron_diaglist_free(&verify_diags);
+    return any_changed;
 }
 
 void iron_ir_optimize_info_free(IronIR_OptimizeInfo *info) {
