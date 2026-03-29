@@ -21,6 +21,26 @@ typedef struct { IronIR_ValueId key; IronIR_ValueId value; } IronIR_StoreTrackEn
 /* Maps alloca ValueId -> escaped (passed to call/stored into memory/returned). */
 typedef struct { IronIR_ValueId key; bool value; }           IronIR_EscapeEntry;
 
+/* ── Strength reduction types (Phase 17-02) ────────────────────────────────── */
+
+/* Dominator tree entry: block_id -> immediate dominator block_id */
+typedef struct { IronIR_BlockId key; IronIR_BlockId value; } IronIR_DomEntry;
+
+/* Loop membership entry: block_id -> true if block is in a loop body */
+typedef struct { IronIR_BlockId key; bool value; } IronIR_LoopMemberEntry;
+
+/* Natural loop info */
+typedef struct IronIR_LoopInfo {
+    IronIR_BlockId          header;         /* loop header block */
+    IronIR_BlockId          latch;          /* back-edge source block */
+    IronIR_BlockId          preheader;      /* block that jumps to header from outside loop; 0 if none */
+    IronIR_LoopMemberEntry *body_blocks;    /* stb_ds hashmap: block_id -> true */
+    IronIR_ValueId          indvar_alloca;  /* induction variable alloca ID */
+    IronIR_ValueId          indvar_step;    /* step value ID (usually CONST_INT 1) */
+    IronIR_ValueId          indvar_init;    /* initial value ID (stored before loop) */
+    struct IronIR_LoopInfo *parent;         /* enclosing loop (NULL for outermost) */
+} IronIR_LoopInfo;
+
 /* ── Array parameter passing mode ──────────────────────────────────────────── */
 
 typedef enum {
