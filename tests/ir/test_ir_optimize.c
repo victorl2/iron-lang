@@ -14,6 +14,11 @@
  *   8. test_fixpoint_copy_prop_then_dce          — copy-prop enables DCE in same run
  *   9. test_optimize_empty_function              — empty function: no crash
  *  10. test_optimize_extern_function_skipped     — extern fn: no crash, skipped cleanly
+ *  11. test_use_count_single_use                 — ADD result has use count 1
+ *  12. test_inline_eligible_multi_use_excluded   — multi-use value not inline-eligible
+ *  13. test_inline_eligible_side_effect_excluded — impure CALL not inline-eligible
+ *  14. test_inline_cross_block_not_inlined       — cross-block value excluded from inlining
+ *  15. test_func_purity_analysis                 — pure function detected by fixpoint
  */
 
 #include "unity.h"
@@ -491,6 +496,242 @@ void test_optimize_extern_function_skipped(void) {
     iron_arena_free(&ir_arena);
 }
 
+/* ── Test 11: Use count — single-use ADD result ─────────────────────────── */
+
+void test_use_count_single_use(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_uc");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* func test() -> Int
+     *   %1 = const_int 10   <- single-use: used only as ADD left
+     *   %2 = const_int 20   <- single-use: used only as ADD right
+     *   %3 = add %1, %2     <- single-use: used only by RETURN
+     *   return %3
+     */
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_uc_test", NULL, 0, int_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+
+    IronIR_Instr *c10 = iron_ir_const_int(fn, entry, 10, int_type, sp);
+    IronIR_Instr *c20 = iron_ir_const_int(fn, entry, 20, int_type, sp);
+    IronIR_Instr *sum = iron_ir_binop(fn, entry, IRON_IR_ADD, c10->id, c20->id, int_type, sp);
+    IronIR_ValueId c10_id = c10->id;
+    IronIR_ValueId c20_id = c20->id;
+    IronIR_ValueId sum_id = sum->id;
+    iron_ir_return(fn, entry, sum_id, false, int_type, sp);
+
+    /* Compute use counts directly via the public helper */
+    IronIR_OptimizeInfo info;
+    memset(&info, 0, sizeof(info));
+    iron_ir_compute_use_counts(fn, &info);
+
+    /* sum_id (ADD result) is used exactly once: by the RETURN */
+    ptrdiff_t sum_idx = hmgeti(info.use_counts, sum_id);
+    TEST_ASSERT_GREATER_OR_EQUAL(0, (int)sum_idx);
+    TEST_ASSERT_EQUAL_INT(1, info.use_counts[sum_idx].value);
+
+    /* c10 and c20 are each used exactly once: as left/right of ADD */
+    ptrdiff_t c10_idx = hmgeti(info.use_counts, c10_id);
+    TEST_ASSERT_GREATER_OR_EQUAL(0, (int)c10_idx);
+    TEST_ASSERT_EQUAL_INT(1, info.use_counts[c10_idx].value);
+
+    ptrdiff_t c20_idx = hmgeti(info.use_counts, c20_id);
+    TEST_ASSERT_GREATER_OR_EQUAL(0, (int)c20_idx);
+    TEST_ASSERT_EQUAL_INT(1, info.use_counts[c20_idx].value);
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+/* ── Test 12: Inline eligible — multi-use value excluded ────────────────── */
+
+void test_inline_eligible_multi_use_excluded(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_multi_use");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* func test() -> Int
+     *   %1 = const_int 5    <- used twice (in ADD left and right)
+     *   %2 = add %1, %1     <- %1 has use_count 2 -> NOT inline-eligible
+     *   return %2
+     */
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_multi_use", NULL, 0, int_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+
+    IronIR_Instr *c5  = iron_ir_const_int(fn, entry, 5, int_type, sp);
+    IronIR_ValueId c5_id = c5->id;
+    IronIR_Instr *add = iron_ir_binop(fn, entry, IRON_IR_ADD, c5_id, c5_id, int_type, sp);
+    iron_ir_return(fn, entry, add->id, false, int_type, sp);
+
+    IronIR_OptimizeInfo info;
+    memset(&info, 0, sizeof(info));
+    iron_ir_compute_use_counts(fn, &info);
+    iron_ir_compute_value_block(fn, &info);
+    iron_ir_compute_inline_eligible(fn, &info);
+
+    /* c5 is used twice -> must NOT be inline-eligible */
+    ptrdiff_t uc_idx = hmgeti(info.use_counts, c5_id);
+    TEST_ASSERT_GREATER_OR_EQUAL(0, (int)uc_idx);
+    TEST_ASSERT_EQUAL_INT(2, info.use_counts[uc_idx].value);
+
+    /* Not in inline_eligible map */
+    TEST_ASSERT_LESS_THAN(0, (int)hmgeti(info.inline_eligible, c5_id));
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+/* ── Test 13: Inline eligible — impure CALL result excluded ─────────────── */
+
+void test_inline_eligible_side_effect_excluded(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_impure_call");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* func test() -> Int
+     *   %1 = func_ref "impure_external"
+     *   %2 = call %1()       <- impure CALL result must NOT be inline-eligible
+     *   return %2
+     */
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_impure_test", NULL, 0, int_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+
+    IronIR_Instr *fref = iron_ir_func_ref(fn, entry, "impure_external", int_type, sp);
+    IronIR_Instr *call_instr = iron_ir_call(fn, entry, NULL, fref->id, NULL, 0, int_type, sp);
+    IronIR_ValueId call_id = call_instr->id;
+    iron_ir_return(fn, entry, call_id, false, int_type, sp);
+
+    /* Run full optimize (this populates func_purity); "impure_external" not in module */
+    IronIR_OptimizeInfo info;
+    iron_ir_optimize(mod, &info, &ir_arena, false, false);
+
+    /* Now compute per-function eligibility */
+    iron_ir_compute_use_counts(fn, &info);
+    iron_ir_compute_value_block(fn, &info);
+    iron_ir_compute_inline_eligible(fn, &info);
+
+    /* CALL result is single-use but callee is impure -> NOT inline-eligible */
+    ptrdiff_t uc_idx = hmgeti(info.use_counts, call_id);
+    TEST_ASSERT_GREATER_OR_EQUAL(0, (int)uc_idx);
+    TEST_ASSERT_EQUAL_INT(1, info.use_counts[uc_idx].value);
+
+    /* Not eligible because "impure_external" is not in func_purity */
+    TEST_ASSERT_LESS_THAN(0, (int)hmgeti(info.inline_eligible, call_id));
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+/* ── Test 14: Inline eligible — cross-block value excluded ──────────────── */
+
+void test_inline_cross_block_not_inlined(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_cross_block");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* func test() -> Int
+     * entry:
+     *   %1 = const_int 42    <- defined in entry
+     *   jump use_block
+     * use_block:
+     *   return %1            <- used in use_block (different block)
+     */
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_cross_block", NULL, 0, int_type);
+    IronIR_Block *entry     = iron_ir_block_create(fn, "entry");
+    IronIR_Block *use_block = iron_ir_block_create(fn, "use_block");
+
+    IronIR_Instr *c42 = iron_ir_const_int(fn, entry, 42, int_type, sp);
+    IronIR_ValueId c42_id = c42->id;
+    iron_ir_jump(fn, entry, use_block->id, sp);
+    iron_ir_return(fn, use_block, c42_id, false, int_type, sp);
+
+    /* No need to run full optimizer — test analysis helpers directly */
+    IronIR_OptimizeInfo info;
+    memset(&info, 0, sizeof(info));
+    iron_ir_compute_use_counts(fn, &info);
+    iron_ir_compute_value_block(fn, &info);
+    iron_ir_compute_inline_eligible(fn, &info);
+
+    /* c42 has use_count 1 (single use in RETURN) but defined in entry, used in
+     * use_block — cross-block means it must NOT be inline-eligible */
+    ptrdiff_t uc_idx = hmgeti(info.use_counts, c42_id);
+    TEST_ASSERT_GREATER_OR_EQUAL(0, (int)uc_idx);
+    TEST_ASSERT_EQUAL_INT(1, info.use_counts[uc_idx].value);
+
+    /* NOT eligible because def-block (entry) != use-block (use_block) */
+    TEST_ASSERT_LESS_THAN(0, (int)hmgeti(info.inline_eligible, c42_id));
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+/* ── Test 15: Function purity analysis ──────────────────────────────────── */
+
+void test_func_purity_analysis(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_purity");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* Pure function: returns a constant.
+     * No CALLs, no side effects.
+     *
+     *   func pure_const() -> Int { return 42 }
+     */
+    IronIR_Func *pure_fn = iron_ir_func_create(mod, "Iron_pure_const", NULL, 0, int_type);
+    IronIR_Block *pentry  = iron_ir_block_create(pure_fn, "entry");
+    IronIR_Instr *c42     = iron_ir_const_int(pure_fn, pentry, 42, int_type, sp);
+    iron_ir_return(pure_fn, pentry, c42->id, false, int_type, sp);
+
+    /* Impure function: calls an unknown external.
+     *
+     *   func impure_fn() -> Int { return impure_external() }
+     */
+    IronIR_Func *impure_fn  = iron_ir_func_create(mod, "Iron_impure_fn", NULL, 0, int_type);
+    IronIR_Block *ientry    = iron_ir_block_create(impure_fn, "entry");
+    IronIR_Instr *fref      = iron_ir_func_ref(impure_fn, ientry, "impure_external",
+                                                int_type, sp);
+    IronIR_Instr *call_i    = iron_ir_call(impure_fn, ientry, NULL, fref->id,
+                                            NULL, 0, int_type, sp);
+    iron_ir_return(impure_fn, ientry, call_i->id, false, int_type, sp);
+
+    /* Run optimizer to populate func_purity */
+    IronIR_OptimizeInfo info;
+    iron_ir_optimize(mod, &info, &ir_arena, false, false);
+
+    /* pure_const has no CALLs and all instructions are pure -> in func_purity */
+    TEST_ASSERT_NOT_NULL(info.func_purity);
+    ptrdiff_t pure_idx = hmgeti(info.func_purity, (char*)"Iron_pure_const");
+    TEST_ASSERT_GREATER_OR_EQUAL(0, (int)pure_idx);
+    TEST_ASSERT_TRUE(info.func_purity[pure_idx].value);
+
+    /* impure_fn calls unknown external -> NOT in func_purity */
+    ptrdiff_t impure_idx = hmgeti(info.func_purity, (char*)"Iron_impure_fn");
+    TEST_ASSERT_LESS_THAN(0, (int)impure_idx);
+
+    iron_ir_optimize_info_free(&info);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -505,5 +746,10 @@ int main(void) {
     RUN_TEST(test_fixpoint_copy_prop_then_dce);
     RUN_TEST(test_optimize_empty_function);
     RUN_TEST(test_optimize_extern_function_skipped);
+    RUN_TEST(test_use_count_single_use);
+    RUN_TEST(test_inline_eligible_multi_use_excluded);
+    RUN_TEST(test_inline_eligible_side_effect_excluded);
+    RUN_TEST(test_inline_cross_block_not_inlined);
+    RUN_TEST(test_func_purity_analysis);
     return UNITY_END();
 }
