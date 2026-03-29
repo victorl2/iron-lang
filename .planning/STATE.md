@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 15-03-PLAN.md
-last_updated: "2026-03-29T13:43:11.736Z"
+stopped_at: Completed 16-01-PLAN.md
+last_updated: "2026-03-29T18:23:20.248Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
   percent: 0
 ---
 
@@ -47,6 +47,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 14: Dependency Resolution and Lockfile | 2 | Complete |
 | Phase 15 P01 | 45 | 2 tasks | 9 files |
 | Phase 15-copy-propagation-dce-constant-folding P03 | 29 | 2 tasks | 8 files |
+| Phase 16 P01 | 120 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,9 @@ Recent decisions affecting current work:
 - [Phase 15-02]: Emission-only unit tests use skip_new_passes=true to isolate emitter from optimizer effects; optimizer correctly removes unused constants and folds arithmetic
 - [Phase 15-03]: Test 2 (copy prop) verifies LOAD elimination via DCE rather than operand check, because constant folding eliminates the ADD before assertion
 - [Phase 15-03]: [Phase 15-03]: Iron integration tests require println("{val}") string interpolation for integer output; println only accepts String type
+- [Phase 16]: Expression inlining: instr_mutates_memory() ordering hazard detection prevents inlining pure values past STORE/SET_INDEX/SET_FIELD/CALL
+- [Phase 16]: MAKE_CLOSURE excluded from instr_is_inline_expressible — multi-statement env struct alloc requires named void* variable
+- [Phase 16]: PARALLEL_FOR range_val and MAKE_CLOSURE captures explicitly excluded from inlining — emit_instr uses emit_val template pattern for these
 
 ### Pending Todos
 
@@ -79,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T13:43:11.734Z
-Stopped at: Completed 15-03-PLAN.md
+Last session: 2026-03-29T18:23:20.246Z
+Stopped at: Completed 16-01-PLAN.md
 Resume file: None
