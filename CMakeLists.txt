@@ -80,6 +80,7 @@ add_library(iron_compiler STATIC
     src/ir/emit_c.c
     src/ir/print.c
     src/ir/verify.c
+    src/ir/ir_optimize.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 target_link_libraries(iron_compiler iron_runtime)

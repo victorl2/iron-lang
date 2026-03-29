@@ -14,6 +14,7 @@
 
 #include "unity.h"
 #include "ir/emit_c.h"
+#include "ir/ir_optimize.h"
 #include "ir/ir.h"
 #include "analyzer/types.h"
 #include "diagnostics/diagnostics.h"
@@ -71,7 +72,9 @@ void test_emit_hello_world(void) {
 
     /* Emit */
     Iron_Arena out_arena = iron_arena_create(131072);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags);
+    IronIR_OptimizeInfo opt_info_1;
+    iron_ir_optimize(mod, &opt_info_1, &out_arena, false, false);
+    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_1);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "#include \"runtime/iron_runtime.h\""));
@@ -81,6 +84,7 @@ void test_emit_hello_world(void) {
     TEST_ASSERT_NOT_NULL(strstr(result, "iron_runtime_shutdown()"));
     TEST_ASSERT_NOT_NULL(strstr(result, "iron_string_from_literal"));
 
+    iron_ir_optimize_info_free(&opt_info_1);
     iron_arena_free(&out_arena);
     iron_ir_module_destroy(mod);
     iron_arena_free(&ir_arena);
@@ -113,7 +117,9 @@ void test_emit_arithmetic(void) {
     iron_ir_return(fn, entry, sum->id, false, int_type, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags);
+    IronIR_OptimizeInfo opt_info_2;
+    iron_ir_optimize(mod, &opt_info_2, &out_arena, false, false);
+    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_2);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "int64_t"));
@@ -122,6 +128,7 @@ void test_emit_arithmetic(void) {
     /* No main wrapper since no Iron_main */
     TEST_ASSERT_NULL(strstr(result, "int main("));
 
+    iron_ir_optimize_info_free(&opt_info_2);
     iron_arena_free(&out_arena);
     iron_ir_module_destroy(mod);
     iron_arena_free(&ir_arena);
@@ -163,7 +170,9 @@ void test_emit_control_flow(void) {
     iron_ir_return(fn, merge, IRON_IR_VALUE_INVALID, true, NULL, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags);
+    IronIR_OptimizeInfo opt_info_3;
+    iron_ir_optimize(mod, &opt_info_3, &out_arena, false, false);
+    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_3);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "goto"));
@@ -172,6 +181,7 @@ void test_emit_control_flow(void) {
     TEST_ASSERT_NOT_NULL(strstr(result, "if ("));
     TEST_ASSERT_NOT_NULL(strstr(result, "merge_0"));
 
+    iron_ir_optimize_info_free(&opt_info_3);
     iron_arena_free(&out_arena);
     iron_ir_module_destroy(mod);
     iron_arena_free(&ir_arena);
@@ -204,7 +214,9 @@ void test_emit_alloca_load_store(void) {
     iron_ir_return(fn, entry, loaded->id, false, int_type, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags);
+    IronIR_OptimizeInfo opt_info_4;
+    iron_ir_optimize(mod, &opt_info_4, &out_arena, false, false);
+    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_4);
 
     TEST_ASSERT_NOT_NULL(result);
     /* Alloca emits a variable declaration */
@@ -214,6 +226,7 @@ void test_emit_alloca_load_store(void) {
     /* Load emits copy: _vK = _vN */
     TEST_ASSERT_NOT_NULL(strstr(result, "return"));
 
+    iron_ir_optimize_info_free(&opt_info_4);
     iron_arena_free(&out_arena);
     iron_ir_module_destroy(mod);
     iron_arena_free(&ir_arena);
@@ -263,13 +276,16 @@ void test_emit_type_decl_object(void) {
     iron_ir_return(fn, entry, IRON_IR_VALUE_INVALID, true, NULL, test_span());
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags);
+    IronIR_OptimizeInfo opt_info_5;
+    iron_ir_optimize(mod, &opt_info_5, &out_arena, false, false);
+    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_5);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "typedef struct"));
     TEST_ASSERT_NOT_NULL(strstr(result, "Iron_Player"));
     TEST_ASSERT_NOT_NULL(strstr(result, "IRON_TAG_"));
 
+    iron_ir_optimize_info_free(&opt_info_5);
     arrfree(fields);
     iron_arena_free(&out_arena);
     iron_ir_module_destroy(mod);
@@ -336,7 +352,9 @@ void test_emit_phi_elimination(void) {
     iron_ir_return(fn, merge_b, phi->id, false, int_type, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags);
+    IronIR_OptimizeInfo opt_info_6;
+    iron_ir_optimize(mod, &opt_info_6, &out_arena, false, false);
+    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_6);
 
     TEST_ASSERT_NOT_NULL(result);
 
@@ -352,6 +370,7 @@ void test_emit_phi_elimination(void) {
     /* ERROR: phi comment would only appear if phi_eliminate failed */
     TEST_ASSERT_NULL(strstr(result, "ERROR: phi not eliminated"));
 
+    iron_ir_optimize_info_free(&opt_info_6);
     iron_arena_free(&out_arena);
     iron_ir_module_destroy(mod);
     iron_arena_free(&ir_arena);
