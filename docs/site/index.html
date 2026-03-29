@@ -56,6 +56,7 @@
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
     }
 
     a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
@@ -113,18 +114,29 @@
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 2rem;
+      gap: 0.35rem;
       list-style: none;
     }
 
     .nav-links a {
-      color: var(--text-secondary);
-      font-size: 0.9rem;
+      color: var(--text-muted);
+      font-size: 0.88rem;
       font-weight: 500;
-      transition: color 0.2s;
+      letter-spacing: -0.01em;
+      transition: color 0.2s, background 0.2s;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
     }
 
-    .nav-links a:hover { color: var(--text); }
+    .nav-links a:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .nav-links a.active-link {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.08);
+    }
 
     .nav-links .gh-link {
       display: flex;
@@ -133,8 +145,8 @@
     }
 
     .nav-links .gh-link svg {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       fill: currentColor;
     }
 
@@ -153,6 +165,19 @@
       background: var(--text-secondary);
       margin: 5px 0;
       transition: 0.3s;
+      transform-origin: center;
+    }
+
+    .nav-hamburger.active span:nth-child(1) {
+      transform: rotate(45deg) translate(5px, 5px);
+    }
+
+    .nav-hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .nav-hamburger.active span:nth-child(3) {
+      transform: rotate(-45deg) translate(5px, -5px);
     }
 
     /* ── Hero ───────────────────────────────────────────── */
@@ -164,6 +189,14 @@
       grid-template-columns: 1fr 1fr;
       gap: 4rem;
       align-items: center;
+    }
+
+    .hero-content {
+      min-width: 0;
+    }
+
+    .hero-code {
+      min-width: 0;
     }
 
     .hero-content h1 {
@@ -250,6 +283,7 @@
       border-radius: var(--radius);
       overflow: hidden;
       box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+      max-width: 100%;
     }
 
     .code-titlebar {
@@ -403,6 +437,14 @@
     .feature.reverse .feature-text { order: 2; }
     .feature.reverse .feature-code { order: 1; }
 
+    .feature-text {
+      min-width: 0;
+    }
+
+    .feature-code {
+      min-width: 0;
+    }
+
     .feature-text h3 {
       font-size: 1.75rem;
       font-weight: 700;
@@ -442,6 +484,31 @@
     }
 
     .feature-code .code-window { font-size: 0.9rem; }
+
+    /* ── Entrance animations ────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hero-content { animation: fadeUp 0.6s ease-out both; }
+    .hero-code { animation: fadeUp 0.6s ease-out 0.15s both; }
+
+    /* ── Overlay ────────────────────────────────────────── */
+    .nav-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 99;
+      background: rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s, visibility 0.3s;
+    }
+
+    .nav-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
 
     /* ── Install ────────────────────────────────────────── */
     .install {
@@ -512,6 +579,14 @@
       margin-left: auto;
     }
 
+    .install-buttons {
+      margin-top: 2rem;
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
     .install-hello {
       margin-top: 2.5rem;
     }
@@ -580,6 +655,12 @@
       color: var(--text-muted);
     }
 
+    /* ── Code block mobile scrolling ───────────────────── */
+    .code-body {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
     /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 1024px) {
       .hero {
@@ -595,32 +676,108 @@
       .footer-inner { grid-template-columns: 1fr 1fr; }
     }
 
-    @media (max-width: 640px) {
+    @media (max-width: 768px) {
+      .nav-links {
+        position: absolute;
+        top: 64px;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        background: rgba(12, 12, 22, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        gap: 0;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-8px);
+        transition: opacity 0.25s, visibility 0.25s, transform 0.25s;
+      }
+      .nav-links.open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+      .nav-links a {
+        padding: 0.65rem 0.5rem;
+        font-size: 1rem;
+        border-radius: 8px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+      }
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .nav-hamburger { display: block; }
+      .hero { padding-top: 7rem; }
       .hero-content h1 { font-size: 2.25rem; }
       .hero-content p { font-size: 1rem; }
       .pillars-grid { grid-template-columns: 1fr; }
       .section-title { font-size: 1.75rem; }
       .feature-text h3 { font-size: 1.4rem; }
-      .code-body pre { font-size: 0.75rem; }
-      .nav-links { display: none; }
-      .nav-links.open {
-        display: flex;
-        flex-direction: column;
-        position: absolute;
-        top: 64px;
-        left: 0;
-        right: 0;
-        background: var(--bg-primary);
-        border-bottom: 1px solid var(--border);
-        padding: 1.5rem 2rem;
-        gap: 1rem;
-      }
-      .nav-hamburger { display: block; }
+      .features { padding: 4rem 1.5rem; }
+      .feature { margin-bottom: 4rem; gap: 1.5rem; }
+      .pillars { padding: 4rem 1.5rem; }
+      .install { padding: 4rem 1.5rem; }
       .footer-inner { grid-template-columns: 1fr; gap: 2rem; }
       .footer-bottom { flex-direction: column; gap: 0.5rem; text-align: center; }
+      footer { padding: 3rem 1.5rem 1.5rem; }
+      .code-body pre { font-size: 0.78rem; }
+      .code-body { padding: 1rem 1.25rem; }
+      .btn { padding: 0.8rem 1.5rem; min-height: 44px; }
+    }
+
+    @media (max-width: 480px) {
+      .nav-inner { padding: 0 1rem; }
+      .hero { padding: 6rem 1rem 3rem; gap: 2rem; }
+      .hero-content h1 { font-size: 1.85rem; }
+      .hero-content p { font-size: 0.92rem; max-width: 100%; }
       .hero-buttons { flex-direction: column; }
-      .btn { justify-content: center; }
-      .install h2 { font-size: 1.75rem; }
+      .hero-buttons .btn { justify-content: center; width: 100%; }
+      .hero-version { font-size: 0.8rem; }
+      .code-body pre { font-size: 0.7rem; line-height: 1.6; }
+      .code-body { padding: 0.85rem 1rem; }
+      .code-titlebar { padding: 0.6rem 0.85rem; }
+      .code-filename { font-size: 0.72rem; }
+      .pillar { padding: 1.25rem; }
+      .pillar h3 { font-size: 1rem; }
+      .pillar p { font-size: 0.85rem; }
+      .pillar-icon { width: 38px; height: 38px; font-size: 1.1rem; }
+      .install h2 { font-size: 1.5rem; }
+      .install p { font-size: 0.95rem; }
+      .install-buttons { flex-direction: column; }
+      .install-buttons .btn { justify-content: center; width: 100%; }
+      .install-step { padding: 0.75rem 0.85rem; gap: 0.6rem; flex-wrap: wrap; }
+      .install-step .step-comment { display: none; }
+      .install-step code { font-size: 0.8rem; word-break: break-all; }
+      .section-label { font-size: 0.75rem; }
+      .section-title { font-size: 1.4rem; }
+      .section-subtitle { font-size: 0.9rem; }
+      .features { padding: 2.5rem 1rem; }
+      .feature { margin-bottom: 3rem; }
+      .feature-text h3 { font-size: 1.25rem; }
+      .feature-text p { font-size: 0.9rem; }
+      .feature-list li { font-size: 0.85rem; }
+      .pillars { padding: 2.5rem 1rem; }
+      .install { padding: 2.5rem 1rem; }
+      footer { padding: 2.5rem 1rem 1.25rem; }
+      .footer-brand p { font-size: 0.8rem; }
+      .footer-col h4 { font-size: 0.75rem; }
+      .footer-col a { font-size: 0.85rem; }
+    }
+
+    @media (max-width: 360px) {
+      .hero-content h1 { font-size: 1.6rem; }
+      .hero { padding: 5.5rem 0.75rem 2.5rem; }
+      .code-body pre { font-size: 0.62rem; }
+      .section-title { font-size: 1.25rem; }
+      .btn { font-size: 0.88rem; padding: 0.75rem 1.25rem; }
+      .features { padding: 2rem 0.75rem; }
+      .pillars { padding: 2rem 0.75rem; }
+      .install { padding: 2rem 0.75rem; }
+      footer { padding: 2rem 0.75rem 1rem; }
     }
   </style>
 </head>
@@ -633,13 +790,13 @@
         Iron
       </a>
       <ul class="nav-links" id="navLinks">
-        <li><a href="/docs/">Documentation</a></li>
-        <li><a href="/guide/">Guide</a></li>
+        <li><a href="/docs/">Docs</a></li>
+        <li><a href="/guide/">Package Manager</a></li>
         <li><a href="/install/">Install</a></li>
         <li>
           <a href="https://github.com/victorl2/iron-lang" class="gh-link">
             <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-            GitHub
+            Source Code
           </a>
         </li>
       </ul>
@@ -650,6 +807,7 @@
       </button>
     </div>
   </nav>
+  <div class="nav-overlay" id="navOverlay"></div>
 
   <!-- ── Hero ─────────────────────────────────────────── -->
   <section class="hero">
@@ -877,7 +1035,7 @@ ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class
     <div class="install-inner">
       <h2>Get started in seconds</h2>
       <p>Install Iron with a single command, then run your first program. macOS and Linux supported.</p>
-      <div style="margin-top: 2rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+      <div class="install-buttons">
         <a href="/install/" class="btn btn-primary">Install Iron</a>
         <a href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md" class="btn btn-secondary">Build from source</a>
       </div>
@@ -937,9 +1095,35 @@ ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class
   </footer>
 
   <script>
-    document.getElementById('navToggle').addEventListener('click', function() {
-      document.getElementById('navLinks').classList.toggle('open');
-    });
+    (function() {
+      var toggle = document.getElementById('navToggle');
+      var links = document.getElementById('navLinks');
+      var overlay = document.getElementById('navOverlay');
+
+      function closeMenu() {
+        links.classList.remove('open');
+        toggle.classList.remove('active');
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+
+      toggle.addEventListener('click', function() {
+        var isOpen = links.classList.toggle('open');
+        toggle.classList.toggle('active');
+        overlay.classList.toggle('active');
+        document.body.style.overflow = isOpen ? 'hidden' : '';
+      });
+
+      overlay.addEventListener('click', closeMenu);
+
+      links.querySelectorAll('a').forEach(function(a) {
+        a.addEventListener('click', closeMenu);
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeMenu();
+      });
+    })();
   </script>
 </body>
 </html>
