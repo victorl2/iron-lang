@@ -24,9 +24,7 @@ jobs:
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
-    # Benchmarks are informational — do not block merge on threshold failures.
-    # Performance regressions are tracked via --check-regression against baselines.
-    continue-on-error: true
+    # Benchmarks must compile and run correctly; only regression checks are informational.
     steps:
       - uses: actions/checkout@v4
 
@@ -49,7 +47,6 @@ jobs:
           cmake --build build
 
       - name: Run benchmarks
-        continue-on-error: true
         run: bash tests/benchmarks/run_benchmarks.sh --verbose
 
       - name: Check regression
