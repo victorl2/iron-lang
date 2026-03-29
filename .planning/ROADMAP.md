@@ -355,7 +355,12 @@ Plans:
   1. A loop containing `i * cols + j` for array indexing is transformed to use an induction variable that increments by `cols` each outer iteration; the emitted C shows addition instead of multiplication inside the inner loop
   2. A STORE immediately followed by a LOAD of the same address with no intervening modification is reduced to a single STORE with the loaded value replaced by the stored value; the IR dump confirms the redundant LOAD is removed
   3. All 127 benchmarks and integration tests continue to pass after both passes are applied; no correctness regressions
-**Plans**: TBD
+**Plans:** 1/3 plans executed
+
+Plans:
+- [ ] 17-01-PLAN.md — Store/load elimination with escape analysis, 3 unit tests
+- [ ] 17-02-PLAN.md — Dominator tree, loop analysis, strength reduction pass, 3 unit tests
+- [ ] 17-03-PLAN.md — Integration tests for both passes, full regression verification
 
 ### Phase 18: Benchmark Validation
 **Goal**: Every benchmark meets its configured performance threshold, confirming the optimization passes collectively close the performance gap
@@ -411,9 +416,9 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 12. Binary Split and Installation | v0.0.3-alpha | 3/3 | Complete | 2026-03-28 |
 | 13. Project Workflow | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
 | 14. Dependency Resolution and Lockfile | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
-| 15. Copy Propagation, DCE & Constant Folding | 3/3 | Complete    | 2026-03-29 | - |
-| 16. Expression Inlining | 3/3 | Complete   | 2026-03-29 | - |
-| 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 0/0 | Not started | - |
+| 15. Copy Propagation, DCE & Constant Folding | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
+| 16. Expression Inlining | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
+| 17. Strength Reduction & Store/Load Elimination | 1/3 | In Progress|  | - |
 | 18. Benchmark Validation | v0.0.5-alpha | 0/0 | Not started | - |
 | 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 0/0 | Not started | - |
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 0/0 | Not started | - |
