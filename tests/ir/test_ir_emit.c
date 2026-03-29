@@ -4,14 +4,15 @@
  * iron_ir_emit_c(), and verify the output C string contains expected patterns.
  *
  * Tests:
- *   1. test_emit_hello_world               — Iron_main with const_string + call
- *   2. test_emit_arithmetic                — Function with CONST_INT + ADD + RETURN
- *   3. test_emit_control_flow              — Function with BRANCH terminator
- *   4. test_emit_alloca_load_store         — Function with ALLOCA + STORE + LOAD
- *   5. test_emit_type_decl_object          — Module with an object type_decl
- *   6. test_emit_phi_elimination           — Function with PHI instruction
- *   7. test_emit_expression_inlining_basic — Single-use ADD inlined as compound expr
- *   8. test_emit_construct_inlined         — Single-use CONSTRUCT inlined as compound literal
+ *   1. test_emit_hello_world                   — Iron_main with const_string + call
+ *   2. test_emit_arithmetic                    — Function with CONST_INT + ADD + RETURN
+ *   3. test_emit_control_flow                  — Function with BRANCH terminator
+ *   4. test_emit_alloca_load_store             — Function with ALLOCA + STORE + LOAD
+ *   5. test_emit_type_decl_object              — Module with an object type_decl
+ *   6. test_emit_phi_elimination               — Function with PHI instruction
+ *   7. test_emit_expression_inlining_basic     — Single-use ADD inlined as compound expr
+ *   8. test_emit_construct_inlined             — Single-use CONSTRUCT inlined as compound literal
+ *   9. test_emit_inlined_no_separate_temps     — ADD inlined into MUL; no separate temp declared
  */
 
 #include "unity.h"
@@ -531,6 +532,122 @@ void test_emit_construct_inlined(void) {
     iron_arena_free(&ir_arena);
 }
 
+/* ── Test 9: Inlined ADD — no separate temp declared ─────────────────────── */
+
+void test_emit_inlined_no_separate_temps(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+
+    /* Build a 2-param function that mimics the lowered IR pattern:
+     *
+     *   func calc(a: Int, b: Int) -> Int
+     *
+     * The lowered IR for a 2-param function uses synthetic param IDs 1 and 3:
+     *   param_a_id = 1  (synthetic, not an instruction node)
+     *   %2 = alloca Int  "a"
+     *   store %2, %1
+     *   param_b_id = 3  (synthetic)
+     *   %4 = alloca Int  "b"
+     *   store %4, %3
+     *   %5 = load %2         <- copy-prop will replace uses with %1
+     *   %6 = load %4         <- copy-prop will replace uses with %3
+     *   %7 = add %5, %6      <- single-use; inline-eligible after copy-prop
+     *   %8 = const_int 2
+     *   %9 = mul %7, %8      <- inline site: ADD inlined here
+     *   return %9
+     *
+     * After copy-prop: ADD(%1, %3) — not constant-foldable (param IDs).
+     * After inlining: return statement contains the ADD inlined into MUL:
+     *   return ((_v1 + _v3) * ((int64_t)2LL))
+     * No separate "int64_t _v7 = ..." declaration for the ADD result.
+     */
+    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_inline_temps");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    IronIR_Param params[2];
+    params[0].name = "a";
+    params[0].type = int_type;
+    params[1].name = "b";
+    params[1].type = int_type;
+
+    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_calc",
+                                           params, 2, int_type);
+    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+
+    /* Simulate the param lowering pattern: reserve synthetic param value IDs
+     * and create the alloca+store entries that the lowerer would emit. */
+
+    /* Param a: synthetic ID (fn->next_value_id starts at 1) */
+    IronIR_ValueId param_a_id = fn->next_value_id++;
+    while (arrlen(fn->value_table) <= (ptrdiff_t)param_a_id)
+        arrput(fn->value_table, NULL);
+    fn->value_table[param_a_id] = NULL;  /* no instruction node — synthetic */
+
+    /* alloca for a */
+    IronIR_Instr *alloca_a = iron_ir_alloca(fn, entry, int_type, "a", sp);
+
+    /* Param b: next synthetic ID */
+    IronIR_ValueId param_b_id = fn->next_value_id++;
+    while (arrlen(fn->value_table) <= (ptrdiff_t)param_b_id)
+        arrput(fn->value_table, NULL);
+    fn->value_table[param_b_id] = NULL;
+
+    /* alloca for b */
+    IronIR_Instr *alloca_b = iron_ir_alloca(fn, entry, int_type, "b", sp);
+
+    /* store param values into their alloca slots */
+    iron_ir_store(fn, entry, alloca_a->id, param_a_id, sp);
+    iron_ir_store(fn, entry, alloca_b->id, param_b_id, sp);
+
+    /* load from allocas */
+    IronIR_Instr *load_a = iron_ir_load(fn, entry, alloca_a->id, int_type, sp);
+    IronIR_Instr *load_b = iron_ir_load(fn, entry, alloca_b->id, int_type, sp);
+
+    /* ADD load_a + load_b -> v_add (single-use: only used by MUL below) */
+    IronIR_Instr *v_add = iron_ir_binop(fn, entry, IRON_IR_ADD,
+                                         load_a->id, load_b->id, int_type, sp);
+    IronIR_ValueId add_id = v_add->id;
+
+    /* const_int 2 */
+    IronIR_Instr *v_two = iron_ir_const_int(fn, entry, 2, int_type, sp);
+
+    /* MUL v_add * v_two -> v_mul */
+    IronIR_Instr *v_mul = iron_ir_binop(fn, entry, IRON_IR_MUL,
+                                         v_add->id, v_two->id, int_type, sp);
+
+    /* return v_mul */
+    iron_ir_return(fn, entry, v_mul->id, false, int_type, sp);
+
+    /* Run with all passes enabled (copy-prop + const-fold + DCE + inline info) */
+    Iron_Arena out_arena = iron_arena_create(131072);
+    IronIR_OptimizeInfo opt_info;
+    iron_ir_optimize(mod, &opt_info, &out_arena, false, false);
+    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info);
+
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_NOT_NULL(strstr(result, "Iron_calc"));
+    TEST_ASSERT_NOT_NULL(strstr(result, "return"));
+
+    /* The ADD result (v_add) must NOT appear as a separate int64_t declaration.
+     * With inlining active, the ADD is folded into the MUL at the use site.
+     * Verify no separate "_vN = " assignment exists for the ADD result. */
+    char sep_temp[32];
+    snprintf(sep_temp, sizeof(sep_temp), "int64_t _v%u =", (unsigned)add_id);
+    TEST_ASSERT_NULL_MESSAGE(strstr(result, sep_temp),
+        "ADD result should be inlined, not emitted as a separate temp variable");
+
+    /* With the ADD inlined into the MUL, the emitted expression should contain
+     * both '+' (inlined ADD) and '*' (the MUL) in the return statement. */
+    TEST_ASSERT_NOT_NULL(strstr(result, "+"));
+    TEST_ASSERT_NOT_NULL(strstr(result, "*"));
+
+    iron_ir_optimize_info_free(&opt_info);
+    iron_arena_free(&out_arena);
+    iron_ir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -543,5 +660,6 @@ int main(void) {
     RUN_TEST(test_emit_phi_elimination);
     RUN_TEST(test_emit_expression_inlining_basic);
     RUN_TEST(test_emit_construct_inlined);
+    RUN_TEST(test_emit_inlined_no_separate_temps);
     return UNITY_END();
 }
