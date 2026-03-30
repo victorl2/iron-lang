@@ -61,7 +61,7 @@ func main() {
     val bench_result = word_break(bench_s, 20, bench_flat, bench_starts, bench_lens, 10)
     println("Test 3: {bench_result} (expected 1)")
 
-    val iterations = 500000
+    val iterations = 5000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

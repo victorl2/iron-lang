@@ -12,7 +12,11 @@ build-verify/
 
 # Compiled binaries (root-level test outputs from iron build)
 hello
+main
 extern_basic
+expr_inline_arithmetic
+heap_auto_free
+strength_reduction_loop
 test_*
 !tests/
 !tests/**

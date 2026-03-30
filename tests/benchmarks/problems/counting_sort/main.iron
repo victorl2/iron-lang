@@ -42,7 +42,7 @@ func main() {
     }
     println("Test 3: {counting_sort_checksum(bench, 200, 100)}")
 
-    val iterations = 100000
+    val iterations = 350000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

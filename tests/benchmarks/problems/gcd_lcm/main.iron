@@ -32,7 +32,7 @@ func main() {
     println("Test 3 lcm: {lcm(17, 13)} (expected 221)")
 
     -- Benchmark: 1M pairs
-    val iterations = 1000000
+    val iterations = 6000000
     val start = Time.now_ms()
     var sum_gcd = 0
     var sum_lcm = 0

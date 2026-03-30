@@ -53,7 +53,7 @@ int main(void) {
     printf("Test 2: %lld (expected 1845)\n", min_stack_ops(1000));
 
     long mem_before = get_memory_kb();
-    int iterations = 100000;
+    int iterations = 300000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

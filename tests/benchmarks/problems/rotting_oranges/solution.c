@@ -60,7 +60,7 @@ int main(void) {
     printf("Test 4: %d (expected 0)\n", rotting_oranges(g4, 2, 3));
 
     long mem_before = get_memory_kb();
-    int iterations = 200000;
+    int iterations = 700000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

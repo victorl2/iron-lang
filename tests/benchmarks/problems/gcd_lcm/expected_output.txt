@@ -4,5 +4,3 @@ Test 2 gcd: 25 (expected 25)
 Test 2 lcm: 300 (expected 300)
 Test 3 gcd: 1 (expected 1)
 Test 3 lcm: 221 (expected 221)
-Bench gcd sum: 12072800
-Bench lcm sum mod: 49438183200

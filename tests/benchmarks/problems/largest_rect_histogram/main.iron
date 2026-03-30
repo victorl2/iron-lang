@@ -51,7 +51,7 @@ func main() {
     }
     println("Test 4: {largest_rect(bench, 50)} (expected 252)")
 
-    val iterations = 500000
+    val iterations = 1500000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

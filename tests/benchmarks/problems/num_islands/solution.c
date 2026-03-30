@@ -82,7 +82,7 @@ int main(void) {
     printf("Test 3: %d (expected 5)\n", num_islands(grid3, 3, 3));
 
     long mem_before = get_memory_kb();
-    int iterations = 100000;
+    int iterations = 400000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

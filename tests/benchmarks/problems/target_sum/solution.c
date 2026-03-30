@@ -29,7 +29,7 @@ int main(void) {
     for (int i = 0; i < 15; i++) bench[i] = (i%5)+1;
     printf("Test 2: %lld (expected 1932)\n", (long long)target_sum(bench, 15, 3));
 
-    int iterations = 500000;
+    int iterations = 2000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

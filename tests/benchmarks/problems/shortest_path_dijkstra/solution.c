@@ -59,7 +59,7 @@ int main(void) {
     printf("Test 4: %d (expected 6)\n", dijkstra(adj4, n, 0, 3));
 
     long mem_before = get_memory_kb();
-    int iterations = 100000;
+    int iterations = 400000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

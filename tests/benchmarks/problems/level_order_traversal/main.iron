@@ -52,7 +52,7 @@ func main() {
     val tree7 = [10, 5, 15, 3, 7, 12, 20]
     println("Test 4: {level_order_checksum(tree7, 7)} (expected 324)")
 
-    val iterations = 500000
+    val iterations = 6000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

@@ -22,7 +22,7 @@ int main(void) {
     for (int i = 0; i < 100; i++) bench[i] = (i*3+1)%5+1;
     printf("Test 3: %lld (expected 1)\n", (long long)jump_game(bench, 100));
 
-    int iterations = 1000000;
+    int iterations = 3000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

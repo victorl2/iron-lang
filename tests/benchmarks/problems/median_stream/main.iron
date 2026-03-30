@@ -159,7 +159,7 @@ func main() {
     val check = median_stream(nums, n)
     println("Bench check: {check}")
 
-    val iterations = 200000
+    val iterations = 400000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

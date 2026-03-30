@@ -77,7 +77,7 @@ func main() {
     adj4[1 * n + 2] = 1
     println("Test 4: {dfs_checksum(adj4, n, 0)} (expected 8)")
 
-    val iterations = 200000
+    val iterations = 400000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

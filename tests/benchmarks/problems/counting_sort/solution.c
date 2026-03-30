@@ -47,7 +47,7 @@ int main(void) {
     printf("Test 3: %lld\n", bench_result);
 
     long mem_before = get_memory_kb();
-    int iterations = 100000;
+    int iterations = 350000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
