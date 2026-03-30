@@ -1,0 +1,12 @@
+object Point {
+  var x: Int
+  var y: Int
+}
+
+func main() {
+  val p = heap Point(3, 4)
+  println("{p.x}")
+  println("{p.y}")
+  val sum = p.x + p.y
+  println("{sum}")
+}
