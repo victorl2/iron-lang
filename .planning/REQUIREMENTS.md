@@ -18,10 +18,10 @@ Requirements for IR optimization and High IR architecture milestone. Each maps t
 
 ### Benchmark Parity
 
-- [ ] **BENCH-01**: median_two_sorted_arrays runs at ≤1.2x C parity (currently 4.5x)
-- [ ] **BENCH-02**: count_paths_with_obstacles, min_path_sum run at ≤1.2x (currently 1.4-1.6x)
-- [ ] **BENCH-03**: largest_rect_histogram, max_depth_binary_tree run at ≤1.2x (currently 1.4-1.5x)
-- [ ] **BENCH-04**: target_sum, three_sum, num_islands run at ≤1.2x (currently 1.2-1.6x)
+- [x] **BENCH-01**: median_two_sorted_arrays runs at ≤1.2x C parity (currently 4.5x)
+- [x] **BENCH-02**: count_paths_with_obstacles, min_path_sum run at ≤1.2x (currently 1.4-1.6x)
+- [x] **BENCH-03**: largest_rect_histogram, max_depth_binary_tree run at ≤1.2x (currently 1.4-1.5x)
+- [x] **BENCH-04**: target_sum, three_sum, num_islands run at ≤1.2x (currently 1.2-1.6x)
 - [x] **BENCH-05**: All 127 benchmarks pass at their configured parity threshold (100% pass rate)
 
 ### High IR Architecture
@@ -82,10 +82,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | IROPT-04 | Phase 15 | Complete |
 | IROPT-05 | Phase 17 | Complete |
 | IROPT-06 | Phase 17 | Complete |
-| BENCH-01 | Phase 18 | Pending |
-| BENCH-02 | Phase 18 | Pending |
-| BENCH-03 | Phase 18 | Pending |
-| BENCH-04 | Phase 18 | Pending |
+| BENCH-01 | Phase 18 | Complete |
+| BENCH-02 | Phase 18 | Complete |
+| BENCH-03 | Phase 18 | Complete |
+| BENCH-04 | Phase 18 | Complete |
 | BENCH-05 | Phase 18 | Complete |
 | HIR-01 | Phase 19 | Pending |
 | HIR-02 | Phase 19 | Pending |
