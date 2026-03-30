@@ -806,15 +806,13 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 6. Lower AST to HIR */
-    Iron_Arena hir_arena = iron_arena_create(256 * 1024);
+    /* 6. Lower AST to HIR (module creates its own internal arena) */
     IronHIR_Module *hir_module = iron_hir_lower((Iron_Program *)ast,
                                                analysis.global_scope,
-                                               &hir_arena, &diags);
+                                               NULL, &diags);
     if (!hir_module || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
         iron_diaglist_free(&diags);
-        iron_arena_free(&hir_arena);
         iron_arena_free(&arena);
         free(source);
         free(base_dir);
@@ -836,13 +834,10 @@ int iron_build(const char *source_path, const char *output_path,
                                                analysis.global_scope,
                                                &ir_arena, &diags);
 
-    /* Free HIR — no longer needed after LIR conversion */
-    iron_hir_module_destroy(hir_module);
-    iron_arena_free(&hir_arena);
-
     if (!ir_module || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
         iron_diaglist_free(&diags);
+        iron_hir_module_destroy(hir_module);
         iron_arena_free(&ir_arena);
         iron_arena_free(&arena);
         free(source);
@@ -869,6 +864,9 @@ int iron_build(const char *source_path, const char *output_path,
 
     iron_lir_module_destroy(ir_module);
     iron_arena_free(&ir_arena);
+
+    /* Free HIR — types referenced by LIR are now fully emitted */
+    iron_hir_module_destroy(hir_module);
 
     if (!c_src || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
