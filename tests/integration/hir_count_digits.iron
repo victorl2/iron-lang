@@ -1,0 +1,19 @@
+func count_digits(n: Int) -> Int {
+  if n == 0 {
+    return 1
+  }
+  var count = 0
+  var x = n
+  while x > 0 {
+    count = count + 1
+    x = x / 10
+  }
+  return count
+}
+
+func main() {
+  println("{count_digits(0)}")
+  println("{count_digits(5)}")
+  println("{count_digits(42)}")
+  println("{count_digits(1234)}")
+}

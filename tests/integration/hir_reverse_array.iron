@@ -1,0 +1,19 @@
+func reverse(arr: [Int], n: Int) {
+  var left = 0
+  var right = n - 1
+  while left < right {
+    val tmp = arr[left]
+    arr[left] = arr[right]
+    arr[right] = tmp
+    left = left + 1
+    right = right - 1
+  }
+}
+
+func main() {
+  var arr = [1, 2, 3, 4, 5]
+  reverse(arr, 5)
+  for x in arr {
+    println("{x}")
+  }
+}
