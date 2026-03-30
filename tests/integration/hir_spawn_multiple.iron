@@ -1,0 +1,23 @@
+-- hir_spawn_multiple: Multiple spawns with main thread computation
+func fib(n: Int) -> Int {
+  if n <= 1 { return n }
+  return fib(n - 1) + fib(n - 2)
+}
+
+func main() {
+  spawn("a") {
+    var x = 0
+    while x < 100 { x = x + 1 }
+  }
+  spawn("b") {
+    var y = 0
+    while y < 100 { y = y + 1 }
+  }
+  spawn("c") {
+    var z = 0
+    while z < 100 { z = z + 1 }
+  }
+  val r = fib(8)
+  println("{r}")
+  println("spawned 3")
+}

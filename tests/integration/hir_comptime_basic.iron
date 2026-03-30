@@ -1,0 +1,10 @@
+val LIMIT = comptime 2 + 3
+
+func main() {
+  println("{LIMIT}")
+  var sum = 0
+  for i in range(LIMIT) {
+    sum = sum + i
+  }
+  println("{sum}")
+}

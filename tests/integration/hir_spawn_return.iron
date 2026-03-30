@@ -1,0 +1,26 @@
+-- hir_spawn_return: Multiple spawns with deterministic main thread result
+func sum_to(n: Int) -> Int {
+  var s = 0
+  var i = 0
+  while i <= n {
+    s = s + i
+    i = i + 1
+  }
+  return s
+}
+
+func main() {
+  spawn("t1") {
+    var x = 0
+    while x < 50 { x = x + 1 }
+  }
+  spawn("t2") {
+    var y = 0
+    while y < 50 { y = y + 1 }
+  }
+  val r1 = sum_to(10)
+  val r2 = sum_to(5)
+  println("{r1}")
+  println("{r2}")
+  println("done")
+}

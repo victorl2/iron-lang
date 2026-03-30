@@ -1,0 +1,13 @@
+-- hir_parallel_for: Parallel for dispatch with sequential result
+func main() {
+  for i in 50 parallel {
+    var work = i * i
+    work = work + 1
+  }
+  println("parallel done")
+  var seq_sum = 0
+  for i in range(5) {
+    seq_sum = seq_sum + i
+  }
+  println("{seq_sum}")
+}

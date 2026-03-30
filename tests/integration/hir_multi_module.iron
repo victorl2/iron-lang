@@ -1,0 +1,27 @@
+-- hir_multi_module: Multiple features combined (objects + funcs)
+object Range {
+  var lo: Int
+  var hi: Int
+}
+
+func Range.size() -> Int {
+  return self.hi - self.lo
+}
+
+func Range.contains(n: Int) -> Int {
+  if n >= self.lo {
+    if n < self.hi {
+      return 1
+    }
+  }
+  return 0
+}
+
+func main() {
+  val r = Range(1, 6)
+  println("{r.lo}")
+  println("{r.hi}")
+  println("{r.size()}")
+  println("{r.contains(3)}")
+  println("{r.contains(10)}")
+}

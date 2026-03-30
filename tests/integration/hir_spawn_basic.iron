@@ -1,0 +1,22 @@
+-- hir_spawn_basic: Spawn background tasks and compute in main thread
+func compute(n: Int) -> Int {
+  var sum = 0
+  var i = 0
+  while i < n {
+    sum = sum + i
+    i = i + 1
+  }
+  return sum
+}
+
+func main() {
+  spawn("worker") {
+    var x = 0
+    while x < 100 {
+      x = x + 1
+    }
+  }
+  val r = compute(10)
+  println("{r}")
+  println("done")
+}
