@@ -2466,7 +2466,7 @@ static bool run_strength_reduction(IronLIR_Module *module) {
                     IronLIR_ValueId new_iv_alloca = IRON_LIR_VALUE_INVALID;
                     bool found_dedup = false;
 
-                    for (int di = 0; di < (int)hmlen(dedup_map); di++) {
+                    for (int di = 0; di < (int)arrlen(dedup_map); di++) {
                         if (sr_dedup_key_eq(dedup_map[di].key, dk)) {
                             new_iv_alloca = dedup_map[di].value;
                             found_dedup = true;
