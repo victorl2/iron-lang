@@ -129,7 +129,7 @@ void test_hir_to_lir_empty_func(void) {
     TEST_ASSERT_GREATER_OR_EQUAL(1, ret_count);
 }
 
-/* ── Test 2: Val binding — val x = 42 → alloca + store ──────────────────── */
+/* ── Test 2: Val binding — val x = 42 → direct SSA value (no alloca) ─────── */
 
 void test_hir_to_lir_val_binding(void) {
     Iron_Span span    = zero_span();
@@ -152,13 +152,16 @@ void test_hir_to_lir_val_binding(void) {
     TEST_ASSERT_GREATER_OR_EQUAL(1, lir->func_count);
 
     IronLIR_Func *lf = lir->funcs[0];
+    TEST_ASSERT_NOT_NULL(lf);
 
-    /* Entry block must have ALLOCA for x */
-    TEST_ASSERT_TRUE(entry_has_alloca(lf, "x"));
+    /* Immutable vals are lowered to direct SSA values (no alloca needed).
+     * Verify the function was produced and has at least one block with a RETURN. */
+    TEST_ASSERT_GREATER_OR_EQUAL(1, lf->block_count);
+    int ret_count = count_instrs_in_func(lf, IRON_LIR_RETURN);
+    TEST_ASSERT_GREATER_OR_EQUAL(1, ret_count);
 
-    /* Must have STORE somewhere */
-    int stores = count_instrs_in_func(lf, IRON_LIR_STORE);
-    TEST_ASSERT_GREATER_OR_EQUAL(1, stores);
+    /* No alloca for x — immutable vals skip the alloca+store path */
+    TEST_ASSERT_FALSE(entry_has_alloca(lf, "x"));
 }
 
 /* ── Test 3: Var binding — var x = 42 → alloca + store ──────────────────── */
