@@ -24,3 +24,9 @@ target_link_libraries(test_hir_lower iron_compiler unity)
 add_test(NAME test_hir_lower COMMAND test_hir_lower
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(test_hir_lower PROPERTIES LABELS "hir")
+
+add_executable(test_hir_to_lir test_hir_to_lir.c)
+target_link_libraries(test_hir_to_lir iron_compiler unity)
+add_test(NAME test_hir_to_lir COMMAND test_hir_to_lir
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(test_hir_to_lir PROPERTIES LABELS "hir")
