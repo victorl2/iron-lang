@@ -19,6 +19,9 @@ FILTER_PROBLEM=""
 VERBOSE=0
 SAVE_BASELINE=0
 CHECK_REGRESSION=0
+WRITE_JSON=0
+JSON_FILE=""
+COMPARE_MODE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -38,8 +41,17 @@ while [[ $# -gt 0 ]]; do
             CHECK_REGRESSION=1
             shift
             ;;
+        --json)
+            WRITE_JSON=1
+            JSON_FILE="${2:-results.json}"
+            shift 2
+            ;;
+        --compare)
+            COMPARE_MODE=1
+            shift
+            ;;
         *)
-            echo "Usage: $0 [--problem NAME] [--verbose] [--save-baseline] [--check-regression]"
+            echo "Usage: $0 [--problem NAME] [--verbose] [--save-baseline] [--check-regression] [--json FILE] [--compare]"
             exit 1
             ;;
     esac
@@ -187,6 +199,9 @@ results=()
 # JSON accumulator for baseline
 json_problems=""
 
+# JSON accumulator for --json output
+json_results=""
+
 for problem_dir in "$PROBLEMS_DIR"/*/; do
     problem_name="$(basename "$problem_dir")"
 
@@ -246,6 +261,16 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
         continue
     fi
 
+    # ── Step 2b: Build Iron without optimization (compare mode) ─────────
+    iron_noopt_bin=""
+    if [ $COMPARE_MODE -eq 1 ]; then
+        iron_noopt_dir="$TMPDIR/iron_noopt_${problem_name}"
+        mkdir -p "$iron_noopt_dir"
+        if (cd "$iron_noopt_dir" && "$IRONC" build --no-optimize "$iron_src" 2>/dev/null); then
+            iron_noopt_bin="$iron_noopt_dir/main"
+        fi
+    fi
+
     # ── Step 3: Run C reference with memory tracking ───────────────────
     c_mem_file="$TMPDIR/c_mem_${problem_name}"
     if ! run_with_memory "$timeout_sec" "$TMPDIR/c_output" "$c_mem_file" "$c_bin"; then
@@ -297,6 +322,15 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
         continue
     fi
 
+    # ── Step 6b: Run and time unoptimized version (compare mode) ────────
+    iron_noopt_ms=""
+    if [ $COMPARE_MODE -eq 1 ] && [ -n "$iron_noopt_bin" ] && [ -x "$iron_noopt_bin" ]; then
+        if run_with_timeout "$timeout_sec" "$TMPDIR/iron_noopt_output" "$iron_noopt_bin"; then
+            iron_noopt_output=$(cat "$TMPDIR/iron_noopt_output")
+            iron_noopt_ms=$(extract_time_ms "$iron_noopt_output")
+        fi
+    fi
+
     # ── Step 7: Compute ratio and compare ──────────────────────────────
     # Use awk for floating-point arithmetic
     ratio=$(awk "BEGIN { if ($c_ms == 0) printf \"%.1f\", $iron_ms; else printf \"%.1f\", $iron_ms / $c_ms }")
@@ -312,12 +346,31 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     c_display=$(awk "BEGIN { printf \"%d\", $c_ms + 0.5 }")
     iron_display=$(awk "BEGIN { printf \"%d\", $iron_ms + 0.5 }")
 
+    # Append compare delta to result line
+    compare_suffix=""
+    if [ $COMPARE_MODE -eq 1 ] && [ -n "$iron_noopt_ms" ]; then
+        noopt_ratio=$(awk "BEGIN { if ($c_ms == 0) printf \"%.1f\", $iron_noopt_ms; else printf \"%.1f\", $iron_noopt_ms / $c_ms }")
+        speedup_pct=$(awk "BEGIN { if ($iron_ms == 0) printf \"0.0\"; else printf \"%.1f\", ($iron_noopt_ms - $iron_ms) / $iron_noopt_ms * 100 }")
+        compare_suffix=" [opt: ${ratio}x, noopt: ${noopt_ratio}x, speedup: ${speedup_pct}%]"
+    fi
+
     if [ "$pass" -eq 1 ]; then
         passed=$((passed + 1))
-        results+=("[PASS] $problem_name: ${ratio}x speed, ${mem_ratio}x memory (threshold: ${max_ratio}x) - C: ${c_display}ms/${c_mem_kb}KB, Iron: ${iron_display}ms/${iron_mem_kb}KB")
+        results+=("[PASS] $problem_name: ${ratio}x speed, ${mem_ratio}x memory (threshold: ${max_ratio}x) - C: ${c_display}ms/${c_mem_kb}KB, Iron: ${iron_display}ms/${iron_mem_kb}KB${compare_suffix}")
     else
         failed=$((failed + 1))
-        results+=("[FAIL] $problem_name: ${ratio}x speed, ${mem_ratio}x memory (threshold: ${max_ratio}x) - C: ${c_display}ms/${c_mem_kb}KB, Iron: ${iron_display}ms/${iron_mem_kb}KB")
+        results+=("[FAIL] $problem_name: ${ratio}x speed, ${mem_ratio}x memory (threshold: ${max_ratio}x) - C: ${c_display}ms/${c_mem_kb}KB, Iron: ${iron_display}ms/${iron_mem_kb}KB${compare_suffix}")
+    fi
+
+    # Accumulate JSON for --json output
+    if [ $WRITE_JSON -eq 1 ]; then
+        local_status="pass"
+        [ "$pass" -ne 1 ] && local_status="fail"
+        if [ -n "$json_results" ]; then
+            json_results="${json_results},"
+        fi
+        json_results="${json_results}
+    {\"name\":\"${problem_name}\",\"iron_ms\":${iron_ms},\"c_ms\":${c_ms},\"ratio\":${ratio},\"max_ratio\":${max_ratio},\"status\":\"${local_status}\",\"iron_mem_kb\":${iron_mem_kb},\"c_mem_kb\":${c_mem_kb}}"
     fi
 
     # Accumulate JSON for baseline
@@ -335,6 +388,25 @@ done
 
 echo ""
 echo "Results: $passed/$total passed ($failed failed, $errors errors, $skipped skipped)"
+
+# ── Write JSON results if requested ──────────────────────────────────────────
+if [ $WRITE_JSON -eq 1 ]; then
+    commit_hash=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    today=$(date +%Y-%m-%d)
+    cat > "$JSON_FILE" <<JSON_EOF
+{
+  "date": "${today}",
+  "commit": "${commit_hash}",
+  "passed": ${passed},
+  "failed": ${failed},
+  "errors": ${errors},
+  "total": ${total},
+  "benchmarks": [${json_results}
+  ]
+}
+JSON_EOF
+    echo "JSON results written to $JSON_FILE"
+fi
 
 # ── Save baseline if requested ─────────────────────────────────────────────
 if [ $SAVE_BASELINE -eq 1 ]; then
