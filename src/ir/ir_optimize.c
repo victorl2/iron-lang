@@ -1189,6 +1189,19 @@ static bool run_dce(IronIR_Module *module) {
                         }
                     }
                 }
+                /* ARRAY_LIT: opt_collect_operands is limited to MAX_OPERANDS (64).
+                 * For large array literals (> 64 elements) the elements beyond the
+                 * limit are never seeded as live, so DCE incorrectly removes them.
+                 * Unconditionally mark ALL ARRAY_LIT elements live here. */
+                if (in->kind == IRON_IR_ARRAY_LIT) {
+                    for (int ei = 0; ei < in->array_lit.element_count; ei++) {
+                        IronIR_ValueId eid = in->array_lit.elements[ei];
+                        if (eid != IRON_IR_VALUE_INVALID && hmgeti(live, eid) < 0) {
+                            hmput(live, eid, true);
+                            arrput(worklist, eid);
+                        }
+                    }
+                }
             }
         }
 
@@ -1570,6 +1583,20 @@ void iron_ir_compute_use_counts(IronIR_Func *fn, IronIR_OptimizeInfo *info) {
                 } else {
                     IronIR_UseCountEntry e; e.key = vid; e.value = 1;
                     hmput(info->use_counts, vid, 1);
+                }
+            }
+            /* ARRAY_LIT: opt_collect_operands is limited to MAX_OPERANDS (64).
+             * For large array literals (> 64 elements), count ALL elements. */
+            if (in->kind == IRON_IR_ARRAY_LIT &&
+                in->array_lit.element_count > MAX_OPERANDS) {
+                for (int ei = MAX_OPERANDS; ei < in->array_lit.element_count; ei++) {
+                    IronIR_ValueId vid = in->array_lit.elements[ei];
+                    ptrdiff_t idx = hmgeti(info->use_counts, vid);
+                    if (idx >= 0) {
+                        info->use_counts[idx].value++;
+                    } else {
+                        hmput(info->use_counts, vid, 1);
+                    }
                 }
             }
         }
