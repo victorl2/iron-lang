@@ -114,6 +114,21 @@ static IronLIR_ValueId emit_alloca_in_entry(HIR_to_LIR_Ctx *ctx,
     return instr->id;
 }
 
+/* Emit an instruction into the entry block, ensuring it goes BEFORE any
+ * terminator.  Used for constants that need to be visible everywhere. */
+static void insert_in_entry_before_terminator(HIR_to_LIR_Ctx *ctx,
+                                               IronLIR_Instr *instr) {
+    IronLIR_Block *entry = ctx->entry_block;
+    int n = entry->instr_count;
+    if (n >= 2) {
+        IronLIR_Instr *second_last = entry->instrs[n - 2];
+        if (iron_lir_is_terminator(second_last->kind)) {
+            entry->instrs[n - 2] = instr;
+            entry->instrs[n - 1] = second_last;
+        }
+    }
+}
+
 /* ── Defer scope management ──────────────────────────────────────────────── */
 
 static void push_defer_scope(HIR_to_LIR_Ctx *ctx) {
@@ -552,6 +567,7 @@ static IronLIR_ValueId lower_short_circuit_and(HIR_to_LIR_Ctx *ctx,
     IronLIR_Instr *phi = iron_lir_phi(ctx->current_func, merge_block, bool_type, span);
     IronLIR_Instr *false_const = iron_lir_const_bool(ctx->current_func, ctx->entry_block,
                                                        false, bool_type, span);
+    insert_in_entry_before_terminator(ctx, false_const);
     iron_lir_phi_add_incoming(phi, false_const->id, left_block->id);
     iron_lir_phi_add_incoming(phi, right_val, rhs_end_block->id);
     return phi->id;
@@ -588,6 +604,7 @@ static IronLIR_ValueId lower_short_circuit_or(HIR_to_LIR_Ctx *ctx,
     IronLIR_Instr *phi = iron_lir_phi(ctx->current_func, merge_block, bool_type, span);
     IronLIR_Instr *true_const = iron_lir_const_bool(ctx->current_func, ctx->entry_block,
                                                       true, bool_type, span);
+    insert_in_entry_before_terminator(ctx, true_const);
     iron_lir_phi_add_incoming(phi, true_const->id, left_block->id);
     iron_lir_phi_add_incoming(phi, right_val, rhs_end_block->id);
     return phi->id;

@@ -376,12 +376,20 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         return;
     }
 
-    /* Step 2: Block-boundary check — only inline within same block */
+    /* Step 2: Block-boundary check — prefer inlining within same block.
+     * However, if the value IS inline-eligible (its declaration was suppressed),
+     * we MUST inline it regardless of block boundary, since emit_val would
+     * reference an undeclared variable. This is safe because inline-eligible
+     * values have exactly one use and passed ordering-hazard checks. */
     if (ctx->value_block) {
         ptrdiff_t vb_idx = hmgeti(ctx->value_block, vid);
         if (vb_idx < 0 || (IronLIR_BlockId)ctx->value_block[vb_idx].value != use_block_id) {
-            emit_val(sb, vid);
-            return;
+            /* Only bail out if the value has a declaration (not inline-eligible) */
+            if (!ctx->inline_eligible || hmgeti(ctx->inline_eligible, vid) < 0) {
+                emit_val(sb, vid);
+                return;
+            }
+            /* Otherwise: value is inline-eligible with no declaration — must inline */
         }
     }
 
