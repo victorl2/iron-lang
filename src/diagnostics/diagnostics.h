@@ -137,4 +137,14 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_LOWER_INVALID_ASSIGN      402
 #define IRON_ERR_LOWER_INVALID_MATCH       403
 
+/* HIR verifier errors (500 range) */
+#define IRON_ERR_HIR_NULL_POINTER          500
+#define IRON_ERR_HIR_USE_BEFORE_DEF        501
+#define IRON_ERR_HIR_DUPLICATE_BINDING     502
+#define IRON_ERR_HIR_TYPE_MISMATCH         503
+#define IRON_ERR_HIR_ARG_COUNT_MISMATCH    504
+#define IRON_ERR_HIR_INVALID_SCOPE         505
+#define IRON_ERR_HIR_MISSING_RETURN_VALUE  506
+#define IRON_ERR_HIR_STRUCTURAL            507
+
 #endif /* IRON_DIAGNOSTICS_H */

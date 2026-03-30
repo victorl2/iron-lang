@@ -536,4 +536,11 @@ IronHIR_Expr *iron_hir_expr_comptime(IronHIR_Module *mod, IronHIR_Expr *inner,
 IronHIR_Expr *iron_hir_expr_is(IronHIR_Module *mod, IronHIR_Expr *value,
                                 Iron_Type *check_type, Iron_Span span);
 
+/* ---- Printer ---- */
+char *iron_hir_print(const IronHIR_Module *module);
+
+/* ---- Verifier ---- */
+bool iron_hir_verify(const IronHIR_Module *module, Iron_DiagList *diags,
+                     Iron_Arena *arena);
+
 #endif /* IRON_HIR_H */
