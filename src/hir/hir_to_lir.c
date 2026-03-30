@@ -1376,6 +1376,35 @@ static void lower_block_stmts(HIR_to_LIR_Ctx *ctx, IronHIR_Block *block) {
 static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     if (hir_func->is_extern) return; /* extern functions have no body */
 
+    /* Empty-body stub functions with non-void return types (e.g., stdlib wrappers
+     * like Time.now() -> Float {}) are treated as extern stubs — the C implementation
+     * provides the body. Create the LIR function declaration but skip body generation
+     * to avoid void-return type mismatch.
+     * Void functions with empty bodies still get a body (just an entry block + void return). */
+    if (hir_func->body && hir_func->body->stmt_count == 0 &&
+        hir_func->return_type && hir_func->return_type->kind != IRON_TYPE_VOID) {
+        /* Still register the function in LIR (no body, acts like extern) */
+        Iron_Type *ret_type = hir_func->return_type;
+        int param_count = hir_func->param_count;
+        IronLIR_Param *lir_params = NULL;
+        if (param_count > 0) {
+            lir_params = (IronLIR_Param *)iron_arena_alloc(
+                ctx->lir_arena,
+                (size_t)param_count * sizeof(IronLIR_Param),
+                _Alignof(IronLIR_Param));
+            for (int p = 0; p < param_count; p++) {
+                lir_params[p].name = hir_func->params[p].name;
+                lir_params[p].type = hir_func->params[p].type;
+            }
+        }
+        IronLIR_Func *lf = find_lir_func(ctx->lir_module, hir_func->name);
+        if (!lf) {
+            iron_lir_func_create(ctx->lir_module, hir_func->name,
+                                 lir_params, param_count, ret_type);
+        }
+        return;
+    }
+
     Iron_Type *ret_type = hir_func->return_type;
     if (ret_type && ret_type->kind == IRON_TYPE_VOID) ret_type = NULL;
 
