@@ -404,7 +404,16 @@ Plans:
   2. HIR-to-LIR lowering produces SSA-form output equivalent to the current AST-to-LIR path; structured control flow is flattened to basic blocks with branches, named variables become alloca/load/store sequences
   3. All 127 benchmarks and 42+ integration tests pass through the full AST-to-HIR-to-LIR-to-C pipeline with identical behavior to the current path
   4. The old direct AST-to-LIR lowering path is removed from the codebase; the compiler has exactly one lowering pipeline (AST-to-HIR-to-LIR-to-C)
-**Plans**: TBD
+**Plans:** 1/7 plans executed
+
+Plans:
+- [ ] 20-01-PLAN.md — AST-to-HIR lowering implementation + smoke tests
+- [ ] 20-02-PLAN.md — HIR-to-LIR three-pass SSA lowering + smoke tests
+- [ ] 20-03-PLAN.md — Pipeline wiring in build.c + parity verification
+- [ ] 20-04-PLAN.md — Cutover: delete old lower files + cleanup
+- [ ] 20-05-PLAN.md — Unit test suite: AST-to-HIR (50 tests)
+- [ ] 20-06-PLAN.md — Unit test suite: HIR-to-LIR (50 tests)
+- [ ] 20-07-PLAN.md — Integration test suite (100 .iron tests)
 
 ## Progress
 
@@ -431,5 +440,5 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 16. Expression Inlining | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 18. Benchmark Validation | 4/4 | Complete    | 2026-03-30 | - |
-| 19. LIR Rename & HIR Foundation | 3/3 | Complete   | 2026-03-30 | - |
-| 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 0/0 | Not started | - |
+| 19. LIR Rename & HIR Foundation | 3/3 | Complete    | 2026-03-30 | - |
+| 20. HIR Lowering & Pipeline Cutover | 1/7 | In Progress|  | - |
