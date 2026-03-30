@@ -2179,6 +2179,179 @@ void test_h2l_nonempty_body_nonvoid_has_blocks(void) {
     TEST_ASSERT_GREATER_OR_EQUAL(1, ret_count);
 }
 
+/* ── Test: param-derived var used in while loop body passes verifier ──────
+ * Regression test for SSA rename bug where LOAD from an alloca whose stored
+ * value was a synthetic param (NULL in value_table) would set value_table
+ * entries to NULL, causing "use of undefined value" verification errors.
+ *
+ * Pattern:
+ *   func f(x: Int) -> Int {
+ *       var node = x          // var alloca, STORE with param value
+ *       while node != 0 {     // LOAD from alloca in loop header
+ *           node = node - 1   // STORE to alloca in loop body
+ *       }
+ *       return node
+ *   }
+ */
+void test_h2l_param_load_in_while_loop(void) {
+    Iron_Span span   = zero_span();
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_t = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    /* Param: x: Int */
+    IronHIR_VarId x_id = iron_hir_alloc_var(g_mod, "x", int_t, false);
+    IronHIR_Param params[1];
+    params[0].var_id = x_id;
+    params[0].name   = "x";
+    params[0].type   = int_t;
+
+    /* var node = x */
+    IronHIR_VarId node_id = iron_hir_alloc_var(g_mod, "node", int_t, true);
+    IronHIR_Expr *x_ref   = iron_hir_expr_ident(g_mod, x_id, "x", int_t, span);
+    IronHIR_Stmt *let_node = iron_hir_stmt_let(g_mod, node_id, int_t, x_ref, true, span);
+
+    /* while node != 0 { node = node - 1 } */
+    IronHIR_Expr *node_ref1 = iron_hir_expr_ident(g_mod, node_id, "node", int_t, span);
+    IronHIR_Expr *zero      = iron_hir_expr_int_lit(g_mod, 0, int_t, span);
+    IronHIR_Expr *cond      = iron_hir_expr_binop(g_mod, IRON_HIR_BINOP_NEQ,
+                                                    node_ref1, zero, bool_t, span);
+
+    /* Loop body: node = node - 1 */
+    IronHIR_Expr *node_ref2 = iron_hir_expr_ident(g_mod, node_id, "node", int_t, span);
+    IronHIR_Expr *one       = iron_hir_expr_int_lit(g_mod, 1, int_t, span);
+    IronHIR_Expr *sub       = iron_hir_expr_binop(g_mod, IRON_HIR_BINOP_SUB,
+                                                    node_ref2, one, int_t, span);
+    IronHIR_Expr *node_target = iron_hir_expr_ident(g_mod, node_id, "node", int_t, span);
+    IronHIR_Stmt *assign_node = iron_hir_stmt_assign(g_mod, node_target, sub, span);
+
+    IronHIR_Block *loop_body = iron_hir_block_create(g_mod);
+    iron_hir_block_add_stmt(loop_body, assign_node);
+
+    IronHIR_Stmt *while_stmt = iron_hir_stmt_while(g_mod, cond, loop_body, span);
+
+    /* return node */
+    IronHIR_Expr *node_ret = iron_hir_expr_ident(g_mod, node_id, "node", int_t, span);
+    IronHIR_Stmt *ret_stmt = iron_hir_stmt_return(g_mod, node_ret, span);
+
+    IronHIR_Block *body = iron_hir_block_create(g_mod);
+    iron_hir_block_add_stmt(body, let_node);
+    iron_hir_block_add_stmt(body, while_stmt);
+    iron_hir_block_add_stmt(body, ret_stmt);
+
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "countdown", params, 1, int_t);
+    fn->body = body;
+    iron_hir_module_add_func(g_mod, fn);
+
+    /* Clear diagnostics */
+    iron_diaglist_free(&g_diags);
+    g_diags = iron_diaglist_create();
+
+    IronLIR_Module *lir = iron_hir_to_lir(g_mod, NULL, NULL, &g_lir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(lir);
+
+    /* The critical check: no verification errors.
+     * Before the fix, this would produce "use of undefined value" because
+     * LOAD from param-derived alloca set value_table entries to NULL. */
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_diags.error_count,
+        "SSA rename of param-derived var in while loop should produce no errors");
+
+    IronLIR_Func *lf = NULL;
+    for (int i = 0; i < lir->func_count; i++) {
+        if (lir->funcs[i] && strcmp(lir->funcs[i]->name, "countdown") == 0) {
+            lf = lir->funcs[i]; break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(lf);
+
+    /* Should have blocks: entry, while_header, while_body, while_exit, return_exit */
+    TEST_ASSERT_GREATER_OR_EQUAL(3, lf->block_count);
+
+    /* Phi node at while header for the modified variable */
+    int phis = count_instrs_in_func(lf, IRON_LIR_PHI);
+    TEST_ASSERT_GREATER_OR_EQUAL(1, phis);
+}
+
+/* ── Test: two params used as var initializers, both loaded in while loop ──
+ * Extended regression test: ensures multiple param-derived vars work
+ * correctly through SSA construction.
+ *
+ * Pattern:
+ *   func f(a: Int, b: Int) -> Int {
+ *       var x = a
+ *       var y = b
+ *       while x != y {
+ *           x = x + 1
+ *       }
+ *       return x
+ *   }
+ */
+void test_h2l_two_params_in_while_loop(void) {
+    Iron_Span span   = zero_span();
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_t = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    /* Params: a: Int, b: Int */
+    IronHIR_VarId a_id = iron_hir_alloc_var(g_mod, "a", int_t, false);
+    IronHIR_VarId b_id = iron_hir_alloc_var(g_mod, "b", int_t, false);
+    IronHIR_Param params[2];
+    params[0].var_id = a_id; params[0].name = "a"; params[0].type = int_t;
+    params[1].var_id = b_id; params[1].name = "b"; params[1].type = int_t;
+
+    /* var x = a */
+    IronHIR_VarId x_id = iron_hir_alloc_var(g_mod, "x", int_t, true);
+    IronHIR_Expr *a_ref = iron_hir_expr_ident(g_mod, a_id, "a", int_t, span);
+    IronHIR_Stmt *let_x = iron_hir_stmt_let(g_mod, x_id, int_t, a_ref, true, span);
+
+    /* var y = b */
+    IronHIR_VarId y_id = iron_hir_alloc_var(g_mod, "y", int_t, true);
+    IronHIR_Expr *b_ref = iron_hir_expr_ident(g_mod, b_id, "b", int_t, span);
+    IronHIR_Stmt *let_y = iron_hir_stmt_let(g_mod, y_id, int_t, b_ref, true, span);
+
+    /* while x != y { x = x + 1 } */
+    IronHIR_Expr *x_ref1 = iron_hir_expr_ident(g_mod, x_id, "x", int_t, span);
+    IronHIR_Expr *y_ref1 = iron_hir_expr_ident(g_mod, y_id, "y", int_t, span);
+    IronHIR_Expr *cond   = iron_hir_expr_binop(g_mod, IRON_HIR_BINOP_NEQ,
+                                                 x_ref1, y_ref1, bool_t, span);
+
+    /* Loop body: x = x + 1 */
+    IronHIR_Expr *x_ref2 = iron_hir_expr_ident(g_mod, x_id, "x", int_t, span);
+    IronHIR_Expr *one    = iron_hir_expr_int_lit(g_mod, 1, int_t, span);
+    IronHIR_Expr *add    = iron_hir_expr_binop(g_mod, IRON_HIR_BINOP_ADD,
+                                                x_ref2, one, int_t, span);
+    IronHIR_Expr *x_target = iron_hir_expr_ident(g_mod, x_id, "x", int_t, span);
+    IronHIR_Stmt *assign_x = iron_hir_stmt_assign(g_mod, x_target, add, span);
+
+    IronHIR_Block *loop_body = iron_hir_block_create(g_mod);
+    iron_hir_block_add_stmt(loop_body, assign_x);
+
+    IronHIR_Stmt *while_stmt = iron_hir_stmt_while(g_mod, cond, loop_body, span);
+
+    /* return x */
+    IronHIR_Expr *x_ret  = iron_hir_expr_ident(g_mod, x_id, "x", int_t, span);
+    IronHIR_Stmt *ret    = iron_hir_stmt_return(g_mod, x_ret, span);
+
+    IronHIR_Block *body = iron_hir_block_create(g_mod);
+    iron_hir_block_add_stmt(body, let_x);
+    iron_hir_block_add_stmt(body, let_y);
+    iron_hir_block_add_stmt(body, while_stmt);
+    iron_hir_block_add_stmt(body, ret);
+
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "converge", params, 2, int_t);
+    fn->body = body;
+    iron_hir_module_add_func(g_mod, fn);
+
+    /* Clear diagnostics */
+    iron_diaglist_free(&g_diags);
+    g_diags = iron_diaglist_create();
+
+    IronLIR_Module *lir = iron_hir_to_lir(g_mod, NULL, NULL, &g_lir_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(lir);
+
+    /* No verification errors */
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_diags.error_count,
+        "SSA rename of two param-derived vars in while loop should produce no errors");
+}
+
 /* ── Runner ───────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2244,5 +2417,8 @@ int main(void) {
     RUN_TEST(test_h2l_short_circuit_nested);
     RUN_TEST(test_h2l_defer_cleanup_block);
     RUN_TEST(test_h2l_many_blocks);
+    /* Regression tests: param-derived vars in while loops */
+    RUN_TEST(test_h2l_param_load_in_while_loop);
+    RUN_TEST(test_h2l_two_params_in_while_loop);
     return UNITY_END();
 }
