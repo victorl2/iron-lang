@@ -1,0 +1,17 @@
+func linear_search(arr: [Int], n: Int, target: Int) -> Int {
+  var i = 0
+  while i < n {
+    if arr[i] == target {
+      return i
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+func main() {
+  val arr = [4, 7, 2, 9, 1, 5]
+  println("{linear_search(arr, 6, 9)}")
+  println("{linear_search(arr, 6, 4)}")
+  println("{linear_search(arr, 6, 3)}")
+}

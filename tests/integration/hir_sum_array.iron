@@ -1,0 +1,16 @@
+func sum(arr: [Int], n: Int) -> Int {
+  var total = 0
+  var i = 0
+  while i < n {
+    total = total + arr[i]
+    i = i + 1
+  }
+  return total
+}
+
+func main() {
+  val arr = [1, 2, 3, 4, 5]
+  println("{sum(arr, 5)}")
+  val arr2 = [10, 20, 30]
+  println("{sum(arr2, 3)}")
+}

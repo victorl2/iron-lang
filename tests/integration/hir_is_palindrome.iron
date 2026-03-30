@@ -1,0 +1,21 @@
+func is_palindrome(arr: [Int], n: Int) -> Int {
+  var left = 0
+  var right = n - 1
+  while left < right {
+    if arr[left] != arr[right] {
+      return 0
+    }
+    left = left + 1
+    right = right - 1
+  }
+  return 1
+}
+
+func main() {
+  val a = [1, 2, 3, 2, 1]
+  println("{is_palindrome(a, 5)}")
+  val b = [1, 2, 3, 4, 5]
+  println("{is_palindrome(b, 5)}")
+  val c = [5, 5]
+  println("{is_palindrome(c, 2)}")
+}

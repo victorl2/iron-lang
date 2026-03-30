@@ -1,0 +1,15 @@
+func power(base: Int, exp: Int) -> Int {
+  var result = 1
+  var i = 0
+  while i < exp {
+    result = result * base
+    i = i + 1
+  }
+  return result
+}
+
+func main() {
+  println("{power(2, 10)}")
+  println("{power(3, 4)}")
+  println("{power(5, 3)}")
+}
