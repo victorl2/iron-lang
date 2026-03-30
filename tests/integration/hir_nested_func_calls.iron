@@ -1,0 +1,19 @@
+func my_min(a: Int, b: Int) -> Int {
+  if a < b { return a }
+  return b
+}
+
+func my_max(a: Int, b: Int) -> Int {
+  if a > b { return a }
+  return b
+}
+
+func my_clamp(x: Int, lo: Int, hi: Int) -> Int {
+  return my_max(lo, my_min(x, hi))
+}
+
+func main() {
+  println("{my_clamp(5, 0, 10)}")
+  println("{my_clamp(-3, 0, 10)}")
+  println("{my_clamp(15, 0, 10)}")
+}

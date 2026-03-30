@@ -1,0 +1,18 @@
+func dot_product(a: [Int], b: [Int], n: Int) -> Int {
+  var result = 0
+  var i = 0
+  while i < n {
+    result = result + a[i] * b[i]
+    i = i + 1
+  }
+  return result
+}
+
+func main() {
+  val a = [1, 2, 3]
+  val b = [4, 5, 6]
+  println("{dot_product(a, b, 3)}")
+  val c = [1, 0, 1]
+  val d = [2, 3, 4]
+  println("{dot_product(c, d, 3)}")
+}
