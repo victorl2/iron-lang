@@ -30,7 +30,8 @@
 #include "parser/parser.h"
 #include "parser/ast.h"
 #include "analyzer/analyzer.h"
-#include "lir/lower.h"
+#include "hir/hir_lower.h"
+#include "hir/hir_to_lir.h"
 #include "lir/emit_c.h"
 #include "lir/lir_optimize.h"
 #include "lir/print.h"
@@ -805,11 +806,39 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 6. Lower AST to IR */
+    /* 6. Lower AST to HIR */
+    Iron_Arena hir_arena = iron_arena_create(256 * 1024);
+    IronHIR_Module *hir_module = iron_hir_lower((Iron_Program *)ast,
+                                               analysis.global_scope,
+                                               &hir_arena, &diags);
+    if (!hir_module || diags.error_count > 0) {
+        iron_diag_print_all(&diags, source);
+        iron_diaglist_free(&diags);
+        iron_arena_free(&hir_arena);
+        iron_arena_free(&arena);
+        free(source);
+        free(base_dir);
+        return 1;
+    }
+
+    /* 6a. Verbose: print HIR */
+    if (opts.verbose) {
+        char *hir_text = iron_hir_print(hir_module);
+        if (hir_text) {
+            fprintf(stdout, "=== Generated HIR ===\n%s\n=== End HIR ===\n\n", hir_text);
+            free(hir_text);
+        }
+    }
+
+    /* 6b. Lower HIR to LIR */
     Iron_Arena ir_arena = iron_arena_create(1024 * 1024);
-    IronLIR_Module *ir_module = iron_lir_lower((Iron_Program *)ast,
-                                              analysis.global_scope,
-                                              &ir_arena, &diags);
+    IronLIR_Module *ir_module = iron_hir_to_lir(hir_module, (Iron_Program *)ast,
+                                               analysis.global_scope,
+                                               &ir_arena, &diags);
+
+    /* Free HIR — no longer needed after LIR conversion */
+    iron_hir_module_destroy(hir_module);
+    iron_arena_free(&hir_arena);
 
     if (!ir_module || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
