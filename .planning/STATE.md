@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-06-PLAN.md
-last_updated: "2026-03-30T17:16:23.470Z"
+stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-05-PLAN.md
+last_updated: "2026-03-30T17:17:37.736Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 23
-  completed_plans: 21
+  completed_plans: 22
   percent: 0
 ---
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 20-hir-lowering-pipeline-cutover P03 | 180 | 2 tasks | 13 files |
 | Phase 20-hir-lowering-pipeline-cutover P04 | 15 | 2 tasks | 10 files |
 | Phase 20 P06 | 15 | 2 tasks | 1 files |
+| Phase 20 P05 | 20 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,7 @@ Recent decisions affecting current work:
 - [Phase 20-hir-lowering-pipeline-cutover]: test_lir_lower.c deleted entirely: too extensive to migrate (2673 lines), tested deleted code path
 - [Phase 20-hir-lowering-pipeline-cutover]: build.c hir_arena removed: iron_hir_lower() creates its own arena when passed NULL
 - [Phase 20]: param_value_id: params always get alloca+store in entry block (Phase B two-phase registration); test assertion relaxed to >= 1 alloca
+- [Phase 20-hir-lowering-pipeline-cutover]: [Phase 20-05]: 57 AST-to-HIR unit tests cover all Iron language features; iron_type_make_array requires non-null arena; table-driven test pattern for exhaustive binary op coverage
 
 ### Pending Todos
 
@@ -139,6 +141,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T17:16:23.466Z
-Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-06-PLAN.md
+Last session: 2026-03-30T17:17:37.733Z
+Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-05-PLAN.md
 Resume file: None
