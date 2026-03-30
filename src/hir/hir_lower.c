@@ -1088,42 +1088,76 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
 
-            /* Build mangled name: TypeName_methodName */
+            /* Build mangled name: typeName_methodName (lowercase first char
+             * to match Iron's C convention: Iron_time_now_ms, not Iron_Time_now_ms) */
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s_%s",
                      md->type_name, md->method_name);
+            if (mangled[0] >= 'A' && mangled[0] <= 'Z') {
+                mangled[0] = (char)(mangled[0] + ('a' - 'A'));
+            }
 
-            /* Implicit self param + explicit params */
-            int total_params = md->param_count + 1;
-            IronHIR_Param *params = (IronHIR_Param *)iron_arena_alloc(
-                mod->arena,
-                (size_t)total_params * sizeof(IronHIR_Param),
-                _Alignof(IronHIR_Param));
+            /* For empty-body stubs (C-implemented methods), skip self param
+             * to match the C runtime signature. Instance methods with bodies
+             * get self as first param. */
+            /* Stub: no body, OR body is an empty block (e.g., func Time.sleep(ms: Int) {}) */
+            bool is_stub = (!md->body);
+            if (!is_stub && md->body && md->body->kind == IRON_NODE_BLOCK) {
+                Iron_Block *blk = (Iron_Block *)md->body;
+                if (blk->stmt_count == 0) is_stub = true;
+            }
+            int total_params;
+            IronHIR_Param *params;
 
-            /* Self param: resolve to the object type by name */
-            Iron_Type *self_type = NULL;
-            if (ctx->program && md->type_name) {
-                for (int di = 0; di < ctx->program->decl_count; di++) {
-                    Iron_Node *d = ctx->program->decls[di];
-                    if (d->kind == IRON_NODE_OBJECT_DECL) {
-                        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
-                        if (strcmp(od->name, md->type_name) == 0) {
-                            self_type = iron_type_make_object(mod->arena, od);
-                            break;
+            if (is_stub) {
+                /* Stub method: only explicit params (no self) */
+                total_params = md->param_count;
+                params = NULL;
+                if (total_params > 0) {
+                    params = (IronHIR_Param *)iron_arena_alloc(
+                        mod->arena,
+                        (size_t)total_params * sizeof(IronHIR_Param),
+                        _Alignof(IronHIR_Param));
+                    for (int p = 0; p < md->param_count; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                        params[p].name   = ap->name;
+                        params[p].type   = resolve_type_ann(ctx, ap->type_ann);
+                        params[p].var_id = IRON_HIR_VAR_INVALID;
+                    }
+                }
+            } else {
+                /* Instance method: self + explicit params */
+                total_params = md->param_count + 1;
+                params = (IronHIR_Param *)iron_arena_alloc(
+                    mod->arena,
+                    (size_t)total_params * sizeof(IronHIR_Param),
+                    _Alignof(IronHIR_Param));
+
+                /* Self param: resolve to the object type by name */
+                Iron_Type *self_type = NULL;
+                if (ctx->program && md->type_name) {
+                    for (int di = 0; di < ctx->program->decl_count; di++) {
+                        Iron_Node *d = ctx->program->decls[di];
+                        if (d->kind == IRON_NODE_OBJECT_DECL) {
+                            Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+                            if (strcmp(od->name, md->type_name) == 0) {
+                                self_type = iron_type_make_object(mod->arena, od);
+                                break;
+                            }
                         }
                     }
                 }
-            }
-            params[0].name   = "self";
-            params[0].type   = self_type;
-            params[0].var_id = IRON_HIR_VAR_INVALID;
+                params[0].name   = "self";
+                params[0].type   = self_type;
+                params[0].var_id = IRON_HIR_VAR_INVALID;
 
-            /* Explicit params */
-            for (int p = 0; p < md->param_count; p++) {
-                Iron_Param *ap = (Iron_Param *)md->params[p];
-                params[p + 1].name   = ap->name;
-                params[p + 1].type   = resolve_type_ann(ctx, ap->type_ann);
-                params[p + 1].var_id = IRON_HIR_VAR_INVALID;
+                /* Explicit params */
+                for (int p = 0; p < md->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)md->params[p];
+                    params[p + 1].name   = ap->name;
+                    params[p + 1].type   = resolve_type_ann(ctx, ap->type_ann);
+                    params[p + 1].var_id = IRON_HIR_VAR_INVALID;
+                }
             }
 
             Iron_Type *ret_ty = md->resolved_return_type;
@@ -1220,6 +1254,9 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
 
     char mangled[256];
     snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
+    if (mangled[0] >= 'A' && mangled[0] <= 'Z') {
+        mangled[0] = (char)(mangled[0] + ('a' - 'A'));
+    }
 
     IronHIR_Func *fn = find_hir_func(ctx->module, mangled);
     if (!fn) return;

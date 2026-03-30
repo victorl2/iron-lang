@@ -1390,12 +1390,12 @@ static bool run_store_load_elim(IronLIR_Module *module) {
 
                 case IRON_LIR_SET_INDEX:
                     /* SET_INDEX mutates the array element — invalidate that alloca */
-                    hmdel(last_store, in->index.array);
+                    if (last_store) hmdel(last_store, in->index.array);
                     break;
 
                 case IRON_LIR_SET_FIELD:
                     /* SET_FIELD mutates a struct field — invalidate that alloca */
-                    hmdel(last_store, in->field.object);
+                    if (last_store) hmdel(last_store, in->field.object);
                     break;
 
                 case IRON_LIR_CALL:

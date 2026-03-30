@@ -99,7 +99,7 @@ static bool entry_has_alloca(IronLIR_Func *fn, const char *name_hint) {
     return false;
 }
 
-/* ── Test 1: Empty func produces LIR func with entry block + RETURN ───────── */
+/* ── Test 1: Empty-body func is treated as extern stub (no LIR body) ──────── */
 
 void test_hir_to_lir_empty_func(void) {
     Iron_Span span    = zero_span();
@@ -121,12 +121,9 @@ void test_hir_to_lir_empty_func(void) {
     TEST_ASSERT_NOT_NULL(lf);
     TEST_ASSERT_EQUAL_STRING("empty_func", lf->name);
 
-    /* Should have at least 1 block */
-    TEST_ASSERT_GREATER_OR_EQUAL(1, lf->block_count);
-
-    /* Should have a RETURN somewhere */
-    int ret_count = count_instrs_in_func(lf, IRON_LIR_RETURN);
-    TEST_ASSERT_GREATER_OR_EQUAL(1, ret_count);
+    /* Empty-body stubs are treated as extern — NO blocks generated */
+    TEST_ASSERT_EQUAL_INT(0, lf->block_count);
+    TEST_ASSERT_TRUE(lf->is_extern);
 }
 
 /* ── Test 2: Val binding — val x = 42 → direct SSA value (no alloca) ─────── */
@@ -2094,7 +2091,7 @@ void test_h2l_empty_body_nonvoid_skipped(void) {
     TEST_ASSERT_EQUAL_INT(0, lf->block_count);
 }
 
-/* Void function with empty body SHOULD still produce a body with void return */
+/* Void function with empty body is also treated as extern stub (no body) */
 void test_h2l_empty_body_void_still_has_body(void) {
     Iron_Type *void_t = iron_type_make_primitive(IRON_TYPE_VOID);
     IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_void",
@@ -2112,10 +2109,9 @@ void test_h2l_empty_body_void_still_has_body(void) {
         }
     }
     TEST_ASSERT_NOT_NULL(lf);
-    /* Void function should still have blocks + a void RETURN */
-    TEST_ASSERT_GREATER_OR_EQUAL(1, lf->block_count);
-    int ret_count = count_instrs_in_func(lf, IRON_LIR_RETURN);
-    TEST_ASSERT_GREATER_OR_EQUAL(1, ret_count);
+    /* Empty-body void stubs are also treated as extern — no body generated */
+    TEST_ASSERT_EQUAL_INT(0, lf->block_count);
+    TEST_ASSERT_TRUE(lf->is_extern);
 }
 
 /* Float return with empty body — no blocks (same as Int) */

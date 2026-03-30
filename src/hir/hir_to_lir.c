@@ -752,28 +752,72 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_METHOD_CALL: {
-        /* Mangle: TypeName_methodName, emit with self as first arg */
-        IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
-        IronLIR_ValueId *args = NULL;
-        arrput(args, self_val);
-        for (int i = 0; i < expr->method_call.arg_count; i++) {
-            IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
-            arrput(args, av);
-        }
-        int arg_count = 1 + expr->method_call.arg_count;
-
         /* Determine receiver type name for mangling */
         const char *type_name = "Unknown";
+        bool is_static_call = false;
         if (expr->method_call.object && expr->method_call.object->type) {
             Iron_Type *obj_type = expr->method_call.object->type;
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
             }
         }
-        /* Build mangled name */
+        /* Detect static method calls: receiver is a type reference, not an instance.
+         * Static calls like Time.now_ms() have the object as a FUNC_REF or IDENT
+         * referring to the type name itself, with no instance value to pass. */
+        if (expr->method_call.object) {
+            IronHIR_ExprKind ok = expr->method_call.object->kind;
+
+            /* FUNC_REF(TypeName) — most common for type-level method calls */
+            if (ok == IRON_HIR_EXPR_FUNC_REF) {
+                const char *ref_name = expr->method_call.object->func_ref.func_name;
+                if (ref_name && strcmp(ref_name, type_name) == 0) {
+                    is_static_call = true;
+                }
+            }
+            /* IDENT(TypeName) — alternative representation */
+            else if (ok == IRON_HIR_EXPR_IDENT) {
+                IronHIR_VarId vid = expr->method_call.object->ident.var_id;
+                const char *obj_name = NULL;
+                if (vid != IRON_HIR_VAR_INVALID && ctx->hir &&
+                    (ptrdiff_t)vid < arrlen(ctx->hir->name_table)) {
+                    obj_name = ctx->hir->name_table[vid].name;
+                }
+                if (obj_name && strcmp(obj_name, type_name) == 0) {
+                    is_static_call = true;
+                }
+                /* Fallback: IDENT with no alloca/val/param mapping = type ref */
+                if (!is_static_call) {
+                    ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                    ptrdiff_t vi = hmgeti(ctx->val_binding_map, vid);
+                    ptrdiff_t pi = hmgeti(ctx->param_map, vid);
+                    if (ai < 0 && vi < 0 && pi < 0) {
+                        is_static_call = true;
+                    }
+                }
+            }
+        }
+
+        /* Build args: instance methods pass self as first arg, static methods don't */
+        IronLIR_ValueId *args = NULL;
+        if (!is_static_call) {
+            IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+            arrput(args, self_val);
+        }
+        for (int i = 0; i < expr->method_call.arg_count; i++) {
+            IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+            arrput(args, av);
+        }
+        int arg_count = (int)arrlen(args);
+
+        /* Build mangled name with lowercase type name to match C convention
+         * (Iron_time_now_ms, not Iron_Time_now_ms) */
         size_t mlen = strlen(type_name) + 1 + strlen(expr->method_call.method) + 1;
         char *mangled = (char *)iron_arena_alloc(ctx->lir_arena, mlen, 1);
         snprintf(mangled, mlen, "%s_%s", type_name, expr->method_call.method);
+        /* Lowercase the first character of the type name portion */
+        if (mangled[0] >= 'A' && mangled[0] <= 'Z') {
+            mangled[0] = (char)(mangled[0] + ('a' - 'A'));
+        }
 
         IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
                                                   mangled, NULL, span);
@@ -1376,13 +1420,12 @@ static void lower_block_stmts(HIR_to_LIR_Ctx *ctx, IronHIR_Block *block) {
 static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     if (hir_func->is_extern) return; /* extern functions have no body */
 
-    /* Empty-body stub functions with non-void return types (e.g., stdlib wrappers
-     * like Time.now() -> Float {}) are treated as extern stubs — the C implementation
-     * provides the body. Create the LIR function declaration but skip body generation
-     * to avoid void-return type mismatch.
-     * Void functions with empty bodies still get a body (just an entry block + void return). */
-    if (hir_func->body && hir_func->body->stmt_count == 0 &&
-        hir_func->return_type && hir_func->return_type->kind != IRON_TYPE_VOID) {
+    /* Empty-body stub functions (e.g., stdlib wrappers like Time.now() -> Float {},
+     * Time.sleep(ms: Int) {}) are treated as extern stubs — the C implementation
+     * provides the body. Create the LIR function declaration but skip body generation.
+     * This handles both non-void stubs (return type mismatch) and void stubs
+     * (duplicate symbol if body is generated for a C-implemented function). */
+    if (hir_func->body && hir_func->body->stmt_count == 0) {
         /* Still register the function in LIR (no body, acts like extern) */
         Iron_Type *ret_type = hir_func->return_type;
         int param_count = hir_func->param_count;
@@ -1399,9 +1442,11 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         }
         IronLIR_Func *lf = find_lir_func(ctx->lir_module, hir_func->name);
         if (!lf) {
-            iron_lir_func_create(ctx->lir_module, hir_func->name,
-                                 lir_params, param_count, ret_type);
+            lf = iron_lir_func_create(ctx->lir_module, hir_func->name,
+                                      lir_params, param_count, ret_type);
         }
+        /* Mark as extern so the LIR verifier doesn't require basic blocks */
+        lf->is_extern = true;
         return;
     }
 

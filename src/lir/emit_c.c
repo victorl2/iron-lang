@@ -115,7 +115,10 @@ static const char *resolve_func_c_name(EmitCtx *ctx, const char *ir_name) {
     for (int fi = 0; fi < ctx->module->func_count; fi++) {
         IronLIR_Func *f = ctx->module->funcs[fi];
         if (strcmp(f->name, ir_name) == 0 && f->is_extern) {
-            return f->extern_c_name ? f->extern_c_name : ir_name;
+            if (f->extern_c_name) return f->extern_c_name;
+            /* No explicit extern_c_name — fall through to mangle_func_name
+             * (handles empty-body stubs that are marked extern internally) */
+            break;
         }
     }
     return mangle_func_name(ir_name, ctx->arena);
