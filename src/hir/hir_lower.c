@@ -1088,13 +1088,14 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
 
-            /* Build mangled name: typeName_methodName (lowercase first char
-             * to match Iron's C convention: Iron_time_now_ms, not Iron_Time_now_ms) */
+            /* Build mangled name: typeName_methodName (lowercase type name
+             * to match Iron's C convention: Iron_io_read_file, not Iron_IO_read_file) */
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s_%s",
                      md->type_name, md->method_name);
-            if (mangled[0] >= 'A' && mangled[0] <= 'Z') {
-                mangled[0] = (char)(mangled[0] + ('a' - 'A'));
+            for (int ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
+                if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
+                    mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
             }
 
             /* For empty-body stubs (C-implemented methods), skip self param
@@ -1254,8 +1255,9 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
 
     char mangled[256];
     snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
-    if (mangled[0] >= 'A' && mangled[0] <= 'Z') {
-        mangled[0] = (char)(mangled[0] + ('a' - 'A'));
+    for (int ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
+        if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
+            mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
     }
 
     IronHIR_Func *fn = find_hir_func(ctx->module, mangled);

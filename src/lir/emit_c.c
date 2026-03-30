@@ -1409,10 +1409,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
 
-        /* Determine if this is an extern call — extern calls need Iron_String
-         * arguments converted to const char* via iron_string_cstr(). */
+        /* Determine if this is a true C extern call — only those need Iron_String
+         * arguments converted to const char* via iron_string_cstr().
+         * Stdlib stubs (extern but no extern_c_name) expect Iron_String directly. */
         bool is_extern_call = false;
-        if (instr->call.func_decl && instr->call.func_decl->is_extern) {
+        if (instr->call.func_decl && instr->call.func_decl->is_extern &&
+            instr->call.func_decl->extern_c_name) {
             is_extern_call = true;
         } else if (!instr->call.func_decl) {
             /* Indirect call: check if the FUNC_REF target is extern */
@@ -1424,7 +1426,8 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 const char *ref_name = fn->value_table[fptr]->func_ref.func_name;
                 for (int fi = 0; fi < ctx->module->func_count; fi++) {
                     if (strcmp(ctx->module->funcs[fi]->name, ref_name) == 0 &&
-                        ctx->module->funcs[fi]->is_extern) {
+                        ctx->module->funcs[fi]->is_extern &&
+                        ctx->module->funcs[fi]->extern_c_name) {
                         is_extern_call = true;
                         break;
                     }

@@ -814,9 +814,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         size_t mlen = strlen(type_name) + 1 + strlen(expr->method_call.method) + 1;
         char *mangled = (char *)iron_arena_alloc(ctx->lir_arena, mlen, 1);
         snprintf(mangled, mlen, "%s_%s", type_name, expr->method_call.method);
-        /* Lowercase the first character of the type name portion */
-        if (mangled[0] >= 'A' && mangled[0] <= 'Z') {
-            mangled[0] = (char)(mangled[0] + ('a' - 'A'));
+        /* Lowercase the entire type name portion (e.g. IO → io, Time → time) */
+        for (size_t ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
+            if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
+                mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
         }
 
         IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
