@@ -1,4 +1,4 @@
-#include "ir/print.h"
+#include "lir/print.h"
 #include "util/strbuf.h"
 #include "util/arena.h"
 #include "analyzer/types.h"
@@ -11,8 +11,8 @@
 
 /* Resolve a block ID to its label string within a function.
  * Returns "<invalid>" if the block ID is not found. */
-static const char *resolve_block_label(const IronIR_Func *fn, IronIR_BlockId id) {
-    if (id == IRON_IR_BLOCK_INVALID) return "<invalid>";
+static const char *resolve_block_label(const IronLIR_Func *fn, IronLIR_BlockId id) {
+    if (id == IRON_LIR_BLOCK_INVALID) return "<invalid>";
     for (int i = 0; i < fn->block_count; i++) {
         if (fn->blocks[i]->id == id) {
             return fn->blocks[i]->label;
@@ -33,35 +33,35 @@ static void append_type(Iron_StrBuf *sb, const Iron_Type *type, Iron_Arena *tmp)
 
 /* ── Instruction printer ──────────────────────────────────────────────────── */
 
-static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
-                         const IronIR_Func *fn, bool show_annotations,
+static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
+                         const IronLIR_Func *fn, bool show_annotations,
                          Iron_Arena *tmp) {
     switch (instr->kind) {
 
     /* ── Constants ──────────────────────────────────────────────────────── */
 
-    case IRON_IR_CONST_INT:
+    case IRON_LIR_CONST_INT:
         iron_strbuf_appendf(sb, "  %%%u = const_int %lld : ",
                             instr->id, (long long)instr->const_int.value);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_CONST_FLOAT:
+    case IRON_LIR_CONST_FLOAT:
         iron_strbuf_appendf(sb, "  %%%u = const_float %g : ",
                             instr->id, instr->const_float.value);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_CONST_BOOL:
+    case IRON_LIR_CONST_BOOL:
         iron_strbuf_appendf(sb, "  %%%u = const_bool %s : ",
                             instr->id, instr->const_bool.value ? "true" : "false");
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_CONST_STRING:
+    case IRON_LIR_CONST_STRING:
         iron_strbuf_appendf(sb, "  %%%u = const_string \"%s\" : ",
                             instr->id,
                             instr->const_str.value ? instr->const_str.value : "");
@@ -69,7 +69,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_CONST_NULL:
+    case IRON_LIR_CONST_NULL:
         iron_strbuf_appendf(sb, "  %%%u = const_null : ", instr->id);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
@@ -77,91 +77,91 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Binary ops ─────────────────────────────────────────────────────── */
 
-    case IRON_IR_ADD:
+    case IRON_LIR_ADD:
         iron_strbuf_appendf(sb, "  %%%u = add %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_SUB:
+    case IRON_LIR_SUB:
         iron_strbuf_appendf(sb, "  %%%u = sub %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_MUL:
+    case IRON_LIR_MUL:
         iron_strbuf_appendf(sb, "  %%%u = mul %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_DIV:
+    case IRON_LIR_DIV:
         iron_strbuf_appendf(sb, "  %%%u = div %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_MOD:
+    case IRON_LIR_MOD:
         iron_strbuf_appendf(sb, "  %%%u = mod %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_EQ:
+    case IRON_LIR_EQ:
         iron_strbuf_appendf(sb, "  %%%u = eq %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_NEQ:
+    case IRON_LIR_NEQ:
         iron_strbuf_appendf(sb, "  %%%u = neq %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_LT:
+    case IRON_LIR_LT:
         iron_strbuf_appendf(sb, "  %%%u = lt %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_LTE:
+    case IRON_LIR_LTE:
         iron_strbuf_appendf(sb, "  %%%u = lte %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_GT:
+    case IRON_LIR_GT:
         iron_strbuf_appendf(sb, "  %%%u = gt %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_GTE:
+    case IRON_LIR_GTE:
         iron_strbuf_appendf(sb, "  %%%u = gte %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_AND:
+    case IRON_LIR_AND:
         iron_strbuf_appendf(sb, "  %%%u = and %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_OR:
+    case IRON_LIR_OR:
         iron_strbuf_appendf(sb, "  %%%u = or %%%u, %%%u : ",
                             instr->id, instr->binop.left, instr->binop.right);
         append_type(sb, instr->type, tmp);
@@ -170,14 +170,14 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Unary ops ──────────────────────────────────────────────────────── */
 
-    case IRON_IR_NEG:
+    case IRON_LIR_NEG:
         iron_strbuf_appendf(sb, "  %%%u = neg %%%u : ",
                             instr->id, instr->unop.operand);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_NOT:
+    case IRON_LIR_NOT:
         iron_strbuf_appendf(sb, "  %%%u = not %%%u : ",
                             instr->id, instr->unop.operand);
         append_type(sb, instr->type, tmp);
@@ -186,7 +186,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Memory ─────────────────────────────────────────────────────────── */
 
-    case IRON_IR_ALLOCA:
+    case IRON_LIR_ALLOCA:
         iron_strbuf_appendf(sb, "  %%%u = alloca ", instr->id);
         append_type(sb, instr->alloca.alloc_type, tmp);
         if (show_annotations && instr->alloca.name_hint) {
@@ -195,47 +195,47 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_LOAD:
+    case IRON_LIR_LOAD:
         iron_strbuf_appendf(sb, "  %%%u = load %%%u : ",
                             instr->id, instr->load.ptr);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_STORE:
+    case IRON_LIR_STORE:
         iron_strbuf_appendf(sb, "  store %%%u, %%%u\n",
                             instr->store.ptr, instr->store.value);
         break;
 
     /* ── Field / Index ──────────────────────────────────────────────────── */
 
-    case IRON_IR_GET_FIELD:
+    case IRON_LIR_GET_FIELD:
         iron_strbuf_appendf(sb, "  %%%u = get_field %%%u.%s : ",
                             instr->id, instr->field.object, instr->field.field);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_SET_FIELD:
+    case IRON_LIR_SET_FIELD:
         iron_strbuf_appendf(sb, "  set_field %%%u.%s, %%%u\n",
                             instr->field.object, instr->field.field, instr->field.value);
         break;
 
-    case IRON_IR_GET_INDEX:
+    case IRON_LIR_GET_INDEX:
         iron_strbuf_appendf(sb, "  %%%u = get_index %%%u[%%%u] : ",
                             instr->id, instr->index.array, instr->index.index);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_SET_INDEX:
+    case IRON_LIR_SET_INDEX:
         iron_strbuf_appendf(sb, "  set_index %%%u[%%%u], %%%u\n",
                             instr->index.array, instr->index.index, instr->index.value);
         break;
 
     /* ── Call ───────────────────────────────────────────────────────────── */
 
-    case IRON_IR_CALL: {
+    case IRON_LIR_CALL: {
         bool is_void = (instr->type == NULL);
         if (!is_void) {
             iron_strbuf_appendf(sb, "  %%%u = ", instr->id);
@@ -266,19 +266,19 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Control flow (terminators) ─────────────────────────────────────── */
 
-    case IRON_IR_JUMP:
+    case IRON_LIR_JUMP:
         iron_strbuf_appendf(sb, "  jump %s\n",
                             resolve_block_label(fn, instr->jump.target));
         break;
 
-    case IRON_IR_BRANCH:
+    case IRON_LIR_BRANCH:
         iron_strbuf_appendf(sb, "  branch %%%u, %s, %s\n",
                             instr->branch.cond,
                             resolve_block_label(fn, instr->branch.then_block),
                             resolve_block_label(fn, instr->branch.else_block));
         break;
 
-    case IRON_IR_SWITCH: {
+    case IRON_LIR_SWITCH: {
         iron_strbuf_appendf(sb, "  switch %%%u, default: %s",
                             instr->sw.subject,
                             resolve_block_label(fn, instr->sw.default_block));
@@ -296,7 +296,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         break;
     }
 
-    case IRON_IR_RETURN:
+    case IRON_LIR_RETURN:
         if (instr->ret.is_void) {
             iron_strbuf_appendf(sb, "  ret void\n");
         } else {
@@ -306,7 +306,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Cast ───────────────────────────────────────────────────────────── */
 
-    case IRON_IR_CAST:
+    case IRON_LIR_CAST:
         iron_strbuf_appendf(sb, "  %%%u = cast %%%u : ",
                             instr->id, instr->cast.value);
         append_type(sb, instr->cast.target_type, tmp);
@@ -315,7 +315,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Heap / RC / Free ───────────────────────────────────────────────── */
 
-    case IRON_IR_HEAP_ALLOC:
+    case IRON_LIR_HEAP_ALLOC:
         iron_strbuf_appendf(sb, "  %%%u = heap_alloc %%%u : ",
                             instr->id, instr->heap_alloc.inner_val);
         append_type(sb, instr->type, tmp);
@@ -326,20 +326,20 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_RC_ALLOC:
+    case IRON_LIR_RC_ALLOC:
         iron_strbuf_appendf(sb, "  %%%u = rc_alloc %%%u : ",
                             instr->id, instr->rc_alloc.inner_val);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    case IRON_IR_FREE:
+    case IRON_LIR_FREE:
         iron_strbuf_appendf(sb, "  free %%%u\n", instr->free_instr.value);
         break;
 
     /* ── Construct / Array / Slice ──────────────────────────────────────── */
 
-    case IRON_IR_CONSTRUCT: {
+    case IRON_LIR_CONSTRUCT: {
         iron_strbuf_appendf(sb, "  %%%u = construct ", instr->id);
         append_type(sb, instr->construct.type, tmp);
         iron_strbuf_appendf(sb, "(");
@@ -353,7 +353,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         break;
     }
 
-    case IRON_IR_ARRAY_LIT: {
+    case IRON_LIR_ARRAY_LIT: {
         iron_strbuf_appendf(sb, "  %%%u = array_lit [", instr->id);
         for (int i = 0; i < instr->array_lit.element_count; i++) {
             if (i > 0) iron_strbuf_appendf(sb, ", ");
@@ -365,15 +365,15 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         break;
     }
 
-    case IRON_IR_SLICE: {
+    case IRON_LIR_SLICE: {
         iron_strbuf_appendf(sb, "  %%%u = slice %%%u[", instr->id, instr->slice.array);
-        if (instr->slice.start == IRON_IR_VALUE_INVALID) {
+        if (instr->slice.start == IRON_LIR_VALUE_INVALID) {
             iron_strbuf_appendf(sb, "begin");
         } else {
             iron_strbuf_appendf(sb, "%%%u", instr->slice.start);
         }
         iron_strbuf_appendf(sb, ":");
-        if (instr->slice.end == IRON_IR_VALUE_INVALID) {
+        if (instr->slice.end == IRON_LIR_VALUE_INVALID) {
             iron_strbuf_appendf(sb, "end");
         } else {
             iron_strbuf_appendf(sb, "%%%u", instr->slice.end);
@@ -386,19 +386,19 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Null checks ────────────────────────────────────────────────────── */
 
-    case IRON_IR_IS_NULL:
+    case IRON_LIR_IS_NULL:
         iron_strbuf_appendf(sb, "  %%%u = is_null %%%u : Bool\n",
                             instr->id, instr->null_check.value);
         break;
 
-    case IRON_IR_IS_NOT_NULL:
+    case IRON_LIR_IS_NOT_NULL:
         iron_strbuf_appendf(sb, "  %%%u = is_not_null %%%u : Bool\n",
                             instr->id, instr->null_check.value);
         break;
 
     /* ── String interpolation ───────────────────────────────────────────── */
 
-    case IRON_IR_INTERP_STRING: {
+    case IRON_LIR_INTERP_STRING: {
         iron_strbuf_appendf(sb, "  %%%u = interp_string [", instr->id);
         for (int i = 0; i < instr->interp_string.part_count; i++) {
             if (i > 0) iron_strbuf_appendf(sb, ", ");
@@ -412,7 +412,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Closures / Refs ────────────────────────────────────────────────── */
 
-    case IRON_IR_MAKE_CLOSURE: {
+    case IRON_LIR_MAKE_CLOSURE: {
         iron_strbuf_appendf(sb, "  %%%u = make_closure @%s(",
                             instr->id, instr->make_closure.lifted_func_name);
         for (int i = 0; i < instr->make_closure.capture_count; i++) {
@@ -425,7 +425,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         break;
     }
 
-    case IRON_IR_FUNC_REF:
+    case IRON_LIR_FUNC_REF:
         iron_strbuf_appendf(sb, "  %%%u = func_ref @%s : ",
                             instr->id, instr->func_ref.func_name);
         append_type(sb, instr->type, tmp);
@@ -434,8 +434,8 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Concurrency ────────────────────────────────────────────────────── */
 
-    case IRON_IR_SPAWN:
-        if (instr->spawn.pool_val == IRON_IR_VALUE_INVALID) {
+    case IRON_LIR_SPAWN:
+        if (instr->spawn.pool_val == IRON_LIR_VALUE_INVALID) {
             iron_strbuf_appendf(sb, "  %%%u = spawn @%s, pool: default\n",
                                 instr->id, instr->spawn.lifted_func_name);
         } else {
@@ -445,8 +445,8 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         }
         break;
 
-    case IRON_IR_PARALLEL_FOR: {
-        if (instr->parallel_for.pool_val == IRON_IR_VALUE_INVALID) {
+    case IRON_LIR_PARALLEL_FOR: {
+        if (instr->parallel_for.pool_val == IRON_LIR_VALUE_INVALID) {
             iron_strbuf_appendf(sb, "  parallel_for %s, %%%u, chunk: @%s, pool: default",
                                 instr->parallel_for.loop_var_name,
                                 instr->parallel_for.range_val,
@@ -470,7 +470,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         break;
     }
 
-    case IRON_IR_AWAIT:
+    case IRON_LIR_AWAIT:
         iron_strbuf_appendf(sb, "  %%%u = await %%%u : ",
                             instr->id, instr->await.handle);
         append_type(sb, instr->type, tmp);
@@ -479,7 +479,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── SSA Phi ────────────────────────────────────────────────────────── */
 
-    case IRON_IR_PHI: {
+    case IRON_LIR_PHI: {
         iron_strbuf_appendf(sb, "  %%%u = phi [", instr->id);
         for (int i = 0; i < instr->phi.count; i++) {
             if (i > 0) iron_strbuf_appendf(sb, ", ");
@@ -495,7 +495,7 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
 
     /* ── Poison ─────────────────────────────────────────────────────────── */
 
-    case IRON_IR_POISON:
+    case IRON_LIR_POISON:
         iron_strbuf_appendf(sb, "  %%%u = poison", instr->id);
         if (instr->type) {
             iron_strbuf_appendf(sb, " : ");
@@ -505,15 +505,15 @@ static void print_instr(Iron_StrBuf *sb, const IronIR_Instr *instr,
         break;
 
     default:
-        assert(false && "unhandled IronIR_InstrKind in printer");
+        assert(false && "unhandled IronLIR_InstrKind in printer");
         break;
     }
 }
 
 /* ── Block printer ────────────────────────────────────────────────────────── */
 
-static void print_block(Iron_StrBuf *sb, const IronIR_Block *block,
-                         const IronIR_Func *fn, bool show_annotations,
+static void print_block(Iron_StrBuf *sb, const IronLIR_Block *block,
+                         const IronLIR_Func *fn, bool show_annotations,
                          Iron_Arena *tmp) {
     iron_strbuf_appendf(sb, "%s:", block->label);
 
@@ -533,7 +533,7 @@ static void print_block(Iron_StrBuf *sb, const IronIR_Block *block,
 
 /* ── Function printer ─────────────────────────────────────────────────────── */
 
-static void print_func(Iron_StrBuf *sb, const IronIR_Func *fn,
+static void print_func(Iron_StrBuf *sb, const IronLIR_Func *fn,
                         bool show_annotations, Iron_Arena *tmp) {
     iron_strbuf_appendf(sb, "func @%s(", fn->name);
     for (int i = 0; i < fn->param_count; i++) {
@@ -554,7 +554,7 @@ static void print_func(Iron_StrBuf *sb, const IronIR_Func *fn,
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
-char *iron_ir_print(const IronIR_Module *module, bool show_annotations) {
+char *iron_lir_print(const IronLIR_Module *module, bool show_annotations) {
     if (!module) return NULL;
 
     Iron_StrBuf sb = iron_strbuf_create(4096);
@@ -568,12 +568,12 @@ char *iron_ir_print(const IronIR_Module *module, bool show_annotations) {
 
     /* Type declarations */
     for (int i = 0; i < module->type_decl_count; i++) {
-        const IronIR_TypeDecl *td = module->type_decls[i];
+        const IronLIR_TypeDecl *td = module->type_decls[i];
         const char *kind_str;
         switch (td->kind) {
-        case IRON_IR_TYPE_OBJECT:    kind_str = "type";      break;
-        case IRON_IR_TYPE_ENUM:      kind_str = "type";      break;
-        case IRON_IR_TYPE_INTERFACE: kind_str = "interface"; break;
+        case IRON_LIR_TYPE_OBJECT:    kind_str = "type";      break;
+        case IRON_LIR_TYPE_ENUM:      kind_str = "type";      break;
+        case IRON_LIR_TYPE_INTERFACE: kind_str = "interface"; break;
         default:                     kind_str = "type";      break;
         }
         iron_strbuf_appendf(&sb, "%s @%s = ", kind_str, td->name);
@@ -583,7 +583,7 @@ char *iron_ir_print(const IronIR_Module *module, bool show_annotations) {
 
     /* Extern declarations */
     for (int i = 0; i < module->extern_decl_count; i++) {
-        const IronIR_ExternDecl *ed = module->extern_decls[i];
+        const IronLIR_ExternDecl *ed = module->extern_decls[i];
         iron_strbuf_appendf(&sb, "extern @%s(", ed->c_name);
         for (int j = 0; j < ed->param_count; j++) {
             if (j > 0) iron_strbuf_appendf(&sb, ", ");

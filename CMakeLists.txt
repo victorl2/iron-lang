@@ -72,15 +72,15 @@ add_library(iron_compiler STATIC
     src/analyzer/concurrency.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
-    src/ir/ir.c
-    src/ir/lower.c
-    src/ir/lower_types.c
-    src/ir/lower_exprs.c
-    src/ir/lower_stmts.c
-    src/ir/emit_c.c
-    src/ir/print.c
-    src/ir/verify.c
-    src/ir/ir_optimize.c
+    src/lir/lir.c
+    src/lir/lower.c
+    src/lir/lower_types.c
+    src/lir/lower_exprs.c
+    src/lir/lower_stmts.c
+    src/lir/emit_c.c
+    src/lir/print.c
+    src/lir/verify.c
+    src/lir/lir_optimize.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 target_link_libraries(iron_compiler iron_runtime)
@@ -103,7 +103,7 @@ endif()
 enable_testing()
 
 add_subdirectory(tests/unit)
-add_subdirectory(tests/ir)
+add_subdirectory(tests/lir)
 add_subdirectory(tests/integration)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
