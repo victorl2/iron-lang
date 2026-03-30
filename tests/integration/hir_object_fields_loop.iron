@@ -1,0 +1,13 @@
+object Item {
+  var id: Int
+  var score: Int
+}
+
+func main() {
+  val i1 = Item(1, 10)
+  val i2 = Item(2, 20)
+  val i3 = Item(3, 30)
+  println("id:{i1.id} score:{i1.score}")
+  println("id:{i2.id} score:{i2.score}")
+  println("id:{i3.id} score:{i3.score}")
+}

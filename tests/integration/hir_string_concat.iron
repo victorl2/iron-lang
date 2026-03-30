@@ -1,0 +1,11 @@
+func greet(name: String, title: String) -> String {
+  return "Hello {title} {name}"
+}
+
+func main() {
+  println(greet("Alice", "Dr"))
+  println(greet("Bob", "Mr"))
+  val prefix = "iron"
+  val suffix = "lang"
+  println("{prefix}-{suffix}")
+}

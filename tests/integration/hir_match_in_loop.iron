@@ -1,0 +1,15 @@
+func category(n: Int) -> String {
+  match n {
+    0 { return "zero" }
+    1 { return "one" }
+    2 { return "two" }
+    else { return "many" }
+  }
+  return "many"
+}
+
+func main() {
+  for i in range(5) {
+    println(category(i))
+  }
+}

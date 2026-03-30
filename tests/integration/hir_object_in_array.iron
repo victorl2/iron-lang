@@ -1,0 +1,13 @@
+object Pair {
+  var a: Int
+  var b: Int
+}
+
+func main() {
+  val p1 = Pair(1, 2)
+  val p2 = Pair(3, 4)
+  val p3 = Pair(5, 6)
+  println("{p1.a + p1.b}")
+  println("{p2.a + p2.b}")
+  println("{p3.a + p3.b}")
+}

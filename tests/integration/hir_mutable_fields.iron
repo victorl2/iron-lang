@@ -1,0 +1,13 @@
+object Counter {
+  var value: Int
+}
+
+func main() {
+  var c = Counter(0)
+  c.value = c.value + 5
+  println("{c.value}")
+  c.value = c.value + 3
+  println("{c.value}")
+  c.value = 100
+  println("{c.value}")
+}

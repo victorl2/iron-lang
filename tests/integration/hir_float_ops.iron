@@ -1,0 +1,10 @@
+func main() {
+  val x = 3.14
+  val y = 2.0
+  val sum = x + y
+  println("{sum}")
+  val n = Int(x)
+  println("{n}")
+  val f = Float(42)
+  println("{f}")
+}
