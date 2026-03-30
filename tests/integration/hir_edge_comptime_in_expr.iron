@@ -1,0 +1,12 @@
+val SIZE = comptime 3 * 3
+
+func main() {
+  println("{SIZE}")
+  var arr = fill(SIZE, 0)
+  for i in range(SIZE) {
+    arr[i] = i + 1
+  }
+  println("{len(arr)}")
+  println("{arr[0]}")
+  println("{arr[8]}")
+}

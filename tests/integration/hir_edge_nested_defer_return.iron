@@ -1,0 +1,17 @@
+func process(n: Int) -> String {
+  defer println("outer")
+  if n > 0 {
+    defer println("inner")
+    if n > 10 {
+      return "large"
+    }
+    return "medium"
+  }
+  return "small"
+}
+
+func main() {
+  println(process(0))
+  println(process(5))
+  println(process(15))
+}

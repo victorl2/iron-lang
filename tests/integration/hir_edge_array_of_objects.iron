@@ -1,0 +1,23 @@
+object Point {
+  var x: Int
+  var y: Int
+}
+
+func sum_coords(points: [Point], n: Int) -> Int {
+  var total = 0
+  var i = 0
+  while i < n {
+    total = total + points[i].x + points[i].y
+    i = i + 1
+  }
+  return total
+}
+
+func main() {
+  val pts = [Point(1, 2), Point(3, 4), Point(5, 6)]
+  println("{sum_coords(pts, 3)}")
+  val p0 = pts[0]
+  val p2 = pts[2]
+  println("{p0.x}")
+  println("{p2.y}")
+}

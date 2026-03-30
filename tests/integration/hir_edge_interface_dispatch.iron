@@ -1,0 +1,27 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Rect {
+  var width: Int
+  var height: Int
+}
+
+object Square {
+  var side: Int
+}
+
+func Rect.area() -> Int {
+  return self.width * self.height
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val r = Rect(4, 5)
+  val s = Square(6)
+  println("{r.area()}")
+  println("{s.area()}")
+}
