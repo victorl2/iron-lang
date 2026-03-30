@@ -561,9 +561,9 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         }
 
         int arm_count = (int)arrlen(arms);
+        /* NOTE: arms stb_ds array ownership transfers to the HIR stmt — do NOT arrfree */
         IronHIR_Stmt *s = iron_hir_stmt_match(mod, scrut, arms, arm_count, span);
         iron_hir_block_add_stmt(blk, s);
-        arrfree(arms);
         return NULL;
     }
 
@@ -708,10 +708,9 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             arrput(parts, p);
         }
         int part_count = (int)arrlen(parts);
-        IronHIR_Expr *result = iron_hir_expr_interp_string(mod, parts, part_count,
-                                                             is->resolved_type, span);
-        arrfree(parts);
-        return result;
+        /* NOTE: parts stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        return iron_hir_expr_interp_string(mod, parts, part_count,
+                                           is->resolved_type, span);
     }
 
     /* ── Bool literal ────────────────────────────────────────────────────── */
@@ -835,10 +834,9 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         }
         int arg_count = (int)arrlen(args);
         IronHIR_Expr *callee = lower_expr_hir(ctx, ce->callee);
-        IronHIR_Expr *result = iron_hir_expr_call(mod, callee, args, arg_count,
-                                                    ce->resolved_type, span);
-        arrfree(args);
-        return result;
+        /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        return iron_hir_expr_call(mod, callee, args, arg_count,
+                                   ce->resolved_type, span);
     }
 
     /* ── Method call ─────────────────────────────────────────────────────── */
@@ -851,11 +849,10 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         }
         int arg_count = (int)arrlen(args);
         IronHIR_Expr *obj  = lower_expr_hir(ctx, mc->object);
-        IronHIR_Expr *result = iron_hir_expr_method_call(mod, obj, mc->method,
-                                                           args, arg_count,
-                                                           mc->resolved_type, span);
-        arrfree(args);
-        return result;
+        /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        return iron_hir_expr_method_call(mod, obj, mc->method,
+                                          args, arg_count,
+                                          mc->resolved_type, span);
     }
 
     /* ── Field access ────────────────────────────────────────────────────── */
@@ -969,11 +966,8 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             arrput(vals, v);
         }
         int fc = (int)arrlen(names);
-        IronHIR_Expr *result = iron_hir_expr_construct(mod, ty, names, vals,
-                                                         fc, span);
-        arrfree(names);
-        arrfree(vals);
-        return result;
+        /* NOTE: names and vals stb_ds arrays ownership transfers to the HIR expr — do NOT arrfree */
+        return iron_hir_expr_construct(mod, ty, names, vals, fc, span);
     }
 
     /* ── Array literal ───────────────────────────────────────────────────── */
@@ -989,10 +983,9 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         if (al->resolved_type && al->resolved_type->kind == IRON_TYPE_ARRAY) {
             elem_ty = al->resolved_type->array.elem;
         }
-        IronHIR_Expr *result = iron_hir_expr_array_lit(mod, elem_ty, elems, ec,
-                                                         al->resolved_type, span);
-        arrfree(elems);
-        return result;
+        /* NOTE: elems stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        return iron_hir_expr_array_lit(mod, elem_ty, elems, ec,
+                                       al->resolved_type, span);
     }
 
     /* ── Await ───────────────────────────────────────────────────────────── */
