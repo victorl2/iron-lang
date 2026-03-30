@@ -26,10 +26,10 @@ Requirements for IR optimization and High IR architecture milestone. Each maps t
 
 ### High IR Architecture
 
-- [ ] **HIR-01**: HIR data structures represent structured control flow (if/else, for, while, match as tree nodes, not CFG)
-- [ ] **HIR-02**: HIR preserves named variables with let/mut binding semantics and lexical scopes
-- [ ] **HIR-03**: HIR represents method calls, field access, and array indexing at language level
-- [ ] **HIR-04**: HIR represents closures, spawn, parallel-for, and defer as first-class constructs
+- [x] **HIR-01**: HIR data structures represent structured control flow (if/else, for, while, match as tree nodes, not CFG)
+- [x] **HIR-02**: HIR preserves named variables with let/mut binding semantics and lexical scopes
+- [x] **HIR-03**: HIR represents method calls, field access, and array indexing at language level
+- [x] **HIR-04**: HIR represents closures, spawn, parallel-for, and defer as first-class constructs
 - [ ] **HIR-05**: AST-to-HIR lowering pass covers all Iron language features and produces a valid HIR module
 - [ ] **HIR-06**: HIR-to-LIR lowering pass produces equivalent SSA-form output to the current AST-to-LIR path
 - [ ] **HIR-07**: HIR printer outputs human-readable representation that resembles Iron source
@@ -87,10 +87,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BENCH-03 | Phase 18 | Complete |
 | BENCH-04 | Phase 18 | Complete |
 | BENCH-05 | Phase 18 | Complete |
-| HIR-01 | Phase 19 | Pending |
-| HIR-02 | Phase 19 | Pending |
-| HIR-03 | Phase 19 | Pending |
-| HIR-04 | Phase 19 | Pending |
+| HIR-01 | Phase 19 | Complete |
+| HIR-02 | Phase 19 | Complete |
+| HIR-03 | Phase 19 | Complete |
+| HIR-04 | Phase 19 | Complete |
 | HIR-05 | Phase 20 | Pending |
 | HIR-06 | Phase 20 | Pending |
 | HIR-07 | Phase 19 | Pending |
