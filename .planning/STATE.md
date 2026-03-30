@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-01-PLAN.md
-last_updated: "2026-03-30T14:50:42.081Z"
+stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-02-PLAN.md
+last_updated: "2026-03-30T15:06:31.878Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 23
-  completed_plans: 17
+  completed_plans: 18
   percent: 0
 ---
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 19-lir-rename-hir-foundation P02 | 10 | 2 tasks | 5 files |
 | Phase 19-lir-rename-hir-foundation P03 | 840 | 2 tasks | 10 files |
 | Phase 20-hir-lowering-pipeline-cutover P01 | 9 | 2 tasks | 5 files |
+| Phase 20-hir-lowering-pipeline-cutover PP02 | 15 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,9 @@ Recent decisions affecting current work:
 - [Phase 19-lir-rename-hir-foundation]: HIR printer handles NULL types as '?'; verifier uses stb_ds hmput scope stack; HIR error codes in 500 range
 - [Phase 20-hir-lowering-pipeline-cutover]: stb_ds array ownership transfers to HIR constructors — callers must NOT arrfree arrays passed to iron_hir_expr_call/method_call after construction
 - [Phase 20-hir-lowering-pipeline-cutover]: HIR scope stack uses stb_ds array of ScopeFrame* hash maps; stb_ds array ownership transfers to HIR constructors
+- [Phase 20-hir-lowering-pipeline-cutover]: Two-phase param registration: all synthetic param ValueIds allocated contiguously (1..param_count) before allocas for LIR verifier compliance
+- [Phase 20-hir-lowering-pipeline-cutover]: HIR-to-LIR uses alloca for both val/var uniformly; SSA Pass 2 renames to direct values and phis
+- [Phase 20-hir-lowering-pipeline-cutover]: rebuild_cfg_edges/build_domtree duplicated in hir_to_lir.c (static in lir_optimize.c); keeps lowering self-contained
 
 ### Pending Todos
 
@@ -124,6 +128,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T14:50:42.078Z
-Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-01-PLAN.md
+Last session: 2026-03-30T15:06:31.875Z
+Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-02-PLAN.md
 Resume file: None
