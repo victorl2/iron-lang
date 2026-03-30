@@ -1,0 +1,8 @@
+extern func strlen(s: String) -> Int
+
+func main() {
+  val n = strlen("hello")
+  println("{n}")
+  val n2 = strlen("iron lang")
+  println("{n2}")
+}

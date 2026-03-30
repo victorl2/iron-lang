@@ -1,0 +1,8 @@
+-- hir_import_io: I/O via extern puts
+extern func puts(s: String) -> Int
+
+func main() {
+  puts("io line 1")
+  puts("io line 2")
+  println("io done")
+}
