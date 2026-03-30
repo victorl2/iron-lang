@@ -1,0 +1,13 @@
+object Person {
+  var name: String
+  var age: Int
+}
+
+func main() {
+  val p = Person("Alice", 30)
+  println(p.name)
+  println("{p.age}")
+  val q = Person("Bob", 25)
+  println(q.name)
+  println("{q.age}")
+}

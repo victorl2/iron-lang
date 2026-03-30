@@ -1,0 +1,10 @@
+object Data {
+  var values: [Int]
+}
+
+func main() {
+  val d = Data([10, 20, 30, 40, 50])
+  println("{d.values[0]}")
+  println("{d.values[2]}")
+  println("{d.values[4]}")
+}

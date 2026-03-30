@@ -1,0 +1,15 @@
+-- Generic-style: Using multiple concrete types to verify type system
+object IntBox {
+  var value: Int
+}
+
+object StringBox {
+  var value: String
+}
+
+func main() {
+  val ib = IntBox(42)
+  val sb = StringBox("hello")
+  println("{ib.value}")
+  println(sb.value)
+}

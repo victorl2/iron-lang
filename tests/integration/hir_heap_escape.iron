@@ -1,0 +1,13 @@
+-- hir_heap_escape: heap allocation accessed in main scope
+object Item {
+  var value: Int
+}
+
+func main() {
+  val a = heap Item(42)
+  val b = heap Item(100)
+  println("{a.value}")
+  println("{b.value}")
+  val c = heap Item(a.value + b.value)
+  println("{c.value}")
+}

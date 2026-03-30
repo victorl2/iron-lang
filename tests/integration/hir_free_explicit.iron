@@ -1,0 +1,12 @@
+object Node {
+  var id: Int
+  var label: String
+}
+
+func main() {
+  val n = heap Node(1, "first")
+  println("{n.id}")
+  println(n.label)
+  free(n)
+  println("freed ok")
+}
