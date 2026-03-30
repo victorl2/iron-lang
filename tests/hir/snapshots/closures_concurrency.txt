@@ -1,0 +1,16 @@
+FuncDecl(concurrent) -> ?
+  Block
+    LetStmt(f: ?)
+      Closure
+        Param(x: Int)
+        Block
+          ReturnStmt
+            Ident(x)
+    DeferStmt
+      Block
+        ExprStmt
+          Literal(0)
+    SpawnStmt
+      Block
+        ExprStmt
+          Literal(1)

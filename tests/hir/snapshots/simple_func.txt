@@ -1,0 +1,10 @@
+FuncDecl(add) -> Int
+  Param(x: Int)
+  Param(y: Int)
+  Block
+    LetStmt(result: Int)
+      BinOp(+)
+        Ident(x)
+        Ident(y)
+    ReturnStmt
+      Ident(result)
