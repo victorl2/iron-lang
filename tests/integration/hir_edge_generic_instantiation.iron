@@ -1,0 +1,29 @@
+-- Generic-style: multiple concrete type instantiations
+object IntWrapper {
+  var value: Int
+}
+
+object FloatWrapper {
+  var value: Float
+}
+
+object StringWrapper {
+  var value: String
+}
+
+func IntWrapper.doubled() -> Int {
+  return self.value * 2
+}
+
+func FloatWrapper.doubled() -> Float {
+  return self.value * 2.0
+}
+
+func main() {
+  val iw = IntWrapper(21)
+  val fw = FloatWrapper(3.14)
+  val sw = StringWrapper("hello")
+  println("{iw.doubled()}")
+  println("{iw.value}")
+  println(sw.value)
+}

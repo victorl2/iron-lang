@@ -1,0 +1,20 @@
+-- Test lambda composition without outer-variable capture
+func main() {
+  val inc = func(x: Int) -> Int {
+    return x + 1
+  }
+  val dbl = func(x: Int) -> Int {
+    return x * 2
+  }
+  val square = func(x: Int) -> Int {
+    return x * x
+  }
+  val r1 = inc(inc(inc(5)))
+  println("{r1}")
+  val r2 = dbl(dbl(3))
+  println("{r2}")
+  val r3 = square(inc(4))
+  println("{r3}")
+  val r4 = inc(square(3))
+  println("{r4}")
+}

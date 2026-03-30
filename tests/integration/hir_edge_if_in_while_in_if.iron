@@ -1,0 +1,19 @@
+func compute(outer: Int, inner_max: Int) -> Int {
+  var total = 0
+  if outer > 0 {
+    var i = 0
+    while i < inner_max {
+      if i * 2 < inner_max {
+        total = total + i
+      }
+      i = i + 1
+    }
+  }
+  return total
+}
+
+func main() {
+  println("{compute(1, 6)}")
+  println("{compute(0, 6)}")
+  println("{compute(2, 4)}")
+}

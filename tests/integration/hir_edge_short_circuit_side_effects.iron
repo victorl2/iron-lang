@@ -1,0 +1,23 @@
+func check_pos(n: Int) -> Int {
+  if n > 0 {
+    return 1
+  }
+  return 0
+}
+
+func check_range(n: Int, lo: Int, hi: Int) -> Int {
+  if n >= lo {
+    if n <= hi {
+      return 1
+    }
+  }
+  return 0
+}
+
+func main() {
+  println("{check_pos(5)}")
+  println("{check_pos(-3)}")
+  println("{check_range(5, 1, 10)}")
+  println("{check_range(15, 1, 10)}")
+  println("{check_range(0, 1, 10)}")
+}
