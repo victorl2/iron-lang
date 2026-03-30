@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-02-PLAN.md
-last_updated: "2026-03-30T15:06:31.878Z"
+stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-03-PLAN.md
+last_updated: "2026-03-30T16:55:10.134Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 23
-  completed_plans: 18
+  completed_plans: 19
   percent: 0
 ---
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 19-lir-rename-hir-foundation P03 | 840 | 2 tasks | 10 files |
 | Phase 20-hir-lowering-pipeline-cutover P01 | 9 | 2 tasks | 5 files |
 | Phase 20-hir-lowering-pipeline-cutover PP02 | 15 | 2 tasks | 5 files |
+| Phase 20-hir-lowering-pipeline-cutover P03 | 180 | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,11 @@ Recent decisions affecting current work:
 - [Phase 20-hir-lowering-pipeline-cutover]: Two-phase param registration: all synthetic param ValueIds allocated contiguously (1..param_count) before allocas for LIR verifier compliance
 - [Phase 20-hir-lowering-pipeline-cutover]: HIR-to-LIR uses alloca for both val/var uniformly; SSA Pass 2 renames to direct values and phis
 - [Phase 20-hir-lowering-pipeline-cutover]: rebuild_cfg_edges/build_domtree duplicated in hir_to_lir.c (static in lir_optimize.c); keeps lowering self-contained
+- [Phase 20-hir-lowering-pipeline-cutover]: Immutable val bindings skip alloca — lowered directly to SSA value via val_binding_map
+- [Phase 20-hir-lowering-pipeline-cutover]: Closures emit only MAKE_CLOSURE in hir_to_lir; flatten_func handles LIR function creation — prevents double SSA
+- [Phase 20-hir-lowering-pipeline-cutover]: lifted_name stored in HIR nodes at construction time — avoids counter drift between hir_lower.c and hir_to_lir.c
+- [Phase 20-hir-lowering-pipeline-cutover]: BFS reachability in verify.c and emit_c.c — dead blocks skipped in verifier, replaced with __builtin_unreachable() in emitter
+- [Phase 20-hir-lowering-pipeline-cutover]: ssa_done flag on IronLIR_Func prevents re-running SSA on already-processed lifted functions
 
 ### Pending Todos
 
@@ -128,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T15:06:31.875Z
-Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-02-PLAN.md
+Last session: 2026-03-30T16:55:10.131Z
+Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-03-PLAN.md
 Resume file: None
