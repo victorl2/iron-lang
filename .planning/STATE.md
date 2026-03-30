@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-03-PLAN.md
-last_updated: "2026-03-30T16:55:10.134Z"
+stopped_at: Completed 20-hir-lowering-pipeline-cutover/20-04-PLAN.md
+last_updated: "2026-03-30T17:06:18.716Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 23
-  completed_plans: 19
+  completed_plans: 20
   percent: 0
 ---
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 20-hir-lowering-pipeline-cutover P01 | 9 | 2 tasks | 5 files |
 | Phase 20-hir-lowering-pipeline-cutover PP02 | 15 | 2 tasks | 5 files |
 | Phase 20-hir-lowering-pipeline-cutover P03 | 180 | 2 tasks | 13 files |
+| Phase 20-hir-lowering-pipeline-cutover P04 | 15 | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,8 @@ Recent decisions affecting current work:
 - [Phase 20-hir-lowering-pipeline-cutover]: lifted_name stored in HIR nodes at construction time — avoids counter drift between hir_lower.c and hir_to_lir.c
 - [Phase 20-hir-lowering-pipeline-cutover]: BFS reachability in verify.c and emit_c.c — dead blocks skipped in verifier, replaced with __builtin_unreachable() in emitter
 - [Phase 20-hir-lowering-pipeline-cutover]: ssa_done flag on IronLIR_Func prevents re-running SSA on already-processed lifted functions
+- [Phase 20-hir-lowering-pipeline-cutover]: test_lir_lower.c deleted entirely: too extensive to migrate (2673 lines), tested deleted code path
+- [Phase 20-hir-lowering-pipeline-cutover]: build.c hir_arena removed: iron_hir_lower() creates its own arena when passed NULL
 
 ### Pending Todos
 
@@ -134,6 +137,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T16:55:10.131Z
-Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-03-PLAN.md
+Last session: 2026-03-30T17:06:18.713Z
+Stopped at: Completed 20-hir-lowering-pipeline-cutover/20-04-PLAN.md
 Resume file: None
