@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 17-03-PLAN.md
-last_updated: "2026-03-29T23:26:19.908Z"
+stopped_at: Completed 18-benchmark-validation-02-PLAN.md
+last_updated: "2026-03-30T00:43:55.013Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 13
+  completed_plans: 10
   percent: 0
 ---
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 17-strength-reduction-store-load-elimination P01 | 60 | 1 tasks | 3 files |
 | Phase 17-strength-reduction-store-load-elimination P02 | 32 | 1 tasks | 3 files |
 | Phase 17-strength-reduction-store-load-elimination P03 | 9 | 2 tasks | 4 files |
+| Phase 18-benchmark-validation P02 | 2 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Recent decisions affecting current work:
 - [Phase 17-02]: MUL rewritten in-place: load.ptr overlaps binop.left in union — never set binop.left after setting load.ptr
 - [Phase 17-03]: Integration tests use 'func' keyword (not 'fun') per existing Iron source convention
 - [Phase 17-03]: benchmark_smoke timeout is pre-existing (merge_k_sorted_lists Iron compilation failure); all 26 non-benchmark tests pass 0/0 failures
+- [Phase 18-benchmark-validation]: JSON benchmarks array only receives entries for fully-measured benchmarks; errors/skipped counted in top-level fields only
+- [Phase 18-benchmark-validation]: --compare mode degrades gracefully when no-opt binary build fails; compare_suffix omitted for that benchmark
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T23:26:19.905Z
-Stopped at: Completed 17-03-PLAN.md
+Last session: 2026-03-30T00:43:55.010Z
+Stopped at: Completed 18-benchmark-validation-02-PLAN.md
 Resume file: None
