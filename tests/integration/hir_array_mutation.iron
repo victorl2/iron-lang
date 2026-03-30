@@ -1,0 +1,9 @@
+func main() {
+  var arr = fill(3, 0)
+  arr[0] = 10
+  arr[1] = 42
+  arr[2] = 99
+  println("{arr[0]}")
+  println("{arr[1]}")
+  println("{arr[2]}")
+}

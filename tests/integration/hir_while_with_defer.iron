@@ -1,0 +1,10 @@
+func do_work() {
+  defer println("done")
+  println("work")
+}
+
+func main() {
+  do_work()
+  do_work()
+  do_work()
+}

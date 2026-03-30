@@ -1,0 +1,10 @@
+func main() {
+  val a = 6
+  val b = 3
+  val c = 2
+  val d = 1
+  val result = (a + b) * (a - d) / c
+  println("{result}")
+  val r2 = a * b + c * d
+  println("{r2}")
+}

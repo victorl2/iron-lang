@@ -1,0 +1,20 @@
+-- hir_nested_closures: Lambda composition patterns
+func main() {
+  val double = func(x: Int) -> Int {
+    return x * 2
+  }
+  val add_one = func(x: Int) -> Int {
+    return x + 1
+  }
+  val square = func(x: Int) -> Int {
+    return x * x
+  }
+  val a = double(3)
+  val b = add_one(a)
+  val c = square(b)
+  println("{a}")
+  println("{b}")
+  println("{c}")
+  val r = double(add_one(square(2)))
+  println("{r}")
+}

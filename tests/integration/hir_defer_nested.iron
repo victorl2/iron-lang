@@ -1,0 +1,6 @@
+func main() {
+  defer println("3")
+  defer println("2")
+  defer println("1")
+  println("body")
+}

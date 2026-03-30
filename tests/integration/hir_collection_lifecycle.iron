@@ -1,0 +1,11 @@
+func main() {
+  var arr = fill(5, 0)
+  for i in range(5) {
+    arr[i] = i * i
+  }
+  var sum = 0
+  for x in arr {
+    sum = sum + x
+  }
+  println("{sum}")
+}

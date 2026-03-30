@@ -1,0 +1,21 @@
+object Vec2 {
+  var x: Int
+  var y: Int
+}
+
+func Vec2.length_sq() -> Int {
+  return self.x * self.x + self.y * self.y
+}
+
+func Vec2.manhattan() -> Int {
+  return self.x + self.y
+}
+
+func main() {
+  val v1 = Vec2(3, 4)
+  val v2 = Vec2(5, 12)
+  println("{v1.length_sq()}")
+  println("{v1.manhattan()}")
+  println("{v2.length_sq()}")
+  println("{v2.manhattan()}")
+}
