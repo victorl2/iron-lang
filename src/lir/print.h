@@ -1,9 +1,9 @@
-#ifndef IRON_IR_PRINT_H
-#define IRON_IR_PRINT_H
+#ifndef IRON_LIR_PRINT_H
+#define IRON_LIR_PRINT_H
 
-#include "ir/ir.h"
+#include "lir/lir.h"
 
 /* Print IR module to human-readable text. Returns heap-allocated string (caller frees). */
-char *iron_ir_print(const IronIR_Module *module, bool show_annotations);
+char *iron_lir_print(const IronLIR_Module *module, bool show_annotations);
 
-#endif /* IRON_IR_PRINT_H */
+#endif /* IRON_LIR_PRINT_H */

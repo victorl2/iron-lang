@@ -1,8 +1,8 @@
-#ifndef IRON_IR_LOWER_INTERNAL_H
-#define IRON_IR_LOWER_INTERNAL_H
+#ifndef IRON_LIR_LOWER_INTERNAL_H
+#define IRON_LIR_LOWER_INTERNAL_H
 
-#include "ir/ir.h"
-#include "ir/lower.h"
+#include "lir/lir.h"
+#include "lir/lower.h"
 #include "parser/ast.h"
 #include "analyzer/scope.h"
 #include "analyzer/types.h"
@@ -35,20 +35,20 @@ typedef struct {
     Iron_DiagList   *diags;
 
     /* Output being built */
-    IronIR_Module   *module;
+    IronLIR_Module   *module;
 
     /* Current function being lowered */
-    IronIR_Func     *current_func;
-    IronIR_Block    *current_block;
+    IronLIR_Func     *current_func;
+    IronLIR_Block    *current_block;
 
     /* val binding table: name -> ValueId (immutable, no alloca) */
-    struct { char *key; IronIR_ValueId value; } *val_binding_map;
+    struct { char *key; IronLIR_ValueId value; } *val_binding_map;
 
     /* var alloca table: name -> ValueId of alloca instruction */
-    struct { char *key; IronIR_ValueId value; } *var_alloca_map;
+    struct { char *key; IronLIR_ValueId value; } *var_alloca_map;
 
     /* Function parameter ValueId table: name -> ValueId */
-    struct { char *key; IronIR_ValueId value; } *param_map;
+    struct { char *key; IronLIR_ValueId value; } *param_map;
 
     /* Defer stack: stb_ds array of (stb_ds array of Iron_Node*) */
     Iron_Node  ***defer_stacks;
@@ -62,8 +62,8 @@ typedef struct {
     const char    *current_func_name;
 
     /* Loop context for break/continue */
-    IronIR_Block  *loop_exit_block;
-    IronIR_Block  *loop_continue_block;
+    IronLIR_Block  *loop_exit_block;
+    IronLIR_Block  *loop_continue_block;
     int            loop_scope_depth;
 
     /* Global constant table: name -> Iron_Node* init expression
@@ -75,41 +75,41 @@ typedef struct {
      * When a global var is lazily lowered, it uses alloca+store instead of
      * val_binding_map, so mutations (e.g., arr[i] = x) work correctly. */
     struct { char *key; int value; } *global_mutable_set;
-} IronIR_LowerCtx;
+} IronLIR_LowerCtx;
 
 /* ── Shared helper declarations (defined in lower.c) ─────────────────── */
 
 /* Lower a single expression node, returning its ValueId */
-IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node);
+IronLIR_ValueId lower_expr(IronLIR_LowerCtx *ctx, Iron_Node *node);
 
 /* Lower a single statement node */
-void lower_stmt(IronIR_LowerCtx *ctx, Iron_Node *node);
+void lower_stmt(IronLIR_LowerCtx *ctx, Iron_Node *node);
 
 /* Create a new basic block and append to current function */
-IronIR_Block *new_block(IronIR_LowerCtx *ctx, const char *label);
+IronLIR_Block *new_block(IronLIR_LowerCtx *ctx, const char *label);
 
 /* Switch current_block to the given block */
-void switch_block(IronIR_LowerCtx *ctx, IronIR_Block *block);
+void switch_block(IronLIR_LowerCtx *ctx, IronLIR_Block *block);
 
 /* Emit deferred calls from current scope down to target_depth */
-void emit_defers_ir(IronIR_LowerCtx *ctx, int target_depth);
+void emit_defers_ir(IronLIR_LowerCtx *ctx, int target_depth);
 
 /* Emit a poison instruction as error placeholder, returns its ValueId */
-IronIR_ValueId emit_poison(IronIR_LowerCtx *ctx, Iron_Type *type, Iron_Span span);
+IronLIR_ValueId emit_poison(IronLIR_LowerCtx *ctx, Iron_Type *type, Iron_Span span);
 
 /* Push/pop defer scope */
-void push_defer_scope(IronIR_LowerCtx *ctx);
-void pop_defer_scope(IronIR_LowerCtx *ctx);
+void push_defer_scope(IronLIR_LowerCtx *ctx);
+void pop_defer_scope(IronLIR_LowerCtx *ctx);
 
 /* Lower a block of statements (pushes defer scope, lowers stmts, drains defers, pops scope) */
-void lower_block(IronIR_LowerCtx *ctx, Iron_Block *block);
+void lower_block(IronLIR_LowerCtx *ctx, Iron_Block *block);
 
 /* ── Pass functions (defined in lower_types.c, lower_stmts.c) ────────── */
 
 /* Pass 1: Register all module-level declarations */
-void lower_module_decls(IronIR_LowerCtx *ctx);
+void lower_module_decls(IronLIR_LowerCtx *ctx);
 
 /* Post-pass: Lift pending lambdas/spawn/parallel-for to top-level functions */
-void lower_lift_pending(IronIR_LowerCtx *ctx);
+void lower_lift_pending(IronLIR_LowerCtx *ctx);
 
-#endif /* IRON_IR_LOWER_INTERNAL_H */
+#endif /* IRON_LIR_LOWER_INTERNAL_H */

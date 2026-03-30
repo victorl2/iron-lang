@@ -30,10 +30,10 @@
 #include "parser/parser.h"
 #include "parser/ast.h"
 #include "analyzer/analyzer.h"
-#include "ir/lower.h"
-#include "ir/emit_c.h"
-#include "ir/ir_optimize.h"
-#include "ir/print.h"
+#include "lir/lower.h"
+#include "lir/emit_c.h"
+#include "lir/lir_optimize.h"
+#include "lir/print.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
@@ -807,7 +807,7 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 6. Lower AST to IR */
     Iron_Arena ir_arena = iron_arena_create(1024 * 1024);
-    IronIR_Module *ir_module = iron_ir_lower((Iron_Program *)ast,
+    IronLIR_Module *ir_module = iron_lir_lower((Iron_Program *)ast,
                                               analysis.global_scope,
                                               &ir_arena, &diags);
 
@@ -823,7 +823,7 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 7. Verbose: print IR (before phi elimination) */
     if (opts.verbose) {
-        char *ir_text = iron_ir_print(ir_module, true);
+        char *ir_text = iron_lir_print(ir_module, true);
         if (ir_text) {
             fprintf(stdout, "=== Generated IR ===\n%s\n=== End IR ===\n\n", ir_text);
             free(ir_text);
@@ -831,27 +831,27 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 7a. IR optimization passes */
-    IronIR_OptimizeInfo optimize_info;
-    iron_ir_optimize(ir_module, &optimize_info, &arena,
+    IronLIR_OptimizeInfo optimize_info;
+    iron_lir_optimize(ir_module, &optimize_info, &arena,
                      opts.dump_ir_passes, opts.no_optimize);
 
     /* 8. Emit C from IR */
-    const char *c_src = iron_ir_emit_c(ir_module, &arena, &diags, &optimize_info);
+    const char *c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info);
 
-    iron_ir_module_destroy(ir_module);
+    iron_lir_module_destroy(ir_module);
     iron_arena_free(&ir_arena);
 
     if (!c_src || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
         iron_diaglist_free(&diags);
-        iron_ir_optimize_info_free(&optimize_info);
+        iron_lir_optimize_info_free(&optimize_info);
         iron_arena_free(&arena);
         free(source);
         free(base_dir);
         return 1;
     }
 
-    iron_ir_optimize_info_free(&optimize_info);
+    iron_lir_optimize_info_free(&optimize_info);
 
     /* 9. Verbose: print generated C */
     if (opts.verbose) {

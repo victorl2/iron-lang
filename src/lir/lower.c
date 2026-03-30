@@ -7,32 +7,32 @@
  * Mirrors the structure of codegen.c but emits IronIR instead of C text.
  */
 
-#include "ir/lower_internal.h"
+#include "lir/lower_internal.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
 /* ── Helper implementations ──────────────────────────────────────────────── */
 
-IronIR_Block *new_block(IronIR_LowerCtx *ctx, const char *label) {
-    return iron_ir_block_create(ctx->current_func, label);
+IronLIR_Block *new_block(IronLIR_LowerCtx *ctx, const char *label) {
+    return iron_lir_block_create(ctx->current_func, label);
 }
 
-void switch_block(IronIR_LowerCtx *ctx, IronIR_Block *block) {
+void switch_block(IronLIR_LowerCtx *ctx, IronLIR_Block *block) {
     ctx->current_block = block;
 }
 
-IronIR_ValueId emit_poison(IronIR_LowerCtx *ctx, Iron_Type *type, Iron_Span span) {
+IronLIR_ValueId emit_poison(IronLIR_LowerCtx *ctx, Iron_Type *type, Iron_Span span) {
     char msg[256];
     snprintf(msg, sizeof(msg), "unsupported or erroneous construct during lowering");
     iron_diag_emit(ctx->diags, ctx->ir_arena, IRON_DIAG_ERROR,
                    IRON_ERR_LOWER_UNSUPPORTED, span, msg,
                    "this construct is not yet supported by the IR lowering pass");
-    IronIR_Instr *p = iron_ir_poison(ctx->current_func, ctx->current_block, type, span);
+    IronLIR_Instr *p = iron_lir_poison(ctx->current_func, ctx->current_block, type, span);
     return p->id;
 }
 
-void push_defer_scope(IronIR_LowerCtx *ctx) {
+void push_defer_scope(IronLIR_LowerCtx *ctx) {
     ctx->defer_depth++;
     /* Grow the defer_stacks array if needed */
     while ((int)arrlen(ctx->defer_stacks) < ctx->defer_depth) {
@@ -43,7 +43,7 @@ void push_defer_scope(IronIR_LowerCtx *ctx) {
     ctx->defer_stacks[ctx->defer_depth - 1] = NULL;
 }
 
-void pop_defer_scope(IronIR_LowerCtx *ctx) {
+void pop_defer_scope(IronLIR_LowerCtx *ctx) {
     if (ctx->defer_depth > 0) {
         arrfree(ctx->defer_stacks[ctx->defer_depth - 1]);
         ctx->defer_stacks[ctx->defer_depth - 1] = NULL;
@@ -51,7 +51,7 @@ void pop_defer_scope(IronIR_LowerCtx *ctx) {
     }
 }
 
-void emit_defers_ir(IronIR_LowerCtx *ctx, int target_depth) {
+void emit_defers_ir(IronLIR_LowerCtx *ctx, int target_depth) {
     /* Emit deferred calls in reverse order from current scope outward to target_depth.
      * Mirrors emit_defers() in gen_stmts.c. */
     for (int d = ctx->defer_depth - 1; d >= target_depth; d--) {
@@ -63,7 +63,7 @@ void emit_defers_ir(IronIR_LowerCtx *ctx, int target_depth) {
     }
 }
 
-void lower_block(IronIR_LowerCtx *ctx, Iron_Block *block) {
+void lower_block(IronLIR_LowerCtx *ctx, Iron_Block *block) {
     push_defer_scope(ctx);
     for (int i = 0; i < block->stmt_count; i++) {
         /* Stop lowering once the current block is terminated (e.g. after a return).
@@ -86,7 +86,7 @@ void lower_block(IronIR_LowerCtx *ctx, Iron_Block *block) {
 
 /* ── Pass 2: Function body lowering ──────────────────────────────────────── */
 
-static IronIR_Func *find_func_by_name(IronIR_Module *mod, const char *name) {
+static IronLIR_Func *find_func_by_name(IronLIR_Module *mod, const char *name) {
     for (int i = 0; i < mod->func_count; i++) {
         if (strcmp(mod->funcs[i]->name, name) == 0) {
             return mod->funcs[i];
@@ -95,10 +95,10 @@ static IronIR_Func *find_func_by_name(IronIR_Module *mod, const char *name) {
     return NULL;
 }
 
-static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
+static void lower_func_body(IronLIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
     if (!fd->body) return;  /* extern func — no body */
 
-    IronIR_Func *fn = find_func_by_name(ctx->module, fd->name);
+    IronLIR_Func *fn = find_func_by_name(ctx->module, fd->name);
     if (!fn) return;  /* should not happen if Pass 1 registered it */
 
     ctx->current_func = fn;
@@ -112,7 +112,7 @@ static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
     ctx->param_map       = NULL;
 
     /* Create entry block */
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
     ctx->current_block = entry;
 
     ctx->function_scope_depth = ctx->defer_depth;
@@ -136,7 +136,7 @@ static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
         Iron_Type  *pt = (p < fn->param_count) ? fn->params[p].type : NULL;
 
         /* Allocate a synthetic ValueId for the param argument value */
-        IronIR_ValueId param_val_id = fn->next_value_id++;
+        IronLIR_ValueId param_val_id = fn->next_value_id++;
         while (arrlen(fn->value_table) <= (ptrdiff_t)param_val_id) {
             arrput(fn->value_table, NULL);
         }
@@ -147,10 +147,10 @@ static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
         shput(ctx->param_map, ap->name, param_val_id);
 
         /* Create alloca for this param */
-        IronIR_Instr *slot = iron_ir_alloca(fn, entry, pt, ap->name, ap->span);
+        IronLIR_Instr *slot = iron_lir_alloca(fn, entry, pt, ap->name, ap->span);
 
         /* Store param value into alloca */
-        iron_ir_store(fn, entry, slot->id, param_val_id, ap->span);
+        iron_lir_store(fn, entry, slot->id, param_val_id, ap->span);
 
         /* Record alloca in var_alloca_map so IRON_NODE_IDENT loads from it */
         shput(ctx->var_alloca_map, ap->name, slot->id);
@@ -175,13 +175,13 @@ static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
      * an explicit return in well-typed Iron programs.) */
     if (fn->return_type == NULL) {
         if (ctx->current_block && ctx->current_block->instr_count > 0) {
-            IronIR_Instr *last = ctx->current_block->instrs[ctx->current_block->instr_count - 1];
-            if (!iron_ir_is_terminator(last->kind)) {
-                iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
+            IronLIR_Instr *last = ctx->current_block->instrs[ctx->current_block->instr_count - 1];
+            if (!iron_lir_is_terminator(last->kind)) {
+                iron_lir_return(fn, ctx->current_block, IRON_LIR_VALUE_INVALID, true,
                                NULL, fd->span);
             }
         } else if (ctx->current_block && ctx->current_block->instr_count == 0) {
-            iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
+            iron_lir_return(fn, ctx->current_block, IRON_LIR_VALUE_INVALID, true,
                            NULL, fd->span);
         }
     }
@@ -197,7 +197,7 @@ static void lower_func_body(IronIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
  * During IDENT resolution in lower_exprs.c, if a name is not found in
  * val_binding_map or var_alloca_map, check global_constants_map, lower the
  * init expression in the current function context, cache it, and return it. */
-static void lower_global_constants(IronIR_LowerCtx *ctx) {
+static void lower_global_constants(IronLIR_LowerCtx *ctx) {
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         const char *var_name = NULL;
@@ -225,7 +225,7 @@ static void lower_global_constants(IronIR_LowerCtx *ctx) {
     }
 }
 
-static void lower_method_body(IronIR_LowerCtx *ctx, Iron_MethodDecl *md) {
+static void lower_method_body(IronLIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     if (!md->body) return;
 
     /* Build mangled name: "TypeName_methodName" */
@@ -234,7 +234,7 @@ static void lower_method_body(IronIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     if (name_len > sizeof(mangled)) return;  /* safety */
     snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
 
-    IronIR_Func *fn = find_func_by_name(ctx->module, mangled);
+    IronLIR_Func *fn = find_func_by_name(ctx->module, mangled);
     if (!fn) return;  /* not registered (empty-body stub skipped in Pass 1f) */
 
     ctx->current_func = fn;
@@ -248,7 +248,7 @@ static void lower_method_body(IronIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     ctx->param_map       = NULL;
 
     /* Create entry block */
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
     ctx->current_block = entry;
 
     ctx->function_scope_depth = ctx->defer_depth;
@@ -258,12 +258,12 @@ static void lower_method_body(IronIR_LowerCtx *ctx, Iron_MethodDecl *md) {
      * fn->params[0] is the implicit "self" parameter.
      * fn->params[1..] are the explicit parameters from md->params. */
     for (int p = 0; p < fn->param_count; p++) {
-        IronIR_Param *fp = &fn->params[p];
+        IronLIR_Param *fp = &fn->params[p];
         const char   *pname = fp->name;
         Iron_Type    *pt    = fp->type;
 
         /* Allocate a synthetic ValueId for the param argument value */
-        IronIR_ValueId param_val_id = fn->next_value_id++;
+        IronLIR_ValueId param_val_id = fn->next_value_id++;
         while (arrlen(fn->value_table) <= (ptrdiff_t)param_val_id) {
             arrput(fn->value_table, NULL);
         }
@@ -274,10 +274,10 @@ static void lower_method_body(IronIR_LowerCtx *ctx, Iron_MethodDecl *md) {
 
         /* Create alloca for this param */
         Iron_Span span = md->span;
-        IronIR_Instr *slot = iron_ir_alloca(fn, entry, pt, pname, span);
+        IronLIR_Instr *slot = iron_lir_alloca(fn, entry, pt, pname, span);
 
         /* Store param value into alloca */
-        iron_ir_store(fn, entry, slot->id, param_val_id, span);
+        iron_lir_store(fn, entry, slot->id, param_val_id, span);
 
         /* Record alloca in var_alloca_map */
         shput(ctx->var_alloca_map, pname, slot->id);
@@ -298,19 +298,19 @@ static void lower_method_body(IronIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     /* Emit implicit void return if needed */
     if (fn->return_type == NULL) {
         if (ctx->current_block && ctx->current_block->instr_count > 0) {
-            IronIR_Instr *last = ctx->current_block->instrs[ctx->current_block->instr_count - 1];
-            if (!iron_ir_is_terminator(last->kind)) {
-                iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
+            IronLIR_Instr *last = ctx->current_block->instrs[ctx->current_block->instr_count - 1];
+            if (!iron_lir_is_terminator(last->kind)) {
+                iron_lir_return(fn, ctx->current_block, IRON_LIR_VALUE_INVALID, true,
                                NULL, md->span);
             }
         } else if (ctx->current_block && ctx->current_block->instr_count == 0) {
-            iron_ir_return(fn, ctx->current_block, IRON_IR_VALUE_INVALID, true,
+            iron_lir_return(fn, ctx->current_block, IRON_LIR_VALUE_INVALID, true,
                            NULL, md->span);
         }
     }
 }
 
-static void lower_func_bodies(IronIR_LowerCtx *ctx) {
+static void lower_func_bodies(IronLIR_LowerCtx *ctx) {
     /* Lower top-level function declarations */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
@@ -324,15 +324,15 @@ static void lower_func_bodies(IronIR_LowerCtx *ctx) {
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
-IronIR_Module *iron_ir_lower(Iron_Program *program, Iron_Scope *global_scope,
+IronLIR_Module *iron_lir_lower(Iron_Program *program, Iron_Scope *global_scope,
                               Iron_Arena *ir_arena, Iron_DiagList *diags) {
     if (!program || !ir_arena || !diags) return NULL;
 
     /* Create the module */
-    IronIR_Module *module = iron_ir_module_create(ir_arena, "module");
+    IronLIR_Module *module = iron_lir_module_create(ir_arena, "module");
 
     /* Initialize lowering context */
-    IronIR_LowerCtx ctx;
+    IronLIR_LowerCtx ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.program      = program;
     ctx.global_scope = global_scope;
