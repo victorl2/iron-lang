@@ -1,0 +1,16 @@
+func double(n: Int) -> Int {
+  return n * 2
+}
+
+func inc(n: Int) -> Int {
+  return n + 1
+}
+
+func square(n: Int) -> Int {
+  return n * n
+}
+
+func main() {
+  println("{double(inc(square(3)))}")
+  println("{square(double(inc(2)))}")
+}

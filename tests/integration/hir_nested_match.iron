@@ -1,0 +1,29 @@
+func outer(a: Int, b: Int) -> String {
+  match a {
+    1 {
+      match b {
+        1 { return "1,1" }
+        2 { return "1,2" }
+        else { return "1,other" }
+      }
+      return "1,?"
+    }
+    2 {
+      match b {
+        1 { return "2,1" }
+        else { return "2,other" }
+      }
+      return "2,?"
+    }
+    else { return "other" }
+  }
+  return "unknown"
+}
+
+func main() {
+  println(outer(1, 1))
+  println(outer(1, 2))
+  println(outer(1, 3))
+  println(outer(2, 1))
+  println(outer(3, 1))
+}

@@ -1,0 +1,16 @@
+func with_block(n: Int) -> Int {
+  var total = 0
+  if n > 5 {
+    val bonus = 100
+    total = bonus
+  } else {
+    val bonus = 50
+    total = bonus
+  }
+  return total
+}
+
+func main() {
+  println("{with_block(3)}")
+  println("{with_block(8)}")
+}

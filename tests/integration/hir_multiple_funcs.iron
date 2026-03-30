@@ -1,0 +1,17 @@
+func add(a: Int, b: Int) -> Int {
+  return a + b
+}
+
+func multiply(a: Int, b: Int) -> Int {
+  return a * b
+}
+
+func compute(x: Int) -> Int {
+  val sum = add(x, 3)
+  return multiply(sum, 2)
+}
+
+func main() {
+  println("{compute(4)}")
+  println("{compute(7)}")
+}

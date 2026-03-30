@@ -1,0 +1,28 @@
+-- hir_short_circuit: Test logical evaluation with nested conditions
+func check_all(a: Int, b: Int, c: Int) -> Int {
+  if a > 0 {
+    if b > 0 {
+      if c > 0 {
+        return 1
+      }
+    }
+  }
+  return 0
+}
+
+func check_any(a: Int, b: Int) -> Int {
+  if a > 0 {
+    return 1
+  }
+  if b > 0 {
+    return 1
+  }
+  return 0
+}
+
+func main() {
+  println("{check_all(1, 2, 3)}")
+  println("{check_all(1, -1, 3)}")
+  println("{check_any(1, -1)}")
+  println("{check_any(-1, -2)}")
+}
