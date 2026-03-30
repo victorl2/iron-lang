@@ -30,7 +30,7 @@ Requirements for IR optimization and High IR architecture milestone. Each maps t
 - [x] **HIR-02**: HIR preserves named variables with let/mut binding semantics and lexical scopes
 - [x] **HIR-03**: HIR represents method calls, field access, and array indexing at language level
 - [x] **HIR-04**: HIR represents closures, spawn, parallel-for, and defer as first-class constructs
-- [ ] **HIR-05**: AST-to-HIR lowering pass covers all Iron language features and produces a valid HIR module
+- [x] **HIR-05**: AST-to-HIR lowering pass covers all Iron language features and produces a valid HIR module
 - [ ] **HIR-06**: HIR-to-LIR lowering pass produces equivalent SSA-form output to the current AST-to-LIR path
 - [x] **HIR-07**: HIR printer outputs human-readable representation that resembles Iron source
 - [x] **HIR-08**: HIR verifier validates structural invariants (scope nesting, type consistency, completeness)
@@ -91,7 +91,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HIR-02 | Phase 19 | Complete |
 | HIR-03 | Phase 19 | Complete |
 | HIR-04 | Phase 19 | Complete |
-| HIR-05 | Phase 20 | Pending |
+| HIR-05 | Phase 20 | Complete |
 | HIR-06 | Phase 20 | Pending |
 | HIR-07 | Phase 19 | Complete |
 | HIR-08 | Phase 19 | Complete |
