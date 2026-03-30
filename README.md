@@ -3,7 +3,7 @@
 This is the main source code repository for [Iron]. It contains the compiler,
 standard library, and documentation.
 
-> **Alpha v0.0.2** — early release, expect breaking changes.
+> **Alpha** — early release, expect breaking changes.
 
 [Iron]: https://github.com/victorl2/iron-lang
 
