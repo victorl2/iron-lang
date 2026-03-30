@@ -37,7 +37,7 @@ Requirements for IR optimization and High IR architecture milestone. Each maps t
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: Current IR renamed to Lower IR (LIR) throughout codebase — types, files, functions, comments
+- [x] **INFRA-01**: Current IR renamed to Lower IR (LIR) throughout codebase — types, files, functions, comments
 - [x] **INFRA-02**: ir_optimize.c module houses all optimization passes, called between phi elimination and C emission
 - [ ] **INFRA-03**: All 127 benchmarks and 42+ integration tests pass through the new AST→HIR→LIR→C pipeline
 - [ ] **INFRA-04**: Old AST→LIR direct lowering path removed after HIR pipeline achieves parity
@@ -95,7 +95,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HIR-06 | Phase 20 | Pending |
 | HIR-07 | Phase 19 | Pending |
 | HIR-08 | Phase 19 | Pending |
-| INFRA-01 | Phase 19 | Pending |
+| INFRA-01 | Phase 19 | Complete |
 | INFRA-02 | Phase 15 | Complete |
 | INFRA-03 | Phase 20 | Pending |
 | INFRA-04 | Phase 20 | Pending |
