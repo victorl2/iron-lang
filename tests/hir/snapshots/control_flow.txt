@@ -1,0 +1,29 @@
+FuncDecl(control) -> Int
+  Param(n: Int)
+  Block
+    IfStmt
+      Cond
+        BinOp(>)
+          Ident(n)
+          Literal(0)
+      Block
+        ReturnStmt
+          Literal(1)
+      Else
+        Block
+          ReturnStmt
+            Literal(0)
+    WhileStmt
+      BinOp(>)
+        Ident(n)
+        Literal(0)
+      Block
+        ExprStmt
+          Ident(n)
+    ForStmt(i)
+      Ident(n)
+      Block
+        ExprStmt
+          Ident(i)
+    ReturnStmt
+      Literal(0)
