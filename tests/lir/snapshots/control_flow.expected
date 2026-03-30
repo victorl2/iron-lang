@@ -8,24 +8,27 @@ entry:
   %3 = load %1 : Int
   %4 = const_int 5 : Int
   %5 = gt %3, %4 : Bool
-  branch %5, if_then, if_else
-if_merge:
-  jump while_header
-if_then:
-  jump if_merge
-if_else:
-  jump if_merge
-while_header:
+  branch %5, if_then_0, if_else_2
+if_then_0:
+  jump if_merge_1
+if_merge_1:
+  jump while_header_3
+if_else_2:
+  jump if_merge_1
+while_header_3:
+  %12 = phi [%2: if_merge_1, %11: while_body_4] : Int
   %6 = load %1 : Int
   %7 = const_int 0 : Int
   %8 = gt %6, %7 : Bool
-  branch %8, while_body, while_exit
-while_body:
+  branch %8, while_body_4, while_exit_5
+while_body_4:
   %9 = load %1 : Int
   %10 = const_int 1 : Int
   %11 = sub %9, %10 : Int
   store %1, %11
-  jump while_header
-while_exit:
+  jump while_header_3
+while_exit_5:
+  jump return_exit_6
+return_exit_6:
   ret void
 }
