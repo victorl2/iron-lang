@@ -3,14 +3,16 @@
  * Each test builds a hand-constructed IR module and verifies that
  * iron_lir_print() produces the expected LLVM-style text fragments.
  *
- * Wave 2 (Plan 10-02): adds snapshot comparison tests using iron_lir_lower()
- * and compare_snapshot()/write_snapshot() golden-master pattern.
+ * Wave 2 (Plan 10-02): adds snapshot comparison tests using the
+ * AST->HIR->LIR pipeline and compare_snapshot()/write_snapshot()
+ * golden-master pattern.
  */
 
 #include "unity.h"
 #include "lir/lir.h"
 #include "lir/print.h"
-#include "lir/lower.h"
+#include "hir/hir_lower.h"
+#include "hir/hir_to_lir.h"
 #include "lir/verify.h"
 #include "parser/ast.h"
 #include "analyzer/types.h"
@@ -256,6 +258,17 @@ static bool snapshot_test(const char *ir_text, const char *snap_path) {
         write_snapshot(ir_text, snap_path);
     }
     return compare_snapshot(ir_text, snap_path);
+}
+
+/* Lower AST program to LIR using the HIR pipeline (AST->HIR->LIR). */
+static IronLIR_Module *lower_prog_to_lir(Iron_Program *program,
+                                          Iron_Arena *lir_arena,
+                                          Iron_DiagList *diags) {
+    IronHIR_Module *hir = iron_hir_lower(program, NULL, NULL, diags);
+    if (!hir) return NULL;
+    IronLIR_Module *lir = iron_hir_to_lir(hir, program, NULL, lir_arena, diags);
+    iron_hir_module_destroy(hir);
+    return lir;
 }
 
 /* ── Tests: hand-constructed IR ──────────────────────────────────────────── */
@@ -511,7 +524,7 @@ void test_snapshot_control_flow(void) {
     Iron_Node *decls[1] = { (Iron_Node *)fd };
     Iron_Program *prog = make_program_p(&g_ir_arena, decls, 1);
 
-    IronLIR_Module *mod = iron_lir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    IronLIR_Module *mod = lower_prog_to_lir(prog, &g_ir_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(mod);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -585,7 +598,7 @@ void test_snapshot_function_call(void) {
     Iron_Node *decls[2] = { (Iron_Node *)add_fn, (Iron_Node *)main_fn };
     Iron_Program *prog = make_program_p(&g_ir_arena, decls, 2);
 
-    IronLIR_Module *mod = iron_lir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    IronLIR_Module *mod = lower_prog_to_lir(prog, &g_ir_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(mod);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -634,7 +647,7 @@ void test_snapshot_memory_ops(void) {
     Iron_Node *decls[1] = { (Iron_Node *)fd };
     Iron_Program *prog = make_program_p(&g_ir_arena, decls, 1);
 
-    IronLIR_Module *mod = iron_lir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    IronLIR_Module *mod = lower_prog_to_lir(prog, &g_ir_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(mod);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -694,7 +707,7 @@ void test_snapshot_object_construct(void) {
     Iron_Node *decls[2] = { (Iron_Node *)obj, (Iron_Node *)fd };
     Iron_Program *prog = make_program_p(&g_ir_arena, decls, 2);
 
-    IronLIR_Module *mod = iron_lir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    IronLIR_Module *mod = lower_prog_to_lir(prog, &g_ir_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(mod);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -744,7 +757,7 @@ void test_snapshot_string_interp(void) {
     Iron_Node *decls[1] = { (Iron_Node *)fd };
     Iron_Program *prog = make_program_p(&g_ir_arena, decls, 1);
 
-    IronLIR_Module *mod = iron_lir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    IronLIR_Module *mod = lower_prog_to_lir(prog, &g_ir_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(mod);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -786,7 +799,7 @@ void test_snapshot_mutable_var(void) {
     Iron_Node *decls[1] = { (Iron_Node *)fd };
     Iron_Program *prog = make_program_p(&g_ir_arena, decls, 1);
 
-    IronLIR_Module *mod = iron_lir_lower(prog, NULL, &g_ir_arena, &g_diags);
+    IronLIR_Module *mod = lower_prog_to_lir(prog, &g_ir_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(mod);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
