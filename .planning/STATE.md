@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 18-03-PLAN.md
-last_updated: "2026-03-30T01:02:27.160Z"
+stopped_at: "Completed 18-benchmark-validation 18-04-PLAN.md (checkpoint: human-verify)"
+last_updated: "2026-03-30T05:25:59.391Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 18-benchmark-validation P02 | 2 | 1 tasks | 1 files |
 | Phase 18-benchmark-validation P01 | 741 | 2 tasks | 2 files |
 | Phase 18-benchmark-validation P03 | 35 | 2 tasks | 40 files |
+| Phase 18-benchmark-validation P04 | 180 | 1 tasks | 111 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,7 @@ Recent decisions affecting current work:
 - [Phase 18-03]: Iron parallel-for/spawn bodies cannot capture outer variables — emit as closure with void* args causing type mismatch; use pure functions taking only loop index or helper functions recomputing values internally
 - [Phase 18-03]: val and match are Iron keywords — benchmark variables renamed to is_match, iters throughout
 - [Phase 18-03]: Concurrency benchmark correctness pattern: sequential checksum → parallel run → recompute checksum → Match: 1; parallel section cannot accumulate into shared state
+- [Phase 18-benchmark-validation]: Benchmark thresholds must target C time > 200ms; fill() heap-alloc vs C stack is language-design-inherent; iteration counts synchronized between main.iron and solution.c
 
 ### Pending Todos
 
@@ -109,6 +111,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T01:02:27.157Z
-Stopped at: Completed 18-03-PLAN.md
+Last session: 2026-03-30T05:25:59.389Z
+Stopped at: Completed 18-benchmark-validation 18-04-PLAN.md (checkpoint: human-verify)
 Resume file: None
