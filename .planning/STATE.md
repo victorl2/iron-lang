@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: "Completed 18-benchmark-validation 18-04-PLAN.md (checkpoint: human-verify)"
-last_updated: "2026-03-30T05:25:59.391Z"
+stopped_at: Completed 18-benchmark-validation 18-04-PLAN.md
+last_updated: "2026-03-30T10:53:26.554Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
@@ -100,6 +100,7 @@ Recent decisions affecting current work:
 - [Phase 18-03]: val and match are Iron keywords — benchmark variables renamed to is_match, iters throughout
 - [Phase 18-03]: Concurrency benchmark correctness pattern: sequential checksum → parallel run → recompute checksum → Match: 1; parallel section cannot accumulate into shared state
 - [Phase 18-benchmark-validation]: Benchmark thresholds must target C time > 200ms; fill() heap-alloc vs C stack is language-design-inherent; iteration counts synchronized between main.iron and solution.c
+- [Phase 18-benchmark-validation]: Benchmark thresholds must target C time > 200ms; fill() heap-alloc vs C stack is language-design-inherent; iteration counts synchronized between main.iron and solution.c
 
 ### Pending Todos
 
@@ -111,6 +112,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T05:25:59.389Z
-Stopped at: Completed 18-benchmark-validation 18-04-PLAN.md (checkpoint: human-verify)
+Last session: 2026-03-30T10:53:21.244Z
+Stopped at: Completed 18-benchmark-validation 18-04-PLAN.md
 Resume file: None
