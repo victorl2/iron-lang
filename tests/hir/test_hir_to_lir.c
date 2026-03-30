@@ -2069,6 +2069,120 @@ void test_h2l_many_blocks(void) {
     TEST_ASSERT_EQUAL_INT(0, invalid_count);
 }
 
+/* ── Empty-body stub function tests (bug fix for CI benchmark failure) ──── */
+
+/* Non-void function with empty body should NOT produce LIR blocks —
+ * it's treated as an extern stub (e.g., Time.now() -> Float {}) */
+void test_h2l_empty_body_nonvoid_skipped(void) {
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_int",
+                                             NULL, 0, int_t);
+    fn->body = iron_hir_block_create(g_mod); /* empty body, 0 statements */
+    iron_hir_module_add_func(g_mod, fn);
+
+    IronLIR_Module *lir = do_lower();
+    TEST_ASSERT_NOT_NULL(lir);
+
+    /* The function should exist but have NO blocks (treated as extern stub) */
+    IronLIR_Func *lf = NULL;
+    for (int i = 0; i < lir->func_count; i++) {
+        if (lir->funcs[i] && strcmp(lir->funcs[i]->name, "stub_int") == 0) {
+            lf = lir->funcs[i]; break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(lf);
+    TEST_ASSERT_EQUAL_INT(0, lf->block_count);
+}
+
+/* Void function with empty body SHOULD still produce a body with void return */
+void test_h2l_empty_body_void_still_has_body(void) {
+    Iron_Type *void_t = iron_type_make_primitive(IRON_TYPE_VOID);
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_void",
+                                             NULL, 0, void_t);
+    fn->body = iron_hir_block_create(g_mod); /* empty body */
+    iron_hir_module_add_func(g_mod, fn);
+
+    IronLIR_Module *lir = do_lower();
+    TEST_ASSERT_NOT_NULL(lir);
+
+    IronLIR_Func *lf = NULL;
+    for (int i = 0; i < lir->func_count; i++) {
+        if (lir->funcs[i] && strcmp(lir->funcs[i]->name, "stub_void") == 0) {
+            lf = lir->funcs[i]; break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(lf);
+    /* Void function should still have blocks + a void RETURN */
+    TEST_ASSERT_GREATER_OR_EQUAL(1, lf->block_count);
+    int ret_count = count_instrs_in_func(lf, IRON_LIR_RETURN);
+    TEST_ASSERT_GREATER_OR_EQUAL(1, ret_count);
+}
+
+/* Float return with empty body — no blocks (same as Int) */
+void test_h2l_empty_body_int_return_no_blocks(void) {
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_get_count",
+                                             NULL, 0, int_t);
+    fn->body = iron_hir_block_create(g_mod);
+    iron_hir_module_add_func(g_mod, fn);
+
+    IronLIR_Module *lir = do_lower();
+    IronLIR_Func *lf = NULL;
+    for (int i = 0; i < lir->func_count; i++) {
+        if (lir->funcs[i] && strcmp(lir->funcs[i]->name, "stub_get_count") == 0) {
+            lf = lir->funcs[i]; break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(lf);
+    TEST_ASSERT_EQUAL_INT(0, lf->block_count);
+}
+
+void test_h2l_empty_body_float_return_no_blocks(void) {
+    Iron_Type *float_t = iron_type_make_primitive(IRON_TYPE_FLOAT);
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_time_now",
+                                             NULL, 0, float_t);
+    fn->body = iron_hir_block_create(g_mod);
+    iron_hir_module_add_func(g_mod, fn);
+
+    IronLIR_Module *lir = do_lower();
+    IronLIR_Func *lf = NULL;
+    for (int i = 0; i < lir->func_count; i++) {
+        if (lir->funcs[i] && strcmp(lir->funcs[i]->name, "stub_time_now") == 0) {
+            lf = lir->funcs[i]; break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(lf);
+    TEST_ASSERT_EQUAL_INT(0, lf->block_count);
+}
+
+/* Non-void function with a NON-empty body should still have blocks */
+void test_h2l_nonempty_body_nonvoid_has_blocks(void) {
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "real_func",
+                                             NULL, 0, int_t);
+    fn->body = iron_hir_block_create(g_mod);
+    /* Add a return statement so body is not empty */
+    Iron_Span sp = zero_span();
+    IronHIR_Expr *lit = iron_hir_expr_int_lit(g_mod, 42, int_t, sp);
+    IronHIR_Stmt *ret = iron_hir_stmt_return(g_mod, lit, sp);
+    iron_hir_block_add_stmt(fn->body, ret);
+    iron_hir_module_add_func(g_mod, fn);
+
+    IronLIR_Module *lir = do_lower();
+    IronLIR_Func *lf = NULL;
+    for (int i = 0; i < lir->func_count; i++) {
+        if (lir->funcs[i] && strcmp(lir->funcs[i]->name, "real_func") == 0) {
+            lf = lir->funcs[i]; break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(lf);
+    /* Non-empty body should have blocks */
+    TEST_ASSERT_GREATER_OR_EQUAL(1, lf->block_count);
+    /* Should have a RETURN instruction */
+    int ret_count = count_instrs_in_func(lf, IRON_LIR_RETURN);
+    TEST_ASSERT_GREATER_OR_EQUAL(1, ret_count);
+}
+
 /* ── Runner ───────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2087,6 +2201,13 @@ int main(void) {
     RUN_TEST(test_hir_to_lir_phi_at_merge);
     RUN_TEST(test_hir_to_lir_verify_passes);
     RUN_TEST(test_hir_to_lir_short_circuit_and);
+    /* Empty-body stub function tests */
+    RUN_TEST(test_h2l_empty_body_nonvoid_skipped);
+    RUN_TEST(test_h2l_empty_body_void_still_has_body);
+    RUN_TEST(test_h2l_empty_body_int_return_no_blocks);
+    RUN_TEST(test_h2l_empty_body_float_return_no_blocks);
+    RUN_TEST(test_h2l_nonempty_body_nonvoid_has_blocks);
+
     /* Task 1: Feature-matrix tests (tests 14-41) */
     RUN_TEST(test_h2l_if_no_else_blocks);
     RUN_TEST(test_h2l_if_else_blocks);
