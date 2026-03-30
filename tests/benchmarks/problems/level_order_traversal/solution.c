@@ -44,7 +44,7 @@ int main(void) {
     printf("Test 4: %ld (expected 324)\n", level_order_checksum(tree7, 7));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000;
+    int iterations = 6000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

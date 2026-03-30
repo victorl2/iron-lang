@@ -58,7 +58,7 @@ func main() {
     }
     println("Test 4: {kth_largest(bench, 200, 50)}")
 
-    val iterations = 100000
+    val iterations = 300000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 1.2, "note": "Array-by-value semantics add overhead for array returns"}
+{"iterations": 2500000, "timeout_sec": 60, "max_ratio": 1.2, "note": "Array-by-value semantics add overhead for array returns"}

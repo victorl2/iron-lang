@@ -91,7 +91,7 @@ func main() {
     adj4[0 * n + 4] = 1
     println("Test 4: {is_bipartite(adj4, n)} (expected 0)")
 
-    val iterations = 200000
+    val iterations = 2000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

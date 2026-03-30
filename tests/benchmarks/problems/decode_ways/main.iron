@@ -38,7 +38,7 @@ func main() {
     }
     println("Test 3: {decode_ways(bench, 20)} (expected 1458)")
 
-    val iterations = 1000000
+    val iterations = 4000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

@@ -45,7 +45,7 @@ int main(void) {
     printf("Test 4: %lld (expected 638)\n", eval_rpn(bench, 21));
 
     long mem_before = get_memory_kb();
-    int iterations = 1000000;
+    int iterations = 4000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

@@ -61,7 +61,7 @@ int main(void) {
     printf("Test 3: %ld (expected 92462)\n", checksum(g, 400));
 
     long mem_before = get_memory_kb();
-    int iterations = 50000;
+    int iterations = 500000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

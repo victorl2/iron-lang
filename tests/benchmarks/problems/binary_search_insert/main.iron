@@ -33,7 +33,7 @@ func main() {
     val check = binary_search_insert(arr, n, 299)
     println("Bench check: {check}")
 
-    val iterations = 1000000
+    val iterations = 15000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

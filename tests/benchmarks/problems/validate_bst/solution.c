@@ -59,7 +59,7 @@ int main(void) {
     printf("Test 4: %d (expected 1)\n", validate_bst(single, 1));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000;
+    int iterations = 5000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
