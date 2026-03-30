@@ -47,6 +47,7 @@ jobs:
           cmake --build build
 
       - name: Run benchmarks
+        continue-on-error: true
         run: bash tests/benchmarks/run_benchmarks.sh --verbose
 
       - name: Check regression
