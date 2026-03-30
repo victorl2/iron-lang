@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 18-01-PLAN.md
-last_updated: "2026-03-30T00:54:28.570Z"
+stopped_at: Completed 18-03-PLAN.md
+last_updated: "2026-03-30T01:02:27.160Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 17-strength-reduction-store-load-elimination P03 | 9 | 2 tasks | 4 files |
 | Phase 18-benchmark-validation P02 | 2 | 1 tasks | 1 files |
 | Phase 18-benchmark-validation P01 | 741 | 2 tasks | 2 files |
+| Phase 18-benchmark-validation P03 | 35 | 2 tasks | 40 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Recent decisions affecting current work:
 - [Phase 18-benchmark-validation]: ARRAY_LIT elements excluded from expression inlining in Pass 1 to prevent forward-reference in C initializer lists
 - [Phase 18-benchmark-validation]: DCE and use_counts require explicit ARRAY_LIT element traversal beyond MAX_OPERANDS=64 — opt_collect_operands hard limit silently drops elements 65+ causing DCE to incorrectly remove them as dead
 - [Phase 18-benchmark-validation]: Int32 narrowing for ARRAY_LIT/fill() reverted — narrowing breaks int64_t* alloca assignments; requires aliasing analysis before safe application
+- [Phase 18-03]: Iron parallel-for/spawn bodies cannot capture outer variables — emit as closure with void* args causing type mismatch; use pure functions taking only loop index or helper functions recomputing values internally
+- [Phase 18-03]: val and match are Iron keywords — benchmark variables renamed to is_match, iters throughout
+- [Phase 18-03]: Concurrency benchmark correctness pattern: sequential checksum → parallel run → recompute checksum → Match: 1; parallel section cannot accumulate into shared state
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T00:54:28.567Z
-Stopped at: Completed 18-01-PLAN.md
+Last session: 2026-03-30T01:02:27.157Z
+Stopped at: Completed 18-03-PLAN.md
 Resume file: None

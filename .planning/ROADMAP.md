@@ -371,7 +371,7 @@ Plans:
   2. count_paths_with_obstacles, min_path_sum, largest_rect_histogram, max_depth_binary_tree, target_sum, three_sum, and num_islands all run at 1.2x C parity or better
   3. All 127 benchmarks pass at their configured parity thresholds with 100% pass rate; `iron bench` or the benchmark runner reports zero failures
   4. Any benchmark that still exceeds 1.2x is investigated, root-caused, and either fixed with a targeted optimization or its threshold is justified and documented
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 - [ ] 18-01-PLAN.md — Fix ARRAY_LIT inlining bug, add int32 emission-time narrowing
@@ -425,6 +425,6 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 15. Copy Propagation, DCE & Constant Folding | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 16. Expression Inlining | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
-| 18. Benchmark Validation | 2/4 | In Progress|  | - |
+| 18. Benchmark Validation | 3/4 | In Progress|  | - |
 | 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 0/0 | Not started | - |
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 0/0 | Not started | - |
