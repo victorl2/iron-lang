@@ -1,0 +1,11 @@
+-- hir_import_math: Math functions via extern
+extern func sin(x: Float) -> Float
+extern func sqrt(x: Float) -> Float
+
+func main() {
+  val s = sin(0.0)
+  if s < 0.001 {
+    println("sin(0) is 0")
+  }
+  println("math works")
+}

@@ -1,0 +1,13 @@
+-- hir_concurrent_sum: Parallel work + sequential sum verification
+func main() {
+  for i in 100 parallel {
+    var work = i * 2
+    work = work + 1
+  }
+  println("parallel ok")
+  var total = 0
+  for i in range(10) {
+    total = total + (i + 1)
+  }
+  println("{total}")
+}
