@@ -10,7 +10,7 @@
  * capture analysis.
  */
 
-#include "ir/lower_internal.h"
+#include "lir/lower_internal.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -279,14 +279,14 @@ static Iron_Type *lower_types_resolve_ann(Iron_Node *ann_node) {
 
 /* ── Param array builder (shared by func and method registration) ────────── */
 
-static IronIR_Param *build_param_array(IronIR_LowerCtx *ctx,
+static IronLIR_Param *build_param_array(IronLIR_LowerCtx *ctx,
                                         Iron_Node **params, int param_count) {
     if (param_count == 0) return NULL;
 
-    IronIR_Param *arr = (IronIR_Param *)iron_arena_alloc(
+    IronLIR_Param *arr = (IronLIR_Param *)iron_arena_alloc(
         ctx->ir_arena,
-        (size_t)param_count * sizeof(IronIR_Param),
-        _Alignof(IronIR_Param));
+        (size_t)param_count * sizeof(IronLIR_Param),
+        _Alignof(IronLIR_Param));
 
     for (int p = 0; p < param_count; p++) {
         Iron_Param *ap = (Iron_Param *)params[p];
@@ -301,9 +301,9 @@ static IronIR_Param *build_param_array(IronIR_LowerCtx *ctx,
 
 /* ── Pass 1: Register module-level declarations ──────────────────────────── */
 
-void lower_module_decls(IronIR_LowerCtx *ctx) {
+void lower_module_decls(IronLIR_LowerCtx *ctx) {
     /* Pass 1a: Register interfaces FIRST — vtable types must precede objects
-     * that implement them (IRON_IR_TYPE_INTERFACE ordering requirement). */
+     * that implement them (IRON_LIR_TYPE_INTERFACE ordering requirement). */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind != IRON_NODE_INTERFACE_DECL) continue;
@@ -313,7 +313,7 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
          * tracked in Iron_InterfaceDecl (it's a structural type), so pass NULL.
          * Phase 9's C emitter will reconstruct the vtable struct from the
          * method_sigs array. */
-        iron_ir_module_add_type_decl(ctx->module, IRON_IR_TYPE_INTERFACE,
+        iron_lir_module_add_type_decl(ctx->module, IRON_LIR_TYPE_INTERFACE,
                                      iface->name, NULL);
     }
 
@@ -326,7 +326,7 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
         /* Create the Iron_Type* with the object.decl pointer set so that
          * emit_c.c can find the field list when emitting the C struct. */
         Iron_Type *obj_type = iron_type_make_object(ctx->ir_arena, obj);
-        iron_ir_module_add_type_decl(ctx->module, IRON_IR_TYPE_OBJECT,
+        iron_lir_module_add_type_decl(ctx->module, IRON_LIR_TYPE_OBJECT,
                                      obj->name, obj_type);
 
         /* For generic objects: register known instantiations in mono_registry.
@@ -347,13 +347,13 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
         if (decl->kind != IRON_NODE_ENUM_DECL) continue;
 
         Iron_EnumDecl *en = (Iron_EnumDecl *)decl;
-        iron_ir_module_add_type_decl(ctx->module, IRON_IR_TYPE_ENUM,
+        iron_lir_module_add_type_decl(ctx->module, IRON_LIR_TYPE_ENUM,
                                      en->name, NULL);
     }
 
     /* Pass 1d: Register function signatures (including extern functions).
      * Non-extern functions get a full IrFunc scaffold; extern functions use
-     * iron_ir_module_add_extern and are tagged is_extern=true on their IrFunc. */
+     * iron_lir_module_add_extern and are tagged is_extern=true on their IrFunc. */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind != IRON_NODE_FUNC_DECL) continue;
@@ -364,8 +364,8 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
         Iron_Type *ret_type = fd->resolved_return_type;
         if (ret_type && ret_type->kind == IRON_TYPE_VOID) ret_type = NULL;
 
-        IronIR_Param *params = build_param_array(ctx, fd->params, fd->param_count);
-        IronIR_Func  *fn     = iron_ir_func_create(ctx->module, fd->name,
+        IronLIR_Param *params = build_param_array(ctx, fd->params, fd->param_count);
+        IronLIR_Func  *fn     = iron_lir_func_create(ctx->module, fd->name,
                                                     params, fd->param_count,
                                                     ret_type);
 
@@ -383,7 +383,7 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
                     param_types[p] = params ? params[p].type : NULL;
                 }
             }
-            iron_ir_module_add_extern(ctx->module, fd->name, fd->extern_c_name,
+            iron_lir_module_add_extern(ctx->module, fd->name, fd->extern_c_name,
                                       param_types, fd->param_count, ret_type);
         }
     }
@@ -441,18 +441,18 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
 
         /* Build param array: self first, then explicit params */
         int total_params = 1 + md->param_count;
-        IronIR_Param *params = (IronIR_Param *)iron_arena_alloc(
+        IronLIR_Param *params = (IronLIR_Param *)iron_arena_alloc(
             ctx->ir_arena,
-            (size_t)total_params * sizeof(IronIR_Param),
-            _Alignof(IronIR_Param));
+            (size_t)total_params * sizeof(IronLIR_Param),
+            _Alignof(IronLIR_Param));
         params[0].name = "self";
         params[0].type = self_type;
-        IronIR_Param *explicit_params = build_param_array(ctx, md->params, md->param_count);
+        IronLIR_Param *explicit_params = build_param_array(ctx, md->params, md->param_count);
         for (int p = 0; p < md->param_count; p++) {
             params[1 + p] = explicit_params[p];
         }
 
-        iron_ir_func_create(ctx->module, mangled, params, total_params, ret_type);
+        iron_lir_func_create(ctx->module, mangled, params, total_params, ret_type);
     }
 
     /* Pass 1g: Walk all declarations for monomorphization tracking.
@@ -473,7 +473,7 @@ void lower_module_decls(IronIR_LowerCtx *ctx) {
 /* ── Post-pass: lift lambda/spawn/pfor bodies ─────────────────────────────── */
 
 /* Lift a lambda node to a top-level IrFunc. */
-static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
+static void lift_lambda(IronLIR_LowerCtx *ctx, LiftPending *lp) {
     Iron_LambdaExpr *lam = (Iron_LambdaExpr *)lp->ast_node;
     if (!lam) return;
 
@@ -488,12 +488,12 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
         total_params += 1;  /* env: void* as first param */
     }
 
-    IronIR_Param *params = NULL;
+    IronLIR_Param *params = NULL;
     if (total_params > 0) {
-        params = (IronIR_Param *)iron_arena_alloc(
+        params = (IronLIR_Param *)iron_arena_alloc(
             ctx->ir_arena,
-            (size_t)total_params * sizeof(IronIR_Param),
-            _Alignof(IronIR_Param));
+            (size_t)total_params * sizeof(IronLIR_Param),
+            _Alignof(IronLIR_Param));
     }
 
     int param_idx = 0;
@@ -521,7 +521,7 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
     if (ret_type && ret_type->kind == IRON_TYPE_VOID) ret_type = NULL;
 
     /* Create the lifted function */
-    IronIR_Func *lifted = iron_ir_func_create(ctx->module, lp->lifted_name,
+    IronLIR_Func *lifted = iron_lir_func_create(ctx->module, lp->lifted_name,
                                                params, total_params, ret_type);
     if (!lifted) {
         arrfree(captures);
@@ -529,8 +529,8 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
     }
 
     /* Lower the lambda body into the lifted function */
-    IronIR_Func  *saved_func  = ctx->current_func;
-    IronIR_Block *saved_block = ctx->current_block;
+    IronLIR_Func  *saved_func  = ctx->current_func;
+    IronLIR_Block *saved_block = ctx->current_block;
     const char   *saved_name  = ctx->current_func_name;
 
     ctx->current_func      = lifted;
@@ -544,7 +544,7 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
     ctx->var_alloca_map  = NULL;
     ctx->param_map       = NULL;
 
-    IronIR_Block *entry = iron_ir_block_create(lifted, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(lifted, "entry");
     ctx->current_block  = entry;
 
     /* If there are captures, the env param holds them.
@@ -559,7 +559,7 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
         Iron_Type  *pt = params[p].type;
 
         /* Synthetic ValueId for this param */
-        IronIR_ValueId param_val_id = lifted->next_value_id++;
+        IronLIR_ValueId param_val_id = lifted->next_value_id++;
         while (arrlen(lifted->value_table) <= (ptrdiff_t)param_val_id) {
             arrput(lifted->value_table, NULL);
         }
@@ -567,9 +567,9 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
         shput(ctx->param_map, ap->name, param_val_id);
 
         /* alloca+store for the param */
-        IronIR_Instr *slot = iron_ir_alloca(lifted, entry, pt, ap->name,
+        IronLIR_Instr *slot = iron_lir_alloca(lifted, entry, pt, ap->name,
                                              lam->span);
-        iron_ir_store(lifted, entry, slot->id, param_val_id, lam->span);
+        iron_lir_store(lifted, entry, slot->id, param_val_id, lam->span);
         shput(ctx->var_alloca_map, ap->name, slot->id);
     }
 
@@ -591,9 +591,9 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
     /* Implicit void return if needed */
     if (lifted->return_type == NULL && ctx->current_block) {
         if (ctx->current_block->instr_count == 0 ||
-            !iron_ir_is_terminator(
+            !iron_lir_is_terminator(
                 ctx->current_block->instrs[ctx->current_block->instr_count - 1]->kind)) {
-            iron_ir_return(lifted, ctx->current_block, IRON_IR_VALUE_INVALID,
+            iron_lir_return(lifted, ctx->current_block, IRON_LIR_VALUE_INVALID,
                            true, NULL, lam->span);
         }
     }
@@ -615,7 +615,7 @@ static void lift_lambda(IronIR_LowerCtx *ctx, LiftPending *lp) {
 }
 
 /* Lift a spawn body to a top-level IrFunc. */
-static void lift_spawn(IronIR_LowerCtx *ctx, LiftPending *lp) {
+static void lift_spawn(IronLIR_LowerCtx *ctx, LiftPending *lp) {
     Iron_SpawnStmt *ss = (Iron_SpawnStmt *)lp->ast_node;
     if (!ss) return;
 
@@ -624,12 +624,12 @@ static void lift_spawn(IronIR_LowerCtx *ctx, LiftPending *lp) {
     int capture_count = (int)arrlen(captures);
 
     /* Spawn function: captures become explicit parameters */
-    IronIR_Param *params = NULL;
+    IronLIR_Param *params = NULL;
     if (capture_count > 0) {
-        params = (IronIR_Param *)iron_arena_alloc(
+        params = (IronLIR_Param *)iron_arena_alloc(
             ctx->ir_arena,
-            (size_t)capture_count * sizeof(IronIR_Param),
-            _Alignof(IronIR_Param));
+            (size_t)capture_count * sizeof(IronLIR_Param),
+            _Alignof(IronLIR_Param));
         for (int c = 0; c < capture_count; c++) {
             params[c].name = captures[c];
             params[c].type = NULL;  /* type unknown at this pass */
@@ -637,7 +637,7 @@ static void lift_spawn(IronIR_LowerCtx *ctx, LiftPending *lp) {
     }
 
     /* Create the lifted function (void return) */
-    IronIR_Func *lifted = iron_ir_func_create(ctx->module, lp->lifted_name,
+    IronLIR_Func *lifted = iron_lir_func_create(ctx->module, lp->lifted_name,
                                                params, capture_count, NULL);
     if (!lifted) {
         arrfree(captures);
@@ -645,8 +645,8 @@ static void lift_spawn(IronIR_LowerCtx *ctx, LiftPending *lp) {
     }
 
     /* Lower spawn body */
-    IronIR_Func  *saved_func  = ctx->current_func;
-    IronIR_Block *saved_block = ctx->current_block;
+    IronLIR_Func  *saved_func  = ctx->current_func;
+    IronLIR_Block *saved_block = ctx->current_block;
     const char   *saved_name  = ctx->current_func_name;
 
     ctx->current_func      = lifted;
@@ -659,21 +659,21 @@ static void lift_spawn(IronIR_LowerCtx *ctx, LiftPending *lp) {
     ctx->var_alloca_map  = NULL;
     ctx->param_map       = NULL;
 
-    IronIR_Block *entry = iron_ir_block_create(lifted, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(lifted, "entry");
     ctx->current_block  = entry;
 
     /* Register capture params as alloca slots */
     for (int c = 0; c < capture_count; c++) {
-        IronIR_ValueId param_val_id = lifted->next_value_id++;
+        IronLIR_ValueId param_val_id = lifted->next_value_id++;
         while (arrlen(lifted->value_table) <= (ptrdiff_t)param_val_id) {
             arrput(lifted->value_table, NULL);
         }
         lifted->value_table[param_val_id] = NULL;
         shput(ctx->param_map, captures[c], param_val_id);
 
-        IronIR_Instr *slot = iron_ir_alloca(lifted, entry, NULL,
+        IronLIR_Instr *slot = iron_lir_alloca(lifted, entry, NULL,
                                              captures[c], ss->span);
-        iron_ir_store(lifted, entry, slot->id, param_val_id, ss->span);
+        iron_lir_store(lifted, entry, slot->id, param_val_id, ss->span);
         shput(ctx->var_alloca_map, captures[c], slot->id);
     }
 
@@ -694,9 +694,9 @@ static void lift_spawn(IronIR_LowerCtx *ctx, LiftPending *lp) {
     /* Emit implicit void return */
     if (ctx->current_block) {
         if (ctx->current_block->instr_count == 0 ||
-            !iron_ir_is_terminator(
+            !iron_lir_is_terminator(
                 ctx->current_block->instrs[ctx->current_block->instr_count - 1]->kind)) {
-            iron_ir_return(lifted, ctx->current_block, IRON_IR_VALUE_INVALID,
+            iron_lir_return(lifted, ctx->current_block, IRON_LIR_VALUE_INVALID,
                            true, NULL, ss->span);
         }
     }
@@ -716,7 +716,7 @@ static void lift_spawn(IronIR_LowerCtx *ctx, LiftPending *lp) {
 }
 
 /* Lift a parallel-for body to a top-level chunk IrFunc. */
-static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
+static void lift_pfor(IronLIR_LowerCtx *ctx, LiftPending *lp) {
     Iron_ForStmt *fs = (Iron_ForStmt *)lp->ast_node;
     if (!fs) return;
 
@@ -734,10 +734,10 @@ static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
     /* Chunk function params: (loop_var: Int) + captured variables.
      * The loop variable is passed as the first param (range sliced by runtime). */
     int total_params = 1 + capture_count;
-    IronIR_Param *params = (IronIR_Param *)iron_arena_alloc(
+    IronLIR_Param *params = (IronLIR_Param *)iron_arena_alloc(
         ctx->ir_arena,
-        (size_t)total_params * sizeof(IronIR_Param),
-        _Alignof(IronIR_Param));
+        (size_t)total_params * sizeof(IronLIR_Param),
+        _Alignof(IronLIR_Param));
 
     /* First param: the loop variable */
     params[0].name = fs->var_name ? fs->var_name : "i";
@@ -750,7 +750,7 @@ static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
     }
 
     /* Create the chunk function (void return) */
-    IronIR_Func *lifted = iron_ir_func_create(ctx->module, lp->lifted_name,
+    IronLIR_Func *lifted = iron_lir_func_create(ctx->module, lp->lifted_name,
                                                params, total_params, NULL);
     if (!lifted) {
         arrfree(captures);
@@ -758,8 +758,8 @@ static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
     }
 
     /* Lower pfor body */
-    IronIR_Func  *saved_func  = ctx->current_func;
-    IronIR_Block *saved_block = ctx->current_block;
+    IronLIR_Func  *saved_func  = ctx->current_func;
+    IronLIR_Block *saved_block = ctx->current_block;
     const char   *saved_name  = ctx->current_func_name;
 
     ctx->current_func      = lifted;
@@ -772,36 +772,36 @@ static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
     ctx->var_alloca_map  = NULL;
     ctx->param_map       = NULL;
 
-    IronIR_Block *entry = iron_ir_block_create(lifted, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(lifted, "entry");
     ctx->current_block  = entry;
 
     /* Register loop variable param */
     {
-        IronIR_ValueId param_val_id = lifted->next_value_id++;
+        IronLIR_ValueId param_val_id = lifted->next_value_id++;
         while (arrlen(lifted->value_table) <= (ptrdiff_t)param_val_id) {
             arrput(lifted->value_table, NULL);
         }
         lifted->value_table[param_val_id] = NULL;
         const char *lv_name = fs->var_name ? fs->var_name : "i";
         shput(ctx->param_map, lv_name, param_val_id);
-        IronIR_Instr *slot = iron_ir_alloca(lifted, entry,
+        IronLIR_Instr *slot = iron_lir_alloca(lifted, entry,
                                              iron_type_make_primitive(IRON_TYPE_INT),
                                              lv_name, fs->span);
-        iron_ir_store(lifted, entry, slot->id, param_val_id, fs->span);
+        iron_lir_store(lifted, entry, slot->id, param_val_id, fs->span);
         shput(ctx->var_alloca_map, lv_name, slot->id);
     }
 
     /* Register capture params */
     for (int c = 0; c < capture_count; c++) {
-        IronIR_ValueId param_val_id = lifted->next_value_id++;
+        IronLIR_ValueId param_val_id = lifted->next_value_id++;
         while (arrlen(lifted->value_table) <= (ptrdiff_t)param_val_id) {
             arrput(lifted->value_table, NULL);
         }
         lifted->value_table[param_val_id] = NULL;
         shput(ctx->param_map, captures[c], param_val_id);
-        IronIR_Instr *slot = iron_ir_alloca(lifted, entry, NULL,
+        IronLIR_Instr *slot = iron_lir_alloca(lifted, entry, NULL,
                                              captures[c], fs->span);
-        iron_ir_store(lifted, entry, slot->id, param_val_id, fs->span);
+        iron_lir_store(lifted, entry, slot->id, param_val_id, fs->span);
         shput(ctx->var_alloca_map, captures[c], slot->id);
     }
 
@@ -822,9 +822,9 @@ static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
     /* Emit implicit void return */
     if (ctx->current_block) {
         if (ctx->current_block->instr_count == 0 ||
-            !iron_ir_is_terminator(
+            !iron_lir_is_terminator(
                 ctx->current_block->instrs[ctx->current_block->instr_count - 1]->kind)) {
-            iron_ir_return(lifted, ctx->current_block, IRON_IR_VALUE_INVALID,
+            iron_lir_return(lifted, ctx->current_block, IRON_LIR_VALUE_INVALID,
                            true, NULL, fs->span);
         }
     }
@@ -845,7 +845,7 @@ static void lift_pfor(IronIR_LowerCtx *ctx, LiftPending *lp) {
 
 /* ── Post-pass: process all pending lifts ────────────────────────────────── */
 
-void lower_lift_pending(IronIR_LowerCtx *ctx) {
+void lower_lift_pending(IronLIR_LowerCtx *ctx) {
     for (int i = 0; i < (int)arrlen(ctx->pending_lifts); i++) {
         LiftPending *lp = &ctx->pending_lifts[i];
         switch (lp->kind) {

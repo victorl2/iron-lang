@@ -1,7 +1,7 @@
 /* test_ir_emit.c — Unity tests for the IR-to-C emission backend (Phase 9).
  *
  * Tests hand-build IrModules using the IR constructor API, call
- * iron_ir_emit_c(), and verify the output C string contains expected patterns.
+ * iron_lir_emit_c(), and verify the output C string contains expected patterns.
  *
  * Tests:
  *   1. test_emit_hello_world                   — Iron_main with const_string + call
@@ -16,9 +16,9 @@
  */
 
 #include "unity.h"
-#include "ir/emit_c.h"
-#include "ir/ir_optimize.h"
-#include "ir/ir.h"
+#include "lir/emit_c.h"
+#include "lir/lir_optimize.h"
+#include "lir/lir.h"
 #include "analyzer/types.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
@@ -57,28 +57,28 @@ void test_emit_hello_world(void) {
     Iron_Arena ir_arena = iron_arena_create(65536);
     iron_types_init(&ir_arena);
 
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_hello");
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_hello");
 
     /* func Iron_main() -> void */
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_main", NULL, 0, NULL);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_main", NULL, 0, NULL);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
 
     Iron_Span sp = test_span();
     Iron_Type *str_type = iron_type_make_primitive(IRON_TYPE_STRING);
 
     /* %1 = const_string "Hello" */
-    IronIR_Instr *s = iron_ir_const_string(fn, entry, "Hello", str_type, sp);
+    IronLIR_Instr *s = iron_lir_const_string(fn, entry, "Hello", str_type, sp);
     (void)s;
 
     /* return void */
-    iron_ir_return(fn, entry, IRON_IR_VALUE_INVALID, true, NULL, sp);
+    iron_lir_return(fn, entry, IRON_LIR_VALUE_INVALID, true, NULL, sp);
 
     /* Emit — skip new passes (copy-prop/const-fold/DCE) so the unused
      * const_string survives in the IR and iron_string_from_literal is emitted. */
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info_1;
-    iron_ir_optimize(mod, &opt_info_1, &out_arena, false, true);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_1);
+    IronLIR_OptimizeInfo opt_info_1;
+    iron_lir_optimize(mod, &opt_info_1, &out_arena, false, true);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_1);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "#include \"runtime/iron_runtime.h\""));
@@ -88,9 +88,9 @@ void test_emit_hello_world(void) {
     TEST_ASSERT_NOT_NULL(strstr(result, "iron_runtime_shutdown()"));
     TEST_ASSERT_NOT_NULL(strstr(result, "iron_string_from_literal"));
 
-    iron_ir_optimize_info_free(&opt_info_1);
+    iron_lir_optimize_info_free(&opt_info_1);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -100,32 +100,32 @@ void test_emit_arithmetic(void) {
     Iron_Arena ir_arena = iron_arena_create(65536);
     iron_types_init(&ir_arena);
 
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_arith");
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_arith");
 
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
 
     /* func add_ints() -> Int */
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_add_ints", NULL, 0,
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_add_ints", NULL, 0,
                                           int_type);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
     Iron_Span sp = test_span();
 
     /* %1 = const_int 10 */
-    IronIR_Instr *c1 = iron_ir_const_int(fn, entry, 10, int_type, sp);
+    IronLIR_Instr *c1 = iron_lir_const_int(fn, entry, 10, int_type, sp);
     /* %2 = const_int 20 */
-    IronIR_Instr *c2 = iron_ir_const_int(fn, entry, 20, int_type, sp);
+    IronLIR_Instr *c2 = iron_lir_const_int(fn, entry, 20, int_type, sp);
     /* %3 = add %1, %2 */
-    IronIR_Instr *sum = iron_ir_binop(fn, entry, IRON_IR_ADD,
+    IronLIR_Instr *sum = iron_lir_binop(fn, entry, IRON_LIR_ADD,
                                        c1->id, c2->id, int_type, sp);
     /* return %3 */
-    iron_ir_return(fn, entry, sum->id, false, int_type, sp);
+    iron_lir_return(fn, entry, sum->id, false, int_type, sp);
 
     /* Skip new passes (copy-prop/const-fold/DCE) so constant folding doesn't
      * eliminate the ADD before emission — this test is checking emitter output. */
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info_2;
-    iron_ir_optimize(mod, &opt_info_2, &out_arena, false, true);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_2);
+    IronLIR_OptimizeInfo opt_info_2;
+    iron_lir_optimize(mod, &opt_info_2, &out_arena, false, true);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_2);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "int64_t"));
@@ -134,9 +134,9 @@ void test_emit_arithmetic(void) {
     /* No main wrapper since no Iron_main */
     TEST_ASSERT_NULL(strstr(result, "int main("));
 
-    iron_ir_optimize_info_free(&opt_info_2);
+    iron_lir_optimize_info_free(&opt_info_2);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -146,39 +146,39 @@ void test_emit_control_flow(void) {
     Iron_Arena ir_arena = iron_arena_create(65536);
     iron_types_init(&ir_arena);
 
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_cf");
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_cf");
     Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
     Iron_Span sp = test_span();
 
     /* func branch_test(cond: Bool) -> void */
-    IronIR_Param params[1];
+    IronLIR_Param params[1];
     params[0].name = "cond";
     params[0].type = bool_type;
 
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_branch_test",
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_branch_test",
                                           params, 1, NULL);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
-    IronIR_Block *then_b = iron_ir_block_create(fn, "then_0");
-    IronIR_Block *else_b = iron_ir_block_create(fn, "else_0");
-    IronIR_Block *merge  = iron_ir_block_create(fn, "merge_0");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *then_b = iron_lir_block_create(fn, "then_0");
+    IronLIR_Block *else_b = iron_lir_block_create(fn, "else_0");
+    IronLIR_Block *merge  = iron_lir_block_create(fn, "merge_0");
 
     /* entry: branch cond -> then_0, else_0 */
-    IronIR_Instr *cond_val = iron_ir_const_bool(fn, entry, true, bool_type, sp);
-    iron_ir_branch(fn, entry, cond_val->id, then_b->id, else_b->id, sp);
+    IronLIR_Instr *cond_val = iron_lir_const_bool(fn, entry, true, bool_type, sp);
+    iron_lir_branch(fn, entry, cond_val->id, then_b->id, else_b->id, sp);
 
     /* then_0: jump merge_0 */
-    iron_ir_jump(fn, then_b, merge->id, sp);
+    iron_lir_jump(fn, then_b, merge->id, sp);
 
     /* else_0: jump merge_0 */
-    iron_ir_jump(fn, else_b, merge->id, sp);
+    iron_lir_jump(fn, else_b, merge->id, sp);
 
     /* merge_0: return void */
-    iron_ir_return(fn, merge, IRON_IR_VALUE_INVALID, true, NULL, sp);
+    iron_lir_return(fn, merge, IRON_LIR_VALUE_INVALID, true, NULL, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info_3;
-    iron_ir_optimize(mod, &opt_info_3, &out_arena, false, false);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_3);
+    IronLIR_OptimizeInfo opt_info_3;
+    iron_lir_optimize(mod, &opt_info_3, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_3);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "goto"));
@@ -187,9 +187,9 @@ void test_emit_control_flow(void) {
     TEST_ASSERT_NOT_NULL(strstr(result, "if ("));
     TEST_ASSERT_NOT_NULL(strstr(result, "merge_0"));
 
-    iron_ir_optimize_info_free(&opt_info_3);
+    iron_lir_optimize_info_free(&opt_info_3);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -199,30 +199,30 @@ void test_emit_alloca_load_store(void) {
     Iron_Arena ir_arena = iron_arena_create(65536);
     iron_types_init(&ir_arena);
 
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_alloca");
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_alloca");
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
     Iron_Span sp = test_span();
 
     /* func alloca_test() -> Int */
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_alloca_test",
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_alloca_test",
                                           NULL, 0, int_type);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
 
     /* %1 = alloca Int */
-    IronIR_Instr *slot = iron_ir_alloca(fn, entry, int_type, "x", sp);
+    IronLIR_Instr *slot = iron_lir_alloca(fn, entry, int_type, "x", sp);
     /* %2 = const_int 42 */
-    IronIR_Instr *val  = iron_ir_const_int(fn, entry, 42, int_type, sp);
+    IronLIR_Instr *val  = iron_lir_const_int(fn, entry, 42, int_type, sp);
     /* store %1, %2 */
-    iron_ir_store(fn, entry, slot->id, val->id, sp);
+    iron_lir_store(fn, entry, slot->id, val->id, sp);
     /* %3 = load %1 */
-    IronIR_Instr *loaded = iron_ir_load(fn, entry, slot->id, int_type, sp);
+    IronLIR_Instr *loaded = iron_lir_load(fn, entry, slot->id, int_type, sp);
     /* return %3 */
-    iron_ir_return(fn, entry, loaded->id, false, int_type, sp);
+    iron_lir_return(fn, entry, loaded->id, false, int_type, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info_4;
-    iron_ir_optimize(mod, &opt_info_4, &out_arena, false, false);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_4);
+    IronLIR_OptimizeInfo opt_info_4;
+    iron_lir_optimize(mod, &opt_info_4, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_4);
 
     TEST_ASSERT_NOT_NULL(result);
     /* Alloca emits a variable declaration */
@@ -232,9 +232,9 @@ void test_emit_alloca_load_store(void) {
     /* Load emits copy: _vK = _vN */
     TEST_ASSERT_NOT_NULL(strstr(result, "return"));
 
-    iron_ir_optimize_info_free(&opt_info_4);
+    iron_lir_optimize_info_free(&opt_info_4);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -273,28 +273,28 @@ void test_emit_type_decl_object(void) {
     Iron_Type *obj_type = iron_type_make_object(&ir_arena, od);
 
     /* Create module with this type_decl */
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_type_decl");
-    iron_ir_module_add_type_decl(mod, IRON_IR_TYPE_OBJECT, "Player", obj_type);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_type_decl");
+    iron_lir_module_add_type_decl(mod, IRON_LIR_TYPE_OBJECT, "Player", obj_type);
 
     /* Add a trivial function so the module emits something */
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_main", NULL, 0, NULL);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
-    iron_ir_return(fn, entry, IRON_IR_VALUE_INVALID, true, NULL, test_span());
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_main", NULL, 0, NULL);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    iron_lir_return(fn, entry, IRON_LIR_VALUE_INVALID, true, NULL, test_span());
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info_5;
-    iron_ir_optimize(mod, &opt_info_5, &out_arena, false, false);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_5);
+    IronLIR_OptimizeInfo opt_info_5;
+    iron_lir_optimize(mod, &opt_info_5, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_5);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "typedef struct"));
     TEST_ASSERT_NOT_NULL(strstr(result, "Iron_Player"));
     TEST_ASSERT_NOT_NULL(strstr(result, "IRON_TAG_"));
 
-    iron_ir_optimize_info_free(&opt_info_5);
+    iron_lir_optimize_info_free(&opt_info_5);
     arrfree(fields);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -304,7 +304,7 @@ void test_emit_phi_elimination(void) {
     Iron_Arena ir_arena = iron_arena_create(65536);
     iron_types_init(&ir_arena);
 
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_phi");
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_phi");
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
     Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
     Iron_Span sp = test_span();
@@ -325,42 +325,42 @@ void test_emit_phi_elimination(void) {
      *     return %result
      *   }
      */
-    IronIR_Param params[2];
+    IronLIR_Param params[2];
     params[0].name = "a";
     params[0].type = int_type;
     params[1].name = "b";
     params[1].type = int_type;
 
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_phi_test",
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_phi_test",
                                           params, 2, int_type);
-    IronIR_Block *entry   = iron_ir_block_create(fn, "entry");
-    IronIR_Block *then_b  = iron_ir_block_create(fn, "then_0");
-    IronIR_Block *else_b  = iron_ir_block_create(fn, "else_0");
-    IronIR_Block *merge_b = iron_ir_block_create(fn, "merge_0");
+    IronLIR_Block *entry   = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *then_b  = iron_lir_block_create(fn, "then_0");
+    IronLIR_Block *else_b  = iron_lir_block_create(fn, "else_0");
+    IronLIR_Block *merge_b = iron_lir_block_create(fn, "merge_0");
 
     /* entry: create two values and a branch */
-    IronIR_Instr *va = iron_ir_const_int(fn, entry, 10, int_type, sp);
-    IronIR_Instr *vb = iron_ir_const_int(fn, entry, 20, int_type, sp);
-    IronIR_Instr *cmp = iron_ir_binop(fn, entry, IRON_IR_GT,
+    IronLIR_Instr *va = iron_lir_const_int(fn, entry, 10, int_type, sp);
+    IronLIR_Instr *vb = iron_lir_const_int(fn, entry, 20, int_type, sp);
+    IronLIR_Instr *cmp = iron_lir_binop(fn, entry, IRON_LIR_GT,
                                        va->id, vb->id, bool_type, sp);
-    iron_ir_branch(fn, entry, cmp->id, then_b->id, else_b->id, sp);
+    iron_lir_branch(fn, entry, cmp->id, then_b->id, else_b->id, sp);
 
     /* then_0: jump merge_0 */
-    iron_ir_jump(fn, then_b, merge_b->id, sp);
+    iron_lir_jump(fn, then_b, merge_b->id, sp);
 
     /* else_0: jump merge_0 */
-    iron_ir_jump(fn, else_b, merge_b->id, sp);
+    iron_lir_jump(fn, else_b, merge_b->id, sp);
 
     /* merge_0: phi + return */
-    IronIR_Instr *phi = iron_ir_phi(fn, merge_b, int_type, sp);
-    iron_ir_phi_add_incoming(phi, va->id, then_b->id);
-    iron_ir_phi_add_incoming(phi, vb->id, else_b->id);
-    iron_ir_return(fn, merge_b, phi->id, false, int_type, sp);
+    IronLIR_Instr *phi = iron_lir_phi(fn, merge_b, int_type, sp);
+    iron_lir_phi_add_incoming(phi, va->id, then_b->id);
+    iron_lir_phi_add_incoming(phi, vb->id, else_b->id);
+    iron_lir_return(fn, merge_b, phi->id, false, int_type, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info_6;
-    iron_ir_optimize(mod, &opt_info_6, &out_arena, false, false);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info_6);
+    IronLIR_OptimizeInfo opt_info_6;
+    iron_lir_optimize(mod, &opt_info_6, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_6);
 
     TEST_ASSERT_NOT_NULL(result);
 
@@ -376,9 +376,9 @@ void test_emit_phi_elimination(void) {
     /* ERROR: phi comment would only appear if phi_eliminate failed */
     TEST_ASSERT_NULL(strstr(result, "ERROR: phi not eliminated"));
 
-    iron_ir_optimize_info_free(&opt_info_6);
+    iron_lir_optimize_info_free(&opt_info_6);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -388,7 +388,7 @@ void test_emit_expression_inlining_basic(void) {
     Iron_Arena ir_arena = iron_arena_create(65536);
     iron_types_init(&ir_arena);
 
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_inline_basic");
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_inline_basic");
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
     Iron_Span sp = test_span();
 
@@ -406,24 +406,24 @@ void test_emit_expression_inlining_basic(void) {
      * still exercising inlining: the result cannot be folded if we use a
      * non-constant operand path. Instead, verify the C code is produced without
      * error and contains parenthesized arithmetic forms. */
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_add_double",
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_add_double",
                                            NULL, 0, int_type);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
 
-    IronIR_Instr *c3  = iron_ir_const_int(fn, entry, 3, int_type, sp);
-    IronIR_Instr *c4  = iron_ir_const_int(fn, entry, 4, int_type, sp);
-    IronIR_Instr *add = iron_ir_binop(fn, entry, IRON_IR_ADD,
+    IronLIR_Instr *c3  = iron_lir_const_int(fn, entry, 3, int_type, sp);
+    IronLIR_Instr *c4  = iron_lir_const_int(fn, entry, 4, int_type, sp);
+    IronLIR_Instr *add = iron_lir_binop(fn, entry, IRON_LIR_ADD,
                                        c3->id, c4->id, int_type, sp);
-    IronIR_Instr *c2  = iron_ir_const_int(fn, entry, 2, int_type, sp);
-    IronIR_Instr *mul = iron_ir_binop(fn, entry, IRON_IR_MUL,
+    IronLIR_Instr *c2  = iron_lir_const_int(fn, entry, 2, int_type, sp);
+    IronLIR_Instr *mul = iron_lir_binop(fn, entry, IRON_LIR_MUL,
                                        add->id, c2->id, int_type, sp);
-    iron_ir_return(fn, entry, mul->id, false, int_type, sp);
+    iron_lir_return(fn, entry, mul->id, false, int_type, sp);
 
     /* Run with optimization passes enabled — this activates expression inlining */
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info;
-    iron_ir_optimize(mod, &opt_info, &out_arena, false, false);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info);
+    IronLIR_OptimizeInfo opt_info;
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info);
 
     TEST_ASSERT_NOT_NULL(result);
     /* Emitted C must compile without errors — spot-check that it has valid
@@ -437,9 +437,9 @@ void test_emit_expression_inlining_basic(void) {
      * Verify: no separate _v3 assignment (either inlined or folded away). */
     TEST_ASSERT_NULL(strstr(result, "int64_t _v3 ="));
 
-    iron_ir_optimize_info_free(&opt_info);
+    iron_lir_optimize_info_free(&opt_info);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -485,8 +485,8 @@ void test_emit_construct_inlined(void) {
     Iron_Type *point_type = iron_type_make_object(&ir_arena, od);
 
     /* Create module + type decl */
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_construct_inline");
-    iron_ir_module_add_type_decl(mod, IRON_IR_TYPE_OBJECT, "Point", point_type);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_construct_inline");
+    iron_lir_module_add_type_decl(mod, IRON_LIR_TYPE_OBJECT, "Point", point_type);
 
     Iron_Span sp = test_span();
 
@@ -499,21 +499,21 @@ void test_emit_construct_inlined(void) {
      *
      * With expression inlining, %3 should be inlined as a compound literal
      * at the return site. */
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_make_point",
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_make_point",
                                            NULL, 0, point_type);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
 
-    IronIR_Instr *cx = iron_ir_const_int(fn, entry, 10, int_type, sp);
-    IronIR_Instr *cy = iron_ir_const_int(fn, entry, 20, int_type, sp);
+    IronLIR_Instr *cx = iron_lir_const_int(fn, entry, 10, int_type, sp);
+    IronLIR_Instr *cy = iron_lir_const_int(fn, entry, 20, int_type, sp);
 
-    IronIR_ValueId field_vals[2] = { cx->id, cy->id };
-    IronIR_Instr *pt = iron_ir_construct(fn, entry, point_type, field_vals, 2, sp);
-    iron_ir_return(fn, entry, pt->id, false, point_type, sp);
+    IronLIR_ValueId field_vals[2] = { cx->id, cy->id };
+    IronLIR_Instr *pt = iron_lir_construct(fn, entry, point_type, field_vals, 2, sp);
+    iron_lir_return(fn, entry, pt->id, false, point_type, sp);
 
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info;
-    iron_ir_optimize(mod, &opt_info, &out_arena, false, false);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info);
+    IronLIR_OptimizeInfo opt_info;
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "Iron_make_point"));
@@ -525,10 +525,10 @@ void test_emit_construct_inlined(void) {
     /* Check for the struct type being emitted (even if inlined or declared) */
     TEST_ASSERT_NOT_NULL(strstr(result, "Iron_Point"));
 
-    iron_ir_optimize_info_free(&opt_info);
+    iron_lir_optimize_info_free(&opt_info);
     arrfree(fields);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 
@@ -561,69 +561,69 @@ void test_emit_inlined_no_separate_temps(void) {
      *   return ((_v1 + _v3) * ((int64_t)2LL))
      * No separate "int64_t _v7 = ..." declaration for the ADD result.
      */
-    IronIR_Module *mod = iron_ir_module_create(&ir_arena, "test_inline_temps");
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_inline_temps");
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
     Iron_Span sp = test_span();
 
-    IronIR_Param params[2];
+    IronLIR_Param params[2];
     params[0].name = "a";
     params[0].type = int_type;
     params[1].name = "b";
     params[1].type = int_type;
 
-    IronIR_Func *fn = iron_ir_func_create(mod, "Iron_calc",
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_calc",
                                            params, 2, int_type);
-    IronIR_Block *entry = iron_ir_block_create(fn, "entry");
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
 
     /* Simulate the param lowering pattern: reserve synthetic param value IDs
      * and create the alloca+store entries that the lowerer would emit. */
 
     /* Param a: synthetic ID (fn->next_value_id starts at 1) */
-    IronIR_ValueId param_a_id = fn->next_value_id++;
+    IronLIR_ValueId param_a_id = fn->next_value_id++;
     while (arrlen(fn->value_table) <= (ptrdiff_t)param_a_id)
         arrput(fn->value_table, NULL);
     fn->value_table[param_a_id] = NULL;  /* no instruction node — synthetic */
 
     /* alloca for a */
-    IronIR_Instr *alloca_a = iron_ir_alloca(fn, entry, int_type, "a", sp);
+    IronLIR_Instr *alloca_a = iron_lir_alloca(fn, entry, int_type, "a", sp);
 
     /* Param b: next synthetic ID */
-    IronIR_ValueId param_b_id = fn->next_value_id++;
+    IronLIR_ValueId param_b_id = fn->next_value_id++;
     while (arrlen(fn->value_table) <= (ptrdiff_t)param_b_id)
         arrput(fn->value_table, NULL);
     fn->value_table[param_b_id] = NULL;
 
     /* alloca for b */
-    IronIR_Instr *alloca_b = iron_ir_alloca(fn, entry, int_type, "b", sp);
+    IronLIR_Instr *alloca_b = iron_lir_alloca(fn, entry, int_type, "b", sp);
 
     /* store param values into their alloca slots */
-    iron_ir_store(fn, entry, alloca_a->id, param_a_id, sp);
-    iron_ir_store(fn, entry, alloca_b->id, param_b_id, sp);
+    iron_lir_store(fn, entry, alloca_a->id, param_a_id, sp);
+    iron_lir_store(fn, entry, alloca_b->id, param_b_id, sp);
 
     /* load from allocas */
-    IronIR_Instr *load_a = iron_ir_load(fn, entry, alloca_a->id, int_type, sp);
-    IronIR_Instr *load_b = iron_ir_load(fn, entry, alloca_b->id, int_type, sp);
+    IronLIR_Instr *load_a = iron_lir_load(fn, entry, alloca_a->id, int_type, sp);
+    IronLIR_Instr *load_b = iron_lir_load(fn, entry, alloca_b->id, int_type, sp);
 
     /* ADD load_a + load_b -> v_add (single-use: only used by MUL below) */
-    IronIR_Instr *v_add = iron_ir_binop(fn, entry, IRON_IR_ADD,
+    IronLIR_Instr *v_add = iron_lir_binop(fn, entry, IRON_LIR_ADD,
                                          load_a->id, load_b->id, int_type, sp);
-    IronIR_ValueId add_id = v_add->id;
+    IronLIR_ValueId add_id = v_add->id;
 
     /* const_int 2 */
-    IronIR_Instr *v_two = iron_ir_const_int(fn, entry, 2, int_type, sp);
+    IronLIR_Instr *v_two = iron_lir_const_int(fn, entry, 2, int_type, sp);
 
     /* MUL v_add * v_two -> v_mul */
-    IronIR_Instr *v_mul = iron_ir_binop(fn, entry, IRON_IR_MUL,
+    IronLIR_Instr *v_mul = iron_lir_binop(fn, entry, IRON_LIR_MUL,
                                          v_add->id, v_two->id, int_type, sp);
 
     /* return v_mul */
-    iron_ir_return(fn, entry, v_mul->id, false, int_type, sp);
+    iron_lir_return(fn, entry, v_mul->id, false, int_type, sp);
 
     /* Run with all passes enabled (copy-prop + const-fold + DCE + inline info) */
     Iron_Arena out_arena = iron_arena_create(131072);
-    IronIR_OptimizeInfo opt_info;
-    iron_ir_optimize(mod, &opt_info, &out_arena, false, false);
-    const char *result = iron_ir_emit_c(mod, &out_arena, &g_diags, &opt_info);
+    IronLIR_OptimizeInfo opt_info;
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info);
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "Iron_calc"));
@@ -642,9 +642,9 @@ void test_emit_inlined_no_separate_temps(void) {
     TEST_ASSERT_NOT_NULL(strstr(result, "+"));
     TEST_ASSERT_NOT_NULL(strstr(result, "*"));
 
-    iron_ir_optimize_info_free(&opt_info);
+    iron_lir_optimize_info_free(&opt_info);
     iron_arena_free(&out_arena);
-    iron_ir_module_destroy(mod);
+    iron_lir_module_destroy(mod);
     iron_arena_free(&ir_arena);
 }
 

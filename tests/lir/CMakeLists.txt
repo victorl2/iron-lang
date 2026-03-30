@@ -1,34 +1,34 @@
 # IR tests: C test executables linked against iron_compiler and Unity.
 # All tests are labelled "ir" for ctest -L ir filtering.
 
-add_executable(test_ir_data test_ir_data.c)
-target_link_libraries(test_ir_data iron_compiler unity)
-add_test(NAME test_ir_data COMMAND test_ir_data)
-set_tests_properties(test_ir_data PROPERTIES LABELS "ir")
+add_executable(test_lir_data test_lir_data.c)
+target_link_libraries(test_lir_data iron_compiler unity)
+add_test(NAME test_lir_data COMMAND test_lir_data)
+set_tests_properties(test_lir_data PROPERTIES LABELS "lir")
 
-add_executable(test_ir_print test_ir_print.c)
-target_link_libraries(test_ir_print iron_compiler unity)
-add_test(NAME test_ir_print COMMAND test_ir_print
+add_executable(test_lir_print test_lir_print.c)
+target_link_libraries(test_lir_print iron_compiler unity)
+add_test(NAME test_lir_print COMMAND test_lir_print
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-set_tests_properties(test_ir_print PROPERTIES LABELS "ir")
+set_tests_properties(test_lir_print PROPERTIES LABELS "lir")
 
-add_executable(test_ir_verify test_ir_verify.c)
-target_link_libraries(test_ir_verify iron_compiler unity)
-add_test(NAME test_ir_verify COMMAND test_ir_verify)
-set_tests_properties(test_ir_verify PROPERTIES LABELS "ir")
+add_executable(test_lir_verify test_lir_verify.c)
+target_link_libraries(test_lir_verify iron_compiler unity)
+add_test(NAME test_lir_verify COMMAND test_lir_verify)
+set_tests_properties(test_lir_verify PROPERTIES LABELS "lir")
 
-add_executable(test_ir_lower test_ir_lower.c)
-target_link_libraries(test_ir_lower iron_compiler unity)
-add_test(NAME test_ir_lower COMMAND test_ir_lower
+add_executable(test_lir_lower test_lir_lower.c)
+target_link_libraries(test_lir_lower iron_compiler unity)
+add_test(NAME test_lir_lower COMMAND test_lir_lower
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-set_tests_properties(test_ir_lower PROPERTIES LABELS "ir")
+set_tests_properties(test_lir_lower PROPERTIES LABELS "lir")
 
-add_executable(test_ir_emit test_ir_emit.c)
-target_link_libraries(test_ir_emit iron_compiler unity)
-add_test(NAME test_ir_emit COMMAND test_ir_emit)
-set_tests_properties(test_ir_emit PROPERTIES LABELS "ir")
+add_executable(test_lir_emit test_lir_emit.c)
+target_link_libraries(test_lir_emit iron_compiler unity)
+add_test(NAME test_lir_emit COMMAND test_lir_emit)
+set_tests_properties(test_lir_emit PROPERTIES LABELS "lir")
 
-add_executable(test_ir_optimize test_ir_optimize.c)
-target_link_libraries(test_ir_optimize iron_compiler unity)
-add_test(NAME test_ir_optimize COMMAND test_ir_optimize)
-set_tests_properties(test_ir_optimize PROPERTIES LABELS "ir")
+add_executable(test_lir_optimize test_lir_optimize.c)
+target_link_libraries(test_lir_optimize iron_compiler unity)
+add_test(NAME test_lir_optimize COMMAND test_lir_optimize)
+set_tests_properties(test_lir_optimize PROPERTIES LABELS "lir")

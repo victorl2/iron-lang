@@ -5,7 +5,7 @@
  * Handles all IRON_NODE_* expression kinds for Phase 8 Plan 01.
  */
 
-#include "ir/lower_internal.h"
+#include "lir/lower_internal.h"
 #include "lexer/lexer.h"
 #include <string.h>
 #include <stdlib.h>
@@ -32,75 +32,75 @@ static Iron_Type *expr_type(Iron_Node *node) {
 
 /* ── Short-circuit AND/OR helpers ────────────────────────────────────────── */
 
-static IronIR_ValueId lower_short_circuit_and(IronIR_LowerCtx *ctx,
+static IronLIR_ValueId lower_short_circuit_and(IronLIR_LowerCtx *ctx,
                                                 Iron_BinaryExpr *bin,
                                                 Iron_Node *node) {
-    IronIR_Func  *fn   = ctx->current_func;
+    IronLIR_Func  *fn   = ctx->current_func;
     Iron_Span     span = node->span;
 
-    IronIR_Block *eval_rhs  = new_block(ctx, "and_rhs");
-    IronIR_Block *short_blk = new_block(ctx, "and_short");
-    IronIR_Block *merge     = new_block(ctx, "and_merge");
+    IronLIR_Block *eval_rhs  = new_block(ctx, "and_rhs");
+    IronLIR_Block *short_blk = new_block(ctx, "and_short");
+    IronLIR_Block *merge     = new_block(ctx, "and_merge");
 
-    IronIR_ValueId lhs_val  = lower_expr(ctx, bin->left);
-    IronIR_Block  *lhs_exit = ctx->current_block;  /* may have changed block */
-    iron_ir_branch(fn, lhs_exit, lhs_val, eval_rhs->id, short_blk->id, span);
+    IronLIR_ValueId lhs_val  = lower_expr(ctx, bin->left);
+    IronLIR_Block  *lhs_exit = ctx->current_block;  /* may have changed block */
+    iron_lir_branch(fn, lhs_exit, lhs_val, eval_rhs->id, short_blk->id, span);
 
     switch_block(ctx, eval_rhs);
-    IronIR_ValueId rhs_val  = lower_expr(ctx, bin->right);
-    IronIR_Block  *rhs_exit = ctx->current_block;
-    iron_ir_jump(fn, rhs_exit, merge->id, span);
+    IronLIR_ValueId rhs_val  = lower_expr(ctx, bin->right);
+    IronLIR_Block  *rhs_exit = ctx->current_block;
+    iron_lir_jump(fn, rhs_exit, merge->id, span);
 
     switch_block(ctx, short_blk);
     Iron_Type     *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
-    IronIR_ValueId false_val = iron_ir_const_bool(fn, short_blk, false, bool_type, span)->id;
-    iron_ir_jump(fn, short_blk, merge->id, span);
+    IronLIR_ValueId false_val = iron_lir_const_bool(fn, short_blk, false, bool_type, span)->id;
+    iron_lir_jump(fn, short_blk, merge->id, span);
 
     switch_block(ctx, merge);
-    IronIR_Instr  *phi = iron_ir_phi(fn, merge, bool_type, span);
-    iron_ir_phi_add_incoming(phi, rhs_val,   rhs_exit->id);
-    iron_ir_phi_add_incoming(phi, false_val, short_blk->id);
+    IronLIR_Instr  *phi = iron_lir_phi(fn, merge, bool_type, span);
+    iron_lir_phi_add_incoming(phi, rhs_val,   rhs_exit->id);
+    iron_lir_phi_add_incoming(phi, false_val, short_blk->id);
     return phi->id;
 }
 
-static IronIR_ValueId lower_short_circuit_or(IronIR_LowerCtx *ctx,
+static IronLIR_ValueId lower_short_circuit_or(IronLIR_LowerCtx *ctx,
                                                Iron_BinaryExpr *bin,
                                                Iron_Node *node) {
-    IronIR_Func  *fn   = ctx->current_func;
+    IronLIR_Func  *fn   = ctx->current_func;
     Iron_Span     span = node->span;
 
-    IronIR_Block *eval_rhs  = new_block(ctx, "or_rhs");
-    IronIR_Block *short_blk = new_block(ctx, "or_short");
-    IronIR_Block *merge     = new_block(ctx, "or_merge");
+    IronLIR_Block *eval_rhs  = new_block(ctx, "or_rhs");
+    IronLIR_Block *short_blk = new_block(ctx, "or_short");
+    IronLIR_Block *merge     = new_block(ctx, "or_merge");
 
-    IronIR_ValueId lhs_val  = lower_expr(ctx, bin->left);
-    IronIR_Block  *lhs_exit = ctx->current_block;
+    IronLIR_ValueId lhs_val  = lower_expr(ctx, bin->left);
+    IronLIR_Block  *lhs_exit = ctx->current_block;
     /* OR: true -> short-circuit, false -> eval rhs */
-    iron_ir_branch(fn, lhs_exit, lhs_val, short_blk->id, eval_rhs->id, span);
+    iron_lir_branch(fn, lhs_exit, lhs_val, short_blk->id, eval_rhs->id, span);
 
     switch_block(ctx, eval_rhs);
-    IronIR_ValueId rhs_val  = lower_expr(ctx, bin->right);
-    IronIR_Block  *rhs_exit = ctx->current_block;
-    iron_ir_jump(fn, rhs_exit, merge->id, span);
+    IronLIR_ValueId rhs_val  = lower_expr(ctx, bin->right);
+    IronLIR_Block  *rhs_exit = ctx->current_block;
+    iron_lir_jump(fn, rhs_exit, merge->id, span);
 
     switch_block(ctx, short_blk);
     Iron_Type     *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
-    IronIR_ValueId true_val  = iron_ir_const_bool(fn, short_blk, true, bool_type, span)->id;
-    iron_ir_jump(fn, short_blk, merge->id, span);
+    IronLIR_ValueId true_val  = iron_lir_const_bool(fn, short_blk, true, bool_type, span)->id;
+    iron_lir_jump(fn, short_blk, merge->id, span);
 
     switch_block(ctx, merge);
-    IronIR_Instr  *phi = iron_ir_phi(fn, merge, bool_type, span);
-    iron_ir_phi_add_incoming(phi, rhs_val,  rhs_exit->id);
-    iron_ir_phi_add_incoming(phi, true_val, short_blk->id);
+    IronLIR_Instr  *phi = iron_lir_phi(fn, merge, bool_type, span);
+    iron_lir_phi_add_incoming(phi, rhs_val,  rhs_exit->id);
+    iron_lir_phi_add_incoming(phi, true_val, short_blk->id);
     return phi->id;
 }
 
 /* ── Main dispatch ───────────────────────────────────────────────────────── */
 
-IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
-    if (!node) return IRON_IR_VALUE_INVALID;
+IronLIR_ValueId lower_expr(IronLIR_LowerCtx *ctx, Iron_Node *node) {
+    if (!node) return IRON_LIR_VALUE_INVALID;
 
-    IronIR_Func  *fn   = ctx->current_func;
+    IronLIR_Func  *fn   = ctx->current_func;
     Iron_Span     span = node->span;
 
     switch (node->kind) {
@@ -110,32 +110,32 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_INT_LIT: {
         Iron_IntLit *lit = (Iron_IntLit *)node;
         int64_t val = (int64_t)strtoll(lit->value, NULL, 0);
-        return iron_ir_const_int(fn, ctx->current_block, val,
+        return iron_lir_const_int(fn, ctx->current_block, val,
                                  lit->resolved_type, span)->id;
     }
 
     case IRON_NODE_FLOAT_LIT: {
         Iron_FloatLit *lit = (Iron_FloatLit *)node;
         double val = strtod(lit->value, NULL);
-        return iron_ir_const_float(fn, ctx->current_block, val,
+        return iron_lir_const_float(fn, ctx->current_block, val,
                                    lit->resolved_type, span)->id;
     }
 
     case IRON_NODE_BOOL_LIT: {
         Iron_BoolLit *lit = (Iron_BoolLit *)node;
-        return iron_ir_const_bool(fn, ctx->current_block, lit->value,
+        return iron_lir_const_bool(fn, ctx->current_block, lit->value,
                                   lit->resolved_type, span)->id;
     }
 
     case IRON_NODE_STRING_LIT: {
         Iron_StringLit *lit = (Iron_StringLit *)node;
-        return iron_ir_const_string(fn, ctx->current_block, lit->value,
+        return iron_lir_const_string(fn, ctx->current_block, lit->value,
                                     lit->resolved_type, span)->id;
     }
 
     case IRON_NODE_NULL_LIT: {
         Iron_NullLit *lit = (Iron_NullLit *)node;
-        return iron_ir_const_null(fn, ctx->current_block,
+        return iron_lir_const_null(fn, ctx->current_block,
                                   lit->resolved_type, span)->id;
     }
 
@@ -151,8 +151,8 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
         /* Check var_alloca_map (mutable var — emit load from alloca) */
         idx = shgeti(ctx->var_alloca_map, id->name);
         if (idx >= 0) {
-            IronIR_ValueId slot = ctx->var_alloca_map[idx].value;
-            return iron_ir_load(fn, ctx->current_block, slot,
+            IronLIR_ValueId slot = ctx->var_alloca_map[idx].value;
+            return iron_lir_load(fn, ctx->current_block, slot,
                                 id->resolved_type, span)->id;
         }
         /* Check global_constants_map (top-level val/var declarations).
@@ -165,20 +165,20 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             if (gidx >= 0) {
                 Iron_Node *init_node = ctx->global_constants_map[gidx].value;
                 /* Lower the init expression in the current function context */
-                IronIR_ValueId val = lower_expr(ctx, init_node);
+                IronLIR_ValueId val = lower_expr(ctx, init_node);
 
                 /* Check if this global is mutable (var) */
                 int midx = shgeti(ctx->global_mutable_set, id->name);
                 if (midx >= 0) {
                     /* Mutable global: alloca in entry block, store init, register
                      * in var_alloca_map so subsequent reads/writes use load/store. */
-                    IronIR_Block *entry = fn->blocks[0];
+                    IronLIR_Block *entry = fn->blocks[0];
                     Iron_Type *var_type = id->resolved_type;
-                    IronIR_Instr *slot = iron_ir_alloca(fn, entry, var_type,
+                    IronLIR_Instr *slot = iron_lir_alloca(fn, entry, var_type,
                                                          id->name, span);
-                    iron_ir_store(fn, ctx->current_block, slot->id, val, span);
+                    iron_lir_store(fn, ctx->current_block, slot->id, val, span);
                     shput(ctx->var_alloca_map, id->name, slot->id);
-                    return iron_ir_load(fn, ctx->current_block, slot->id,
+                    return iron_lir_load(fn, ctx->current_block, slot->id,
                                         var_type, span)->id;
                 }
 
@@ -212,26 +212,26 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
         }
 
         /* Arithmetic and comparison: map token to IR kind */
-        IronIR_InstrKind ir_kind;
+        IronLIR_InstrKind ir_kind;
         switch (op) {
-            case IRON_TOK_PLUS:       ir_kind = IRON_IR_ADD;  break;
-            case IRON_TOK_MINUS:      ir_kind = IRON_IR_SUB;  break;
-            case IRON_TOK_STAR:       ir_kind = IRON_IR_MUL;  break;
-            case IRON_TOK_SLASH:      ir_kind = IRON_IR_DIV;  break;
-            case IRON_TOK_PERCENT:    ir_kind = IRON_IR_MOD;  break;
-            case IRON_TOK_EQUALS:     ir_kind = IRON_IR_EQ;   break;
-            case IRON_TOK_NOT_EQUALS: ir_kind = IRON_IR_NEQ;  break;
-            case IRON_TOK_LESS:       ir_kind = IRON_IR_LT;   break;
-            case IRON_TOK_LESS_EQ:    ir_kind = IRON_IR_LTE;  break;
-            case IRON_TOK_GREATER:    ir_kind = IRON_IR_GT;   break;
-            case IRON_TOK_GREATER_EQ: ir_kind = IRON_IR_GTE;  break;
+            case IRON_TOK_PLUS:       ir_kind = IRON_LIR_ADD;  break;
+            case IRON_TOK_MINUS:      ir_kind = IRON_LIR_SUB;  break;
+            case IRON_TOK_STAR:       ir_kind = IRON_LIR_MUL;  break;
+            case IRON_TOK_SLASH:      ir_kind = IRON_LIR_DIV;  break;
+            case IRON_TOK_PERCENT:    ir_kind = IRON_LIR_MOD;  break;
+            case IRON_TOK_EQUALS:     ir_kind = IRON_LIR_EQ;   break;
+            case IRON_TOK_NOT_EQUALS: ir_kind = IRON_LIR_NEQ;  break;
+            case IRON_TOK_LESS:       ir_kind = IRON_LIR_LT;   break;
+            case IRON_TOK_LESS_EQ:    ir_kind = IRON_LIR_LTE;  break;
+            case IRON_TOK_GREATER:    ir_kind = IRON_LIR_GT;   break;
+            case IRON_TOK_GREATER_EQ: ir_kind = IRON_LIR_GTE;  break;
             default:
                 return emit_poison(ctx, bin->resolved_type, span);
         }
 
-        IronIR_ValueId left_val  = lower_expr(ctx, bin->left);
-        IronIR_ValueId right_val = lower_expr(ctx, bin->right);
-        return iron_ir_binop(fn, ctx->current_block, ir_kind,
+        IronLIR_ValueId left_val  = lower_expr(ctx, bin->left);
+        IronLIR_ValueId right_val = lower_expr(ctx, bin->right);
+        return iron_lir_binop(fn, ctx->current_block, ir_kind,
                              left_val, right_val, bin->resolved_type, span)->id;
     }
 
@@ -239,15 +239,15 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_UNARY: {
         Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
-        IronIR_InstrKind ir_kind;
+        IronLIR_InstrKind ir_kind;
         switch (un->op) {
-            case IRON_TOK_MINUS: ir_kind = IRON_IR_NEG; break;
-            case IRON_TOK_NOT:   ir_kind = IRON_IR_NOT; break;
+            case IRON_TOK_MINUS: ir_kind = IRON_LIR_NEG; break;
+            case IRON_TOK_NOT:   ir_kind = IRON_LIR_NOT; break;
             default:
                 return emit_poison(ctx, un->resolved_type, span);
         }
-        IronIR_ValueId operand_val = lower_expr(ctx, un->operand);
-        return iron_ir_unop(fn, ctx->current_block, ir_kind,
+        IronLIR_ValueId operand_val = lower_expr(ctx, un->operand);
+        return iron_lir_unop(fn, ctx->current_block, ir_kind,
                             operand_val, un->resolved_type, span)->id;
     }
 
@@ -255,8 +255,8 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_FIELD_ACCESS: {
         Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
-        IronIR_ValueId obj_val = lower_expr(ctx, fa->object);
-        return iron_ir_get_field(fn, ctx->current_block, obj_val,
+        IronLIR_ValueId obj_val = lower_expr(ctx, fa->object);
+        return iron_lir_get_field(fn, ctx->current_block, obj_val,
                                  fa->field, fa->resolved_type, span)->id;
     }
 
@@ -264,9 +264,9 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_INDEX: {
         Iron_IndexExpr *idx = (Iron_IndexExpr *)node;
-        IronIR_ValueId arr_val = lower_expr(ctx, idx->object);
-        IronIR_ValueId idx_val = lower_expr(ctx, idx->index);
-        return iron_ir_get_index(fn, ctx->current_block, arr_val, idx_val,
+        IronLIR_ValueId arr_val = lower_expr(ctx, idx->object);
+        IronLIR_ValueId idx_val = lower_expr(ctx, idx->index);
+        return iron_lir_get_index(fn, ctx->current_block, arr_val, idx_val,
                                  idx->resolved_type, span)->id;
     }
 
@@ -274,12 +274,12 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_CONSTRUCT: {
         Iron_ConstructExpr *con = (Iron_ConstructExpr *)node;
-        IronIR_ValueId *field_vals = NULL;
+        IronLIR_ValueId *field_vals = NULL;
         for (int i = 0; i < con->arg_count; i++) {
-            IronIR_ValueId v = lower_expr(ctx, con->args[i]);
+            IronLIR_ValueId v = lower_expr(ctx, con->args[i]);
             arrput(field_vals, v);
         }
-        IronIR_ValueId result = iron_ir_construct(fn, ctx->current_block,
+        IronLIR_ValueId result = iron_lir_construct(fn, ctx->current_block,
                                                    con->resolved_type,
                                                    field_vals, con->arg_count,
                                                    span)->id;
@@ -291,9 +291,9 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_ARRAY_LIT: {
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;
-        IronIR_ValueId *elements = NULL;
+        IronLIR_ValueId *elements = NULL;
         for (int i = 0; i < al->element_count; i++) {
-            IronIR_ValueId v = lower_expr(ctx, al->elements[i]);
+            IronLIR_ValueId v = lower_expr(ctx, al->elements[i]);
             arrput(elements, v);
         }
         /* Determine elem_type from resolved_type (array element type) */
@@ -301,7 +301,7 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
         if (al->resolved_type && al->resolved_type->kind == IRON_TYPE_ARRAY) {
             elem_type = al->resolved_type->array.elem;
         }
-        IronIR_ValueId result = iron_ir_array_lit(fn, ctx->current_block,
+        IronLIR_ValueId result = iron_lir_array_lit(fn, ctx->current_block,
                                                    elem_type, elements, al->element_count,
                                                    al->resolved_type, span)->id;
         arrfree(elements);
@@ -312,14 +312,14 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_IS: {
         Iron_IsExpr *is = (Iron_IsExpr *)node;
-        IronIR_ValueId val = lower_expr(ctx, is->expr);
+        IronLIR_ValueId val = lower_expr(ctx, is->expr);
         /* IS checks: if checking for nullability, emit is_null/is_not_null.
          * Otherwise emit a cast for type narrowing. */
         if (is->type_name && strcmp(is->type_name, "Null") == 0) {
-            return iron_ir_is_null(fn, ctx->current_block, val, span)->id;
+            return iron_lir_is_null(fn, ctx->current_block, val, span)->id;
         }
         /* Type narrowing: emit cast to result type */
-        return iron_ir_cast(fn, ctx->current_block, val,
+        return iron_lir_cast(fn, ctx->current_block, val,
                             is->resolved_type, span)->id;
     }
 
@@ -327,8 +327,8 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_HEAP: {
         Iron_HeapExpr *heap = (Iron_HeapExpr *)node;
-        IronIR_ValueId inner_val = lower_expr(ctx, heap->inner);
-        return iron_ir_heap_alloc(fn, ctx->current_block, inner_val,
+        IronLIR_ValueId inner_val = lower_expr(ctx, heap->inner);
+        return iron_lir_heap_alloc(fn, ctx->current_block, inner_val,
                                   heap->auto_free, heap->escapes,
                                   heap->resolved_type, span)->id;
     }
@@ -337,8 +337,8 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_RC: {
         Iron_RcExpr *rc = (Iron_RcExpr *)node;
-        IronIR_ValueId inner_val = lower_expr(ctx, rc->inner);
-        return iron_ir_rc_alloc(fn, ctx->current_block, inner_val,
+        IronLIR_ValueId inner_val = lower_expr(ctx, rc->inner);
+        return iron_lir_rc_alloc(fn, ctx->current_block, inner_val,
                                 rc->resolved_type, span)->id;
     }
 
@@ -357,9 +357,9 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 typedef struct { Iron_Span span; Iron_NodeKind kind; Iron_Type *resolved_type; } ExprNode;
                 Iron_Type *arg_t = ((ExprNode *)call->args[0])->resolved_type;
                 if (arg_t && arg_t->kind == IRON_TYPE_ARRAY) {
-                    IronIR_ValueId arr_val = lower_expr(ctx, call->args[0]);
+                    IronLIR_ValueId arr_val = lower_expr(ctx, call->args[0]);
                     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
-                    return iron_ir_get_field(fn, ctx->current_block,
+                    return iron_lir_get_field(fn, ctx->current_block,
                                             arr_val, "count", int_type, span)->id;
                 }
             }
@@ -372,15 +372,15 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             call->arg_count == 2) {
             Iron_Ident *fn_id = (Iron_Ident *)call->callee;
             if (strcmp(fn_id->name, "fill") == 0) {
-                IronIR_ValueId count_val = lower_expr(ctx, call->args[0]);
-                IronIR_ValueId value_val = lower_expr(ctx, call->args[1]);
-                IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
+                IronLIR_ValueId count_val = lower_expr(ctx, call->args[0]);
+                IronLIR_ValueId value_val = lower_expr(ctx, call->args[1]);
+                IronLIR_ValueId func_ptr = iron_lir_func_ref(fn, ctx->current_block,
                                                             "__builtin_fill",
                                                             NULL, span)->id;
-                IronIR_ValueId *args = NULL;
+                IronLIR_ValueId *args = NULL;
                 arrput(args, count_val);
                 arrput(args, value_val);
-                IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+                IronLIR_ValueId result = iron_lir_call(fn, ctx->current_block,
                                                       NULL, func_ptr,
                                                       args, 2,
                                                       call->resolved_type, span)->id;
@@ -393,8 +393,8 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
          * The type checker sets is_primitive_cast when the callee is a
          * primitive type name with exactly one argument. Emit CAST. */
         if (call->is_primitive_cast && call->arg_count == 1) {
-            IronIR_ValueId arg_val = lower_expr(ctx, call->args[0]);
-            return iron_ir_cast(fn, ctx->current_block, arg_val,
+            IronLIR_ValueId arg_val = lower_expr(ctx, call->args[0]);
+            return iron_lir_cast(fn, ctx->current_block, arg_val,
                                 call->resolved_type, span)->id;
         }
 
@@ -407,12 +407,12 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
              * Emit CONSTRUCT instead of CALL to produce correct C struct literal. */
             if (callee_id->resolved_type &&
                 callee_id->resolved_type->kind == IRON_TYPE_OBJECT) {
-                IronIR_ValueId *field_vals = NULL;
+                IronLIR_ValueId *field_vals = NULL;
                 for (int i = 0; i < call->arg_count; i++) {
-                    IronIR_ValueId v = lower_expr(ctx, call->args[i]);
+                    IronLIR_ValueId v = lower_expr(ctx, call->args[i]);
                     arrput(field_vals, v);
                 }
-                IronIR_ValueId result = iron_ir_construct(fn, ctx->current_block,
+                IronLIR_ValueId result = iron_lir_construct(fn, ctx->current_block,
                                                            callee_id->resolved_type,
                                                            field_vals, call->arg_count,
                                                            span)->id;
@@ -433,13 +433,13 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
                 if (is_local_func) {
                     /* Load the function pointer from the local var/val */
-                    IronIR_ValueId func_ptr_val = lower_expr(ctx, call->callee);
-                    IronIR_ValueId *args = NULL;
+                    IronLIR_ValueId func_ptr_val = lower_expr(ctx, call->callee);
+                    IronLIR_ValueId *args = NULL;
                     for (int i = 0; i < call->arg_count; i++) {
-                        IronIR_ValueId v = lower_expr(ctx, call->args[i]);
+                        IronLIR_ValueId v = lower_expr(ctx, call->args[i]);
                         arrput(args, v);
                     }
-                    IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+                    IronLIR_ValueId result = iron_lir_call(fn, ctx->current_block,
                                                           NULL, func_ptr_val,
                                                           args, call->arg_count,
                                                           call->resolved_type, span)->id;
@@ -449,16 +449,16 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
             }
 
             /* Emit func_ref for the callee name, then call via func_ptr */
-            IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
+            IronLIR_ValueId func_ptr = iron_lir_func_ref(fn, ctx->current_block,
                                                         callee_id->name,
                                                         NULL, span)->id;
             /* Lower arguments */
-            IronIR_ValueId *args = NULL;
+            IronLIR_ValueId *args = NULL;
             for (int i = 0; i < call->arg_count; i++) {
-                IronIR_ValueId v = lower_expr(ctx, call->args[i]);
+                IronLIR_ValueId v = lower_expr(ctx, call->args[i]);
                 arrput(args, v);
             }
-            IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+            IronLIR_ValueId result = iron_lir_call(fn, ctx->current_block,
                                                   NULL, func_ptr,
                                                   args, call->arg_count,
                                                   call->resolved_type, span)->id;
@@ -467,13 +467,13 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
         }
 
         /* Indirect call: callee is an expression (lambda, method, fn pointer) */
-        IronIR_ValueId func_ptr_val = lower_expr(ctx, call->callee);
-        IronIR_ValueId *args = NULL;
+        IronLIR_ValueId func_ptr_val = lower_expr(ctx, call->callee);
+        IronLIR_ValueId *args = NULL;
         for (int i = 0; i < call->arg_count; i++) {
-            IronIR_ValueId v = lower_expr(ctx, call->args[i]);
+            IronLIR_ValueId v = lower_expr(ctx, call->args[i]);
             arrput(args, v);
         }
-        IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+        IronLIR_ValueId result = iron_lir_call(fn, ctx->current_block,
                                               NULL, func_ptr_val,
                                               args, call->arg_count,
                                               call->resolved_type, span)->id;
@@ -510,17 +510,17 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
                 memcpy(func_name + tlen + 1, mc->method, mlen + 1);
 
                 /* Emit func_ref for the auto-static function name */
-                IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
+                IronLIR_ValueId func_ptr = iron_lir_func_ref(fn, ctx->current_block,
                                                             func_name, NULL, span)->id;
 
                 /* Lower arguments (NO receiver for auto-static) */
-                IronIR_ValueId *args = NULL;
+                IronLIR_ValueId *args = NULL;
                 for (int i = 0; i < mc->arg_count; i++) {
-                    IronIR_ValueId v = lower_expr(ctx, mc->args[i]);
+                    IronLIR_ValueId v = lower_expr(ctx, mc->args[i]);
                     arrput(args, v);
                 }
 
-                IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+                IronLIR_ValueId result = iron_lir_call(fn, ctx->current_block,
                                                       NULL, func_ptr,
                                                       args, mc->arg_count,
                                                       mc->resolved_type, span)->id;
@@ -533,7 +533,7 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
          * Build the method name as "<TypeName>_<method>" so that
          * mangle_func_name() in emit_c.c produces "Iron_TypeName_method".
          * This matches how Iron methods are defined: func Dog.hello() -> ... */
-        IronIR_ValueId obj_val = lower_expr(ctx, mc->object);
+        IronLIR_ValueId obj_val = lower_expr(ctx, mc->object);
 
         /* Determine the receiver type name from the object's resolved_type */
         const char *method_name = mc->method;
@@ -558,18 +558,18 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
         }
 
         /* Build args: receiver first, then explicit args */
-        IronIR_ValueId *args = NULL;
+        IronLIR_ValueId *args = NULL;
         arrput(args, obj_val);
         for (int i = 0; i < mc->arg_count; i++) {
-            IronIR_ValueId v = lower_expr(ctx, mc->args[i]);
+            IronLIR_ValueId v = lower_expr(ctx, mc->args[i]);
             arrput(args, v);
         }
         int total_args = 1 + mc->arg_count;
 
         /* Emit method name as func_ref */
-        IronIR_ValueId func_ptr = iron_ir_func_ref(fn, ctx->current_block,
+        IronLIR_ValueId func_ptr = iron_lir_func_ref(fn, ctx->current_block,
                                                     method_name, NULL, span)->id;
-        IronIR_ValueId result = iron_ir_call(fn, ctx->current_block,
+        IronLIR_ValueId result = iron_lir_call(fn, ctx->current_block,
                                               NULL, func_ptr,
                                               args, total_args,
                                               mc->resolved_type, span)->id;
@@ -581,12 +581,12 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_INTERP_STRING: {
         Iron_InterpString *is = (Iron_InterpString *)node;
-        IronIR_ValueId *parts = NULL;
+        IronLIR_ValueId *parts = NULL;
         for (int i = 0; i < is->part_count; i++) {
-            IronIR_ValueId v = lower_expr(ctx, is->parts[i]);
+            IronLIR_ValueId v = lower_expr(ctx, is->parts[i]);
             arrput(parts, v);
         }
-        IronIR_ValueId result = iron_ir_interp_string(fn, ctx->current_block,
+        IronLIR_ValueId result = iron_lir_interp_string(fn, ctx->current_block,
                                                        parts, is->part_count,
                                                        is->resolved_type, span)->id;
         arrfree(parts);
@@ -597,24 +597,24 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_SLICE: {
         Iron_SliceExpr *sl = (Iron_SliceExpr *)node;
-        IronIR_ValueId arr_val   = lower_expr(ctx, sl->object);
-        IronIR_ValueId start_val = IRON_IR_VALUE_INVALID;
-        IronIR_ValueId end_val   = IRON_IR_VALUE_INVALID;
+        IronLIR_ValueId arr_val   = lower_expr(ctx, sl->object);
+        IronLIR_ValueId start_val = IRON_LIR_VALUE_INVALID;
+        IronLIR_ValueId end_val   = IRON_LIR_VALUE_INVALID;
         if (sl->start) {
             start_val = lower_expr(ctx, sl->start);
         } else {
             /* Default start = 0 */
             Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
-            start_val = iron_ir_const_int(fn, ctx->current_block, 0, int_t, span)->id;
+            start_val = iron_lir_const_int(fn, ctx->current_block, 0, int_t, span)->id;
         }
         if (sl->end) {
             end_val = lower_expr(ctx, sl->end);
         } else {
             /* Omitted end — use 0 as sentinel (emitter handles "to-end" slices) */
             Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
-            end_val = iron_ir_const_int(fn, ctx->current_block, 0, int_t, span)->id;
+            end_val = iron_lir_const_int(fn, ctx->current_block, 0, int_t, span)->id;
         }
-        return iron_ir_slice(fn, ctx->current_block, arr_val, start_val, end_val,
+        return iron_lir_slice(fn, ctx->current_block, arr_val, start_val, end_val,
                              sl->resolved_type, span)->id;
     }
 
@@ -640,7 +640,7 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
         arrput(ctx->pending_lifts, lp);
 
         /* Emit make_closure (captures filled during lift pass in Plan 08-03) */
-        return iron_ir_make_closure(fn, ctx->current_block, lifted_name,
+        return iron_lir_make_closure(fn, ctx->current_block, lifted_name,
                                     NULL, 0, lam->resolved_type, span)->id;
     }
 
@@ -648,8 +648,8 @@ IronIR_ValueId lower_expr(IronIR_LowerCtx *ctx, Iron_Node *node) {
 
     case IRON_NODE_AWAIT: {
         Iron_AwaitExpr *aw = (Iron_AwaitExpr *)node;
-        IronIR_ValueId handle_val = lower_expr(ctx, aw->handle);
-        return iron_ir_await(fn, ctx->current_block, handle_val,
+        IronLIR_ValueId handle_val = lower_expr(ctx, aw->handle);
+        return iron_lir_await(fn, ctx->current_block, handle_val,
                              aw->resolved_type, span)->id;
     }
 
