@@ -1,0 +1,16 @@
+func check(n: Int) -> String {
+  defer println("cleanup")
+  if n < 0 {
+    return "negative"
+  }
+  if n == 0 {
+    return "zero"
+  }
+  return "positive"
+}
+
+func main() {
+  println(check(-1))
+  println(check(0))
+  println(check(1))
+}

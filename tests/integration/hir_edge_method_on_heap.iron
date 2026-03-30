@@ -1,0 +1,20 @@
+object Vec {
+  var x: Int
+  var y: Int
+}
+
+func Vec.dot(other: Vec) -> Int {
+  return self.x * other.x + self.y * other.y
+}
+
+func Vec.mag_sq() -> Int {
+  return self.x * self.x + self.y * self.y
+}
+
+func main() {
+  val a = Vec(3, 4)
+  val b = Vec(1, 2)
+  println("{a.mag_sq()}")
+  println("{a.dot(b)}")
+  println("{b.mag_sq()}")
+}

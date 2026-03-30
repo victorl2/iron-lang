@@ -1,0 +1,19 @@
+func main() {
+  var i = 0
+  var ones = 0
+  var twos = 0
+  var others = 0
+  while i < 10 {
+    match i {
+      1 { ones = ones + 1 }
+      2 { twos = twos + 1 }
+      3 { ones = ones + 1 }
+      5 { ones = ones + 1 }
+      else { others = others + 1 }
+    }
+    i = i + 1
+  }
+  println("{ones}")
+  println("{twos}")
+  println("{others}")
+}

@@ -1,0 +1,14 @@
+func countdown(n: Int) -> Int {
+  defer println("exit")
+  println("enter")
+  if n > 0 {
+    val sub = countdown(n - 1)
+    return sub + 1
+  }
+  return 0
+}
+
+func main() {
+  val r = countdown(3)
+  println("{r}")
+}

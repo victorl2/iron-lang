@@ -1,0 +1,13 @@
+func work(n: Int) -> String {
+  if n > 0 {
+    defer println("branch defer")
+    return "positive"
+  }
+  return "non-positive"
+}
+
+func main() {
+  println(work(5))
+  println(work(-1))
+  println(work(0))
+}

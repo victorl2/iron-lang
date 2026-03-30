@@ -1,0 +1,25 @@
+-- Test objects with optional fields using sentinel values
+object Config {
+  var name: String
+  var priority: Int
+}
+
+func get_priority(c: Config) -> String {
+  if c.priority > 5 {
+    return "high"
+  } elif c.priority > 0 {
+    return "medium"
+  } else {
+    return "none"
+  }
+  return "none"
+}
+
+func main() {
+  val c1 = Config("alpha", 8)
+  val c2 = Config("beta", 3)
+  val c3 = Config("gamma", 0)
+  println(get_priority(c1))
+  println(get_priority(c2))
+  println(get_priority(c3))
+}

@@ -1,0 +1,15 @@
+func main() {
+  var outer_sum = 0
+  var i = 0
+  while i < 5 {
+    var inner_sum = 0
+    var j = 0
+    while j < i {
+      inner_sum = inner_sum + j
+      j = j + 1
+    }
+    outer_sum = outer_sum + inner_sum
+    i = i + 1
+  }
+  println("{outer_sum}")
+}

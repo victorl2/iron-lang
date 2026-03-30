@@ -1,0 +1,17 @@
+func find_first(arr: [Int], n: Int, target: Int) -> Int {
+  defer println("searched")
+  var i = 0
+  while i < n {
+    if arr[i] == target {
+      return i
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+func main() {
+  val arr = [5, 3, 7, 2, 8]
+  println("{find_first(arr, 5, 7)}")
+  println("{find_first(arr, 5, 9)}")
+}
