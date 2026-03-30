@@ -1396,6 +1396,58 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         }
     }
 
+    /* Pre-pass: build function/method type signatures and set them in the
+     * symbol table BEFORE checking bodies.  This enables mutual recursion
+     * (e.g. is_even calls is_odd and vice-versa) by ensuring every function
+     * symbol already has its type when referenced as a callee. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl) continue;
+        if (decl->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            Iron_Type *ret_type = fd->return_type
+                ? resolve_type_annotation(&ctx, fd->return_type)
+                : iron_type_make_primitive(IRON_TYPE_VOID);
+            Iron_Type **param_types = NULL;
+            if (fd->param_count > 0) {
+                param_types = (Iron_Type **)iron_arena_alloc(
+                    ctx.arena, (size_t)fd->param_count * sizeof(Iron_Type *),
+                    _Alignof(Iron_Type *));
+                for (int j = 0; j < fd->param_count; j++) {
+                    Iron_Param *p = (Iron_Param *)fd->params[j];
+                    param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
+                }
+            }
+            Iron_Type *func_type = iron_type_make_func(ctx.arena, param_types,
+                                                        fd->param_count, ret_type);
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, fd->name);
+            if (sym) sym->type = func_type;
+        } else if (decl->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+            Iron_Type *ret_type = md->return_type
+                ? resolve_type_annotation(&ctx, md->return_type)
+                : iron_type_make_primitive(IRON_TYPE_VOID);
+            /* Method signatures are looked up by mangled name (type_method) */
+            char mangled[256];
+            snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, mangled);
+            if (sym && !sym->type) {
+                Iron_Type **param_types = NULL;
+                int pc = md->param_count;
+                if (pc > 0) {
+                    param_types = (Iron_Type **)iron_arena_alloc(
+                        ctx.arena, (size_t)pc * sizeof(Iron_Type *),
+                        _Alignof(Iron_Type *));
+                    for (int j = 0; j < pc; j++) {
+                        Iron_Param *p = (Iron_Param *)md->params[j];
+                        param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
+                    }
+                }
+                sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
+            }
+        }
+    }
+
     /* Check all func and method decls */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];

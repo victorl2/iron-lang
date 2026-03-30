@@ -407,6 +407,13 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
     }
     IronLIR_Instr *instr = fn->value_table[vid];
 
+    /* Step 4b: Never inline CALL — emit_expr_to_buf doesn't handle array
+     * parameter splitting or other call-specific emit logic. */
+    if (instr->kind == IRON_LIR_CALL) {
+        emit_val(sb, vid);
+        return;
+    }
+
     /* Step 5: Deep-expression anchor comment */
     if (depth > 3) {
         iron_strbuf_appendf(sb, "/* _v%u */ ", vid);

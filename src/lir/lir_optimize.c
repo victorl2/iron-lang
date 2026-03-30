@@ -1448,6 +1448,9 @@ static bool run_store_load_elim(IronLIR_Module *module) {
  * Must be pure AND not require multi-statement emission. */
 static bool instr_is_inline_expressible(IronLIR_InstrKind kind) {
     if (!iron_lir_instr_is_pure(kind)) return false;
+    /* CALL must not be inlined — emit_expr_to_buf doesn't implement array
+     * parameter splitting (pointer+length) or extern string wrapping. */
+    if (kind == IRON_LIR_CALL) return false;
     /* Multi-statement emission patterns cannot be inlined as sub-expressions */
     if (kind == IRON_LIR_ARRAY_LIT) return false;
     if (kind == IRON_LIR_INTERP_STRING) return false;
@@ -1672,6 +1675,14 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
         IronLIR_Block *blk = fn->blocks[bi];
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *in = blk->instrs[ii];
+
+            /* PHI incoming values: emitted as assignments in predecessor blocks.
+             * Must not be inline-eligible to ensure declarations exist. */
+            if (in->kind == IRON_LIR_PHI) {
+                for (int pi = 0; pi < in->phi.count; pi++) {
+                    hmput(excluded, in->phi.values[pi], true);
+                }
+            }
 
             /* INTERP_STRING parts: referenced by name in format strings */
             if (in->kind == IRON_LIR_INTERP_STRING) {
