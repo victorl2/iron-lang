@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 18-benchmark-validation-02-PLAN.md
-last_updated: "2026-03-30T00:43:55.013Z"
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-03-30T00:54:28.570Z"
 last_activity: 2026-03-29 — Implemented copy propagation, DCE, and constant folding passes
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 17-strength-reduction-store-load-elimination P02 | 32 | 1 tasks | 3 files |
 | Phase 17-strength-reduction-store-load-elimination P03 | 9 | 2 tasks | 4 files |
 | Phase 18-benchmark-validation P02 | 2 | 1 tasks | 1 files |
+| Phase 18-benchmark-validation P01 | 741 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,9 @@ Recent decisions affecting current work:
 - [Phase 17-03]: benchmark_smoke timeout is pre-existing (merge_k_sorted_lists Iron compilation failure); all 26 non-benchmark tests pass 0/0 failures
 - [Phase 18-benchmark-validation]: JSON benchmarks array only receives entries for fully-measured benchmarks; errors/skipped counted in top-level fields only
 - [Phase 18-benchmark-validation]: --compare mode degrades gracefully when no-opt binary build fails; compare_suffix omitted for that benchmark
+- [Phase 18-benchmark-validation]: ARRAY_LIT elements excluded from expression inlining in Pass 1 to prevent forward-reference in C initializer lists
+- [Phase 18-benchmark-validation]: DCE and use_counts require explicit ARRAY_LIT element traversal beyond MAX_OPERANDS=64 — opt_collect_operands hard limit silently drops elements 65+ causing DCE to incorrectly remove them as dead
+- [Phase 18-benchmark-validation]: Int32 narrowing for ARRAY_LIT/fill() reverted — narrowing breaks int64_t* alloca assignments; requires aliasing analysis before safe application
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T00:43:55.010Z
-Stopped at: Completed 18-benchmark-validation-02-PLAN.md
+Last session: 2026-03-30T00:54:28.567Z
+Stopped at: Completed 18-01-PLAN.md
 Resume file: None
