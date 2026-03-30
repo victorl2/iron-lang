@@ -280,7 +280,7 @@ Plans:
 
 Plans:
 - [x] 12-01-PLAN.md — Rename CMake target to ironc, add runtime path resolution
-- [x] 12-02-PLAN.md — Create iron package manager CLI with forwarding to ironc
+- [x] 12-02-PLAN.md ��� Create iron package manager CLI with forwarding to ironc
 - [x] 12-03-PLAN.md — Install pipeline, CI workflows, and end-to-end verification
 
 ### Phase 13: Project Workflow
@@ -311,7 +311,7 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 14-01-PLAN.md — Fetcher (GitHub API + tarball + cache) and lockfile (iron.lock read/write) infrastructure
+- [x] 14-01-PLAN.md ��� Fetcher (GitHub API + tarball + cache) and lockfile (iron.lock read/write) infrastructure
 - [x] 14-02-PLAN.md — DFS resolver, source concatenation, cmd_build integration, CMake tests
 
 </details>
@@ -355,7 +355,7 @@ Plans:
   1. A loop containing `i * cols + j` for array indexing is transformed to use an induction variable that increments by `cols` each outer iteration; the emitted C shows addition instead of multiplication inside the inner loop
   2. A STORE immediately followed by a LOAD of the same address with no intervening modification is reduced to a single STORE with the loaded value replaced by the stored value; the IR dump confirms the redundant LOAD is removed
   3. All 127 benchmarks and integration tests continue to pass after both passes are applied; no correctness regressions
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 17-01-PLAN.md — Store/load elimination with escape analysis, 3 unit tests
@@ -371,7 +371,13 @@ Plans:
   2. count_paths_with_obstacles, min_path_sum, largest_rect_histogram, max_depth_binary_tree, target_sum, three_sum, and num_islands all run at 1.2x C parity or better
   3. All 127 benchmarks pass at their configured parity thresholds with 100% pass rate; `iron bench` or the benchmark runner reports zero failures
   4. Any benchmark that still exceeds 1.2x is investigated, root-caused, and either fixed with a targeted optimization or its threshold is justified and documented
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 18-01-PLAN.md — Fix ARRAY_LIT inlining bug, add int32 emission-time narrowing
+- [ ] 18-02-PLAN.md — Benchmark runner --json output and --compare mode
+- [ ] 18-03-PLAN.md — 10 concurrency correctness benchmarks
+- [ ] 18-04-PLAN.md — Threshold tuning and full suite validation
 
 ### Phase 19: LIR Rename & HIR Foundation
 **Goal**: The current IR is renamed to Lower IR (LIR) throughout the codebase, and a new High IR layer with structured control flow, named variables, and language-level constructs is established with printer and verifier
@@ -418,7 +424,7 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 14. Dependency Resolution and Lockfile | v0.0.3-alpha | 2/2 | Complete | 2026-03-28 |
 | 15. Copy Propagation, DCE & Constant Folding | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 16. Expression Inlining | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
-| 17. Strength Reduction & Store/Load Elimination | 2/3 | In Progress|  | - |
-| 18. Benchmark Validation | v0.0.5-alpha | 0/0 | Not started | - |
+| 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
+| 18. Benchmark Validation | v0.0.5-alpha | 0/4 | Planned | - |
 | 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 0/0 | Not started | - |
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 0/0 | Not started | - |

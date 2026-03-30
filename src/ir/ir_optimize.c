@@ -1673,6 +1673,14 @@ void iron_ir_compute_inline_eligible(IronIR_Func *fn,
                     hmput(excluded, in->spawn.pool_val, true);
             }
 
+            /* ARRAY_LIT elements: C initializer lists require all referenced values
+             * to be already declared — exclude from inlining to prevent forward-ref. */
+            if (in->kind == IRON_IR_ARRAY_LIT) {
+                for (int i = 0; i < in->array_lit.element_count; i++) {
+                    hmput(excluded, in->array_lit.elements[i], true);
+                }
+            }
+
             /* Record use-site block/position for all operands; mark cross-block uses */
             IronIR_ValueId ops[MAX_OPERANDS];
             int op_count = 0;
