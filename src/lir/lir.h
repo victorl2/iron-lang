@@ -345,6 +345,7 @@ struct IronLIR_Func {
 
     bool            is_extern;
     const char     *extern_c_name;
+    bool            ssa_done;    /* true if ssa_construct_func already ran */
 
     IronLIR_Block  **blocks;          /* stb_ds array */
     int             block_count;

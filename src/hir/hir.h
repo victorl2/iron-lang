@@ -215,6 +215,7 @@ struct IronHIR_Stmt {
         struct {
             const char    *handle_name;
             IronHIR_Block *body;
+            const char    *lifted_name; /* assigned top-level name e.g. "__spawn_0" */
         } spawn;
 
         /* IRON_HIR_STMT_LEAK */
@@ -312,6 +313,7 @@ struct IronHIR_Expr {
             int            param_count;
             Iron_Type     *return_type;
             IronHIR_Block *body;
+            const char    *lifted_name; /* assigned top-level name e.g. "__lambda_0" */
         } closure;
 
         /* IRON_HIR_EXPR_HEAP */
@@ -367,6 +369,7 @@ struct IronHIR_Expr {
             IronHIR_VarId  var_id;
             IronHIR_Expr  *range;
             IronHIR_Block *body;
+            const char    *lifted_name; /* assigned top-level name e.g. "__pfor_0" */
         } parallel_for;
 
         /* IRON_HIR_EXPR_COMPTIME */
@@ -457,7 +460,8 @@ IronHIR_Stmt *iron_hir_stmt_expr(IronHIR_Module *mod, IronHIR_Expr *expr,
 IronHIR_Stmt *iron_hir_stmt_free(IronHIR_Module *mod, IronHIR_Expr *value,
                                   Iron_Span span);
 IronHIR_Stmt *iron_hir_stmt_spawn(IronHIR_Module *mod, const char *handle_name,
-                                   IronHIR_Block *body, Iron_Span span);
+                                   IronHIR_Block *body, const char *lifted_name,
+                                   Iron_Span span);
 IronHIR_Stmt *iron_hir_stmt_leak(IronHIR_Module *mod, IronHIR_Expr *value,
                                   Iron_Span span);
 
@@ -503,7 +507,8 @@ IronHIR_Expr *iron_hir_expr_slice(IronHIR_Module *mod, IronHIR_Expr *array,
 IronHIR_Expr *iron_hir_expr_closure(IronHIR_Module *mod,
                                      IronHIR_Param *params, int param_count,
                                      Iron_Type *return_type, IronHIR_Block *body,
-                                     Iron_Type *type, Iron_Span span);
+                                     Iron_Type *type, const char *lifted_name,
+                                     Iron_Span span);
 IronHIR_Expr *iron_hir_expr_heap(IronHIR_Module *mod, IronHIR_Expr *inner,
                                   bool auto_free, bool escapes,
                                   Iron_Type *type, Iron_Span span);
@@ -530,7 +535,8 @@ IronHIR_Expr *iron_hir_expr_parallel_for(IronHIR_Module *mod,
                                           IronHIR_VarId var_id,
                                           IronHIR_Expr *range,
                                           IronHIR_Block *body,
-                                          Iron_Type *type, Iron_Span span);
+                                          Iron_Type *type, const char *lifted_name,
+                                          Iron_Span span);
 IronHIR_Expr *iron_hir_expr_comptime(IronHIR_Module *mod, IronHIR_Expr *inner,
                                       Iron_Type *type, Iron_Span span);
 IronHIR_Expr *iron_hir_expr_is(IronHIR_Module *mod, IronHIR_Expr *value,

@@ -817,7 +817,19 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 ? resolve_type_annotation(ctx, le->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
             if (ret_t && ret_t->kind == IRON_TYPE_VOID) ret_t = NULL;
+            /* Push a function scope and declare lambda params so the body
+             * can type-check variable references correctly. */
+            Iron_Type *prev_ret = ctx->current_return_type;
+            ctx->current_return_type = ret_t;
+            tc_push_scope(ctx, IRON_SCOPE_FUNCTION);
+            for (int p = 0; p < le->param_count; p++) {
+                Iron_Param *ap = (Iron_Param *)le->params[p];
+                tc_define(ctx, ap->name, IRON_SYM_PARAM, (Iron_Node *)le->params[p],
+                          ap->span, false, param_types ? param_types[p] : NULL);
+            }
             if (le->body) check_stmt(ctx, le->body);
+            tc_pop_scope(ctx);
+            ctx->current_return_type = prev_ret;
             result = iron_type_make_func(ctx->arena, param_types, le->param_count, ret_t);
             le->resolved_type = result;
             break;

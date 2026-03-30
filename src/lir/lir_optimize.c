@@ -264,8 +264,10 @@ static void analyze_array_param_modes(IronLIR_Module *module,
                 ArrayParamMode existing = iron_lir_get_array_param_mode(info, fn->name, pi, arena);
                 if (existing != ARRAY_PARAM_LIST) continue;
 
-                IronLIR_ValueId param_val_id = (IronLIR_ValueId)(pi * 2 + 1);
-                IronLIR_ValueId alloca_id    = (IronLIR_ValueId)(pi * 2 + 2);
+                /* HIR pipeline: params are IDs 1..param_count, allocas are
+                 * param_count+1..2*param_count (all params first, then allocas). */
+                IronLIR_ValueId param_val_id = (IronLIR_ValueId)(pi + 1);
+                IronLIR_ValueId alloca_id    = (IronLIR_ValueId)(fn->param_count + pi + 1);
 
                 /* Build alias set: param_val and alloca, plus LOADs from alloca */
                 struct { IronLIR_ValueId key; bool value; } *aliases = NULL;
