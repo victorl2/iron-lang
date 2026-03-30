@@ -73,6 +73,8 @@ add_library(iron_compiler STATIC
     src/analyzer/analyzer.c
     src/comptime/comptime.c
     src/hir/hir.c
+    src/hir/hir_print.c
+    src/hir/hir_verify.c
     src/lir/lir.c
     src/lir/lower.c
     src/lir/lower_types.c
