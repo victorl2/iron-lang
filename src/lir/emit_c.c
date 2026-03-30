@@ -958,12 +958,13 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 elem_c = emit_type_to_c(instr->alloca.alloc_type->array.elem, ctx);
             }
             /* PARAM-01: Check if origin is a const pointer param.
-             * Origin pvid = pi*2+1, so pi = (pvid-1)/2. If the param
-             * has CONST_PTR mode, emit const qualifier on the pointer. */
+             * HIR pipeline: param i has val_id = i+1, so 1..param_count are
+             * synthetic param IDs.  pi_idx = sa_origin - 1. */
             bool is_const_origin = false;
-            if (sa_origin != IRON_LIR_VALUE_INVALID && (sa_origin & 1) &&
-                sa_origin <= (IronLIR_ValueId)(fn->param_count * 2)) {
-                int pi_idx = (int)(sa_origin - 1) / 2;
+            if (sa_origin != IRON_LIR_VALUE_INVALID &&
+                sa_origin >= 1 &&
+                sa_origin <= (IronLIR_ValueId)fn->param_count) {
+                int pi_idx = (int)(sa_origin - 1);
                 if (pi_idx < fn->param_count) {
                     ArrayParamMode pm = get_array_param_mode(ctx, fn->name, pi_idx);
                     if (pm == ARRAY_PARAM_CONST_PTR) is_const_origin = true;
@@ -2215,15 +2216,13 @@ static void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
     iron_strbuf_appendf(sb, "%s %s(", ret_c, c_name);
     for (int i = 0; i < fn->param_count; i++) {
         if (i > 0) iron_strbuf_appendf(sb, ", ");
-        /* Each param consumes two ValueIds: one synthetic (the incoming argument
-         * value) and one alloca slot.  They are allocated in lower.c as:
-         *   param_val_id = next_value_id++    (synthetic, odd: 1, 3, 5, …)
-         *   alloca slot  = alloc_instr(…)     (even: 2, 4, 6, …)
-         * so param i's synthetic id = i*2 + 1.
-         * The C signature must use the synthetic id so the STORE in the entry
+        /* HIR pipeline param ID convention:
+         * All param synthetic IDs are allocated contiguously first (IDs 1..N),
+         * then allocas follow (IDs N+1..2N).  So param i has synthetic id = i+1.
+         * The C signature uses the synthetic id so the STORE in the entry
          * block (store alloca_slot = param_val_id) resolves correctly. */
         Iron_Type *pt = fn->params[i].type;
-        int param_val_id = i * 2 + 1;
+        int param_val_id = i + 1;
         /* PARAM-01/02: Check if this array param uses pointer mode */
         ArrayParamMode pmode = ARRAY_PARAM_LIST;
         if (pt && pt->kind == IRON_TYPE_ARRAY)
@@ -2312,7 +2311,7 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             if (!ppt || ppt->kind != IRON_TYPE_ARRAY) continue;
             ArrayParamMode pmode = get_array_param_mode(ctx, fn->name, ppi);
             if (pmode == ARRAY_PARAM_CONST_PTR || pmode == ARRAY_PARAM_MUT_PTR) {
-                IronLIR_ValueId pvid = (IronLIR_ValueId)(ppi * 2 + 1);
+                IronLIR_ValueId pvid = (IronLIR_ValueId)(ppi + 1);
                 hmput(sa_pre, pvid, pvid);
             }
         }
@@ -2460,8 +2459,9 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
      * reference the parameter value ID directly. */
     {
         for (int pi = 0; pi < fn->param_count; pi++) {
-            IronLIR_ValueId param_val = (IronLIR_ValueId)(pi * 2 + 1);
-            IronLIR_ValueId alloca_id = (IronLIR_ValueId)(pi * 2 + 2);
+            /* HIR pipeline: params 1..N, allocas N+1..2N */
+            IronLIR_ValueId param_val = (IronLIR_ValueId)(pi + 1);
+            IronLIR_ValueId alloca_id = (IronLIR_ValueId)(fn->param_count + pi + 1);
 
             /* Skip if this alloca is already tracked as a stack array (pointer-mode param) */
             if (hmgeti(ctx->opt_info->stack_array_ids, alloca_id) >= 0) continue;
@@ -2521,17 +2521,47 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
 
     ctx->indent = 1;
 
+    /* Compute reachable blocks via BFS from entry to avoid emitting dead code
+     * that triggers C compiler warnings (e.g. void return in non-void function). */
+    bool *blk_reachable = (bool *)calloc((size_t)fn->block_count, sizeof(bool));
+    if (blk_reachable && fn->block_count > 0) {
+        IronLIR_BlockId *wl = NULL;
+        blk_reachable[0] = true;
+        arrput(wl, fn->blocks[0]->id);
+        while (arrlen(wl) > 0) {
+            IronLIR_BlockId cid = arrpop(wl);
+            for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
+                if (fn->blocks[bi2]->id != cid) continue;
+                IronLIR_Block *cb = fn->blocks[bi2];
+                for (int si = 0; si < (int)arrlen(cb->succs); si++) {
+                    IronLIR_BlockId sid = cb->succs[si];
+                    for (int bi3 = 0; bi3 < fn->block_count; bi3++) {
+                        if (fn->blocks[bi3]->id == sid && !blk_reachable[bi3]) {
+                            blk_reachable[bi3] = true;
+                            arrput(wl, sid);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        arrfree(wl);
+    }
+
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronLIR_Block *block = fn->blocks[bi];
         ctx->current_block_id = block->id;  /* for block-boundary enforcement in emit_expr_to_buf */
 
-        /* Emit block label — unique per block to avoid duplicate-label errors */
+        /* Emit block label — unique per block to avoid duplicate-label errors.
+         * Unreachable blocks still need their label emitted (for goto targets
+         * that might resolve elsewhere), but we follow with __builtin_unreachable(). */
         iron_strbuf_appendf(sb, "%s:;\n",
                             make_block_label(block->id, block->label, ctx->arena));
 
-        if (block->instr_count == 0) {
-            /* Dead / unreachable block with no instructions.
-             * Emit __builtin_unreachable() so C compilers don't warn about
+        bool is_reachable = !blk_reachable || blk_reachable[bi];
+        if (!is_reachable || block->instr_count == 0) {
+            /* Dead / unreachable block — suppress all instructions and use
+             * __builtin_unreachable() so C compilers don't warn about
              * missing returns and optimizers can prune the dead path. */
             iron_strbuf_appendf(sb, "    __builtin_unreachable();\n");
         } else {
@@ -2540,6 +2570,8 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             }
         }
     }
+
+    if (blk_reachable) free(blk_reachable);
 
     ctx->indent = 0;
     iron_strbuf_appendf(sb, "}\n\n");
