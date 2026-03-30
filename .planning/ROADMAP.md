@@ -404,7 +404,7 @@ Plans:
   2. HIR-to-LIR lowering produces SSA-form output equivalent to the current AST-to-LIR path; structured control flow is flattened to basic blocks with branches, named variables become alloca/load/store sequences
   3. All 127 benchmarks and 42+ integration tests pass through the full AST-to-HIR-to-LIR-to-C pipeline with identical behavior to the current path
   4. The old direct AST-to-LIR lowering path is removed from the codebase; the compiler has exactly one lowering pipeline (AST-to-HIR-to-LIR-to-C)
-**Plans:** 4/7 plans executed
+**Plans:** 5/7 plans executed
 
 Plans:
 - [ ] 20-01-PLAN.md — AST-to-HIR lowering implementation + smoke tests
@@ -441,4 +441,4 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 18. Benchmark Validation | 4/4 | Complete    | 2026-03-30 | - |
 | 19. LIR Rename & HIR Foundation | 3/3 | Complete    | 2026-03-30 | - |
-| 20. HIR Lowering & Pipeline Cutover | 4/7 | In Progress|  | - |
+| 20. HIR Lowering & Pipeline Cutover | 5/7 | In Progress|  | - |
