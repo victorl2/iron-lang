@@ -258,7 +258,7 @@ void test_hir_closures_spawn_parallel_defer(void) {
 
     IronHIR_Expr *closure = iron_hir_expr_closure(g_mod, params, 1,
                                                     int_type, cl_body,
-                                                    NULL, span);
+                                                    NULL, NULL, span);
 
     TEST_ASSERT_NOT_NULL(closure);
     TEST_ASSERT_EQUAL_INT(IRON_HIR_EXPR_CLOSURE, closure->kind);
@@ -269,7 +269,7 @@ void test_hir_closures_spawn_parallel_defer(void) {
     /* Spawn statement */
     IronHIR_Block *spawn_body = iron_hir_block_create(g_mod);
     IronHIR_Stmt  *spawn_stmt = iron_hir_stmt_spawn(g_mod, "task_handle",
-                                                      spawn_body, span);
+                                                      spawn_body, NULL, span);
 
     TEST_ASSERT_NOT_NULL(spawn_stmt);
     TEST_ASSERT_EQUAL_INT(IRON_HIR_STMT_SPAWN, spawn_stmt->kind);
@@ -282,7 +282,7 @@ void test_hir_closures_spawn_parallel_defer(void) {
     IronHIR_Block *pf_body  = iron_hir_block_create(g_mod);
     IronHIR_Expr  *pfor     = iron_hir_expr_parallel_for(g_mod, pi_id,
                                                           pf_range, pf_body,
-                                                          NULL, span);
+                                                          NULL, NULL, span);
 
     TEST_ASSERT_NOT_NULL(pfor);
     TEST_ASSERT_EQUAL_INT(IRON_HIR_EXPR_PARALLEL_FOR, pfor->kind);

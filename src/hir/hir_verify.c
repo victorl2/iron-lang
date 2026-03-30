@@ -94,6 +94,8 @@ static void verify_func(const IronHIR_Func *func, const IronHIR_Module *mod,
                        "provide a function name");
     }
     if (!func->body) {
+        /* Extern functions have no body — skip verification for them */
+        if (func->is_extern) return;
         Iron_Span span = iron_span_make(func->name ? func->name : "<hir>", 0, 0, 0, 0);
         iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
                        IRON_ERR_HIR_NULL_POINTER, span,

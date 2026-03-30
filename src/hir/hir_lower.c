@@ -413,15 +413,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             lower_block_hir(ctx, (Iron_Block *)fs->body, pfor_body);
             pop_scope(ctx);
 
-            Iron_Type *void_ty = iron_type_make_primitive(IRON_TYPE_VOID);
-            IronHIR_Expr *pfor_expr = iron_hir_expr_parallel_for(mod, loop_var,
-                                                                   range_expr,
-                                                                   pfor_body,
-                                                                   void_ty, span);
-            IronHIR_Stmt *s = iron_hir_stmt_expr(mod, pfor_expr, span);
-            iron_hir_block_add_stmt(blk, s);
-
-            /* Queue for lifting */
+            /* Assign lifted name first so the HIR expr can store it */
             char lifted_name[64];
             snprintf(lifted_name, sizeof(lifted_name), "__pfor_%d",
                      ctx->lift_counter++);
@@ -430,6 +422,16 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 strlen(lifted_name) + 1,
                 _Alignof(char));
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
+
+            Iron_Type *void_ty = iron_type_make_primitive(IRON_TYPE_VOID);
+            IronHIR_Expr *pfor_expr = iron_hir_expr_parallel_for(mod, loop_var,
+                                                                   range_expr,
+                                                                   pfor_body,
+                                                                   void_ty, name_copy, span);
+            IronHIR_Stmt *s = iron_hir_stmt_expr(mod, pfor_expr, span);
+            iron_hir_block_add_stmt(blk, s);
+
+            /* Queue for lifting */
             LiftPending lp;
             lp.kind          = LIFT_PARALLEL_FOR;
             lp.ast_node      = node;
@@ -616,13 +618,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
         const char     *hname = ss->handle_name ? ss->handle_name : "__spawn_handle";
 
-        IronHIR_Block *spawn_body = iron_hir_block_create(mod);
-        lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
-
-        IronHIR_Stmt *s = iron_hir_stmt_spawn(mod, hname, spawn_body, span);
-        iron_hir_block_add_stmt(blk, s);
-
-        /* Queue for lifting */
+        /* Assign lifted name first so the HIR stmt can store it */
         char lifted_name[64];
         snprintf(lifted_name, sizeof(lifted_name), "__spawn_%d",
                  ctx->lift_counter++);
@@ -631,6 +627,14 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             strlen(lifted_name) + 1,
             _Alignof(char));
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
+
+        IronHIR_Block *spawn_body = iron_hir_block_create(mod);
+        lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
+
+        IronHIR_Stmt *s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
+        iron_hir_block_add_stmt(blk, s);
+
+        /* Queue for lifting */
         LiftPending lp;
         lp.kind           = LIFT_SPAWN;
         lp.ast_node       = node;
@@ -904,14 +908,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         lower_block_hir(ctx, (Iron_Block *)le->body, lambda_body);
         pop_scope(ctx);
 
-        Iron_Type *ret_ty = le->resolved_type;
-        IronHIR_Expr *result = iron_hir_expr_closure(mod,
-                                                       hir_params ? hir_params : NULL,
-                                                       le->param_count,
-                                                       ret_ty, lambda_body,
-                                                       le->resolved_type, span);
-
-        /* Queue for lifting */
+        /* Assign lifted name now so the closure expr can store it */
         char lifted_name[64];
         snprintf(lifted_name, sizeof(lifted_name), "__lambda_%d",
                  ctx->lift_counter++);
@@ -920,6 +917,23 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             strlen(lifted_name) + 1,
             _Alignof(char));
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
+
+        /* Extract the actual return type from the lambda's function type.
+         * le->resolved_type is the whole func type (e.g. func(Int)->Int);
+         * closure.return_type should be just the return portion (Int). */
+        Iron_Type *ret_ty = NULL;
+        if (le->resolved_type && le->resolved_type->kind == IRON_TYPE_FUNC) {
+            ret_ty = le->resolved_type->func.return_type;
+        } else {
+            ret_ty = le->resolved_type;
+        }
+        IronHIR_Expr *result = iron_hir_expr_closure(mod,
+                                                       hir_params ? hir_params : NULL,
+                                                       le->param_count,
+                                                       ret_ty, lambda_body,
+                                                       le->resolved_type, name_copy, span);
+
+        /* Queue for lifting */
         LiftPending lp;
         lp.kind           = LIFT_LAMBDA;
         lp.ast_node       = node;
@@ -1086,9 +1100,22 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 (size_t)total_params * sizeof(IronHIR_Param),
                 _Alignof(IronHIR_Param));
 
-            /* Self param: use object type */
+            /* Self param: resolve to the object type by name */
+            Iron_Type *self_type = NULL;
+            if (ctx->program && md->type_name) {
+                for (int di = 0; di < ctx->program->decl_count; di++) {
+                    Iron_Node *d = ctx->program->decls[di];
+                    if (d->kind == IRON_NODE_OBJECT_DECL) {
+                        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+                        if (strcmp(od->name, md->type_name) == 0) {
+                            self_type = iron_type_make_object(mod->arena, od);
+                            break;
+                        }
+                    }
+                }
+            }
             params[0].name   = "self";
-            params[0].type   = NULL;  /* resolved later if needed */
+            params[0].type   = self_type;
             params[0].var_id = IRON_HIR_VAR_INVALID;
 
             /* Explicit params */
@@ -1256,7 +1283,11 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)lp->ast_node;
             IronHIR_Param *params = build_hir_params(ctx, le->params,
                                                        le->param_count);
+            /* Extract actual return type from the function type */
             Iron_Type *ret_ty = le->resolved_type;
+            if (ret_ty && ret_ty->kind == IRON_TYPE_FUNC) {
+                ret_ty = ret_ty->func.return_type;
+            }
             IronHIR_Func *lifted = iron_hir_func_create(mod, lp->lifted_name,
                                                           params, le->param_count,
                                                           ret_ty);
@@ -1406,15 +1437,18 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
     memset(&verify_diags, 0, sizeof(verify_diags));
     Iron_Arena varena = iron_arena_create(64 * 1024);
     bool ok = iron_hir_verify(module, &verify_diags, &varena);
-    iron_arena_free(&varena);
     if (!ok) {
-        /* Verification failed — errors already added to verify_diags.
-         * Bump the caller's error count so NULL is returned. */
-        diags->error_count += verify_diags.error_count > 0
-                              ? verify_diags.error_count : 1;
+        /* Verification failed — print errors now (while varena is still live),
+         * then bump caller's error count so NULL return is handled correctly. */
+        iron_diag_print_all(&verify_diags, NULL);
+        diags->error_count += verify_diags.error_count > 0 ? verify_diags.error_count : 1;
+        iron_diaglist_free(&verify_diags);
+        iron_arena_free(&varena);
         iron_hir_module_destroy(module);
         return NULL;
     }
+    iron_diaglist_free(&verify_diags);
+    iron_arena_free(&varena);
 
     if (diags->error_count > 0) {
         iron_hir_module_destroy(module);

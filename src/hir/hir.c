@@ -223,13 +223,15 @@ IronHIR_Stmt *iron_hir_stmt_free(IronHIR_Module *mod, IronHIR_Expr *value,
 }
 
 IronHIR_Stmt *iron_hir_stmt_spawn(IronHIR_Module *mod, const char *handle_name,
-                                    IronHIR_Block *body, Iron_Span span) {
+                                    IronHIR_Block *body, const char *lifted_name,
+                                    Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
     memset(s, 0, sizeof(*s));
     s->kind               = IRON_HIR_STMT_SPAWN;
     s->span               = span;
     s->spawn.handle_name  = handle_name;
     s->spawn.body         = body;
+    s->spawn.lifted_name  = lifted_name;
     return s;
 }
 
@@ -425,7 +427,8 @@ IronHIR_Expr *iron_hir_expr_slice(IronHIR_Module *mod, IronHIR_Expr *array,
 IronHIR_Expr *iron_hir_expr_closure(IronHIR_Module *mod,
                                       IronHIR_Param *params, int param_count,
                                       Iron_Type *return_type, IronHIR_Block *body,
-                                      Iron_Type *type, Iron_Span span) {
+                                      Iron_Type *type, const char *lifted_name,
+                                      Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
     memset(e, 0, sizeof(*e));
     e->kind                   = IRON_HIR_EXPR_CLOSURE;
@@ -435,6 +438,7 @@ IronHIR_Expr *iron_hir_expr_closure(IronHIR_Module *mod,
     e->closure.param_count    = param_count;
     e->closure.return_type    = return_type;
     e->closure.body           = body;
+    e->closure.lifted_name    = lifted_name;
     return e;
 }
 
@@ -553,15 +557,17 @@ IronHIR_Expr *iron_hir_expr_parallel_for(IronHIR_Module *mod,
                                            IronHIR_VarId var_id,
                                            IronHIR_Expr *range,
                                            IronHIR_Block *body,
-                                           Iron_Type *type, Iron_Span span) {
+                                           Iron_Type *type, const char *lifted_name,
+                                           Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
     memset(e, 0, sizeof(*e));
-    e->kind                 = IRON_HIR_EXPR_PARALLEL_FOR;
-    e->span                 = span;
-    e->type                 = type;
-    e->parallel_for.var_id  = var_id;
-    e->parallel_for.range   = range;
-    e->parallel_for.body    = body;
+    e->kind                          = IRON_HIR_EXPR_PARALLEL_FOR;
+    e->span                          = span;
+    e->type                          = type;
+    e->parallel_for.var_id           = var_id;
+    e->parallel_for.range            = range;
+    e->parallel_for.body             = body;
+    e->parallel_for.lifted_name      = lifted_name;
     return e;
 }
 

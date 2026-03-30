@@ -205,7 +205,7 @@ void test_hir_print_closures_concurrency(void) {
     IronHIR_Expr *ecx = iron_hir_expr_ident(g_mod, cx_id, "x", int_type, span);
     iron_hir_block_add_stmt(closure_body, iron_hir_stmt_return(g_mod, ecx, span));
 
-    IronHIR_Expr *closure_expr = iron_hir_expr_closure(g_mod, closure_params, 1, int_type, closure_body, NULL, span);
+    IronHIR_Expr *closure_expr = iron_hir_expr_closure(g_mod, closure_params, 1, int_type, closure_body, NULL, NULL, span);
 
     IronHIR_VarId f_id = iron_hir_alloc_var(g_mod, "f", NULL, false);
     IronHIR_Stmt *let_f = iron_hir_stmt_let(g_mod, f_id, NULL, closure_expr, false, span);
@@ -221,7 +221,7 @@ void test_hir_print_closures_concurrency(void) {
     IronHIR_Block *spawn_body = iron_hir_block_create(g_mod);
     IronHIR_Expr *spawn_val = iron_hir_expr_int_lit(g_mod, 1, int_type, span);
     iron_hir_block_add_stmt(spawn_body, iron_hir_stmt_expr(g_mod, spawn_val, span));
-    iron_hir_block_add_stmt(body, iron_hir_stmt_spawn(g_mod, "handle", spawn_body, span));
+    iron_hir_block_add_stmt(body, iron_hir_stmt_spawn(g_mod, "handle", spawn_body, NULL, span));
 
     fn->body = body;
     iron_hir_module_add_func(g_mod, fn);

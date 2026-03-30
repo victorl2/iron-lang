@@ -3,6 +3,7 @@
 #include "vendor/stb_ds.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 
@@ -229,9 +230,42 @@ static void verify_func(const IronLIR_Func *fn, const IronLIR_Module *module,
         return; /* Nothing else to check without blocks */
     }
 
+    /* Compute reachable blocks via BFS from entry (blocks[0]).
+     * Unreachable blocks arise from dead-code paths (all arms return) and
+     * are excluded from structural checks (terminators, return-type match, etc.). */
+    bool *reachable = (bool *)calloc((size_t)fn->block_count, sizeof(bool));
+    if (reachable) {
+        IronLIR_BlockId *worklist = NULL;
+        reachable[0] = true;
+        arrput(worklist, fn->blocks[0]->id);
+        while (arrlen(worklist) > 0) {
+            IronLIR_BlockId cur_id = arrpop(worklist);
+            /* Find cur_id in blocks array */
+            for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
+                if (fn->blocks[bi2]->id != cur_id) continue;
+                const IronLIR_Block *cur = fn->blocks[bi2];
+                /* Enqueue successors */
+                for (int si = 0; si < (int)arrlen(cur->succs); si++) {
+                    IronLIR_BlockId sid = cur->succs[si];
+                    for (int bi3 = 0; bi3 < fn->block_count; bi3++) {
+                        if (fn->blocks[bi3]->id == sid && !reachable[bi3]) {
+                            reachable[bi3] = true;
+                            arrput(worklist, sid);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        arrfree(worklist);
+    }
+
     /* Walk each block */
     for (int bi = 0; bi < fn->block_count; bi++) {
         const IronLIR_Block *block = fn->blocks[bi];
+
+        /* Skip unreachable blocks — dead code paths need no structural checks. */
+        if (reachable && !reachable[bi]) continue;
 
         /* Invariant 2: block must end with a terminator */
         if (block->instr_count == 0) {
@@ -433,6 +467,8 @@ static void verify_func(const IronLIR_Func *fn, const IronLIR_Module *module,
             }
         }
     }
+
+    if (reachable) free(reachable);
 }
 
 /* ── Public API ───────────────────────────────────────────────────────────── */
