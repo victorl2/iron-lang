@@ -59,7 +59,7 @@ func main() {
     val single = [42]
     println("Test 3: {inorder_checksum(single, 1)} (expected 42)")
 
-    val iterations = 500000
+    val iterations = 2000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

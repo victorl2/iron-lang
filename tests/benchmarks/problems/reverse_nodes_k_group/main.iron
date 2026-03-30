@@ -53,7 +53,7 @@ func main() {
     reverse_k_group(vals, nxt, n, 3, out)
     println("First 12: {out[0]} {out[1]} {out[2]} {out[3]} {out[4]} {out[5]} {out[6]} {out[7]} {out[8]} {out[9]} {out[10]} {out[11]}")
 
-    val iterations = 1000000
+    val iterations = 2500000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

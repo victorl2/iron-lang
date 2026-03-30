@@ -37,7 +37,7 @@ func main() {
     }
     println("Test 4: {remove_duplicates(bench_copy, 100)} (expected 50)")
 
-    val iterations = 1000000
+    val iterations = 2500000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

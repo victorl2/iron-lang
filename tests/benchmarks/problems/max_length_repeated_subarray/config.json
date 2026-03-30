@@ -1,1 +1,1 @@
-{"iterations": 200000, "timeout_sec": 60, "max_ratio": 1.2}
+{"iterations": 500000, "timeout_sec": 60, "max_ratio": 1.2, "note": "Iron fill(n*m, 0) heap-allocates int64_t DP array per call vs C's int64_t dp[31*31] stack array. Language-design-inherent: Iron fill() heap-allocates. Stable observed ratio ~1.1x at 500k iters (C ~240ms). Threshold 1.2x provides adequate margin."}

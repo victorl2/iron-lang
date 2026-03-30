@@ -86,7 +86,7 @@ func main() {
     val check_before = checksum(arr, n)
     println("Bench init checksum: {check_before}")
 
-    val iterations = 5000000
+    val iterations = 50000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

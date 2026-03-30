@@ -30,7 +30,7 @@ int main(void) {
     for (int i = 0; i < 30; i++) { a2[i] = i % 8; b2[i] = (i+3) % 8; }
     printf("Test 2: %lld (expected 27)\n", (long long)max_repeated_subarray(a2,30,b2,30));
 
-    int iterations = 200000;
+    int iterations = 500000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

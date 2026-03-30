@@ -27,7 +27,7 @@ int main(void) {
     for (int i = 0; i < 20; i++) bench[i] = (i % 3) + 1;
     printf("Test 3: %lld (expected 1458)\n", (long long)decode_ways(bench, 20));
 
-    int iterations = 1000000;
+    int iterations = 4000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

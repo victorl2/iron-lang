@@ -30,7 +30,7 @@ int main(void) {
     for (int i = 0; i < 30; i++) bench[i] = (i*7+3)%5;
     printf("Test 2: %lld (expected 11)\n", (long long)lps(bench, 30));
 
-    int iterations = 200000;
+    int iterations = 400000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

@@ -56,7 +56,7 @@ int main(void) {
     printf("Test 4: %d (expected 3)\n", max_depth(tree7, 7));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000;
+    int iterations = 3000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

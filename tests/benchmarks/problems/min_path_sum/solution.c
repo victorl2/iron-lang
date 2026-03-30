@@ -29,7 +29,7 @@ int main(void) {
             bench[i*20+j] = (i*3+j*7+5)%10+1;
     printf("Test 2: %lld (expected 131)\n", (long long)min_path_sum(bench, 20, 20));
 
-    int iterations = 500000;
+    int iterations = 1500000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

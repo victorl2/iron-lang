@@ -86,7 +86,7 @@ func main() {
     adj4[4 * n + 3] = 1
     println("Test 4: {dijkstra(adj4, n, 0, 3)} (expected 6)")
 
-    val iterations = 100000
+    val iterations = 400000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

@@ -38,7 +38,7 @@ func main() {
     }
     println("Test 2: {lps(bench, 30)} (expected 11)")
 
-    val iterations = 200000
+    val iterations = 400000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

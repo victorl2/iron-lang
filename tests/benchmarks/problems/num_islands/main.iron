@@ -127,7 +127,7 @@ func main() {
     var grid3 = [1, 0, 1, 0, 1, 0, 1, 0, 1]
     println("Test 3: {num_islands(grid3, 3, 3)} (expected 5)")
 
-    val iterations = 100000
+    val iterations = 400000
     val start = Time.now_ms()
     var result = 0
     var g = fill(400, 0)

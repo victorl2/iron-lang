@@ -122,7 +122,7 @@ int main(void) {
     printf("Bench check: %lld\n", median_stream(nums, n));
 
     long mem_before = get_memory_kb();
-    int64_t iterations = 200000;
+    int64_t iterations = 400000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

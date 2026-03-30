@@ -1,1 +1,1 @@
-{"iterations": 1, "timeout_sec": 60, "max_ratio": 1.2}
+{"iterations": 10, "timeout_sec": 60, "max_ratio": 1.2, "note": "10 outer iterations of 1M hamming computations each (10M total pairs). Iron optimizer reduces loop to near-zero time. C ~200ms at 10 iterations."}

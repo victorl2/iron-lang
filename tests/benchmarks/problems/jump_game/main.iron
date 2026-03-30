@@ -28,7 +28,7 @@ func main() {
     }
     println("Test 3: {jump_game(bench, 100)} (expected 1)")
 
-    val iterations = 1000000
+    val iterations = 3000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

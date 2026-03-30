@@ -68,7 +68,7 @@ func main() {
     val single = [42]
     println("Test 4: {validate_bst(single, 1)} (expected 1)")
 
-    val iterations = 500000
+    val iterations = 5000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

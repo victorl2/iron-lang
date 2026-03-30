@@ -41,7 +41,7 @@ func main() {
     }
     println("Test 2: {min_path_sum(bench, 20, 20)} (expected 131)")
 
-    val iterations = 500000
+    val iterations = 1500000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

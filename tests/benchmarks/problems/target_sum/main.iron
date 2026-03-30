@@ -37,7 +37,7 @@ func main() {
     }
     println("Test 2: {target_sum(bench, 15, 3, 100)} (expected 1932)")
 
-    val iterations = 500000
+    val iterations = 2000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

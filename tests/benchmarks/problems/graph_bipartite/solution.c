@@ -66,7 +66,7 @@ int main(void) {
     printf("Test 4: %d (expected 0)\n", is_bipartite(adj4, n));
 
     long mem_before = get_memory_kb();
-    int iterations = 200000;
+    int iterations = 2000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

@@ -13,23 +13,34 @@ func reverse_bits(n: Int) -> Int {
     return result
 }
 
+func run_reverse_bits_batch() -> Int {
+    var total = 0
+    for i in range(1000000) {
+        total = total + reverse_bits(i)
+    }
+    return total
+}
+
 func main() {
     println("Test 1: {reverse_bits(43261596)} (expected 964176192)")
     println("Test 2: {reverse_bits(1)} (expected 2147483648)")
     println("Test 3: {reverse_bits(0)} (expected 0)")
 
-    -- Benchmark: sum of reverse_bits for 1M values
-    var total = 0
+    -- Correctness check: sum of reverse_bits for 1M values
+    val check = run_reverse_bits_batch()
+    println("Test 4: {check} (expected 2147474564972544)")
+
+    -- Benchmark: repeat 6 times for stable C time > 200ms
+    val iterations = 6
     val start = Time.now_ms()
-    for i in range(1000000) {
-        total = total + reverse_bits(i)
+    var result = 0
+    for it in range(iterations) {
+        result = run_reverse_bits_batch()
     }
     val elapsed = Time.now_ms() - start
 
-    println("Test 4: {total} (expected 2147474564972544)")
-
     println("")
     println("=== Benchmark: Reverse Bits ===")
-    println("Values: 1000000")
+    println("Values: 6000000")
     println("Total time: {elapsed} ms")
 }

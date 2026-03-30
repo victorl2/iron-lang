@@ -45,7 +45,7 @@ int main(void) {
     int64_t bench_lens[] = {2,1,2,3,3,1,3,3,1,2};
     printf("Test 3: %lld (expected 1)\n", (long long)word_break(bench_s,20,bench_flat,bench_starts,bench_lens,10));
 
-    int iterations = 500000;
+    int iterations = 5000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

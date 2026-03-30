@@ -17,25 +17,36 @@ func hamming(a: Int, b: Int) -> Int {
     return count
 }
 
-func main() {
-    println("Test 1: {hamming(1, 4)} (expected 2)")
-    println("Test 2: {hamming(3, 1)} (expected 1)")
-    println("Test 3: {hamming(0, 0)} (expected 0)")
-
-    -- Benchmark: sum hamming distances for 1M pairs
+func run_hamming_batch() -> Int {
     var total = 0
-    val start = Time.now_ms()
     for i in range(1000000) {
         val a = (i * 31 + 17) % 100000
         val b = (i * 37 + 23) % 100000
         total = total + hamming(a, b)
     }
-    val elapsed = Time.now_ms() - start
+    return total
+}
 
-    println("Test 4: {total} (expected 8217960)")
+func main() {
+    println("Test 1: {hamming(1, 4)} (expected 2)")
+    println("Test 2: {hamming(3, 1)} (expected 1)")
+    println("Test 3: {hamming(0, 0)} (expected 0)")
+
+    -- Correctness check: sum hamming distances for 1M pairs
+    val check = run_hamming_batch()
+    println("Test 4: {check} (expected 8217960)")
+
+    -- Benchmark: repeat 10 times for stable C time > 200ms
+    val iterations = 10
+    val start = Time.now_ms()
+    var result = 0
+    for it in range(iterations) {
+        result = run_hamming_batch()
+    }
+    val elapsed = Time.now_ms() - start
 
     println("")
     println("=== Benchmark: Hamming Distance ===")
-    println("Pairs: 1000000")
+    println("Pairs: 10000000")
     println("Total time: {elapsed} ms")
 }

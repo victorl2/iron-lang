@@ -116,7 +116,7 @@ func main() {
     flood_fill(grid, 20, 20, 0, 0, 2)
     println("Test 3: {checksum(grid, 400)} (expected 92462)")
 
-    val iterations = 50000
+    val iterations = 500000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

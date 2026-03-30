@@ -106,7 +106,7 @@ func main() {
     val bench_result = three_sum_count(bench, 50)
     println("Test 4: {bench_result}")
 
-    val iterations = 100000
+    val iterations = 400000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

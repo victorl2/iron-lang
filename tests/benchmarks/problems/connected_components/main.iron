@@ -137,7 +137,7 @@ func main() {
     }
     println("Test 4: {count_components(ea4, eb4, 25, n)} (expected 25)")
 
-    val iterations = 200000
+    val iterations = 1200000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {

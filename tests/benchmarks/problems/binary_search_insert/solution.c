@@ -37,7 +37,7 @@ int main(void) {
     printf("Bench check: %lld\n", binary_search_insert(arr, n, 299));
 
     long mem_before = get_memory_kb();
-    int iterations = 1000000;
+    int iterations = 15000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

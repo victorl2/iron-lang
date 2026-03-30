@@ -56,7 +56,7 @@ func main() {
     val tree7 = [10, 5, 15, 3, 7, 12, 20]
     println("Test 4: {max_depth(tree7, 7)} (expected 3)")
 
-    val iterations = 500000
+    val iterations = 3000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
