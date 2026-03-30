@@ -75,6 +75,7 @@ add_library(iron_compiler STATIC
     src/hir/hir.c
     src/hir/hir_print.c
     src/hir/hir_verify.c
+    src/hir/hir_lower.c
     src/lir/lir.c
     src/lir/lower.c
     src/lir/lower_types.c
