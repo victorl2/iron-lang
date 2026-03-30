@@ -1277,21 +1277,6 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                     if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
                         instr->type->array.elem)
                         elem_type = emit_type_to_c(instr->type->array.elem, ctx);
-                    /* Int32 narrowing: if fill value is a compile-time constant
-                     * fitting in 32 bits and element type is Int, use int32_t. */
-                    IronIR_ValueId fill_val_id = instr->call.args[1];
-                    IronIR_Instr *fill_val_instr = NULL;
-                    if (fill_val_id < (IronIR_ValueId)arrlen(fn->value_table))
-                        fill_val_instr = fn->value_table[fill_val_id];
-                    if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
-                        instr->type->array.elem &&
-                        instr->type->array.elem->kind == IRON_TYPE_INT &&
-                        fill_val_instr &&
-                        fill_val_instr->kind == IRON_IR_CONST_INT &&
-                        fill_val_instr->const_int.value >= INT32_MIN &&
-                        fill_val_instr->const_int.value <= INT32_MAX) {
-                        elem_type = "int32_t";
-                    }
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "%s ", elem_type);
                     emit_val(sb, instr->id);
@@ -1321,23 +1306,6 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
                         if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
                             instr->type->array.elem)
                             elem_type = emit_type_to_c(instr->type->array.elem, ctx);
-                        /* Int32 narrowing: if fill value is a compile-time constant
-                         * fitting in 32 bits and element type is Int, use int32_t. */
-                        {
-                            IronIR_ValueId vla_fill_id = instr->call.args[1];
-                            IronIR_Instr *vla_fill_instr = NULL;
-                            if (vla_fill_id < (IronIR_ValueId)arrlen(fn->value_table))
-                                vla_fill_instr = fn->value_table[vla_fill_id];
-                            if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
-                                instr->type->array.elem &&
-                                instr->type->array.elem->kind == IRON_TYPE_INT &&
-                                vla_fill_instr &&
-                                vla_fill_instr->kind == IRON_IR_CONST_INT &&
-                                vla_fill_instr->const_int.value >= INT32_MIN &&
-                                vla_fill_instr->const_int.value <= INT32_MAX) {
-                                elem_type = "int32_t";
-                            }
-                        }
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s *", elem_type);
                         emit_val(sb, instr->id);
@@ -1737,25 +1705,7 @@ static void emit_instr(Iron_StrBuf *sb, IronIR_Instr *instr,
             /* ARR-01: Emit as C stack array for known-size arrays (<= 256 elements).
              * Produces: elem_type _vN[] = {v0, v1, ...};
              *           int64_t _vN_len = count; */
-            /* Int32 narrowing: if all elements are compile-time int constants
-             * fitting in 32 bits, emit int32_t for cache efficiency. */
-            bool narrow_int32 = false;
-            if (instr->array_lit.elem_type &&
-                instr->array_lit.elem_type->kind == IRON_TYPE_INT) {
-                narrow_int32 = true;
-                for (int i = 0; i < instr->array_lit.element_count && narrow_int32; i++) {
-                    IronIR_ValueId eid = instr->array_lit.elements[i];
-                    IronIR_Instr *ei = (eid < (IronIR_ValueId)arrlen(fn->value_table))
-                                       ? fn->value_table[eid] : NULL;
-                    if (!ei || ei->kind != IRON_IR_CONST_INT ||
-                        ei->const_int.value > INT32_MAX ||
-                        ei->const_int.value < INT32_MIN) {
-                        narrow_int32 = false;
-                    }
-                }
-            }
-            const char *elem_c_type = narrow_int32 ? "int32_t"
-                                                    : emit_type_to_c(instr->array_lit.elem_type, ctx);
+            const char *elem_c_type = emit_type_to_c(instr->array_lit.elem_type, ctx);
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s ", elem_c_type);
             emit_val(sb, instr->id);
