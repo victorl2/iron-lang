@@ -1639,7 +1639,15 @@ static void ssa_rename_recursive(
                 fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
                 IronLIR_ValueId def = ssa_stack_top(var_stacks, ptr);
                 if (def != IRON_LIR_VALUE_INVALID && fn->value_table[instr->id]) {
-                    fn->value_table[instr->id] = fn->value_table[def];
+                    /* Only replace if the defining value has a backing instruction.
+                     * Synthetic param ValueIds (1..param_count) have NULL in
+                     * value_table — setting the LOAD entry to NULL would make
+                     * every subsequent use look "undefined" to the verifier.
+                     * In that case, keep the LOAD instruction so the alloca-based
+                     * code path in the emitter still works correctly. */
+                    if (fn->value_table[def] != NULL) {
+                        fn->value_table[instr->id] = fn->value_table[def];
+                    }
                 }
             }
         } else if (instr->kind == IRON_LIR_STORE) {
