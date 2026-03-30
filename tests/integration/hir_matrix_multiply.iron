@@ -1,0 +1,20 @@
+-- 2x2 matrix multiply: result[i][j] = sum(A[i][k] * B[k][j])
+-- Represented as flat arrays: A=[a00,a01,a10,a11]
+
+func mat_mul_2x2(a: [Int], b: [Int], c: [Int]) {
+  c[0] = a[0] * b[0] + a[1] * b[2]
+  c[1] = a[0] * b[1] + a[1] * b[3]
+  c[2] = a[2] * b[0] + a[3] * b[2]
+  c[3] = a[2] * b[1] + a[3] * b[3]
+}
+
+func main() {
+  val a = [1, 2, 3, 4]
+  val b = [5, 6, 7, 8]
+  var c = fill(4, 0)
+  mat_mul_2x2(a, b, c)
+  println("{c[0]}")
+  println("{c[1]}")
+  println("{c[2]}")
+  println("{c[3]}")
+}

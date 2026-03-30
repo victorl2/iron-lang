@@ -1,0 +1,16 @@
+func gcd(a: Int, b: Int) -> Int {
+  var x = a
+  var y = b
+  while y != 0 {
+    val tmp = y
+    y = x - (x / y) * y
+    x = tmp
+  }
+  return x
+}
+
+func main() {
+  println("{gcd(12, 8)}")
+  println("{gcd(48, 18)}")
+  println("{gcd(100, 75)}")
+}
