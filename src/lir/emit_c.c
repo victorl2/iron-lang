@@ -69,6 +69,10 @@ typedef struct {
     IronLIR_InlineEligEntry *inline_eligible;  /* per-function inline eligibility map */
     IronLIR_ValueBlockEntry *value_block;      /* per-function value->block map */
     IronLIR_BlockId          current_block_id; /* set before each emit_instr call */
+
+    /* Backward-referenced values hoisted to function entry (type _vN;).
+     * At the definition site, emit assignment without type prefix. */
+    struct { IronLIR_ValueId key; bool value; } *phi_hoisted;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -737,12 +741,20 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     int ind = ctx->indent;
 
     /* Expression inlining: skip emission of inlineable values — they will be
-     * reconstructed inline at their single use site by emit_expr_to_buf(). */
+     * reconstructed inline at their single use site by emit_expr_to_buf().
+     * Exception: CALL instructions are never inlined (Step 4b prevents it),
+     * so their declarations must not be suppressed. */
     if (instr->id != IRON_LIR_VALUE_INVALID &&
         ctx->inline_eligible &&
-        hmgeti(ctx->inline_eligible, instr->id) >= 0) {
+        hmgeti(ctx->inline_eligible, instr->id) >= 0 &&
+        instr->kind != IRON_LIR_CALL) {
         return;  /* deferred to use site */
     }
+
+    /* For backward-referenced values (hoisted to entry), emit as assignment
+     * without the type prefix to avoid C redefinition errors. */
+    bool is_hoisted = (ctx->phi_hoisted &&
+                       hmgeti(ctx->phi_hoisted, instr->id) >= 0);
 
     switch (instr->kind) {
 
@@ -1060,7 +1072,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Load from the alloca variable — just copy it */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) {
+                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->load.ptr);
@@ -2567,6 +2581,50 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             }
         }
         arrfree(wl);
+    }
+
+    /* Hoist backward-referenced values: detect values defined in later blocks
+     * but used in earlier blocks (backward gotos in loops) and pre-declare them. */
+    hmfree(ctx->phi_hoisted);
+    ctx->phi_hoisted = NULL;
+    if (ctx->value_block) {
+        /* use_block_min[vid] = earliest block index where vid is used as operand */
+        struct { IronLIR_ValueId key; int value; } *use_block_min = NULL;
+        for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
+            IronLIR_Block *blk = fn->blocks[bi2];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                /* Scan store.value operand — covers phi-eliminated assignments */
+                if (in->kind == IRON_LIR_STORE && in->store.value != IRON_LIR_VALUE_INVALID) {
+                    IronLIR_ValueId v = in->store.value;
+                    ptrdiff_t idx = hmgeti(use_block_min, v);
+                    if (idx < 0 || bi2 < use_block_min[idx].value)
+                        hmput(use_block_min, v, bi2);
+                }
+            }
+        }
+        /* For each non-entry-block value used before its definition block, hoist */
+        for (int bi2 = 1; bi2 < fn->block_count; bi2++) {
+            IronLIR_Block *blk = fn->blocks[bi2];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->id == IRON_LIR_VALUE_INVALID) continue;
+                if (ctx->inline_eligible && hmgeti(ctx->inline_eligible, in->id) >= 0) continue;
+                if (iron_lir_is_terminator(in->kind) || in->kind == IRON_LIR_STORE ||
+                    in->kind == IRON_LIR_SET_INDEX || in->kind == IRON_LIR_SET_FIELD ||
+                    in->kind == IRON_LIR_FREE || in->kind == IRON_LIR_ALLOCA) continue;
+                if (in->kind != IRON_LIR_LOAD) continue; /* only hoist LOADs for now */
+                ptrdiff_t um = hmgeti(use_block_min, in->id);
+                if (um >= 0 && use_block_min[um].value < bi2) {
+                    if (!in->type || in->type->kind == IRON_TYPE_VOID) continue;
+                    hmput(ctx->phi_hoisted, in->id, true);
+                    emit_indent(sb, 1);
+                    iron_strbuf_appendf(sb, "%s _v%u;\n",
+                        emit_type_to_c(in->type, ctx), in->id);
+                }
+            }
+        }
+        hmfree(use_block_min);
     }
 
     for (int bi = 0; bi < fn->block_count; bi++) {
