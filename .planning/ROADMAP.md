@@ -388,7 +388,12 @@ Plans:
   2. HIR data structures represent structured control flow (if/else, for, while, match) as tree nodes rather than CFG basic blocks; let/mut bindings carry names and lexical scope information
   3. HIR represents method calls with receivers, field access, array indexing, closures, spawn, parallel-for, and defer as first-class language-level constructs (not lowered to primitives)
   4. `hir_print()` outputs a human-readable representation that resembles Iron source code; `hir_verify()` validates scope nesting, type consistency, and structural completeness
-**Plans**: TBD
+**Plans:** 3/3 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — LIR rename: move directories and rename all IR symbols to LIR
+- [ ] 19-02-PLAN.md — HIR data structures, constructors, and unit tests
+- [ ] 19-03-PLAN.md — HIR printer and verifier with snapshot and error tests
 
 ### Phase 20: HIR Lowering & Pipeline Cutover
 **Goal**: The compiler pipeline is AST-to-HIR-to-LIR-to-C, with the direct AST-to-LIR path removed after parity is confirmed
@@ -425,6 +430,6 @@ Phases execute in numeric order: 15 -> 16 -> 17 -> 18 -> 19 -> 20
 | 15. Copy Propagation, DCE & Constant Folding | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 16. Expression Inlining | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
 | 17. Strength Reduction & Store/Load Elimination | v0.0.5-alpha | 3/3 | Complete | 2026-03-29 |
-| 18. Benchmark Validation | 4/4 | Complete   | 2026-03-30 | - |
-| 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 0/0 | Not started | - |
+| 18. Benchmark Validation | 4/4 | Complete    | 2026-03-30 | - |
+| 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 0/3 | Planned | - |
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 0/0 | Not started | - |
