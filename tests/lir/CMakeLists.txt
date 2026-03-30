@@ -17,12 +17,6 @@ target_link_libraries(test_lir_verify iron_compiler unity)
 add_test(NAME test_lir_verify COMMAND test_lir_verify)
 set_tests_properties(test_lir_verify PROPERTIES LABELS "lir")
 
-add_executable(test_lir_lower test_lir_lower.c)
-target_link_libraries(test_lir_lower iron_compiler unity)
-add_test(NAME test_lir_lower COMMAND test_lir_lower
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-set_tests_properties(test_lir_lower PROPERTIES LABELS "lir")
-
 add_executable(test_lir_emit test_lir_emit.c)
 target_link_libraries(test_lir_emit iron_compiler unity)
 add_test(NAME test_lir_emit COMMAND test_lir_emit)

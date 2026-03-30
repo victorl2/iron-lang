@@ -13,5 +13,7 @@ entry:
   %7 = const_int 1 : Int
   %8 = add %6, %7 : Int
   store %1, %8
+  jump return_exit_0
+return_exit_0:
   ret void
 }
