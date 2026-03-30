@@ -105,6 +105,7 @@ enable_testing()
 
 add_subdirectory(tests/unit)
 add_subdirectory(tests/lir)
+add_subdirectory(tests/hir)
 add_subdirectory(tests/integration)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
