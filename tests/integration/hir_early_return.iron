@@ -1,0 +1,15 @@
+func first_positive(a: Int, b: Int, c: Int) -> Int {
+  if a > 0 {
+    return a
+  }
+  if b > 0 {
+    return b
+  }
+  return c
+}
+
+func main() {
+  println("{first_positive(5, 3, 1)}")
+  println("{first_positive(-1, 7, 2)}")
+  println("{first_positive(-1, -2, 99)}")
+}

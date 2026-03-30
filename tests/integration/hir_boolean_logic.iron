@@ -1,0 +1,14 @@
+func main() {
+  val a = true
+  val b = false
+  println("{a}")
+  println("{b}")
+  if a {
+    println("a is true")
+  }
+  if b {
+    println("b is true")
+  } else {
+    println("b is false")
+  }
+}

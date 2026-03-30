@@ -1,0 +1,22 @@
+-- hir_null_check: Test conditional branching with sentinel value checks
+func get_value(use_default: Int) -> Int {
+  if use_default == 1 {
+    return 0
+  }
+  return 42
+}
+
+func main() {
+  val a = get_value(1)
+  if a == 0 {
+    println("default")
+  } else {
+    println("has value: {a}")
+  }
+  val b = get_value(0)
+  if b == 0 {
+    println("default")
+  } else {
+    println("has value: {b}")
+  }
+}

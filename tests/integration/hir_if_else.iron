@@ -1,0 +1,14 @@
+func main() {
+  val x = 7
+  if x > 10 {
+    println("big")
+  } else {
+    println("small")
+  }
+  val y = 15
+  if y > 10 {
+    println("big")
+  } else {
+    println("small")
+  }
+}

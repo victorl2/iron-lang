@@ -1,0 +1,12 @@
+func g(n: Int) -> Int {
+  return n * 2
+}
+
+func f(n: Int) -> Int {
+  return g(n) + 1
+}
+
+func main() {
+  println("{f(5)}")
+  println("{f(10)}")
+}

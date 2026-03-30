@@ -1,0 +1,16 @@
+-- Enum simulation via integer constants
+func get_status(code: Int) -> String {
+  match code {
+    0 { return "ok" }
+    1 { return "warning" }
+    2 { return "error" }
+    else { return "unknown" }
+  }
+  return "unknown"
+}
+
+func main() {
+  for i in range(4) {
+    println(get_status(i))
+  }
+}

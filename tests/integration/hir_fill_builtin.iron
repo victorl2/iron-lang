@@ -1,0 +1,9 @@
+func main() {
+  val arr = fill(5, 0)
+  println("{len(arr)}")
+  var data = fill(3, 7)
+  data[1] = 42
+  println("{data[0]}")
+  println("{data[1]}")
+  println("{data[2]}")
+}

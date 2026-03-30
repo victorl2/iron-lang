@@ -1,0 +1,8 @@
+func main() {
+  val a = 3
+  val b = 4
+  println("sum is {a + b}")
+  println("product is {a * b}")
+  val name = "iron"
+  println("hello {name}")
+}

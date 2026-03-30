@@ -1,0 +1,20 @@
+object Counter {
+  var count: Int
+}
+
+func Counter.increment() -> Int {
+  return self.count + 1
+}
+
+func Counter.value() -> Int {
+  return self.count
+}
+
+func main() {
+  val c = Counter(0)
+  println("{c.value()}")
+  println("{c.increment()}")
+  val c2 = Counter(10)
+  println("{c2.value()}")
+  println("{c2.increment()}")
+}

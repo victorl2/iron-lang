@@ -1,0 +1,19 @@
+func grade(score: Int) -> String {
+  if score >= 90 {
+    return "A"
+  }
+  if score >= 80 {
+    return "B"
+  }
+  if score >= 70 {
+    return "C"
+  }
+  return "F"
+}
+
+func main() {
+  println(grade(95))
+  println(grade(85))
+  println(grade(75))
+  println(grade(55))
+}

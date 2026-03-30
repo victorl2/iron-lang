@@ -1,0 +1,5 @@
+val G = 100
+
+func main() {
+  println("{G}")
+}
