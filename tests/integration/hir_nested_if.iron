@@ -1,0 +1,23 @@
+func check(a: Int, b: Int, c: Int) -> String {
+  if a > 0 {
+    if b > 0 {
+      if c > 0 {
+        return "all positive"
+      } else {
+        return "c non-positive"
+      }
+    } else {
+      return "b non-positive"
+    }
+  } else {
+    return "a non-positive"
+  }
+  return "unknown"
+}
+
+func main() {
+  println(check(1, 2, 3))
+  println(check(1, 2, 0))
+  println(check(1, 0, 3))
+  println(check(0, 2, 3))
+}

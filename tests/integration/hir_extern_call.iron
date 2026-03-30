@@ -1,0 +1,6 @@
+extern func puts(s: String) -> Int
+
+func main() {
+  puts("hello extern")
+  puts("second call")
+}

@@ -1,0 +1,24 @@
+func deep(a: Int) -> Int {
+  var result = 0
+  if a > 0 {
+    var i = 0
+    while i < 3 {
+      if i == 1 {
+        for j in range(2) {
+          if j == 0 {
+            result = result + a
+          } else {
+            result = result + i
+          }
+        }
+      }
+      i = i + 1
+    }
+  }
+  return result
+}
+
+func main() {
+  println("{deep(5)}")
+  println("{deep(0)}")
+}

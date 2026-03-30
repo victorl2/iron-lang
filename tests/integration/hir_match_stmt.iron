@@ -1,0 +1,16 @@
+func describe(n: Int) -> String {
+  match n {
+    1 { return "one" }
+    2 { return "two" }
+    3 { return "three" }
+    else { return "other" }
+  }
+  return "other"
+}
+
+func main() {
+  println(describe(1))
+  println(describe(2))
+  println(describe(3))
+  println(describe(5))
+}
