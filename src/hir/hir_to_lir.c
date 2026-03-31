@@ -1241,15 +1241,20 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         IronLIR_ValueId var_alloca = emit_alloca_in_entry(ctx, elem_type, "for_var", span);
         hmput(ctx->var_alloca_map, stmt->for_loop.var_id, var_alloca);
 
+        /* Hoist loop bound: evaluate .count once in pre-header */
+        IronLIR_ValueId count_alloca = emit_alloca_in_entry(ctx, int_type, "for_count", span);
+        IronLIR_ValueId count_init = iron_lir_get_field(ctx->current_func, pre_header,
+                                                          iterable_val, "count", int_type, span)->id;
+        iron_lir_store(ctx->current_func, pre_header, count_alloca, count_init, span);
+
         if (!block_is_terminated(pre_header)) {
             iron_lir_jump(ctx->current_func, pre_header, header->id, span);
         }
 
-        /* Header: check if index < iterable.count */
+        /* Header: check if index < iterable.count (load hoisted bound) */
         switch_block(ctx, header);
         IronLIR_ValueId idx_val = iron_lir_load(ctx->current_func, header, idx_alloca, int_type, span)->id;
-        IronLIR_ValueId count_val = iron_lir_get_field(ctx->current_func, header,
-                                                         iterable_val, "count", int_type, span)->id;
+        IronLIR_ValueId count_val = iron_lir_load(ctx->current_func, header, count_alloca, int_type, span)->id;
         IronLIR_ValueId done_cond = iron_lir_binop(ctx->current_func, header,
                                                      IRON_LIR_LT, idx_val, count_val, int_type, span)->id;
         if (!block_is_terminated(header)) {

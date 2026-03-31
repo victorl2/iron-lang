@@ -2352,6 +2352,90 @@ void test_h2l_two_params_in_while_loop(void) {
         "SSA rename of two param-derived vars in while loop should produce no errors");
 }
 
+/* ── Test: for-loop count hoisted to pre-header ──────────────────────────── */
+/* Verifies that GET_FIELD .count is evaluated once in the pre-header block,
+ * not on every iteration in the header block.
+ * Pattern:
+ *   for x in [1, 2, 3] { }
+ *   -> entry: alloca for_count
+ *   -> pre_header: GET_FIELD .count  (only once)
+ *   -> header: LOAD from for_count   (no GET_FIELD here)
+ */
+void test_h2l_for_loop_count_hoisted(void) {
+    Iron_Span span    = zero_span();
+    Iron_Type *int_t  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_t = iron_type_make_primitive(IRON_TYPE_VOID);
+    Iron_Type *arr_t  = iron_type_make_array(g_mod->arena, int_t, 3);
+
+    /* Build array literal [1, 2, 3] as the iterable */
+    IronHIR_Expr *e0 = iron_hir_expr_int_lit(g_mod, 1, int_t, span);
+    IronHIR_Expr *e1 = iron_hir_expr_int_lit(g_mod, 2, int_t, span);
+    IronHIR_Expr *e2 = iron_hir_expr_int_lit(g_mod, 3, int_t, span);
+    IronHIR_Expr **elems = NULL;
+    arrput(elems, e0);
+    arrput(elems, e1);
+    arrput(elems, e2);
+
+    IronHIR_Expr *iterable = iron_hir_expr_array_lit(g_mod, int_t, elems, 3, arr_t, span);
+    iterable->type = arr_t;
+
+    /* Loop variable x */
+    IronHIR_VarId loop_var = iron_hir_alloc_var(g_mod, "x", int_t, false);
+
+    /* Empty loop body */
+    IronHIR_Block *loop_body = iron_hir_block_create(g_mod);
+
+    /* for x in iterable { } */
+    IronHIR_Stmt *for_stmt = iron_hir_stmt_for(g_mod, loop_var, iterable, loop_body, span);
+
+    IronHIR_Block *body = iron_hir_block_create(g_mod);
+    iron_hir_block_add_stmt(body, for_stmt);
+
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "for_count_fn", NULL, 0, void_t);
+    fn->body = body;
+    iron_hir_module_add_func(g_mod, fn);
+
+    IronLIR_Module *lir = do_lower();
+    TEST_ASSERT_NOT_NULL(lir);
+
+    IronLIR_Func *lf = lir->funcs[0];
+    TEST_ASSERT_NOT_NULL(lf);
+
+    /* 1. Entry block must have alloca named "for_count" */
+    TEST_ASSERT_TRUE_MESSAGE(entry_has_alloca(lf, "for_count"),
+        "entry block must have alloca for hoisted loop bound (for_count)");
+
+    /* 2. Find pre_header block (label starts with "for_pre") */
+    IronLIR_Block *pre_blk = NULL;
+    IronLIR_Block *header_blk = NULL;
+    for (int bi = 0; bi < lf->block_count; bi++) {
+        IronLIR_Block *blk = lf->blocks[bi];
+        if (blk->label && strncmp(blk->label, "for_pre", 7) == 0) {
+            pre_blk = blk;
+        }
+        if (blk->label && strncmp(blk->label, "for_header", 10) == 0) {
+            header_blk = blk;
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(pre_blk, "for_pre block must exist");
+    TEST_ASSERT_NOT_NULL_MESSAGE(header_blk, "for_header block must exist");
+
+    /* 3. pre_header must have >= 1 GET_FIELD (where count is evaluated) */
+    int pre_gf = count_instrs_in_block(pre_blk, IRON_LIR_GET_FIELD);
+    TEST_ASSERT_GREATER_OR_EQUAL_MESSAGE(1, pre_gf,
+        "pre_header must contain GET_FIELD .count (hoisted bound evaluation)");
+
+    /* 4. header must have ZERO GET_FIELD (bound not re-evaluated per iteration) */
+    int header_gf = count_instrs_in_block(header_blk, IRON_LIR_GET_FIELD);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, header_gf,
+        "header must NOT contain GET_FIELD (bound must be loaded from alloca, not recomputed)");
+
+    /* 5. header must have at least 1 LOAD (loading the hoisted bound) */
+    int header_loads = count_instrs_in_block(header_blk, IRON_LIR_LOAD);
+    TEST_ASSERT_GREATER_OR_EQUAL_MESSAGE(1, header_loads,
+        "header must LOAD the hoisted bound from count_alloca");
+}
+
 /* ── Runner ───────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2420,5 +2504,7 @@ int main(void) {
     /* Regression tests: param-derived vars in while loops */
     RUN_TEST(test_h2l_param_load_in_while_loop);
     RUN_TEST(test_h2l_two_params_in_while_loop);
+    /* Phase 24: Range bound hoisting */
+    RUN_TEST(test_h2l_for_loop_count_hoisted);
     return UNITY_END();
 }
