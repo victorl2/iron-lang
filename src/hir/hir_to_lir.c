@@ -711,24 +711,6 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
-        /* Special case: object constructor call TypeName(args...) -> CONSTRUCT
-         * When a call's result type is IRON_TYPE_OBJECT, the callee is an object
-         * type constructor (not a real function), so lower it as LIR CONSTRUCT. */
-        if (expr->call.callee && expr->call.callee->kind == IRON_HIR_EXPR_FUNC_REF &&
-            type && type->kind == IRON_TYPE_OBJECT) {
-            IronLIR_ValueId *field_vals = NULL;
-            for (int i = 0; i < expr->call.arg_count; i++) {
-                IronLIR_ValueId fv = lower_expr(ctx, expr->call.args[i]);
-                arrput(field_vals, fv);
-            }
-            IronLIR_Instr *instr = iron_lir_construct(ctx->current_func, ctx->current_block,
-                                                        type,
-                                                        field_vals, expr->call.arg_count,
-                                                        span);
-            arrfree(field_vals);
-            return instr->id;
-        }
-
         /* Lower callee expression to get callee info */
         IronLIR_ValueId *args = NULL;
         for (int i = 0; i < expr->call.arg_count; i++) {
