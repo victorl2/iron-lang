@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 22-02-PLAN.md
-last_updated: "2026-03-31T16:08:42.641Z"
+stopped_at: Completed 23-01-PLAN.md
+last_updated: "2026-03-31T17:12:09.485Z"
 last_activity: 2026-03-31 — Phase 21 pfor fix complete; 3 integration + 2 algorithm pfor tests passing
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 5
+  completed_plans: 4
   percent: 100
 ---
 
@@ -58,6 +58,7 @@ Recent decisions affecting current work:
 - [Phase 22-01]: effective_field_count clamp applied to both CONSTRUCT emission sites in emit_c.c (second site discovered during implementation)
 - [Phase 22-struct-codegen-fix]: Constructor detection must check callee FUNC_REF's own type (IRON_TYPE_OBJECT = type name) not call result type which matches both constructors and regular struct-returning functions
 - [Phase 22-struct-codegen-fix]: Phase 22 complete: STRUCT-01/02 (hir_to_lir.c + emit_c.c fixes), STRUCT-03 (game_loop_headless), ALG-01/02/03 (all 13 algorithm tests) all satisfied
+- [Phase 23-01]: mutable heap var alloca typed as RC(T) to match heap_alloc pointer semantics; val_is_heap_ptr() follows LOAD->ALLOCA chain; method self-arg dereferenced at call site when callee expects value type
 
 ### Pending Todos
 
@@ -70,6 +71,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T15:58:19.660Z
-Stopped at: Completed 22-02-PLAN.md
+Last session: 2026-03-31T17:12:09.482Z
+Stopped at: Completed 23-01-PLAN.md
 Resume file: None
