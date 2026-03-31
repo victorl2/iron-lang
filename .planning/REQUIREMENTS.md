@@ -29,7 +29,7 @@ Requirements for HIR Pipeline Correctness milestone. Each maps to roadmap phases
 
 - [x] **AUDIT-01**: Systematic investigation of HIR→LIR→C pipeline identifies any additional correctness bugs
 - [x] **AUDIT-02**: All identified correctness issues are fixed with regression tests
-- [ ] **AUDIT-03**: New correctness test cases cover pfor, struct passing, and any other identified problem areas
+- [x] **AUDIT-03**: New correctness test cases cover pfor, struct passing, and any other identified problem areas
 
 ## Future Requirements
 
@@ -82,7 +82,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALG-03 | Phase 22 | Complete |
 | AUDIT-01 | Phase 23 | Complete |
 | AUDIT-02 | Phase 23 | Complete |
-| AUDIT-03 | Phase 23 | Pending |
+| AUDIT-03 | Phase 23 | Complete |
 
 **Coverage:**
 - v0.0.6-alpha requirements: 12 total

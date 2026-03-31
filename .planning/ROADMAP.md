@@ -467,7 +467,7 @@ Plans:
   1. Every HIR instruction kind and every emit_c.c emission path has been reviewed for correctness against the Iron language spec; the audit produces a written checklist of what was checked and what (if anything) was found
   2. Any correctness bug found during the audit is fixed with a targeted code change and a regression test that would have caught the original bug
   3. New .iron test cases cover parallel-for emission, struct value passing, and any other problem areas uncovered in phases 21-22 or the audit; the test suite grows by at least 5 new correctness-focused tests
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 23-01-PLAN.md — Systematic HIR→LIR→C audit and fix any additional issues
@@ -502,4 +502,4 @@ Phases execute in numeric order: 21 -> 22 -> 23
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 7/7 | Complete | 2026-03-30 |
 | 21. Parallel-For Fix | 1/1 | Complete    | 2026-03-31 | - |
 | 22. Struct Codegen Fix | 2/2 | Complete    | 2026-03-31 | - |
-| 23. Correctness Audit | 1/2 | In Progress|  | - |
+| 23. Correctness Audit | 2/2 | Complete   | 2026-03-31 | - |
