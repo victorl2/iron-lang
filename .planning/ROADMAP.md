@@ -502,7 +502,7 @@ Plans:
   1. Generated C for `for i in range(n)` stores the upper bound in a pre-header local; the while-loop condition compares against that local, not a fresh `Iron_range()` call
   2. All 137 benchmarks and all integration tests pass with no correctness regressions after the change
   3. For-range-heavy benchmarks (e.g., quicksort, binary_search, loop_patterns) show measurable runtime reduction compared to the pre-hoisting baseline
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
@@ -616,7 +616,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 21. Parallel-For Fix | v0.0.6-alpha | 1/1 | Complete | 2026-03-31 |
 | 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
-| 24. Range Bound Hoisting | v0.0.7-alpha | 0/? | Not started | - |
+| 24. Range Bound Hoisting | 1/1 | Complete   | 2026-03-31 | - |
 | 25. Stack Array Promotion | v0.0.7-alpha | 0/? | Not started | - |
 | 26. LOAD Expression Inlining | v0.0.7-alpha | 0/? | Not started | - |
 | 27. Function Inlining | v0.0.7-alpha | 0/? | Not started | - |

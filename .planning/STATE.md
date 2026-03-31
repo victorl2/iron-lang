@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 23-02-PLAN.md
-last_updated: "2026-03-31T17:26:51.674Z"
-last_activity: 2026-03-31 — Phase 21 pfor fix complete; 3 integration + 2 algorithm pfor tests passing
+status: planning
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-03-31T20:52:46.904Z"
+last_activity: 2026-03-31 — Roadmap created, Phases 24-30 defined
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 7
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 0
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** v0.0.6-alpha HIR Pipeline Correctness — Phase 21 complete, Phase 22 struct fix next
+**Current focus:** v0.0.7-alpha Performance Optimization — Phase 24 (Range Bound Hoisting) ready to plan
 
 ## Current Position
 
-Phase: 21 of 23 (Parallel-For Fix)
-Plan: 1 of 1 in current phase (COMPLETE)
-Status: Phase 21 complete, ready for Phase 22
-Last activity: 2026-03-31 — Phase 21 pfor fix complete; 3 integration + 2 algorithm pfor tests passing
+Phase: 24 of 30 (Range Bound Hoisting)
+Plan: —
+Status: Ready to plan
+Last activity: 2026-03-31 — Roadmap created, Phases 24-30 defined
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
-**Velocity (from v0.0.5-alpha):**
-- Total plans completed: 30 (phases 15-20)
-- Phases: 15, 16, 17, 18, 19, 20
+**Velocity (from v0.0.6-alpha):**
+- Total plans completed: 5 (phases 21-23)
+- Phases: 21, 22, 23
 
 ## Accumulated Context
 
@@ -45,22 +45,12 @@ Progress: [██████████] 100%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Phase 20-07]: 110 integration tests cover full Iron feature matrix through AST->HIR->LIR->C pipeline; array-of-objects for-each iteration has void* type bug, heap object method calls have pointer dereference bug
-- [Phase 20]: ssa_done flag on IronLIR_Func prevents re-running SSA on already-processed lifted functions
-- [v0.0.6-alpha]: pfor bug is single-point: is_lifted_func() in emit_c.c does not recognize __pfor_ prefix
-- [v0.0.6-alpha]: struct bug 1 is in hir_to_lir.c lines 714-730 — any function returning object type treated as constructor regardless of name
-- [v0.0.6-alpha]: struct bug 2 is in emit_c.c CONSTRUCT emission — emits excess field values when field_count > od->field_count
-- [v0.0.6-alpha]: quicksort and hash_map runtime failures are caused by struct bug 2; fix struct first to unblock algorithm tests
-- [Phase 21-01]: is_lifted_func() uses strncmp(name, "__", 2) to match all lifted function names via __ prefix convention
-- [Phase 21-01]: flatten_func() empty-body stub path must exclude __ prefix (lifted) functions to avoid silently dropping pfor bodies
-- [Phase 21-01]: concurrent_hash_map, graph_bfs_dfs, hash_map, quicksort failures are pre-existing struct bugs deferred to Phase 22
-- [Phase 22-01]: Removed spurious OBJECT-returning-call-as-constructor special case in hir_to_lir.c — IRON_HIR_EXPR_CONSTRUCT handles real constructors
-- [Phase 22-01]: effective_field_count clamp applied to both CONSTRUCT emission sites in emit_c.c (second site discovered during implementation)
-- [Phase 22-struct-codegen-fix]: Constructor detection must check callee FUNC_REF's own type (IRON_TYPE_OBJECT = type name) not call result type which matches both constructors and regular struct-returning functions
-- [Phase 22-struct-codegen-fix]: Phase 22 complete: STRUCT-01/02 (hir_to_lir.c + emit_c.c fixes), STRUCT-03 (game_loop_headless), ALG-01/02/03 (all 13 algorithm tests) all satisfied
-- [Phase 23-01]: mutable heap var alloca typed as RC(T) to match heap_alloc pointer semantics; val_is_heap_ptr() follows LOAD->ALLOCA chain; method self-arg dereferenced at call site when callee expects value type
-- [Phase 23-02]: CONST_NULL with IRON_TYPE_OBJECT emits zero-initialized struct ({0}) not void* NULL — fixes PHI predecessor type mismatch for struct for-vars after SSA conversion
-- [Phase 23-02]: Range-for defer ordering: wrap user body in IRON_HIR_STMT_BLOCK so its defer scope exits before the compiler-inserted increment stmt, giving correct pre-increment value to deferred expressions
+- [Phase 22-struct-codegen-fix]: Constructor detection must check callee FUNC_REF's own type not call result type
+- [Phase 23-01]: mutable heap var alloca typed as RC(T); val_is_heap_ptr() follows LOAD->ALLOCA chain; method self-arg dereferenced at call site when callee expects value type
+- [Phase 23-02]: CONST_NULL with IRON_TYPE_OBJECT emits zero-initialized struct ({0}); range-for defer wrap in IRON_HIR_STMT_BLOCK for correct scope ordering
+- [v0.0.7-alpha roadmap]: Phase ordering: P1 (hoisting) -> P4 (fill) -> P5 (LOAD) -> P0 (inlining) -> P2 (phi) -> P3 (int32) -> benchmark. Research-recommended order. Phi and int32 come after all four primary passes are committed.
+- [v0.0.7-alpha roadmap]: Function inlining (Phase 27) carries highest risk — mandatory value ID remap via fresh next_value_id++, recursion guard, array param mode restriction. Verify find_root param mode before planning.
+- [Phase 24-range-bound-hoisting]: count_alloca placed in pre_header while active block, LOAD replaces GET_FIELD in header — bound computed once per loop entry
 
 ### Pending Todos
 
@@ -68,11 +58,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 21]: pfor algorithm tests (concurrent_hash_map, graph_bfs_dfs, parallel_merge_sort, work_stealing) may have issues beyond the is_lifted_func() fix — verify after fix
-- [Phase 22]: Two distinct struct bugs in different files (hir_to_lir.c and emit_c.c) — fix independently and test after each
+- [Phase 27 planning]: Verify actual array parameter mode for `find_root(parent, x)` in connected_components before implementing inlining — if ARRAY_PARAM_LIST, the initial restriction blocks the primary benchmark target
+- [Phase 25 planning]: Inspect generated C for connected_components before writing new code — stack array promotion path may already work for fill(50, 0) and only need declaration placement fix
 
 ## Session Continuity
 
-Last session: 2026-03-31T17:26:51.671Z
-Stopped at: Completed 23-02-PLAN.md
+Last session: 2026-03-31T20:52:46.901Z
+Stopped at: Completed 24-01-PLAN.md
 Resume file: None

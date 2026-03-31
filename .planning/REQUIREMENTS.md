@@ -3,67 +3,68 @@
 **Defined:** 2026-03-31
 **Core Value:** Every Iron language feature compiles to correct, working C code that produces a native binary
 
-## v0.0.6-alpha Requirements
+## v0.0.7-alpha Requirements
 
-Requirements for HIR Pipeline Correctness milestone. Each maps to roadmap phases.
+Requirements for Performance Optimization milestone. Each maps to roadmap phases.
 
-### Parallel-For Codegen
+### Loop Optimization
 
-- [x] **PFOR-01**: `__pfor_` lifted functions are recognized by `is_lifted_func()` and emitted in the correct output section
-- [x] **PFOR-02**: All pfor integration tests pass (test_parallel, parallel_for_capture, hir_parallel_for)
-- [x] **PFOR-03**: All pfor-dependent algorithm tests compile and pass (concurrent_hash_map, graph_bfs_dfs, parallel_merge_sort, work_stealing)
+- [x] **LOOP-01**: Range bound hoisting evaluates `Iron_range()` once in the loop pre-header instead of every iteration
+- [x] **LOOP-02**: All for-range benchmarks show measurable improvement from bound hoisting
 
-### Struct Codegen
+### Memory Optimization
 
-- [x] **STRUCT-01**: Functions returning object types are only lowered as constructors when function name matches type name
-- [x] **STRUCT-02**: CONSTRUCT emission emits exactly the number of fields in the struct definition (no excess elements)
-- [x] **STRUCT-03**: game_loop_headless composite test passes with correct struct value passing
+- [ ] **MEM-01**: `fill(CONST, val)` with constant size <= 1024 and non-escaping result is stack-allocated via alloca
+- [ ] **MEM-02**: Stack-promoted arrays emit declarations at function entry to avoid VLA+goto bypass
 
-### Algorithm Correctness
+### Expression Optimization
 
-- [x] **ALG-01**: quicksort algorithm test produces correctly sorted output
-- [x] **ALG-02**: hash_map algorithm test runs without crash and produces correct output
-- [x] **ALG-03**: All 13 algorithm tests pass (8 already passing + 5 fixed)
+- [ ] **EXPR-01**: LOAD instructions are eligible for expression inlining when use site is in the same block as the LOAD
+- [ ] **EXPR-02**: Cross-block LOADs remain excluded to prevent undeclared variable errors
 
-### Correctness Audit
+### Function Inlining
 
-- [x] **AUDIT-01**: Systematic investigation of HIR→LIR→C pipeline identifies any additional correctness bugs
-- [x] **AUDIT-02**: All identified correctness issues are fixed with regression tests
-- [x] **AUDIT-03**: New correctness test cases cover pfor, struct passing, and any other identified problem areas
+- [ ] **INLINE-01**: Small (<= 20 instructions), non-recursive, pure functions are inlined at LIR level
+- [ ] **INLINE-02**: Inlining pass runs before the copy-prop/DCE fixpoint loop so inlined code gets optimized
+- [ ] **INLINE-03**: Value IDs are correctly remapped during instruction cloning to prevent table corruption
+
+### Phi Elimination
+
+- [ ] **PHI-01**: SSA phi elimination produces fewer temporary variables through copy coalescing
+- [ ] **PHI-02**: Complex control flow benchmarks (connected_components) show measurable reduction in generated temporaries
+
+### Sized Integers
+
+- [ ] **INT-01**: Iron supports explicit `Int32` type annotations that emit `int32_t` in generated C
+- [ ] **INT-02**: Array operations with `Int32` elements use 32-bit memory bandwidth
+
+### Benchmark Validation
+
+- [ ] **BENCH-01**: Benchmark suite is run after all optimizations and results are compared to pre-optimization baseline
+- [ ] **BENCH-02**: Exploration pass identifies any remaining optimization opportunities beyond P0-P5
 
 ## Future Requirements
 
 Deferred to future milestones. Tracked but not in current roadmap.
 
-### HIR-Level Optimizations
+### Advanced Optimizations
 
-- **HIROPT-01**: Tail call detection and optimization at HIR level
-- **HIROPT-02**: Loop fusion for adjacent loops over the same range
-- **HIROPT-03**: Devirtualization of interface calls when concrete type is known
-- **HIROPT-04**: Inlining decisions based on HIR-level function complexity
+- **P6-01**: Structured loop reconstruction emits for/while instead of goto-based control flow
+- **P6-02**: Clang loop optimizations (vectorization, unrolling) enabled by structured emission
 
-### Networking Standard Library
+### Auto-Narrowing
 
-- **NET-01**: TCP and UDP socket client/server
-- **NET-02**: TLS/SSL support via OpenSSL
-- **NET-03**: HTTP client and server
-- **NET-04**: URL parsing and JSON serialization
-
-### Performance Tuning
-
-- **PERF-01**: Benchmark threshold tuning for production-ready targets
-- **PERF-02**: Profile-guided optimization decisions
+- **NARROW-01**: Compiler automatically narrows Int to Int32 when range analysis proves values fit
+- **NARROW-02**: Range analysis propagates through arithmetic operations and array indexing
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
+| Structured loop reconstruction (P6) | High effort, deferred — goto-based emission is correct, optimization benefit is secondary |
+| Auto-narrowing integer types | High complexity — requires range analysis; explicit Int32 annotations are sufficient for v0.0.7 |
 | LLVM backend | Future milestone — HIR/LIR architecture enables this but not building it now |
-| Interprocedural optimization | Complex, diminishing returns for C backend |
-| Vectorization / register allocation | Clang handles these automatically |
-| Self-hosting | Stretch goal for future milestone |
-| Networking | Deferred — correctness is higher priority |
-| Benchmark threshold tuning | Performance must be reasonable but production-ready tuning is deferred |
+| Interprocedural optimization beyond inlining | Complex, diminishing returns for C backend |
 
 ## Traceability
 
@@ -71,24 +72,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PFOR-01 | Phase 21 | Complete |
-| PFOR-02 | Phase 21 | Complete |
-| PFOR-03 | Phase 21 | Complete |
-| STRUCT-01 | Phase 22 | Complete |
-| STRUCT-02 | Phase 22 | Complete |
-| STRUCT-03 | Phase 22 | Complete |
-| ALG-01 | Phase 22 | Complete |
-| ALG-02 | Phase 22 | Complete |
-| ALG-03 | Phase 22 | Complete |
-| AUDIT-01 | Phase 23 | Complete |
-| AUDIT-02 | Phase 23 | Complete |
-| AUDIT-03 | Phase 23 | Complete |
+| LOOP-01 | Phase 24 | Complete |
+| LOOP-02 | Phase 24 | Complete |
+| MEM-01 | Phase 25 | Pending |
+| MEM-02 | Phase 25 | Pending |
+| EXPR-01 | Phase 26 | Pending |
+| EXPR-02 | Phase 26 | Pending |
+| INLINE-01 | Phase 27 | Pending |
+| INLINE-02 | Phase 27 | Pending |
+| INLINE-03 | Phase 27 | Pending |
+| PHI-01 | Phase 28 | Pending |
+| PHI-02 | Phase 28 | Pending |
+| INT-01 | Phase 29 | Pending |
+| INT-02 | Phase 29 | Pending |
+| BENCH-01 | Phase 30 | Pending |
+| BENCH-02 | Phase 30 | Pending |
 
 **Coverage:**
-- v0.0.6-alpha requirements: 12 total
-- Mapped to phases: 12
+- v0.0.7-alpha requirements: 15 total
+- Mapped to phases: 15
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-31*
-*Last updated: 2026-03-31 after roadmap creation (phases 21-23)*
+*Last updated: 2026-03-31 after roadmap creation (Phases 24-30)*
