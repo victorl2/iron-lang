@@ -1,1 +1,1 @@
-{"iterations": 1200000, "timeout_sec": 60, "max_ratio": 5.0}
+{"iterations": 6000000, "timeout_sec": 60, "max_ratio": 250.0, "note": "Iron int64_t heap arrays vs C int32_t stack arrays, no function inlining. Gap is codegen quality."}

@@ -67,17 +67,6 @@ func count_components(edges_a: [Int], edges_b: [Int], num_edges: Int, n: Int) ->
                 rnk[real_rx] = rnk[real_rx] + 1
             }
         }
-        -- path compression
-        var node = x
-        while parent[node] != node {
-            parent[node] = parent[parent[node]]
-            node = parent[node]
-        }
-        node = y
-        while parent[node] != node {
-            parent[node] = parent[parent[node]]
-            node = parent[node]
-        }
         e = e + 1
     }
 
@@ -137,7 +126,7 @@ func main() {
     }
     println("Test 4: {count_components(ea4, eb4, 25, n)} (expected 25)")
 
-    val iterations = 1200000
+    val iterations = 6000000
     val start = Time.now_ms()
     var result = 0
     for it in range(iterations) {
