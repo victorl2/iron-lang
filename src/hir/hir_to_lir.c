@@ -1063,9 +1063,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         if (!type && stmt->let.init) type = stmt->let.init->type;
 
         if (is_mut) {
-            /* Mutable: ALLOCA in entry block + STORE initial value */
+            /* Mutable: ALLOCA in entry block + STORE initial value.
+             * When the initializer is a heap or rc allocation, the stored
+             * value is a pointer (T*).  Wrap the alloca type as IRON_TYPE_RC
+             * so emit_c emits "T *_vN;" rather than "T _vN;", avoiding a
+             * C type mismatch on the subsequent STORE. */
+            Iron_Type *alloca_type = type;
+            if (stmt->let.init) {
+                IronHIR_ExprKind ik = stmt->let.init->kind;
+                if ((ik == IRON_HIR_EXPR_HEAP || ik == IRON_HIR_EXPR_RC) && type) {
+                    /* Use RC wrapper to signal "this alloca holds a pointer" */
+                    alloca_type = iron_type_make_rc(ctx->lir_arena, type);
+                }
+            }
             const char *name = iron_hir_var_name(ctx->hir, vid);
-            IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, name, span);
+            IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, alloca_type, name, span);
             hmput(ctx->var_alloca_map, vid, alloca_id);
 
             if (stmt->let.init) {

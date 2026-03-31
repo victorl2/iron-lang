@@ -336,6 +336,37 @@ static bool type_is_pointer(const Iron_Type *t) {
     return false;
 }
 
+/* Determine if a LIR value represents a heap/rc pointer — used for GET_FIELD / SET_FIELD
+ * to decide whether to emit `->` or `.`.
+ *
+ * Returns true when:
+ *   - The producing instruction is HEAP_ALLOC or RC_ALLOC (direct heap pointer), OR
+ *   - The producing instruction is LOAD, and the alloca it reads holds a pointer (its
+ *     alloc_type is IRON_TYPE_RC, which hir_to_lir.c sets when the init is heap/rc).
+ */
+static bool val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return false;
+    if (instr->kind == IRON_LIR_HEAP_ALLOC || instr->kind == IRON_LIR_RC_ALLOC)
+        return true;
+    /* LOAD from an RC-typed alloca: the alloca was declared as T* (via RC wrapper).
+     * hir_to_lir.c sets the alloca type to IRON_TYPE_RC when the init is heap/rc. */
+    if (instr->kind == IRON_LIR_LOAD) {
+        IronLIR_ValueId ptr = instr->load.ptr;
+        if (ptr != IRON_LIR_VALUE_INVALID &&
+            ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+            fn->value_table[ptr] &&
+            fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
+            fn->value_table[ptr]->alloca.alloc_type &&
+            fn->value_table[ptr]->alloca.alloc_type->kind == IRON_TYPE_RC) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ── Stack-array tracking helpers ────────────────────────────────────────── */
 
 /* Check if a ValueId is known to be a stack-represented array.
@@ -587,12 +618,7 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "_len");
             break;
         }
-        bool obj_is_ptr = false;
-        if (instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table) &&
-            fn->value_table[instr->field.object]) {
-            IronLIR_InstrKind k = fn->value_table[instr->field.object]->kind;
-            obj_is_ptr = (k == IRON_LIR_HEAP_ALLOC || k == IRON_LIR_RC_ALLOC);
-        }
+        bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
         emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, "%s%s", obj_is_ptr ? "->" : ".", instr->field.field);
         break;
@@ -1074,10 +1100,23 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* Propagate stack-array status to loaded value */
             mark_stack_array(ctx, instr->id, sa_origin);
         } else {
-            /* Load from the alloca variable — just copy it */
+            /* Load from the alloca variable — just copy it.
+             * When the alloca is RC-typed (holds a heap/rc pointer), use the
+             * alloca's type (T*) rather than the LOAD's inner type (T). */
             emit_indent(sb, ind);
             if (!is_hoisted) {
-                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                Iron_Type *load_c_type = instr->type;
+                IronLIR_ValueId ptr = instr->load.ptr;
+                if (ptr != IRON_LIR_VALUE_INVALID &&
+                    ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[ptr] &&
+                    fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
+                    fn->value_table[ptr]->alloca.alloc_type &&
+                    fn->value_table[ptr]->alloca.alloc_type->kind == IRON_TYPE_RC) {
+                    /* Alloca holds a pointer: use the alloca's RC type for C type */
+                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
+                }
+                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(load_c_type, ctx));
             }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
@@ -1140,14 +1179,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-        /* Use -> when the object value comes from a heap or rc allocation
-         * (those produce pointer types in the emitted C). */
-        bool obj_is_ptr = false;
-        if (instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table) &&
-            fn->value_table[instr->field.object]) {
-            IronLIR_InstrKind k = fn->value_table[instr->field.object]->kind;
-            obj_is_ptr = (k == IRON_LIR_HEAP_ALLOC || k == IRON_LIR_RC_ALLOC);
-        }
+        /* Use -> when the object value comes from a heap or rc allocation,
+         * or when loaded from an alloca that holds a pointer (RC-typed alloca). */
+        bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
         iron_strbuf_appendf(sb, "%s%s;\n", obj_is_ptr ? "->" : ".", instr->field.field);
         break;
     }
@@ -1156,12 +1190,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         /* object.field = value or object->field = value for heap/rc */
         emit_indent(sb, ind);
         emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-        bool obj_is_ptr = false;
-        if (instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table) &&
-            fn->value_table[instr->field.object]) {
-            IronLIR_InstrKind k = fn->value_table[instr->field.object]->kind;
-            obj_is_ptr = (k == IRON_LIR_HEAP_ALLOC || k == IRON_LIR_RC_ALLOC);
-        }
+        bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
         iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr ? "->" : ".", instr->field.field);
         emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
@@ -1529,7 +1558,26 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ")");
             } else {
-                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                /* Heap-pointer deref: if the argument is a heap/rc pointer but the
+                 * callee's corresponding parameter expects a value type (IRON_TYPE_OBJECT),
+                 * dereference the pointer so the value is passed by value as expected. */
+                bool needs_deref = false;
+                if (val_is_heap_ptr(fn, arg_id) && callee_ir_name) {
+                    IronLIR_Func *callee_fn = find_ir_func(ctx, callee_ir_name);
+                    if (callee_fn && i < callee_fn->param_count) {
+                        Iron_Type *param_t = callee_fn->params[i].type;
+                        if (param_t && param_t->kind == IRON_TYPE_OBJECT) {
+                            needs_deref = true;
+                        }
+                    }
+                }
+                if (needs_deref) {
+                    iron_strbuf_appendf(sb, "(*");
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ")");
+                } else {
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                }
             }
         }
         iron_strbuf_appendf(sb, ");\n");
