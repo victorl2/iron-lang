@@ -6,7 +6,8 @@
 - v0.0.2-alpha High IR - Phases 7-11 (shipped 2026-03-27)
 - v0.0.3-alpha Package Manager - Phases 12-14 (shipped 2026-03-28)
 - v0.0.5-alpha IR Optimization & High IR Architecture - Phases 15-20 (shipped 2026-03-30)
-- v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (active)
+- v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (shipped 2026-03-31)
+- v0.0.7-alpha Performance Optimization - Phases 24-30 (active)
 
 ## Phases
 
@@ -60,11 +61,24 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
-### v0.0.6-alpha HIR Pipeline Correctness
+<details>
+<summary>v0.0.6-alpha HIR Pipeline Correctness (Phases 21-23) - SHIPPED 2026-03-31</summary>
 
 - [x] **Phase 21: Parallel-For Fix** - pfor integration tests and pfor-dependent algorithm tests all compile and pass after fixing `is_lifted_func()` prefix recognition (completed 2026-03-31)
-- [ ] **Phase 22: Struct Codegen Fix** - Spurious constructor wrapping and excess CONSTRUCT field emission are eliminated; struct-dependent algorithm tests produce correct output
-- [ ] **Phase 23: Correctness Audit** - Systematic HIR→LIR→C audit identifies and fixes any remaining correctness gaps; new test cases cover all problem areas
+- [x] **Phase 22: Struct Codegen Fix** - Spurious constructor wrapping and excess CONSTRUCT field emission are eliminated; struct-dependent algorithm tests produce correct output (completed 2026-03-31)
+- [x] **Phase 23: Correctness Audit** - Systematic HIR→LIR→C audit identifies and fixes any remaining correctness gaps; new test cases cover all problem areas (completed 2026-03-31)
+
+</details>
+
+### v0.0.7-alpha Performance Optimization
+
+- [ ] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
+- [ ] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
+- [ ] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
+- [ ] **Phase 27: Function Inlining** - Small pure non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint
+- [ ] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
+- [ ] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
+- [ ] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
 
 ## Phase Details
 
@@ -430,6 +444,9 @@ Plans:
 
 </details>
 
+<details>
+<summary>v0.0.6-alpha Phase Details (Phases 21-23)</summary>
+
 ### Phase 21: Parallel-For Fix
 **Goal**: The HIR pipeline correctly emits `__pfor_` helper functions so all parallel-for integration tests and pfor-dependent algorithm tests compile and pass
 **Depends on**: Phase 20
@@ -456,8 +473,8 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 22-01-PLAN.md — Fix both struct bugs: remove spurious constructor detection + add field count clamp
-- [ ] 22-02-PLAN.md — Add regression test and verify all algorithm/integration/composite tests pass
+- [x] 22-01-PLAN.md — Fix both struct bugs: remove spurious constructor detection + add field count clamp
+- [x] 22-02-PLAN.md — Add regression test and verify all algorithm/integration/composite tests pass
 
 ### Phase 23: Correctness Audit
 **Goal**: A systematic review of the HIR→LIR→C pipeline surface area identifies any remaining correctness bugs, all found issues are fixed with regression tests, and new test cases cover the problem areas addressed this milestone
@@ -470,13 +487,109 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 23-01-PLAN.md — Systematic HIR→LIR→C audit and fix any additional issues
-- [ ] 23-02-PLAN.md — New correctness test cases for pfor, struct passing, and audit findings
+- [x] 23-01-PLAN.md — Systematic HIR→LIR→C audit and fix any additional issues
+- [x] 23-02-PLAN.md — New correctness test cases for pfor, struct passing, and audit findings
+
+</details>
+
+### v0.0.7-alpha Phase Details
+
+### Phase 24: Range Bound Hoisting
+**Goal**: Every for-range loop evaluates its bound exactly once in the pre-header block instead of on every back-edge, eliminating redundant `Iron_range()` calls from the hot path
+**Depends on**: Phase 23
+**Requirements**: LOOP-01, LOOP-02
+**Success Criteria** (what must be TRUE):
+  1. Generated C for `for i in range(n)` stores the upper bound in a pre-header local; the while-loop condition compares against that local, not a fresh `Iron_range()` call
+  2. All 137 benchmarks and all integration tests pass with no correctness regressions after the change
+  3. For-range-heavy benchmarks (e.g., quicksort, binary_search, loop_patterns) show measurable runtime reduction compared to the pre-hoisting baseline
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+
+### Phase 25: Stack Array Promotion
+**Goal**: `fill(CONST, val)` calls where the count is a compile-time constant <=1024 and the result does not escape the function emit stack-allocated arrays via `alloca()` instead of heap allocation
+**Depends on**: Phase 24
+**Requirements**: MEM-01, MEM-02
+**Success Criteria** (what must be TRUE):
+  1. Generated C for `var parent = fill(50, 0)` in a non-escaping function emits an `alloca()`-based declaration at function entry rather than a heap allocation call
+  2. The array declaration appears at function entry (not at the call site), so no VLA+goto bypass error occurs when the function contains control flow
+  3. All 137 benchmarks and integration tests pass; `bug_vla_goto_bypass.iron` continues to pass
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+
+### Phase 26: LOAD Expression Inlining
+**Goal**: LOAD instructions are eligible for expression inlining when their single use is in the same basic block as the LOAD definition, removing one layer of copy temporaries from every function
+**Depends on**: Phase 25
+**Requirements**: EXPR-01, EXPR-02
+**Success Criteria** (what must be TRUE):
+  1. A LOAD whose only use is in the same block as its definition is inlined directly at the use site; the emitted C omits the intermediate `_vN` variable for that LOAD
+  2. A LOAD whose use is in a different block from its definition is NOT inlined; the intermediate variable remains and no undeclared-variable C errors occur
+  3. All 137 benchmarks and integration tests pass; no new undeclared-variable errors appear in the generated C
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+
+### Phase 27: Function Inlining
+**Goal**: Small, pure, non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint so the merged code receives full optimizer benefit
+**Depends on**: Phase 26
+**Requirements**: INLINE-01, INLINE-02, INLINE-03
+**Success Criteria** (what must be TRUE):
+  1. Functions with <=20 LIR instructions that are non-recursive and have no side effects are replaced at their call sites with a copy of the callee body; the callee function is removed from the module if it has no remaining callers
+  2. Every cloned instruction uses a fresh ValueId remapped via a callee-to-caller ID table; no existing caller value_table entries are overwritten
+  3. The inlining pass runs before the copy-prop/DCE fixpoint; inlined code is subsequently optimized by copy propagation and dead-code elimination in the same fixpoint run
+  4. All 137 benchmarks and integration tests pass; call-heavy benchmarks (e.g., connected_components) show measurable runtime reduction
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+
+### Phase 28: Phi Elimination Improvement
+**Goal**: Copy coalescing in SSA phi elimination produces fewer temporary variables in functions with complex control flow, reducing the number of generated C declarations
+**Depends on**: Phase 27
+**Requirements**: PHI-01, PHI-02
+**Success Criteria** (what must be TRUE):
+  1. Phi elimination uses copy coalescing to merge phi-related copies where lifetimes permit; the number of distinct temporary variables emitted for a function with many phi nodes is measurably lower than before
+  2. The connected_components benchmark shows a measurable reduction in generated temporaries compared to the Phase 27 baseline
+  3. All 137 benchmarks and integration tests pass with no correctness regressions
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+
+### Phase 29: Sized Integers
+**Goal**: Iron programs can declare `Int32` variables that emit `int32_t` in generated C, enabling 32-bit memory bandwidth for array-heavy algorithms
+**Depends on**: Phase 28
+**Requirements**: INT-01, INT-02
+**Success Criteria** (what must be TRUE):
+  1. `val x: Int32 = 0` compiles through the full pipeline and emits `int32_t x = 0;` in the generated C; the Iron type system accepts `Int32` in variable declarations, function parameters, and return types
+  2. An array declared as `[Int32]` emits a `int32_t*` pointer in generated C; arithmetic on `Int32` elements operates on 32-bit values at runtime
+  3. All existing tests continue to pass; `Int32` programs compile with `clang -std=c11 -Wall -Werror` with zero warnings
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+
+### Phase 30: Benchmark Validation and Exploration
+**Goal**: The full benchmark suite is compared against the pre-optimization baseline to confirm measurable improvement; any remaining high-overhead benchmarks are analyzed for additional optimization opportunities
+**Depends on**: Phase 29
+**Requirements**: BENCH-01, BENCH-02
+**Success Criteria** (what must be TRUE):
+  1. A benchmark comparison run with `--compare` mode shows aggregate improvement over the v0.0.6-alpha baseline; the majority of benchmarks that previously exceeded 3x of C now meet or beat that threshold
+  2. The connected_components benchmark shows measurable improvement over its v0.0.6-alpha ratio (was ~167x); the remaining gap is identified and attributed to known out-of-scope factors (goto-based loops, int64 width)
+  3. Any benchmark still above 3x that is not explained by an out-of-scope factor is documented with a root-cause analysis and a concrete proposal for a follow-up optimization
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 21 -> 22 -> 23
+Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -500,6 +613,13 @@ Phases execute in numeric order: 21 -> 22 -> 23
 | 18. Benchmark Validation | v0.0.5-alpha | 4/4 | Complete | 2026-03-30 |
 | 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 3/3 | Complete | 2026-03-30 |
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 7/7 | Complete | 2026-03-30 |
-| 21. Parallel-For Fix | 1/1 | Complete    | 2026-03-31 | - |
-| 22. Struct Codegen Fix | 2/2 | Complete    | 2026-03-31 | - |
-| 23. Correctness Audit | 2/2 | Complete   | 2026-03-31 | - |
+| 21. Parallel-For Fix | v0.0.6-alpha | 1/1 | Complete | 2026-03-31 |
+| 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
+| 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
+| 24. Range Bound Hoisting | v0.0.7-alpha | 0/? | Not started | - |
+| 25. Stack Array Promotion | v0.0.7-alpha | 0/? | Not started | - |
+| 26. LOAD Expression Inlining | v0.0.7-alpha | 0/? | Not started | - |
+| 27. Function Inlining | v0.0.7-alpha | 0/? | Not started | - |
+| 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
+| 29. Sized Integers | v0.0.7-alpha | 0/? | Not started | - |
+| 30. Benchmark Validation and Exploration | v0.0.7-alpha | 0/? | Not started | - |
