@@ -651,7 +651,11 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 }
             }
             int od_field_idx = 0;
-            for (int i = field_start; i < instr->construct.field_count; i++) {
+            int effective_field_count = instr->construct.field_count;
+            if (effective_field_count > od->field_count + field_start) {
+                effective_field_count = od->field_count + field_start;
+            }
+            for (int i = field_start; i < effective_field_count; i++) {
                 if (i > field_start) iron_strbuf_appendf(sb, ",");
                 if (od_field_idx < od->field_count) {
                     Iron_Field *f = (Iron_Field *)od->fields[od_field_idx++];
@@ -1712,7 +1716,11 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             int od_field_idx = 0;
-            for (int i = field_start; i < instr->construct.field_count; i++) {
+            int effective_field_count = instr->construct.field_count;
+            if (effective_field_count > od->field_count + field_start) {
+                effective_field_count = od->field_count + field_start;
+            }
+            for (int i = field_start; i < effective_field_count; i++) {
                 if (i > field_start) iron_strbuf_appendf(sb, ",");
                 if (od_field_idx < od->field_count) {
                     Iron_Field *f = (Iron_Field *)od->fields[od_field_idx++];
