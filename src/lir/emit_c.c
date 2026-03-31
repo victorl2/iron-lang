@@ -2232,12 +2232,10 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
 /* ── Function emission ────────────────────────────────────────────────────── */
 
-/* Determine if a function is a "lifted" function (lambda/spawn/parallel body) */
+/* Determine if a function is a "lifted" function (any __ prefix: __pfor_, __lambda_, __spawn_, etc.) */
 static bool is_lifted_func(const char *name) {
     if (!name) return false;
-    return (strstr(name, "lambda_") != NULL ||
-            strstr(name, "spawn_")  != NULL ||
-            strstr(name, "parallel_") != NULL);
+    return strncmp(name, "__", 2) == 0;
 }
 
 static void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
