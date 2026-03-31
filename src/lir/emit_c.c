@@ -827,9 +827,17 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_NULL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "void* ");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = NULL;\n");
+        if (instr->type && instr->type->kind == IRON_TYPE_OBJECT) {
+            /* Zero-initialize struct so it can be used in PHI/assignment contexts */
+            const char *c_type = emit_type_to_c(instr->type, ctx);
+            iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {0};\n");
+        } else {
+            iron_strbuf_appendf(sb, "void* ");
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = NULL;\n");
+        }
         break;
 
     /* ── Arithmetic ─────────────────────────────────────────────────────── */

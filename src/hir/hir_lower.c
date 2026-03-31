@@ -495,11 +495,21 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             /* Declare loop var in scope for body lowering */
             push_scope(ctx);
             declare_var(ctx, fs->var_name, loop_var);
-            IronHIR_Block *body_blk = iron_hir_block_create(mod);
-            lower_block_hir(ctx, (Iron_Block *)fs->body, body_blk);
+            /* Lower user body into an inner block so defer fires before increment */
+            IronHIR_Block *inner_blk = iron_hir_block_create(mod);
+            lower_block_hir(ctx, (Iron_Block *)fs->body, inner_blk);
             pop_scope(ctx);
 
-            /* Append increment: i = i + 1 */
+            /* Wrap user body in BLOCK stmt — gives it its own defer scope so any
+             * deferred stmts inside the loop body fire at the end of the iteration
+             * scope, before the loop increment below. */
+            IronHIR_Stmt *block_stmt = iron_hir_stmt_block(mod, inner_blk, s0);
+
+            /* Build the outer body: [block_stmt, inc_stmt] */
+            IronHIR_Block *body_blk = iron_hir_block_create(mod);
+            iron_hir_block_add_stmt(body_blk, block_stmt);
+
+            /* Append increment: i = i + 1 (runs after defer scope exits) */
             IronHIR_Expr *i_ref2  = iron_hir_expr_ident(mod, loop_var,
                                                           fs->var_name, int_ty, s0);
             IronHIR_Expr *one     = iron_hir_expr_int_lit(mod, 1, int_ty, s0);
