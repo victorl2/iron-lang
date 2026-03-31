@@ -453,7 +453,7 @@ Plans:
   3. The game_loop_headless composite test passes with correct struct value passing end-to-end
   4. quicksort produces a correctly sorted output array at runtime
   5. hash_map runs without crash and produces correct key-value lookup results
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 22-01-PLAN.md — Fix both struct bugs: remove spurious constructor detection + add field count clamp
@@ -501,5 +501,5 @@ Phases execute in numeric order: 21 -> 22 -> 23
 | 19. LIR Rename & HIR Foundation | v0.0.5-alpha | 3/3 | Complete | 2026-03-30 |
 | 20. HIR Lowering & Pipeline Cutover | v0.0.5-alpha | 7/7 | Complete | 2026-03-30 |
 | 21. Parallel-For Fix | 1/1 | Complete    | 2026-03-31 | - |
-| 22. Struct Codegen Fix | 1/2 | In Progress|  | - |
+| 22. Struct Codegen Fix | 2/2 | Complete   | 2026-03-31 | - |
 | 23. Correctness Audit | v0.0.6-alpha | 0/2 | Not started | - |

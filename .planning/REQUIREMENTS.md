@@ -17,13 +17,13 @@ Requirements for HIR Pipeline Correctness milestone. Each maps to roadmap phases
 
 - [x] **STRUCT-01**: Functions returning object types are only lowered as constructors when function name matches type name
 - [x] **STRUCT-02**: CONSTRUCT emission emits exactly the number of fields in the struct definition (no excess elements)
-- [ ] **STRUCT-03**: game_loop_headless composite test passes with correct struct value passing
+- [x] **STRUCT-03**: game_loop_headless composite test passes with correct struct value passing
 
 ### Algorithm Correctness
 
-- [ ] **ALG-01**: quicksort algorithm test produces correctly sorted output
-- [ ] **ALG-02**: hash_map algorithm test runs without crash and produces correct output
-- [ ] **ALG-03**: All 13 algorithm tests pass (8 already passing + 5 fixed)
+- [x] **ALG-01**: quicksort algorithm test produces correctly sorted output
+- [x] **ALG-02**: hash_map algorithm test runs without crash and produces correct output
+- [x] **ALG-03**: All 13 algorithm tests pass (8 already passing + 5 fixed)
 
 ### Correctness Audit
 
@@ -76,10 +76,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PFOR-03 | Phase 21 | Complete |
 | STRUCT-01 | Phase 22 | Complete |
 | STRUCT-02 | Phase 22 | Complete |
-| STRUCT-03 | Phase 22 | Pending |
-| ALG-01 | Phase 22 | Pending |
-| ALG-02 | Phase 22 | Pending |
-| ALG-03 | Phase 22 | Pending |
+| STRUCT-03 | Phase 22 | Complete |
+| ALG-01 | Phase 22 | Complete |
+| ALG-02 | Phase 22 | Complete |
+| ALG-03 | Phase 22 | Complete |
 | AUDIT-01 | Phase 23 | Pending |
 | AUDIT-02 | Phase 23 | Pending |
 | AUDIT-03 | Phase 23 | Pending |
