@@ -1442,8 +1442,13 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
      * Time.sleep(ms: Int) {}) are treated as extern stubs — the C implementation
      * provides the body. Create the LIR function declaration but skip body generation.
      * This handles both non-void stubs (return type mismatch) and void stubs
-     * (duplicate symbol if body is generated for a C-implemented function). */
-    if (hir_func->body && hir_func->body->stmt_count == 0) {
+     * (duplicate symbol if body is generated for a C-implemented function).
+     *
+     * Exception: lifted functions (__ prefix, e.g. __pfor_0, __lambda_0) are
+     * user-defined and must always get a real C body even if their body is empty.
+     * An empty pfor body is valid (e.g. parallel { } for sync-only use). */
+    bool is_lifted = hir_func->name && strncmp(hir_func->name, "__", 2) == 0;
+    if (!is_lifted && hir_func->body && hir_func->body->stmt_count == 0) {
         /* Still register the function in LIR (no body, acts like extern) */
         Iron_Type *ret_type = hir_func->return_type;
         int param_count = hir_func->param_count;
