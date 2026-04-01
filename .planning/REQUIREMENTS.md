@@ -19,8 +19,8 @@ Requirements for Performance Optimization milestone. Each maps to roadmap phases
 
 ### Expression Optimization
 
-- [ ] **EXPR-01**: LOAD instructions are eligible for expression inlining when use site is in the same block as the LOAD
-- [ ] **EXPR-02**: Cross-block LOADs remain excluded to prevent undeclared variable errors
+- [x] **EXPR-01**: LOAD instructions are eligible for expression inlining when use site is in the same block as the LOAD
+- [x] **EXPR-02**: Cross-block LOADs remain excluded to prevent undeclared variable errors
 
 ### Function Inlining
 
@@ -76,8 +76,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LOOP-02 | Phase 24 | Complete |
 | MEM-01 | Phase 25 | Complete |
 | MEM-02 | Phase 25 | Complete |
-| EXPR-01 | Phase 26 | Pending |
-| EXPR-02 | Phase 26 | Pending |
+| EXPR-01 | Phase 26 | Complete |
+| EXPR-02 | Phase 26 | Complete |
 | INLINE-01 | Phase 27 | Pending |
 | INLINE-02 | Phase 27 | Pending |
 | INLINE-03 | Phase 27 | Pending |

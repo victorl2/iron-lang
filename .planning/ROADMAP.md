@@ -528,7 +528,7 @@ Plans:
   1. A LOAD whose only use is in the same block as its definition is inlined directly at the use site; the emitted C omits the intermediate `_vN` variable for that LOAD
   2. A LOAD whose use is in a different block from its definition is NOT inlined; the intermediate variable remains and no undeclared-variable C errors occur
   3. All 137 benchmarks and integration tests pass; no new undeclared-variable errors appear in the generated C
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
@@ -618,7 +618,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
 | 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
-| 26. LOAD Expression Inlining | v0.0.7-alpha | 0/? | Not started | - |
+| 26. LOAD Expression Inlining | 1/1 | Complete   | 2026-04-01 | - |
 | 27. Function Inlining | v0.0.7-alpha | 0/? | Not started | - |
 | 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
 | 29. Sized Integers | v0.0.7-alpha | 0/? | Not started | - |
