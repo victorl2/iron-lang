@@ -54,19 +54,22 @@ func main() {
     -- Sequential computation (ground truth)
     val seq_checksum = pipeline_checksum(n)
 
-    -- Spawn pipeline stages (3-stage pipeline, fire-and-forget)
+    -- Spawn pipeline stages (3-stage pipeline, handles captured and awaited for fair timing)
     val start = Time.now_ms()
     val iters = 3
     for iter in range(iters) {
-        spawn("stage1") {
+        val h0 = spawn("stage1") {
             var r = pipeline_checksum(100)
         }
-        spawn("stage2") {
+        val h1 = spawn("stage2") {
             var r = pipeline_checksum(100)
         }
-        spawn("stage3") {
+        val h2 = spawn("stage3") {
             var r = pipeline_checksum(100)
         }
+        await h0
+        await h1
+        await h2
     }
     val elapsed = Time.now_ms() - start
 

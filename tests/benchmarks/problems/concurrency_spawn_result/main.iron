@@ -32,22 +32,26 @@ func main() {
     val s3 = range_sum(chunk * 3, chunk * 4)
     val seq_checksum = (s0 + s1 + s2 + s3) % 1000000007
 
-    -- Spawn 4 tasks (fire-and-forget, same computation)
+    -- Spawn 4 tasks (capture handles and await for fair timing vs C pthread_join)
     val start = Time.now_ms()
     val iters = 3
     for iter in range(iters) {
-        spawn("t0") {
+        val h0 = spawn("t0") {
             var r = range_sum(0, 250)
         }
-        spawn("t1") {
+        val h1 = spawn("t1") {
             var r = range_sum(250, 500)
         }
-        spawn("t2") {
+        val h2 = spawn("t2") {
             var r = range_sum(500, 750)
         }
-        spawn("t3") {
+        val h3 = spawn("t3") {
             var r = range_sum(750, 1000)
         }
+        await h0
+        await h1
+        await h2
+        await h3
     }
     val elapsed = Time.now_ms() - start
 

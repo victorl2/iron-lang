@@ -1,7 +1,7 @@
 import time
 
 -- Spawn Independent Work: 8 spawned tasks + main thread each do heavy computation
--- Tests spawn for fire-and-forget parallelism with independent workloads
+-- Tests spawn for parallelism with independent workloads; all tasks awaited for fair timing
 
 func heavy_compute(offset: Int, work_size: Int) -> Int {
     var sum = 0
@@ -18,35 +18,45 @@ func heavy_compute(offset: Int, work_size: Int) -> Int {
 func main() {
     val work_size = 5000000
 
-    -- Spawn 8 independent tasks (fire-and-forget)
+    -- Spawn 8 independent tasks (capture handles for fair timing vs pthread_join)
     val start = Time.now_ms()
-    spawn("task0") {
+    val h0 = spawn("task0") {
         var r = heavy_compute(0, 5000000)
     }
-    spawn("task1") {
+    val h1 = spawn("task1") {
         var r = heavy_compute(7, 5000000)
     }
-    spawn("task2") {
+    val h2 = spawn("task2") {
         var r = heavy_compute(13, 5000000)
     }
-    spawn("task3") {
+    val h3 = spawn("task3") {
         var r = heavy_compute(29, 5000000)
     }
-    spawn("task4") {
+    val h4 = spawn("task4") {
         var r = heavy_compute(37, 5000000)
     }
-    spawn("task5") {
+    val h5 = spawn("task5") {
         var r = heavy_compute(53, 5000000)
     }
-    spawn("task6") {
+    val h6 = spawn("task6") {
         var r = heavy_compute(67, 5000000)
     }
-    spawn("task7") {
+    val h7 = spawn("task7") {
         var r = heavy_compute(97, 5000000)
     }
 
     -- Main thread also does work
     val main_result = heavy_compute(101, 5000000)
+
+    -- Wait for all spawned tasks to complete (fair timing vs C pthread_join)
+    await h0
+    await h1
+    await h2
+    await h3
+    await h4
+    await h5
+    await h6
+    await h7
     val elapsed = Time.now_ms() - start
 
     -- Sequential verification: recompute all results from main thread
