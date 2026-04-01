@@ -4,6 +4,7 @@
 #include <time.h>
 #include <sys/resource.h>
 
+__attribute__((noinline))
 int find_root(int* parent, int x) {
     while (parent[x] != x) {
         parent[x] = parent[parent[x]];
@@ -12,6 +13,7 @@ int find_root(int* parent, int x) {
     return x;
 }
 
+__attribute__((noinline))
 int count_components(int* edges_a, int* edges_b, int num_edges, int n) {
     int parent[50], rnk[50];
     for (int i = 0; i < n; i++) { parent[i] = i; rnk[i] = 0; }
