@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: in_progress
-stopped_at: Completed 31-01-PLAN.md spawn/await runtime + compiler pipeline
-last_updated: "2026-04-01T20:36:24.860Z"
-last_activity: 2026-04-01 — v0.0.7-alpha benchmark report created; top 3 outliers deep-dived; suggested_performance_improvements.md updated with post-optimization state
+status: executing
+stopped_at: "31-02 checkpoint: human-verify pending (Tasks 1-2 complete)"
+last_updated: "2026-04-01T21:09:55.126Z"
+last_activity: "2026-04-01 — spawn/await pipeline complete: iron_future_await runtime, wrapper-function emit pattern, 4 integration tests pass"
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 12
-  completed_plans: 11
-  percent: 100
+  completed_plans: 12
+  percent: 92
 ---
 
 # Project State
@@ -71,6 +71,7 @@ Recent decisions affecting current work:
 - [Phase 30-02]: three_sum overhead: skip_dup_lo/hi not inlined due to array-param restriction; relaxing for const (read-only) array params is safe and is the proposed fix
 - [Phase 31-spawn-await-correctness]: IRON_TYPE_NULL for handled spawn LIR type: keeps handle as void* without conflating with OBJECT type used for struct constructors
 - [Phase 31-spawn-await-correctness]: Wrapper function emitted per spawn in lifted_funcs: no HIR signature change required; wrapper captures lifted fn return value into handle->result
+- [Phase 31-spawn-await-correctness]: All spawn benchmark thresholds updated via update_thresholds.py from measured ratios; spawn configs annotated with Phase 31 await-based timing notes
 
 ### Roadmap Evolution
 
@@ -87,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T20:36:24.857Z
-Stopped at: Completed 31-01-PLAN.md spawn/await runtime + compiler pipeline
+Last session: 2026-04-01T21:09:47.141Z
+Stopped at: 31-02 checkpoint: human-verify pending (Tasks 1-2 complete)
 Resume file: None
