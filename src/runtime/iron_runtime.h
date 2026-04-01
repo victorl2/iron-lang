@@ -541,6 +541,7 @@ void iron_runtime_shutdown(void);
 #ifndef IRON_CODEGEN_PROVIDES_STRUCTS
 
 typedef struct Iron_List_int64_t    { int64_t     *items; int64_t count; int64_t capacity; } Iron_List_int64_t;
+typedef struct Iron_List_int32_t    { int32_t     *items; int64_t count; int64_t capacity; } Iron_List_int32_t;
 typedef struct Iron_List_double     { double      *items; int64_t count; int64_t capacity; } Iron_List_double;
 typedef struct Iron_List_bool       { bool        *items; int64_t count; int64_t capacity; } Iron_List_bool;
 typedef struct Iron_List_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_List_Iron_String;
@@ -555,6 +556,7 @@ typedef struct Iron_Set_Iron_String { Iron_String *items; int64_t count; int64_t
 
 /* Declarations for the pre-instantiated types in iron_collections.c */
 IRON_LIST_DECL(int64_t,     int64_t)
+IRON_LIST_DECL(int32_t,     int32_t)
 IRON_LIST_DECL(double,      double)
 IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)
