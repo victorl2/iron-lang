@@ -792,7 +792,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_INT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)%lldLL;\n",
                             emit_type_to_c(instr->type, ctx),
@@ -801,14 +801,14 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_FLOAT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %g;\n", instr->const_float.value);
         break;
 
     case IRON_LIR_CONST_BOOL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s;\n",
                             instr->const_bool.value ? "true" : "false");
@@ -818,7 +818,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         const char *sv = instr->const_str.value ? instr->const_str.value : "";
         size_t slen = strlen(sv);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_String ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_String ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = iron_string_from_literal(\"%s\", %zu);\n",
                             sv, slen);
@@ -830,11 +830,11 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (instr->type && instr->type->kind == IRON_TYPE_OBJECT) {
             /* Zero-initialize struct so it can be used in PHI/assignment contexts */
             const char *c_type = emit_type_to_c(instr->type, ctx);
-            iron_strbuf_appendf(sb, "%s ", c_type);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", c_type);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = {0};\n");
         } else {
-            iron_strbuf_appendf(sb, "void* ");
+            if (!is_hoisted) iron_strbuf_appendf(sb, "void* ");
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = NULL;\n");
         }
@@ -844,7 +844,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_ADD:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -855,7 +855,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_SUB:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -866,7 +866,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_MUL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -877,7 +877,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_DIV:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -888,7 +888,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_MOD:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -901,7 +901,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_EQ:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -912,7 +912,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_NEQ:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -923,7 +923,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_LT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -934,7 +934,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_LTE:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -945,7 +945,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_GT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -956,7 +956,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_GTE:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -969,7 +969,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_AND:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -980,7 +980,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_OR:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -993,7 +993,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_NEG:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = -");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
@@ -1002,7 +1002,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_NOT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = !");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
@@ -1180,7 +1180,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             instr->field.field && strcmp(instr->field.field, "count") == 0) {
             /* Emit: int64_t _vN = _vOBJ_len; (companion length variable) */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->field.object);
@@ -1189,7 +1189,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         }
         /* object.field or object->field for heap/rc pointers */
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
@@ -1217,7 +1217,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (sa_origin != IRON_LIR_VALUE_INVALID) {
             /* Direct C indexing: result = array[index]; */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1237,7 +1237,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             if (use_direct) {
                 /* Direct field access: result = array.items[index]; */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = ");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1253,7 +1253,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
                 }
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = %s_get(&", list_type);
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1693,7 +1693,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_CAST: {
         const char *target_c = emit_type_to_c(instr->cast.target_type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", target_c);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", target_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)", target_c);
         emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
@@ -1879,7 +1879,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_IS_NULL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = !");
         emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, ctx->current_block_id, 0);
@@ -1888,7 +1888,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_IS_NOT_NULL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, ctx->current_block_id, 0);
