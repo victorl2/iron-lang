@@ -21,7 +21,7 @@ func get_seed() -> Int {
 }
 
 func main() {
-    val n = 500
+    val n = 50000
 
     -- Sequential computation using a fixed seed (ground truth)
     val seed = get_seed()
@@ -32,11 +32,11 @@ func main() {
 
     -- Spawn tasks: each recomputes the seed inside the spawn (no captures)
     val start = Time.now_ms()
-    val iters = 3
+    val iters = 100
     for iter in range(iters) {
         spawn("s0") {
             val s = get_seed()
-            var x = compute_with_seed(s, 500)
+            var x = compute_with_seed(s, 50000)
         }
         spawn("s1") {
             val s = get_seed()
