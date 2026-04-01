@@ -548,7 +548,7 @@ Plans:
 - [x] 27-01-PLAN.md — Implement run_function_inlining with regression test
 
 ### Phase 28: Phi Elimination Improvement
-**Goal**: Copy coalescing in SSA phi elimination produces fewer temporary variables in functions with complex control flow, reducing the number of generated C declarations
+**Goal**: Dead alloca elimination removes write-only phi-origin temporaries from generated C, reducing variable count in functions with complex control flow
 **Depends on**: Phase 27
 **Requirements**: PHI-01, PHI-02
 **Success Criteria** (what must be TRUE):
@@ -558,7 +558,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [ ] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
 
 ### Phase 29: Sized Integers
 **Goal**: Iron programs can declare `Int32` variables that emit `int32_t` in generated C, enabling 32-bit memory bandwidth for array-heavy algorithms
@@ -619,7 +619,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
 | 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
 | 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
-| 27. Function Inlining | 2/2 | Complete   | 2026-04-01 | 2026-03-31 |
+| 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
 | 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
 | 29. Sized Integers | v0.0.7-alpha | 0/? | Not started | - |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 0/? | Not started | - |
