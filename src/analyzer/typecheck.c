@@ -107,6 +107,36 @@ static void emit_type_mismatch(TypeCtx *ctx, Iron_Span span,
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, NULL);
 }
 
+/* Implicit coercion rules for assignment compatibility.
+ *
+ * Currently only widening is implicit:
+ * - Int32 -> Int: always safe, no data loss.
+ *
+ * Narrowing (Int -> Int32) is NOT implicit -- it requires either:
+ *   (a) An integer literal (checked separately at each assignment site), or
+ *   (b) An explicit Int32() cast expression.
+ * Per user decision: "Narrowing requires explicit cast."
+ */
+static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
+    if (!decl_t || !init_t) return true;
+    if (iron_type_equals(decl_t, init_t)) return true;
+    /* Int32 -> Int: implicit widening (always safe) */
+    if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+    return false;
+}
+
+/* Allow integer literals to implicitly narrow to Int32.
+ * `val x: Int32 = 42` is safe because the literal is statically known.
+ * `val x: Int32 = someIntVar` is NOT allowed -- use Int32(someIntVar).
+ */
+static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
+                                     const Iron_Node *init_node) {
+    if (!decl_t || !init_t || !init_node) return false;
+    return (decl_t->kind == IRON_TYPE_INT32 &&
+            init_t->kind == IRON_TYPE_INT &&
+            init_node->kind == IRON_NODE_INT_LIT);
+}
+
 /* ── Narrowing map helpers ────────────────────────────────────────────────── */
 
 static Iron_Type *narrowing_get(TypeCtx *ctx, const char *name) {
@@ -347,8 +377,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 } else if (is_comparison) {
                     /* Comparison: operands should be compatible */
                     if (!iron_type_equals(lt, rt) &&
-                        !(rt->kind == IRON_TYPE_NULL)) {
-                        /* Allow comparison with null literal */
+                        !(rt->kind == IRON_TYPE_NULL) &&
+                        !((lt->kind == IRON_TYPE_INT32 && rt->kind == IRON_TYPE_INT) ||
+                          (lt->kind == IRON_TYPE_INT && rt->kind == IRON_TYPE_INT32))) {
+                        /* Allow comparison with null literal and Int32<->Int widening */
                     }
                     result = iron_type_make_primitive(IRON_TYPE_BOOL);
                 } else if (is_logic) {
@@ -466,7 +498,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             if (arg_t && fld_t &&
                                 arg_t->kind  != IRON_TYPE_ERROR &&
                                 fld_t->kind  != IRON_TYPE_ERROR &&
-                                !iron_type_equals(arg_t, fld_t)) {
+                                !types_assignable(fld_t, arg_t) &&
+                                !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
                                 char msg[256];
                                 snprintf(msg, sizeof(msg),
                                          "field '%s' expects '%s', got '%s'",
@@ -564,7 +597,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (param_type && arg_type &&
                         param_type->kind != IRON_TYPE_ERROR &&
                         arg_type->kind   != IRON_TYPE_ERROR &&
-                        !iron_type_equals(param_type, arg_type)) {
+                        !types_assignable(param_type, arg_type) &&
+                        !is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "argument %d type mismatch: expected '%s', got '%s'",
@@ -705,7 +739,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (arg_t && fld_t &&
                             arg_t->kind  != IRON_TYPE_ERROR &&
                             fld_t->kind  != IRON_TYPE_ERROR &&
-                            !iron_type_equals(arg_t, fld_t)) {
+                            !types_assignable(fld_t, arg_t) &&
+                            !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "field '%s' expects '%s', got '%s'",
@@ -898,7 +933,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else if (decl_type && init_type) {
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
-                    !iron_type_equals(decl_type, init_type)) {
+                    !types_assignable(decl_type, init_type) &&
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     emit_type_mismatch(ctx, vd->span, decl_type, init_type);
                 }
             }
@@ -929,7 +965,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else if (decl_type && init_type) {
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
-                    !iron_type_equals(decl_type, init_type)) {
+                    !types_assignable(decl_type, init_type) &&
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     emit_type_mismatch(ctx, vd->span, decl_type, init_type);
                 }
             }
@@ -978,7 +1015,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (target_type && value_type &&
                 target_type->kind != IRON_TYPE_ERROR &&
                 value_type->kind  != IRON_TYPE_ERROR &&
-                !iron_type_equals(target_type, value_type)) {
+                !types_assignable(target_type, value_type) &&
+                !is_int_literal_narrowing(target_type, value_type, as->value)) {
                 emit_type_mismatch(ctx, as->span, target_type, value_type);
             }
             break;
@@ -1004,7 +1042,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, rs->span,
                                    "cannot return nullable value without null check",
                                    "Check for null before returning");
-                    } else if (!iron_type_equals(ctx->current_return_type, ret_type)) {
+                    } else if (!types_assignable(ctx->current_return_type, ret_type) &&
+                               !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "return type mismatch: function returns '%s', got '%s'",
