@@ -1460,10 +1460,6 @@ static bool instr_is_inline_expressible(IronLIR_InstrKind kind) {
     /* CALL must not be inlined — emit_expr_to_buf doesn't implement array
      * parameter splitting (pointer+length) or extern string wrapping. */
     if (kind == IRON_LIR_CALL) return false;
-    /* LOAD: inlining replaces _vN with the alloca name, minimal benefit;
-     * but when the load crosses blocks the inline chain can reference
-     * values with suppressed declarations, causing C compilation errors. */
-    if (kind == IRON_LIR_LOAD) return false;
     /* Multi-statement emission patterns cannot be inlined as sub-expressions */
     if (kind == IRON_LIR_ARRAY_LIT) return false;
     if (kind == IRON_LIR_INTERP_STRING) return false;
