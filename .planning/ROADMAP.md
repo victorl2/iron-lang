@@ -542,7 +542,7 @@ Plans:
   2. Every cloned instruction uses a fresh ValueId remapped via a callee-to-caller ID table; no existing caller value_table entries are overwritten
   3. The inlining pass runs before the copy-prop/DCE fixpoint; inlined code is subsequently optimized by copy propagation and dead-code elimination in the same fixpoint run
   4. All 137 benchmarks and integration tests pass; call-heavy benchmarks (e.g., connected_components) show measurable runtime reduction
-**Plans:** 1/1 plans complete
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 27-01-PLAN.md — Implement run_function_inlining with regression test
@@ -619,7 +619,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
 | 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
 | 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
-| 27. Function Inlining | v0.0.7-alpha | 1/1 | Complete | 2026-03-31 |
+| 27. Function Inlining | 2/2 | Complete   | 2026-04-01 | 2026-03-31 |
 | 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
 | 29. Sized Integers | v0.0.7-alpha | 0/? | Not started | - |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 0/? | Not started | - |

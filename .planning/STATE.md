@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: planning
-stopped_at: Completed 27-01-PLAN.md
-last_updated: "2026-03-31T00:00:00Z"
-last_activity: 2026-03-31 — Phase 27 plan 01 complete: LIR function inlining implemented
+status: completed
+stopped_at: Completed 27-02-PLAN.md
+last_updated: "2026-04-01T13:03:08.655Z"
+last_activity: 2026-03-31 — LIR function inlining implemented; inline_basic and connected_components pass
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
   percent: 57
 ---
 
@@ -59,6 +59,7 @@ Recent decisions affecting current work:
 - [Phase 27-function-inlining]: Result alloca must be inserted at call_block/call_idx BEFORE block split — placement in merge block causes C declaration-after-use errors
 - [Phase 27-function-inlining]: Step 9 result_remap applied to ALL original caller blocks, not just cont — CALL results may be referenced in branch target blocks (earlier block indices)
 - [Phase 27-function-inlining]: emit_c.c backward-ref hoisting extended to ALLOCA and all value-producing instrs; use_block_min requires comprehensive operand tracking across all instruction kinds
+- [Phase 27]: is_hoisted guard must be applied to ALL value-producing instruction cases in emit_instr — any instruction can be backward-ref hoisted when inlining rearranges blocks
 
 ### Pending Todos
 
@@ -71,6 +72,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T00:00:00Z
-Stopped at: Completed 27-01-PLAN.md
+Last session: 2026-04-01T13:03:08.651Z
+Stopped at: Completed 27-02-PLAN.md
 Resume file: None
