@@ -351,7 +351,7 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     compare_suffix=""
     if [ $COMPARE_MODE -eq 1 ] && [ -n "$iron_noopt_ms" ]; then
         noopt_ratio=$(awk "BEGIN { c = ($c_ms < 0.001) ? 0.001 : $c_ms; printf \"%.1f\", $iron_noopt_ms / c }")
-        speedup_pct=$(awk "BEGIN { if ($iron_ms == 0) printf \"0.0\"; else printf \"%.1f\", ($iron_noopt_ms - $iron_ms) / $iron_noopt_ms * 100 }")
+        speedup_pct=$(awk "BEGIN { if ($iron_noopt_ms == 0) printf \"0.0\"; else printf \"%.1f\", ($iron_noopt_ms - $iron_ms) / $iron_noopt_ms * 100 }")
         compare_suffix=" [opt: ${ratio}x, noopt: ${noopt_ratio}x, speedup: ${speedup_pct}%]"
     fi
 
