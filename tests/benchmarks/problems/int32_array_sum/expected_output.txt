@@ -1,0 +1,4 @@
+Test 1: 9900 (expected 9900)
+Test 2: 1225 (expected 1225)
+Test 3: 42 (expected 42)
+Test 4: 0 (expected 0)

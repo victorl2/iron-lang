@@ -1,0 +1,54 @@
+import time
+
+-- Int32 array sum: measures 32-bit array throughput
+-- Sums all elements of an Int32 array using 32-bit arithmetic
+
+func array_sum(arr: [Int32], n: Int) -> Int32 {
+    var total: Int32 = Int32(0)
+    var i = 0
+    while i < n {
+        total = total + arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+func main() {
+    val n = 200
+
+    -- Build array: arr[i] = i % 100
+    var arr = fill(n, Int32(0))
+    var i = 0
+    while i < n {
+        arr[i] = Int32(i % 100)
+        i = i + 1
+    }
+
+    -- Test cases
+    println("Test 1: {array_sum(arr, n)} (expected 9900)")
+
+    -- Partial sum: first 50 elements (0+1+...+49 = 1225)
+    println("Test 2: {array_sum(arr, 50)} (expected 1225)")
+
+    -- Single element
+    var single = fill(1, Int32(42))
+    println("Test 3: {array_sum(single, 1)} (expected 42)")
+
+    -- Empty (0 elements)
+    println("Test 4: {array_sum(arr, 0)} (expected 0)")
+
+    val iterations = 10000000
+    val start = Time.now_ms()
+    var result: Int32 = Int32(0)
+    for it in range(iterations) {
+        result = array_sum(arr, n)
+    }
+    val elapsed = Time.now_ms() - start
+
+    println("")
+    println("=== Benchmark: Int32 Array Sum ===")
+    println("Array size: {n}")
+    println("Iterations: {iterations}")
+    println("Total time: {elapsed} ms")
+    println("Result: {result}")
+}
