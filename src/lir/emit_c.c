@@ -73,6 +73,10 @@ typedef struct {
     /* Backward-referenced values hoisted to function entry (type _vN;).
      * At the definition site, emit assignment without type prefix. */
     struct { IronLIR_ValueId key; bool value; } *phi_hoisted;
+
+    /* Constant-fill stack arrays whose declarations were hoisted to function
+     * entry (MEM-02). Call site emits only the init loop, not the declaration. */
+    struct { IronLIR_ValueId key; bool value; } *fill_hoisted;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -1325,7 +1329,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                        "__builtin_fill") == 0 &&
                 instr->call.arg_count == 2) {
 
-                /* Check if count is a compile-time constant <= 256 AND
+                /* Check if count is a compile-time constant <= 1024 AND
                  * this fill() result is NOT used as an escaping value
                  * (i.e., it's in the stack_array_ids map from pre-scan). */
                 IronLIR_ValueId count_id = instr->call.args[0];
@@ -1336,7 +1340,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 int64_t fill_count = 0;
                 if (count_instr && count_instr->kind == IRON_LIR_CONST_INT &&
                     count_instr->const_int.value > 0 &&
-                    count_instr->const_int.value <= 256) {
+                    count_instr->const_int.value <= 1024) {
                     /* Check pre-scan marked this as stack-eligible */
                     IronLIR_ValueId sa = get_stack_array_origin(ctx, instr->id);
                     if (sa != IRON_LIR_VALUE_INVALID) {
@@ -1346,27 +1350,43 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
 
                 if (use_stack) {
-                    /* Emit as stack array with fill loop (constant count) */
-                    const char *elem_type = "int64_t";
-                    if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
-                        instr->type->array.elem)
-                        elem_type = emit_type_to_c(instr->type->array.elem, ctx);
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "%s ", elem_type);
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, "[%lld];\n", (long long)fill_count);
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < %lld; _fill_i++) ",
-                                         (long long)fill_count);
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, "[_fill_i] = ");
-                    emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ";\n");
-                    /* Emit companion length variable */
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "int64_t ");
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
+                    if (ctx->fill_hoisted && hmgeti(ctx->fill_hoisted, instr->id) >= 0) {
+                        /* Declaration already hoisted to function entry (MEM-02).
+                         * Emit only the initialization loop and length assignment. */
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < %lld; _fill_i++) ",
+                                             (long long)fill_count);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "[_fill_i] = ");
+                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ";\n");
+                        /* Assign (not declare) companion length variable */
+                        emit_indent(sb, ind);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
+                    } else {
+                        /* Fallback: declaration not hoisted, emit at call site */
+                        const char *elem_type = "int64_t";
+                        if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
+                            instr->type->array.elem)
+                            elem_type = emit_type_to_c(instr->type->array.elem, ctx);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s ", elem_type);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "[%lld];\n", (long long)fill_count);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < %lld; _fill_i++) ",
+                                             (long long)fill_count);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "[_fill_i] = ");
+                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ";\n");
+                        /* Emit companion length variable */
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "int64_t ");
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
+                    }
                     /* Mark as stack array */
                     mark_stack_array(ctx, instr->id, instr->id);
                 } else {
@@ -2358,6 +2378,10 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     hmfree(ctx->opt_info->stack_array_ids);
     ctx->opt_info->stack_array_ids = NULL;
 
+    /* Reset per-function fill-hoisted tracking map (MEM-02) */
+    hmfree(ctx->fill_hoisted);
+    ctx->fill_hoisted = NULL;
+
     /* Reset per-function heap-array lifecycle tracking */
     hmfree(ctx->opt_info->heap_array_ids);
     ctx->opt_info->heap_array_ids = NULL;
@@ -2383,7 +2407,7 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 if (instr->kind == IRON_LIR_ARRAY_LIT && instr->array_lit.use_stack_repr) {
                     hmput(sa_pre, instr->id, instr->id);
                 }
-                /* __builtin_fill — all calls (constant or dynamic count) */
+                /* __builtin_fill — only constant-count fills enter sa_pre (MEM-01 gate) */
                 if (instr->kind == IRON_LIR_CALL && instr->call.arg_count == 2 &&
                     instr->type && instr->type->kind == IRON_TYPE_ARRAY) {
                     IronLIR_ValueId fptr = instr->call.func_ptr;
@@ -2393,9 +2417,17 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF &&
                         strcmp(fn->value_table[fptr]->func_ref.func_name,
                                "__builtin_fill") == 0) {
-                        /* Skip if revoked by escape analysis */
-                        if (hmgeti(ctx->opt_info->revoked_fill_ids, instr->id) < 0) {
-                            hmput(sa_pre, instr->id, instr->id);
+                        /* MEM-01: only stack-promote constant-count fills <= 1024 */
+                        IronLIR_ValueId cid = instr->call.args[0];
+                        IronLIR_Instr *cinstr = (cid < (IronLIR_ValueId)arrlen(fn->value_table))
+                                                ? fn->value_table[cid] : NULL;
+                        if (cinstr && cinstr->kind == IRON_LIR_CONST_INT &&
+                            cinstr->const_int.value > 0 &&
+                            cinstr->const_int.value <= 1024) {
+                            /* Skip if revoked by escape analysis */
+                            if (hmgeti(ctx->opt_info->revoked_fill_ids, instr->id) < 0) {
+                                hmput(sa_pre, instr->id, instr->id);
+                            }
                         }
                     }
                 }
@@ -2687,6 +2719,46 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             }
         }
         hmfree(use_block_min);
+    }
+
+    /* Hoist constant-fill stack array declarations to function entry (MEM-02).
+     * Iterates stack_array_ids to find unique origin IDs that are constant-count
+     * fill() CALLs and emits elem_t _vN[N] + int64_t _vN_len at function entry.
+     * The call site will then emit only the initialization loop. */
+    {
+        struct { IronLIR_ValueId key; bool value; } *hoisted_fills = NULL;
+        for (ptrdiff_t si = 0; si < hmlen(ctx->opt_info->stack_array_ids); si++) {
+            IronLIR_ValueId origin = ctx->opt_info->stack_array_ids[si].value;
+            if (hmgeti(hoisted_fills, origin) >= 0) continue; /* already emitted */
+            IronLIR_Instr *orig_instr = (origin < (IronLIR_ValueId)arrlen(fn->value_table))
+                                        ? fn->value_table[origin] : NULL;
+            if (!orig_instr || orig_instr->kind != IRON_LIR_CALL) continue;
+            if (hmgeti(ctx->opt_info->revoked_fill_ids, origin) >= 0) continue;
+            /* Verify constant count <= 1024 */
+            IronLIR_ValueId count_id = orig_instr->call.args[0];
+            IronLIR_Instr *count_instr = (count_id < (IronLIR_ValueId)arrlen(fn->value_table))
+                                         ? fn->value_table[count_id] : NULL;
+            if (!count_instr || count_instr->kind != IRON_LIR_CONST_INT) continue;
+            int64_t fill_count = count_instr->const_int.value;
+            if (fill_count <= 0 || fill_count > 1024) continue;
+            const char *elem_type = "int64_t";
+            if (orig_instr->type && orig_instr->type->kind == IRON_TYPE_ARRAY &&
+                orig_instr->type->array.elem)
+                elem_type = emit_type_to_c(orig_instr->type->array.elem, ctx);
+            /* Emit: elem_t _vN[N]; */
+            emit_indent(sb, 1);
+            iron_strbuf_appendf(sb, "%s ", elem_type);
+            emit_val(sb, origin);
+            iron_strbuf_appendf(sb, "[%lld];\n", (long long)fill_count);
+            /* Emit: int64_t _vN_len = N; */
+            emit_indent(sb, 1);
+            iron_strbuf_appendf(sb, "int64_t ");
+            emit_val(sb, origin);
+            iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
+            hmput(hoisted_fills, origin, true);
+            hmput(ctx->fill_hoisted, origin, true);
+        }
+        hmfree(hoisted_fills);
     }
 
     for (int bi = 0; bi < fn->block_count; bi++) {

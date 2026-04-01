@@ -427,7 +427,7 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
          * LOAD(alloca) -> loaded value is "tainted".
          * RETURN(tainted_value) -> revoke the original array_lit. */
         struct { IronLIR_ValueId key; IronLIR_ValueId value; } *sa_map = NULL;
-        /* Mark all stack array lits and ALL fill() calls (constant or dynamic count) */
+        /* Mark all stack array lits and constant-count fill() calls (MEM-01) */
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *block = fn->blocks[bi];
             for (int ii = 0; ii < block->instr_count; ii++) {
@@ -435,7 +435,7 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                 if (instr->kind == IRON_LIR_ARRAY_LIT && instr->array_lit.use_stack_repr) {
                     hmput(sa_map, instr->id, instr->id);
                 }
-                /* __builtin_fill — all calls (constant or dynamic count) */
+                /* __builtin_fill — only stack-promote constant-count fills (MEM-01) */
                 if (instr->kind == IRON_LIR_CALL && instr->call.arg_count == 2 &&
                     instr->type && instr->type->kind == IRON_TYPE_ARRAY) {
                     IronLIR_ValueId fptr = instr->call.func_ptr;
@@ -445,7 +445,16 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                         fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF &&
                         strcmp(fn->value_table[fptr]->func_ref.func_name,
                                "__builtin_fill") == 0) {
-                        hmput(sa_map, instr->id, instr->id);
+                        /* MEM-01: only stack-promote constant-count fills <= 1024 */
+                        IronLIR_ValueId count_arg = instr->call.args[0];
+                        if (count_arg != IRON_LIR_VALUE_INVALID &&
+                            count_arg < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[count_arg] != NULL &&
+                            fn->value_table[count_arg]->kind == IRON_LIR_CONST_INT &&
+                            fn->value_table[count_arg]->const_int.value > 0 &&
+                            fn->value_table[count_arg]->const_int.value <= 1024) {
+                            hmput(sa_map, instr->id, instr->id);
+                        }
                     }
                 }
             }
