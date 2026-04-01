@@ -225,12 +225,11 @@ void test_emit_alloca_load_store(void) {
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_4);
 
     TEST_ASSERT_NOT_NULL(result);
-    /* Alloca emits a variable declaration */
+    /* Return type is int64_t */
     TEST_ASSERT_NOT_NULL(strstr(result, "int64_t"));
-    /* Store emits assignment: _vN = _vM */
-    TEST_ASSERT_NOT_NULL(strstr(result, " = "));
-    /* Load emits copy: _vK = _vN */
+    /* After copy-prop + dead alloca elimination, constant 42 is returned directly */
     TEST_ASSERT_NOT_NULL(strstr(result, "return"));
+    TEST_ASSERT_NOT_NULL(strstr(result, "42"));
 
     iron_lir_optimize_info_free(&opt_info_4);
     iron_arena_free(&out_arena);
