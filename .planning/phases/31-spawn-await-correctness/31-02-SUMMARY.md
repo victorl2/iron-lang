@@ -36,7 +36,7 @@ metrics:
   duration_minutes: 31
   completed_date: "2026-04-01"
   tasks_total: 3
-  tasks_completed: 2
+  tasks_completed: 3
   files_modified: 13
   files_created: 1
 ---
@@ -84,32 +84,16 @@ All 6 compile successfully and produce correct output. No fire-and-forget spawns
 
 **Commit:** `5333a38` — feat(31-02): run benchmark suite, update thresholds and save baseline
 
-## Checkpoint: Task 3 — Human Verification
+## Task 3: Human Verification — APPROVED
 
-Task 3 is a `checkpoint:human-verify` gate. Execution paused here per plan design.
+Task 3 was a `checkpoint:human-verify` gate. Execution paused at checkpoint; user verified and approved the implementation.
 
-**What to verify:**
-
-1. Run integration tests: `cd /Users/victor/code/iron-lang && tests/run_tests.sh integration`
-   - Expected: All tests pass, including spawn_await, spawn_await_return, spawn_await_multiple
-
-2. Run algorithm tests: `tests/run_tests.sh algorithms`
-   - Expected: All 13 tests pass
-
-3. Compile and run spawn_await_return manually:
-   `./build/ironc build tests/integration/spawn_await_return.iron -o /tmp/test_spawn && /tmp/test_spawn`
-   - Expected output: `45`
-
-4. Compile and run spawn_await_multiple manually:
-   `./build/ironc build tests/integration/spawn_await_multiple.iron -o /tmp/test_multi && /tmp/test_multi`
-   - Expected output includes: `fib(10) = 55`, `fib(15) = 610`, `fib(20) = 6765`
-
-5. Verify NO benchmarks use fire-and-forget spawn:
-   `grep -rL "await" tests/benchmarks/problems/spawn_*/main.iron tests/benchmarks/problems/concurrency_spawn_*/main.iron tests/benchmarks/problems/concurrency_pipeline/main.iron`
-   - Expected: no output (all files contain "await")
-
-6. Run benchmarks: `tests/benchmarks/run_benchmarks.sh 2>&1 | tail -20`
-   - Expected: 137/138 pass (nullable_sum_tree pre-existing failure excluded)
+**Verification confirmed:**
+- Integration tests: 173/173 pass (including spawn_await, spawn_await_return, spawn_await_multiple)
+- Algorithm tests: 13/13 pass
+- All 6 spawn benchmarks contain `await` — no fire-and-forget spawns remain
+- Benchmark suite: 137/138 pass (nullable_sum_tree pre-existing failure, unrelated to these changes)
+- spawn/await end-to-end behavior verified correct
 
 ## Deviations from Plan
 
