@@ -568,7 +568,7 @@ Plans:
   1. `val x: Int32 = 0` compiles through the full pipeline and emits `int32_t x = 0;` in the generated C; the Iron type system accepts `Int32` in variable declarations, function parameters, and return types
   2. An array declared as `[Int32]` emits a `int32_t*` pointer in generated C; arithmetic on `Int32` elements operates on 32-bit values at runtime
   3. All existing tests continue to pass; `Int32` programs compile with `clang -std=c11 -Wall -Werror` with zero warnings
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 29-01-PLAN.md — Int32 type coercion, runtime list, integration tests
@@ -622,5 +622,5 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
 | 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
 | 28. Phi Elimination Improvement | 1/1 | Complete    | 2026-04-01 | - |
-| 29. Sized Integers | 1/2 | In Progress|  | - |
+| 29. Sized Integers | 2/2 | Complete   | 2026-04-01 | - |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 0/? | Not started | - |

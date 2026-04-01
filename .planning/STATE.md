@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 29 context gathered
-last_updated: "2026-04-01T14:20:56.939Z"
-last_activity: 2026-04-01 — Dead alloca elimination pass implemented; 36% reduction in count_components temporaries
+stopped_at: Completed 29-02-PLAN.md
+last_updated: "2026-04-01T15:44:20.374Z"
+last_activity: 2026-04-01 — Int32 benchmarks added; connected_components uses int32_t stack arrays; two codegen bugs fixed
 progress:
   total_phases: 7
-  completed_phases: 5
-  total_plans: 6
-  completed_plans: 6
+  completed_phases: 6
+  total_plans: 8
+  completed_plans: 8
   percent: 71
 ---
 
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 ## Current Position
 
-Phase: 28 of 30 (Phi Elimination Improvement)
-Plan: 01 complete
+Phase: 29 of 30 (Sized Integers)
+Plan: 02 complete
 Status: Phase complete
-Last activity: 2026-04-01 — Dead alloca elimination pass implemented; 36% reduction in count_components temporaries
+Last activity: 2026-04-01 — Int32 benchmarks added; connected_components uses int32_t stack arrays; two codegen bugs fixed (GET_INDEX param type lookup, phi zero-init for sized ints)
 
-Progress: [██████████░░] 71%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -63,6 +63,8 @@ Recent decisions affecting current work:
 - [Phase 28-phi-elimination]: run_dead_alloca_elimination must be placed AFTER compute_escape_set in lir_optimize.c — C99 requires function to be declared before use (no implicit declaration allowed)
 - [Phase 28-phi-elimination]: GET_INDEX/SET_INDEX/GET_FIELD/SET_FIELD uses of an alloca must mark it as live (same as LOAD) — prevents removing arrays mutated via index/field ops without explicit LOAD
 - [Phase 28-phi-elimination]: Post-fixpoint single pass is sufficient for dead alloca elimination — copy-prop already removed single-store loads; inside-fixpoint placement adds marginal benefit only
+- [Phase 29-02]: get_value_type() helper: parameter value IDs (1..param_count) have NULL value_table entries; fn->params[vid-1].type fallback required for correct GET_INDEX/SET_INDEX type lookup for array parameters
+- [Phase 29-02]: Phi zero-init for sized integers: IRON_TYPE_INT8/16/32/64 and UINT variants must use iron_lir_const_int(0) not const_null; missing in original hir_to_lir.c which only handled INT and BOOL
 
 ### Pending Todos
 
@@ -75,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T14:20:56.936Z
-Stopped at: Phase 29 context gathered
-Resume file: .planning/phases/29-sized-integers/29-CONTEXT.md
+Last session: 2026-04-01T15:44:20.371Z
+Stopped at: Completed 29-02-PLAN.md
+Resume file: None

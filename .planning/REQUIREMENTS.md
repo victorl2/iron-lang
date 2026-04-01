@@ -35,8 +35,8 @@ Requirements for Performance Optimization milestone. Each maps to roadmap phases
 
 ### Sized Integers
 
-- [ ] **INT-01**: Iron supports explicit `Int32` type annotations that emit `int32_t` in generated C
-- [ ] **INT-02**: Array operations with `Int32` elements use 32-bit memory bandwidth
+- [x] **INT-01**: Iron supports explicit `Int32` type annotations that emit `int32_t` in generated C
+- [x] **INT-02**: Array operations with `Int32` elements use 32-bit memory bandwidth
 
 ### Benchmark Validation
 
@@ -83,8 +83,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INLINE-03 | Phase 27 | Complete |
 | PHI-01 | Phase 28 | Complete |
 | PHI-02 | Phase 28 | Complete |
-| INT-01 | Phase 29 | Pending |
-| INT-02 | Phase 29 | Pending |
+| INT-01 | Phase 29 | Complete |
+| INT-02 | Phase 29 | Complete |
 | BENCH-01 | Phase 30 | Pending |
 | BENCH-02 | Phase 30 | Pending |
 
