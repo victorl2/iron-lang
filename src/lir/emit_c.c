@@ -2135,16 +2135,70 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Concurrency ────────────────────────────────────────────────────── */
 
     case IRON_LIR_SPAWN: {
-        /* Iron_pool_submit returns void; emit as a statement (no return value) */
-        const char *func_name = instr->spawn.lifted_func_name;
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_pool_submit(");
-        if (instr->spawn.pool_val == IRON_LIR_VALUE_INVALID) {
-            iron_strbuf_appendf(sb, "Iron_global_pool");
+        const char *func_name   = instr->spawn.lifted_func_name;
+        const char *c_func_name = mangle_func_name(func_name, ctx->arena);
+
+        if (instr->type && instr->type->kind != IRON_TYPE_VOID) {
+            /* Handled spawn: generate a wrapper that captures the result into
+             * the handle's result field, then use iron_handle_create_self_ref
+             * to start the thread (the handle is passed as its own arg). */
+
+            /* Build a deterministic wrapper name */
+            Iron_StrBuf wrapper_sb = iron_strbuf_create(64);
+            iron_strbuf_appendf(&wrapper_sb, "%s_wrapper", c_func_name);
+            const char *wrapper_name = iron_arena_strdup(ctx->arena,
+                                                          iron_strbuf_get(&wrapper_sb),
+                                                          wrapper_sb.len);
+            iron_strbuf_free(&wrapper_sb);
+
+            /* Look up the lifted function to determine its return type */
+            IronLIR_Func *lifted_fn = NULL;
+            for (int fi = 0; fi < ctx->module->func_count; fi++) {
+                if (ctx->module->funcs[fi]->name &&
+                    strcmp(ctx->module->funcs[fi]->name, func_name) == 0) {
+                    lifted_fn = ctx->module->funcs[fi];
+                    break;
+                }
+            }
+
+            /* Emit wrapper into lifted_funcs section */
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                "static void %s(void *_arg) {\n", wrapper_name);
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                "    Iron_Handle *_h = (Iron_Handle *)_arg;\n");
+
+            if (lifted_fn && lifted_fn->return_type &&
+                lifted_fn->return_type->kind != IRON_TYPE_VOID) {
+                const char *ret_c = emit_type_to_c(lifted_fn->return_type, ctx);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    %s _result = %s();\n", ret_c, c_func_name);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    _h->result = (void *)(intptr_t)_result;\n");
+            } else {
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    %s();\n", c_func_name);
+            }
+
+            iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+
+            /* Emit handle creation at call site */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "Iron_Handle *");
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = iron_handle_create_self_ref("
+                                "(void (*)(void *))%s);\n", wrapper_name);
         } else {
-            emit_val(sb, instr->spawn.pool_val);
+            /* Fire-and-forget spawn -- use pool_submit
+             * (typecheck already emitted IRON_WARN_SPAWN_NO_HANDLE) */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "Iron_pool_submit(");
+            if (instr->spawn.pool_val == IRON_LIR_VALUE_INVALID) {
+                iron_strbuf_appendf(sb, "Iron_global_pool");
+            } else {
+                emit_val(sb, instr->spawn.pool_val);
+            }
+            iron_strbuf_appendf(sb, ", (void (*)(void *))%s, NULL);\n", c_func_name);
         }
-        iron_strbuf_appendf(sb, ", (void (*)(void *))%s, NULL);\n", func_name);
         break;
     }
 

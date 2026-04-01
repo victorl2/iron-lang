@@ -209,6 +209,8 @@ typedef struct {
 Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg);
 void         Iron_handle_wait(Iron_Handle *handle);
 void         Iron_handle_destroy(Iron_Handle *handle);
+void        *iron_future_await(Iron_Handle *handle);
+Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *));
 
 /* ── Iron_Channel (bounded ring buffer) ──────────────────────────────────────
  * send blocks when the buffer is full; recv blocks when it is empty.

@@ -41,14 +41,20 @@ typedef struct {
 } NarrowEntry;
 
 typedef struct {
-    Iron_Arena    *arena;
-    Iron_DiagList *diags;
-    Iron_Scope    *global_scope;
-    Iron_Scope    *current_scope;   /* type-checker's own scope chain */
-    Iron_Type     *current_return_type;  /* expected return type; NULL outside funcs */
-    const char    *current_method_type;  /* owning type name if in method */
-    NarrowEntry   *narrowed;             /* stb_ds map: sym name -> narrowed type */
-    Iron_Program  *program;              /* for method return type lookup */
+    char        *key;   /* stb_ds strdup key -- handle name */
+    Iron_Type   *value; /* spawn body return type */
+} SpawnResultEntry;
+
+typedef struct {
+    Iron_Arena        *arena;
+    Iron_DiagList     *diags;
+    Iron_Scope        *global_scope;
+    Iron_Scope        *current_scope;   /* type-checker's own scope chain */
+    Iron_Type         *current_return_type;  /* expected return type; NULL outside funcs */
+    const char        *current_method_type;  /* owning type name if in method */
+    NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
+    Iron_Program      *program;              /* for method return type lookup */
+    SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
 } TypeCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -873,7 +879,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_AWAIT: {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
             check_expr(ctx, ae->handle);
-            result = iron_type_make_primitive(IRON_TYPE_VOID);
+
+            /* Look up the spawn body's return type from the handle name */
+            Iron_Type *await_type = iron_type_make_primitive(IRON_TYPE_INT);
+            if (ae->handle && ae->handle->kind == IRON_NODE_IDENT) {
+                Iron_Ident *ident = (Iron_Ident *)ae->handle;
+                int idx = shgeti(ctx->spawn_result_types, ident->name);
+                if (idx >= 0) {
+                    await_type = ctx->spawn_result_types[idx].value;
+                }
+            }
+            result = await_type;
             ae->resolved_type = result;
             break;
         }
@@ -925,7 +941,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
             Iron_Type *init_type = NULL;
             if (vd->init) {
-                init_type = check_expr(ctx, vd->init);
+                if (vd->init->kind == IRON_NODE_SPAWN) {
+                    /* val h = spawn(...) { body } -- spawn as handle init */
+                    check_stmt(ctx, vd->init);  /* processes the spawn node (handle_name already set) */
+                    /* The declared type for h is OBJECT (an Iron_Handle pointer) */
+                    init_type = iron_type_make_primitive(IRON_TYPE_OBJECT);
+                } else {
+                    init_type = check_expr(ctx, vd->init);
+                }
             }
 
             if (!decl_type && init_type) {
@@ -957,7 +980,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
             Iron_Type *init_type = NULL;
             if (vd->init) {
-                init_type = check_expr(ctx, vd->init);
+                if (vd->init->kind == IRON_NODE_SPAWN) {
+                    /* var h = spawn(...) { body } -- spawn as handle init */
+                    check_stmt(ctx, vd->init);
+                    init_type = iron_type_make_primitive(IRON_TYPE_OBJECT);
+                } else {
+                    init_type = check_expr(ctx, vd->init);
+                }
             }
 
             if (!decl_type && init_type) {
@@ -1216,6 +1245,37 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
             if (ss->pool_expr) check_expr(ctx, ss->pool_expr);
             if (ss->body) check_stmt(ctx, ss->body);
+
+            /* Store spawn body return type for downstream await lookup */
+            if (ss->handle_name) {
+                /* Walk the spawn body to find IRON_NODE_RETURN and use its expr type */
+                Iron_Type *body_ret = iron_type_make_primitive(IRON_TYPE_INT);
+                Iron_Block *blk = (Iron_Block *)ss->body;
+                if (blk) {
+                    for (int i = 0; i < blk->stmt_count; i++) {
+                        if (blk->stmts[i]->kind == IRON_NODE_RETURN) {
+                            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)blk->stmts[i];
+                            if (rs->value) {
+                                /* All expr nodes share the layout:
+                                 * { span, kind, resolved_type, ... } */
+                                Iron_IntLit *expr_node = (Iron_IntLit *)rs->value;
+                                if (expr_node->resolved_type) {
+                                    body_ret = expr_node->resolved_type;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                shput(ctx->spawn_result_types, ss->handle_name, body_ret);
+            } else {
+                /* Fire-and-forget spawn (no handle captured) -- emit warning */
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING,
+                               IRON_WARN_SPAWN_NO_HANDLE, ss->span,
+                               "spawned task handle not captured; use "
+                               "`val h = spawn(...)` and `await h` to wait for completion",
+                               NULL);
+            }
             break;
         }
 
@@ -1402,7 +1462,9 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.current_method_type = NULL;
     ctx.narrowed            = NULL;
     ctx.program             = program;
+    ctx.spawn_result_types  = NULL;
     sh_new_strdup(ctx.narrowed);
+    sh_new_strdup(ctx.spawn_result_types);
 
     /* Check top-level val/var declarations first so their init expressions
      * have resolved_type set before function bodies reference them.
@@ -1503,4 +1565,5 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     check_interface_completeness(&ctx, program);
 
     shfree(ctx.narrowed);
+    shfree(ctx.spawn_result_types);
 }

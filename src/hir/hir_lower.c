@@ -293,6 +293,50 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_ValDecl *vd = (Iron_ValDecl *)node;
         Iron_Type    *ty = vd->declared_type;
         if (!ty) ty = resolve_type_ann(ctx, vd->type_ann);
+
+        if (vd->init && vd->init->kind == IRON_NODE_SPAWN) {
+            /* val h = spawn("name") { body } -- spawn handle binding.
+             * Allocate the HIR var for h, then emit a spawn stmt that binds
+             * its result LIR value to this var (via handle_var). */
+            Iron_Type *obj_ty = iron_type_make_primitive(IRON_TYPE_OBJECT);
+            IronHIR_VarId id  = iron_hir_alloc_var(mod, vd->name, obj_ty, false);
+            declare_var(ctx, vd->name, id);
+
+            /* Lower the spawn as a statement (sets handle_name) */
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)vd->init;
+            const char     *hname = ss->handle_name ? ss->handle_name : vd->name;
+
+            char lifted_name[64];
+            snprintf(lifted_name, sizeof(lifted_name), "__spawn_%d",
+                     ctx->lift_counter++);
+            char *name_copy = (char *)iron_arena_alloc(
+                ctx->module->arena,
+                strlen(lifted_name) + 1,
+                _Alignof(char));
+            memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
+
+            IronHIR_Block *spawn_body = iron_hir_block_create(mod);
+            lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
+
+            IronHIR_Stmt *spawn_s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
+            spawn_s->spawn.handle_var = id;  /* bind spawn result to h */
+            iron_hir_block_add_stmt(blk, spawn_s);
+
+            /* Queue for lifting */
+            LiftPending lp;
+            lp.kind           = LIFT_SPAWN;
+            lp.ast_node       = vd->init;
+            lp.lifted_name    = name_copy;
+            lp.enclosing_func = ctx->current_func_name;
+            arrput(ctx->pending_lifts, lp);
+
+            /* Create HIR LET with null init -- the spawn result will be bound
+             * in hir_to_lir.c via spawn_s->spawn.handle_var */
+            IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, id, obj_ty, NULL, false, span);
+            iron_hir_block_add_stmt(blk, let_s);
+            return NULL;
+        }
+
         IronHIR_Expr *init = vd->init ? lower_expr_hir(ctx, vd->init) : NULL;
         IronHIR_VarId id   = iron_hir_alloc_var(mod, vd->name, ty, false);
         declare_var(ctx, vd->name, id);
@@ -1369,9 +1413,25 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
         case LIFT_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)lp->ast_node;
-            /* Spawn body is a block; create a no-arg void function */
+            /* Infer return type from the spawn body's return statement */
+            Iron_Type *spawn_ret_ty = NULL;
+            if (ss->body) {
+                Iron_Block *sblk = (Iron_Block *)ss->body;
+                for (int ri = 0; ri < sblk->stmt_count; ri++) {
+                    if (sblk->stmts[ri]->kind == IRON_NODE_RETURN) {
+                        Iron_ReturnStmt *rs = (Iron_ReturnStmt *)sblk->stmts[ri];
+                        if (rs->value) {
+                            /* All expr nodes share layout: { span, kind, resolved_type } */
+                            Iron_IntLit *rexpr = (Iron_IntLit *)rs->value;
+                            spawn_ret_ty = rexpr->resolved_type;
+                        }
+                        break;
+                    }
+                }
+            }
+            /* Spawn body is a block; create a function with the inferred return type */
             IronHIR_Func *lifted = iron_hir_func_create(mod, lp->lifted_name,
-                                                          NULL, 0, NULL);
+                                                          NULL, 0, spawn_ret_ty);
             lifted->body = iron_hir_block_create(mod);
 
             push_scope(ctx);

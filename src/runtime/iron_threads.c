@@ -271,6 +271,37 @@ void Iron_handle_destroy(Iron_Handle *handle) {
     free(handle);
 }
 
+void *iron_future_await(Iron_Handle *handle) {
+    if (!handle) return NULL;
+    Iron_handle_wait(handle);       /* blocks until done, joins thread, re-raises panic */
+    void *result = handle->result;  /* capture before destroy */
+    Iron_handle_destroy(handle);    /* free mutex/cond/handle */
+    return result;
+}
+
+Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *)) {
+    Iron_Handle *h = (Iron_Handle *)malloc(sizeof(Iron_Handle));
+    if (!h) return NULL;
+
+    h->done      = false;
+    h->result    = NULL;
+    h->panic_msg = NULL;
+    IRON_MUTEX_INIT(h->lock);
+    IRON_COND_INIT(h->cond);
+
+    HandleWrapper *w = (HandleWrapper *)malloc(sizeof(HandleWrapper));
+    if (!w) {
+        free(h);
+        return NULL;
+    }
+    w->handle = h;
+    w->fn     = fn;
+    w->arg    = h;  /* self-referential: pass handle as arg */
+
+    IRON_THREAD_CREATE(h->thread, handle_thread_fn, w);
+    return h;
+}
+
 /* ── Iron_Channel ────────────────────────────────────────────────────────── */
 
 struct Iron_Channel {

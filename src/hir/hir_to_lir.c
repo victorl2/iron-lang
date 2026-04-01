@@ -1427,10 +1427,25 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         if (!lifted_name) lifted_name = "__spawn_unknown";
 
         if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
-            iron_lir_spawn(ctx->current_func, ctx->current_block,
-                           lifted_name, IRON_LIR_VALUE_INVALID,
-                           stmt->spawn.handle_name,
-                           iron_type_make_primitive(IRON_TYPE_VOID), span);
+            /* Use NULL type (void*) for handled spawns to distinguish from VOID.
+             * emit_c.c checks (type && kind != VOID) to select the handle path.
+             * IRON_TYPE_NULL is a primitive type that emits as void* and signals
+             * "this spawn returns a handle pointer". */
+            Iron_Type *spawn_type = (stmt->spawn.handle_var != IRON_HIR_VAR_INVALID)
+                ? iron_type_make_primitive(IRON_TYPE_NULL)
+                : iron_type_make_primitive(IRON_TYPE_VOID);
+
+            IronLIR_Instr *spawn_instr =
+                iron_lir_spawn(ctx->current_func, ctx->current_block,
+                               lifted_name, IRON_LIR_VALUE_INVALID,
+                               stmt->spawn.handle_name,
+                               spawn_type, span);
+
+            /* If this spawn is bound to a handle variable, record the LIR
+             * value ID so that IRON_HIR_STMT_LET (with null init) can bind it */
+            if (stmt->spawn.handle_var != IRON_HIR_VAR_INVALID && spawn_instr) {
+                hmput(ctx->val_binding_map, stmt->spawn.handle_var, spawn_instr->id);
+            }
         }
         break;
     }
