@@ -1738,7 +1738,16 @@ static void ssa_rename_recursive(
                 Iron_Type *phi_type = phi->type;
                 IronLIR_Instr *zero_c = NULL;
                 Iron_Span zero_span = {0};
-                if (phi_type && phi_type->kind == IRON_TYPE_INT) {
+                if (phi_type && (phi_type->kind == IRON_TYPE_INT   ||
+                                 phi_type->kind == IRON_TYPE_INT8  ||
+                                 phi_type->kind == IRON_TYPE_INT16 ||
+                                 phi_type->kind == IRON_TYPE_INT32 ||
+                                 phi_type->kind == IRON_TYPE_INT64 ||
+                                 phi_type->kind == IRON_TYPE_UINT  ||
+                                 phi_type->kind == IRON_TYPE_UINT8 ||
+                                 phi_type->kind == IRON_TYPE_UINT16||
+                                 phi_type->kind == IRON_TYPE_UINT32||
+                                 phi_type->kind == IRON_TYPE_UINT64)) {
                     zero_c = iron_lir_const_int(fn, entry_blk, 0, phi_type, zero_span);
                 } else if (phi_type && phi_type->kind == IRON_TYPE_BOOL) {
                     zero_c = iron_lir_const_bool(fn, entry_blk, false, phi_type, zero_span);

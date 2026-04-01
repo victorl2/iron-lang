@@ -386,6 +386,19 @@ static void mark_stack_array(EmitCtx *ctx, IronLIR_ValueId id,
 
 /* (resolve_stack_array_origin removed — pre-scan in emit_func_body handles propagation) */
 
+/* Return the Iron_Type* for a value ID, including for parameter values (which
+ * have NULL entries in value_table).  Parameter value IDs are 1..param_count;
+ * fn->params[vid-1].type holds their type.  Returns NULL if unknown. */
+static Iron_Type *get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return NULL;
+    if (vid < (IronLIR_ValueId)arrlen(fn->value_table) && fn->value_table[vid])
+        return fn->value_table[vid]->type;
+    /* Parameter value: IDs 1..param_count map to fn->params[vid-1] */
+    if (vid >= 1 && vid <= (IronLIR_ValueId)fn->param_count)
+        return fn->params[vid - 1].type;
+    return NULL;
+}
+
 /* Forward declaration — emit_instr and emit_expr_to_buf are mutually recursive */
 static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                               IronLIR_Func *fn, EmitCtx *ctx,
@@ -633,13 +646,9 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, "]");
         } else {
-            /* Check direct array type */
-            bool use_direct = false;
-            if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[instr->index.array]) {
-                Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                if (arr_t && arr_t->kind == IRON_TYPE_ARRAY) use_direct = true;
-            }
+            /* Check direct array type — also handles parameter values (NULL in value_table) */
+            Iron_Type *arr_t_expr = get_value_type(fn, instr->index.array);
+            bool use_direct = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY);
             if (use_direct) {
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
                 iron_strbuf_appendf(sb, ".items[");
@@ -833,6 +842,21 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", c_type);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = {0};\n");
+        } else if (instr->type && (instr->type->kind == IRON_TYPE_INT   ||
+                                    instr->type->kind == IRON_TYPE_INT8  ||
+                                    instr->type->kind == IRON_TYPE_INT16 ||
+                                    instr->type->kind == IRON_TYPE_INT32 ||
+                                    instr->type->kind == IRON_TYPE_INT64 ||
+                                    instr->type->kind == IRON_TYPE_UINT  ||
+                                    instr->type->kind == IRON_TYPE_UINT8 ||
+                                    instr->type->kind == IRON_TYPE_UINT16||
+                                    instr->type->kind == IRON_TYPE_UINT32||
+                                    instr->type->kind == IRON_TYPE_UINT64)) {
+            /* Scalar integer: emit type-correct zero instead of void* NULL */
+            const char *c_type = emit_type_to_c(instr->type, ctx);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = 0;\n");
         } else {
             if (!is_hoisted) iron_strbuf_appendf(sb, "void* ");
             emit_val(sb, instr->id);
@@ -1227,13 +1251,8 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Check if the array has an array type — if so, inline .items[idx]
              * instead of calling _get() which is just return self->items[index] */
-            bool use_direct = false;
-            if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[instr->index.array]) {
-                Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                if (arr_t && arr_t->kind == IRON_TYPE_ARRAY)
-                    use_direct = true;
-            }
+            Iron_Type *arr_t = get_value_type(fn, instr->index.array);
+            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY);
             if (use_direct) {
                 /* Direct field access: result = array.items[index]; */
                 emit_indent(sb, ind);
@@ -1247,11 +1266,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             } else {
                 /* Fallback: result = Iron_List_<suffix>_get(&array, index) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
-                if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[instr->index.array]) {
-                    Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                    if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
-                }
+                if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
                 emit_indent(sb, ind);
                 if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
                 emit_val(sb, instr->id);
@@ -1280,13 +1295,8 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Check if the array has an array type — if so, inline .items[idx]
              * instead of calling _set() which is just self->items[index] = item */
-            bool use_direct = false;
-            if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[instr->index.array]) {
-                Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                if (arr_t && arr_t->kind == IRON_TYPE_ARRAY)
-                    use_direct = true;
-            }
+            Iron_Type *arr_t = get_value_type(fn, instr->index.array);
+            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY);
             if (use_direct) {
                 /* Direct field access: array.items[index] = value; */
                 emit_indent(sb, ind);
@@ -1299,11 +1309,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             } else {
                 /* Fallback: Iron_List_<suffix>_set(&array, index, value) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
-                if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[instr->index.array]) {
-                    Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                    if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
-                }
+                if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s_set(&", list_type);
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
