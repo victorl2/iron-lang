@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 15.0, "note": "Language-design-inherent overhead: Iron Int=int64_t (2x width), array length params, recursive call overhead. Local ~4.4x but Ubuntu CI shows 11.9x due to different clang optimization behavior."}
+{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 8.0, "note": "Iron Int=int64_t vs C int32_t (2x width), array length params, goto control flow. Local ~4x. Function inlining loses Int32 types, so Int32 rewrite doesn't help until inlining preserves narrow types. CI headroom for Ubuntu clang differences."}
