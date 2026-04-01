@@ -518,7 +518,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [ ] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
 
 ### Phase 26: LOAD Expression Inlining
 **Goal**: LOAD instructions are eligible for expression inlining when their single use is in the same basic block as the LOAD definition, removing one layer of copy temporaries from every function
@@ -616,7 +616,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 21. Parallel-For Fix | v0.0.6-alpha | 1/1 | Complete | 2026-03-31 |
 | 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
-| 24. Range Bound Hoisting | 1/1 | Complete   | 2026-03-31 | - |
+| 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
 | 25. Stack Array Promotion | v0.0.7-alpha | 0/? | Not started | - |
 | 26. LOAD Expression Inlining | v0.0.7-alpha | 0/? | Not started | - |
 | 27. Function Inlining | v0.0.7-alpha | 0/? | Not started | - |
