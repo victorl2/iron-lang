@@ -79,6 +79,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
 - [ ] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
 - [ ] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
+- [ ] **Phase 31: Spawn/Await Correctness** - Verify spawn/await semantics work end-to-end; fix concurrency benchmarks for fair timing
 
 ## Phase Details
 
@@ -591,7 +592,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
+Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -624,4 +625,23 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
 | 28. Phi Elimination Improvement | 1/1 | Complete    | 2026-04-01 | - |
 | 29. Sized Integers | 2/2 | Complete    | 2026-04-01 | - |
-| 30. Benchmark Validation and Exploration | 2/2 | Complete   | 2026-04-01 | - |
+| 30. Benchmark Validation and Exploration | 2/2 | Complete    | 2026-04-01 | - |
+| 31. Spawn/Await Correctness | 0/2 | Planning complete | - | - |
+
+### Phase 31: Spawn/Await Correctness
+
+**Goal:** Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
+**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
+**Depends on:** Phase 30
+**Success Criteria** (what must be TRUE):
+  1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
+  2. Multiple spawn+await pairs work correctly in sequence
+  3. Fire-and-forget spawn compiles with compiler warning about un-captured handle
+  4. parallel-for blocks until all iterations complete (no regression)
+  5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
+  6. Full benchmark and test suites pass with updated thresholds
+**Plans:** 2 plans
+
+Plans:
+- [ ] 31-01-PLAN.md -- Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
+- [ ] 31-02-PLAN.md -- Benchmark updates + threshold re-validation + human verification
