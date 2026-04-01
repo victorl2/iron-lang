@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 30-01-PLAN.md
-last_updated: "2026-04-01T17:52:09.752Z"
-last_activity: 2026-04-01 — Int32 benchmarks added; connected_components uses int32_t stack arrays; two codegen bugs fixed (GET_INDEX param type lookup, phi zero-init for sized ints)
+stopped_at: Completed 30-02-PLAN.md
+last_updated: "2026-04-01T18:04:00Z"
+last_activity: 2026-04-01 — v0.0.7-alpha benchmark report created; top 3 outliers deep-dived; suggested_performance_improvements.md updated with post-optimization state
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
   percent: 100
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 ## Current Position
 
-Phase: 29 of 30 (Sized Integers)
+Phase: 30 of 30 (Benchmark Validation and Exploration)
 Plan: 02 complete
-Status: Phase complete
-Last activity: 2026-04-01 — Int32 benchmarks added; connected_components uses int32_t stack arrays; two codegen bugs fixed (GET_INDEX param type lookup, phi zero-init for sized ints)
+Status: Phase complete — all plans complete
+Last activity: 2026-04-01 — v0.0.7-alpha benchmark report created; top 3 outliers deep-dived; suggested_performance_improvements.md updated with post-optimization state
 
 Progress: [██████████] 100%
 
@@ -67,6 +67,8 @@ Recent decisions affecting current work:
 - [Phase 29-02]: Phi zero-init for sized integers: IRON_TYPE_INT8/16/32/64 and UINT variants must use iron_lir_const_int(0) not const_null; missing in original hir_to_lir.c which only handled INT and BOOL
 - [Phase 30-01]: Sub-ms concurrency benchmarks require 5.0x threshold to absorb 1ms timer granularity noise — ratio is meaningless at sub-ms resolution
 - [Phase 30-01]: connected_components threshold 500.0->1.5 validates Phase 29 Int32 array promotion: benchmark now runs at 0.5x (faster than C)
+- [Phase 30-02]: Top 3 outlier root causes all FUTURE PASS or ARCHITECTURAL — no prototype fixes committed; deep-dive documented as proposals for P6/P7 phases
+- [Phase 30-02]: three_sum overhead: skip_dup_lo/hi not inlined due to array-param restriction; relaxing for const (read-only) array params is safe and is the proposed fix
 
 ### Pending Todos
 
@@ -79,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T17:52:09.750Z
-Stopped at: Completed 30-01-PLAN.md
+Last session: 2026-04-01T18:04:00Z
+Stopped at: Completed 30-02-PLAN.md
 Resume file: None

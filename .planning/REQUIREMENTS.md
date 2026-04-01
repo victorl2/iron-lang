@@ -40,8 +40,8 @@ Requirements for Performance Optimization milestone. Each maps to roadmap phases
 
 ### Benchmark Validation
 
-- [ ] **BENCH-01**: Benchmark suite is run after all optimizations and results are compared to pre-optimization baseline
-- [ ] **BENCH-02**: Exploration pass identifies any remaining optimization opportunities beyond P0-P5
+- [x] **BENCH-01**: Benchmark suite is run after all optimizations and results are compared to pre-optimization baseline
+- [x] **BENCH-02**: Exploration pass identifies any remaining optimization opportunities beyond P0-P5
 
 ## Future Requirements
 
@@ -85,8 +85,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PHI-02 | Phase 28 | Complete |
 | INT-01 | Phase 29 | Complete |
 | INT-02 | Phase 29 | Complete |
-| BENCH-01 | Phase 30 | Pending |
-| BENCH-02 | Phase 30 | Pending |
+| BENCH-01 | Phase 30 | Complete |
+| BENCH-02 | Phase 30 | Complete |
 
 **Coverage:**
 - v0.0.7-alpha requirements: 15 total
