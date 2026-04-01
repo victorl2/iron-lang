@@ -613,6 +613,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                  iron_type_to_string(arg_type, ctx->arena));
                         emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
                     }
+                    /* Narrow literal args to match parameter type */
+                    if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
+                        ((Iron_IntLit *)ce->args[i])->resolved_type = param_type;
+                    }
                 }
             }
 
@@ -960,6 +964,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     emit_type_mismatch(ctx, vd->span, decl_type, init_type);
                 }
+                /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
+                if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    ((Iron_IntLit *)vd->init)->resolved_type = decl_type;
+                }
             }
 
             vd->declared_type = decl_type;
@@ -997,6 +1005,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     !types_assignable(decl_type, init_type) &&
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     emit_type_mismatch(ctx, vd->span, decl_type, init_type);
+                }
+                /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
+                if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    ((Iron_IntLit *)vd->init)->resolved_type = decl_type;
                 }
             }
 
