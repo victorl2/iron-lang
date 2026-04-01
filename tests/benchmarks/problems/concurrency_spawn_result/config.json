@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 5.0, "note": "Sub-ms timing causes high ratio variance; threshold 5.0x absorbs timer noise"}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 1.5, "note": "Phase 31: await-based timing (handles captured and awaited per iteration). Sub-ms workload; threshold 1.5x absorbs timer noise."}

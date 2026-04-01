@@ -1,1 +1,1 @@
-{"iterations": 1, "timeout_sec": 120, "max_ratio": 6.2}
+{"iterations": 1, "timeout_sec": 120, "max_ratio": 1.5, "note": "Phase 31: await-based timing (handles captured and awaited per iteration, fair vs C pthread_join). Iron faster than C (~0.1-0.2x ratio). Threshold 1.5x absorbs variance."}

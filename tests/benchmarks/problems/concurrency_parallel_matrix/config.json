@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 5.0, "note": "Correctness benchmark: 3 iterations of parallel-for on 40x40 matrix. Sub-ms timing causes extreme ratio variance (C=0ms, Iron=0-1ms). Threshold 5.0x absorbs sub-ms measurement noise."}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 1.8, "note": "Correctness benchmark: 3 iterations of parallel-for on 40x40 matrix. Sub-ms timing causes extreme ratio variance (C=0ms, Iron=0-1ms). Threshold 5.0x absorbs sub-ms measurement noise."}
