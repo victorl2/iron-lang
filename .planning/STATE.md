@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-03-31T20:52:46.904Z"
+stopped_at: Completed 25-01-PLAN.md
+last_updated: "2026-04-01T09:37:43.756Z"
 last_activity: 2026-03-31 — Roadmap created, Phases 24-30 defined
 progress:
   total_phases: 7
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
   percent: 0
 ---
 
@@ -51,6 +51,8 @@ Recent decisions affecting current work:
 - [v0.0.7-alpha roadmap]: Phase ordering: P1 (hoisting) -> P4 (fill) -> P5 (LOAD) -> P0 (inlining) -> P2 (phi) -> P3 (int32) -> benchmark. Research-recommended order. Phi and int32 come after all four primary passes are committed.
 - [v0.0.7-alpha roadmap]: Function inlining (Phase 27) carries highest risk — mandatory value ID remap via fresh next_value_id++, recursion guard, array param mode restriction. Verify find_root param mode before planning.
 - [Phase 24-range-bound-hoisting]: count_alloca placed in pre_header while active block, LOAD replaces GET_FIELD in header — bound computed once per loop entry
+- [Phase 25-stack-array-promotion]: Apply constant-count gate in both optimizer AND emitter pre-scan: dynamic fills must be excluded in both places to prevent type mismatch for escaping fills
+- [Phase 25-stack-array-promotion]: fill_hoisted map pattern: fill() declaration hoisting mirrors phi_hoisted — entry declarations, init-only at call site; reusable pattern for any array declaration hoisting
 
 ### Pending Todos
 
@@ -63,6 +65,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T20:52:46.901Z
-Stopped at: Completed 24-01-PLAN.md
+Last session: 2026-04-01T09:37:43.753Z
+Stopped at: Completed 25-01-PLAN.md
 Resume file: None

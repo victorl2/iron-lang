@@ -14,8 +14,8 @@ Requirements for Performance Optimization milestone. Each maps to roadmap phases
 
 ### Memory Optimization
 
-- [ ] **MEM-01**: `fill(CONST, val)` with constant size <= 1024 and non-escaping result is stack-allocated via alloca
-- [ ] **MEM-02**: Stack-promoted arrays emit declarations at function entry to avoid VLA+goto bypass
+- [x] **MEM-01**: `fill(CONST, val)` with constant size <= 1024 and non-escaping result is stack-allocated via alloca
+- [x] **MEM-02**: Stack-promoted arrays emit declarations at function entry to avoid VLA+goto bypass
 
 ### Expression Optimization
 
@@ -74,8 +74,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | LOOP-01 | Phase 24 | Complete |
 | LOOP-02 | Phase 24 | Complete |
-| MEM-01 | Phase 25 | Pending |
-| MEM-02 | Phase 25 | Pending |
+| MEM-01 | Phase 25 | Complete |
+| MEM-02 | Phase 25 | Complete |
 | EXPR-01 | Phase 26 | Pending |
 | EXPR-02 | Phase 26 | Pending |
 | INLINE-01 | Phase 27 | Pending |

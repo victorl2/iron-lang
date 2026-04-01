@@ -515,7 +515,7 @@ Plans:
   1. Generated C for `var parent = fill(50, 0)` in a non-escaping function emits an `alloca()`-based declaration at function entry rather than a heap allocation call
   2. The array declaration appears at function entry (not at the call site), so no VLA+goto bypass error occurs when the function contains control flow
   3. All 137 benchmarks and integration tests pass; `bug_vla_goto_bypass.iron` continues to pass
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
@@ -617,7 +617,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
-| 25. Stack Array Promotion | v0.0.7-alpha | 0/? | Not started | - |
+| 25. Stack Array Promotion | 1/1 | Complete   | 2026-04-01 | - |
 | 26. LOAD Expression Inlining | v0.0.7-alpha | 0/? | Not started | - |
 | 27. Function Inlining | v0.0.7-alpha | 0/? | Not started | - |
 | 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
