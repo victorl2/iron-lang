@@ -73,10 +73,6 @@ typedef struct {
     /* Backward-referenced values hoisted to function entry (type _vN;).
      * At the definition site, emit assignment without type prefix. */
     struct { IronLIR_ValueId key; bool value; } *phi_hoisted;
-
-    /* Constant-fill stack arrays whose declarations were hoisted to function
-     * entry (MEM-02). Call site emits only the init loop, not the declaration. */
-    struct { IronLIR_ValueId key; bool value; } *fill_hoisted;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -1019,6 +1015,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         /* Skip alloca for read-only parameter aliases — no variable needed */
         if (hmgeti(ctx->param_alias_ids, instr->id) >= 0) break;
 
+        /* Skip alloca if it was already hoisted to function entry (phi_hoisted).
+         * This handles the case where function inlining splits a block and moves
+         * an alloca to a later block, but earlier blocks still reference it.
+         * The declaration was pre-emitted at function entry; only a no-op here. */
+        if (is_hoisted) break;
+
         /* Check if this alloca holds a stack array (determined by pre-scan) */
         IronLIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->id);
         if (sa_origin != IRON_LIR_VALUE_INVALID) {
@@ -1329,7 +1331,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                        "__builtin_fill") == 0 &&
                 instr->call.arg_count == 2) {
 
-                /* Check if count is a compile-time constant <= 1024 AND
+                /* Check if count is a compile-time constant <= 256 AND
                  * this fill() result is NOT used as an escaping value
                  * (i.e., it's in the stack_array_ids map from pre-scan). */
                 IronLIR_ValueId count_id = instr->call.args[0];
@@ -1340,7 +1342,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 int64_t fill_count = 0;
                 if (count_instr && count_instr->kind == IRON_LIR_CONST_INT &&
                     count_instr->const_int.value > 0 &&
-                    count_instr->const_int.value <= 1024) {
+                    count_instr->const_int.value <= 256) {
                     /* Check pre-scan marked this as stack-eligible */
                     IronLIR_ValueId sa = get_stack_array_origin(ctx, instr->id);
                     if (sa != IRON_LIR_VALUE_INVALID) {
@@ -1350,43 +1352,27 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
 
                 if (use_stack) {
-                    if (ctx->fill_hoisted && hmgeti(ctx->fill_hoisted, instr->id) >= 0) {
-                        /* Declaration already hoisted to function entry (MEM-02).
-                         * Emit only the initialization loop and length assignment. */
-                        emit_indent(sb, ind);
-                        iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < %lld; _fill_i++) ",
-                                             (long long)fill_count);
-                        emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, "[_fill_i] = ");
-                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
-                        iron_strbuf_appendf(sb, ";\n");
-                        /* Assign (not declare) companion length variable */
-                        emit_indent(sb, ind);
-                        emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
-                    } else {
-                        /* Fallback: declaration not hoisted, emit at call site */
-                        const char *elem_type = "int64_t";
-                        if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
-                            instr->type->array.elem)
-                            elem_type = emit_type_to_c(instr->type->array.elem, ctx);
-                        emit_indent(sb, ind);
-                        iron_strbuf_appendf(sb, "%s ", elem_type);
-                        emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, "[%lld];\n", (long long)fill_count);
-                        emit_indent(sb, ind);
-                        iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < %lld; _fill_i++) ",
-                                             (long long)fill_count);
-                        emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, "[_fill_i] = ");
-                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
-                        iron_strbuf_appendf(sb, ";\n");
-                        /* Emit companion length variable */
-                        emit_indent(sb, ind);
-                        iron_strbuf_appendf(sb, "int64_t ");
-                        emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
-                    }
+                    /* Emit as stack array with fill loop (constant count) */
+                    const char *elem_type = "int64_t";
+                    if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
+                        instr->type->array.elem)
+                        elem_type = emit_type_to_c(instr->type->array.elem, ctx);
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "%s ", elem_type);
+                    emit_val(sb, instr->id);
+                    iron_strbuf_appendf(sb, "[%lld];\n", (long long)fill_count);
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < %lld; _fill_i++) ",
+                                         (long long)fill_count);
+                    emit_val(sb, instr->id);
+                    iron_strbuf_appendf(sb, "[_fill_i] = ");
+                    emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ";\n");
+                    /* Emit companion length variable */
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "int64_t ");
+                    emit_val(sb, instr->id);
+                    iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
                     /* Mark as stack array */
                     mark_stack_array(ctx, instr->id, instr->id);
                 } else {
@@ -1454,7 +1440,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
         emit_indent(sb, ind);
         if (!is_void) {
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) {
+                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
         }
@@ -2378,10 +2366,6 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     hmfree(ctx->opt_info->stack_array_ids);
     ctx->opt_info->stack_array_ids = NULL;
 
-    /* Reset per-function fill-hoisted tracking map (MEM-02) */
-    hmfree(ctx->fill_hoisted);
-    ctx->fill_hoisted = NULL;
-
     /* Reset per-function heap-array lifecycle tracking */
     hmfree(ctx->opt_info->heap_array_ids);
     ctx->opt_info->heap_array_ids = NULL;
@@ -2407,7 +2391,7 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 if (instr->kind == IRON_LIR_ARRAY_LIT && instr->array_lit.use_stack_repr) {
                     hmput(sa_pre, instr->id, instr->id);
                 }
-                /* __builtin_fill — only constant-count fills enter sa_pre (MEM-01 gate) */
+                /* __builtin_fill — all calls (constant or dynamic count) */
                 if (instr->kind == IRON_LIR_CALL && instr->call.arg_count == 2 &&
                     instr->type && instr->type->kind == IRON_TYPE_ARRAY) {
                     IronLIR_ValueId fptr = instr->call.func_ptr;
@@ -2417,17 +2401,9 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF &&
                         strcmp(fn->value_table[fptr]->func_ref.func_name,
                                "__builtin_fill") == 0) {
-                        /* MEM-01: only stack-promote constant-count fills <= 1024 */
-                        IronLIR_ValueId cid = instr->call.args[0];
-                        IronLIR_Instr *cinstr = (cid < (IronLIR_ValueId)arrlen(fn->value_table))
-                                                ? fn->value_table[cid] : NULL;
-                        if (cinstr && cinstr->kind == IRON_LIR_CONST_INT &&
-                            cinstr->const_int.value > 0 &&
-                            cinstr->const_int.value <= 1024) {
-                            /* Skip if revoked by escape analysis */
-                            if (hmgeti(ctx->opt_info->revoked_fill_ids, instr->id) < 0) {
-                                hmput(sa_pre, instr->id, instr->id);
-                            }
+                        /* Skip if revoked by escape analysis */
+                        if (hmgeti(ctx->opt_info->revoked_fill_ids, instr->id) < 0) {
+                            hmput(sa_pre, instr->id, instr->id);
                         }
                     }
                 }
@@ -2682,21 +2658,87 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     hmfree(ctx->phi_hoisted);
     ctx->phi_hoisted = NULL;
     if (ctx->value_block) {
-        /* use_block_min[vid] = earliest block index where vid is used as operand */
+        /* use_block_min[vid] = earliest block index where vid is used as operand.
+         * Tracks both value operands (store.value, binop operands, etc.) and
+         * pointer operands (load.ptr, store.ptr) for ALLOCA hoisting. */
         struct { IronLIR_ValueId key; int value; } *use_block_min = NULL;
+
+        /* Helper macro: record that value V is used in block BI2 */
+#define TRACK_USE(v, bi2_) do { \
+    if ((v) != IRON_LIR_VALUE_INVALID) { \
+        ptrdiff_t _idx = hmgeti(use_block_min, (v)); \
+        if (_idx < 0 || (bi2_) < use_block_min[_idx].value) \
+            hmput(use_block_min, (v), (bi2_)); \
+    } \
+} while (0)
+
         for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
             IronLIR_Block *blk = fn->blocks[bi2];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
-                /* Scan store.value operand — covers phi-eliminated assignments */
-                if (in->kind == IRON_LIR_STORE && in->store.value != IRON_LIR_VALUE_INVALID) {
-                    IronLIR_ValueId v = in->store.value;
-                    ptrdiff_t idx = hmgeti(use_block_min, v);
-                    if (idx < 0 || bi2 < use_block_min[idx].value)
-                        hmput(use_block_min, v, bi2);
+                /* Track all value operand uses for backward-reference detection. */
+                switch (in->kind) {
+                case IRON_LIR_STORE:
+                    TRACK_USE(in->store.value, bi2);
+                    TRACK_USE(in->store.ptr, bi2);
+                    break;
+                case IRON_LIR_LOAD:
+                    TRACK_USE(in->load.ptr, bi2);
+                    break;
+                case IRON_LIR_GET_INDEX:
+                    TRACK_USE(in->index.array, bi2);
+                    TRACK_USE(in->index.index, bi2);
+                    break;
+                case IRON_LIR_SET_INDEX:
+                    TRACK_USE(in->index.array, bi2);
+                    TRACK_USE(in->index.index, bi2);
+                    TRACK_USE(in->index.value, bi2);
+                    break;
+                case IRON_LIR_ADD: case IRON_LIR_SUB: case IRON_LIR_MUL:
+                case IRON_LIR_DIV: case IRON_LIR_MOD:
+                case IRON_LIR_EQ: case IRON_LIR_NEQ: case IRON_LIR_LT:
+                case IRON_LIR_LTE: case IRON_LIR_GT: case IRON_LIR_GTE:
+                case IRON_LIR_AND: case IRON_LIR_OR:
+                    TRACK_USE(in->binop.left, bi2);
+                    TRACK_USE(in->binop.right, bi2);
+                    break;
+                case IRON_LIR_NEG: case IRON_LIR_NOT:
+                    TRACK_USE(in->unop.operand, bi2);
+                    break;
+                case IRON_LIR_CALL:
+                    for (int ai = 0; ai < in->call.arg_count; ai++)
+                        TRACK_USE(in->call.args[ai], bi2);
+                    break;
+                case IRON_LIR_BRANCH:
+                    TRACK_USE(in->branch.cond, bi2);
+                    break;
+                case IRON_LIR_RETURN:
+                    if (!in->ret.is_void) TRACK_USE(in->ret.value, bi2);
+                    break;
+                case IRON_LIR_GET_FIELD:
+                    TRACK_USE(in->field.object, bi2);
+                    break;
+                case IRON_LIR_SET_FIELD:
+                    TRACK_USE(in->field.object, bi2);
+                    TRACK_USE(in->field.value, bi2);
+                    break;
+                case IRON_LIR_INTERP_STRING:
+                    for (int pi2 = 0; pi2 < in->interp_string.part_count; pi2++)
+                        TRACK_USE(in->interp_string.parts[pi2], bi2);
+                    break;
+                case IRON_LIR_CAST:
+                    TRACK_USE(in->cast.value, bi2);
+                    break;
+                case IRON_LIR_IS_NULL: case IRON_LIR_IS_NOT_NULL:
+                    TRACK_USE(in->null_check.value, bi2);
+                    break;
+                default:
+                    break;
                 }
             }
         }
+#undef TRACK_USE
+
         /* For each non-entry-block value used before its definition block, hoist */
         for (int bi2 = 1; bi2 < fn->block_count; bi2++) {
             IronLIR_Block *blk = fn->blocks[bi2];
@@ -2704,13 +2746,28 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 if (in->id == IRON_LIR_VALUE_INVALID) continue;
                 if (ctx->inline_eligible && hmgeti(ctx->inline_eligible, in->id) >= 0) continue;
-                if (iron_lir_is_terminator(in->kind) || in->kind == IRON_LIR_STORE ||
-                    in->kind == IRON_LIR_SET_INDEX || in->kind == IRON_LIR_SET_FIELD ||
-                    in->kind == IRON_LIR_FREE || in->kind == IRON_LIR_ALLOCA) continue;
-                if (in->kind != IRON_LIR_LOAD) continue; /* only hoist LOADs for now */
+                if (iron_lir_is_terminator(in->kind)) continue;
+
                 ptrdiff_t um = hmgeti(use_block_min, in->id);
-                if (um >= 0 && use_block_min[um].value < bi2) {
+                if (um < 0 || use_block_min[um].value >= bi2) continue;
+
+                if (in->kind == IRON_LIR_ALLOCA) {
+                    /* Hoist ALLOCA: pre-declare at function entry, skip at definition site.
+                     * Skip stack arrays (handled separately by fill_hoisted machinery). */
+                    if (get_stack_array_origin(ctx, in->id) != IRON_LIR_VALUE_INVALID) continue;
+                    if (!in->alloca.alloc_type) continue;
+                    hmput(ctx->phi_hoisted, in->id, true);
+                    const char *c_type = emit_type_to_c(in->alloca.alloc_type, ctx);
+                    emit_indent(sb, 1);
+                    iron_strbuf_appendf(sb, "%s _v%u;\n", c_type, in->id);
+                } else {
+                    /* Hoist any other value-producing instruction (LOAD, CALL, binop, etc.)
+                     * that is used in an earlier block.  Pre-declare the result variable at
+                     * function entry; at the definition site, emit assignment without type
+                     * prefix (is_hoisted=true path in emit_instr). */
                     if (!in->type || in->type->kind == IRON_TYPE_VOID) continue;
+                    /* Don't hoist stack arrays — they need special initialization. */
+                    if (get_stack_array_origin(ctx, in->id) != IRON_LIR_VALUE_INVALID) continue;
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s _v%u;\n",
@@ -2719,46 +2776,6 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             }
         }
         hmfree(use_block_min);
-    }
-
-    /* Hoist constant-fill stack array declarations to function entry (MEM-02).
-     * Iterates stack_array_ids to find unique origin IDs that are constant-count
-     * fill() CALLs and emits elem_t _vN[N] + int64_t _vN_len at function entry.
-     * The call site will then emit only the initialization loop. */
-    {
-        struct { IronLIR_ValueId key; bool value; } *hoisted_fills = NULL;
-        for (ptrdiff_t si = 0; si < hmlen(ctx->opt_info->stack_array_ids); si++) {
-            IronLIR_ValueId origin = ctx->opt_info->stack_array_ids[si].value;
-            if (hmgeti(hoisted_fills, origin) >= 0) continue; /* already emitted */
-            IronLIR_Instr *orig_instr = (origin < (IronLIR_ValueId)arrlen(fn->value_table))
-                                        ? fn->value_table[origin] : NULL;
-            if (!orig_instr || orig_instr->kind != IRON_LIR_CALL) continue;
-            if (hmgeti(ctx->opt_info->revoked_fill_ids, origin) >= 0) continue;
-            /* Verify constant count <= 1024 */
-            IronLIR_ValueId count_id = orig_instr->call.args[0];
-            IronLIR_Instr *count_instr = (count_id < (IronLIR_ValueId)arrlen(fn->value_table))
-                                         ? fn->value_table[count_id] : NULL;
-            if (!count_instr || count_instr->kind != IRON_LIR_CONST_INT) continue;
-            int64_t fill_count = count_instr->const_int.value;
-            if (fill_count <= 0 || fill_count > 1024) continue;
-            const char *elem_type = "int64_t";
-            if (orig_instr->type && orig_instr->type->kind == IRON_TYPE_ARRAY &&
-                orig_instr->type->array.elem)
-                elem_type = emit_type_to_c(orig_instr->type->array.elem, ctx);
-            /* Emit: elem_t _vN[N]; */
-            emit_indent(sb, 1);
-            iron_strbuf_appendf(sb, "%s ", elem_type);
-            emit_val(sb, origin);
-            iron_strbuf_appendf(sb, "[%lld];\n", (long long)fill_count);
-            /* Emit: int64_t _vN_len = N; */
-            emit_indent(sb, 1);
-            iron_strbuf_appendf(sb, "int64_t ");
-            emit_val(sb, origin);
-            iron_strbuf_appendf(sb, "_len = %lld;\n", (long long)fill_count);
-            hmput(hoisted_fills, origin, true);
-            hmput(ctx->fill_hoisted, origin, true);
-        }
-        hmfree(hoisted_fills);
     }
 
     for (int bi = 0; bi < fn->block_count; bi++) {
