@@ -30,8 +30,8 @@ Requirements for Performance Optimization milestone. Each maps to roadmap phases
 
 ### Phi Elimination
 
-- [ ] **PHI-01**: SSA phi elimination produces fewer temporary variables through copy coalescing
-- [ ] **PHI-02**: Complex control flow benchmarks (connected_components) show measurable reduction in generated temporaries
+- [x] **PHI-01**: SSA phi elimination produces fewer temporary variables through copy coalescing
+- [x] **PHI-02**: Complex control flow benchmarks (connected_components) show measurable reduction in generated temporaries
 
 ### Sized Integers
 
@@ -81,8 +81,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INLINE-01 | Phase 27 | Complete |
 | INLINE-02 | Phase 27 | Complete |
 | INLINE-03 | Phase 27 | Complete |
-| PHI-01 | Phase 28 | Pending |
-| PHI-02 | Phase 28 | Pending |
+| PHI-01 | Phase 28 | Complete |
+| PHI-02 | Phase 28 | Complete |
 | INT-01 | Phase 29 | Pending |
 | INT-02 | Phase 29 | Pending |
 | BENCH-01 | Phase 30 | Pending |

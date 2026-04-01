@@ -555,7 +555,7 @@ Plans:
   1. Phi elimination uses copy coalescing to merge phi-related copies where lifetimes permit; the number of distinct temporary variables emitted for a function with many phi nodes is measurably lower than before
   2. The connected_components benchmark shows a measurable reduction in generated temporaries compared to the Phase 27 baseline
   3. All 137 benchmarks and integration tests pass with no correctness regressions
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
@@ -620,6 +620,6 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
 | 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
 | 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
-| 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
+| 28. Phi Elimination Improvement | 1/1 | Complete   | 2026-04-01 | - |
 | 29. Sized Integers | v0.0.7-alpha | 0/? | Not started | - |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 0/? | Not started | - |

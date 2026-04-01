@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 27-02-PLAN.md
-last_updated: "2026-04-01T13:03:08.655Z"
-last_activity: 2026-03-31 — LIR function inlining implemented; inline_basic and connected_components pass
+stopped_at: Completed 28-01-PLAN.md
+last_updated: "2026-04-01T13:45:00.000Z"
+last_activity: 2026-04-01 — Dead alloca elimination pass implemented; 36% reduction in count_components temporaries
 progress:
   total_phases: 7
-  completed_phases: 4
-  total_plans: 5
-  completed_plans: 5
-  percent: 57
+  completed_phases: 5
+  total_plans: 6
+  completed_plans: 6
+  percent: 71
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 ## Current Position
 
-Phase: 27 of 30 (Function Inlining)
+Phase: 28 of 30 (Phi Elimination Improvement)
 Plan: 01 complete
 Status: Phase complete
-Last activity: 2026-03-31 — LIR function inlining implemented; inline_basic and connected_components pass
+Last activity: 2026-04-01 — Dead alloca elimination pass implemented; 36% reduction in count_components temporaries
 
-Progress: [████████░░] 57%
+Progress: [██████████░░] 71%
 
 ## Performance Metrics
 
@@ -60,6 +60,9 @@ Recent decisions affecting current work:
 - [Phase 27-function-inlining]: Step 9 result_remap applied to ALL original caller blocks, not just cont — CALL results may be referenced in branch target blocks (earlier block indices)
 - [Phase 27-function-inlining]: emit_c.c backward-ref hoisting extended to ALLOCA and all value-producing instrs; use_block_min requires comprehensive operand tracking across all instruction kinds
 - [Phase 27]: is_hoisted guard must be applied to ALL value-producing instruction cases in emit_instr — any instruction can be backward-ref hoisted when inlining rearranges blocks
+- [Phase 28-phi-elimination]: run_dead_alloca_elimination must be placed AFTER compute_escape_set in lir_optimize.c — C99 requires function to be declared before use (no implicit declaration allowed)
+- [Phase 28-phi-elimination]: GET_INDEX/SET_INDEX/GET_FIELD/SET_FIELD uses of an alloca must mark it as live (same as LOAD) — prevents removing arrays mutated via index/field ops without explicit LOAD
+- [Phase 28-phi-elimination]: Post-fixpoint single pass is sufficient for dead alloca elimination — copy-prop already removed single-store loads; inside-fixpoint placement adds marginal benefit only
 
 ### Pending Todos
 
@@ -72,6 +75,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T13:03:08.651Z
-Stopped at: Completed 27-02-PLAN.md
+Last session: 2026-04-01T13:45:00.000Z
+Stopped at: Completed 28-01-PLAN.md
 Resume file: None
