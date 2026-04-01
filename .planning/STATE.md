@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 26-01-PLAN.md
-last_updated: "2026-04-01T11:13:18.458Z"
-last_activity: 2026-03-31 — Roadmap created, Phases 24-30 defined
+stopped_at: Completed 27-01-PLAN.md
+last_updated: "2026-03-31T00:00:00Z"
+last_activity: 2026-03-31 — Phase 27 plan 01 complete: LIR function inlining implemented
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
-  percent: 0
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
+  percent: 57
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 ## Current Position
 
-Phase: 24 of 30 (Range Bound Hoisting)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-03-31 — Roadmap created, Phases 24-30 defined
+Phase: 27 of 30 (Function Inlining)
+Plan: 01 complete
+Status: Phase complete
+Last activity: 2026-03-31 — LIR function inlining implemented; inline_basic and connected_components pass
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████░░] 57%
 
 ## Performance Metrics
 
@@ -55,6 +55,10 @@ Recent decisions affecting current work:
 - [Phase 25-stack-array-promotion]: fill_hoisted map pattern: fill() declaration hoisting mirrors phi_hoisted — entry declarations, init-only at call site; reusable pattern for any array declaration hoisting
 - [Phase 26-load-expression-inlining]: LOAD blanket exclusion removed: cross-block guard at lir_optimize.c:1779-1785 already handles dangerous case; blanket exclusion was redundant
 - [Phase 26-load-expression-inlining]: bug_vla_goto_bypass pre-existing: confirmed failing before phase 26 on commit c333493; deferred to separate fix (VLA declaration hoisting needed)
+- [Phase 27-function-inlining]: Threshold 30 (not 20): phi_eliminate adds ~9 extra param alloca/store pairs per function; source-level instruction count is unreliable for threshold decisions
+- [Phase 27-function-inlining]: Result alloca must be inserted at call_block/call_idx BEFORE block split — placement in merge block causes C declaration-after-use errors
+- [Phase 27-function-inlining]: Step 9 result_remap applied to ALL original caller blocks, not just cont — CALL results may be referenced in branch target blocks (earlier block indices)
+- [Phase 27-function-inlining]: emit_c.c backward-ref hoisting extended to ALLOCA and all value-producing instrs; use_block_min requires comprehensive operand tracking across all instruction kinds
 
 ### Pending Todos
 
@@ -67,6 +71,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T11:13:18.455Z
-Stopped at: Completed 26-01-PLAN.md
+Last session: 2026-03-31T00:00:00Z
+Stopped at: Completed 27-01-PLAN.md
 Resume file: None

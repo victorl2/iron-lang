@@ -24,9 +24,9 @@ Requirements for Performance Optimization milestone. Each maps to roadmap phases
 
 ### Function Inlining
 
-- [ ] **INLINE-01**: Small (<= 20 instructions), non-recursive, pure functions are inlined at LIR level
-- [ ] **INLINE-02**: Inlining pass runs before the copy-prop/DCE fixpoint loop so inlined code gets optimized
-- [ ] **INLINE-03**: Value IDs are correctly remapped during instruction cloning to prevent table corruption
+- [x] **INLINE-01**: Small (<= 20 instructions), non-recursive, pure functions are inlined at LIR level
+- [x] **INLINE-02**: Inlining pass runs before the copy-prop/DCE fixpoint loop so inlined code gets optimized
+- [x] **INLINE-03**: Value IDs are correctly remapped during instruction cloning to prevent table corruption
 
 ### Phi Elimination
 
@@ -78,9 +78,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MEM-02 | Phase 25 | Complete |
 | EXPR-01 | Phase 26 | Complete |
 | EXPR-02 | Phase 26 | Complete |
-| INLINE-01 | Phase 27 | Pending |
-| INLINE-02 | Phase 27 | Pending |
-| INLINE-03 | Phase 27 | Pending |
+| INLINE-01 | Phase 27 | Complete |
+| INLINE-02 | Phase 27 | Complete |
+| INLINE-03 | Phase 27 | Complete |
 | PHI-01 | Phase 28 | Pending |
 | PHI-02 | Phase 28 | Pending |
 | INT-01 | Phase 29 | Pending |

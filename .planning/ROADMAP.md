@@ -75,7 +75,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
 - [ ] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
 - [ ] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
-- [ ] **Phase 27: Function Inlining** - Small pure non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint
+- [x] **Phase 27: Function Inlining** - Small pure non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint
 - [ ] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
 - [ ] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
 - [ ] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
@@ -542,11 +542,10 @@ Plans:
   2. Every cloned instruction uses a fresh ValueId remapped via a callee-to-caller ID table; no existing caller value_table entries are overwritten
   3. The inlining pass runs before the copy-prop/DCE fixpoint; inlined code is subsequently optimized by copy propagation and dead-code elimination in the same fixpoint run
   4. All 137 benchmarks and integration tests pass; call-heavy benchmarks (e.g., connected_components) show measurable runtime reduction
-**Plans:** 2 plans
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 27-01-PLAN.md — Implement run_function_inlining with regression test
-- [ ] 27-02-PLAN.md — Full test suite validation and benchmark verification
+- [x] 27-01-PLAN.md — Implement run_function_inlining with regression test
 
 ### Phase 28: Phi Elimination Improvement
 **Goal**: Copy coalescing in SSA phi elimination produces fewer temporary variables in functions with complex control flow, reducing the number of generated C declarations
@@ -620,7 +619,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
 | 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
 | 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
-| 27. Function Inlining | v0.0.7-alpha | 0/? | Not started | - |
+| 27. Function Inlining | v0.0.7-alpha | 1/1 | Complete | 2026-03-31 |
 | 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
 | 29. Sized Integers | v0.0.7-alpha | 0/? | Not started | - |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 0/? | Not started | - |
