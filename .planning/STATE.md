@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-04-01T18:04:00Z"
+status: in_progress
+stopped_at: Completed 31-01-PLAN.md spawn/await runtime + compiler pipeline
+last_updated: "2026-04-01T20:36:24.860Z"
 last_activity: 2026-04-01 — v0.0.7-alpha benchmark report created; top 3 outliers deep-dived; suggested_performance_improvements.md updated with post-optimization state
 progress:
-  total_phases: 7
-  completed_phases: 6
-  total_plans: 10
-  completed_plans: 10
+  total_phases: 8
+  completed_phases: 7
+  total_plans: 12
+  completed_plans: 11
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** v0.0.7-alpha Performance Optimization — Phase 24 (Range Bound Hoisting) ready to plan
+**Current focus:** v0.0.7-alpha Performance Optimization — Phase 31 (Spawn/Await Correctness) in progress, Plan 02 (benchmark updates) next
 
 ## Current Position
 
-Phase: 30 of 30 (Benchmark Validation and Exploration)
-Plan: 02 complete
-Status: Phase complete — all plans complete
-Last activity: 2026-04-01 — v0.0.7-alpha benchmark report created; top 3 outliers deep-dived; suggested_performance_improvements.md updated with post-optimization state
+Phase: 31 of 31 (Spawn/Await Correctness)
+Plan: 01 complete
+Status: Phase in progress — 1 of 2 plans complete
+Last activity: 2026-04-01 — spawn/await pipeline complete: iron_future_await runtime, wrapper-function emit pattern, 4 integration tests pass
 
-Progress: [██████████] 100%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -69,6 +69,12 @@ Recent decisions affecting current work:
 - [Phase 30-01]: connected_components threshold 500.0->1.5 validates Phase 29 Int32 array promotion: benchmark now runs at 0.5x (faster than C)
 - [Phase 30-02]: Top 3 outlier root causes all FUTURE PASS or ARCHITECTURAL — no prototype fixes committed; deep-dive documented as proposals for P6/P7 phases
 - [Phase 30-02]: three_sum overhead: skip_dup_lo/hi not inlined due to array-param restriction; relaxing for const (read-only) array params is safe and is the proposed fix
+- [Phase 31-spawn-await-correctness]: IRON_TYPE_NULL for handled spawn LIR type: keeps handle as void* without conflating with OBJECT type used for struct constructors
+- [Phase 31-spawn-await-correctness]: Wrapper function emitted per spawn in lifted_funcs: no HIR signature change required; wrapper captures lifted fn return value into handle->result
+
+### Roadmap Evolution
+
+- Phase 31 added: Spawn/Await Correctness — discovered during Phase 30 UAT that concurrency_spawn_captured benchmark uses fire-and-forget spawn without await, making timing comparison unfair vs C's pthread_join
 
 ### Pending Todos
 
@@ -81,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T18:04:00Z
-Stopped at: Completed 30-02-PLAN.md
+Last session: 2026-04-01T20:36:24.857Z
+Stopped at: Completed 31-01-PLAN.md spawn/await runtime + compiler pipeline
 Resume file: None

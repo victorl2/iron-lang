@@ -626,7 +626,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
 | 28. Phi Elimination Improvement | 1/1 | Complete    | 2026-04-01 | - |
 | 29. Sized Integers | 2/2 | Complete    | 2026-04-01 | - |
 | 30. Benchmark Validation and Exploration | 2/2 | Complete    | 2026-04-01 | - |
-| 31. Spawn/Await Correctness | 0/2 | Planning complete | - | - |
+| 31. Spawn/Await Correctness | 1/2 | In Progress|  | - |
 
 ### Phase 31: Spawn/Await Correctness
 
@@ -640,7 +640,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
   4. parallel-for blocks until all iterations complete (no regression)
   5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
   6. Full benchmark and test suites pass with updated thresholds
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 31-01-PLAN.md -- Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
