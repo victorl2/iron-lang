@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 29-02-PLAN.md
-last_updated: "2026-04-01T15:44:20.374Z"
-last_activity: 2026-04-01 — Int32 benchmarks added; connected_components uses int32_t stack arrays; two codegen bugs fixed
+stopped_at: Completed 30-01-PLAN.md
+last_updated: "2026-04-01T17:52:09.752Z"
+last_activity: 2026-04-01 — Int32 benchmarks added; connected_components uses int32_t stack arrays; two codegen bugs fixed (GET_INDEX param type lookup, phi zero-init for sized ints)
 progress:
   total_phases: 7
   completed_phases: 6
-  total_plans: 8
-  completed_plans: 8
-  percent: 71
+  total_plans: 10
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -65,6 +65,8 @@ Recent decisions affecting current work:
 - [Phase 28-phi-elimination]: Post-fixpoint single pass is sufficient for dead alloca elimination — copy-prop already removed single-store loads; inside-fixpoint placement adds marginal benefit only
 - [Phase 29-02]: get_value_type() helper: parameter value IDs (1..param_count) have NULL value_table entries; fn->params[vid-1].type fallback required for correct GET_INDEX/SET_INDEX type lookup for array parameters
 - [Phase 29-02]: Phi zero-init for sized integers: IRON_TYPE_INT8/16/32/64 and UINT variants must use iron_lir_const_int(0) not const_null; missing in original hir_to_lir.c which only handled INT and BOOL
+- [Phase 30-01]: Sub-ms concurrency benchmarks require 5.0x threshold to absorb 1ms timer granularity noise — ratio is meaningless at sub-ms resolution
+- [Phase 30-01]: connected_components threshold 500.0->1.5 validates Phase 29 Int32 array promotion: benchmark now runs at 0.5x (faster than C)
 
 ### Pending Todos
 
@@ -77,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:44:20.371Z
-Stopped at: Completed 29-02-PLAN.md
+Last session: 2026-04-01T17:52:09.750Z
+Stopped at: Completed 30-01-PLAN.md
 Resume file: None

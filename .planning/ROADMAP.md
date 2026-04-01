@@ -582,10 +582,11 @@ Plans:
   1. A benchmark comparison run with `--compare` mode shows aggregate improvement over the v0.0.6-alpha baseline; the majority of benchmarks that previously exceeded 3x of C now meet or beat that threshold
   2. The connected_components benchmark shows measurable improvement over its v0.0.6-alpha ratio (was ~167x); the remaining gap is identified and attributed to known out-of-scope factors (goto-based loops, int64 width)
   3. Any benchmark still above 3x that is not explained by an out-of-scope factor is documented with a root-cause analysis and a concrete proposal for a follow-up optimization
-**Plans:** 1 plan
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [ ] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
+- [ ] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
 
 ## Progress
 
@@ -622,5 +623,5 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
 | 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
 | 28. Phi Elimination Improvement | 1/1 | Complete    | 2026-04-01 | - |
-| 29. Sized Integers | 2/2 | Complete   | 2026-04-01 | - |
-| 30. Benchmark Validation and Exploration | v0.0.7-alpha | 0/? | Not started | - |
+| 29. Sized Integers | 2/2 | Complete    | 2026-04-01 | - |
+| 30. Benchmark Validation and Exploration | 1/2 | In Progress|  | - |
