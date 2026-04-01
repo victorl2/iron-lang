@@ -5,8 +5,11 @@
  *   Phase 0a: analyze_array_param_modes (PARAM-01/02 pointer-mode analysis)
  *   Phase 0b: optimize_array_repr     (ARR-01 stack vs heap array selection)
  *
- * After Plan 02, this will also contain:
- *   Copy propagation, constant folding, dead code elimination (fixpoint loop)
+ * Fixpoint loop (copy-prop -> const-fold -> DCE -> store-load-elim -> strength-reduction)
+ *
+ * Post-fixpoint:
+ *   run_dead_alloca_elimination (PHI-01/PHI-02): removes allocas with no live loads
+ *   iron_lir_compute_inline_info (Phase 16)
  */
 
 #include "lir/lir_optimize.h"
@@ -1326,6 +1329,110 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
     }
 
     return escaped;
+}
+
+/* ── Dead alloca elimination pass (PHI-01/PHI-02) ───────────────────────── */
+
+/* Dead alloca elimination: remove allocas with no live loads, and all their
+ * stores.  Runs post-fixpoint so copy-propagation has already eliminated
+ * single-store alloca loads.
+ *
+ * An alloca is considered "live" if:
+ *   - Any LOAD references it as load.ptr, OR
+ *   - Any GET_INDEX or SET_INDEX references it as index.array, OR
+ *   - Any GET_FIELD or SET_FIELD references it as field.object, OR
+ *   - It appears in the escape set (address passed to CALL, stored as value,
+ *     or returned).
+ *
+ * If none of the above apply, the alloca and all STORE instructions targeting
+ * it are removed.  Returns true if any change was made. */
+static bool run_dead_alloca_elimination(IronLIR_Module *module) {
+    bool changed = false;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        /* Step 1: Build "loaded" set — alloca IDs that are live */
+        struct { IronLIR_ValueId key; bool value; } *loaded = NULL;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                switch (in->kind) {
+                case IRON_LIR_LOAD:
+                    hmput(loaded, in->load.ptr, true);
+                    break;
+                case IRON_LIR_GET_INDEX:
+                case IRON_LIR_SET_INDEX:
+                    hmput(loaded, in->index.array, true);
+                    break;
+                case IRON_LIR_GET_FIELD:
+                case IRON_LIR_SET_FIELD:
+                    hmput(loaded, in->field.object, true);
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+
+        /* Step 1b: Escape safety check — keep escaped allocas */
+        IronLIR_EscapeEntry *escape_set = compute_escape_set(fn);
+        for (ptrdiff_t ei = 0; ei < hmlen(escape_set); ei++) {
+            if (escape_set[ei].value) {
+                hmput(loaded, escape_set[ei].key, true);
+            }
+        }
+        hmfree(escape_set);
+
+        /* Step 2: Identify dead allocas (not in loaded set) */
+        struct { IronLIR_ValueId key; bool value; } *dead_alloca = NULL;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_ALLOCA) {
+                    if (hmgeti(loaded, in->id) < 0) {
+                        hmput(dead_alloca, in->id, true);
+                    }
+                }
+            }
+        }
+
+        /* Step 3: Remove dead allocas and their stores */
+        if (hmlen(dead_alloca) > 0) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                int new_count = 0;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    bool remove = false;
+                    if (in->kind == IRON_LIR_ALLOCA &&
+                        hmgeti(dead_alloca, in->id) >= 0) {
+                        remove = true;
+                    } else if (in->kind == IRON_LIR_STORE &&
+                               hmgeti(dead_alloca, in->store.ptr) >= 0) {
+                        remove = true;
+                    }
+                    if (!remove) {
+                        blk->instrs[new_count++] = in;
+                    } else {
+                        if (in->id != IRON_LIR_VALUE_INVALID &&
+                            (ptrdiff_t)in->id < arrlen(fn->value_table)) {
+                            fn->value_table[in->id] = NULL;
+                        }
+                        changed = true;
+                    }
+                }
+                blk->instr_count = new_count;
+            }
+        }
+
+        hmfree(loaded);
+        hmfree(dead_alloca);
+    }
+    return changed;
 }
 
 /* Redundant store/load elimination pass.
@@ -3300,6 +3407,15 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     }
 
     iron_diaglist_free(&verify_diags);
+
+    /* PHI-01/PHI-02: dead alloca elimination — remove zero-load phi-origin
+     * allocas and their stores.  Runs once post-fixpoint; copy-prop has
+     * already eliminated single-store alloca loads by this point. */
+    run_dead_alloca_elimination(module);
+    if (dump_passes) {
+        char *ir_text = iron_lir_print(module, true);
+        if (ir_text) { fprintf(stderr, "=== After dead-alloca-elim ===\n%s\n", ir_text); free(ir_text); }
+    }
 
     /* Phase 16: compute module-wide function purity and set up inline info */
     if (!skip_new_passes) {
