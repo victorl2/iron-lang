@@ -531,7 +531,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [ ] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
 
 ### Phase 27: Function Inlining
 **Goal**: Small, pure, non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint so the merged code receives full optimizer benefit
@@ -617,7 +617,7 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30
 | 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
-| 25. Stack Array Promotion | 1/1 | Complete   | 2026-04-01 | - |
+| 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
 | 26. LOAD Expression Inlining | v0.0.7-alpha | 0/? | Not started | - |
 | 27. Function Inlining | v0.0.7-alpha | 0/? | Not started | - |
 | 28. Phi Elimination Improvement | v0.0.7-alpha | 0/? | Not started | - |
