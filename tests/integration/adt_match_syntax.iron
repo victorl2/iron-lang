@@ -1,0 +1,19 @@
+-- Match arm -> syntax test
+-- Phase 32: verifies parser accepts -> arms for integer match
+
+func classify(n: Int) -> String {
+  match n {
+    1 -> return "one"
+    2 -> return "two"
+    3 -> return "three"
+    else -> return "other"
+  }
+  return "unreachable"
+}
+
+func main() {
+  println(classify(1))
+  println(classify(2))
+  println(classify(3))
+  println(classify(99))
+}
