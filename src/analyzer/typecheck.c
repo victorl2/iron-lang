@@ -515,6 +515,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span,
                                            msg, NULL);
                             }
+                            /* Narrow literal args to match field type */
+                            if (is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
+                                ((Iron_IntLit *)ce->args[i])->resolved_type = fld_t;
+                            }
                         }
                     }
                     result = callee_sym->type;
@@ -758,6 +762,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                      iron_type_to_string(fld_t, ctx->arena),
                                      iron_type_to_string(arg_t, ctx->arena));
                             emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
+                        }
+                        /* Narrow literal args to match field type */
+                        if (is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
+                            ((Iron_IntLit *)ce->args[i])->resolved_type = fld_t;
                         }
                     }
                 }
@@ -1060,6 +1068,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 !is_int_literal_narrowing(target_type, value_type, as->value)) {
                 emit_type_mismatch(ctx, as->span, target_type, value_type);
             }
+            /* Narrow literal in assignment (e.g., x = 42 where x: Int32) */
+            if (is_int_literal_narrowing(target_type, value_type, as->value)) {
+                ((Iron_IntLit *)as->value)->resolved_type = target_type;
+            }
             break;
         }
 
@@ -1091,6 +1103,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                  iron_type_to_string(ctx->current_return_type, ctx->arena),
                                  iron_type_to_string(ret_type, ctx->arena));
                         emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg, NULL);
+                    }
+                    /* Narrow literal in return (e.g., return 42 in Int32 func) */
+                    if (is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
+                        ((Iron_IntLit *)rs->value)->resolved_type = ctx->current_return_type;
                     }
                 }
             }
