@@ -1,0 +1,7 @@
+-- Test: STR-17 (pad_left), STR-18 (pad_right)
+func main() {
+    println("hi".pad_left(5, "0"))
+    println("hi".pad_right(5, "0"))
+    println("hello".pad_left(3, "0"))
+    println("hello".pad_right(3, "0"))
+}

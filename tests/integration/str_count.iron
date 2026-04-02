@@ -1,0 +1,11 @@
+-- Test: STR-19 (count)
+func main() {
+    val c1 = "abcabc".count("a")
+    val c2 = "abcabc".count("abc")
+    val c3 = "hello".count("xyz")
+    val c4 = "".count("a")
+    println("{c1}")
+    println("{c2}")
+    println("{c3}")
+    println("{c4}")
+}
