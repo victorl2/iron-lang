@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.1.0-alpha
-milestone_name: Lambda Capture
-status: executing
-stopped_at: "Phase 38-02 complete — all 19 Iron_string_* method bodies now in iron_string.c"
-last_updated: "2026-04-02T23:14:07Z"
+milestone: v0.0
+milestone_name: milestone
+status: completed
+stopped_at: Completed 38-03-PLAN.md (Phase 38 Plan 03 complete — all 12 str_* integration tests pass)
+last_updated: "2026-04-02T23:39:54.686Z"
 last_activity: "2026-04-02 — Phase 38-02 complete: split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right added to iron_string.c"
 progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 20
+  total_phases: 11
+  completed_phases: 3
+  total_plans: 10
+  completed_plans: 10
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 
 ## Current Position
 
-Phase: 38 of 38 (String Built-In Methods — Plan 02 COMPLETE)
-Plan: 02 complete, 03 next
-Status: Phase 38 Plan 02 complete — all 19 Iron_string_* method bodies implemented, build clean
-Last activity: 2026-04-02 — Phase 38-02 complete: split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right added to iron_string.c
+Phase: 38 of 38 (String Built-In Methods — ALL PLANS COMPLETE)
+Plan: 03 complete — Phase 38 finished
+Status: Phase 38 complete — all 19 string method bodies implemented and all 12 integration test pairs passing
+Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files created, two compiler bugs fixed (iron_runtime.h declarations, typecheck non-ident receiver handling)
 
 ## Accumulated Context
 
@@ -44,6 +43,9 @@ Last activity: 2026-04-02 — Phase 38-02 complete: split, join, replace, substr
 - [Phase 32]: Non-capturing closures call lifted function directly by name
 - [Phase 32-03]: Copy-prop must exclude allocas captured by MAKE_CLOSURE (outer function's alloca forwarding bug)
 - [Phase 32-03]: capture_04 (array-of-closures) causes compiler infinite loop — deferred to Phase 33
+- [Phase 38-03]: Iron_runtime.h needs explicit forward decls for Iron_string_* methods — generated C calls them without implicit declarations (ISO C99)
+- [Phase 38-03]: typecheck.c method call handler must use check_expr return value for non-ident receivers; string literal receivers on String type now resolve via decl scan
+- [Phase 38-03]: Iron integration tests: booleans print as true/false in interpolation; float 0.0 prints as 0; use val-binding for bool results to avoid nested-quote hang
 
 ### Pending Todos
 
@@ -66,6 +68,6 @@ Last activity: 2026-04-02 — Phase 38-02 complete: split, join, replace, substr
 
 ## Session Continuity
 
-Last session: 2026-04-02T23:14:07Z
-Stopped at: Completed 38-02-PLAN.md (Phase 38 Plan 02 complete)
+Last session: 2026-04-02T23:39:54.679Z
+Stopped at: Completed 38-03-PLAN.md (Phase 38 Plan 03 complete — all 12 str_* integration tests pass)
 Resume file: None
