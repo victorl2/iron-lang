@@ -1577,6 +1577,11 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         }
                     }
 
+                    /* Re-lookup fptr_instr for direct call resolution */
+                    IronLIR_Instr *fptr_instr2 = (fptr != IRON_LIR_VALUE_INVALID &&
+                        fptr < (IronLIR_ValueId)arrlen(fn->value_table))
+                        ? fn->value_table[fptr] : NULL;
+
                     if (needs_env_arg) {
                         /* Capturing closure: dispatch through .fn with .env as first arg.
                          * Using (void*, ...) allows extra typed arguments. */
@@ -1588,16 +1593,25 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         /* .env is already emitted as first arg; subsequent args get comma prefix */
                         has_env_arg = true;
                     } else {
-                        /* Non-capturing closure: call .fn directly without env arg.
-                         * The fn still takes only the regular parameters.
-                         * Use unprototyped cast to allow any parameter types. */
-                        iron_strbuf_appendf(sb, "((%s (*)())", ret_c);
-                        emit_val(sb, fptr);
-                        iron_strbuf_appendf(sb, ".fn)(");
+                        /* Non-capturing closure: call the lifted function directly
+                         * by name to avoid unprototyped cast warnings. */
+                        const char *lifted_name = NULL;
+                        if (fptr_instr2 && fptr_instr2->kind == IRON_LIR_MAKE_CLOSURE) {
+                            lifted_name = fptr_instr2->make_closure.lifted_func_name;
+                        }
+                        if (lifted_name) {
+                            const char *c_name = mangle_func_name(lifted_name, ctx->arena);
+                            iron_strbuf_appendf(sb, "%s(", c_name);
+                        } else {
+                            /* Unknown callee — use void* cast as fallback */
+                            iron_strbuf_appendf(sb, "((void (*)(void))");
+                            emit_val(sb, fptr);
+                            iron_strbuf_appendf(sb, ".fn)(");
+                        }
                     }
                 } else {
-                    /* Fallback: unprototyped call (should not normally happen) */
-                    iron_strbuf_appendf(sb, "((%s (*)())", ret_c);
+                    /* Fallback: direct call without prototype */
+                    iron_strbuf_appendf(sb, "((void (*)(void))");
                     emit_val(sb, fptr);
                     iron_strbuf_appendf(sb, ")(");
                 }
