@@ -466,6 +466,38 @@ static void verify_func(const IronLIR_Func *fn, const IronLIR_Module *module,
                 }
             }
         }
+
+        /* Invariant 7: PHI type consistency — each incoming value's type must match the PHI result type */
+        for (int ii = 0; ii < block->instr_count; ii++) {
+            const IronLIR_Instr *instr = block->instrs[ii];
+            if (instr->kind != IRON_LIR_PHI) continue;
+            if (instr->type == NULL) continue;  /* no result type to check against */
+
+            for (int pi = 0; pi < instr->phi.count; pi++) {
+                IronLIR_ValueId val_id = instr->phi.values[pi];
+                if (val_id == IRON_LIR_VALUE_INVALID) continue;
+
+                /* Synthetic param ValueIds (1..param_count) are NULL in value_table — skip */
+                if ((int)val_id >= 1 && (int)val_id <= fn->param_count) continue;
+
+                if ((ptrdiff_t)val_id >= arrlen(fn->value_table) ||
+                    fn->value_table[val_id] == NULL) continue;  /* use-before-def handles this */
+
+                const IronLIR_Instr *incoming = fn->value_table[val_id];
+                if (incoming->type != NULL &&
+                    !iron_type_equals(incoming->type, instr->type)) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "PHI node type mismatch in function '%s', block '%s': "
+                             "incoming value %%%u type differs from PHI result type",
+                             fn->name, block->label, val_id);
+                    iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_LIR_PHI_TYPE_MISMATCH,
+                                   instr->span, msg,
+                                   "ensure all PHI incoming values have consistent types");
+                }
+            }
+        }
     }
 
     if (reachable) free(reachable);
