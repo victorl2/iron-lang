@@ -11,6 +11,13 @@
 struct Iron_Symbol;
 struct Iron_Type;
 
+/* Capture analysis annotation — set by capture.c pass */
+typedef struct {
+    const char      *name;        /* original Iron variable name */
+    struct Iron_Type *type;       /* resolved type from symbol table */
+    bool             is_mutable;  /* true = var capture (by pointer), false = val (by value) */
+} Iron_CaptureEntry;
+
 /* ── Node kinds ──────────────────────────────────────────────────────────── */
 
 typedef enum {
@@ -439,6 +446,8 @@ typedef struct {
     int                param_count;
     Iron_Node         *return_type;  /* NULL if inferred */
     Iron_Node         *body;
+    Iron_CaptureEntry *captures;      /* set by capture analysis; NULL before analysis */
+    int                capture_count; /* 0 for non-capturing lambdas */
 } Iron_LambdaExpr;
 
 typedef struct {
