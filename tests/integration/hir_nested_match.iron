@@ -1,21 +1,21 @@
 func outer(a: Int, b: Int) -> String {
   match a {
-    1 {
+    1 -> {
       match b {
-        1 { return "1,1" }
-        2 { return "1,2" }
-        else { return "1,other" }
+        1 -> return "1,1"
+        2 -> return "1,2"
+        else -> return "1,other"
       }
       return "1,?"
     }
-    2 {
+    2 -> {
       match b {
-        1 { return "2,1" }
-        else { return "2,other" }
+        1 -> return "2,1"
+        else -> return "2,other"
       }
       return "2,?"
     }
-    else { return "other" }
+    else -> return "other"
   }
   return "unknown"
 }
