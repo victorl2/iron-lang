@@ -13,7 +13,7 @@
 
 /* ── Unity boilerplate ───────────────────────────────────────────────────── */
 
-void setUp(void)    { iron_runtime_init(); }
+void setUp(void)    { iron_runtime_init(0, NULL); }
 void tearDown(void) { iron_runtime_shutdown(); }
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
