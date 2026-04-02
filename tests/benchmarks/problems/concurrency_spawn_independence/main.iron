@@ -26,21 +26,26 @@ func main() {
     val seq_checksum = (a0 + a1 + a2 + a3) % 1000000007
 
     -- Spawn 4 independent tasks with different seeds
+    -- Handles captured and awaited for fair timing vs C pthread_join
     val start = Time.now_ms()
     val iters = 3
     for iter in range(iters) {
-        spawn("i0") {
+        val h0 = spawn("i0") {
             var r = hash_seed(7, 400)
         }
-        spawn("i1") {
+        val h1 = spawn("i1") {
             var r = hash_seed(13, 400)
         }
-        spawn("i2") {
+        val h2 = spawn("i2") {
             var r = hash_seed(29, 400)
         }
-        spawn("i3") {
+        val h3 = spawn("i3") {
             var r = hash_seed(97, 400)
         }
+        await h0
+        await h1
+        await h2
+        await h3
     }
     val elapsed = Time.now_ms() - start
 

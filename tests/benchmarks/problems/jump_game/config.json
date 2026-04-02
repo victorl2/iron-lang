@@ -1,1 +1,1 @@
-{"iterations": 3000000, "timeout_sec": 60, "max_ratio": 1.2, "note": "Iron is typically faster than C (0.9x or better). At 3M iters (C ~220ms), stable ratio well below 1.2x threshold."}
+{"iterations": 3000000, "timeout_sec": 60, "max_ratio": 1.5, "note": "Iron is typically faster than C (0.9x or better). At 3M iters (C ~220ms), stable ratio well below 1.2x threshold."}

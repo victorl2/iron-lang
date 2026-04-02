@@ -1183,7 +1183,18 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
 
     Iron_Node *init = NULL;
     if (iron_match(p, IRON_TOK_ASSIGN)) {
-        init = iron_parse_expr(p);
+        if (iron_check(p, IRON_TOK_SPAWN)) {
+            /* val h = spawn("name") { body } -- spawn as expression */
+            Iron_Node *spawn_node = iron_parse_spawn_stmt(p);
+            if (spawn_node && spawn_node->kind == IRON_NODE_SPAWN) {
+                Iron_SpawnStmt *ss = (Iron_SpawnStmt *)spawn_node;
+                ss->handle_name = iron_arena_strdup(p->arena, name_tok->value,
+                                                     strlen(name_tok->value));
+            }
+            init = spawn_node;
+        } else {
+            init = iron_parse_expr(p);
+        }
     }
 
     Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
@@ -1218,7 +1229,18 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
 
     Iron_Node *init = NULL;
     if (iron_match(p, IRON_TOK_ASSIGN)) {
-        init = iron_parse_expr(p);
+        if (iron_check(p, IRON_TOK_SPAWN)) {
+            /* var h = spawn("name") { body } -- spawn as expression */
+            Iron_Node *spawn_node = iron_parse_spawn_stmt(p);
+            if (spawn_node && spawn_node->kind == IRON_NODE_SPAWN) {
+                Iron_SpawnStmt *ss = (Iron_SpawnStmt *)spawn_node;
+                ss->handle_name = iron_arena_strdup(p->arena, name_tok->value,
+                                                     strlen(name_tok->value));
+            }
+            init = spawn_node;
+        } else {
+            init = iron_parse_expr(p);
+        }
     }
 
     Iron_VarDecl *n = ARENA_ALLOC(p->arena, Iron_VarDecl);

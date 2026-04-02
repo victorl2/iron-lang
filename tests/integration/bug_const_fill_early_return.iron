@@ -1,0 +1,30 @@
+-- Regression test: constant-count fill after early return must not
+-- produce a VLA+goto bypass error in generated C.
+
+func search(arr: [Int], n: Int, target: Int) -> Int {
+    if n == 0 {
+        return -1
+    }
+    var counts = fill(5, 0)
+    var limit = n
+    if limit > 5 {
+        limit = 5
+    }
+    for i in range(limit) {
+        counts[i] = arr[i]
+    }
+    var result = 0
+    for i in range(5) {
+        if counts[i] == target {
+            result = result + 1
+        }
+    }
+    return result
+}
+
+func main() {
+    val arr = [1, 2, 3, 2, 1]
+    println("empty: {search(arr, 0, 1)}")
+    println("found: {search(arr, 5, 2)}")
+    println("none: {search(arr, 5, 99)}")
+}

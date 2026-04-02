@@ -1,0 +1,17 @@
+-- Regression test: var binding of heap-allocated object
+-- Previously, `var p = heap T(...)` created an alloca typed as `T` (value)
+-- rather than `T*` (pointer), causing a C type mismatch at STORE and
+-- incorrect `.` instead of `->` for field access.
+object Vec2 {
+  val x: Int
+  val y: Int
+}
+
+func main() {
+  var p = heap Vec2(3, 4)
+  println("{p.x}")
+  println("{p.y}")
+  p = heap Vec2(10, 20)
+  println("{p.x}")
+  println("{p.y}")
+}

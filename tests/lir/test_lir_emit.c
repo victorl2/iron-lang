@@ -225,12 +225,11 @@ void test_emit_alloca_load_store(void) {
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_4);
 
     TEST_ASSERT_NOT_NULL(result);
-    /* Alloca emits a variable declaration */
+    /* Return type is int64_t */
     TEST_ASSERT_NOT_NULL(strstr(result, "int64_t"));
-    /* Store emits assignment: _vN = _vM */
-    TEST_ASSERT_NOT_NULL(strstr(result, " = "));
-    /* Load emits copy: _vK = _vN */
+    /* After copy-prop + dead alloca elimination, constant 42 is returned directly */
     TEST_ASSERT_NOT_NULL(strstr(result, "return"));
+    TEST_ASSERT_NOT_NULL(strstr(result, "42"));
 
     iron_lir_optimize_info_free(&opt_info_4);
     iron_arena_free(&out_arena);
@@ -648,6 +647,100 @@ void test_emit_inlined_no_separate_temps(void) {
     iron_arena_free(&ir_arena);
 }
 
+/* ── Test 10: Stdlib stub extern should NOT wrap string args in iron_string_cstr ─ */
+
+void test_emit_stdlib_stub_no_cstr_wrap(void) {
+    Iron_Arena ir_arena = iron_arena_create(131072);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_stub_str");
+    Iron_Type *str_type  = iron_type_make_primitive(IRON_TYPE_STRING);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_Span sp = test_span();
+
+    /* Create a stdlib stub function: io_file_exists(path: String) -> Bool
+     * It's marked extern (empty body) but has NO extern_c_name */
+    IronLIR_Func *stub = iron_lir_func_create(mod, "io_file_exists",
+                                               NULL, 0, bool_type);
+    stub->is_extern = true;
+    stub->extern_c_name = NULL;  /* stdlib stub — NOT a true C extern */
+
+    /* Create caller: main() */
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_main", NULL, 0, NULL);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+
+    /* %1 = const_string "/tmp" */
+    IronLIR_Instr *path_str = iron_lir_const_string(fn, entry, "/tmp", str_type, sp);
+    /* %2 = func_ref io_file_exists */
+    IronLIR_Instr *fref = iron_lir_func_ref(fn, entry, "io_file_exists", NULL, sp);
+    /* %3 = call %2(%1) */
+    IronLIR_ValueId args[1] = { path_str->id };
+    iron_lir_call(fn, entry, NULL, fref->id, args, 1, bool_type, sp);
+    iron_lir_return(fn, entry, IRON_LIR_VALUE_INVALID, true, NULL, sp);
+
+    Iron_Arena out_arena = iron_arena_create(131072);
+    IronLIR_OptimizeInfo opt_info;
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info);
+
+    TEST_ASSERT_NOT_NULL(result);
+    /* Stdlib stub: string arg should be passed as-is, NOT wrapped in cstr */
+    TEST_ASSERT_NOT_NULL(strstr(result, "io_file_exists("));
+    TEST_ASSERT_NULL_MESSAGE(strstr(result, "iron_string_cstr"),
+        "Stdlib stub call should NOT wrap string args in iron_string_cstr()");
+
+    iron_lir_optimize_info_free(&opt_info);
+    iron_arena_free(&out_arena);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+/* ── Test 11: True C extern SHOULD wrap string args in iron_string_cstr ──── */
+
+void test_emit_true_extern_cstr_wrap(void) {
+    Iron_Arena ir_arena = iron_arena_create(131072);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_extern_str");
+    Iron_Type *str_type = iron_type_make_primitive(IRON_TYPE_STRING);
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span sp = test_span();
+
+    /* Create a true C extern: puts(s: String) -> Int
+     * Has extern_c_name set — this is a real C function expecting const char* */
+    IronLIR_Func *ext = iron_lir_func_create(mod, "puts", NULL, 0, int_type);
+    ext->is_extern = true;
+    ext->extern_c_name = "puts";  /* true C extern */
+
+    /* Create caller: main() */
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_main", NULL, 0, NULL);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+
+    /* %1 = const_string "hello" */
+    IronLIR_Instr *msg = iron_lir_const_string(fn, entry, "hello", str_type, sp);
+    /* %2 = func_ref puts */
+    IronLIR_Instr *fref = iron_lir_func_ref(fn, entry, "puts", NULL, sp);
+    /* %3 = call %2(%1) */
+    IronLIR_ValueId args[1] = { msg->id };
+    iron_lir_call(fn, entry, NULL, fref->id, args, 1, int_type, sp);
+    iron_lir_return(fn, entry, IRON_LIR_VALUE_INVALID, true, NULL, sp);
+
+    Iron_Arena out_arena = iron_arena_create(131072);
+    IronLIR_OptimizeInfo opt_info;
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info);
+
+    TEST_ASSERT_NOT_NULL(result);
+    /* True C extern: string arg SHOULD be wrapped in iron_string_cstr */
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "iron_string_cstr"),
+        "True C extern call should wrap string args in iron_string_cstr()");
+
+    iron_lir_optimize_info_free(&opt_info);
+    iron_arena_free(&out_arena);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -661,5 +754,7 @@ int main(void) {
     RUN_TEST(test_emit_expression_inlining_basic);
     RUN_TEST(test_emit_construct_inlined);
     RUN_TEST(test_emit_inlined_no_separate_temps);
+    RUN_TEST(test_emit_stdlib_stub_no_cstr_wrap);
+    RUN_TEST(test_emit_true_extern_cstr_wrap);
     return UNITY_END();
 }

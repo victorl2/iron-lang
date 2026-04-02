@@ -209,6 +209,8 @@ typedef struct {
 Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg);
 void         Iron_handle_wait(Iron_Handle *handle);
 void         Iron_handle_destroy(Iron_Handle *handle);
+void        *iron_future_await(Iron_Handle *handle);
+Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *));
 
 /* ── Iron_Channel (bounded ring buffer) ──────────────────────────────────────
  * send blocks when the buffer is full; recv blocks when it is empty.
@@ -541,6 +543,7 @@ void iron_runtime_shutdown(void);
 #ifndef IRON_CODEGEN_PROVIDES_STRUCTS
 
 typedef struct Iron_List_int64_t    { int64_t     *items; int64_t count; int64_t capacity; } Iron_List_int64_t;
+typedef struct Iron_List_int32_t    { int32_t     *items; int64_t count; int64_t capacity; } Iron_List_int32_t;
 typedef struct Iron_List_double     { double      *items; int64_t count; int64_t capacity; } Iron_List_double;
 typedef struct Iron_List_bool       { bool        *items; int64_t count; int64_t capacity; } Iron_List_bool;
 typedef struct Iron_List_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_List_Iron_String;
@@ -555,6 +558,7 @@ typedef struct Iron_Set_Iron_String { Iron_String *items; int64_t count; int64_t
 
 /* Declarations for the pre-instantiated types in iron_collections.c */
 IRON_LIST_DECL(int64_t,     int64_t)
+IRON_LIST_DECL(int32_t,     int32_t)
 IRON_LIST_DECL(double,      double)
 IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)

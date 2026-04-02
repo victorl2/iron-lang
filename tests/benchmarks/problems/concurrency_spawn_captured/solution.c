@@ -4,8 +4,8 @@
 #include <pthread.h>
 #include <time.h>
 
-#define N 500
-#define ITERATIONS 3
+#define N 50000
+#define ITERATIONS 100
 #define NUM_THREADS 3
 
 static int64_t compute_with_seed(int64_t seed, int n) {

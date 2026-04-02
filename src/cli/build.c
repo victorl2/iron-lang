@@ -927,7 +927,12 @@ int iron_build(const char *source_path, const char *output_path,
     }
     free(c_file_path);
 
-    /* 15. Clean up compiler resources */
+    /* 15. Print any compiler warnings (before cleanup) */
+    if (diags.warning_count > 0) {
+        iron_diag_print_all(&diags, source);
+    }
+
+    /* Clean up compiler resources */
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
     free(source);

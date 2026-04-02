@@ -5,8 +5,11 @@
  *   Phase 0a: analyze_array_param_modes (PARAM-01/02 pointer-mode analysis)
  *   Phase 0b: optimize_array_repr     (ARR-01 stack vs heap array selection)
  *
- * After Plan 02, this will also contain:
- *   Copy propagation, constant folding, dead code elimination (fixpoint loop)
+ * Fixpoint loop (copy-prop -> const-fold -> DCE -> store-load-elim -> strength-reduction)
+ *
+ * Post-fixpoint:
+ *   run_dead_alloca_elimination (PHI-01/PHI-02): removes allocas with no live loads
+ *   iron_lir_compute_inline_info (Phase 16)
  */
 
 #include "lir/lir_optimize.h"
@@ -613,6 +616,9 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
 
 /* Named type for the value-replacement hashmap (used by copy propagation). */
 typedef struct { IronLIR_ValueId key; IronLIR_ValueId value; } ValueReplEntry;
+
+/* Named type for the block-ID remap hashmap (used by function inlining). */
+typedef struct { IronLIR_BlockId key; IronLIR_BlockId value; } BlockIdRemap;
 
 /* Named type for the per-alloca store-count info hashmap. */
 typedef struct { int count; IronLIR_ValueId val; } StoreInfoVal;
@@ -1325,6 +1331,110 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
     return escaped;
 }
 
+/* ── Dead alloca elimination pass (PHI-01/PHI-02) ───────────────────────── */
+
+/* Dead alloca elimination: remove allocas with no live loads, and all their
+ * stores.  Runs post-fixpoint so copy-propagation has already eliminated
+ * single-store alloca loads.
+ *
+ * An alloca is considered "live" if:
+ *   - Any LOAD references it as load.ptr, OR
+ *   - Any GET_INDEX or SET_INDEX references it as index.array, OR
+ *   - Any GET_FIELD or SET_FIELD references it as field.object, OR
+ *   - It appears in the escape set (address passed to CALL, stored as value,
+ *     or returned).
+ *
+ * If none of the above apply, the alloca and all STORE instructions targeting
+ * it are removed.  Returns true if any change was made. */
+static bool run_dead_alloca_elimination(IronLIR_Module *module) {
+    bool changed = false;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        /* Step 1: Build "loaded" set — alloca IDs that are live */
+        struct { IronLIR_ValueId key; bool value; } *loaded = NULL;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                switch (in->kind) {
+                case IRON_LIR_LOAD:
+                    hmput(loaded, in->load.ptr, true);
+                    break;
+                case IRON_LIR_GET_INDEX:
+                case IRON_LIR_SET_INDEX:
+                    hmput(loaded, in->index.array, true);
+                    break;
+                case IRON_LIR_GET_FIELD:
+                case IRON_LIR_SET_FIELD:
+                    hmput(loaded, in->field.object, true);
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+
+        /* Step 1b: Escape safety check — keep escaped allocas */
+        IronLIR_EscapeEntry *escape_set = compute_escape_set(fn);
+        for (ptrdiff_t ei = 0; ei < hmlen(escape_set); ei++) {
+            if (escape_set[ei].value) {
+                hmput(loaded, escape_set[ei].key, true);
+            }
+        }
+        hmfree(escape_set);
+
+        /* Step 2: Identify dead allocas (not in loaded set) */
+        struct { IronLIR_ValueId key; bool value; } *dead_alloca = NULL;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_ALLOCA) {
+                    if (hmgeti(loaded, in->id) < 0) {
+                        hmput(dead_alloca, in->id, true);
+                    }
+                }
+            }
+        }
+
+        /* Step 3: Remove dead allocas and their stores */
+        if (hmlen(dead_alloca) > 0) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                int new_count = 0;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    bool remove = false;
+                    if (in->kind == IRON_LIR_ALLOCA &&
+                        hmgeti(dead_alloca, in->id) >= 0) {
+                        remove = true;
+                    } else if (in->kind == IRON_LIR_STORE &&
+                               hmgeti(dead_alloca, in->store.ptr) >= 0) {
+                        remove = true;
+                    }
+                    if (!remove) {
+                        blk->instrs[new_count++] = in;
+                    } else {
+                        if (in->id != IRON_LIR_VALUE_INVALID &&
+                            (ptrdiff_t)in->id < arrlen(fn->value_table)) {
+                            fn->value_table[in->id] = NULL;
+                        }
+                        changed = true;
+                    }
+                }
+                blk->instr_count = new_count;
+            }
+        }
+
+        hmfree(loaded);
+        hmfree(dead_alloca);
+    }
+    return changed;
+}
+
 /* Redundant store/load elimination pass.
  *
  * For each basic block, performs a forward scan tracking the last value stored
@@ -1390,12 +1500,12 @@ static bool run_store_load_elim(IronLIR_Module *module) {
 
                 case IRON_LIR_SET_INDEX:
                     /* SET_INDEX mutates the array element — invalidate that alloca */
-                    hmdel(last_store, in->index.array);
+                    if (last_store) hmdel(last_store, in->index.array);
                     break;
 
                 case IRON_LIR_SET_FIELD:
                     /* SET_FIELD mutates a struct field — invalidate that alloca */
-                    hmdel(last_store, in->field.object);
+                    if (last_store) hmdel(last_store, in->field.object);
                     break;
 
                 case IRON_LIR_CALL:
@@ -1448,6 +1558,13 @@ static bool run_store_load_elim(IronLIR_Module *module) {
  * Must be pure AND not require multi-statement emission. */
 static bool instr_is_inline_expressible(IronLIR_InstrKind kind) {
     if (!iron_lir_instr_is_pure(kind)) return false;
+    /* CALL must not be inlined — emit_expr_to_buf doesn't implement array
+     * parameter splitting (pointer+length) or extern string wrapping. */
+    if (kind == IRON_LIR_CALL) return false;
+    /* LOAD: inlining replaces _vN with the alloca name, minimal benefit;
+     * but when the load crosses blocks the inline chain can reference
+     * values with suppressed declarations, causing C compilation errors. */
+    if (kind == IRON_LIR_LOAD) return false;
     /* Multi-statement emission patterns cannot be inlined as sub-expressions */
     if (kind == IRON_LIR_ARRAY_LIT) return false;
     if (kind == IRON_LIR_INTERP_STRING) return false;
@@ -1672,6 +1789,14 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
         IronLIR_Block *blk = fn->blocks[bi];
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *in = blk->instrs[ii];
+
+            /* PHI incoming values: emitted as assignments in predecessor blocks.
+             * Must not be inline-eligible to ensure declarations exist. */
+            if (in->kind == IRON_LIR_PHI) {
+                for (int pi = 0; pi < in->phi.count; pi++) {
+                    hmput(excluded, in->phi.values[pi], true);
+                }
+            }
 
             /* INTERP_STRING parts: referenced by name in format strings */
             if (in->kind == IRON_LIR_INTERP_STRING) {
@@ -2466,7 +2591,7 @@ static bool run_strength_reduction(IronLIR_Module *module) {
                     IronLIR_ValueId new_iv_alloca = IRON_LIR_VALUE_INVALID;
                     bool found_dedup = false;
 
-                    for (int di = 0; di < (int)hmlen(dedup_map); di++) {
+                    for (int di = 0; di < (int)arrlen(dedup_map); di++) {
                         if (sr_dedup_key_eq(dedup_map[di].key, dk)) {
                             new_iv_alloca = dedup_map[di].value;
                             found_dedup = true;
@@ -2663,6 +2788,530 @@ bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
     }
 }
 
+/* ── Function inlining pass ───────────────────────────────────────────────── */
+
+/* Count total instructions in a function (for size threshold). */
+static int count_func_instructions(IronLIR_Func *fn) {
+    int count = 0;
+    for (int bi = 0; bi < fn->block_count; bi++)
+        count += fn->blocks[bi]->instr_count;
+    return count;
+}
+
+/* Check whether a function directly calls itself (recursion guard). */
+static bool func_has_self_call(IronLIR_Func *fn) {
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *instr = blk->instrs[ii];
+            if (instr->kind != IRON_LIR_CALL) continue;
+            const char *callee_name = NULL;
+            if (instr->call.func_decl) {
+                callee_name = instr->call.func_decl->name;
+            } else if (instr->call.func_ptr != IRON_LIR_VALUE_INVALID) {
+                IronLIR_ValueId fptr = instr->call.func_ptr;
+                if (fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[fptr] &&
+                    fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF) {
+                    callee_name = fn->value_table[fptr]->func_ref.func_name;
+                }
+            }
+            if (callee_name && strcmp(callee_name, fn->name) == 0) return true;
+        }
+    }
+    return false;
+}
+
+/* Inline a single CALL instruction into its containing function.
+ *
+ * call_block     — the block containing the CALL
+ * call_idx       — index of the CALL instruction in call_block->instrs
+ * call_instr     — the CALL instruction itself
+ * callee         — the function to inline
+ *
+ * Algorithm overview:
+ *   1. Pre-populate id_remap with callee param synthetic IDs -> call arg IDs.
+ *   2. Insert result ALLOCA into call_block BEFORE call_idx (so it's declared
+ *      before the cloned body in C emission order).
+ *   3. Clone callee blocks; assign fresh caller IDs; build id_remap.
+ *   4. Apply id_remap to all cloned instructions.
+ *   5. Apply block_remap to cloned terminators.
+ *   6. Create merge block (LOAD from result alloca).
+ *   7. Replace RETURN in cloned blocks with STORE+JUMP to merge.
+ *   8. Split call_block at CALL site; wire JUMP edges.
+ *   9. Propagate load_result_id -> call_id replacement to continuation.
+ */
+static void inline_call_site(IronLIR_Func *fn,
+                              IronLIR_Block *call_block,
+                              int call_idx,
+                              IronLIR_Instr *call_instr,
+                              IronLIR_Func *callee) {
+    /* ── Remap tables ──────────────────────────────────────────────────── */
+    ValueReplEntry *id_remap    = NULL;
+    BlockIdRemap   *block_remap = NULL;
+
+    /* ── Step 1: Pre-populate param synthetic IDs ──────────────────────── */
+    /*
+     * In the callee, parameters occupy synthetic ValueIds 1..param_count.
+     * These IDs have no backing instruction (value_table[id] = NULL) and are
+     * never seen as the "id" field of any instruction.  We must map them to
+     * the corresponding call arguments NOW, before cloning, so that
+     * apply_replacements can rewrite param-uses in the cloned body.
+     *
+     * We discover the param-value IDs by scanning STORE instructions in the
+     * callee entry block: each `store alloca_id, param_val_id` reveals a
+     * param_val_id.  We collect them in declaration order and map each to
+     * the matching call argument.
+     */
+    if (callee->param_count > 0 && call_instr->call.arg_count == callee->param_count) {
+        IronLIR_Block *entry_blk = callee->block_count > 0 ? callee->blocks[0] : NULL;
+        if (entry_blk) {
+            int found = 0;
+            for (int ii = 0; ii < entry_blk->instr_count && found < callee->param_count; ii++) {
+                IronLIR_Instr *instr = entry_blk->instrs[ii];
+                if (instr->kind == IRON_LIR_STORE) {
+                    /* store alloca_id, param_val_id */
+                    IronLIR_ValueId pval = instr->store.value;
+                    /* Verify pval is a synthetic param ID (value_table[pval] == NULL
+                     * and pval is in range 1..param_count) */
+                    if (pval >= 1 && pval <= (IronLIR_ValueId)callee->param_count &&
+                        (ptrdiff_t)pval < arrlen(callee->value_table) &&
+                        callee->value_table[pval] == NULL) {
+                        hmput(id_remap, pval, call_instr->call.args[found]);
+                        found++;
+                    }
+                }
+            }
+        }
+    }
+
+    /* ── Step 2: Create result ALLOCA in call_block before call_idx ─────── */
+    /*
+     * The result alloca MUST be declared before the cloned callee blocks in
+     * C emission order, because cloned RETURN->STORE instructions reference
+     * it.  We insert it into call_block at position call_idx (shifting the
+     * CALL instruction one slot right), which keeps it in call_block (before
+     * the JUMP to cloned entry after the split).
+     */
+    bool non_void = (callee->return_type != NULL) &&
+                    (call_instr->id != IRON_LIR_VALUE_INVALID);
+
+    IronLIR_ValueId result_alloca_id = IRON_LIR_VALUE_INVALID;
+    IronLIR_ValueId load_result_id   = IRON_LIR_VALUE_INVALID;
+
+    if (non_void) {
+        IronLIR_Instr *result_alloca = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+        memset(result_alloca, 0, sizeof(*result_alloca));
+        result_alloca->kind              = IRON_LIR_ALLOCA;
+        result_alloca->type              = callee->return_type;
+        result_alloca->span              = call_instr->span;
+        result_alloca->alloca.alloc_type = callee->return_type;
+        result_alloca->alloca.name_hint  = NULL;
+        result_alloca->id = fn->next_value_id++;
+        while (arrlen(fn->value_table) <= (ptrdiff_t)result_alloca->id)
+            arrput(fn->value_table, NULL);
+        fn->value_table[result_alloca->id] = result_alloca;
+        result_alloca_id = result_alloca->id;
+
+        /* Insert at call_idx: shift CALL and everything after it right by 1 */
+        arrput(call_block->instrs, NULL);
+        call_block->instr_count++;
+        for (int k = call_block->instr_count - 1; k > call_idx; k--)
+            call_block->instrs[k] = call_block->instrs[k - 1];
+        call_block->instrs[call_idx] = result_alloca;
+        call_idx++;  /* CALL is now at call_idx (after the alloca) */
+    }
+
+    /* ── Step 3: Clone callee blocks into caller ────────────────────────── */
+    IronLIR_BlockId cloned_entry_id  = IRON_LIR_BLOCK_INVALID;
+    int cloned_block_start = fn->block_count;  /* index where cloned blocks start */
+
+    for (int bi = 0; bi < callee->block_count; bi++) {
+        IronLIR_Block *src_blk = callee->blocks[bi];
+
+        IronLIR_Block *new_blk = ARENA_ALLOC(fn->arena, IronLIR_Block);
+        memset(new_blk, 0, sizeof(*new_blk));
+        new_blk->id    = fn->next_block_id++;
+        new_blk->label = src_blk->label ? src_blk->label : "inline_body";
+
+        hmput(block_remap, src_blk->id, new_blk->id);
+        if (bi == 0) cloned_entry_id = new_blk->id;
+
+        for (int ii = 0; ii < src_blk->instr_count; ii++) {
+            IronLIR_Instr *src    = src_blk->instrs[ii];
+            IronLIR_Instr *cloned = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+            memcpy(cloned, src, sizeof(*src));
+
+            /* Deep-copy stb_ds arrays owned by the instruction */
+            if (src->kind == IRON_LIR_CALL && src->call.arg_count > 0 && src->call.args) {
+                cloned->call.args = NULL;
+                for (int ai = 0; ai < src->call.arg_count; ai++)
+                    arrput(cloned->call.args, src->call.args[ai]);
+            }
+            if (src->kind == IRON_LIR_CONSTRUCT && src->construct.field_count > 0 && src->construct.field_vals) {
+                cloned->construct.field_vals = NULL;
+                for (int fi2 = 0; fi2 < src->construct.field_count; fi2++)
+                    arrput(cloned->construct.field_vals, src->construct.field_vals[fi2]);
+            }
+            if (src->kind == IRON_LIR_ARRAY_LIT && src->array_lit.element_count > 0 && src->array_lit.elements) {
+                cloned->array_lit.elements = NULL;
+                for (int ei = 0; ei < src->array_lit.element_count; ei++)
+                    arrput(cloned->array_lit.elements, src->array_lit.elements[ei]);
+            }
+            if (src->kind == IRON_LIR_INTERP_STRING && src->interp_string.part_count > 0 && src->interp_string.parts) {
+                cloned->interp_string.parts = NULL;
+                for (int pi2 = 0; pi2 < src->interp_string.part_count; pi2++)
+                    arrput(cloned->interp_string.parts, src->interp_string.parts[pi2]);
+            }
+            if (src->kind == IRON_LIR_MAKE_CLOSURE && src->make_closure.capture_count > 0 && src->make_closure.captures) {
+                cloned->make_closure.captures = NULL;
+                for (int ci2 = 0; ci2 < src->make_closure.capture_count; ci2++)
+                    arrput(cloned->make_closure.captures, src->make_closure.captures[ci2]);
+            }
+            if (src->kind == IRON_LIR_PARALLEL_FOR && src->parallel_for.capture_count > 0 && src->parallel_for.captures) {
+                cloned->parallel_for.captures = NULL;
+                for (int ci2 = 0; ci2 < src->parallel_for.capture_count; ci2++)
+                    arrput(cloned->parallel_for.captures, src->parallel_for.captures[ci2]);
+            }
+
+            /* Assign fresh value ID (Pitfall 1: ID must not collide with caller). */
+            if (src->id != IRON_LIR_VALUE_INVALID) {
+                IronLIR_ValueId old_id = src->id;
+                cloned->id = fn->next_value_id++;
+                while (arrlen(fn->value_table) <= (ptrdiff_t)cloned->id)
+                    arrput(fn->value_table, NULL);
+                fn->value_table[cloned->id] = cloned;
+                hmput(id_remap, old_id, cloned->id);
+            } else {
+                cloned->id = IRON_LIR_VALUE_INVALID;
+            }
+
+            arrput(new_blk->instrs, cloned);
+            new_blk->instr_count++;
+        }
+
+        arrput(fn->blocks, new_blk);
+        fn->block_count++;
+    }
+
+    /* ── Step 4: Apply value ID remap to all cloned instructions ─────────── */
+    for (int bi = cloned_block_start; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            apply_replacements(blk->instrs[ii], id_remap);
+        }
+    }
+
+    /* ── Step 5: Apply block ID remap to terminators in cloned blocks ─────── */
+    for (int bi = cloned_block_start; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *instr = blk->instrs[ii];
+            if (instr->kind == IRON_LIR_JUMP) {
+                ptrdiff_t idx = hmgeti(block_remap, instr->jump.target);
+                if (idx >= 0) instr->jump.target = block_remap[idx].value;
+            } else if (instr->kind == IRON_LIR_BRANCH) {
+                ptrdiff_t idx;
+                idx = hmgeti(block_remap, instr->branch.then_block);
+                if (idx >= 0) instr->branch.then_block = block_remap[idx].value;
+                idx = hmgeti(block_remap, instr->branch.else_block);
+                if (idx >= 0) instr->branch.else_block = block_remap[idx].value;
+            } else if (instr->kind == IRON_LIR_SWITCH) {
+                ptrdiff_t idx;
+                idx = hmgeti(block_remap, instr->sw.default_block);
+                if (idx >= 0) instr->sw.default_block = block_remap[idx].value;
+                for (int ci2 = 0; ci2 < instr->sw.case_count; ci2++) {
+                    idx = hmgeti(block_remap, instr->sw.case_blocks[ci2]);
+                    if (idx >= 0) instr->sw.case_blocks[ci2] = block_remap[idx].value;
+                }
+            }
+        }
+    }
+
+    /* ── Step 6: Create merge block ───────────────────────────────────────── */
+    /*
+     * The merge block receives control flow from each cloned RETURN site.
+     * If non-void: it contains only a LOAD from result_alloca and a JUMP to
+     * the continuation block (the LOAD is added here; JUMP added in step 8).
+     */
+    IronLIR_Block *merge = ARENA_ALLOC(fn->arena, IronLIR_Block);
+    memset(merge, 0, sizeof(*merge));
+    merge->id    = fn->next_block_id++;
+    merge->label = "inline_merge";
+
+    if (non_void) {
+        IronLIR_Instr *load_result = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+        memset(load_result, 0, sizeof(*load_result));
+        load_result->kind     = IRON_LIR_LOAD;
+        load_result->type     = callee->return_type;
+        load_result->span     = call_instr->span;
+        load_result->load.ptr = result_alloca_id;
+        load_result->id = fn->next_value_id++;
+        while (arrlen(fn->value_table) <= (ptrdiff_t)load_result->id)
+            arrput(fn->value_table, NULL);
+        fn->value_table[load_result->id] = load_result;
+        load_result_id = load_result->id;
+
+        arrput(merge->instrs, load_result);
+        merge->instr_count++;
+    }
+
+    arrput(fn->blocks, merge);
+    fn->block_count++;
+
+    /* ── Step 7: Replace RETURN in cloned blocks with STORE + JUMP ─────────── */
+    /*
+     * By this point, apply_replacements has already run on cloned instrs, so
+     * ret.value is in caller ID space.
+     */
+    for (int bi = cloned_block_start; bi < fn->block_count - 1; bi++) {  /* -1 to skip merge */
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *instr = blk->instrs[ii];
+            if (instr->kind != IRON_LIR_RETURN) continue;
+
+            IronLIR_Instr *jump_to_merge = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+            memset(jump_to_merge, 0, sizeof(*jump_to_merge));
+            jump_to_merge->kind        = IRON_LIR_JUMP;
+            jump_to_merge->id          = IRON_LIR_VALUE_INVALID;
+            jump_to_merge->jump.target = merge->id;
+            jump_to_merge->span        = instr->span;
+
+            if (non_void && !instr->ret.is_void) {
+                IronLIR_Instr *store_ret = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                memset(store_ret, 0, sizeof(*store_ret));
+                store_ret->kind        = IRON_LIR_STORE;
+                store_ret->id          = IRON_LIR_VALUE_INVALID;
+                store_ret->span        = instr->span;
+                store_ret->store.ptr   = result_alloca_id;
+                store_ret->store.value = instr->ret.value;
+
+                blk->instrs[ii] = store_ret;
+                /* Insert JUMP immediately after STORE */
+                arrput(blk->instrs, NULL);
+                blk->instr_count++;
+                for (int k = blk->instr_count - 1; k > ii + 1; k--)
+                    blk->instrs[k] = blk->instrs[k - 1];
+                blk->instrs[ii + 1] = jump_to_merge;
+            } else {
+                blk->instrs[ii] = jump_to_merge;
+            }
+            break;  /* only one terminator per block */
+        }
+    }
+
+    /* ── Step 8: Split caller block at the CALL site ─────────────────────── */
+    /*
+     * call_block layout at this point (call_idx adjusted above if non_void):
+     *   [0 .. call_idx-1]           — pre-call instrs (+ result alloca if non_void)
+     *   [call_idx]                  — the CALL instr  (to be removed)
+     *   [call_idx+1 .. end]         — post-call instrs -> go to cont block
+     */
+    IronLIR_Block *cont = ARENA_ALLOC(fn->arena, IronLIR_Block);
+    memset(cont, 0, sizeof(*cont));
+    cont->id    = fn->next_block_id++;
+    cont->label = "inline_cont";
+
+    for (int k = call_idx + 1; k < call_block->instr_count; k++) {
+        arrput(cont->instrs, call_block->instrs[k]);
+        cont->instr_count++;
+    }
+
+    /* Truncate call_block to pre-call instructions (dropping CALL) */
+    call_block->instr_count = call_idx;
+    arrsetlen(call_block->instrs, (ptrdiff_t)call_idx);
+
+    /* JUMP from call_block to cloned callee entry */
+    IronLIR_Instr *jump_to_entry = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    memset(jump_to_entry, 0, sizeof(*jump_to_entry));
+    jump_to_entry->kind        = IRON_LIR_JUMP;
+    jump_to_entry->id          = IRON_LIR_VALUE_INVALID;
+    jump_to_entry->jump.target = cloned_entry_id;
+    jump_to_entry->span        = call_instr->span;
+    arrput(call_block->instrs, jump_to_entry);
+    call_block->instr_count++;
+
+    /* JUMP from merge to continuation */
+    IronLIR_Instr *jump_to_cont = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    memset(jump_to_cont, 0, sizeof(*jump_to_cont));
+    jump_to_cont->kind        = IRON_LIR_JUMP;
+    jump_to_cont->id          = IRON_LIR_VALUE_INVALID;
+    jump_to_cont->jump.target = cont->id;
+    jump_to_cont->span        = call_instr->span;
+    arrput(merge->instrs, jump_to_cont);
+    merge->instr_count++;
+
+    /* Append continuation block at the end of the function's block array.
+     *
+     * The continuation block may contain ALLOCA instructions (loop variables,
+     * etc.) that were split from the original call_block.  These allocas may be
+     * referenced by while-loop blocks that appear at lower block-array indices.
+     * The C emitter's backward-reference hoisting mechanism (emit_c.c) is
+     * responsible for pre-declaring such allocas at function entry.
+     */
+    arrput(fn->blocks, cont);
+    fn->block_count++;
+
+    /* ── Step 9: Propagate inline result throughout the caller function ─── */
+    /*
+     * The CALL's result ID (call_instr->id) may be used in any block of the
+     * caller function, not just the immediately-following continuation block.
+     * For example, if the CALL result is used in a branch target block that
+     * was already in fn->blocks before splitting, those references must be
+     * updated to load_result_id.
+     *
+     * CRITICAL: Use a fresh, minimal remap containing ONLY the mapping
+     * call_instr->id -> load_result_id.  The id_remap table built during
+     * cloning maps callee IDs to new caller IDs; applying it here would
+     * wrongly replace existing caller-space operands that happen to share
+     * integer values with callee IDs.
+     *
+     * We apply to ALL blocks EXCEPT the cloned callee blocks (cloned_block_start
+     * to fn->block_count - 2, exclusive) and the merge block — those have
+     * already been handled.  Practically: apply to all original caller blocks
+     * (0..cloned_block_start) and the cont block.
+     */
+    if (non_void && call_instr->id != IRON_LIR_VALUE_INVALID) {
+        ValueReplEntry *result_remap = NULL;
+        hmput(result_remap, call_instr->id, load_result_id);
+        /* Apply to all original caller blocks (indices 0..cloned_block_start-1)
+         * and the continuation block. Skip call_block itself (call was removed)
+         * and the cloned/merge blocks (don't exist yet in caller ID space). */
+        for (int bi2 = 0; bi2 < cloned_block_start; bi2++) {
+            if (fn->blocks[bi2] == call_block) continue;  /* call removed, skip */
+            IronLIR_Block *blk = fn->blocks[bi2];
+            for (int ii = 0; ii < blk->instr_count; ii++)
+                apply_replacements(blk->instrs[ii], result_remap);
+        }
+        /* Also apply to continuation block */
+        for (int ii = 0; ii < cont->instr_count; ii++)
+            apply_replacements(cont->instrs[ii], result_remap);
+        hmfree(result_remap);
+    }
+
+    hmfree(id_remap);
+    hmfree(block_remap);
+}
+
+/* Run function inlining pass over the entire module.
+ *
+ * Inlines small (<= 20 instructions), non-recursive, pure functions.
+ * Runs between optimize_array_repr and the copy-prop/DCE fixpoint loop.
+ */
+static void run_function_inlining(IronLIR_Module *module,
+                                   IronLIR_OptimizeInfo *info,
+                                   Iron_Arena *arena) {
+    (void)info;   /* local purity map used instead of info->func_purity */
+    (void)arena;  /* reserved for future use */
+
+    if (!module || module->func_count == 0) return;
+
+    /* Step 1: Local purity scan (Phase-1 logic; leaf-only; no info mutation). */
+    struct { char *key; bool value; } *local_purity = NULL;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        bool all_pure = true;
+        bool has_call = false;
+        for (int bi = 0; bi < fn->block_count && all_pure; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count && all_pure; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_CALL) {
+                    has_call = true;
+                } else if (!iron_lir_instr_is_pure(in->kind) &&
+                           in->kind != IRON_LIR_RETURN &&
+                           in->kind != IRON_LIR_JUMP &&
+                           in->kind != IRON_LIR_ALLOCA &&
+                           in->kind != IRON_LIR_STORE &&
+                           in->kind != IRON_LIR_BRANCH) {
+                    all_pure = false;
+                }
+            }
+        }
+        if (all_pure && !has_call) {
+            shput(local_purity, (char*)fn->name, true);
+        }
+    }
+
+    /* Step 2: Build inline candidate set (name -> IronLIR_Func*). */
+    struct { char *key; IronLIR_Func *value; } *candidates = NULL;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+        if (count_func_instructions(fn) > 30) continue;  /* threshold: 30 (phi-eliminate adds ~9 instrs for param allocas) */
+        if (shgeti(local_purity, (char*)fn->name) < 0) continue;
+        if (func_has_self_call(fn)) continue;
+        shput(candidates, (char*)fn->name, fn);
+    }
+
+    if (shlen(candidates) == 0) {
+        shfree(local_purity);
+        shfree(candidates);
+        return;
+    }
+
+    /* Step 3: For each function (caller), inline calls to candidates.
+     *
+     * Snapshot block_count to avoid iterating newly-cloned blocks.
+     * One call site inlined per block per pass (break after each inline). */
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        int orig_block_count = fn->block_count;  /* Snapshot before mutations */
+
+        for (int bi = 0; bi < orig_block_count; bi++) {
+            /* Re-fetch block pointer every iteration (stb_ds may realloc) */
+            IronLIR_Block *blk = fn->blocks[bi];
+            int orig_instr_count = blk->instr_count;
+
+            for (int ii = 0; ii < orig_instr_count; ii++) {
+                IronLIR_Instr *instr = blk->instrs[ii];
+                if (instr->kind != IRON_LIR_CALL) continue;
+
+                /* Resolve callee name */
+                const char *callee_name = NULL;
+                if (instr->call.func_decl) {
+                    callee_name = instr->call.func_decl->name;
+                } else if (instr->call.func_ptr != IRON_LIR_VALUE_INVALID) {
+                    IronLIR_ValueId fptr = instr->call.func_ptr;
+                    if (fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                        fn->value_table[fptr] &&
+                        fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF) {
+                        callee_name = fn->value_table[fptr]->func_ref.func_name;
+                    }
+                }
+                if (!callee_name) continue;
+
+                /* Don't inline into itself */
+                if (strcmp(fn->name, callee_name) == 0) continue;
+
+                /* Check if callee is an inline candidate */
+                ptrdiff_t ci = shgeti(candidates, (char*)callee_name);
+                if (ci < 0) continue;
+                IronLIR_Func *callee = candidates[ci].value;
+
+                /* Re-fetch block pointer (safe since no arrput happened yet) */
+                IronLIR_Block *call_block = fn->blocks[bi];
+
+                /* Inline this call site */
+                inline_call_site(fn, call_block, ii, instr, callee);
+
+                /* Block is now split — stop iterating its instructions */
+                break;
+            }
+        }
+    }
+
+    /* Cleanup */
+    shfree(local_purity);
+    shfree(candidates);
+}
+
 void iron_lir_compute_inline_info(IronLIR_Module *module, IronLIR_OptimizeInfo *info) {
     if (!module || !info) return;
     /* Compute module-wide function purity analysis (only once per module) */
@@ -2693,6 +3342,19 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     if (dump_passes) {
         char *ir_text = iron_lir_print(module, true);
         if (ir_text) { fprintf(stderr, "=== After array-repr ===\n%s\n", ir_text); free(ir_text); }
+    }
+
+    run_function_inlining(module, info, arena);
+    if (dump_passes) {
+        char *ir_text = iron_lir_print(module, true);
+        if (ir_text) { fprintf(stderr, "=== After function-inlining ===\n%s\n", ir_text); free(ir_text); }
+    }
+
+    /* Re-run array repr to fix revoked_fill_ids for cloned fills */
+    optimize_array_repr(module, info);
+    if (dump_passes) {
+        char *ir_text = iron_lir_print(module, true);
+        if (ir_text) { fprintf(stderr, "=== After array-repr (post-inline) ===\n%s\n", ir_text); free(ir_text); }
     }
 
     if (skip_new_passes) return false;
@@ -2745,6 +3407,15 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     }
 
     iron_diaglist_free(&verify_diags);
+
+    /* PHI-01/PHI-02: dead alloca elimination — remove zero-load phi-origin
+     * allocas and their stores.  Runs once post-fixpoint; copy-prop has
+     * already eliminated single-store alloca loads by this point. */
+    run_dead_alloca_elimination(module);
+    if (dump_passes) {
+        char *ir_text = iron_lir_print(module, true);
+        if (ir_text) { fprintf(stderr, "=== After dead-alloca-elim ===\n%s\n", ir_text); free(ir_text); }
+    }
 
     /* Phase 16: compute module-wide function purity and set up inline info */
     if (!skip_new_passes) {

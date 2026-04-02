@@ -1,0 +1,24 @@
+-- Regression test: method call on heap-allocated objects
+-- Previously, when calling a method on a heap object (e.g., p.method()),
+-- the self parameter was passed as T* but the method expected T (value type),
+-- causing a C type mismatch.
+object Vec {
+  val x: Int
+  val y: Int
+}
+
+func Vec.dot(other: Vec) -> Int {
+  return self.x * other.x + self.y * other.y
+}
+
+func Vec.mag_sq() -> Int {
+  return self.x * self.x + self.y * self.y
+}
+
+func main() {
+  val a = heap Vec(3, 4)
+  val b = heap Vec(1, 2)
+  println("{a.mag_sq()}")
+  println("{a.dot(b)}")
+  println("{b.mag_sq()}")
+}

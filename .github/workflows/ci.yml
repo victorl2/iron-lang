@@ -68,7 +68,7 @@ jobs:
         if: runner.os != 'Windows'
         env:
           ASAN_OPTIONS: detect_leaks=0
-        run: ctest --test-dir build --output-on-failure -j4 -E benchmark
+        run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
@@ -93,4 +93,4 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build --output-on-failure -j4 -E benchmark
+        run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"

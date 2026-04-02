@@ -1,0 +1,45 @@
+-- Test: basic function inlining correctness
+-- A small pure function called multiple times should produce correct results
+-- whether or not the compiler inlines it.
+
+func add_one(x: Int) -> Int {
+    return x + 1
+}
+
+func square(x: Int) -> Int {
+    return x * x
+}
+
+func max_val(a: Int, b: Int) -> Int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+func main() {
+    -- Single call
+    println("{add_one(5)}")
+
+    -- Multiple calls in expression
+    val x = add_one(10) + add_one(20)
+    println("{x}")
+
+    -- Nested calls
+    val y = add_one(add_one(3))
+    println("{y}")
+
+    -- Different pure function
+    println("{square(7)}")
+
+    -- Multi-param pure function
+    println("{max_val(3, 8)}")
+    println("{max_val(10, 2)}")
+
+    -- Call in loop
+    var sum = 0
+    for i in range(5) {
+        sum = sum + add_one(i)
+    }
+    println("{sum}")
+}

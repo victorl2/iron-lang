@@ -1,0 +1,14 @@
+object Item {
+  var name: String
+  var value: Int
+}
+
+func main() {
+  var items = [Item("apple", 3), Item("banana", 5), Item("cherry", 2)]
+  var total = 0
+  for item in items {
+    println("{item.name}: {item.value}")
+    total = total + item.value
+  }
+  println("total: {total}")
+}

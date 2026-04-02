@@ -332,9 +332,10 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     fi
 
     # ── Step 7: Compute ratio and compare ──────────────────────────────
-    # Use awk for floating-point arithmetic
-    ratio=$(awk "BEGIN { if ($c_ms == 0) printf \"%.1f\", $iron_ms; else printf \"%.1f\", $iron_ms / $c_ms }")
-    pass=$(awk "BEGIN { if ($c_ms == 0) print ($iron_ms <= $max_ratio ? 1 : 0); else print ($iron_ms / $c_ms <= $max_ratio) ? 1 : 0 }")
+    # Use awk for floating-point arithmetic.
+    # Treat C times < 0.001ms as 0.001ms to avoid division-by-zero artifacts.
+    ratio=$(awk "BEGIN { c = ($c_ms < 0.001) ? 0.001 : $c_ms; printf \"%.1f\", $iron_ms / c }")
+    pass=$(awk "BEGIN { c = ($c_ms < 0.001) ? 0.001 : $c_ms; print ($iron_ms / c <= $max_ratio) ? 1 : 0 }")
 
     # Memory ratio
     mem_ratio="n/a"
@@ -342,15 +343,15 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
         mem_ratio=$(awk "BEGIN { printf \"%.1f\", $iron_mem_kb / $c_mem_kb }")
     fi
 
-    # Round times for display
-    c_display=$(awk "BEGIN { printf \"%d\", $c_ms + 0.5 }")
-    iron_display=$(awk "BEGIN { printf \"%d\", $iron_ms + 0.5 }")
+    # Format times for display — show sub-ms precision for fast benchmarks
+    c_display=$(awk "BEGIN { v = $c_ms; if (v < 1) printf \"%.2f\", v; else printf \"%d\", v + 0.5 }")
+    iron_display=$(awk "BEGIN { v = $iron_ms; if (v < 1) printf \"%.2f\", v; else printf \"%d\", v + 0.5 }")
 
     # Append compare delta to result line
     compare_suffix=""
     if [ $COMPARE_MODE -eq 1 ] && [ -n "$iron_noopt_ms" ]; then
-        noopt_ratio=$(awk "BEGIN { if ($c_ms == 0) printf \"%.1f\", $iron_noopt_ms; else printf \"%.1f\", $iron_noopt_ms / $c_ms }")
-        speedup_pct=$(awk "BEGIN { if ($iron_ms == 0) printf \"0.0\"; else printf \"%.1f\", ($iron_noopt_ms - $iron_ms) / $iron_noopt_ms * 100 }")
+        noopt_ratio=$(awk "BEGIN { c = ($c_ms < 0.001) ? 0.001 : $c_ms; printf \"%.1f\", $iron_noopt_ms / c }")
+        speedup_pct=$(awk "BEGIN { if ($iron_noopt_ms == 0) printf \"0.0\"; else printf \"%.1f\", ($iron_noopt_ms - $iron_ms) / $iron_noopt_ms * 100 }")
         compare_suffix=" [opt: ${ratio}x, noopt: ${noopt_ratio}x, speedup: ${speedup_pct}%]"
     fi
 

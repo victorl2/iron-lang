@@ -21,7 +21,7 @@ func get_seed() -> Int {
 }
 
 func main() {
-    val n = 500
+    val n = 50000
 
     -- Sequential computation using a fixed seed (ground truth)
     val seed = get_seed()
@@ -31,21 +31,25 @@ func main() {
     val seq_checksum = (r0 + r1 + r2) % 1000000007
 
     -- Spawn tasks: each recomputes the seed inside the spawn (no captures)
+    -- Handles captured and awaited for fair timing vs C pthread_join
     val start = Time.now_ms()
-    val iters = 3
+    val iters = 100
     for iter in range(iters) {
-        spawn("s0") {
+        val h0 = spawn("s0") {
             val s = get_seed()
-            var x = compute_with_seed(s, 500)
+            var x = compute_with_seed(s, 50000)
         }
-        spawn("s1") {
+        val h1 = spawn("s1") {
             val s = get_seed()
             var x = compute_with_seed(s + 1, 500)
         }
-        spawn("s2") {
+        val h2 = spawn("s2") {
             val s = get_seed()
             var x = compute_with_seed(s + 2, 500)
         }
+        await h0
+        await h1
+        await h2
     }
     val elapsed = Time.now_ms() - start
 

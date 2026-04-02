@@ -216,6 +216,7 @@ struct IronHIR_Stmt {
             const char    *handle_name;
             IronHIR_Block *body;
             const char    *lifted_name; /* assigned top-level name e.g. "__spawn_0" */
+            IronHIR_VarId  handle_var;  /* var ID for the handle (0 = no binding) */
         } spawn;
 
         /* IRON_HIR_STMT_LEAK */
