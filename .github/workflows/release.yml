@@ -63,8 +63,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
+            target: linux-x86_64
           - os: macos-26
+            target: macos-arm64
           - os: macos-26-intel
+            target: macos-x86_64
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
