@@ -8,8 +8,8 @@
 - v0.0.5-alpha IR Optimization & High IR Architecture - Phases 15-20 (shipped 2026-03-30)
 - v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (shipped 2026-03-31)
 - v0.0.7-alpha Performance Optimization - Phases 24-31 (shipped 2026-04-01)
-- v0.1.0-alpha Lambda Capture - Phases 32-36 (complete)
-- v0.2.0-alpha Standard Library Expansion - Phases 37-42 (active)
+- v0.1.0-alpha Lambda Capture - Phases 32-36 (active — Phase 32 complete, 33-36 pending)
+- v0.2.0-alpha Standard Library Expansion - Phases 37-42 (queued)
 
 ## Phases
 
@@ -86,16 +86,13 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
-<details>
-<summary>v0.1.0-alpha Lambda Capture (Phases 32-36) - SHIPPED 2026-04-02</summary>
+### v0.1.0-alpha Lambda Capture
 
-- [x] **Phase 32: Capture Foundation** - Free variable analysis pass and IronClosure fat-pointer representation give the compiler the substrate all capture patterns require
-- [x] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All core capture patterns (immutable, mutable, loop snapshot) work end-to-end; optimizer passes are guarded against breaking captures
-- [x] **Phase 34: Advanced Captures** - Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and higher-order function patterns all compile and run correctly
-- [x] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
-- [x] **Phase 36: Diagnostics, Benchmarks & Test Suite** - Capture errors produce clear diagnostics; closure call overhead is benchmarked; all 20 canonical capture examples have integration tests
-
-</details>
+- [x] **Phase 32: Capture Foundation** - Free variable analysis pass and IronClosure fat-pointer representation give the compiler the substrate all capture patterns require (completed 2026-04-02)
+- [ ] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All core capture patterns (immutable, mutable, loop snapshot) work end-to-end; optimizer passes are guarded against breaking captures
+- [ ] **Phase 34: Advanced Captures** - Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and higher-order function patterns all compile and run correctly
+- [ ] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
+- [ ] **Phase 36: Diagnostics, Benchmarks & Test Suite** - Capture errors produce clear diagnostics; closure call overhead is benchmarked; all 20 canonical capture examples have integration tests
 
 ### v0.2.0-alpha Standard Library Expansion
 
@@ -635,8 +632,7 @@ Plans:
 
 </details>
 
-<details>
-<summary>v0.1.0-alpha Phase Details (Phases 32-36)</summary>
+### v0.1.0-alpha Phase Details (Phases 32-36)
 
 ### Phase 32: Capture Foundation
 **Goal**: The compiler knows what each lambda captures and represents all closure values as typed fat pointers — the substrate all other capture phases depend on
@@ -699,8 +695,6 @@ Plans:
   2. A closure performance benchmark exists and reports measurable closure call overhead vs an equivalent direct function call; results are documented
   3. Integration tests for all 20 canonical lambda capture examples exist in the test suite and all pass; the test suite can be run as a group to verify capture correctness
 **Plans:** TBD
-
-</details>
 
 ### v0.2.0-alpha Phase Details (Phases 37-42)
 
@@ -826,12 +820,12 @@ Phases execute in numeric order: 37 → 38 → 39 → 40 → 41 → 42
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 32. Capture Foundation | 2/3 | In Progress|  | 2026-04-02 |
-| 33. Value & Mutable Captures + Optimizer Guards | v0.1.0-alpha | TBD | Complete | 2026-04-02 |
-| 34. Advanced Captures | v0.1.0-alpha | TBD | Complete | 2026-04-02 |
-| 35. Concurrency Captures | v0.1.0-alpha | TBD | Complete | 2026-04-02 |
-| 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | TBD | Complete | 2026-04-02 |
+| 33. Value & Mutable Captures + Optimizer Guards | v0.1.0-alpha | 0/TBD | Not started | - |
+| 34. Advanced Captures | v0.1.0-alpha | 0/TBD | Not started | - |
+| 35. Concurrency Captures | v0.1.0-alpha | 0/TBD | Not started | - |
+| 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | 0/TBD | Not started | - |
 | 37. Compiler Dispatch Fixes + Technical Debt | 4/4 | Complete   | 2026-04-02 | - |
-| 38. String Built-In Methods | v0.2.0-alpha | 0/TBD | Not started | - |
+| 38. String Built-In Methods | 1/3 | In Progress|  | - |
 | 39. Module Completions (Math, IO, Time, Log) | v0.2.0-alpha | 0/TBD | Not started | - |
 | 40. Collection Higher-Order Operations | v0.2.0-alpha | 0/TBD | Not started | - |
 | 41. OS Module | v0.2.0-alpha | 0/TBD | Not started | - |

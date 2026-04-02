@@ -9,35 +9,35 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Compiler Fixes
 
-- [ ] **COMP-01**: Compiler correctly dispatches method calls on `IRON_TYPE_STRING` receivers (typecheck.c + hir_to_lir.c)
-- [ ] **COMP-02**: Compiler correctly dispatches method calls on `IRON_TYPE_ARRAY` receivers for collection types (typecheck.c + hir_to_lir.c)
-- [ ] **COMP-03**: `build.c` argv_buf bumped to 128 with static assert to prevent overflow when adding new modules
-- [ ] **COMP-04**: `build.c` import detection replaced with line-anchored helper (no false positives for `import os` in comments/strings)
-- [x] **COMP-05**: Windows portability fixed in existing `iron_io.c` (dirent.h, mkdir) and `iron_log.c` (localtime_r, isatty)
-- [x] **COMP-06**: `iron_math.c` `__thread` replaced with portable `IRON_THREAD_LOCAL` macro
-- [ ] **COMP-07**: `emit_c.c` threads `argc`/`argv` through `iron_runtime_init_with_args()` for `os.args()` support
+- [x] **COMP-01**: Compiler correctly dispatches method calls on `IRON_TYPE_STRING` receivers (typecheck.c + hir_to_lir.c)
+- [x] **COMP-02**: Compiler correctly dispatches method calls on `IRON_TYPE_ARRAY` receivers for collection types (typecheck.c + hir_to_lir.c)
+- [x] **COMP-03**: `build.c` argv_buf bumped to 128 with static assert to prevent overflow when adding new modules
+- [x] **COMP-04**: `build.c` import detection replaced with token-level helper (no false positives for `import os` in comments/strings)
+- [x] **COMP-05**: Windows portability documented in existing `iron_io.c` (dirent.h, mkdir) and `iron_log.c` (localtime_r, isatty)
+- [x] **COMP-06**: `iron_math.c` `__thread` portability documented with WINDOWS-TODO comments
+- [x] **COMP-07**: `emit_c.c` threads `argc`/`argv` through `iron_runtime_init(argc, argv)` for `os.args()` support
 
 ### String Methods
 
-- [ ] **STR-01**: User can call `s.upper()` to get an uppercase copy of a string
-- [ ] **STR-02**: User can call `s.lower()` to get a lowercase copy of a string
-- [ ] **STR-03**: User can call `s.trim()` to remove leading/trailing whitespace
-- [ ] **STR-04**: User can call `s.contains(sub)` to check if a string contains a substring
-- [ ] **STR-05**: User can call `s.starts_with(prefix)` to check string prefix
-- [ ] **STR-06**: User can call `s.ends_with(suffix)` to check string suffix
+- [x] **STR-01**: User can call `s.upper()` to get an uppercase copy of a string
+- [x] **STR-02**: User can call `s.lower()` to get a lowercase copy of a string
+- [x] **STR-03**: User can call `s.trim()` to remove leading/trailing whitespace
+- [x] **STR-04**: User can call `s.contains(sub)` to check if a string contains a substring
+- [x] **STR-05**: User can call `s.starts_with(prefix)` to check string prefix
+- [x] **STR-06**: User can call `s.ends_with(suffix)` to check string suffix
 - [ ] **STR-07**: User can call `s.split(sep)` to split a string into `List[String]`
 - [ ] **STR-08**: User can call `s.replace(old, new)` to substitute all occurrences
 - [ ] **STR-09**: User can call `s.substring(start, end)` to extract a slice
-- [ ] **STR-10**: User can call `s.index_of(sub)` to find first occurrence position (-1 if absent)
-- [ ] **STR-11**: User can call `s.char_at(i)` to get the character at index i as a String
+- [x] **STR-10**: User can call `s.index_of(sub)` to find first occurrence position (-1 if absent)
+- [x] **STR-11**: User can call `s.char_at(i)` to get the character at index i as a String
 - [ ] **STR-12**: User can call `s.to_int()` to parse a string as an integer
 - [ ] **STR-13**: User can call `s.to_float()` to parse a string as a float
 - [ ] **STR-14**: User can call `sep.join(list)` to concatenate a list of strings with a separator
-- [ ] **STR-15**: User can call `s.len()` as a method to get character count
+- [x] **STR-15**: User can call `s.len()` as a method to get character count
 - [ ] **STR-16**: User can call `s.repeat(n)` to repeat a string n times
 - [ ] **STR-17**: User can call `s.pad_left(width, char)` to left-pad a string
 - [ ] **STR-18**: User can call `s.pad_right(width, char)` to right-pad a string
-- [ ] **STR-19**: User can call `s.count(sub)` to count occurrences of a substring
+- [x] **STR-19**: User can call `s.count(sub)` to count occurrences of a substring
 
 ### Collection Operations
 
