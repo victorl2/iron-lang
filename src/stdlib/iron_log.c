@@ -27,10 +27,12 @@ static void iron_log_emit(Iron_LogLevel level, const char *level_str,
     /* Format timestamp from wall-clock time */
     time_t now = time(NULL);
     struct tm tm_buf;
+    /* WINDOWS-TODO: localtime_r is POSIX. On Windows use localtime_s(&tm_buf, &now) — args are reversed. */
     localtime_r(&now, &tm_buf);
     char ts[32];
     strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm_buf);
 
+    /* WINDOWS-TODO: isatty(STDERR_FILENO) is POSIX. On Windows use _isatty(_fileno(stderr)) from <io.h>. */
     bool use_color = isatty(STDERR_FILENO);
     const char *reset = use_color ? ANSI_RESET : "";
     const char *col   = use_color ? color      : "";
