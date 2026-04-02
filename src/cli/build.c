@@ -38,6 +38,7 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
+#include "cli/iron_import_detect.h"
 
 #ifndef _WIN32
 extern char **environ;
@@ -510,7 +511,9 @@ static int invoke_clang(const char *c_file, const char *output,
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *rl_src = NULL, *rl_i_flag = NULL;
 
-    const char *argv_buf[96];
+    const char *argv_buf[128];
+    _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 128,
+                   "argv_buf too small — bump if adding new stdlib modules");
     int ai = 0;
 
     if (build_src_list(argv_buf, &ai, c_file, output,
@@ -637,8 +640,13 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1c–1g. Detect stdlib imports and prepend .iron wrappers.
+     * Use a temporary arena for the token-level import detection so the
+     * lexer allocations do not linger until full compilation. */
+    Iron_Arena detect_arena = iron_arena_create(32 * 1024);
+
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
-    if (strstr(source, "import raylib") != NULL) {
+    if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         opts.use_raylib = true;
         /* Locate raylib.iron relative to base_dir */
         char *rl_path = make_path(base_dir, "stdlib/raylib.iron");
@@ -663,7 +671,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1d. Detect "import math" and prepend math.iron */
-    if (strstr(source, "import math") != NULL) {
+    if (iron_detect_import(source, source_path, "math", &detect_arena)) {
         char *math_path = make_path(base_dir, "stdlib/math.iron");
         if (math_path) {
             long math_size = 0;
@@ -685,7 +693,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1e. Detect "import io" and prepend io.iron */
-    if (strstr(source, "import io") != NULL) {
+    if (iron_detect_import(source, source_path, "io", &detect_arena)) {
         char *io_path = make_path(base_dir, "stdlib/io.iron");
         if (io_path) {
             long io_size = 0;
@@ -707,7 +715,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1f. Detect "import time" and prepend time.iron */
-    if (strstr(source, "import time") != NULL) {
+    if (iron_detect_import(source, source_path, "time", &detect_arena)) {
         char *time_path = make_path(base_dir, "stdlib/time.iron");
         if (time_path) {
             long time_size = 0;
@@ -729,7 +737,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1g. Detect "import log" and prepend log.iron */
-    if (strstr(source, "import log") != NULL) {
+    if (iron_detect_import(source, source_path, "log", &detect_arena)) {
         char *log_path = make_path(base_dir, "stdlib/log.iron");
         if (log_path) {
             long log_size = 0;
@@ -749,6 +757,8 @@ int iron_build(const char *source_path, const char *output_path,
             }
         }
     }
+
+    iron_arena_free(&detect_arena);
 
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
