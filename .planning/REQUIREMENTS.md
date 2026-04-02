@@ -15,8 +15,8 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### LIR Verification
 
-- [ ] **LIR-01**: LIR verifier checks that all PHI incoming values have types matching the PHI result type
-- [ ] **LIR-02**: LIR verifier emits `IRON_ERR_LIR_PHI_TYPE_MISMATCH` on PHI type inconsistency
+- [x] **LIR-01**: LIR verifier checks that all PHI incoming values have types matching the PHI result type
+- [x] **LIR-02**: LIR verifier emits `IRON_ERR_LIR_PHI_TYPE_MISMATCH` on PHI type inconsistency
 - [ ] **LIR-03**: LIR verifier checks call argument types against callee's parameter types for direct calls
 - [ ] **LIR-04**: LIR verifier checks argument count matches parameter count for direct calls
 - [ ] **LIR-05**: LIR verifier emits `IRON_ERR_LIR_CALL_TYPE_MISMATCH` on argument type mismatch
@@ -121,8 +121,8 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIR-01 | Phase 32 | Pending |
-| LIR-02 | Phase 32 | Pending |
+| LIR-01 | Phase 32 | Complete |
+| LIR-02 | Phase 32 | Complete |
 | LIR-03 | Phase 32 | Pending |
 | LIR-04 | Phase 32 | Pending |
 | LIR-05 | Phase 32 | Pending |

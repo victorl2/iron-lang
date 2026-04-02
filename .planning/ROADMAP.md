@@ -789,7 +789,7 @@ Phases execute in numeric order: 32 -> 33 -> 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 29. Sized Integers | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
-| 32. LIR Verifier Hardening | v0.0.8-alpha | 0/2 | Not started | - |
+| 32. LIR Verifier Hardening | 1/2 | In Progress|  | - |
 | 33. Type Validation Checks | v0.0.8-alpha | 0/3 | Not started | - |
 | 34. Bounds Checking | v0.0.8-alpha | 0/2 | Not started | - |
 | 35. Escape Analysis Extension | v0.0.8-alpha | 0/1 | Not started | - |
