@@ -6,13 +6,13 @@ on:
     paths:
       - 'src/**'
       - 'tests/benchmarks/**'
-      - '.github/workflows/benchmark.yml'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
       - 'src/**'
       - 'tests/benchmarks/**'
-      - '.github/workflows/benchmark.yml'
+      - '.github/workflows/**'
 
 jobs:
   benchmark:
