@@ -1,70 +1,64 @@
-# Requirements: Iron
+# Requirements: Iron ADTs
 
-**Defined:** 2026-03-31
-**Core Value:** Every Iron language feature compiles to correct, working C code that produces a native binary
+**Defined:** 2026-04-02
+**Core Value:** Enums can carry data in their variants, and `match` exhaustively destructures them — the type system guarantees every case is handled.
 
-## v0.0.7-alpha Requirements
+## v1 Requirements
 
-Requirements for Performance Optimization milestone. Each maps to roadmap phases.
+Requirements for ADT milestone. Each maps to roadmap phases.
 
-### Loop Optimization
+### Enum Variant Data
 
-- [x] **LOOP-01**: Range bound hoisting evaluates `Iron_range()` once in the loop pre-header instead of every iteration
-- [x] **LOOP-02**: All for-range benchmarks show measurable improvement from bound hoisting
+- [ ] **EDATA-01**: Enum variants can hold tuple-style associated data (`Circle(Float)`, `BinOp(Expr, Op, Expr)`)
+- [x] **EDATA-02**: Variant construction uses dot syntax (`Shape.Circle(5.0)`)
+- [ ] **EDATA-03**: Plain C-style enums (no payloads) continue to compile and work unchanged
+- [ ] **EDATA-04**: Compiler detects recursive variant types and auto-boxes them (heap allocation via arena)
 
-### Memory Optimization
+### Pattern Matching
 
-- [x] **MEM-01**: `fill(CONST, val)` with constant size <= 1024 and non-escaping result is stack-allocated via alloca
-- [x] **MEM-02**: Stack-promoted arrays emit declarations at function entry to avoid VLA+goto bypass
+- [x] **MATCH-01**: Match arms use `->` syntax for single expressions and `-> { }` for multi-line blocks
+- [ ] **MATCH-02**: Pattern matching destructures variant payloads into named bindings (`Circle(r) -> use(r)`)
+- [ ] **MATCH-03**: `_` wildcard ignores individual fields in patterns
+- [ ] **MATCH-04**: `else` arm catches all remaining variants
+- [ ] **MATCH-05**: Compiler errors on non-exhaustive match (lists missing variants in diagnostic)
+- [ ] **MATCH-06**: Nested pattern destructuring works (`BinOp(IntLit(n), _, _)`)
+- [ ] **MATCH-07**: Existing match statements migrate from `{ }` arm syntax to `->` syntax
 
-### Expression Optimization
+### Methods on Enums
 
-- [x] **EXPR-01**: LOAD instructions are eligible for expression inlining when use site is in the same block as the LOAD
-- [x] **EXPR-02**: Cross-block LOADs remain excluded to prevent undeclared variable errors
+- [ ] **EMETH-01**: Methods can be defined on enum types using `func EnumType.method()` syntax
+- [ ] **EMETH-02**: `self` in enum methods refers to the enum value, usable in match
 
-### Function Inlining
+### Generic Enums
 
-- [x] **INLINE-01**: Small (<= 20 instructions), non-recursive, pure functions are inlined at LIR level
-- [x] **INLINE-02**: Inlining pass runs before the copy-prop/DCE fixpoint loop so inlined code gets optimized
-- [x] **INLINE-03**: Value IDs are correctly remapped during instruction cloning to prevent table corruption
+- [ ] **GENER-01**: Enums support generic type parameters (`Option[T]`, `Result[T, E]`)
+- [ ] **GENER-02**: Generic enums are monomorphized (consistent with existing generic functions/objects)
+- [ ] **GENER-03**: C emission uses type-argument-aware mangling to avoid typedef collisions
 
-### Phi Elimination
+## v2 Requirements
 
-- [x] **PHI-01**: SSA phi elimination produces fewer temporary variables through copy coalescing
-- [x] **PHI-02**: Complex control flow benchmarks (connected_components) show measurable reduction in generated temporaries
+Deferred to future release. Tracked but not in current roadmap.
 
-### Sized Integers
+### Advanced Pattern Matching
 
-- [x] **INT-01**: Iron supports explicit `Int32` type annotations that emit `int32_t` in generated C
-- [x] **INT-02**: Array operations with `Int32` elements use 32-bit memory bandwidth
+- **AMATCH-01**: Pattern guards (`Expr.IntLit(n) if n > 0 -> ...`)
+- **AMATCH-02**: Or-patterns (`Expr.IntLit(_) | Expr.BoolLit(_) -> ...`)
+- **AMATCH-03**: Match as expression (match returns a value)
 
-### Benchmark Validation
+### Named Field Variants
 
-- [x] **BENCH-01**: Benchmark suite is run after all optimizations and results are compared to pre-optimization baseline
-- [x] **BENCH-02**: Exploration pass identifies any remaining optimization opportunities beyond P0-P5
-
-## Future Requirements
-
-Deferred to future milestones. Tracked but not in current roadmap.
-
-### Advanced Optimizations
-
-- **P6-01**: Structured loop reconstruction emits for/while instead of goto-based control flow
-- **P6-02**: Clang loop optimizations (vectorization, unrolling) enabled by structured emission
-
-### Auto-Narrowing
-
-- **NARROW-01**: Compiler automatically narrows Int to Int32 when range analysis proves values fit
-- **NARROW-02**: Range analysis propagates through arithmetic operations and array indexing
+- **NFVAR-01**: Variants with named fields (`Circle { radius: Float }`)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Structured loop reconstruction (P6) | High effort, deferred — goto-based emission is correct, optimization benefit is secondary |
-| Auto-narrowing integer types | High complexity — requires range analysis; explicit Int32 annotations are sufficient for v0.0.7 |
-| LLVM backend | Future milestone — HIR/LIR architecture enables this but not building it now |
-| Interprocedural optimization beyond inlining | Complex, diminishing returns for C backend |
+| Named-field variants | Tuple-style only for v1; keeps implementation focused |
+| Pattern guards | Adds complexity to exhaustiveness checking; defer |
+| Or-patterns | Requires decision tree code-size explosion handling; defer |
+| Match as expression | Requires return-type unification across arms; defer |
+| `Option[T]` replacing `T?` | Nullable syntax stays independent; both coexist |
+| LSP implementation | This milestone is the compiler foundation for it |
 
 ## Traceability
 
@@ -72,27 +66,28 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOOP-01 | Phase 24 | Complete |
-| LOOP-02 | Phase 24 | Complete |
-| MEM-01 | Phase 25 | Complete |
-| MEM-02 | Phase 25 | Complete |
-| EXPR-01 | Phase 26 | Complete |
-| EXPR-02 | Phase 26 | Complete |
-| INLINE-01 | Phase 27 | Complete |
-| INLINE-02 | Phase 27 | Complete |
-| INLINE-03 | Phase 27 | Complete |
-| PHI-01 | Phase 28 | Complete |
-| PHI-02 | Phase 28 | Complete |
-| INT-01 | Phase 29 | Complete |
-| INT-02 | Phase 29 | Complete |
-| BENCH-01 | Phase 30 | Complete |
-| BENCH-02 | Phase 30 | Complete |
+| EDATA-01 | Phase 32 | Pending |
+| EDATA-02 | Phase 32 | Complete |
+| EDATA-03 | Phase 32 + Phase 35 | Pending |
+| EDATA-04 | Phase 38 | Pending |
+| MATCH-01 | Phase 32 + Phase 36 | Complete |
+| MATCH-02 | Phase 33 | Pending |
+| MATCH-03 | Phase 33 | Pending |
+| MATCH-04 | Phase 33 | Pending |
+| MATCH-05 | Phase 33 | Pending |
+| MATCH-06 | Phase 34 | Pending |
+| MATCH-07 | Phase 33 + Phase 36 | Pending |
+| EMETH-01 | Phase 36 | Pending |
+| EMETH-02 | Phase 36 | Pending |
+| GENER-01 | Phase 37 | Pending |
+| GENER-02 | Phase 37 | Pending |
+| GENER-03 | Phase 37 | Pending |
 
 **Coverage:**
-- v0.0.7-alpha requirements: 15 total
-- Mapped to phases: 15
+- v1 requirements: 16 total
+- Mapped to phases: 16
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-03-31*
-*Last updated: 2026-03-31 after roadmap creation (Phases 24-30)*
+*Requirements defined: 2026-04-02*
+*Last updated: 2026-04-02 after roadmap creation*
