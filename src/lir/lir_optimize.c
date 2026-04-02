@@ -967,6 +967,25 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
 #undef PUSH
 }
 
+/* Returns true if the alloca with the given ID is a capture-alias alloca in fn.
+ * Capture alias allocas represent fields of the env struct and must NOT be
+ * forwarded by copy-propagation or store-load-elimination — they are effectively
+ * aliased across multiple invocations through the env pointer. */
+static bool alloca_is_capture_alias(IronLIR_Func *fn, IronLIR_ValueId alloca_id) {
+    if (fn->capture_count == 0 || !fn->capture_metadata) return false;
+    if (alloca_id == IRON_LIR_VALUE_INVALID) return false;
+    if ((ptrdiff_t)alloca_id >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *ai = fn->value_table[alloca_id];
+    if (!ai || ai->kind != IRON_LIR_ALLOCA || !ai->alloca.name_hint) return false;
+    for (int ci = 0; ci < fn->capture_count; ci++) {
+        if (fn->capture_metadata[ci].name &&
+            strcmp(ai->alloca.name_hint, fn->capture_metadata[ci].name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Copy Propagation: eliminate LOAD of single-store allocas.
  * For each alloca stored exactly once, replace all LOADs of that alloca
  * with the stored value, then rewrite all operands referencing the LOAD result. */
@@ -988,11 +1007,14 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 if (in->kind == IRON_LIR_STORE) {
                     IronLIR_ValueId ptr = in->store.ptr;
-                    /* Only track stores to ALLOCA values */
+                    /* Only track stores to ALLOCA values that are not capture aliases.
+                     * Capture alias allocas represent env struct fields that can be
+                     * modified across invocations — must not be forwarded. */
                     if (ptr != IRON_LIR_VALUE_INVALID &&
                         (ptrdiff_t)ptr < arrlen(fn->value_table) &&
                         fn->value_table[ptr] != NULL &&
-                        fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
+                        fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
+                        !alloca_is_capture_alias(fn, ptr)) {
                         ptrdiff_t idx = hmgeti(store_info, ptr);
                         if (idx < 0) {
                             StoreInfoVal sv;
@@ -1322,6 +1344,15 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
                 }
                 break;
 
+            case IRON_LIR_MAKE_CLOSURE:
+                /* If an alloca address is captured by a closure, it escapes.
+                 * The closure holds a pointer into the caller's stack frame. */
+                for (int ci = 0; ci < in->make_closure.capture_count; ci++) {
+                    ptrdiff_t idx = hmgeti(escaped, in->make_closure.captures[ci]);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+
             default:
                 break;
             }
@@ -1474,11 +1505,14 @@ static bool run_store_load_elim(IronLIR_Module *module) {
 
                 switch (in->kind) {
                 case IRON_LIR_STORE:
-                    /* Only track stores to known alloca slots */
+                    /* Only track stores to known alloca slots that are not capture
+                     * aliases. Capture alias allocas represent env struct fields that
+                     * can be modified across invocations — must not be forwarded. */
                     if (in->store.ptr != IRON_LIR_VALUE_INVALID &&
                         (ptrdiff_t)in->store.ptr < arrlen(fn->value_table) &&
                         fn->value_table[in->store.ptr] != NULL &&
-                        fn->value_table[in->store.ptr]->kind == IRON_LIR_ALLOCA) {
+                        fn->value_table[in->store.ptr]->kind == IRON_LIR_ALLOCA &&
+                        !alloca_is_capture_alias(fn, in->store.ptr)) {
                         hmput(last_store, in->store.ptr, in->store.value);
                     }
                     break;

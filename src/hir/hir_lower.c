@@ -1445,8 +1445,14 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                 declare_var(ctx, ap->name, pid);
             }
 
-            /* Declare captured variables in scope so they resolve in the body.
-             * These will be redirected to env field accesses at C emission time. */
+            /* Declare captured variables in scope and emit LET statements into
+             * the lifted function body. This ensures hir_to_lir creates an ALLOCA
+             * for each captured variable, which emit_c.c then redirects to env field
+             * accesses via the capture_alias_map. */
+            IronHIR_Block *saved = ctx->current_block;
+            ctx->current_block = lifted->body;
+            push_defer_scope_hir(ctx);
+
             if (le->capture_count > 0) {
                 for (int c = 0; c < le->capture_count; c++) {
                     IronHIR_VarId cvid = iron_hir_alloc_var(mod,
@@ -1454,12 +1460,19 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                                                               le->captures[c].type,
                                                               le->captures[c].is_mutable);
                     declare_var(ctx, le->captures[c].name, cvid);
+                    /* Emit a mutable var LET (no initializer) so hir_to_lir creates an
+                     * ALLOCA with the captured variable's name_hint. The ALLOCA will be
+                     * redirected to env field accesses by emit_c.c. */
+                    Iron_Span zero_span = {0};
+                    IronHIR_Stmt *cap_let = iron_hir_stmt_let(mod, cvid,
+                                                                le->captures[c].type,
+                                                                NULL, /* no init */
+                                                                true, /* mutable: alloca always created */
+                                                                zero_span);
+                    iron_hir_block_add_stmt(lifted->body, cap_let);
                 }
             }
 
-            IronHIR_Block *saved = ctx->current_block;
-            ctx->current_block = lifted->body;
-            push_defer_scope_hir(ctx);
             lower_block_hir(ctx, (Iron_Block *)le->body, lifted->body);
             pop_defer_scope_hir(ctx);
             ctx->current_block = saved;

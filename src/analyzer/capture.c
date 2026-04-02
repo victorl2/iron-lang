@@ -147,7 +147,13 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
             shput(*seen, id->name, 1);
             TmpCapture cap;
             cap.name       = id->resolved_sym->name;
-            cap.type       = id->resolved_sym->type;
+            /* Prefer the typechecker-annotated resolved_type on the ident node.
+             * resolver-owned symbols have type=NULL for variables (types are set
+             * during type-checking in the typechecker's own scope chain, not back-
+             * propagated to the resolver symbol). */
+            cap.type       = id->resolved_type
+                                 ? id->resolved_type
+                                 : id->resolved_sym->type;
             cap.is_mutable = id->resolved_sym->is_mutable;
             arrput(*captures, cap);
             break;
