@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 
 /* stb_ds hash map — STB_DS_IMPLEMENTATION is in src/util/stb_ds_impl.c */
 #include "vendor/stb_ds.h"
@@ -231,4 +232,95 @@ void iron_runtime_shutdown(void) {
     shfree(s_intern_table);
     s_intern_table = NULL;
     IRON_MUTEX_UNLOCK(s_intern_lock);
+}
+
+/* ── String built-in methods (Phase 38) ─────────────────────────────────── */
+
+Iron_String Iron_string_upper(Iron_String self) {
+    const char *s   = iron_string_cstr(&self);
+    size_t      len = iron_string_byte_len(&self);
+    char *buf = (char *)malloc(len + 1);
+    if (!buf) return iron_string_from_cstr("", 0);
+    for (size_t i = 0; i < len; i++)
+        buf[i] = (char)toupper((unsigned char)s[i]);
+    buf[len] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, len);
+    free(buf);
+    return result;
+}
+
+Iron_String Iron_string_lower(Iron_String self) {
+    const char *s   = iron_string_cstr(&self);
+    size_t      len = iron_string_byte_len(&self);
+    char *buf = (char *)malloc(len + 1);
+    if (!buf) return iron_string_from_cstr("", 0);
+    for (size_t i = 0; i < len; i++)
+        buf[i] = (char)tolower((unsigned char)s[i]);
+    buf[len] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, len);
+    free(buf);
+    return result;
+}
+
+Iron_String Iron_string_trim(Iron_String self) {
+    const char *s   = iron_string_cstr(&self);
+    size_t      len = iron_string_byte_len(&self);
+    size_t start = 0, end = len;
+    while (start < end && (unsigned char)s[start] <= ' ') start++;
+    while (end > start && (unsigned char)s[end-1] <= ' ') end--;
+    return iron_string_from_cstr(s + start, end - start);
+}
+
+bool Iron_string_contains(Iron_String self, Iron_String sub) {
+    const char *s = iron_string_cstr(&self);
+    const char *d = iron_string_cstr(&sub);
+    return strstr(s, d) != NULL;
+}
+
+bool Iron_string_starts_with(Iron_String self, Iron_String prefix) {
+    const char *s    = iron_string_cstr(&self);
+    size_t      slen = iron_string_byte_len(&self);
+    const char *p    = iron_string_cstr(&prefix);
+    size_t      plen = iron_string_byte_len(&prefix);
+    if (plen > slen) return false;
+    return memcmp(s, p, plen) == 0;
+}
+
+bool Iron_string_ends_with(Iron_String self, Iron_String suffix) {
+    const char *s      = iron_string_cstr(&self);
+    size_t      slen   = iron_string_byte_len(&self);
+    const char *sfx    = iron_string_cstr(&suffix);
+    size_t      sfxlen = iron_string_byte_len(&suffix);
+    if (sfxlen > slen) return false;
+    return memcmp(s + slen - sfxlen, sfx, sfxlen) == 0;
+}
+
+int64_t Iron_string_index_of(Iron_String self, Iron_String sub) {
+    const char *s   = iron_string_cstr(&self);
+    const char *d   = iron_string_cstr(&sub);
+    const char *hit = strstr(s, d);
+    if (!hit) return -1;
+    return (int64_t)(hit - s);
+}
+
+Iron_String Iron_string_char_at(Iron_String self, int64_t i) {
+    const char *s   = iron_string_cstr(&self);
+    size_t      len = iron_string_byte_len(&self);
+    if (i < 0 || (size_t)i >= len) return iron_string_from_cstr("", 0);
+    return iron_string_from_cstr(s + (size_t)i, 1);
+}
+
+int64_t Iron_string_len(Iron_String self) {
+    return (int64_t)iron_string_byte_len(&self);
+}
+
+int64_t Iron_string_count(Iron_String self, Iron_String sub) {
+    const char *s    = iron_string_cstr(&self);
+    const char *d    = iron_string_cstr(&sub);
+    size_t      dlen = iron_string_byte_len(&sub);
+    if (dlen == 0) return 0;
+    int64_t cnt = 0;
+    const char *p = s;
+    while ((p = strstr(p, d)) != NULL) { cnt++; p += dlen; }
+    return cnt;
 }
