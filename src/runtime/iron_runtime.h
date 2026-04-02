@@ -259,11 +259,13 @@ void Iron_condvar_signal(Iron_CondVar *cv);
 void Iron_condvar_broadcast(Iron_CondVar *cv);
 
 /* ── Runtime lifecycle ───────────────────────────────────────────────────────
- * iron_runtime_init() must be called before any Iron_String or Iron_Rc use.
- * It also creates Iron_global_pool with (cpu_count - 1) worker threads.
+ * iron_runtime_init(argc, argv) must be called before any Iron_String or Iron_Rc use.
+ * It stores argc/argv in file-scope globals for os.args() access and creates
+ * Iron_global_pool with (cpu_count - 1) worker threads.
+ * Pass (0, NULL) when no args are needed (e.g. in unit tests).
  * iron_runtime_shutdown() releases all runtime resources.
  */
-void iron_runtime_init(void);
+void iron_runtime_init(int argc, char **argv);
 void iron_runtime_shutdown(void);
 
 /* ── Closure fat pointer ─────────────────────────────────────────────────── */
