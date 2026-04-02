@@ -235,8 +235,17 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             ctx->indent_level++;
             for (int i = 0; i < n->variant_count; i++) {
                 print_indent(ctx);
-                Iron_EnumVariant *v = (Iron_EnumVariant *)n->variants[i];
-                iron_strbuf_appendf(ctx->sb, "%s,\n", v->name);
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)n->variants[i];
+                iron_strbuf_appendf(ctx->sb, "%s", ev->name);
+                if (ev->payload_count > 0) {
+                    iron_strbuf_appendf(ctx->sb, "(");
+                    for (int j = 0; j < ev->payload_count; j++) {
+                        if (j > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                        print_node(ctx, ev->payload_type_anns[j]);
+                    }
+                    iron_strbuf_appendf(ctx->sb, ")");
+                }
+                iron_strbuf_appendf(ctx->sb, ",\n");
             }
             ctx->indent_level--;
             print_indent(ctx);
@@ -381,14 +390,22 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 print_indent(ctx);
                 Iron_MatchCase *mc = (Iron_MatchCase *)n->cases[i];
                 print_node(ctx, mc->pattern);
-                iron_strbuf_appendf(ctx->sb, " ");
-                print_block(ctx, mc->body);
+                iron_strbuf_appendf(ctx->sb, " -> ");
+                if (mc->body->kind == IRON_NODE_BLOCK) {
+                    print_block(ctx, mc->body);
+                } else {
+                    print_node(ctx, mc->body);
+                }
                 iron_strbuf_appendf(ctx->sb, "\n");
             }
             if (n->else_body) {
                 print_indent(ctx);
-                iron_strbuf_appendf(ctx->sb, "else ");
-                print_block(ctx, n->else_body);
+                iron_strbuf_appendf(ctx->sb, "else -> ");
+                if (n->else_body->kind == IRON_NODE_BLOCK) {
+                    print_block(ctx, n->else_body);
+                } else {
+                    print_node(ctx, n->else_body);
+                }
                 iron_strbuf_appendf(ctx->sb, "\n");
             }
             ctx->indent_level--;
@@ -654,13 +671,26 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             print_node(ctx, mc->pattern);
-            iron_strbuf_appendf(ctx->sb, " ");
-            print_block(ctx, mc->body);
+            iron_strbuf_appendf(ctx->sb, " -> ");
+            if (mc->body->kind == IRON_NODE_BLOCK) {
+                print_block(ctx, mc->body);
+            } else {
+                print_node(ctx, mc->body);
+            }
             break;
         }
 
         case IRON_NODE_ENUM_VARIANT: {
-            iron_strbuf_appendf(ctx->sb, "%s", ((Iron_EnumVariant *)node)->name);
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)node;
+            iron_strbuf_appendf(ctx->sb, "%s", ev->name);
+            if (ev->payload_count > 0) {
+                iron_strbuf_appendf(ctx->sb, "(");
+                for (int j = 0; j < ev->payload_count; j++) {
+                    if (j > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                    print_node(ctx, ev->payload_type_anns[j]);
+                }
+                iron_strbuf_appendf(ctx->sb, ")");
+            }
             break;
         }
 
