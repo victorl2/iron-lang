@@ -1,42 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.0
-milestone_name: milestone
-status: complete
-stopped_at: "Completed 31-02-PLAN.md spawn benchmark await migration + human verification approved"
-last_updated: "2026-04-01T21:30:00.000Z"
-last_activity: "2026-04-01 — Phase 31 complete: all 6 spawn benchmarks use await, thresholds updated, human verification approved"
+milestone: v0.1.0-alpha
+milestone_name: Lambda Capture
+status: defining
+stopped_at: ""
+last_updated: "2026-04-02T00:00:00.000Z"
+last_activity: "2026-04-02 — Milestone v0.1.0-alpha started"
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-31)
+See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** v0.0.7-alpha Performance Optimization — Phase 31 (Spawn/Await Correctness) in progress, Plan 02 (benchmark updates) next
+**Current focus:** v0.1.0-alpha Lambda Capture — defining requirements
 
 ## Current Position
 
-Phase: 31 of 31 (Spawn/Await Correctness)
-Plan: 02 complete
-Status: Phase complete — 2 of 2 plans complete
-Last activity: 2026-04-01 — Phase 31 complete: all 6 spawn benchmarks use await, thresholds updated, human verification approved
-
-Progress: [█████████░] 92%
-
-## Performance Metrics
-
-**Velocity (from v0.0.6-alpha):**
-- Total plans completed: 5 (phases 21-23)
-- Phases: 21, 22, 23
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-02 — Milestone v0.1.0-alpha started
 
 ## Accumulated Context
 
