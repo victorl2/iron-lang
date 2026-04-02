@@ -235,6 +235,90 @@ void test_verify_return_type_mismatch(void) {
     iron_arena_free(&ir_arena);
 }
 
+void test_verify_phi_type_mismatch(void) {
+    Iron_Arena ir_arena = iron_arena_create(4096);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    /* Function returns bool (to match the PHI type for return) */
+    IronLIR_Func *fn = iron_lir_func_create(mod, "fn", NULL, 0, bool_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *merge = iron_lir_block_create(fn, "merge");
+    Iron_Span span = zero_span();
+
+    /* entry: const_int 42 (Int type), then jump to merge */
+    IronLIR_Instr *c_int = iron_lir_const_int(fn, entry, 42, int_type, span);
+    iron_lir_jump(fn, entry, merge->id, span);
+    arrput(entry->succs, merge->id);
+    arrput(merge->preds, entry->id);
+
+    /* merge: PHI with Bool result type, but incoming value is Int -- mismatch */
+    IronLIR_Instr *phi = iron_lir_phi(fn, merge, bool_type, span);
+    iron_lir_phi_add_incoming(phi, c_int->id, entry->id);
+
+    /* merge: return the PHI value */
+    iron_lir_return(fn, merge, phi->id, false, bool_type, span);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    bool result = iron_lir_verify(mod, &diags, &ir_arena);
+
+    TEST_ASSERT_FALSE(result);
+    TEST_ASSERT_TRUE(has_error(&diags, IRON_ERR_LIR_PHI_TYPE_MISMATCH));
+
+    iron_diaglist_free(&diags);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_verify_phi_well_formed(void) {
+    Iron_Arena ir_arena = iron_arena_create(4096);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Func *fn = iron_lir_func_create(mod, "fn", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *alt   = iron_lir_block_create(fn, "alt");
+    IronLIR_Block *merge = iron_lir_block_create(fn, "merge");
+    Iron_Span span = zero_span();
+
+    /* entry: const_bool (condition), const_int 1 (value), branch to alt/merge */
+    IronLIR_Instr *cond = iron_lir_const_bool(fn, entry, true, bool_type, span);
+    IronLIR_Instr *val1 = iron_lir_const_int(fn, entry, 1, int_type, span);
+    iron_lir_branch(fn, entry, cond->id, alt->id, merge->id, span);
+    arrput(entry->succs, alt->id);
+    arrput(entry->succs, merge->id);
+    arrput(alt->preds, entry->id);
+    arrput(merge->preds, entry->id);
+
+    /* alt: const_int 2 (value), jump to merge */
+    IronLIR_Instr *val2 = iron_lir_const_int(fn, alt, 2, int_type, span);
+    iron_lir_jump(fn, alt, merge->id, span);
+    arrput(alt->succs, merge->id);
+    arrput(merge->preds, alt->id);
+
+    /* merge: PHI with int_type, incoming from entry (val1) and alt (val2) -- both Int */
+    IronLIR_Instr *phi = iron_lir_phi(fn, merge, int_type, span);
+    iron_lir_phi_add_incoming(phi, val1->id, entry->id);
+    iron_lir_phi_add_incoming(phi, val2->id, alt->id);
+
+    /* merge: return the PHI value */
+    iron_lir_return(fn, merge, phi->id, false, int_type, span);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    bool result = iron_lir_verify(mod, &diags, &ir_arena);
+
+    TEST_ASSERT_TRUE(result);
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+
+    iron_diaglist_free(&diags);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -248,6 +332,8 @@ int main(void) {
     RUN_TEST(test_verify_no_entry_block);
     RUN_TEST(test_verify_multiple_errors);
     RUN_TEST(test_verify_return_type_mismatch);
+    RUN_TEST(test_verify_phi_type_mismatch);
+    RUN_TEST(test_verify_phi_well_formed);
 
     return UNITY_END();
 }
