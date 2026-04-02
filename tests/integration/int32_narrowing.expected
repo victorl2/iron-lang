@@ -5,4 +5,6 @@ func args vars: 142
 arithmetic: 142
 inlined loop: 10
 identity: 99
+assign literal: 77
+return literal: 55
 overflow: -2147483648
