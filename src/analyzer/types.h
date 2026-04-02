@@ -72,6 +72,7 @@ typedef struct Iron_Type {
         /* IRON_TYPE_ENUM */
         struct {
             struct Iron_EnumDecl      *decl;
+            struct Iron_Type        ***variant_payload_types; /* [variant_idx][payload_idx]; populated by Phase 33 type checker */
         } enu;
 
         /* IRON_TYPE_NULLABLE */
