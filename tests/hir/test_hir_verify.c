@@ -268,7 +268,7 @@ void test_hir_verify_closure_scope(void) {
     IronHIR_Expr *ecx = iron_hir_expr_ident(g_mod, cx_id, "cx", int_type, span);
     iron_hir_block_add_stmt(closure_body, iron_hir_stmt_return(g_mod, ecx, span));
 
-    IronHIR_Expr *closure_expr = iron_hir_expr_closure(g_mod, cparams, 1, int_type, closure_body, NULL, NULL, span);
+    IronHIR_Expr *closure_expr = iron_hir_expr_closure(g_mod, cparams, 1, int_type, closure_body, NULL, NULL, NULL, 0, span);
     IronHIR_VarId f_id = iron_hir_alloc_var(g_mod, "f", NULL, false);
     iron_hir_block_add_stmt(body, iron_hir_stmt_let(g_mod, f_id, NULL, closure_expr, false, span));
 
