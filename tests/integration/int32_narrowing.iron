@@ -43,8 +43,21 @@ func main() {
     val w = identity32(v)
     println("identity: {w}")
 
-    -- Test 8: Int32 overflow wraps like C int32_t
+    -- Test 8: assignment narrows literal
+    var a: Int32 = Int32(0)
+    a = 77
+    println("assign literal: {a}")
+
+    -- Test 9: return narrows literal
+    val ret = return_literal()
+    println("return literal: {ret}")
+
+    -- Test 10: Int32 overflow wraps like C int32_t
     val big: Int32 = Int32(2147483647)
     val overflow: Int32 = big + Int32(1)
     println("overflow: {overflow}")
+}
+
+func return_literal() -> Int32 {
+    return 55
 }
