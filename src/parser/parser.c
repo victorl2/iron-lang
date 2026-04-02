@@ -1112,7 +1112,14 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
                 if (iron_check(p, IRON_TOK_LBRACE)) {
                     else_body = iron_parse_block(p);
                 } else {
-                    else_body = iron_parse_expr(p);
+                    Iron_Node *single = iron_parse_stmt(p);
+                    Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+                    blk->kind       = IRON_NODE_BLOCK;
+                    blk->span       = single->span;
+                    blk->stmts      = NULL;
+                    arrput(blk->stmts, single);
+                    blk->stmt_count = 1;
+                    else_body = (Iron_Node *)blk;
                 }
             }
             iron_skip_newlines(p);
@@ -1156,12 +1163,19 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
             continue;
         }
 
-        /* Body: block { ... } or single expression */
+        /* Body: block { ... } or single statement (wrapped in synthetic block) */
         Iron_Node *cbody;
         if (iron_check(p, IRON_TOK_LBRACE)) {
             cbody = iron_parse_block(p);
         } else {
-            cbody = iron_parse_expr(p);
+            Iron_Node *single = iron_parse_stmt(p);
+            Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+            blk->kind       = IRON_NODE_BLOCK;
+            blk->span       = single->span;
+            blk->stmts      = NULL;
+            arrput(blk->stmts, single);
+            blk->stmt_count = 1;
+            cbody = (Iron_Node *)blk;
         }
 
         Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
