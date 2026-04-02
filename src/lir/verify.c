@@ -209,11 +209,20 @@ static void collect_operands(const IronLIR_Instr *instr,
 #undef PUSH
 }
 
+/* Find an IronLIR_Func in the module by name. Returns NULL if not found. */
+static const IronLIR_Func *find_func_by_name(const IronLIR_Module *module, const char *name) {
+    if (!module || !name) return NULL;
+    for (int i = 0; i < module->func_count; i++) {
+        if (module->funcs[i]->name && strcmp(module->funcs[i]->name, name) == 0)
+            return module->funcs[i];
+    }
+    return NULL;
+}
+
 /* ── Per-function verifier ────────────────────────────────────────────────── */
 
 static void verify_func(const IronLIR_Func *fn, const IronLIR_Module *module,
                          Iron_DiagList *diags, Iron_Arena *arena) {
-    (void)module;
 
     /* Extern functions have no body — skip structural verification */
     if (fn->is_extern) return;
@@ -495,6 +504,58 @@ static void verify_func(const IronLIR_Func *fn, const IronLIR_Module *module,
                                    IRON_ERR_LIR_PHI_TYPE_MISMATCH,
                                    instr->span, msg,
                                    "ensure all PHI incoming values have consistent types");
+                }
+            }
+        }
+
+        /* Invariant 8: call argument validation -- check count and types for direct calls */
+        for (int ii = 0; ii < block->instr_count; ii++) {
+            const IronLIR_Instr *instr = block->instrs[ii];
+            if (instr->kind != IRON_LIR_CALL) continue;
+            if (instr->call.func_decl == NULL) continue;  /* skip indirect calls */
+
+            const char *callee_name = instr->call.func_decl->name;
+            const IronLIR_Func *callee = find_func_by_name(module, callee_name);
+            if (!callee) continue;  /* callee not in module (extern resolved elsewhere) */
+
+            /* Check argument count */
+            if (instr->call.arg_count != callee->param_count) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "call argument count mismatch in function '%s': got %d, expected %d",
+                         callee_name, instr->call.arg_count, callee->param_count);
+                iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LIR_CALL_TYPE_MISMATCH,
+                               instr->span, msg,
+                               "ensure call arguments match the callee signature");
+                continue;  /* skip type checks if count is wrong */
+            }
+
+            /* Check each argument type */
+            for (int ai = 0; ai < instr->call.arg_count; ai++) {
+                IronLIR_ValueId arg_id = instr->call.args[ai];
+                if (arg_id == IRON_LIR_VALUE_INVALID) continue;
+
+                /* Param ValueIds (1..param_count) are NULL in value_table -- skip */
+                if ((int)arg_id >= 1 && (int)arg_id <= fn->param_count) continue;
+
+                if ((ptrdiff_t)arg_id >= arrlen(fn->value_table) ||
+                    fn->value_table[arg_id] == NULL) continue;
+
+                const IronLIR_Instr *arg_instr = fn->value_table[arg_id];
+                Iron_Type *param_type = callee->params[ai].type;
+
+                if (arg_instr->type != NULL && param_type != NULL &&
+                    !iron_type_equals(arg_instr->type, param_type)) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "call argument type mismatch in function '%s': "
+                             "argument %d type differs from parameter type",
+                             callee_name, ai + 1);
+                    iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_LIR_CALL_TYPE_MISMATCH,
+                                   instr->span, msg,
+                                   "ensure call argument types match the callee parameter types");
                 }
             }
         }
