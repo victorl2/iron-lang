@@ -6,46 +6,46 @@ import time
 func transition(state: Int, event: Int) -> Int {
     -- event: 0=start, 1=block, 2=unblock, 3=schedule, 4=finish, 5=reset
     match state {
-        0 {
+        0 -> {
             -- IDLE
             match event {
-                0 { return 3 }
-                5 { return 0 }
-                else { return 0 }
+                0 -> return 3
+                5 -> return 0
+                else -> return 0
             }
         }
-        1 {
+        1 -> {
             -- RUNNING
             match event {
-                1 { return 2 }
-                4 { return 4 }
-                else { return 1 }
+                1 -> return 2
+                4 -> return 4
+                else -> return 1
             }
         }
-        2 {
+        2 -> {
             -- BLOCKED
             match event {
-                2 { return 3 }
-                4 { return 4 }
-                else { return 2 }
+                2 -> return 3
+                4 -> return 4
+                else -> return 2
             }
         }
-        3 {
+        3 -> {
             -- READY
             match event {
-                3 { return 1 }
-                4 { return 4 }
-                else { return 3 }
+                3 -> return 1
+                4 -> return 4
+                else -> return 3
             }
         }
-        4 {
+        4 -> {
             -- TERMINATED
             match event {
-                5 { return 0 }
-                else { return 4 }
+                5 -> return 0
+                else -> return 4
             }
         }
-        else { return 0 }
+        else -> return 0
     }
     return 0
 }
@@ -54,17 +54,17 @@ func classify(v: Int) -> Int {
     -- Return a category based on value range using match
     val bucket = v % 10
     match bucket {
-        0 { return 100 }
-        1 { return 200 }
-        2 { return 300 }
-        3 { return 400 }
-        4 { return 500 }
-        5 { return 600 }
-        6 { return 700 }
-        7 { return 800 }
-        8 { return 900 }
-        9 { return 1000 }
-        else { return 0 }
+        0 -> return 100
+        1 -> return 200
+        2 -> return 300
+        3 -> return 400
+        4 -> return 500
+        5 -> return 600
+        6 -> return 700
+        7 -> return 800
+        8 -> return 900
+        9 -> return 1000
+        else -> return 0
     }
     return 0
 }

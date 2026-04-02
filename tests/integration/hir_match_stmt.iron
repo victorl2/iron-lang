@@ -1,9 +1,9 @@
 func describe(n: Int) -> String {
   match n {
-    1 { return "one" }
-    2 { return "two" }
-    3 { return "three" }
-    else { return "other" }
+    1 -> return "one"
+    2 -> return "two"
+    3 -> return "three"
+    else -> return "other"
   }
   return "other"
 }
