@@ -324,3 +324,115 @@ int64_t Iron_string_count(Iron_String self, Iron_String sub) {
     while ((p = strstr(p, d)) != NULL) { cnt++; p += dlen; }
     return cnt;
 }
+
+/* ── String built-in methods — wave 2 (Phase 38 Plan 02) ────────────────── */
+
+Iron_List_Iron_String Iron_string_split(Iron_String self, Iron_String sep) {
+    Iron_List_Iron_String result = Iron_List_Iron_String_create();
+    const char *s    = iron_string_cstr(&self);
+    size_t      slen = iron_string_byte_len(&self);
+    const char *d    = iron_string_cstr(&sep);
+    size_t      dlen = iron_string_byte_len(&sep);
+
+    if (dlen == 0) {
+        /* empty separator: each character is its own element */
+        for (size_t i = 0; i < slen; i++) {
+            Iron_String ch = iron_string_from_cstr(s + i, 1);
+            Iron_List_Iron_String_push(&result, ch);
+        }
+        return result;
+    }
+
+    const char *cur = s;
+    const char *end = s + slen;
+    while (cur <= end) {
+        const char *hit = (cur < end) ? strstr(cur, d) : NULL;
+        if (!hit) hit = end;
+        Iron_String part = iron_string_from_cstr(cur, (size_t)(hit - cur));
+        Iron_List_Iron_String_push(&result, part);
+        if (hit == end) break;
+        cur = hit + dlen;
+    }
+    return result;
+}
+
+Iron_String Iron_string_join(Iron_String self, Iron_List_Iron_String parts) {
+    const char *sep    = iron_string_cstr(&self);
+    size_t      seplen = iron_string_byte_len(&self);
+    int64_t     n      = Iron_List_Iron_String_len(&parts);
+    if (n == 0) return iron_string_from_cstr("", 0);
+
+    size_t total = 0;
+    for (int64_t i = 0; i < n; i++) {
+        Iron_String item = Iron_List_Iron_String_get(&parts, i);
+        total += iron_string_byte_len(&item);
+    }
+    total += (size_t)(n > 0 ? n - 1 : 0) * seplen;
+
+    char *buf = (char *)malloc(total + 1);
+    if (!buf) return iron_string_from_cstr("", 0);
+    char *p = buf;
+    for (int64_t i = 0; i < n; i++) {
+        if (i > 0) { memcpy(p, sep, seplen); p += seplen; }
+        Iron_String item = Iron_List_Iron_String_get(&parts, i);
+        size_t ilen = iron_string_byte_len(&item);
+        memcpy(p, iron_string_cstr(&item), ilen);
+        p += ilen;
+    }
+    *p = '\0';
+    Iron_String result = iron_string_from_cstr(buf, total);
+    free(buf);
+    return result;
+}
+
+Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String new_s) {
+    const char *s      = iron_string_cstr(&self);
+    size_t      slen   = iron_string_byte_len(&self);
+    const char *oldc   = iron_string_cstr(&old_s);
+    size_t      oldlen = iron_string_byte_len(&old_s);
+    const char *newc   = iron_string_cstr(&new_s);
+    size_t      newlen = iron_string_byte_len(&new_s);
+
+    if (oldlen == 0) return self; /* no-op: empty old pattern */
+
+    /* First pass: count occurrences to size the output buffer */
+    size_t count = 0;
+    const char *p = s;
+    while ((p = strstr(p, oldc)) != NULL) { count++; p += oldlen; }
+
+    size_t total = slen + count * (newlen - oldlen);
+    char *buf = (char *)malloc(total + 1);
+    if (!buf) return self;
+
+    char *out = buf;
+    const char *cur = s;
+    while (1) {
+        const char *hit = strstr(cur, oldc);
+        if (!hit) {
+            /* copy remainder */
+            size_t tail = (size_t)((s + slen) - cur);
+            memcpy(out, cur, tail);
+            out += tail;
+            break;
+        }
+        /* copy segment before hit */
+        size_t seg = (size_t)(hit - cur);
+        memcpy(out, cur, seg); out += seg;
+        /* copy replacement */
+        memcpy(out, newc, newlen); out += newlen;
+        cur = hit + oldlen;
+    }
+    *out = '\0';
+    Iron_String result = iron_string_from_cstr(buf, total);
+    free(buf);
+    return result;
+}
+
+Iron_String Iron_string_substring(Iron_String self, int64_t start, int64_t end_idx) {
+    const char *s   = iron_string_cstr(&self);
+    int64_t     len = (int64_t)iron_string_byte_len(&self);
+    if (start < 0) start = 0;
+    if (end_idx > len) end_idx = len;
+    if (start > end_idx) start = end_idx;
+    return iron_string_from_cstr(s + start, (size_t)(end_idx - start));
+}
