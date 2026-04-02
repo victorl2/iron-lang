@@ -1,0 +1,20 @@
+-- string.iron -- Iron wrapper for String built-in methods
+func String.len() -> Int {}
+func String.upper() -> String {}
+func String.lower() -> String {}
+func String.trim() -> String {}
+func String.contains(sub: String) -> Bool {}
+func String.starts_with(prefix: String) -> Bool {}
+func String.ends_with(suffix: String) -> Bool {}
+func String.split(sep: String) -> [String] {}
+func String.replace(old: String, new: String) -> String {}
+func String.substring(start: Int, end: Int) -> String {}
+func String.index_of(sub: String) -> Int {}
+func String.char_at(i: Int) -> String {}
+func String.to_int() -> Int {}
+func String.to_float() -> Float {}
+func String.join(parts: [String]) -> String {}
+func String.repeat(n: Int) -> String {}
+func String.pad_left(width: Int, ch: String) -> String {}
+func String.pad_right(width: Int, ch: String) -> String {}
+func String.count(sub: String) -> Int {}

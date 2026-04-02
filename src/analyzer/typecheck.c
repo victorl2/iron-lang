@@ -650,6 +650,34 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                            obj_id->resolved_type->kind == IRON_TYPE_OBJECT) {
                     /* Instance method: receiver has object type */
                     type_name_mc = obj_id->resolved_type->object.decl->name;
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_STRING) {
+                    /* String instance method: resolve via string.iron wrapper decls */
+                    type_name_mc = "String";
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_ARRAY) {
+                    /* Collection instance method: resolve return type heuristically.
+                     * We skip the decl scan for arrays because the return type
+                     * depends on the element type. */
+                    Iron_Type *arr_type = obj_id->resolved_type;
+                    const char *method = mc->method;
+                    if (strcmp(method, "sort") == 0 || strcmp(method, "reverse") == 0 ||
+                        strcmp(method, "for_each") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    } else if (strcmp(method, "any") == 0 || strcmp(method, "all") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_BOOL);
+                    } else if (strcmp(method, "find") == 0) {
+                        result = (arr_type->array.elem != NULL)
+                                     ? arr_type->array.elem
+                                     : iron_type_make_primitive(IRON_TYPE_VOID);
+                    } else if (strcmp(method, "len") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_INT);
+                    } else {
+                        /* filter, map, slice, unique, reduce: return same array type */
+                        result = arr_type;
+                    }
+                    mc->resolved_type = result;
+                    break;  /* skip decl scan — return type already resolved */
                 }
                 if (type_name_mc && ctx->program) {
                     for (int i = 0; i < ctx->program->decl_count; i++) {
