@@ -873,14 +873,61 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     case IRON_HIR_EXPR_CLOSURE: {
         /* The lambda body is lifted to a top-level HIR function by hir_lower.c
          * (lower_lift_pending_hir). flatten_func() in Pass 1 converts it to LIR.
-         * Here we only need to emit MAKE_CLOSURE referencing the lifted name. */
+         * Here we emit MAKE_CLOSURE referencing the lifted name with capture ValueIds. */
         const char *lifted_name = expr->closure.lifted_name;
         if (!lifted_name) {
             /* Fallback: should not happen with properly constructed HIR */
             lifted_name = "__lambda_unknown";
         }
-        return iron_lir_make_closure(ctx->current_func, ctx->current_block,
-                                      lifted_name, NULL, 0, type, span)->id;
+
+        IronLIR_ValueId *cap_vals = NULL;
+        int cap_count = expr->closure.capture_count;
+        if (cap_count > 0 && expr->closure.capture_var_ids) {
+            for (int ci = 0; ci < cap_count; ci++) {
+                IronHIR_VarId vid = expr->closure.capture_var_ids[ci];
+                IronLIR_ValueId lir_val = IRON_LIR_VALUE_INVALID;
+                bool is_mutable = expr->closure.captures
+                                  ? expr->closure.captures[ci].is_mutable
+                                  : false;
+
+                if (!is_mutable) {
+                    /* val capture: emit a LOAD to get the current value */
+                    ptrdiff_t vi = hmgeti(ctx->val_binding_map, vid);
+                    if (vi >= 0) {
+                        lir_val = ctx->val_binding_map[vi].value;
+                    } else {
+                        ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                        if (ai >= 0) {
+                            IronLIR_ValueId alloca_id = ctx->var_alloca_map[ai].value;
+                            Iron_Type *val_ty = expr->closure.captures
+                                               ? expr->closure.captures[ci].type
+                                               : NULL;
+                            IronLIR_Instr *load = iron_lir_load(ctx->current_func,
+                                                                  ctx->current_block,
+                                                                  alloca_id, val_ty, span);
+                            lir_val = load->id;
+                        } else {
+                            ptrdiff_t pi2 = hmgeti(ctx->param_map, vid);
+                            if (pi2 >= 0) lir_val = ctx->param_map[pi2].value;
+                        }
+                    }
+                } else {
+                    /* var capture: pass the alloca ValueId (its address) */
+                    ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                    if (ai >= 0) {
+                        lir_val = ctx->var_alloca_map[ai].value;
+                    }
+                }
+
+                arrput(cap_vals, lir_val);
+            }
+        }
+
+        IronLIR_Instr *mc = iron_lir_make_closure(ctx->current_func, ctx->current_block,
+                                                    lifted_name, cap_vals, cap_count,
+                                                    type, span);
+        mc->make_closure.capture_metadata = expr->closure.captures;
+        return mc->id;
     }
 
     case IRON_HIR_EXPR_PARALLEL_FOR: {
@@ -1531,6 +1578,10 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         lir_func = iron_lir_func_create(ctx->lir_module, hir_func->name,
                                          lir_params, param_count, ret_type);
     }
+
+    /* Propagate capture metadata from HIR func to LIR func (for lifted lambdas) */
+    lir_func->capture_metadata = hir_func->captures;
+    lir_func->capture_count    = hir_func->capture_count;
 
     /* Set up context for this function */
     ctx->current_func = lir_func;
