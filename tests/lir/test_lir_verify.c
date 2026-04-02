@@ -319,6 +319,166 @@ void test_verify_phi_well_formed(void) {
     iron_arena_free(&ir_arena);
 }
 
+/* ── Call argument validation tests ───────────────────────────────────────── */
+
+void test_verify_call_arg_count_mismatch(void) {
+    Iron_Arena ir_arena = iron_arena_create(4096);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span span = zero_span();
+
+    /* callee: takes 2 Int params, returns Int */
+    IronLIR_Param callee_params[2] = {
+        { .name = "a", .type = int_type },
+        { .name = "b", .type = int_type }
+    };
+    IronLIR_Func *callee = iron_lir_func_create(mod, "callee", callee_params, 2, int_type);
+    IronLIR_Block *callee_entry = iron_lir_block_create(callee, "entry");
+    IronLIR_Instr *callee_ret_val = iron_lir_const_int(callee, callee_entry, 0, int_type, span);
+    iron_lir_return(callee, callee_entry, callee_ret_val->id, false, int_type, span);
+
+    /* caller: passes only 1 arg (count mismatch) */
+    IronLIR_Func *caller = iron_lir_func_create(mod, "caller", NULL, 0, NULL);
+    IronLIR_Block *caller_entry = iron_lir_block_create(caller, "entry");
+    IronLIR_Instr *arg1 = iron_lir_const_int(caller, caller_entry, 42, int_type, span);
+
+    Iron_FuncDecl fake_decl = {0};
+    fake_decl.name = "callee";
+    fake_decl.param_count = 2;
+
+    IronLIR_ValueId args[] = { arg1->id };
+    iron_lir_call(caller, caller_entry, &fake_decl, IRON_LIR_VALUE_INVALID,
+                  args, 1, int_type, span);
+    iron_lir_return(caller, caller_entry, IRON_LIR_VALUE_INVALID, true, NULL, span);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    bool result = iron_lir_verify(mod, &diags, &ir_arena);
+
+    TEST_ASSERT_FALSE(result);
+    TEST_ASSERT_TRUE(has_error(&diags, IRON_ERR_LIR_CALL_TYPE_MISMATCH));
+
+    iron_diaglist_free(&diags);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_verify_call_arg_type_mismatch(void) {
+    Iron_Arena ir_arena = iron_arena_create(4096);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_Span span = zero_span();
+
+    /* callee: takes 1 Int param, returns Int */
+    IronLIR_Param callee_params[1] = {
+        { .name = "x", .type = int_type }
+    };
+    IronLIR_Func *callee = iron_lir_func_create(mod, "callee", callee_params, 1, int_type);
+    IronLIR_Block *callee_entry = iron_lir_block_create(callee, "entry");
+    IronLIR_Instr *callee_ret_val = iron_lir_const_int(callee, callee_entry, 0, int_type, span);
+    iron_lir_return(callee, callee_entry, callee_ret_val->id, false, int_type, span);
+
+    /* caller: passes 1 Bool arg (type mismatch, correct count) */
+    IronLIR_Func *caller = iron_lir_func_create(mod, "caller", NULL, 0, NULL);
+    IronLIR_Block *caller_entry = iron_lir_block_create(caller, "entry");
+    IronLIR_Instr *arg1 = iron_lir_const_bool(caller, caller_entry, true, bool_type, span);
+
+    Iron_FuncDecl fake_decl = {0};
+    fake_decl.name = "callee";
+    fake_decl.param_count = 1;
+
+    IronLIR_ValueId args[] = { arg1->id };
+    iron_lir_call(caller, caller_entry, &fake_decl, IRON_LIR_VALUE_INVALID,
+                  args, 1, int_type, span);
+    iron_lir_return(caller, caller_entry, IRON_LIR_VALUE_INVALID, true, NULL, span);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    bool result = iron_lir_verify(mod, &diags, &ir_arena);
+
+    TEST_ASSERT_FALSE(result);
+    TEST_ASSERT_TRUE(has_error(&diags, IRON_ERR_LIR_CALL_TYPE_MISMATCH));
+
+    iron_diaglist_free(&diags);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_verify_call_well_formed(void) {
+    Iron_Arena ir_arena = iron_arena_create(4096);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span span = zero_span();
+
+    /* callee: takes 1 Int param, returns Int */
+    IronLIR_Param callee_params[1] = {
+        { .name = "x", .type = int_type }
+    };
+    IronLIR_Func *callee = iron_lir_func_create(mod, "callee", callee_params, 1, int_type);
+    IronLIR_Block *callee_entry = iron_lir_block_create(callee, "entry");
+    IronLIR_Instr *callee_ret_val = iron_lir_const_int(callee, callee_entry, 0, int_type, span);
+    iron_lir_return(callee, callee_entry, callee_ret_val->id, false, int_type, span);
+
+    /* caller: passes 1 Int arg (correct count and type) */
+    IronLIR_Func *caller = iron_lir_func_create(mod, "caller", NULL, 0, NULL);
+    IronLIR_Block *caller_entry = iron_lir_block_create(caller, "entry");
+    IronLIR_Instr *arg1 = iron_lir_const_int(caller, caller_entry, 42, int_type, span);
+
+    Iron_FuncDecl fake_decl = {0};
+    fake_decl.name = "callee";
+    fake_decl.param_count = 1;
+
+    IronLIR_ValueId args[] = { arg1->id };
+    iron_lir_call(caller, caller_entry, &fake_decl, IRON_LIR_VALUE_INVALID,
+                  args, 1, int_type, span);
+    iron_lir_return(caller, caller_entry, IRON_LIR_VALUE_INVALID, true, NULL, span);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    bool result = iron_lir_verify(mod, &diags, &ir_arena);
+
+    TEST_ASSERT_TRUE(result);
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+
+    iron_diaglist_free(&diags);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_verify_call_indirect_skipped(void) {
+    Iron_Arena ir_arena = iron_arena_create(4096);
+    iron_types_init(&ir_arena);
+
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Span span = zero_span();
+
+    /* Single function with an indirect call (func_decl=NULL) */
+    IronLIR_Func *fn = iron_lir_func_create(mod, "fn", NULL, 0, NULL);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+
+    /* Create a const_int to use as a fake func_ptr for the indirect call */
+    IronLIR_Instr *fake_ptr = iron_lir_const_int(fn, entry, 0, int_type, span);
+
+    iron_lir_call(fn, entry, NULL, fake_ptr->id,
+                  NULL, 0, int_type, span);
+    iron_lir_return(fn, entry, IRON_LIR_VALUE_INVALID, true, NULL, span);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    iron_lir_verify(mod, &diags, &ir_arena);
+
+    /* Should NOT contain IRON_ERR_LIR_CALL_TYPE_MISMATCH -- indirect calls are skipped */
+    TEST_ASSERT_FALSE(has_error(&diags, IRON_ERR_LIR_CALL_TYPE_MISMATCH));
+
+    iron_diaglist_free(&diags);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -334,6 +494,10 @@ int main(void) {
     RUN_TEST(test_verify_return_type_mismatch);
     RUN_TEST(test_verify_phi_type_mismatch);
     RUN_TEST(test_verify_phi_well_formed);
+    RUN_TEST(test_verify_call_arg_count_mismatch);
+    RUN_TEST(test_verify_call_arg_type_mismatch);
+    RUN_TEST(test_verify_call_well_formed);
+    RUN_TEST(test_verify_call_indirect_skipped);
 
     return UNITY_END();
 }
