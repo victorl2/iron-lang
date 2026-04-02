@@ -1,98 +1,176 @@
-# Requirements: Iron
+# Requirements: Iron Compiler — Semantic Analysis Gaps
 
-**Defined:** 2026-03-31
-**Core Value:** Every Iron language feature compiles to correct, working C code that produces a native binary
+**Defined:** 2026-04-02
+**Core Value:** Every invalid Iron program must produce a clear diagnostic at compile time — no silent pass-through to the C backend.
 
-## v0.0.7-alpha Requirements
+## v1 Requirements
 
-Requirements for Performance Optimization milestone. Each maps to roadmap phases.
+Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap phases.
 
-### Loop Optimization
+### Match Analysis
 
-- [x] **LOOP-01**: Range bound hoisting evaluates `Iron_range()` once in the loop pre-header instead of every iteration
-- [x] **LOOP-02**: All for-range benchmarks show measurable improvement from bound hoisting
+- [ ] **MATCH-01**: Compiler checks that match statements on enum types cover all variants or have an else clause
+- [ ] **MATCH-02**: Compiler emits `IRON_ERR_NONEXHAUSTIVE_MATCH` listing uncovered variants when coverage is incomplete
+- [ ] **MATCH-03**: Compiler requires else clause when match subject is not an enum type
 
-### Memory Optimization
+### LIR Verification
 
-- [x] **MEM-01**: `fill(CONST, val)` with constant size <= 1024 and non-escaping result is stack-allocated via alloca
-- [x] **MEM-02**: Stack-promoted arrays emit declarations at function entry to avoid VLA+goto bypass
+- [ ] **LIR-01**: LIR verifier checks that all PHI incoming values have types matching the PHI result type
+- [ ] **LIR-02**: LIR verifier emits `IRON_ERR_LIR_PHI_TYPE_MISMATCH` on PHI type inconsistency
+- [ ] **LIR-03**: LIR verifier checks call argument types against callee's parameter types for direct calls
+- [ ] **LIR-04**: LIR verifier checks argument count matches parameter count for direct calls
+- [ ] **LIR-05**: LIR verifier emits `IRON_ERR_LIR_CALL_TYPE_MISMATCH` on argument type mismatch
 
-### Expression Optimization
+### Generic Constraints
 
-- [x] **EXPR-01**: LOAD instructions are eligible for expression inlining when use site is in the same block as the LOAD
-- [x] **EXPR-02**: Cross-block LOADs remain excluded to prevent undeclared variable errors
+- [ ] **GEN-01**: Compiler validates that concrete type arguments satisfy declared generic constraints at instantiation sites
+- [ ] **GEN-02**: Compiler checks constraint satisfaction for generic function calls
+- [ ] **GEN-03**: Compiler checks constraint satisfaction for generic type construction
+- [ ] **GEN-04**: Compiler emits `IRON_ERR_CONSTRAINT_NOT_SATISFIED` when a concrete type does not meet the constraint
 
-### Function Inlining
+### Cast Safety
 
-- [x] **INLINE-01**: Small (<= 20 instructions), non-recursive, pure functions are inlined at LIR level
-- [x] **INLINE-02**: Inlining pass runs before the copy-prop/DCE fixpoint loop so inlined code gets optimized
-- [x] **INLINE-03**: Value IDs are correctly remapped during instruction cloning to prevent table corruption
+- [ ] **CAST-01**: Compiler validates that the source expression type is numeric or bool before allowing primitive cast
+- [ ] **CAST-02**: Compiler emits `IRON_ERR_INVALID_CAST` when source type is not castable
+- [ ] **CAST-03**: Compiler emits `IRON_WARN_NARROWING_CAST` for wider-to-narrower integer casts
+- [ ] **CAST-04**: Compiler validates compile-time constant values fit in the target narrow type (literal range check)
 
-### Phi Elimination
+### Definite Assignment
 
-- [x] **PHI-01**: SSA phi elimination produces fewer temporary variables through copy coalescing
-- [x] **PHI-02**: Complex control flow benchmarks (connected_components) show measurable reduction in generated temporaries
+- [ ] **INIT-01**: Compiler performs definite assignment analysis tracking initialization state across control flow paths
+- [ ] **INIT-02**: Compiler detects variables that may be read before being assigned on all paths
+- [ ] **INIT-03**: Compiler emits `IRON_ERR_POSSIBLY_UNINITIALIZED` when a variable may be used uninitialized
+- [ ] **INIT-04**: Analysis handles if/else, match, loops, and early returns correctly
 
-### Sized Integers
+### Array Bounds
 
-- [x] **INT-01**: Iron supports explicit `Int32` type annotations that emit `int32_t` in generated C
-- [x] **INT-02**: Array operations with `Int32` elements use 32-bit memory bandwidth
+- [ ] **BOUNDS-01**: Compiler validates constant array indices against known array sizes (`0 <= index < size`)
+- [ ] **BOUNDS-02**: Compiler emits `IRON_ERR_INDEX_OUT_OF_BOUNDS` for provably out-of-bounds constant indices
+- [ ] **BOUNDS-03**: Compiler validates that array index expressions resolve to integer types
 
-### Benchmark Validation
+### Slice Bounds
 
-- [x] **BENCH-01**: Benchmark suite is run after all optimizations and results are compared to pre-optimization baseline
-- [x] **BENCH-02**: Exploration pass identifies any remaining optimization opportunities beyond P0-P5
+- [ ] **SLICE-01**: Compiler validates that slice start and end expressions resolve to integer types
+- [ ] **SLICE-02**: Compiler validates `start <= end` when both are compile-time constants
+- [ ] **SLICE-03**: Compiler validates slice bounds are within array size when all values are compile-time constants
+- [ ] **SLICE-04**: Compiler emits `IRON_ERR_INVALID_SLICE_BOUNDS` for invalid constant slice bounds
 
-## Future Requirements
+### Escape Analysis
 
-Deferred to future milestones. Tracked but not in current roadmap.
+- [ ] **ESC-01**: Escape analysis tracks heap values assigned through field access (`obj.field = heap_val`)
+- [ ] **ESC-02**: Escape analysis tracks heap values assigned through array index (`arr[i] = heap_val`)
+- [ ] **ESC-03**: Escape analysis tracks heap values passed as function arguments
+- [ ] **ESC-04**: Extended `expr_ident_name()` or equivalent recognizes field-access and index-access targets
 
-### Advanced Optimizations
+### Compound Overflow
 
-- **P6-01**: Structured loop reconstruction emits for/while instead of goto-based control flow
-- **P6-02**: Clang loop optimizations (vectorization, unrolling) enabled by structured emission
+- [ ] **OVFL-01**: Compiler detects compound assignments (`+=`, `-=`, `*=`, `/=`) on narrow integer types (Int8, Int16, UInt8, etc.)
+- [ ] **OVFL-02**: Compiler emits `IRON_WARN_POSSIBLE_OVERFLOW` when target type is narrower than platform int and RHS is not a fitting constant
+- [ ] **OVFL-03**: Compiler validates compile-time constant RHS values fit in the narrow target type
 
-### Auto-Narrowing
+### String Interpolation
 
-- **NARROW-01**: Compiler automatically narrows Int to Int32 when range analysis proves values fit
-- **NARROW-02**: Range analysis propagates through arithmetic operations and array indexing
+- [ ] **STRN-01**: Compiler validates that interpolated expression types are stringifiable (primitives, String, Bool, or types with `to_string`)
+- [ ] **STRN-02**: Compiler emits `IRON_ERR_NOT_STRINGABLE` for types without string conversion capability
+
+### Concurrency
+
+- [ ] **CONC-01**: Mutation detection in parallel/spawn blocks covers field access expressions (not just bare identifiers)
+- [ ] **CONC-02**: Mutation detection in parallel/spawn blocks covers array index expressions
+- [ ] **CONC-03**: Compiler detects concurrent reads of variables being written in spawn blocks (read-write races)
+- [ ] **CONC-04**: Compiler performs capture analysis for spawn blocks tracking which outer variables are referenced
+- [ ] **CONC-05**: Compiler validates that mutable captures in spawn blocks are flagged as potential data races
+
+### Testing
+
+- [ ] **TEST-01**: Each new error/warning diagnostic has at least one test case with Iron source that triggers it
+- [ ] **TEST-02**: Each diagnostic has at least one test case with valid Iron source that should NOT trigger it (no false positives)
+- [ ] **TEST-03**: Complex analyses (definite assignment, escape, concurrency) have edge-case tests for branching, loops, and nested structures
+
+## v2 Requirements
+
+Deferred to future release. Tracked but not in current roadmap.
+
+### Runtime Safety
+
+- **RTSAFE-01**: Runtime bounds-check code insertion in generated C (flag-controlled)
+- **RTSAFE-02**: Runtime overflow checks for integer arithmetic
+
+### Advanced Concurrency
+
+- **ACONC-01**: Deadlock detection via lock ordering analysis
+- **ACONC-02**: Task lifetime analysis (spawned tasks don't outlive referenced data)
+- **ACONC-03**: Full effect-based or ownership-based race detection
+
+### Advanced Generics
+
+- **AGEN-01**: Indirect calls in LIR carry function type signatures for verification
+- **AGEN-02**: Higher-kinded type constraint checking
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Structured loop reconstruction (P6) | High effort, deferred — goto-based emission is correct, optimization benefit is secondary |
-| Auto-narrowing integer types | High complexity — requires range analysis; explicit Int32 annotations are sufficient for v0.0.7 |
-| LLVM backend | Future milestone — HIR/LIR architecture enables this but not building it now |
-| Interprocedural optimization beyond inlining | Complex, diminishing returns for C backend |
+| Runtime bounds checking insertion | Only static/compile-time checks in this scope |
+| Full deadlock detection | Requires effect system or ownership model |
+| Task lifetime borrow analysis | Requires borrow-checker-level analysis |
+| C emitter changes | This is analyzer/verifier work only |
+| New language features | Only adding checks for existing syntax |
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOOP-01 | Phase 24 | Complete |
-| LOOP-02 | Phase 24 | Complete |
-| MEM-01 | Phase 25 | Complete |
-| MEM-02 | Phase 25 | Complete |
-| EXPR-01 | Phase 26 | Complete |
-| EXPR-02 | Phase 26 | Complete |
-| INLINE-01 | Phase 27 | Complete |
-| INLINE-02 | Phase 27 | Complete |
-| INLINE-03 | Phase 27 | Complete |
-| PHI-01 | Phase 28 | Complete |
-| PHI-02 | Phase 28 | Complete |
-| INT-01 | Phase 29 | Complete |
-| INT-02 | Phase 29 | Complete |
-| BENCH-01 | Phase 30 | Complete |
-| BENCH-02 | Phase 30 | Complete |
+| MATCH-01 | — | Pending |
+| MATCH-02 | — | Pending |
+| MATCH-03 | — | Pending |
+| LIR-01 | — | Pending |
+| LIR-02 | — | Pending |
+| LIR-03 | — | Pending |
+| LIR-04 | — | Pending |
+| LIR-05 | — | Pending |
+| GEN-01 | — | Pending |
+| GEN-02 | — | Pending |
+| GEN-03 | — | Pending |
+| GEN-04 | — | Pending |
+| CAST-01 | — | Pending |
+| CAST-02 | — | Pending |
+| CAST-03 | — | Pending |
+| CAST-04 | — | Pending |
+| INIT-01 | — | Pending |
+| INIT-02 | — | Pending |
+| INIT-03 | — | Pending |
+| INIT-04 | — | Pending |
+| BOUNDS-01 | — | Pending |
+| BOUNDS-02 | — | Pending |
+| BOUNDS-03 | — | Pending |
+| SLICE-01 | — | Pending |
+| SLICE-02 | — | Pending |
+| SLICE-03 | — | Pending |
+| SLICE-04 | — | Pending |
+| ESC-01 | — | Pending |
+| ESC-02 | — | Pending |
+| ESC-03 | — | Pending |
+| ESC-04 | — | Pending |
+| OVFL-01 | — | Pending |
+| OVFL-02 | — | Pending |
+| OVFL-03 | — | Pending |
+| STRN-01 | — | Pending |
+| STRN-02 | — | Pending |
+| CONC-01 | — | Pending |
+| CONC-02 | — | Pending |
+| CONC-03 | — | Pending |
+| CONC-04 | — | Pending |
+| CONC-05 | — | Pending |
+| TEST-01 | — | Pending |
+| TEST-02 | — | Pending |
+| TEST-03 | — | Pending |
 
 **Coverage:**
-- v0.0.7-alpha requirements: 15 total
-- Mapped to phases: 15
-- Unmapped: 0
+- v1 requirements: 43 total
+- Mapped to phases: 0
+- Unmapped: 43 ⚠️
 
 ---
-*Requirements defined: 2026-03-31*
-*Last updated: 2026-03-31 after roadmap creation (Phases 24-30)*
+*Requirements defined: 2026-04-02*
+*Last updated: 2026-04-02 after initial definition*
