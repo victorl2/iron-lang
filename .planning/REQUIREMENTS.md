@@ -25,18 +25,18 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **STR-04**: User can call `s.contains(sub)` to check if a string contains a substring
 - [x] **STR-05**: User can call `s.starts_with(prefix)` to check string prefix
 - [x] **STR-06**: User can call `s.ends_with(suffix)` to check string suffix
-- [ ] **STR-07**: User can call `s.split(sep)` to split a string into `List[String]`
-- [ ] **STR-08**: User can call `s.replace(old, new)` to substitute all occurrences
-- [ ] **STR-09**: User can call `s.substring(start, end)` to extract a slice
+- [x] **STR-07**: User can call `s.split(sep)` to split a string into `List[String]`
+- [x] **STR-08**: User can call `s.replace(old, new)` to substitute all occurrences
+- [x] **STR-09**: User can call `s.substring(start, end)` to extract a slice
 - [x] **STR-10**: User can call `s.index_of(sub)` to find first occurrence position (-1 if absent)
 - [x] **STR-11**: User can call `s.char_at(i)` to get the character at index i as a String
-- [ ] **STR-12**: User can call `s.to_int()` to parse a string as an integer
-- [ ] **STR-13**: User can call `s.to_float()` to parse a string as a float
-- [ ] **STR-14**: User can call `sep.join(list)` to concatenate a list of strings with a separator
+- [x] **STR-12**: User can call `s.to_int()` to parse a string as an integer
+- [x] **STR-13**: User can call `s.to_float()` to parse a string as a float
+- [x] **STR-14**: User can call `sep.join(list)` to concatenate a list of strings with a separator
 - [x] **STR-15**: User can call `s.len()` as a method to get character count
-- [ ] **STR-16**: User can call `s.repeat(n)` to repeat a string n times
-- [ ] **STR-17**: User can call `s.pad_left(width, char)` to left-pad a string
-- [ ] **STR-18**: User can call `s.pad_right(width, char)` to right-pad a string
+- [x] **STR-16**: User can call `s.repeat(n)` to repeat a string n times
+- [x] **STR-17**: User can call `s.pad_left(width, char)` to left-pad a string
+- [x] **STR-18**: User can call `s.pad_right(width, char)` to right-pad a string
 - [x] **STR-19**: User can call `s.count(sub)` to count occurrences of a substring
 
 ### Collection Operations

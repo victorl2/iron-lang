@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v0.1.0-alpha
 milestone_name: Lambda Capture
 status: executing
-stopped_at: "Phase 38-01 complete — 10 simple Iron_string_* method bodies added"
-last_updated: "2026-04-02T23:09:57Z"
-last_activity: "2026-04-02 — Phase 38-01 complete: upper, lower, trim, contains, starts_with, ends_with, index_of, char_at, len, count added to iron_string.c"
+stopped_at: "Phase 38-02 complete — all 19 Iron_string_* method bodies now in iron_string.c"
+last_updated: "2026-04-02T23:14:07Z"
+last_activity: "2026-04-02 — Phase 38-02 complete: split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right added to iron_string.c"
 progress:
   total_phases: 5
   completed_phases: 1
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 
 ## Current Position
 
-Phase: 38 of 38 (String Built-In Methods — Plan 01 COMPLETE)
-Plan: 01 complete, 02 next
-Status: Phase 38 Plan 01 complete — 10 simple method bodies added
-Last activity: 2026-04-02 — Phase 38-01 complete: 10 simple Iron_string_* methods added to iron_string.c, build clean
+Phase: 38 of 38 (String Built-In Methods — Plan 02 COMPLETE)
+Plan: 02 complete, 03 next
+Status: Phase 38 Plan 02 complete — all 19 Iron_string_* method bodies implemented, build clean
+Last activity: 2026-04-02 — Phase 38-02 complete: split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right added to iron_string.c
 
 ## Accumulated Context
 
@@ -59,9 +59,13 @@ Last activity: 2026-04-02 — Phase 38-01 complete: 10 simple Iron_string_* meth
 - [Phase 38-01]: iron_string_char_at returns empty string for out-of-range index (no crash)
 - [Phase 38-01]: iron_string_count returns 0 for empty sub (avoids strstr infinite-loop pitfall)
 - [Phase 38-01]: All 10 method bodies appended to iron_string.c Phase 38 section; no existing code modified
+- [Phase 38-02]: Iron_string_replace walks source string (not output buffer) to avoid infinite loop when new_s contains old_s
+- [Phase 38-02]: to_int/to_float return 0/0.0 only when end==s (nothing consumed); partial prefix "42abc" returns 42
+- [Phase 38-02]: pad_left/pad_right use only first byte of ch parameter as the pad character
+- [Phase 38-02]: substring treats start/end_idx as byte offsets, consistent with char_at byte indexing
 
 ## Session Continuity
 
-Last session: 2026-04-02T23:09:57Z
-Stopped at: Completed 38-01-PLAN.md (Phase 38 Plan 01 complete)
+Last session: 2026-04-02T23:14:07Z
+Stopped at: Completed 38-02-PLAN.md (Phase 38 Plan 02 complete)
 Resume file: None
