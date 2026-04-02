@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: planning
-stopped_at: Phase 37 context gathered
-last_updated: "2026-04-02T20:54:06.721Z"
+stopped_at: Completed 37-compiler-dispatch-fixes-technical-debt/37-04-PLAN.md
+last_updated: "2026-04-02T21:30:07.227Z"
 last_activity: 2026-04-02 — Roadmap created for v0.2.0-alpha; v0.1.0-alpha Lambda Capture marked complete
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -48,6 +48,7 @@ Progress: [░░░░░░░░░░] 0%
 **Recent Trend:**
 - Last 5 plans: —
 - Trend: —
+| Phase 37 P04 | 2 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,7 @@ Recent decisions affecting current work:
 - [32-02 closure wiring]: Use Iron_Closure fat pointer for all closures (capturing and non-capturing); non-capturing closures have env=NULL
 - [32-02 closure wiring]: Capture type resolution must use id->resolved_type (typechecker-annotated ident field), not id->resolved_sym->type (always NULL for variables in resolver scope)
 - [32-02 closure wiring]: Capture-alias allocas in lifted functions are opaque to optimizer — skip copy-prop and store-load-elim forwarding for them; MAKE_CLOSURE captures mark outer allocas as escaped
+- [Phase 37]: No code changes in COMP-05/COMP-06 — documentation-only WINDOWS-TODO comments as mandated by locked plan decision
 
 ### Pending Todos
 
@@ -80,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-02T21:09:20Z
-Stopped at: Completed 32-capture-foundation/32-02-PLAN.md (Iron_Closure wiring complete; v0.1.0-alpha fully delivered)
-Resume file: .planning/phases/37-compiler-dispatch-fixes-technical-debt/37-CONTEXT.md
+Last session: 2026-04-02T21:30:07.224Z
+Stopped at: Completed 37-compiler-dispatch-fixes-technical-debt/37-04-PLAN.md
+Resume file: None
