@@ -52,6 +52,8 @@ static const char *s_node_kind_names[IRON_NODE_COUNT] = {
     [IRON_NODE_MATCH_CASE]      = "MatchCase",
     [IRON_NODE_ENUM_VARIANT]    = "EnumVariant",
     [IRON_NODE_TYPE_ANNOTATION] = "TypeAnnotation",
+    [IRON_NODE_PATTERN]         = "Pattern",
+    [IRON_NODE_ENUM_CONSTRUCT]  = "EnumConstruct",
 };
 
 const char *iron_node_kind_str(Iron_NodeKind kind) {
@@ -133,9 +135,11 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
             walk_child(n->type_ann, v);
             break;
         }
-        case IRON_NODE_ENUM_VARIANT:
-            /* leaf */
+        case IRON_NODE_ENUM_VARIANT: {
+            Iron_EnumVariant *n = (Iron_EnumVariant *)root;
+            walk_children(n->payload_type_anns, n->payload_count, v);
             break;
+        }
         case IRON_NODE_TYPE_ANNOTATION: {
             Iron_TypeAnnotation *n = (Iron_TypeAnnotation *)root;
             walk_children(n->generic_args, n->generic_arg_count, v);
@@ -324,6 +328,16 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
             walk_child(n->type_ann, v);
             walk_child(n->size, v);
             walk_children(n->elements, n->element_count, v);
+            break;
+        }
+        case IRON_NODE_PATTERN: {
+            Iron_Pattern *n = (Iron_Pattern *)root;
+            walk_children(n->nested_patterns, n->binding_count, v);
+            break;
+        }
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *n = (Iron_EnumConstruct *)root;
+            walk_children(n->args, n->arg_count, v);
             break;
         }
         case IRON_NODE_COUNT:
