@@ -436,3 +436,74 @@ Iron_String Iron_string_substring(Iron_String self, int64_t start, int64_t end_i
     if (start > end_idx) start = end_idx;
     return iron_string_from_cstr(s + start, (size_t)(end_idx - start));
 }
+
+int64_t Iron_string_to_int(Iron_String self) {
+    const char *s = iron_string_cstr(&self);
+    char *end;
+    int64_t v = (int64_t)strtoll(s, &end, 10);
+    if (end == s) return 0;  /* nothing consumed */
+    return v;
+}
+
+double Iron_string_to_float(Iron_String self) {
+    const char *s = iron_string_cstr(&self);
+    char *end;
+    double v = strtod(s, &end);
+    if (end == s) return 0.0;
+    return v;
+}
+
+Iron_String Iron_string_repeat(Iron_String self, int64_t n) {
+    const char *s   = iron_string_cstr(&self);
+    size_t      len = iron_string_byte_len(&self);
+    if (n <= 0 || len == 0) return iron_string_from_cstr("", 0);
+    size_t total = len * (size_t)n;
+    char *buf = (char *)malloc(total + 1);
+    if (!buf) return iron_string_from_cstr("", 0);
+    for (int64_t i = 0; i < n; i++)
+        memcpy(buf + (size_t)i * len, s, len);
+    buf[total] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, total);
+    free(buf);
+    return result;
+}
+
+Iron_String Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch) {
+    const char *s    = iron_string_cstr(&self);
+    size_t      slen = iron_string_byte_len(&self);
+    const char *pad  = iron_string_cstr(&ch);
+    size_t      plen = iron_string_byte_len(&ch);
+    char        pc   = (plen > 0) ? pad[0] : ' ';
+
+    if ((int64_t)slen >= width) return self;
+    size_t pad_count = (size_t)width - slen;
+    size_t total     = (size_t)width;
+    char *buf = (char *)malloc(total + 1);
+    if (!buf) return self;
+    for (size_t i = 0; i < pad_count; i++) buf[i] = pc;
+    memcpy(buf + pad_count, s, slen);
+    buf[total] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, total);
+    free(buf);
+    return result;
+}
+
+Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String ch) {
+    const char *s    = iron_string_cstr(&self);
+    size_t      slen = iron_string_byte_len(&self);
+    const char *pad  = iron_string_cstr(&ch);
+    size_t      plen = iron_string_byte_len(&ch);
+    char        pc   = (plen > 0) ? pad[0] : ' ';
+
+    if ((int64_t)slen >= width) return self;
+    size_t pad_count = (size_t)width - slen;
+    size_t total     = (size_t)width;
+    char *buf = (char *)malloc(total + 1);
+    if (!buf) return self;
+    memcpy(buf, s, slen);
+    for (size_t i = 0; i < pad_count; i++) buf[slen + i] = pc;
+    buf[total] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, total);
+    free(buf);
+    return result;
+}
