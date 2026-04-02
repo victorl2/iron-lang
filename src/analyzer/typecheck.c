@@ -633,7 +633,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
-            check_expr(ctx, mc->object);
+            Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 
             /* Try to resolve the return type by finding the matching method decl.
@@ -685,6 +685,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, type_name_mc) == 0 &&
+                            strcmp(md->method_name, mc->method) == 0) {
+                            if (md->resolved_return_type) {
+                                result = md->resolved_return_type;
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_STRING) {
+                /* Non-ident receiver with String type (e.g. string literal, interp string,
+                 * or chained method call): resolve via string.iron wrapper decls. */
+                if (ctx->program) {
+                    for (int i = 0; i < ctx->program->decl_count; i++) {
+                        Iron_Node *d = ctx->program->decls[i];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, "String") == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
