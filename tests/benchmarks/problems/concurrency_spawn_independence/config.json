@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 3.0}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 3.0, "note": "Phase 31: await-based timing. Sub-ms workload on Ubuntu (C: 0.5ms) makes ratio unstable."}

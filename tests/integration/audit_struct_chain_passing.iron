@@ -1,0 +1,31 @@
+object Vec2 {
+  var x: Int
+  var y: Int
+}
+
+func make_vec(x: Int, y: Int) -> Vec2 {
+  return Vec2(x, y)
+}
+
+func scale(v: Vec2, factor: Int) -> Vec2 {
+  return Vec2(v.x * factor, v.y * factor)
+}
+
+func add(a: Vec2, b: Vec2) -> Vec2 {
+  return Vec2(a.x + b.x, a.y + b.y)
+}
+
+func dot(a: Vec2, b: Vec2) -> Int {
+  return a.x * b.x + a.y * b.y
+}
+
+func main() {
+  val v1 = make_vec(3, 4)
+  val v2 = scale(v1, 2)
+  val v3 = add(v1, v2)
+  println("v1: ({v1.x}, {v1.y})")
+  println("v2: ({v2.x}, {v2.y})")
+  println("v3: ({v3.x}, {v3.y})")
+  println("dot: {dot(v1, v2)}")
+  println("chain: {dot(add(v1, v2), scale(v3, 3))}")
+}

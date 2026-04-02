@@ -114,6 +114,21 @@ static IronLIR_ValueId emit_alloca_in_entry(HIR_to_LIR_Ctx *ctx,
     return instr->id;
 }
 
+/* Emit an instruction into the entry block, ensuring it goes BEFORE any
+ * terminator.  Used for constants that need to be visible everywhere. */
+static void insert_in_entry_before_terminator(HIR_to_LIR_Ctx *ctx,
+                                               IronLIR_Instr *instr) {
+    IronLIR_Block *entry = ctx->entry_block;
+    int n = entry->instr_count;
+    if (n >= 2) {
+        IronLIR_Instr *second_last = entry->instrs[n - 2];
+        if (iron_lir_is_terminator(second_last->kind)) {
+            entry->instrs[n - 2] = instr;
+            entry->instrs[n - 1] = second_last;
+        }
+    }
+}
+
 /* ── Defer scope management ──────────────────────────────────────────────── */
 
 static void push_defer_scope(HIR_to_LIR_Ctx *ctx) {
@@ -552,6 +567,7 @@ static IronLIR_ValueId lower_short_circuit_and(HIR_to_LIR_Ctx *ctx,
     IronLIR_Instr *phi = iron_lir_phi(ctx->current_func, merge_block, bool_type, span);
     IronLIR_Instr *false_const = iron_lir_const_bool(ctx->current_func, ctx->entry_block,
                                                        false, bool_type, span);
+    insert_in_entry_before_terminator(ctx, false_const);
     iron_lir_phi_add_incoming(phi, false_const->id, left_block->id);
     iron_lir_phi_add_incoming(phi, right_val, rhs_end_block->id);
     return phi->id;
@@ -588,6 +604,7 @@ static IronLIR_ValueId lower_short_circuit_or(HIR_to_LIR_Ctx *ctx,
     IronLIR_Instr *phi = iron_lir_phi(ctx->current_func, merge_block, bool_type, span);
     IronLIR_Instr *true_const = iron_lir_const_bool(ctx->current_func, ctx->entry_block,
                                                       true, bool_type, span);
+    insert_in_entry_before_terminator(ctx, true_const);
     iron_lir_phi_add_incoming(phi, true_const->id, left_block->id);
     iron_lir_phi_add_incoming(phi, right_val, rhs_end_block->id);
     return phi->id;
@@ -694,11 +711,14 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
-        /* Special case: object constructor call TypeName(args...) -> CONSTRUCT
-         * When a call's result type is IRON_TYPE_OBJECT, the callee is an object
-         * type constructor (not a real function), so lower it as LIR CONSTRUCT. */
+        /* Constructor call: TypeName(args...) -> CONSTRUCT
+         * When the callee is a FUNC_REF whose own type is IRON_TYPE_OBJECT,
+         * the callee name IS a type constructor (e.g. Point, Rect), not a
+         * regular function. Emit LIR CONSTRUCT rather than CALL.
+         * This is distinct from a function that happens to *return* an object
+         * type — for that case, callee->type is IRON_TYPE_FUNC. */
         if (expr->call.callee && expr->call.callee->kind == IRON_HIR_EXPR_FUNC_REF &&
-            type && type->kind == IRON_TYPE_OBJECT) {
+            expr->call.callee->type && expr->call.callee->type->kind == IRON_TYPE_OBJECT) {
             IronLIR_ValueId *field_vals = NULL;
             for (int i = 0; i < expr->call.arg_count; i++) {
                 IronLIR_ValueId fv = lower_expr(ctx, expr->call.args[i]);
@@ -752,28 +772,73 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_METHOD_CALL: {
-        /* Mangle: TypeName_methodName, emit with self as first arg */
-        IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
-        IronLIR_ValueId *args = NULL;
-        arrput(args, self_val);
-        for (int i = 0; i < expr->method_call.arg_count; i++) {
-            IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
-            arrput(args, av);
-        }
-        int arg_count = 1 + expr->method_call.arg_count;
-
         /* Determine receiver type name for mangling */
         const char *type_name = "Unknown";
+        bool is_static_call = false;
         if (expr->method_call.object && expr->method_call.object->type) {
             Iron_Type *obj_type = expr->method_call.object->type;
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
             }
         }
-        /* Build mangled name */
+        /* Detect static method calls: receiver is a type reference, not an instance.
+         * Static calls like Time.now_ms() have the object as a FUNC_REF or IDENT
+         * referring to the type name itself, with no instance value to pass. */
+        if (expr->method_call.object) {
+            IronHIR_ExprKind ok = expr->method_call.object->kind;
+
+            /* FUNC_REF(TypeName) — most common for type-level method calls */
+            if (ok == IRON_HIR_EXPR_FUNC_REF) {
+                const char *ref_name = expr->method_call.object->func_ref.func_name;
+                if (ref_name && strcmp(ref_name, type_name) == 0) {
+                    is_static_call = true;
+                }
+            }
+            /* IDENT(TypeName) — alternative representation */
+            else if (ok == IRON_HIR_EXPR_IDENT) {
+                IronHIR_VarId vid = expr->method_call.object->ident.var_id;
+                const char *obj_name = NULL;
+                if (vid != IRON_HIR_VAR_INVALID && ctx->hir &&
+                    (ptrdiff_t)vid < arrlen(ctx->hir->name_table)) {
+                    obj_name = ctx->hir->name_table[vid].name;
+                }
+                if (obj_name && strcmp(obj_name, type_name) == 0) {
+                    is_static_call = true;
+                }
+                /* Fallback: IDENT with no alloca/val/param mapping = type ref */
+                if (!is_static_call) {
+                    ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                    ptrdiff_t vi = hmgeti(ctx->val_binding_map, vid);
+                    ptrdiff_t pi = hmgeti(ctx->param_map, vid);
+                    if (ai < 0 && vi < 0 && pi < 0) {
+                        is_static_call = true;
+                    }
+                }
+            }
+        }
+
+        /* Build args: instance methods pass self as first arg, static methods don't */
+        IronLIR_ValueId *args = NULL;
+        if (!is_static_call) {
+            IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+            arrput(args, self_val);
+        }
+        for (int i = 0; i < expr->method_call.arg_count; i++) {
+            IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+            arrput(args, av);
+        }
+        int arg_count = (int)arrlen(args);
+
+        /* Build mangled name with lowercase type name to match C convention
+         * (Iron_time_now_ms, not Iron_Time_now_ms) */
         size_t mlen = strlen(type_name) + 1 + strlen(expr->method_call.method) + 1;
         char *mangled = (char *)iron_arena_alloc(ctx->lir_arena, mlen, 1);
         snprintf(mangled, mlen, "%s_%s", type_name, expr->method_call.method);
+        /* Lowercase the entire type name portion (e.g. IO → io, Time → time) */
+        for (size_t ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
+            if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
+                mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
+        }
 
         IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
                                                   mangled, NULL, span);
@@ -998,9 +1063,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         if (!type && stmt->let.init) type = stmt->let.init->type;
 
         if (is_mut) {
-            /* Mutable: ALLOCA in entry block + STORE initial value */
+            /* Mutable: ALLOCA in entry block + STORE initial value.
+             * When the initializer is a heap or rc allocation, the stored
+             * value is a pointer (T*).  Wrap the alloca type as IRON_TYPE_RC
+             * so emit_c emits "T *_vN;" rather than "T _vN;", avoiding a
+             * C type mismatch on the subsequent STORE. */
+            Iron_Type *alloca_type = type;
+            if (stmt->let.init) {
+                IronHIR_ExprKind ik = stmt->let.init->kind;
+                if ((ik == IRON_HIR_EXPR_HEAP || ik == IRON_HIR_EXPR_RC) && type) {
+                    /* Use RC wrapper to signal "this alloca holds a pointer" */
+                    alloca_type = iron_type_make_rc(ctx->lir_arena, type);
+                }
+            }
             const char *name = iron_hir_var_name(ctx->hir, vid);
-            IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, name, span);
+            IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, alloca_type, name, span);
             hmput(ctx->var_alloca_map, vid, alloca_id);
 
             if (stmt->let.init) {
@@ -1164,15 +1241,20 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         IronLIR_ValueId var_alloca = emit_alloca_in_entry(ctx, elem_type, "for_var", span);
         hmput(ctx->var_alloca_map, stmt->for_loop.var_id, var_alloca);
 
+        /* Hoist loop bound: evaluate .count once in pre-header */
+        IronLIR_ValueId count_alloca = emit_alloca_in_entry(ctx, int_type, "for_count", span);
+        IronLIR_ValueId count_init = iron_lir_get_field(ctx->current_func, pre_header,
+                                                          iterable_val, "count", int_type, span)->id;
+        iron_lir_store(ctx->current_func, pre_header, count_alloca, count_init, span);
+
         if (!block_is_terminated(pre_header)) {
             iron_lir_jump(ctx->current_func, pre_header, header->id, span);
         }
 
-        /* Header: check if index < iterable.count */
+        /* Header: check if index < iterable.count (load hoisted bound) */
         switch_block(ctx, header);
         IronLIR_ValueId idx_val = iron_lir_load(ctx->current_func, header, idx_alloca, int_type, span)->id;
-        IronLIR_ValueId count_val = iron_lir_get_field(ctx->current_func, header,
-                                                         iterable_val, "count", int_type, span)->id;
+        IronLIR_ValueId count_val = iron_lir_load(ctx->current_func, header, count_alloca, int_type, span)->id;
         IronLIR_ValueId done_cond = iron_lir_binop(ctx->current_func, header,
                                                      IRON_LIR_LT, idx_val, count_val, int_type, span)->id;
         if (!block_is_terminated(header)) {
@@ -1345,10 +1427,25 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         if (!lifted_name) lifted_name = "__spawn_unknown";
 
         if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
-            iron_lir_spawn(ctx->current_func, ctx->current_block,
-                           lifted_name, IRON_LIR_VALUE_INVALID,
-                           stmt->spawn.handle_name,
-                           iron_type_make_primitive(IRON_TYPE_VOID), span);
+            /* Use NULL type (void*) for handled spawns to distinguish from VOID.
+             * emit_c.c checks (type && kind != VOID) to select the handle path.
+             * IRON_TYPE_NULL is a primitive type that emits as void* and signals
+             * "this spawn returns a handle pointer". */
+            Iron_Type *spawn_type = (stmt->spawn.handle_var != IRON_HIR_VAR_INVALID)
+                ? iron_type_make_primitive(IRON_TYPE_NULL)
+                : iron_type_make_primitive(IRON_TYPE_VOID);
+
+            IronLIR_Instr *spawn_instr =
+                iron_lir_spawn(ctx->current_func, ctx->current_block,
+                               lifted_name, IRON_LIR_VALUE_INVALID,
+                               stmt->spawn.handle_name,
+                               spawn_type, span);
+
+            /* If this spawn is bound to a handle variable, record the LIR
+             * value ID so that IRON_HIR_STMT_LET (with null init) can bind it */
+            if (stmt->spawn.handle_var != IRON_HIR_VAR_INVALID && spawn_instr) {
+                hmput(ctx->val_binding_map, stmt->spawn.handle_var, spawn_instr->id);
+            }
         }
         break;
     }
@@ -1376,13 +1473,17 @@ static void lower_block_stmts(HIR_to_LIR_Ctx *ctx, IronHIR_Block *block) {
 static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     if (hir_func->is_extern) return; /* extern functions have no body */
 
-    /* Empty-body stub functions with non-void return types (e.g., stdlib wrappers
-     * like Time.now() -> Float {}) are treated as extern stubs — the C implementation
-     * provides the body. Create the LIR function declaration but skip body generation
-     * to avoid void-return type mismatch.
-     * Void functions with empty bodies still get a body (just an entry block + void return). */
-    if (hir_func->body && hir_func->body->stmt_count == 0 &&
-        hir_func->return_type && hir_func->return_type->kind != IRON_TYPE_VOID) {
+    /* Empty-body stub functions (e.g., stdlib wrappers like Time.now() -> Float {},
+     * Time.sleep(ms: Int) {}) are treated as extern stubs — the C implementation
+     * provides the body. Create the LIR function declaration but skip body generation.
+     * This handles both non-void stubs (return type mismatch) and void stubs
+     * (duplicate symbol if body is generated for a C-implemented function).
+     *
+     * Exception: lifted functions (__ prefix, e.g. __pfor_0, __lambda_0) are
+     * user-defined and must always get a real C body even if their body is empty.
+     * An empty pfor body is valid (e.g. parallel { } for sync-only use). */
+    bool is_lifted = hir_func->name && strncmp(hir_func->name, "__", 2) == 0;
+    if (!is_lifted && hir_func->body && hir_func->body->stmt_count == 0) {
         /* Still register the function in LIR (no body, acts like extern) */
         Iron_Type *ret_type = hir_func->return_type;
         int param_count = hir_func->param_count;
@@ -1399,9 +1500,11 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         }
         IronLIR_Func *lf = find_lir_func(ctx->lir_module, hir_func->name);
         if (!lf) {
-            iron_lir_func_create(ctx->lir_module, hir_func->name,
-                                 lir_params, param_count, ret_type);
+            lf = iron_lir_func_create(ctx->lir_module, hir_func->name,
+                                      lir_params, param_count, ret_type);
         }
+        /* Mark as extern so the LIR verifier doesn't require basic blocks */
+        lf->is_extern = true;
         return;
     }
 
@@ -1594,7 +1697,15 @@ static void ssa_rename_recursive(
                 fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
                 IronLIR_ValueId def = ssa_stack_top(var_stacks, ptr);
                 if (def != IRON_LIR_VALUE_INVALID && fn->value_table[instr->id]) {
-                    fn->value_table[instr->id] = fn->value_table[def];
+                    /* Only replace if the defining value has a backing instruction.
+                     * Synthetic param ValueIds (1..param_count) have NULL in
+                     * value_table — setting the LOAD entry to NULL would make
+                     * every subsequent use look "undefined" to the verifier.
+                     * In that case, keep the LOAD instruction so the alloca-based
+                     * code path in the emitter still works correctly. */
+                    if (fn->value_table[def] != NULL) {
+                        fn->value_table[instr->id] = fn->value_table[def];
+                    }
                 }
             }
         } else if (instr->kind == IRON_LIR_STORE) {
@@ -1642,7 +1753,16 @@ static void ssa_rename_recursive(
                 Iron_Type *phi_type = phi->type;
                 IronLIR_Instr *zero_c = NULL;
                 Iron_Span zero_span = {0};
-                if (phi_type && phi_type->kind == IRON_TYPE_INT) {
+                if (phi_type && (phi_type->kind == IRON_TYPE_INT   ||
+                                 phi_type->kind == IRON_TYPE_INT8  ||
+                                 phi_type->kind == IRON_TYPE_INT16 ||
+                                 phi_type->kind == IRON_TYPE_INT32 ||
+                                 phi_type->kind == IRON_TYPE_INT64 ||
+                                 phi_type->kind == IRON_TYPE_UINT  ||
+                                 phi_type->kind == IRON_TYPE_UINT8 ||
+                                 phi_type->kind == IRON_TYPE_UINT16||
+                                 phi_type->kind == IRON_TYPE_UINT32||
+                                 phi_type->kind == IRON_TYPE_UINT64)) {
                     zero_c = iron_lir_const_int(fn, entry_blk, 0, phi_type, zero_span);
                 } else if (phi_type && phi_type->kind == IRON_TYPE_BOOL) {
                     zero_c = iron_lir_const_bool(fn, entry_blk, false, phi_type, zero_span);

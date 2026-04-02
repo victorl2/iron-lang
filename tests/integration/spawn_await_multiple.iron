@@ -1,0 +1,28 @@
+func fib(n: Int) -> Int {
+  if n <= 1 { return n }
+  var a = 0
+  var b = 1
+  var i = 2
+  while i <= n {
+    val tmp = a + b
+    a = b
+    b = tmp
+    i = i + 1
+  }
+  return b
+}
+
+func main() {
+  val h1 = spawn("w1") { return fib(10) }
+  val h2 = spawn("w2") { return fib(15) }
+  val h3 = spawn("w3") { return fib(20) }
+
+  val r1 = await h1
+  val r2 = await h2
+  val r3 = await h3
+
+  println("fib(10) = {r1}")
+  println("fib(15) = {r2}")
+  println("fib(20) = {r3}")
+  println("all done")
+}

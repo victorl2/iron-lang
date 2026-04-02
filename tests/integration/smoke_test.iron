@@ -1,0 +1,109 @@
+-- Smoke test: E2E check covering core Iron language features.
+
+import time
+
+func fibonacci(n: Int) -> Int {
+    if n <= 1 { return n }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+func array_sum(arr: [Int], n: Int) -> Int {
+    var total = 0
+    for i in range(n) {
+        total = total + arr[i]
+    }
+    return total
+}
+
+func abs_max(data: [Int], n: Int) -> Int {
+    var max_val = 0
+    for i in range(n) {
+        var v = data[i]
+        if v < 0 { v = 0 - v }
+        if v > max_val { max_val = v }
+    }
+    return max_val
+}
+
+func short_circuit_test() -> Int {
+    var x = 10
+    var y = 20
+    while x > 0 and y > 0 {
+        x = x - 3
+        y = y - 7
+    }
+    return x + y
+}
+
+object Point {
+    val x: Int
+    val y: Int
+}
+
+func test_basics() {
+    val x = 42
+    val name = "Iron"
+    println("basics: {x} {name}")
+}
+
+func test_control_flow() {
+    var result = 0
+    if result == 0 {
+        result = 1
+    }
+    var sum = 0
+    for i in range(5) {
+        sum = sum + i
+    }
+    var count = 0
+    while count < 3 {
+        count = count + 1
+    }
+    println("control: {result} {sum} {count}")
+}
+
+func test_arrays() {
+    val arr = [10, 20, 30, 40, 50]
+    val s = array_sum(arr, 5)
+    var buf = fill(3, 0)
+    buf[0] = 100
+    buf[1] = 200
+    buf[2] = 300
+    println("arrays: {s} {buf[0]} {buf[1]} {buf[2]}")
+}
+
+func test_structs() {
+    val p = Point(3, 4)
+    println("structs: {p.x} {p.y}")
+}
+
+func test_functions() {
+    println("fib: {fibonacci(10)}")
+}
+
+func test_nested() {
+    val data = [5, -3, 8, -1, 4]
+    println("nested: {abs_max(data, 5)}")
+}
+
+func test_short_circuit() {
+    println("sc: {short_circuit_test()}")
+}
+
+func test_stdlib() {
+    val ms = Time.now_ms()
+    val ok = ms > 0
+    println("stdlib: {ok}")
+}
+
+func main() {
+    test_basics()
+    test_control_flow()
+    test_functions()
+    test_arrays()
+    test_structs()
+    test_nested()
+    test_short_circuit()
+    test_stdlib()
+    println("smoke_test: PASS")
+}

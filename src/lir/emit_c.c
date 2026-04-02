@@ -69,6 +69,10 @@ typedef struct {
     IronLIR_InlineEligEntry *inline_eligible;  /* per-function inline eligibility map */
     IronLIR_ValueBlockEntry *value_block;      /* per-function value->block map */
     IronLIR_BlockId          current_block_id; /* set before each emit_instr call */
+
+    /* Backward-referenced values hoisted to function entry (type _vN;).
+     * At the definition site, emit assignment without type prefix. */
+    struct { IronLIR_ValueId key; bool value; } *phi_hoisted;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -115,7 +119,10 @@ static const char *resolve_func_c_name(EmitCtx *ctx, const char *ir_name) {
     for (int fi = 0; fi < ctx->module->func_count; fi++) {
         IronLIR_Func *f = ctx->module->funcs[fi];
         if (strcmp(f->name, ir_name) == 0 && f->is_extern) {
-            return f->extern_c_name ? f->extern_c_name : ir_name;
+            if (f->extern_c_name) return f->extern_c_name;
+            /* No explicit extern_c_name — fall through to mangle_func_name
+             * (handles empty-body stubs that are marked extern internally) */
+            break;
         }
     }
     return mangle_func_name(ir_name, ctx->arena);
@@ -329,6 +336,37 @@ static bool type_is_pointer(const Iron_Type *t) {
     return false;
 }
 
+/* Determine if a LIR value represents a heap/rc pointer — used for GET_FIELD / SET_FIELD
+ * to decide whether to emit `->` or `.`.
+ *
+ * Returns true when:
+ *   - The producing instruction is HEAP_ALLOC or RC_ALLOC (direct heap pointer), OR
+ *   - The producing instruction is LOAD, and the alloca it reads holds a pointer (its
+ *     alloc_type is IRON_TYPE_RC, which hir_to_lir.c sets when the init is heap/rc).
+ */
+static bool val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return false;
+    if (instr->kind == IRON_LIR_HEAP_ALLOC || instr->kind == IRON_LIR_RC_ALLOC)
+        return true;
+    /* LOAD from an RC-typed alloca: the alloca was declared as T* (via RC wrapper).
+     * hir_to_lir.c sets the alloca type to IRON_TYPE_RC when the init is heap/rc. */
+    if (instr->kind == IRON_LIR_LOAD) {
+        IronLIR_ValueId ptr = instr->load.ptr;
+        if (ptr != IRON_LIR_VALUE_INVALID &&
+            ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+            fn->value_table[ptr] &&
+            fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
+            fn->value_table[ptr]->alloca.alloc_type &&
+            fn->value_table[ptr]->alloca.alloc_type->kind == IRON_TYPE_RC) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ── Stack-array tracking helpers ────────────────────────────────────────── */
 
 /* Check if a ValueId is known to be a stack-represented array.
@@ -347,6 +385,19 @@ static void mark_stack_array(EmitCtx *ctx, IronLIR_ValueId id,
 }
 
 /* (resolve_stack_array_origin removed — pre-scan in emit_func_body handles propagation) */
+
+/* Return the Iron_Type* for a value ID, including for parameter values (which
+ * have NULL entries in value_table).  Parameter value IDs are 1..param_count;
+ * fn->params[vid-1].type holds their type.  Returns NULL if unknown. */
+static Iron_Type *get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return NULL;
+    if (vid < (IronLIR_ValueId)arrlen(fn->value_table) && fn->value_table[vid])
+        return fn->value_table[vid]->type;
+    /* Parameter value: IDs 1..param_count map to fn->params[vid-1] */
+    if (vid >= 1 && vid <= (IronLIR_ValueId)fn->param_count)
+        return fn->params[vid - 1].type;
+    return NULL;
+}
 
 /* Forward declaration — emit_instr and emit_expr_to_buf are mutually recursive */
 static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
@@ -373,12 +424,20 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         return;
     }
 
-    /* Step 2: Block-boundary check — only inline within same block */
+    /* Step 2: Block-boundary check — prefer inlining within same block.
+     * However, if the value IS inline-eligible (its declaration was suppressed),
+     * we MUST inline it regardless of block boundary, since emit_val would
+     * reference an undeclared variable. This is safe because inline-eligible
+     * values have exactly one use and passed ordering-hazard checks. */
     if (ctx->value_block) {
         ptrdiff_t vb_idx = hmgeti(ctx->value_block, vid);
         if (vb_idx < 0 || (IronLIR_BlockId)ctx->value_block[vb_idx].value != use_block_id) {
-            emit_val(sb, vid);
-            return;
+            /* Only bail out if the value has a declaration (not inline-eligible) */
+            if (!ctx->inline_eligible || hmgeti(ctx->inline_eligible, vid) < 0) {
+                emit_val(sb, vid);
+                return;
+            }
+            /* Otherwise: value is inline-eligible with no declaration — must inline */
         }
     }
 
@@ -395,6 +454,13 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         return;
     }
     IronLIR_Instr *instr = fn->value_table[vid];
+
+    /* Step 4b: Never inline CALL — emit_expr_to_buf doesn't handle array
+     * parameter splitting or other call-specific emit logic. */
+    if (instr->kind == IRON_LIR_CALL) {
+        emit_val(sb, vid);
+        return;
+    }
 
     /* Step 5: Deep-expression anchor comment */
     if (depth > 3) {
@@ -565,12 +631,7 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "_len");
             break;
         }
-        bool obj_is_ptr = false;
-        if (instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table) &&
-            fn->value_table[instr->field.object]) {
-            IronLIR_InstrKind k = fn->value_table[instr->field.object]->kind;
-            obj_is_ptr = (k == IRON_LIR_HEAP_ALLOC || k == IRON_LIR_RC_ALLOC);
-        }
+        bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
         emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, "%s%s", obj_is_ptr ? "->" : ".", instr->field.field);
         break;
@@ -585,13 +646,9 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, "]");
         } else {
-            /* Check direct array type */
-            bool use_direct = false;
-            if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[instr->index.array]) {
-                Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                if (arr_t && arr_t->kind == IRON_TYPE_ARRAY) use_direct = true;
-            }
+            /* Check direct array type — also handles parameter values (NULL in value_table) */
+            Iron_Type *arr_t_expr = get_value_type(fn, instr->index.array);
+            bool use_direct = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY);
             if (use_direct) {
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
                 iron_strbuf_appendf(sb, ".items[");
@@ -629,7 +686,11 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 }
             }
             int od_field_idx = 0;
-            for (int i = field_start; i < instr->construct.field_count; i++) {
+            int effective_field_count = instr->construct.field_count;
+            if (effective_field_count > od->field_count + field_start) {
+                effective_field_count = od->field_count + field_start;
+            }
+            for (int i = field_start; i < effective_field_count; i++) {
                 if (i > field_start) iron_strbuf_appendf(sb, ",");
                 if (od_field_idx < od->field_count) {
                     Iron_Field *f = (Iron_Field *)od->fields[od_field_idx++];
@@ -719,12 +780,20 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     int ind = ctx->indent;
 
     /* Expression inlining: skip emission of inlineable values — they will be
-     * reconstructed inline at their single use site by emit_expr_to_buf(). */
+     * reconstructed inline at their single use site by emit_expr_to_buf().
+     * Exception: CALL instructions are never inlined (Step 4b prevents it),
+     * so their declarations must not be suppressed. */
     if (instr->id != IRON_LIR_VALUE_INVALID &&
         ctx->inline_eligible &&
-        hmgeti(ctx->inline_eligible, instr->id) >= 0) {
+        hmgeti(ctx->inline_eligible, instr->id) >= 0 &&
+        instr->kind != IRON_LIR_CALL) {
         return;  /* deferred to use site */
     }
+
+    /* For backward-referenced values (hoisted to entry), emit as assignment
+     * without the type prefix to avoid C redefinition errors. */
+    bool is_hoisted = (ctx->phi_hoisted &&
+                       hmgeti(ctx->phi_hoisted, instr->id) >= 0);
 
     switch (instr->kind) {
 
@@ -732,7 +801,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_INT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)%lldLL;\n",
                             emit_type_to_c(instr->type, ctx),
@@ -741,14 +810,14 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_FLOAT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %g;\n", instr->const_float.value);
         break;
 
     case IRON_LIR_CONST_BOOL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s;\n",
                             instr->const_bool.value ? "true" : "false");
@@ -758,7 +827,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         const char *sv = instr->const_str.value ? instr->const_str.value : "";
         size_t slen = strlen(sv);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_String ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_String ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = iron_string_from_literal(\"%s\", %zu);\n",
                             sv, slen);
@@ -767,16 +836,39 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_NULL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "void* ");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = NULL;\n");
+        if (instr->type && instr->type->kind == IRON_TYPE_OBJECT) {
+            /* Zero-initialize struct so it can be used in PHI/assignment contexts */
+            const char *c_type = emit_type_to_c(instr->type, ctx);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {0};\n");
+        } else if (instr->type && (instr->type->kind == IRON_TYPE_INT   ||
+                                    instr->type->kind == IRON_TYPE_INT8  ||
+                                    instr->type->kind == IRON_TYPE_INT16 ||
+                                    instr->type->kind == IRON_TYPE_INT32 ||
+                                    instr->type->kind == IRON_TYPE_INT64 ||
+                                    instr->type->kind == IRON_TYPE_UINT  ||
+                                    instr->type->kind == IRON_TYPE_UINT8 ||
+                                    instr->type->kind == IRON_TYPE_UINT16||
+                                    instr->type->kind == IRON_TYPE_UINT32||
+                                    instr->type->kind == IRON_TYPE_UINT64)) {
+            /* Scalar integer: emit type-correct zero instead of void* NULL */
+            const char *c_type = emit_type_to_c(instr->type, ctx);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = 0;\n");
+        } else {
+            if (!is_hoisted) iron_strbuf_appendf(sb, "void* ");
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = NULL;\n");
+        }
         break;
 
     /* ── Arithmetic ─────────────────────────────────────────────────────── */
 
     case IRON_LIR_ADD:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -787,7 +879,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_SUB:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -798,7 +890,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_MUL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -809,7 +901,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_DIV:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -820,7 +912,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_MOD:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -833,7 +925,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_EQ:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -844,7 +936,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_NEQ:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -855,7 +947,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_LT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -866,7 +958,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_LTE:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -877,7 +969,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_GT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -888,7 +980,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_GTE:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -901,7 +993,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_AND:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -912,7 +1004,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_OR:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -925,7 +1017,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_NEG:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = -");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
@@ -934,7 +1026,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_NOT:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = !");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
@@ -946,6 +1038,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_ALLOCA: {
         /* Skip alloca for read-only parameter aliases — no variable needed */
         if (hmgeti(ctx->param_alias_ids, instr->id) >= 0) break;
+
+        /* Skip alloca if it was already hoisted to function entry (phi_hoisted).
+         * This handles the case where function inlining splits a block and moves
+         * an alloca to a later block, but earlier blocks still reference it.
+         * The declaration was pre-emitted at function entry; only a no-op here. */
+        if (is_hoisted) break;
 
         /* Check if this alloca holds a stack array (determined by pre-scan) */
         IronLIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->id);
@@ -1040,9 +1138,24 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* Propagate stack-array status to loaded value */
             mark_stack_array(ctx, instr->id, sa_origin);
         } else {
-            /* Load from the alloca variable — just copy it */
+            /* Load from the alloca variable — just copy it.
+             * When the alloca is RC-typed (holds a heap/rc pointer), use the
+             * alloca's type (T*) rather than the LOAD's inner type (T). */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) {
+                Iron_Type *load_c_type = instr->type;
+                IronLIR_ValueId ptr = instr->load.ptr;
+                if (ptr != IRON_LIR_VALUE_INVALID &&
+                    ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[ptr] &&
+                    fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
+                    fn->value_table[ptr]->alloca.alloc_type &&
+                    fn->value_table[ptr]->alloca.alloc_type->kind == IRON_TYPE_RC) {
+                    /* Alloca holds a pointer: use the alloca's RC type for C type */
+                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
+                }
+                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(load_c_type, ctx));
+            }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->load.ptr);
@@ -1091,7 +1204,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             instr->field.field && strcmp(instr->field.field, "count") == 0) {
             /* Emit: int64_t _vN = _vOBJ_len; (companion length variable) */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->field.object);
@@ -1100,18 +1213,13 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         }
         /* object.field or object->field for heap/rc pointers */
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-        /* Use -> when the object value comes from a heap or rc allocation
-         * (those produce pointer types in the emitted C). */
-        bool obj_is_ptr = false;
-        if (instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table) &&
-            fn->value_table[instr->field.object]) {
-            IronLIR_InstrKind k = fn->value_table[instr->field.object]->kind;
-            obj_is_ptr = (k == IRON_LIR_HEAP_ALLOC || k == IRON_LIR_RC_ALLOC);
-        }
+        /* Use -> when the object value comes from a heap or rc allocation,
+         * or when loaded from an alloca that holds a pointer (RC-typed alloca). */
+        bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
         iron_strbuf_appendf(sb, "%s%s;\n", obj_is_ptr ? "->" : ".", instr->field.field);
         break;
     }
@@ -1120,12 +1228,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         /* object.field = value or object->field = value for heap/rc */
         emit_indent(sb, ind);
         emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-        bool obj_is_ptr = false;
-        if (instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table) &&
-            fn->value_table[instr->field.object]) {
-            IronLIR_InstrKind k = fn->value_table[instr->field.object]->kind;
-            obj_is_ptr = (k == IRON_LIR_HEAP_ALLOC || k == IRON_LIR_RC_ALLOC);
-        }
+        bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
         iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr ? "->" : ".", instr->field.field);
         emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
@@ -1138,7 +1241,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (sa_origin != IRON_LIR_VALUE_INVALID) {
             /* Direct C indexing: result = array[index]; */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1148,17 +1251,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Check if the array has an array type — if so, inline .items[idx]
              * instead of calling _get() which is just return self->items[index] */
-            bool use_direct = false;
-            if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[instr->index.array]) {
-                Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                if (arr_t && arr_t->kind == IRON_TYPE_ARRAY)
-                    use_direct = true;
-            }
+            Iron_Type *arr_t = get_value_type(fn, instr->index.array);
+            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY);
             if (use_direct) {
                 /* Direct field access: result = array.items[index]; */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = ");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1168,13 +1266,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             } else {
                 /* Fallback: result = Iron_List_<suffix>_get(&array, index) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
-                if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[instr->index.array]) {
-                    Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                    if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
-                }
+                if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = %s_get(&", list_type);
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1201,13 +1295,8 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Check if the array has an array type — if so, inline .items[idx]
              * instead of calling _set() which is just self->items[index] = item */
-            bool use_direct = false;
-            if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[instr->index.array]) {
-                Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                if (arr_t && arr_t->kind == IRON_TYPE_ARRAY)
-                    use_direct = true;
-            }
+            Iron_Type *arr_t = get_value_type(fn, instr->index.array);
+            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY);
             if (use_direct) {
                 /* Direct field access: array.items[index] = value; */
                 emit_indent(sb, ind);
@@ -1220,11 +1309,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             } else {
                 /* Fallback: Iron_List_<suffix>_set(&array, index, value) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
-                if (instr->index.array < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[instr->index.array]) {
-                    Iron_Type *arr_t = fn->value_table[instr->index.array]->type;
-                    if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
-                }
+                if (arr_t) list_type = emit_type_to_c(arr_t, ctx);
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s_set(&", list_type);
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1361,7 +1446,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
         emit_indent(sb, ind);
         if (!is_void) {
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            if (!is_hoisted) {
+                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
         }
@@ -1406,10 +1493,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
 
-        /* Determine if this is an extern call — extern calls need Iron_String
-         * arguments converted to const char* via iron_string_cstr(). */
+        /* Determine if this is a true C extern call — only those need Iron_String
+         * arguments converted to const char* via iron_string_cstr().
+         * Stdlib stubs (extern but no extern_c_name) expect Iron_String directly. */
         bool is_extern_call = false;
-        if (instr->call.func_decl && instr->call.func_decl->is_extern) {
+        if (instr->call.func_decl && instr->call.func_decl->is_extern &&
+            instr->call.func_decl->extern_c_name) {
             is_extern_call = true;
         } else if (!instr->call.func_decl) {
             /* Indirect call: check if the FUNC_REF target is extern */
@@ -1421,7 +1510,8 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 const char *ref_name = fn->value_table[fptr]->func_ref.func_name;
                 for (int fi = 0; fi < ctx->module->func_count; fi++) {
                     if (strcmp(ctx->module->funcs[fi]->name, ref_name) == 0 &&
-                        ctx->module->funcs[fi]->is_extern) {
+                        ctx->module->funcs[fi]->is_extern &&
+                        ctx->module->funcs[fi]->extern_c_name) {
                         is_extern_call = true;
                         break;
                     }
@@ -1490,7 +1580,26 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ")");
             } else {
-                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                /* Heap-pointer deref: if the argument is a heap/rc pointer but the
+                 * callee's corresponding parameter expects a value type (IRON_TYPE_OBJECT),
+                 * dereference the pointer so the value is passed by value as expected. */
+                bool needs_deref = false;
+                if (val_is_heap_ptr(fn, arg_id) && callee_ir_name) {
+                    IronLIR_Func *callee_fn = find_ir_func(ctx, callee_ir_name);
+                    if (callee_fn && i < callee_fn->param_count) {
+                        Iron_Type *param_t = callee_fn->params[i].type;
+                        if (param_t && param_t->kind == IRON_TYPE_OBJECT) {
+                            needs_deref = true;
+                        }
+                    }
+                }
+                if (needs_deref) {
+                    iron_strbuf_appendf(sb, "(*");
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ")");
+                } else {
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                }
             }
         }
         iron_strbuf_appendf(sb, ");\n");
@@ -1590,7 +1699,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_CAST: {
         const char *target_c = emit_type_to_c(instr->cast.target_type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", target_c);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", target_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)", target_c);
         emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
@@ -1677,7 +1786,11 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             int od_field_idx = 0;
-            for (int i = field_start; i < instr->construct.field_count; i++) {
+            int effective_field_count = instr->construct.field_count;
+            if (effective_field_count > od->field_count + field_start) {
+                effective_field_count = od->field_count + field_start;
+            }
+            for (int i = field_start; i < effective_field_count; i++) {
                 if (i > field_start) iron_strbuf_appendf(sb, ",");
                 if (od_field_idx < od->field_count) {
                     Iron_Field *f = (Iron_Field *)od->fields[od_field_idx++];
@@ -1772,7 +1885,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_IS_NULL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = !");
         emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, ctx->current_block_id, 0);
@@ -1781,7 +1894,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_IS_NOT_NULL:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "bool ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->null_check.value, fn, ctx, ctx->current_block_id, 0);
@@ -2022,16 +2135,70 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Concurrency ────────────────────────────────────────────────────── */
 
     case IRON_LIR_SPAWN: {
-        /* Iron_pool_submit returns void; emit as a statement (no return value) */
-        const char *func_name = instr->spawn.lifted_func_name;
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_pool_submit(");
-        if (instr->spawn.pool_val == IRON_LIR_VALUE_INVALID) {
-            iron_strbuf_appendf(sb, "Iron_global_pool");
+        const char *func_name   = instr->spawn.lifted_func_name;
+        const char *c_func_name = mangle_func_name(func_name, ctx->arena);
+
+        if (instr->type && instr->type->kind != IRON_TYPE_VOID) {
+            /* Handled spawn: generate a wrapper that captures the result into
+             * the handle's result field, then use iron_handle_create_self_ref
+             * to start the thread (the handle is passed as its own arg). */
+
+            /* Build a deterministic wrapper name */
+            Iron_StrBuf wrapper_sb = iron_strbuf_create(64);
+            iron_strbuf_appendf(&wrapper_sb, "%s_wrapper", c_func_name);
+            const char *wrapper_name = iron_arena_strdup(ctx->arena,
+                                                          iron_strbuf_get(&wrapper_sb),
+                                                          wrapper_sb.len);
+            iron_strbuf_free(&wrapper_sb);
+
+            /* Look up the lifted function to determine its return type */
+            IronLIR_Func *lifted_fn = NULL;
+            for (int fi = 0; fi < ctx->module->func_count; fi++) {
+                if (ctx->module->funcs[fi]->name &&
+                    strcmp(ctx->module->funcs[fi]->name, func_name) == 0) {
+                    lifted_fn = ctx->module->funcs[fi];
+                    break;
+                }
+            }
+
+            /* Emit wrapper into lifted_funcs section */
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                "static void %s(void *_arg) {\n", wrapper_name);
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                "    Iron_Handle *_h = (Iron_Handle *)_arg;\n");
+
+            if (lifted_fn && lifted_fn->return_type &&
+                lifted_fn->return_type->kind != IRON_TYPE_VOID) {
+                const char *ret_c = emit_type_to_c(lifted_fn->return_type, ctx);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    %s _result = %s();\n", ret_c, c_func_name);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    _h->result = (void *)(intptr_t)_result;\n");
+            } else {
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    %s();\n", c_func_name);
+            }
+
+            iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+
+            /* Emit handle creation at call site */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "Iron_Handle *");
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = iron_handle_create_self_ref("
+                                "(void (*)(void *))%s);\n", wrapper_name);
         } else {
-            emit_val(sb, instr->spawn.pool_val);
+            /* Fire-and-forget spawn -- use pool_submit
+             * (typecheck already emitted IRON_WARN_SPAWN_NO_HANDLE) */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "Iron_pool_submit(");
+            if (instr->spawn.pool_val == IRON_LIR_VALUE_INVALID) {
+                iron_strbuf_appendf(sb, "Iron_global_pool");
+            } else {
+                emit_val(sb, instr->spawn.pool_val);
+            }
+            iron_strbuf_appendf(sb, ", (void (*)(void *))%s, NULL);\n", c_func_name);
         }
-        iron_strbuf_appendf(sb, ", (void (*)(void *))%s, NULL);\n", func_name);
         break;
     }
 
@@ -2197,12 +2364,10 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
 /* ── Function emission ────────────────────────────────────────────────────── */
 
-/* Determine if a function is a "lifted" function (lambda/spawn/parallel body) */
+/* Determine if a function is a "lifted" function (any __ prefix: __pfor_, __lambda_, __spawn_, etc.) */
 static bool is_lifted_func(const char *name) {
     if (!name) return false;
-    return (strstr(name, "lambda_") != NULL ||
-            strstr(name, "spawn_")  != NULL ||
-            strstr(name, "parallel_") != NULL);
+    return strncmp(name, "__", 2) == 0;
 }
 
 static void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
@@ -2546,6 +2711,131 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             }
         }
         arrfree(wl);
+    }
+
+    /* Hoist backward-referenced values: detect values defined in later blocks
+     * but used in earlier blocks (backward gotos in loops) and pre-declare them. */
+    hmfree(ctx->phi_hoisted);
+    ctx->phi_hoisted = NULL;
+    if (ctx->value_block) {
+        /* use_block_min[vid] = earliest block index where vid is used as operand.
+         * Tracks both value operands (store.value, binop operands, etc.) and
+         * pointer operands (load.ptr, store.ptr) for ALLOCA hoisting. */
+        struct { IronLIR_ValueId key; int value; } *use_block_min = NULL;
+
+        /* Helper macro: record that value V is used in block BI2 */
+#define TRACK_USE(v, bi2_) do { \
+    if ((v) != IRON_LIR_VALUE_INVALID) { \
+        ptrdiff_t _idx = hmgeti(use_block_min, (v)); \
+        if (_idx < 0 || (bi2_) < use_block_min[_idx].value) \
+            hmput(use_block_min, (v), (bi2_)); \
+    } \
+} while (0)
+
+        for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
+            IronLIR_Block *blk = fn->blocks[bi2];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                /* Track all value operand uses for backward-reference detection. */
+                switch (in->kind) {
+                case IRON_LIR_STORE:
+                    TRACK_USE(in->store.value, bi2);
+                    TRACK_USE(in->store.ptr, bi2);
+                    break;
+                case IRON_LIR_LOAD:
+                    TRACK_USE(in->load.ptr, bi2);
+                    break;
+                case IRON_LIR_GET_INDEX:
+                    TRACK_USE(in->index.array, bi2);
+                    TRACK_USE(in->index.index, bi2);
+                    break;
+                case IRON_LIR_SET_INDEX:
+                    TRACK_USE(in->index.array, bi2);
+                    TRACK_USE(in->index.index, bi2);
+                    TRACK_USE(in->index.value, bi2);
+                    break;
+                case IRON_LIR_ADD: case IRON_LIR_SUB: case IRON_LIR_MUL:
+                case IRON_LIR_DIV: case IRON_LIR_MOD:
+                case IRON_LIR_EQ: case IRON_LIR_NEQ: case IRON_LIR_LT:
+                case IRON_LIR_LTE: case IRON_LIR_GT: case IRON_LIR_GTE:
+                case IRON_LIR_AND: case IRON_LIR_OR:
+                    TRACK_USE(in->binop.left, bi2);
+                    TRACK_USE(in->binop.right, bi2);
+                    break;
+                case IRON_LIR_NEG: case IRON_LIR_NOT:
+                    TRACK_USE(in->unop.operand, bi2);
+                    break;
+                case IRON_LIR_CALL:
+                    for (int ai = 0; ai < in->call.arg_count; ai++)
+                        TRACK_USE(in->call.args[ai], bi2);
+                    break;
+                case IRON_LIR_BRANCH:
+                    TRACK_USE(in->branch.cond, bi2);
+                    break;
+                case IRON_LIR_RETURN:
+                    if (!in->ret.is_void) TRACK_USE(in->ret.value, bi2);
+                    break;
+                case IRON_LIR_GET_FIELD:
+                    TRACK_USE(in->field.object, bi2);
+                    break;
+                case IRON_LIR_SET_FIELD:
+                    TRACK_USE(in->field.object, bi2);
+                    TRACK_USE(in->field.value, bi2);
+                    break;
+                case IRON_LIR_INTERP_STRING:
+                    for (int pi2 = 0; pi2 < in->interp_string.part_count; pi2++)
+                        TRACK_USE(in->interp_string.parts[pi2], bi2);
+                    break;
+                case IRON_LIR_CAST:
+                    TRACK_USE(in->cast.value, bi2);
+                    break;
+                case IRON_LIR_IS_NULL: case IRON_LIR_IS_NOT_NULL:
+                    TRACK_USE(in->null_check.value, bi2);
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+#undef TRACK_USE
+
+        /* For each non-entry-block value used before its definition block, hoist */
+        for (int bi2 = 1; bi2 < fn->block_count; bi2++) {
+            IronLIR_Block *blk = fn->blocks[bi2];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->id == IRON_LIR_VALUE_INVALID) continue;
+                if (ctx->inline_eligible && hmgeti(ctx->inline_eligible, in->id) >= 0) continue;
+                if (iron_lir_is_terminator(in->kind)) continue;
+
+                ptrdiff_t um = hmgeti(use_block_min, in->id);
+                if (um < 0 || use_block_min[um].value >= bi2) continue;
+
+                if (in->kind == IRON_LIR_ALLOCA) {
+                    /* Hoist ALLOCA: pre-declare at function entry, skip at definition site.
+                     * Skip stack arrays (handled separately by fill_hoisted machinery). */
+                    if (get_stack_array_origin(ctx, in->id) != IRON_LIR_VALUE_INVALID) continue;
+                    if (!in->alloca.alloc_type) continue;
+                    hmput(ctx->phi_hoisted, in->id, true);
+                    const char *c_type = emit_type_to_c(in->alloca.alloc_type, ctx);
+                    emit_indent(sb, 1);
+                    iron_strbuf_appendf(sb, "%s _v%u;\n", c_type, in->id);
+                } else {
+                    /* Hoist any other value-producing instruction (LOAD, CALL, binop, etc.)
+                     * that is used in an earlier block.  Pre-declare the result variable at
+                     * function entry; at the definition site, emit assignment without type
+                     * prefix (is_hoisted=true path in emit_instr). */
+                    if (!in->type || in->type->kind == IRON_TYPE_VOID) continue;
+                    /* Don't hoist stack arrays — they need special initialization. */
+                    if (get_stack_array_origin(ctx, in->id) != IRON_LIR_VALUE_INVALID) continue;
+                    hmput(ctx->phi_hoisted, in->id, true);
+                    emit_indent(sb, 1);
+                    iron_strbuf_appendf(sb, "%s _v%u;\n",
+                        emit_type_to_c(in->type, ctx), in->id);
+                }
+            }
+        }
+        hmfree(use_block_min);
     }
 
     for (int bi = 0; bi < fn->block_count; bi++) {

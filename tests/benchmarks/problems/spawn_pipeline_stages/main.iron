@@ -50,11 +50,12 @@ func main() {
     println("data[999]: {data[999]}")
 
     -- Spawn background workers to overlap with stage 2
+    -- Handles captured and awaited for fair timing vs C pthread_join
     val start = Time.now_ms()
-    spawn("bg_worker1") {
+    val hbg1 = spawn("bg_worker1") {
         var r = background_work(5000000)
     }
-    spawn("bg_worker2") {
+    val hbg2 = spawn("bg_worker2") {
         var r = background_work(5000000)
     }
 
@@ -92,6 +93,10 @@ func main() {
         v = v + 1
     }
     println("verify first 100: {verify}")
+
+    -- Wait for background workers (fair timing vs C pthread_join)
+    await hbg1
+    await hbg2
     val elapsed = Time.now_ms() - start
 
     println("")

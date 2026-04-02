@@ -1,0 +1,1 @@
+{"iterations": 10000000, "timeout_sec": 60, "max_ratio": 1.5, "note": "Pure Int32 array throughput. Tight loop over int32_t stack array - should be close to C."}

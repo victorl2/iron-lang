@@ -1,0 +1,44 @@
+-- Regression test: function returning struct must not be wrapped in CONSTRUCT
+-- Before fix, any FUNC_REF call returning IRON_TYPE_OBJECT was lowered as
+-- a CONSTRUCT instruction (passing arg_count as field_count), causing the
+-- return value to be spuriously re-wrapped in a struct initializer.
+-- The fix removes the special case so these calls use normal CALL lowering.
+
+object Point {
+  var x: Int
+  var y: Int
+}
+
+object Rect {
+  var x: Int
+  var y: Int
+  var w: Int
+  var h: Int
+}
+
+func make_point(x: Int, y: Int) -> Point {
+  return Point(x, y)
+}
+
+func offset_point(p: Point, dx: Int, dy: Int) -> Point {
+  return Point(p.x + dx, p.y + dy)
+}
+
+func make_rect(origin: Point, w: Int, h: Int) -> Rect {
+  return Rect(origin.x, origin.y, w, h)
+}
+
+func main() {
+  val p1 = make_point(10, 20)
+  println("p1: ({p1.x}, {p1.y})")
+
+  val p2 = offset_point(p1, 5, -3)
+  println("p2: ({p2.x}, {p2.y})")
+
+  val r = make_rect(p2, 100, 50)
+  println("rect: ({r.x}, {r.y}, {r.w}, {r.h})")
+
+  -- Chain: function returning struct passed to another function returning struct
+  val p3 = offset_point(make_point(1, 2), 3, 4)
+  println("p3: ({p3.x}, {p3.y})")
+}

@@ -417,6 +417,54 @@ void test_interface_complete_no_error(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_MISSING_IFACE_METHOD));
 }
 
+/* ── Test 23: val x: Int32 = 42 => no error (literal narrowing allowed) ─────── */
+
+void test_int32_literal_narrowing_no_error(void) {
+    const char *src =
+        "func main() {\n"
+        "  val x: Int32 = 42\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Test 24: val n: Int = 10; val x: Int32 = n => E0202 (variable narrowing) ─ */
+
+void test_int32_variable_narrowing_error(void) {
+    const char *src =
+        "func main() {\n"
+        "  val n: Int = 10\n"
+        "  val x: Int32 = n\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+/* ── Test 25: val x: Int32 = 42; val y: Int = x => no error (widening) ───────── */
+
+void test_int32_widening_no_error(void) {
+    const char *src =
+        "func main() {\n"
+        "  val x: Int32 = 42\n"
+        "  val y: Int = x\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Test 26: val n: Int = 10; val x: Int32 = Int32(n) => no error (cast) ────── */
+
+void test_int32_explicit_cast_no_error(void) {
+    const char *src =
+        "func main() {\n"
+        "  val n: Int = 10\n"
+        "  val x: Int32 = Int32(n)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -444,6 +492,10 @@ int main(void) {
     RUN_TEST(test_binary_float_type);
     RUN_TEST(test_is_narrowing);
     RUN_TEST(test_interface_complete_no_error);
+    RUN_TEST(test_int32_literal_narrowing_no_error);
+    RUN_TEST(test_int32_variable_narrowing_error);
+    RUN_TEST(test_int32_widening_no_error);
+    RUN_TEST(test_int32_explicit_cast_no_error);
 
     return UNITY_END();
 }

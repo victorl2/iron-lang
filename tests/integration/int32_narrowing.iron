@@ -1,0 +1,50 @@
+-- int32_narrowing.iron: Verify Int literals narrow to Int32 at all sites
+-- Covers: val/var decl, function args, inlined function args, assignments
+
+func add32(a: Int32, b: Int32) -> Int32 {
+    return a + b
+}
+
+func identity32(x: Int32) -> Int32 {
+    return x
+}
+
+func main() {
+    -- Test 1: val decl with literal narrowing
+    val x: Int32 = 42
+    println("val literal: {x}")
+
+    -- Test 2: var decl with literal narrowing
+    var y: Int32 = 100
+    println("var literal: {y}")
+
+    -- Test 3: function arg with literal narrowing
+    val r1 = add32(Int32(10), Int32(20))
+    println("func args explicit: {r1}")
+
+    -- Test 4: function arg with literal narrowing (implicit)
+    val r2 = add32(x, y)
+    println("func args vars: {r2}")
+
+    -- Test 5: arithmetic preserves Int32
+    val z: Int32 = x + y
+    println("arithmetic: {z}")
+
+    -- Test 6: inlined function preserves Int32 types
+    -- (add32 should be inlined since it's small)
+    var sum: Int32 = Int32(0)
+    for i in range(10) {
+        sum = add32(sum, Int32(1))
+    }
+    println("inlined loop: {sum}")
+
+    -- Test 7: identity function preserves Int32 through inlining
+    val v: Int32 = 99
+    val w = identity32(v)
+    println("identity: {w}")
+
+    -- Test 8: Int32 overflow wraps like C int32_t
+    val big: Int32 = Int32(2147483647)
+    val overflow: Int32 = big + Int32(1)
+    println("overflow: {overflow}")
+}

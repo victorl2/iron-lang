@@ -1,0 +1,7 @@
+func main() {
+  for i in 10 parallel {
+    val x = i * 2
+  }
+  println("parallel-for complete")
+  println("done")
+}

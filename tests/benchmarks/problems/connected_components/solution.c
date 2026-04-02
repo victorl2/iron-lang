@@ -4,6 +4,7 @@
 #include <time.h>
 #include <sys/resource.h>
 
+__attribute__((noinline))
 int find_root(int* parent, int x) {
     while (parent[x] != x) {
         parent[x] = parent[parent[x]];
@@ -12,6 +13,7 @@ int find_root(int* parent, int x) {
     return x;
 }
 
+__attribute__((noinline))
 int count_components(int* edges_a, int* edges_b, int num_edges, int n) {
     int parent[50], rnk[50];
     for (int i = 0; i < n; i++) { parent[i] = i; rnk[i] = 0; }
@@ -61,7 +63,7 @@ int main(void) {
     printf("Test 4: %d (expected 25)\n", count_components(ea4, eb4, 25, n));
 
     long mem_before = get_memory_kb();
-    int iterations = 1200000;
+    int iterations = 6000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

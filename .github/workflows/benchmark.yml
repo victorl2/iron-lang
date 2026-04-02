@@ -49,6 +49,6 @@ jobs:
       - name: Run benchmarks
         run: bash tests/benchmarks/run_benchmarks.sh --verbose
 
-      - name: Check regression
+      - name: Check regression (informational)
         continue-on-error: true
         run: bash tests/benchmarks/run_benchmarks.sh --check-regression
