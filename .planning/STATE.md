@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.1.0-alpha
-milestone_name: Lambda Capture
-status: in_progress
-stopped_at: Completed 32-01-PLAN.md
-last_updated: "2026-04-02T19:35:12Z"
-last_activity: 2026-04-02 — Phase 32-01 complete; capture analysis pass implemented
+milestone: v0.0
+milestone_name: milestone
+status: planning
+stopped_at: Phase 37 context gathered
+last_updated: "2026-04-02T20:54:06.721Z"
+last_activity: 2026-04-02 — Roadmap created for v0.2.0-alpha; v0.1.0-alpha Lambda Capture marked complete
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 0
-  total_plans: 5
-  completed_plans: 1
-  percent: 20
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,32 +21,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** v0.1.0-alpha Lambda Capture — Phase 32: Capture Foundation
+**Current focus:** v0.2.0-alpha Standard Library Expansion — Phase 37: Compiler Dispatch Fixes + Technical Debt
 
 ## Current Position
 
-Phase: 32 of 36 (Capture Foundation)
-Plan: 01 complete — Plan 02 (HIR lowering) next
-Status: In progress
-Last activity: 2026-04-02 — Plan 32-01 complete: capture analysis pass + AST annotation
+Phase: 37 of 42 (Compiler Dispatch Fixes + Technical Debt)
+Plan: None yet — ready to plan
+Status: Ready to plan
+Last activity: 2026-04-02 — Roadmap created for v0.2.0-alpha; v0.1.0-alpha Lambda Capture marked complete
 
-Progress: [##░░░░░░░░] 20%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1 (this milestone)
-- Average duration: ~40 min
-- Total execution time: ~40 min
+- Total plans completed: 0 (this milestone)
+- Average duration: —
+- Total execution time: —
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 32 | 1 | 40 min | 40 min |
+| — | — | — | — |
 
 **Recent Trend:**
-- Last 5 plans: 40 min
+- Last 5 plans: —
 - Trend: —
 
 ## Accumulated Context
@@ -56,23 +56,16 @@ Progress: [##░░░░░░░░] 20%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [32-01]: Iron_CaptureEntry placed in ast.h (not capture.h) to avoid circular includes; capture.h includes ast.h
-- [32-01]: Nested lambda ident walker stops at inner IRON_NODE_LAMBDA boundary; walk_node_for_lambdas processes lambdas inner-out
-- [32-01]: capture analysis is annotation-only (no diagnostics, no early return) in Phase 32
-- [v0.1.0-alpha roadmap]: Coarse granularity → 5 phases (32-36); capture analysis + IronClosure land together in Phase 32 as atomic change
-- [v0.1.0-alpha roadmap]: Optimizer guards (OPT-01/02/03) grouped with core captures in Phase 33 — must be stable before escaping/shared complexity in Phase 34
-- [v0.1.0-alpha roadmap]: LIFE-03 (shared mutable state) and LIFE-04 (recursive lambda) placed in Phase 34 — hardest correctness requirements, depend on full mutable capture infrastructure
-- [Phase 31-spawn-await-correctness]: IRON_TYPE_NULL for handled spawn LIR type; wrapper function emitted per spawn in lifted_funcs
-- [Phase 27-function-inlining]: Threshold 30 (not 20): phi_eliminate adds ~9 extra param alloca/store pairs per function
-- [Phase 26-load-expression-inlining]: LOAD blanket exclusion removed; cross-block guard at lir_optimize.c:1779-1785 handles dangerous case
-
-### Research Notes (Phase 32 planning)
-
-- `hir_to_lir.c` hardcodes `NULL, 0` for every `MAKE_CLOSURE` (line 882) — root cause of all 20 example failures
-- Capture analysis pass must run after `iron_typecheck()` but before HIR lowering (scope chain gone by HIR Pass 3)
-- `IRON_TYPE_FUNC` currently emits bare `void*` — must change to `Iron_Closure {void *env; void (*fn)(void*);}` atomically with MAKE_CLOSURE emission update
-- Env typedef must go to `ctx->struct_bodies`, not `ctx->lifted_funcs` — output order requires it before lifted function body
-- Always-malloc for env structs is the correct conservative strategy for v0.1.0
+- [v0.2.0-alpha roadmap]: Phase 37 is a strict gate — string and collection method dispatch is silently broken until COMP-01/COMP-02 land; no runtime work is testable before it
+- [v0.2.0-alpha roadmap]: Phases 38 and 39 have no dependency on each other after Phase 37 and can be done in either order
+- [v0.2.0-alpha roadmap]: Phase 40 (collection HOFs) depends only on Phase 37 (IRON_TYPE_ARRAY dispatch), not on Phase 38 or 39
+- [v0.2.0-alpha roadmap]: Phase 41 (OS module) depends on Phase 39 (IO path operations complete)
+- [v0.2.0-alpha roadmap]: Phase 42 (testing) depends on Phase 38 (string methods for assertion messages) and Phase 40 (collections for test result tracking)
+- [v0.2.0-alpha roadmap]: String memory ownership policy (heap leak vs iron_string_free cleanup) must be decided before Phase 38 begins — affects all 19 method contracts
+- [v0.2.0-alpha roadmap]: Cross-type list.map deferred to v2 (requires generics); same-type-only restriction documented in API
+- [32-02 closure wiring]: Use Iron_Closure fat pointer for all closures (capturing and non-capturing); non-capturing closures have env=NULL
+- [32-02 closure wiring]: Capture type resolution must use id->resolved_type (typechecker-annotated ident field), not id->resolved_sym->type (always NULL for variables in resolver scope)
+- [32-02 closure wiring]: Capture-alias allocas in lifted functions are opaque to optimizer — skip copy-prop and store-load-elim forwarding for them; MAKE_CLOSURE captures mark outer allocas as escaped
 
 ### Pending Todos
 
@@ -80,12 +73,13 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 32 planning]: Verify that introducing `IronClosure` for zero-capture closures does not break the existing passing test suite before widening scope
-- [Phase 34 planning]: `self` capture representation in LIR — check `hir_lower.c` method lowering path before implementing Phase 34's object capture case (HOF-01)
-- [Phase 35 planning]: Confirm whether existing spawn infrastructure joins before returning — affects whether heap vs stack env matters for correctness in Phase 35
+- [Phase 37 planning]: Verify exact hir_to_lir.c element-type-to-C-suffix mapping rules for IRON_TYPE_ARRAY receivers before writing COMP-02 fix
+- [Phase 38 planning]: Decide string memory ownership policy before writing any method implementation
+- [Phase 40 planning]: Prototype Iron_Closure callback ABI with filter first before expanding to all HOFs
+- [Phase 42 planning]: Verify how ctx->module->funcs is populated and accessible from emit_c.c before designing test discovery loop
 
 ## Session Continuity
 
-Last session: 2026-04-02T19:35:12Z
-Stopped at: Completed 32-01-PLAN.md
-Resume file: .planning/phases/32-capture-foundation/32-01-SUMMARY.md
+Last session: 2026-04-02T21:09:20Z
+Stopped at: Completed 32-capture-foundation/32-02-PLAN.md (Iron_Closure wiring complete; v0.1.0-alpha fully delivered)
+Resume file: .planning/phases/37-compiler-dispatch-fixes-technical-debt/37-CONTEXT.md
