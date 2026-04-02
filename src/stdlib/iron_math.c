@@ -58,6 +58,9 @@ static void s_global_rng_init(Iron_RNG *rng) {
 }
 
 double Iron_math_random(void) {
+    /* WINDOWS-TODO: __thread is GCC/Clang thread-local storage. On Windows use __declspec(thread).
+     * A portable IRON_THREAD_LOCAL macro should be defined in iron_runtime.h (see existing #ifdef _WIN32
+     * pattern there) and used here: static IRON_THREAD_LOCAL Iron_RNG s_global_rng; */
     static __thread Iron_RNG s_global_rng;
     static __thread int s_global_rng_initialized = 0;
     if (!s_global_rng_initialized) {
@@ -68,6 +71,7 @@ double Iron_math_random(void) {
 }
 
 int64_t Iron_math_random_int(int64_t min, int64_t max) {
+    /* WINDOWS-TODO: same __thread → IRON_THREAD_LOCAL as above */
     static __thread Iron_RNG s_global_rng;
     static __thread int s_global_rng_initialized = 0;
     if (!s_global_rng_initialized) {

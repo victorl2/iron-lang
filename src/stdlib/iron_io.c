@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <dirent.h>
+#include <dirent.h>  /* WINDOWS-TODO: no dirent.h on Windows — use FindFirstFile/FindNextFile/FindClose from <windows.h> */
 #include <errno.h>
 
 /* ── File I/O ────────────────────────────────────────────────────────────── */
@@ -102,6 +102,7 @@ bool Iron_io_file_exists(Iron_String path) {
 
 Iron_Error Iron_io_create_dir(Iron_String path) {
     const char *p = iron_string_cstr(&path);
+    /* WINDOWS-TODO: mkdir(path, mode) is POSIX. On Windows use _mkdir(path) from <direct.h> (no mode arg). */
     int result = mkdir(p, 0755);
     if (result != 0 && errno != EEXIST) {
         return iron_error_new(6, "could not create directory");
@@ -119,6 +120,9 @@ Iron_Error Iron_io_delete_file(Iron_String path) {
 
 Iron_Result_String_Error Iron_io_list_files_result(Iron_String dir_path) {
     const char *p = iron_string_cstr(&dir_path);
+    /* WINDOWS-TODO: opendir/readdir/closedir are POSIX. On Windows replace this block with
+     * FindFirstFileA/FindNextFileA/FindClose from <windows.h>. WIN32_FIND_DATAA carries
+     * the entry name in cFileName. */
     DIR *dir = opendir(p);
     if (!dir) {
         Iron_String empty = iron_string_from_cstr("", 0);
