@@ -120,6 +120,7 @@ add_executable(ironc
     src/cli/fmt.c
     src/cli/test_runner.c
     src/cli/toml.c
+    src/cli/iron_import_detect.c
 )
 target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)
