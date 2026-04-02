@@ -1,9 +1,9 @@
 func category(n: Int) -> String {
   match n {
-    0 { return "zero" }
-    1 { return "one" }
-    2 { return "two" }
-    else { return "many" }
+    0 -> return "zero"
+    1 -> return "one"
+    2 -> return "two"
+    else -> return "many"
   }
   return "many"
 }
