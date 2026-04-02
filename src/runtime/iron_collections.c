@@ -33,6 +33,7 @@ static bool int64_eq_ptr(const int64_t *a, const int64_t *b) {
 /* ── List implementations ─────────────────────────────────────────────────── */
 
 IRON_LIST_IMPL(int64_t,     int64_t)
+IRON_LIST_IMPL(int32_t,     int32_t)
 IRON_LIST_IMPL(double,      double)
 IRON_LIST_IMPL(bool,        bool)
 IRON_LIST_IMPL(Iron_String, Iron_String)

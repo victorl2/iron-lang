@@ -1,0 +1,8 @@
+func main() {
+  var n = 20
+  for i in n parallel {
+    var work = i * i
+  }
+  println("pfor variable range done")
+  println("{n}")
+}

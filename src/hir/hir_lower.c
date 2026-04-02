@@ -293,6 +293,50 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_ValDecl *vd = (Iron_ValDecl *)node;
         Iron_Type    *ty = vd->declared_type;
         if (!ty) ty = resolve_type_ann(ctx, vd->type_ann);
+
+        if (vd->init && vd->init->kind == IRON_NODE_SPAWN) {
+            /* val h = spawn("name") { body } -- spawn handle binding.
+             * Allocate the HIR var for h, then emit a spawn stmt that binds
+             * its result LIR value to this var (via handle_var). */
+            Iron_Type *obj_ty = iron_type_make_primitive(IRON_TYPE_OBJECT);
+            IronHIR_VarId id  = iron_hir_alloc_var(mod, vd->name, obj_ty, false);
+            declare_var(ctx, vd->name, id);
+
+            /* Lower the spawn as a statement (sets handle_name) */
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)vd->init;
+            const char     *hname = ss->handle_name ? ss->handle_name : vd->name;
+
+            char lifted_name[64];
+            snprintf(lifted_name, sizeof(lifted_name), "__spawn_%d",
+                     ctx->lift_counter++);
+            char *name_copy = (char *)iron_arena_alloc(
+                ctx->module->arena,
+                strlen(lifted_name) + 1,
+                _Alignof(char));
+            memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
+
+            IronHIR_Block *spawn_body = iron_hir_block_create(mod);
+            lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
+
+            IronHIR_Stmt *spawn_s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
+            spawn_s->spawn.handle_var = id;  /* bind spawn result to h */
+            iron_hir_block_add_stmt(blk, spawn_s);
+
+            /* Queue for lifting */
+            LiftPending lp;
+            lp.kind           = LIFT_SPAWN;
+            lp.ast_node       = vd->init;
+            lp.lifted_name    = name_copy;
+            lp.enclosing_func = ctx->current_func_name;
+            arrput(ctx->pending_lifts, lp);
+
+            /* Create HIR LET with null init -- the spawn result will be bound
+             * in hir_to_lir.c via spawn_s->spawn.handle_var */
+            IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, id, obj_ty, NULL, false, span);
+            iron_hir_block_add_stmt(blk, let_s);
+            return NULL;
+        }
+
         IronHIR_Expr *init = vd->init ? lower_expr_hir(ctx, vd->init) : NULL;
         IronHIR_VarId id   = iron_hir_alloc_var(mod, vd->name, ty, false);
         declare_var(ctx, vd->name, id);
@@ -495,11 +539,21 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             /* Declare loop var in scope for body lowering */
             push_scope(ctx);
             declare_var(ctx, fs->var_name, loop_var);
-            IronHIR_Block *body_blk = iron_hir_block_create(mod);
-            lower_block_hir(ctx, (Iron_Block *)fs->body, body_blk);
+            /* Lower user body into an inner block so defer fires before increment */
+            IronHIR_Block *inner_blk = iron_hir_block_create(mod);
+            lower_block_hir(ctx, (Iron_Block *)fs->body, inner_blk);
             pop_scope(ctx);
 
-            /* Append increment: i = i + 1 */
+            /* Wrap user body in BLOCK stmt — gives it its own defer scope so any
+             * deferred stmts inside the loop body fire at the end of the iteration
+             * scope, before the loop increment below. */
+            IronHIR_Stmt *block_stmt = iron_hir_stmt_block(mod, inner_blk, s0);
+
+            /* Build the outer body: [block_stmt, inc_stmt] */
+            IronHIR_Block *body_blk = iron_hir_block_create(mod);
+            iron_hir_block_add_stmt(body_blk, block_stmt);
+
+            /* Append increment: i = i + 1 (runs after defer scope exits) */
             IronHIR_Expr *i_ref2  = iron_hir_expr_ident(mod, loop_var,
                                                           fs->var_name, int_ty, s0);
             IronHIR_Expr *one     = iron_hir_expr_int_lit(mod, 1, int_ty, s0);
@@ -1088,42 +1142,77 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
 
-            /* Build mangled name: TypeName_methodName */
+            /* Build mangled name: typeName_methodName (lowercase type name
+             * to match Iron's C convention: Iron_io_read_file, not Iron_IO_read_file) */
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s_%s",
                      md->type_name, md->method_name);
+            for (int ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
+                if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
+                    mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
+            }
 
-            /* Implicit self param + explicit params */
-            int total_params = md->param_count + 1;
-            IronHIR_Param *params = (IronHIR_Param *)iron_arena_alloc(
-                mod->arena,
-                (size_t)total_params * sizeof(IronHIR_Param),
-                _Alignof(IronHIR_Param));
+            /* For empty-body stubs (C-implemented methods), skip self param
+             * to match the C runtime signature. Instance methods with bodies
+             * get self as first param. */
+            /* Stub: no body, OR body is an empty block (e.g., func Time.sleep(ms: Int) {}) */
+            bool is_stub = (!md->body);
+            if (!is_stub && md->body && md->body->kind == IRON_NODE_BLOCK) {
+                Iron_Block *blk = (Iron_Block *)md->body;
+                if (blk->stmt_count == 0) is_stub = true;
+            }
+            int total_params;
+            IronHIR_Param *params;
 
-            /* Self param: resolve to the object type by name */
-            Iron_Type *self_type = NULL;
-            if (ctx->program && md->type_name) {
-                for (int di = 0; di < ctx->program->decl_count; di++) {
-                    Iron_Node *d = ctx->program->decls[di];
-                    if (d->kind == IRON_NODE_OBJECT_DECL) {
-                        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
-                        if (strcmp(od->name, md->type_name) == 0) {
-                            self_type = iron_type_make_object(mod->arena, od);
-                            break;
+            if (is_stub) {
+                /* Stub method: only explicit params (no self) */
+                total_params = md->param_count;
+                params = NULL;
+                if (total_params > 0) {
+                    params = (IronHIR_Param *)iron_arena_alloc(
+                        mod->arena,
+                        (size_t)total_params * sizeof(IronHIR_Param),
+                        _Alignof(IronHIR_Param));
+                    for (int p = 0; p < md->param_count; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                        params[p].name   = ap->name;
+                        params[p].type   = resolve_type_ann(ctx, ap->type_ann);
+                        params[p].var_id = IRON_HIR_VAR_INVALID;
+                    }
+                }
+            } else {
+                /* Instance method: self + explicit params */
+                total_params = md->param_count + 1;
+                params = (IronHIR_Param *)iron_arena_alloc(
+                    mod->arena,
+                    (size_t)total_params * sizeof(IronHIR_Param),
+                    _Alignof(IronHIR_Param));
+
+                /* Self param: resolve to the object type by name */
+                Iron_Type *self_type = NULL;
+                if (ctx->program && md->type_name) {
+                    for (int di = 0; di < ctx->program->decl_count; di++) {
+                        Iron_Node *d = ctx->program->decls[di];
+                        if (d->kind == IRON_NODE_OBJECT_DECL) {
+                            Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+                            if (strcmp(od->name, md->type_name) == 0) {
+                                self_type = iron_type_make_object(mod->arena, od);
+                                break;
+                            }
                         }
                     }
                 }
-            }
-            params[0].name   = "self";
-            params[0].type   = self_type;
-            params[0].var_id = IRON_HIR_VAR_INVALID;
+                params[0].name   = "self";
+                params[0].type   = self_type;
+                params[0].var_id = IRON_HIR_VAR_INVALID;
 
-            /* Explicit params */
-            for (int p = 0; p < md->param_count; p++) {
-                Iron_Param *ap = (Iron_Param *)md->params[p];
-                params[p + 1].name   = ap->name;
-                params[p + 1].type   = resolve_type_ann(ctx, ap->type_ann);
-                params[p + 1].var_id = IRON_HIR_VAR_INVALID;
+                /* Explicit params */
+                for (int p = 0; p < md->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)md->params[p];
+                    params[p + 1].name   = ap->name;
+                    params[p + 1].type   = resolve_type_ann(ctx, ap->type_ann);
+                    params[p + 1].var_id = IRON_HIR_VAR_INVALID;
+                }
             }
 
             Iron_Type *ret_ty = md->resolved_return_type;
@@ -1220,6 +1309,10 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
 
     char mangled[256];
     snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
+    for (int ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
+        if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
+            mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
+    }
 
     IronHIR_Func *fn = find_hir_func(ctx->module, mangled);
     if (!fn) return;
@@ -1320,9 +1413,25 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
         case LIFT_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)lp->ast_node;
-            /* Spawn body is a block; create a no-arg void function */
+            /* Infer return type from the spawn body's return statement */
+            Iron_Type *spawn_ret_ty = NULL;
+            if (ss->body) {
+                Iron_Block *sblk = (Iron_Block *)ss->body;
+                for (int ri = 0; ri < sblk->stmt_count; ri++) {
+                    if (sblk->stmts[ri]->kind == IRON_NODE_RETURN) {
+                        Iron_ReturnStmt *rs = (Iron_ReturnStmt *)sblk->stmts[ri];
+                        if (rs->value) {
+                            /* All expr nodes share layout: { span, kind, resolved_type } */
+                            Iron_IntLit *rexpr = (Iron_IntLit *)rs->value;
+                            spawn_ret_ty = rexpr->resolved_type;
+                        }
+                        break;
+                    }
+                }
+            }
+            /* Spawn body is a block; create a function with the inferred return type */
             IronHIR_Func *lifted = iron_hir_func_create(mod, lp->lifted_name,
-                                                          NULL, 0, NULL);
+                                                          NULL, 0, spawn_ret_ty);
             lifted->body = iron_hir_block_create(mod);
 
             push_scope(ctx);

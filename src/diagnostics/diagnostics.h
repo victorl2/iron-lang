@@ -147,4 +147,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_HIR_MISSING_RETURN_VALUE  506
 #define IRON_ERR_HIR_STRUCTURAL            507
 
+/* Warning codes (600 range) */
+#define IRON_WARN_SPAWN_NO_HANDLE     600
+
 #endif /* IRON_DIAGNOSTICS_H */

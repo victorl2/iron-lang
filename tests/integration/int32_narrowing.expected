@@ -1,0 +1,8 @@
+val literal: 42
+var literal: 100
+func args explicit: 30
+func args vars: 142
+arithmetic: 142
+inlined loop: 10
+identity: 99
+overflow: -2147483648

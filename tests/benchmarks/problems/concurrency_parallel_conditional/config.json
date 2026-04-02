@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 3.0}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 2.5, "note": "Sub-ms timing causes high ratio variance; threshold 5.0x absorbs timer noise"}

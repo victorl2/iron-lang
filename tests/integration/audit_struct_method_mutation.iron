@@ -1,0 +1,21 @@
+object Counter {
+  var count: Int
+  var name: String
+}
+
+func Counter.increment(amount: Int) -> Counter {
+  return Counter(self.count + amount, self.name)
+}
+
+func Counter.display() {
+  println("{self.name}: {self.count}")
+}
+
+func main() {
+  val c1 = Counter(0, "alpha")
+  val c2 = c1.increment(5)
+  val c3 = c2.increment(3)
+  c1.display()
+  c2.display()
+  c3.display()
+}

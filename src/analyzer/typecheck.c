@@ -41,14 +41,20 @@ typedef struct {
 } NarrowEntry;
 
 typedef struct {
-    Iron_Arena    *arena;
-    Iron_DiagList *diags;
-    Iron_Scope    *global_scope;
-    Iron_Scope    *current_scope;   /* type-checker's own scope chain */
-    Iron_Type     *current_return_type;  /* expected return type; NULL outside funcs */
-    const char    *current_method_type;  /* owning type name if in method */
-    NarrowEntry   *narrowed;             /* stb_ds map: sym name -> narrowed type */
-    Iron_Program  *program;              /* for method return type lookup */
+    char        *key;   /* stb_ds strdup key -- handle name */
+    Iron_Type   *value; /* spawn body return type */
+} SpawnResultEntry;
+
+typedef struct {
+    Iron_Arena        *arena;
+    Iron_DiagList     *diags;
+    Iron_Scope        *global_scope;
+    Iron_Scope        *current_scope;   /* type-checker's own scope chain */
+    Iron_Type         *current_return_type;  /* expected return type; NULL outside funcs */
+    const char        *current_method_type;  /* owning type name if in method */
+    NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
+    Iron_Program      *program;              /* for method return type lookup */
+    SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
 } TypeCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -105,6 +111,36 @@ static void emit_type_mismatch(TypeCtx *ctx, Iron_Span span,
     snprintf(msg, sizeof(msg),
              "type mismatch: expected '%s', got '%s'", exp_s, got_s);
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, NULL);
+}
+
+/* Implicit coercion rules for assignment compatibility.
+ *
+ * Currently only widening is implicit:
+ * - Int32 -> Int: always safe, no data loss.
+ *
+ * Narrowing (Int -> Int32) is NOT implicit -- it requires either:
+ *   (a) An integer literal (checked separately at each assignment site), or
+ *   (b) An explicit Int32() cast expression.
+ * Per user decision: "Narrowing requires explicit cast."
+ */
+static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
+    if (!decl_t || !init_t) return true;
+    if (iron_type_equals(decl_t, init_t)) return true;
+    /* Int32 -> Int: implicit widening (always safe) */
+    if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+    return false;
+}
+
+/* Allow integer literals to implicitly narrow to Int32.
+ * `val x: Int32 = 42` is safe because the literal is statically known.
+ * `val x: Int32 = someIntVar` is NOT allowed -- use Int32(someIntVar).
+ */
+static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
+                                     const Iron_Node *init_node) {
+    if (!decl_t || !init_t || !init_node) return false;
+    return (decl_t->kind == IRON_TYPE_INT32 &&
+            init_t->kind == IRON_TYPE_INT &&
+            init_node->kind == IRON_NODE_INT_LIT);
 }
 
 /* ── Narrowing map helpers ────────────────────────────────────────────────── */
@@ -347,8 +383,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 } else if (is_comparison) {
                     /* Comparison: operands should be compatible */
                     if (!iron_type_equals(lt, rt) &&
-                        !(rt->kind == IRON_TYPE_NULL)) {
-                        /* Allow comparison with null literal */
+                        !(rt->kind == IRON_TYPE_NULL) &&
+                        !((lt->kind == IRON_TYPE_INT32 && rt->kind == IRON_TYPE_INT) ||
+                          (lt->kind == IRON_TYPE_INT && rt->kind == IRON_TYPE_INT32))) {
+                        /* Allow comparison with null literal and Int32<->Int widening */
                     }
                     result = iron_type_make_primitive(IRON_TYPE_BOOL);
                 } else if (is_logic) {
@@ -466,7 +504,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             if (arg_t && fld_t &&
                                 arg_t->kind  != IRON_TYPE_ERROR &&
                                 fld_t->kind  != IRON_TYPE_ERROR &&
-                                !iron_type_equals(arg_t, fld_t)) {
+                                !types_assignable(fld_t, arg_t) &&
+                                !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
                                 char msg[256];
                                 snprintf(msg, sizeof(msg),
                                          "field '%s' expects '%s', got '%s'",
@@ -564,7 +603,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (param_type && arg_type &&
                         param_type->kind != IRON_TYPE_ERROR &&
                         arg_type->kind   != IRON_TYPE_ERROR &&
-                        !iron_type_equals(param_type, arg_type)) {
+                        !types_assignable(param_type, arg_type) &&
+                        !is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "argument %d type mismatch: expected '%s', got '%s'",
@@ -572,6 +612,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                  iron_type_to_string(param_type, ctx->arena),
                                  iron_type_to_string(arg_type, ctx->arena));
                         emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
+                    }
+                    /* Narrow literal args to match parameter type */
+                    if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
+                        ((Iron_IntLit *)ce->args[i])->resolved_type = param_type;
                     }
                 }
             }
@@ -705,7 +749,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (arg_t && fld_t &&
                             arg_t->kind  != IRON_TYPE_ERROR &&
                             fld_t->kind  != IRON_TYPE_ERROR &&
-                            !iron_type_equals(arg_t, fld_t)) {
+                            !types_assignable(fld_t, arg_t) &&
+                            !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "field '%s' expects '%s', got '%s'",
@@ -838,7 +883,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_AWAIT: {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
             check_expr(ctx, ae->handle);
-            result = iron_type_make_primitive(IRON_TYPE_VOID);
+
+            /* Look up the spawn body's return type from the handle name */
+            Iron_Type *await_type = iron_type_make_primitive(IRON_TYPE_INT);
+            if (ae->handle && ae->handle->kind == IRON_NODE_IDENT) {
+                Iron_Ident *ident = (Iron_Ident *)ae->handle;
+                int idx = shgeti(ctx->spawn_result_types, ident->name);
+                if (idx >= 0) {
+                    await_type = ctx->spawn_result_types[idx].value;
+                }
+            }
+            result = await_type;
             ae->resolved_type = result;
             break;
         }
@@ -890,7 +945,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
             Iron_Type *init_type = NULL;
             if (vd->init) {
-                init_type = check_expr(ctx, vd->init);
+                if (vd->init->kind == IRON_NODE_SPAWN) {
+                    /* val h = spawn(...) { body } -- spawn as handle init */
+                    check_stmt(ctx, vd->init);  /* processes the spawn node (handle_name already set) */
+                    /* The declared type for h is OBJECT (an Iron_Handle pointer) */
+                    init_type = iron_type_make_primitive(IRON_TYPE_OBJECT);
+                } else {
+                    init_type = check_expr(ctx, vd->init);
+                }
             }
 
             if (!decl_type && init_type) {
@@ -898,8 +960,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else if (decl_type && init_type) {
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
-                    !iron_type_equals(decl_type, init_type)) {
+                    !types_assignable(decl_type, init_type) &&
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     emit_type_mismatch(ctx, vd->span, decl_type, init_type);
+                }
+                /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
+                if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    ((Iron_IntLit *)vd->init)->resolved_type = decl_type;
                 }
             }
 
@@ -921,7 +988,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
             Iron_Type *init_type = NULL;
             if (vd->init) {
-                init_type = check_expr(ctx, vd->init);
+                if (vd->init->kind == IRON_NODE_SPAWN) {
+                    /* var h = spawn(...) { body } -- spawn as handle init */
+                    check_stmt(ctx, vd->init);
+                    init_type = iron_type_make_primitive(IRON_TYPE_OBJECT);
+                } else {
+                    init_type = check_expr(ctx, vd->init);
+                }
             }
 
             if (!decl_type && init_type) {
@@ -929,8 +1002,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else if (decl_type && init_type) {
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
-                    !iron_type_equals(decl_type, init_type)) {
+                    !types_assignable(decl_type, init_type) &&
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     emit_type_mismatch(ctx, vd->span, decl_type, init_type);
+                }
+                /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
+                if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    ((Iron_IntLit *)vd->init)->resolved_type = decl_type;
                 }
             }
 
@@ -978,7 +1056,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (target_type && value_type &&
                 target_type->kind != IRON_TYPE_ERROR &&
                 value_type->kind  != IRON_TYPE_ERROR &&
-                !iron_type_equals(target_type, value_type)) {
+                !types_assignable(target_type, value_type) &&
+                !is_int_literal_narrowing(target_type, value_type, as->value)) {
                 emit_type_mismatch(ctx, as->span, target_type, value_type);
             }
             break;
@@ -1004,7 +1083,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, rs->span,
                                    "cannot return nullable value without null check",
                                    "Check for null before returning");
-                    } else if (!iron_type_equals(ctx->current_return_type, ret_type)) {
+                    } else if (!types_assignable(ctx->current_return_type, ret_type) &&
+                               !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "return type mismatch: function returns '%s', got '%s'",
@@ -1177,6 +1257,37 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
             if (ss->pool_expr) check_expr(ctx, ss->pool_expr);
             if (ss->body) check_stmt(ctx, ss->body);
+
+            /* Store spawn body return type for downstream await lookup */
+            if (ss->handle_name) {
+                /* Walk the spawn body to find IRON_NODE_RETURN and use its expr type */
+                Iron_Type *body_ret = iron_type_make_primitive(IRON_TYPE_INT);
+                Iron_Block *blk = (Iron_Block *)ss->body;
+                if (blk) {
+                    for (int i = 0; i < blk->stmt_count; i++) {
+                        if (blk->stmts[i]->kind == IRON_NODE_RETURN) {
+                            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)blk->stmts[i];
+                            if (rs->value) {
+                                /* All expr nodes share the layout:
+                                 * { span, kind, resolved_type, ... } */
+                                Iron_IntLit *expr_node = (Iron_IntLit *)rs->value;
+                                if (expr_node->resolved_type) {
+                                    body_ret = expr_node->resolved_type;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                shput(ctx->spawn_result_types, ss->handle_name, body_ret);
+            } else {
+                /* Fire-and-forget spawn (no handle captured) -- emit warning */
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING,
+                               IRON_WARN_SPAWN_NO_HANDLE, ss->span,
+                               "spawned task handle not captured; use "
+                               "`val h = spawn(...)` and `await h` to wait for completion",
+                               NULL);
+            }
             break;
         }
 
@@ -1363,7 +1474,9 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.current_method_type = NULL;
     ctx.narrowed            = NULL;
     ctx.program             = program;
+    ctx.spawn_result_types  = NULL;
     sh_new_strdup(ctx.narrowed);
+    sh_new_strdup(ctx.spawn_result_types);
 
     /* Check top-level val/var declarations first so their init expressions
      * have resolved_type set before function bodies reference them.
@@ -1396,6 +1509,58 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         }
     }
 
+    /* Pre-pass: build function/method type signatures and set them in the
+     * symbol table BEFORE checking bodies.  This enables mutual recursion
+     * (e.g. is_even calls is_odd and vice-versa) by ensuring every function
+     * symbol already has its type when referenced as a callee. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl) continue;
+        if (decl->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            Iron_Type *ret_type = fd->return_type
+                ? resolve_type_annotation(&ctx, fd->return_type)
+                : iron_type_make_primitive(IRON_TYPE_VOID);
+            Iron_Type **param_types = NULL;
+            if (fd->param_count > 0) {
+                param_types = (Iron_Type **)iron_arena_alloc(
+                    ctx.arena, (size_t)fd->param_count * sizeof(Iron_Type *),
+                    _Alignof(Iron_Type *));
+                for (int j = 0; j < fd->param_count; j++) {
+                    Iron_Param *p = (Iron_Param *)fd->params[j];
+                    param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
+                }
+            }
+            Iron_Type *func_type = iron_type_make_func(ctx.arena, param_types,
+                                                        fd->param_count, ret_type);
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, fd->name);
+            if (sym) sym->type = func_type;
+        } else if (decl->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+            Iron_Type *ret_type = md->return_type
+                ? resolve_type_annotation(&ctx, md->return_type)
+                : iron_type_make_primitive(IRON_TYPE_VOID);
+            /* Method signatures are looked up by mangled name (type_method) */
+            char mangled[256];
+            snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
+            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, mangled);
+            if (sym && !sym->type) {
+                Iron_Type **param_types = NULL;
+                int pc = md->param_count;
+                if (pc > 0) {
+                    param_types = (Iron_Type **)iron_arena_alloc(
+                        ctx.arena, (size_t)pc * sizeof(Iron_Type *),
+                        _Alignof(Iron_Type *));
+                    for (int j = 0; j < pc; j++) {
+                        Iron_Param *p = (Iron_Param *)md->params[j];
+                        param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
+                    }
+                }
+                sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
+            }
+        }
+    }
+
     /* Check all func and method decls */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
@@ -1412,4 +1577,5 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     check_interface_completeness(&ctx, program);
 
     shfree(ctx.narrowed);
+    shfree(ctx.spawn_result_types);
 }

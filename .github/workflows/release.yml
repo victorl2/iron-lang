@@ -48,7 +48,7 @@ jobs:
       - name: Run unit tests
         env:
           ASAN_OPTIONS: detect_leaks=0
-        run: ctest --test-dir build --output-on-failure -j4 -E benchmark
+        run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
 
       - name: Run integration tests
         env:
