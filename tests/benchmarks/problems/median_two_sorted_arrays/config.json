@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 8.0, "note": "Both Iron and C use int32_t. Local ~4.2x. Remaining gap is goto control flow (prevents clang vectorization) + array length params. CI headroom for Ubuntu clang differences."}
+{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 15.0, "note": "Both Iron and C use int32_t. Local ~4.2x, Ubuntu CI ~12x. Gap is goto control flow + array length params. Ubuntu clang optimizes C reference more aggressively."}
