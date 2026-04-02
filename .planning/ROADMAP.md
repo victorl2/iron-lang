@@ -732,7 +732,12 @@ Plans:
   3. `"abcabc".replace("a", "x")` returns `"xbcxbc"`; `s.substring(1, 3)` and `s.index_of(sub)` return correct values
   4. `s.to_int()` parses `"42"` to the integer 42; `s.to_float()` parses `"3.14"` to a float; both handle non-numeric input without crashing
   5. Integration tests for all 19 string methods exist in the test suite and pass on all three platforms
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 38-01-PLAN.md — Simple string methods (upper, lower, trim, contains, starts_with, ends_with, index_of, char_at, len, count)
+- [ ] 38-02-PLAN.md — Complex string methods (split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right)
+- [ ] 38-03-PLAN.md — Integration tests for all 19 string methods
 
 ### Phase 39: Module Completions (Math, IO, Time, Log)
 **Goal**: All four existing stdlib modules implement their complete language-definition.md specification, closing every gap between the spec and the working implementation
@@ -825,7 +830,7 @@ Phases execute in numeric order: 37 → 38 → 39 → 40 → 41 → 42
 | 34. Advanced Captures | v0.1.0-alpha | TBD | Complete | 2026-04-02 |
 | 35. Concurrency Captures | v0.1.0-alpha | TBD | Complete | 2026-04-02 |
 | 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | TBD | Complete | 2026-04-02 |
-| 37. Compiler Dispatch Fixes + Technical Debt | 1/4 | In Progress|  | - |
+| 37. Compiler Dispatch Fixes + Technical Debt | 4/4 | Complete   | 2026-04-02 | - |
 | 38. String Built-In Methods | v0.2.0-alpha | 0/TBD | Not started | - |
 | 39. Module Completions (Math, IO, Time, Log) | v0.2.0-alpha | 0/TBD | Not started | - |
 | 40. Collection Higher-Order Operations | v0.2.0-alpha | 0/TBD | Not started | - |
