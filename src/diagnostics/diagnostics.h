@@ -131,6 +131,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_LIR_NO_ENTRY_BLOCK         304
 #define IRON_ERR_LIR_RETURN_TYPE_MISMATCH   305
 #define IRON_ERR_LIR_PHI_TYPE_MISMATCH      306
+#define IRON_ERR_LIR_CALL_TYPE_MISMATCH     307
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
