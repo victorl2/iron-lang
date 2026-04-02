@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: in-progress
-stopped_at: Completed 32-01-PLAN.md
-last_updated: "2026-04-02T23:11:12.458Z"
-last_activity: 2026-04-02 -- Completed 32-01 PHI type consistency check
+stopped_at: Completed 32-02-PLAN.md
+last_updated: "2026-04-02T23:15:26Z"
+last_activity: 2026-04-02 -- Completed 32-02 call argument validation
 progress:
   total_phases: 8
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
@@ -26,28 +26,28 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 ## Current Position
 
 Phase: 32 of 39 (LIR Verifier Hardening)
-Plan: 1 of 2 in current phase
+Plan: 2 of 2 in current phase (PHASE COMPLETE)
 Status: In progress
-Last activity: 2026-04-02 -- Completed 32-01 PHI type consistency check
+Last activity: 2026-04-02 -- Completed 32-02 call argument validation
 
-Progress: [#####.....] 50%
+Progress: [##########] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: 2min
-- Total execution time: 0.03 hours
+- Total execution time: 0.07 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 32 - LIR Verifier Hardening | 1 | 2min | 2min |
+| 32 - LIR Verifier Hardening | 2 | 4min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: 32-01 (2min)
-- Trend: Starting
+- Last 5 plans: 32-01 (2min), 32-02 (2min)
+- Trend: Consistent
 
 *Updated after each plan completion*
 
@@ -62,6 +62,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Testing requirements (TEST-01, TEST-02, TEST-03) assigned to Phase 39 as a dedicated sweep rather than distributed across phases -- ensures comprehensive coverage audit after all diagnostics exist
 - [Constraint]: Memory-bounded implementations required -- worklist algorithms with bounded state, no exponential path enumeration
 - [32-01]: PHI mismatch diagnostic uses function name + block label (not type names) to keep snprintf simple and avoid arena allocation in error paths
+- [32-02]: Linear scan of module->funcs for callee lookup in call validation -- sufficient for verification pass
+- [32-02]: Indirect calls skipped silently in Invariant 8 since LIR lacks function type signatures (AGEN-01)
 
 ### Pending Todos
 
@@ -74,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-02T23:10:38Z
-Stopped at: Completed 32-01-PLAN.md
-Resume file: .planning/phases/32-lir-verifier-hardening/32-01-SUMMARY.md
+Last session: 2026-04-02T23:15:26Z
+Stopped at: Completed 32-02-PLAN.md
+Resume file: .planning/phases/32-lir-verifier-hardening/32-02-SUMMARY.md
