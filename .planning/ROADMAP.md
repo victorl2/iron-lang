@@ -7,7 +7,8 @@
 - v0.0.3-alpha Package Manager - Phases 12-14 (shipped 2026-03-28)
 - v0.0.5-alpha IR Optimization & High IR Architecture - Phases 15-20 (shipped 2026-03-30)
 - v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (shipped 2026-03-31)
-- v0.0.7-alpha Performance Optimization - Phases 24-30 (active)
+- v0.0.7-alpha Performance Optimization - Phases 24-31 (shipped 2026-04-01)
+- v0.1.0-alpha Lambda Capture - Phases 32-36 (active)
 
 ## Phases
 
@@ -70,16 +71,27 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
-### v0.0.7-alpha Performance Optimization
+<details>
+<summary>v0.0.7-alpha Performance Optimization (Phases 24-31) - SHIPPED 2026-04-01</summary>
 
-- [ ] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
-- [ ] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
-- [ ] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
+- [x] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
+- [x] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
+- [x] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
 - [x] **Phase 27: Function Inlining** - Small pure non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint
-- [ ] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
-- [ ] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
-- [ ] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
+- [x] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
+- [x] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
+- [x] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
 - [x] **Phase 31: Spawn/Await Correctness** - Verify spawn/await semantics work end-to-end; fix concurrency benchmarks for fair timing
+
+</details>
+
+### v0.1.0-alpha Lambda Capture
+
+- [ ] **Phase 32: Capture Foundation** - Free variable analysis pass and IronClosure fat-pointer representation give the compiler the substrate all capture patterns require
+- [ ] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All core capture patterns (immutable, mutable, loop snapshot) work end-to-end; optimizer passes are guarded against breaking captures
+- [ ] **Phase 34: Advanced Captures** - Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and higher-order function patterns all compile and run correctly
+- [ ] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
+- [ ] **Phase 36: Diagnostics, Benchmarks & Test Suite** - Capture errors produce clear diagnostics; closure call overhead is benchmarked; all 20 canonical capture examples have integration tests
 
 ## Phase Details
 
@@ -493,7 +505,8 @@ Plans:
 
 </details>
 
-### v0.0.7-alpha Phase Details
+<details>
+<summary>v0.0.7-alpha Phase Details (Phases 24-31)</summary>
 
 ### Phase 24: Range Bound Hoisting
 **Goal**: Every for-range loop evaluates its bound exactly once in the pre-header block instead of on every back-edge, eliminating redundant `Iron_range()` calls from the hot path
@@ -506,7 +519,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [x] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
 
 ### Phase 25: Stack Array Promotion
 **Goal**: `fill(CONST, val)` calls where the count is a compile-time constant <=1024 and the result does not escape the function emit stack-allocated arrays via `alloca()` instead of heap allocation
@@ -519,7 +532,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
+- [x] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
 
 ### Phase 26: LOAD Expression Inlining
 **Goal**: LOAD instructions are eligible for expression inlining when their single use is in the same basic block as the LOAD definition, removing one layer of copy temporaries from every function
@@ -532,7 +545,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
+- [x] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
 
 ### Phase 27: Function Inlining
 **Goal**: Small, pure, non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint so the merged code receives full optimizer benefit
@@ -559,7 +572,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
+- [x] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
 
 ### Phase 29: Sized Integers
 **Goal**: Iron programs can declare `Int32` variables that emit `int32_t` in generated C, enabling 32-bit memory bandwidth for array-heavy algorithms
@@ -572,8 +585,8 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 29-01-PLAN.md — Int32 type coercion, runtime list, integration tests
-- [ ] 29-02-PLAN.md — connected_components Int32 rewrite and micro-benchmark
+- [x] 29-01-PLAN.md — Int32 type coercion, runtime list, integration tests
+- [x] 29-02-PLAN.md — connected_components Int32 rewrite and micro-benchmark
 
 ### Phase 30: Benchmark Validation and Exploration
 **Goal**: The full benchmark suite is compared against the pre-optimization baseline to confirm measurable improvement; any remaining high-overhead benchmarks are analyzed for additional optimization opportunities
@@ -586,13 +599,96 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
-- [ ] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
+- [x] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
+- [x] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
+
+### Phase 31: Spawn/Await Correctness
+**Goal**: Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
+**Depends on**: Phase 30
+**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
+**Success Criteria** (what must be TRUE):
+  1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
+  2. Multiple spawn+await pairs work correctly in sequence
+  3. Fire-and-forget spawn compiles with compiler warning about un-captured handle
+  4. parallel-for blocks until all iterations complete (no regression)
+  5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
+  6. Full benchmark and test suites pass with updated thresholds
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 31-01-PLAN.md — Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
+- [x] 31-02-PLAN.md — Benchmark updates + threshold re-validation + human verification
+
+</details>
+
+### v0.1.0-alpha Lambda Capture
+
+### Phase 32: Capture Foundation
+**Goal**: The compiler knows what each lambda captures and represents all closure values as typed fat pointers — the substrate all other capture phases depend on
+**Depends on**: Phase 31
+**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04
+**Success Criteria** (what must be TRUE):
+  1. The compiler runs a free variable analysis pass on every lambda body before HIR lowering and annotates `Iron_LambdaExpr` with the capture set; non-capturing lambdas produce an empty capture set with no behavioral change
+  2. All closure values in generated C use `Iron_Closure {void *env; void (*fn)(void*); }` fat-pointer struct instead of bare `void*`; zero-capture closures emit `{ .env = NULL, .fn = fn }` for type uniformity
+  3. Lifted lambda functions in generated C accept a `void *_env` first parameter; captured variables inside the body are read via `((env_t *)_env)->field` derefs
+  4. Every lambda that captures at least one variable emits a `__lambda_N_env_t` typedef into the `struct_bodies` section of the generated C, appearing before the lifted function definition
+  5. All existing integration and benchmark tests pass with no regressions; non-capturing lambda tests continue to produce correct output
+**Plans:** 1/3 plans executed
+
+Plans:
+- [ ] 32-01-PLAN.md — Capture analysis pass + AST data structures
+- [ ] 32-02-PLAN.md — Iron_Closure representation + HIR/LIR wiring + emit_c.c atomic switch
+- [ ] 32-03-PLAN.md — Integration tests for examples 1-4 + regression verification
+
+### Phase 33: Value & Mutable Captures + Optimizer Guards
+**Goal**: Immutable and mutable capture patterns work end-to-end, optimizer passes cannot break them, and the core capture test suite is green
+**Depends on**: Phase 32
+**Requirements**: CAPT-01, CAPT-02, CAPT-03, CAPT-04, OPT-01, OPT-02, OPT-03
+**Success Criteria** (what must be TRUE):
+  1. Capturing an immutable `val` by value copies the value into the env struct at closure creation; the captured copy is independent of any subsequent reassignment of the outer name
+  2. Capturing a mutable `var` by reference promotes it to a heap cell (`T*` field in env); mutations inside the lambda are visible to code outside the lambda in the same scope
+  3. A lambda created inside a loop with `val captured = i` captures a fresh per-iteration copy of `i`; each closure in a collection holds its own independent value
+  4. DCE does not remove `MAKE_CLOSURE` instructions; the function inliner skips all `__lambda_*` functions; copy propagation and store-load elimination respect heap-box indirection for `var` captures
+  5. Lambda capture examples 1, 2, 3, 4, 7, 12, 13, and 14 from `docs/lambda-capture/` all compile and produce the documented correct output
+**Plans**: TBD
+
+### Phase 34: Advanced Captures
+**Goal**: Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and all higher-order function patterns compile and run correctly
+**Depends on**: Phase 33
+**Requirements**: LIFE-01, LIFE-02, LIFE-03, LIFE-04, HOF-01, HOF-02, HOF-03, HOF-04, HOF-05
+**Success Criteria** (what must be TRUE):
+  1. A closure returned from a function outlives its creating scope; the env struct is heap-allocated and not freed when the creating function returns; the caller can invoke the closure and observe correct values
+  2. Two sibling closures in the same scope that capture the same `var` share a single heap cell; a mutation through one closure is immediately visible when reading through the other
+  3. A recursive lambda defined via `var factorial = ...` that captures itself by reference correctly calls itself recursively via the updated closure pointer (two-step placeholder-then-overwrite init)
+  4. A lambda defined inside another lambda correctly captures variables from both the outer and inner scopes; three levels of env indirection (example 9) produce correct output
+  5. Lambda capture examples 5, 6, 9, 10, 11, 17, 18, 19, and 20 from `docs/lambda-capture/` all compile and produce the documented correct output
+**Plans**: TBD
+
+### Phase 35: Concurrency Captures
+**Goal**: Spawn tasks and parallel-for bodies can capture read-only outer variables in their env structs, with correct env lifetime across thread boundaries
+**Depends on**: Phase 34
+**Requirements**: CONC-01, CONC-02
+**Success Criteria** (what must be TRUE):
+  1. A `spawn` block that reads outer variables compiles with those variables in the task's env struct; the spawned thread accesses the captured values correctly and the env outlives the thread execution
+  2. A `parallel for` body that references a captured read-only array compiles with the array pointer in the pfor chunk function's env; all iterations read the correct values
+  3. Lambda capture examples 15 and 16 from `docs/lambda-capture/` compile and produce the documented correct output
+  4. All existing spawn and parallel-for tests continue to pass with no regressions
+**Plans**: TBD
+
+### Phase 36: Diagnostics, Benchmarks & Test Suite
+**Goal**: The milestone is complete: all 20 capture examples pass, capture errors produce clear diagnostics, and closure call overhead is measured
+**Depends on**: Phase 35
+**Requirements**: DIAG-01, DIAG-02, DIAG-03
+**Success Criteria** (what must be TRUE):
+  1. A lambda that references an outer variable without capturing it produces a compiler error with a source snippet pointing to the offending reference and a suggestion to capture it
+  2. A closure performance benchmark exists and reports measurable closure call overhead vs an equivalent direct function call; results are documented
+  3. Integration tests for all 20 canonical lambda capture examples exist in the test suite and all pass; the test suite can be run as a group to verify capture correctness
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
+Phases execute in numeric order: 32 -> 33 -> 34 -> 35 -> 36
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -619,29 +715,16 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
 | 21. Parallel-For Fix | v0.0.6-alpha | 1/1 | Complete | 2026-03-31 |
 | 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
-| 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
-| 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
-| 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
-| 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
-| 28. Phi Elimination Improvement | 1/1 | Complete    | 2026-04-01 | - |
-| 29. Sized Integers | 2/2 | Complete    | 2026-04-01 | - |
-| 30. Benchmark Validation and Exploration | 2/2 | Complete    | 2026-04-01 | - |
-| 31. Spawn/Await Correctness | 2/2 | Complete   | 2026-04-01 | - |
-
-### Phase 31: Spawn/Await Correctness
-
-**Goal:** Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
-**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
-**Depends on:** Phase 30
-**Success Criteria** (what must be TRUE):
-  1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
-  2. Multiple spawn+await pairs work correctly in sequence
-  3. Fire-and-forget spawn compiles with compiler warning about un-captured handle
-  4. parallel-for blocks until all iterations complete (no regression)
-  5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
-  6. Full benchmark and test suites pass with updated thresholds
-**Plans:** 2/2 plans complete
-
-Plans:
-- [ ] 31-01-PLAN.md -- Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
-- [ ] 31-02-PLAN.md -- Benchmark updates + threshold re-validation + human verification
+| 24. Range Bound Hoisting | v0.0.7-alpha | 1/1 | Complete | 2026-03-31 |
+| 25. Stack Array Promotion | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 26. LOAD Expression Inlining | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 27. Function Inlining | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 28. Phi Elimination Improvement | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 29. Sized Integers | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 32. Capture Foundation | 1/3 | In Progress|  | - |
+| 33. Value & Mutable Captures + Optimizer Guards | v0.1.0-alpha | 0/TBD | Not started | - |
+| 34. Advanced Captures | v0.1.0-alpha | 0/TBD | Not started | - |
+| 35. Concurrency Captures | v0.1.0-alpha | 0/TBD | Not started | - |
+| 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | 0/TBD | Not started | - |
