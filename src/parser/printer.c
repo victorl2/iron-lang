@@ -669,6 +669,36 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_PATTERN: {
+            Iron_Pattern *n = (Iron_Pattern *)node;
+            if (n->enum_name) iron_strbuf_appendf(ctx->sb, "%s.", n->enum_name);
+            iron_strbuf_appendf(ctx->sb, "%s", n->variant_name ? n->variant_name : "_");
+            if (n->binding_count > 0) {
+                iron_strbuf_appendf(ctx->sb, "(");
+                for (int i = 0; i < n->binding_count; i++) {
+                    if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                    if (n->nested_patterns && n->nested_patterns[i]) {
+                        print_node(ctx, n->nested_patterns[i]);
+                    } else {
+                        iron_strbuf_appendf(ctx->sb, "%s",
+                            (n->binding_names && n->binding_names[i]) ? n->binding_names[i] : "_");
+                    }
+                }
+                iron_strbuf_appendf(ctx->sb, ")");
+            }
+            break;
+        }
+
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *n = (Iron_EnumConstruct *)node;
+            if (n->enum_name) iron_strbuf_appendf(ctx->sb, "%s.", n->enum_name);
+            iron_strbuf_appendf(ctx->sb, "%s", n->variant_name ? n->variant_name : "");
+            if (n->arg_count > 0) {
+                print_args(ctx, n->args, n->arg_count);
+            }
+            break;
+        }
+
         case IRON_NODE_COUNT:
             break;
     }
