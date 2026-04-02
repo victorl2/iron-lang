@@ -1048,6 +1048,29 @@ static bool run_copy_propagation(IronLIR_Module *module) {
             }
         }
 
+        /* Step 1b: Remove allocas whose address is captured by MAKE_CLOSURE.
+         * These allocas are aliased through the env struct pointer and may be
+         * mutated by the closure body — copy-propagation must not forward them. */
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_MAKE_CLOSURE) {
+                    for (int ci = 0; ci < in->make_closure.capture_count; ci++) {
+                        IronLIR_ValueId cap = in->make_closure.captures[ci];
+                        /* The capture may be the alloca itself or a LOAD of it.
+                         * Remove any alloca that appears as a capture operand. */
+                        if (cap != IRON_LIR_VALUE_INVALID &&
+                            (ptrdiff_t)cap < arrlen(fn->value_table) &&
+                            fn->value_table[cap] != NULL &&
+                            fn->value_table[cap]->kind == IRON_LIR_ALLOCA) {
+                            hmdel(store_info, cap);
+                        }
+                    }
+                }
+            }
+        }
+
         /* Step 2: Build replacement map for LOADs of single-store allocas.
          * load_result_id -> stored_value */
         ValueReplEntry *repl_map = NULL;
