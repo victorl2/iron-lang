@@ -1,7 +1,7 @@
-# Requirements: Iron Compiler — Semantic Analysis Gaps
+# Requirements: Iron Compiler -- Semantic Analysis Gaps
 
 **Defined:** 2026-04-02
-**Core Value:** Every invalid Iron program must produce a clear diagnostic at compile time — no silent pass-through to the C backend.
+**Core Value:** Every invalid Iron program must produce a clear diagnostic at compile time -- no silent pass-through to the C backend.
 
 ## v1 Requirements
 
@@ -121,56 +121,56 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MATCH-01 | — | Pending |
-| MATCH-02 | — | Pending |
-| MATCH-03 | — | Pending |
-| LIR-01 | — | Pending |
-| LIR-02 | — | Pending |
-| LIR-03 | — | Pending |
-| LIR-04 | — | Pending |
-| LIR-05 | — | Pending |
-| GEN-01 | — | Pending |
-| GEN-02 | — | Pending |
-| GEN-03 | — | Pending |
-| GEN-04 | — | Pending |
-| CAST-01 | — | Pending |
-| CAST-02 | — | Pending |
-| CAST-03 | — | Pending |
-| CAST-04 | — | Pending |
-| INIT-01 | — | Pending |
-| INIT-02 | — | Pending |
-| INIT-03 | — | Pending |
-| INIT-04 | — | Pending |
-| BOUNDS-01 | — | Pending |
-| BOUNDS-02 | — | Pending |
-| BOUNDS-03 | — | Pending |
-| SLICE-01 | — | Pending |
-| SLICE-02 | — | Pending |
-| SLICE-03 | — | Pending |
-| SLICE-04 | — | Pending |
-| ESC-01 | — | Pending |
-| ESC-02 | — | Pending |
-| ESC-03 | — | Pending |
-| ESC-04 | — | Pending |
-| OVFL-01 | — | Pending |
-| OVFL-02 | — | Pending |
-| OVFL-03 | — | Pending |
-| STRN-01 | — | Pending |
-| STRN-02 | — | Pending |
-| CONC-01 | — | Pending |
-| CONC-02 | — | Pending |
-| CONC-03 | — | Pending |
-| CONC-04 | — | Pending |
-| CONC-05 | — | Pending |
-| TEST-01 | — | Pending |
-| TEST-02 | — | Pending |
-| TEST-03 | — | Pending |
+| LIR-01 | Phase 32 | Pending |
+| LIR-02 | Phase 32 | Pending |
+| LIR-03 | Phase 32 | Pending |
+| LIR-04 | Phase 32 | Pending |
+| LIR-05 | Phase 32 | Pending |
+| MATCH-01 | Phase 33 | Pending |
+| MATCH-02 | Phase 33 | Pending |
+| MATCH-03 | Phase 33 | Pending |
+| CAST-01 | Phase 33 | Pending |
+| CAST-02 | Phase 33 | Pending |
+| CAST-03 | Phase 33 | Pending |
+| CAST-04 | Phase 33 | Pending |
+| STRN-01 | Phase 33 | Pending |
+| STRN-02 | Phase 33 | Pending |
+| OVFL-01 | Phase 33 | Pending |
+| OVFL-02 | Phase 33 | Pending |
+| OVFL-03 | Phase 33 | Pending |
+| BOUNDS-01 | Phase 34 | Pending |
+| BOUNDS-02 | Phase 34 | Pending |
+| BOUNDS-03 | Phase 34 | Pending |
+| SLICE-01 | Phase 34 | Pending |
+| SLICE-02 | Phase 34 | Pending |
+| SLICE-03 | Phase 34 | Pending |
+| SLICE-04 | Phase 34 | Pending |
+| ESC-01 | Phase 35 | Pending |
+| ESC-02 | Phase 35 | Pending |
+| ESC-03 | Phase 35 | Pending |
+| ESC-04 | Phase 35 | Pending |
+| INIT-01 | Phase 36 | Pending |
+| INIT-02 | Phase 36 | Pending |
+| INIT-03 | Phase 36 | Pending |
+| INIT-04 | Phase 36 | Pending |
+| GEN-01 | Phase 37 | Pending |
+| GEN-02 | Phase 37 | Pending |
+| GEN-03 | Phase 37 | Pending |
+| GEN-04 | Phase 37 | Pending |
+| CONC-01 | Phase 38 | Pending |
+| CONC-02 | Phase 38 | Pending |
+| CONC-03 | Phase 38 | Pending |
+| CONC-04 | Phase 38 | Pending |
+| CONC-05 | Phase 38 | Pending |
+| TEST-01 | Phase 39 | Pending |
+| TEST-02 | Phase 39 | Pending |
+| TEST-03 | Phase 39 | Pending |
 
 **Coverage:**
-- v1 requirements: 43 total
-- Mapped to phases: 0
-- Unmapped: 43 ⚠️
+- v1 requirements: 44 total
+- Mapped to phases: 44
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-02*
-*Last updated: 2026-04-02 after initial definition*
+*Last updated: 2026-04-02 after roadmap creation*
