@@ -94,6 +94,7 @@ typedef enum {
     IRON_TOK_EOF,
     IRON_TOK_ERROR,
     IRON_TOK_IDENTIFIER,
+    IRON_TOK_WILDCARD,      /* _ (bare underscore) */
 
     /* Sentinel */
     IRON_TOK_COUNT
