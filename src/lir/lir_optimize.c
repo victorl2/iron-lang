@@ -3242,6 +3242,11 @@ static void run_function_inlining(IronLIR_Module *module,
     for (int fi = 0; fi < module->func_count; fi++) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
+        /* Skip lifted functions — their void *_env calling convention
+         * is incompatible with the inliner's parameter remapping. */
+        if (strncmp(fn->name, "__lambda_", 9) == 0 ||
+            strncmp(fn->name, "__spawn_",  8) == 0 ||
+            strncmp(fn->name, "__pfor_",   7) == 0) continue;
         if (count_func_instructions(fn) > 30) continue;  /* threshold: 30 (phi-eliminate adds ~9 instrs for param allocas) */
         if (shgeti(local_purity, (char*)fn->name) < 0) continue;
         if (func_has_self_call(fn)) continue;

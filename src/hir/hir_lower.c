@@ -985,7 +985,19 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                        hir_params ? hir_params : NULL,
                                                        le->param_count,
                                                        ret_ty, lambda_body,
-                                                       le->resolved_type, name_copy, span);
+                                                       le->resolved_type, name_copy,
+                                                       le->captures, le->capture_count,
+                                                       span);
+
+        /* Resolve capture VarIds from the current (enclosing) scope */
+        if (le->capture_count > 0) {
+            IronHIR_VarId *cap_var_ids = NULL;
+            for (int c = 0; c < le->capture_count; c++) {
+                IronHIR_VarId vid = lookup_var(ctx, le->captures[c].name);
+                arrput(cap_var_ids, vid);
+            }
+            result->closure.capture_var_ids = cap_var_ids;
+        }
 
         /* Queue for lifting */
         LiftPending lp;
@@ -1381,21 +1393,68 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
             if (ret_ty && ret_ty->kind == IRON_TYPE_FUNC) {
                 ret_ty = ret_ty->func.return_type;
             }
+
+            /* If capturing, prepend a void *_env parameter as the first param */
+            IronHIR_Param *final_params = NULL;
+            int total_params = le->param_count;
+            if (le->capture_count > 0) {
+                total_params = le->param_count + 1;
+                /* Build new params array: [_env, param0, param1, ...] */
+                final_params = (IronHIR_Param *)iron_arena_alloc(
+                    mod->arena,
+                    (size_t)total_params * sizeof(IronHIR_Param),
+                    _Alignof(IronHIR_Param));
+                /* _env placeholder — VarId set below after alloc */
+                final_params[0].name   = "_env";
+                final_params[0].type   = NULL; /* void* — emit_c handles NULL-typed params */
+                final_params[0].var_id = IRON_HIR_VAR_INVALID;
+                for (int p = 0; p < le->param_count; p++) {
+                    final_params[p + 1] = params ? params[p] : (IronHIR_Param){0};
+                }
+            } else {
+                final_params = params;
+            }
+
             IronHIR_Func *lifted = iron_hir_func_create(mod, lp->lifted_name,
-                                                          params, le->param_count,
+                                                          final_params, total_params,
                                                           ret_ty);
             lifted->body = iron_hir_block_create(mod);
+
+            /* Store capture metadata on the lifted function */
+            lifted->captures       = le->captures;
+            lifted->capture_count  = le->capture_count;
 
             /* Push scope and declare params */
             push_scope(ctx);
             ctx->current_func = lifted;
             ctx->current_func_name = lp->lifted_name;
+
+            /* Declare _env param in scope if capturing */
+            if (le->capture_count > 0) {
+                IronHIR_VarId env_vid = iron_hir_alloc_var(mod, "_env", NULL, false);
+                final_params[0].var_id = env_vid;
+                declare_var(ctx, "_env", env_vid);
+            }
+
             for (int p = 0; p < le->param_count; p++) {
                 Iron_Param *ap = (Iron_Param *)le->params[p];
+                int pi = (le->capture_count > 0) ? p + 1 : p;
                 Iron_Type  *pt = params ? params[p].type : NULL;
                 IronHIR_VarId pid = iron_hir_alloc_var(mod, ap->name, pt, false);
-                if (params) params[p].var_id = pid;
+                if (final_params) final_params[pi].var_id = pid;
                 declare_var(ctx, ap->name, pid);
+            }
+
+            /* Declare captured variables in scope so they resolve in the body.
+             * These will be redirected to env field accesses at C emission time. */
+            if (le->capture_count > 0) {
+                for (int c = 0; c < le->capture_count; c++) {
+                    IronHIR_VarId cvid = iron_hir_alloc_var(mod,
+                                                              le->captures[c].name,
+                                                              le->captures[c].type,
+                                                              le->captures[c].is_mutable);
+                    declare_var(ctx, le->captures[c].name, cvid);
+                }
             }
 
             IronHIR_Block *saved = ctx->current_block;

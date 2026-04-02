@@ -266,6 +266,19 @@ void Iron_condvar_broadcast(Iron_CondVar *cv);
 void iron_runtime_init(void);
 void iron_runtime_shutdown(void);
 
+/* ── Closure fat pointer ─────────────────────────────────────────────────── */
+/* All closure values — capturing and non-capturing — use this struct.
+ * Non-capturing closures have env = NULL. */
+typedef struct {
+    void *env;
+    void (*fn)(void *);
+} Iron_Closure;
+
+/* Call a closure. Casts fn to the actual signature and passes env as first arg.
+ * For void closures with no extra args: IRON_CALL_CLOSURE(c)
+ * For closures with args, the emitter writes explicit casts instead. */
+#define IRON_CALL_CLOSURE(c) ((c).fn((c).env))
+
 /* ── Collection macros ───────────────────────────────────────────────────────
  * Macro-generated List[T], Map[K,V], and Set[T] collection types.
  *

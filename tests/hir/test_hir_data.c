@@ -258,7 +258,8 @@ void test_hir_closures_spawn_parallel_defer(void) {
 
     IronHIR_Expr *closure = iron_hir_expr_closure(g_mod, params, 1,
                                                     int_type, cl_body,
-                                                    NULL, NULL, span);
+                                                    NULL, NULL,
+                                                    NULL, 0, span);
 
     TEST_ASSERT_NOT_NULL(closure);
     TEST_ASSERT_EQUAL_INT(IRON_HIR_EXPR_CLOSURE, closure->kind);

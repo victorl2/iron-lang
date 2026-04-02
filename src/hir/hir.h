@@ -3,6 +3,7 @@
 
 #include "diagnostics/diagnostics.h"
 #include "analyzer/types.h"
+#include "parser/ast.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 #include <stdbool.h>
@@ -310,11 +311,14 @@ struct IronHIR_Expr {
 
         /* IRON_HIR_EXPR_CLOSURE */
         struct {
-            IronHIR_Param *params;      /* stb_ds array */
-            int            param_count;
-            Iron_Type     *return_type;
-            IronHIR_Block *body;
-            const char    *lifted_name; /* assigned top-level name e.g. "__lambda_0" */
+            IronHIR_Param    *params;          /* stb_ds array */
+            int               param_count;
+            Iron_Type        *return_type;
+            IronHIR_Block    *body;
+            const char       *lifted_name;     /* assigned top-level name e.g. "__lambda_0" */
+            Iron_CaptureEntry *captures;       /* from AST capture analysis */
+            int               capture_count;
+            IronHIR_VarId    *capture_var_ids; /* VarIds of captured vars in enclosing scope */
         } closure;
 
         /* IRON_HIR_EXPR_HEAP */
@@ -389,13 +393,15 @@ struct IronHIR_Expr {
 /* ── Function ────────────────────────────────────────────────────────────── */
 
 struct IronHIR_Func {
-    const char     *name;
-    Iron_Type      *return_type;
-    IronHIR_Param  *params;       /* stb_ds array */
-    int             param_count;
-    IronHIR_Block  *body;
-    bool            is_extern;
-    const char     *extern_c_name;
+    const char        *name;
+    Iron_Type         *return_type;
+    IronHIR_Param     *params;         /* stb_ds array */
+    int                param_count;
+    IronHIR_Block     *body;
+    bool               is_extern;
+    const char        *extern_c_name;
+    Iron_CaptureEntry *captures;       /* from capture analysis; NULL for non-capturing */
+    int                capture_count;
 };
 
 /* ── Module ──────────────────────────────────────────────────────────────── */
@@ -509,6 +515,7 @@ IronHIR_Expr *iron_hir_expr_closure(IronHIR_Module *mod,
                                      IronHIR_Param *params, int param_count,
                                      Iron_Type *return_type, IronHIR_Block *body,
                                      Iron_Type *type, const char *lifted_name,
+                                     Iron_CaptureEntry *captures, int capture_count,
                                      Iron_Span span);
 IronHIR_Expr *iron_hir_expr_heap(IronHIR_Module *mod, IronHIR_Expr *inner,
                                   bool auto_free, bool escapes,
