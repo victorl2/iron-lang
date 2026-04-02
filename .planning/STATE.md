@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.0
-milestone_name: milestone
-status: planning
-stopped_at: Completed 37-compiler-dispatch-fixes-technical-debt/37-04-PLAN.md
-last_updated: "2026-04-02T21:30:07.227Z"
-last_activity: 2026-04-02 — Roadmap created for v0.2.0-alpha; v0.1.0-alpha Lambda Capture marked complete
+milestone: v0.1.0-alpha
+milestone_name: Lambda Capture
+status: executing
+stopped_at: "Phase 38-01 complete — 10 simple Iron_string_* method bodies added"
+last_updated: "2026-04-02T23:09:57Z"
+last_activity: "2026-04-02 — Phase 38-01 complete: upper, lower, trim, contains, starts_with, ends_with, index_of, char_at, len, count added to iron_string.c"
 progress:
-  total_phases: 6
-  completed_phases: 0
-  total_plans: 4
-  completed_plans: 1
-  percent: 0
+  total_phases: 5
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 3
+  percent: 20
 ---
 
 # Project State
@@ -21,67 +21,47 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** v0.2.0-alpha Standard Library Expansion — Phase 37: Compiler Dispatch Fixes + Technical Debt
+**Current focus:** v0.1.0-alpha Lambda Capture — Phase 38 string built-in methods in progress
 
 ## Current Position
 
-Phase: 37 of 42 (Compiler Dispatch Fixes + Technical Debt)
-Plan: None yet — ready to plan
-Status: Ready to plan
-Last activity: 2026-04-02 — Roadmap created for v0.2.0-alpha; v0.1.0-alpha Lambda Capture marked complete
-
-Progress: [░░░░░░░░░░] 0%
-
-## Performance Metrics
-
-**Velocity:**
-- Total plans completed: 0 (this milestone)
-- Average duration: —
-- Total execution time: —
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| — | — | — | — |
-
-**Recent Trend:**
-- Last 5 plans: —
-- Trend: —
-| Phase 37 P04 | 2 | 1 tasks | 3 files |
+Phase: 38 of 38 (String Built-In Methods — Plan 01 COMPLETE)
+Plan: 01 complete, 02 next
+Status: Phase 38 Plan 01 complete — 10 simple method bodies added
+Last activity: 2026-04-02 — Phase 38-01 complete: 10 simple Iron_string_* methods added to iron_string.c, build clean
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [v0.2.0-alpha roadmap]: Phase 37 is a strict gate — string and collection method dispatch is silently broken until COMP-01/COMP-02 land; no runtime work is testable before it
-- [v0.2.0-alpha roadmap]: Phases 38 and 39 have no dependency on each other after Phase 37 and can be done in either order
-- [v0.2.0-alpha roadmap]: Phase 40 (collection HOFs) depends only on Phase 37 (IRON_TYPE_ARRAY dispatch), not on Phase 38 or 39
-- [v0.2.0-alpha roadmap]: Phase 41 (OS module) depends on Phase 39 (IO path operations complete)
-- [v0.2.0-alpha roadmap]: Phase 42 (testing) depends on Phase 38 (string methods for assertion messages) and Phase 40 (collections for test result tracking)
-- [v0.2.0-alpha roadmap]: String memory ownership policy (heap leak vs iron_string_free cleanup) must be decided before Phase 38 begins — affects all 19 method contracts
-- [v0.2.0-alpha roadmap]: Cross-type list.map deferred to v2 (requires generics); same-type-only restriction documented in API
-- [32-02 closure wiring]: Use Iron_Closure fat pointer for all closures (capturing and non-capturing); non-capturing closures have env=NULL
-- [32-02 closure wiring]: Capture type resolution must use id->resolved_type (typechecker-annotated ident field), not id->resolved_sym->type (always NULL for variables in resolver scope)
-- [32-02 closure wiring]: Capture-alias allocas in lifted functions are opaque to optimizer — skip copy-prop and store-load-elim forwarding for them; MAKE_CLOSURE captures mark outer allocas as escaped
-- [Phase 37]: No code changes in COMP-05/COMP-06 — documentation-only WINDOWS-TODO comments as mandated by locked plan decision
+- [Phase 32]: Uniform Iron_Closure for ALL closures (capturing + non-capturing), env=NULL when no captures
+- [Phase 32]: Iron_Closure typedef in runtime/iron_runtime.h
+- [Phase 32]: Env struct fields use original Iron variable names
+- [Phase 32]: Mutable var captures use typed pointer fields (int64_t *count)
+- [Phase 32]: Capture analysis in src/analyzer/capture.c, runs between typecheck and escape analysis
+- [Phase 32]: Full val/var distinction in capture analysis
+- [Phase 32]: Self capture deferred to Phase 34
+- [Phase 32]: Non-capturing closures call lifted function directly by name
+- [Phase 32-03]: Copy-prop must exclude allocas captured by MAKE_CLOSURE (outer function's alloca forwarding bug)
+- [Phase 32-03]: capture_04 (array-of-closures) causes compiler infinite loop — deferred to Phase 33
 
 ### Pending Todos
 
-None yet.
+- Fix compiler infinite loop when compiling array-of-Iron_Closure (capture_04_loop_snapshot)
 
 ### Blockers/Concerns
 
-- [Phase 37 planning]: Verify exact hir_to_lir.c element-type-to-C-suffix mapping rules for IRON_TYPE_ARRAY receivers before writing COMP-02 fix
-- [Phase 38 planning]: Decide string memory ownership policy before writing any method implementation
-- [Phase 40 planning]: Prototype Iron_Closure callback ABI with filter first before expanding to all HOFs
-- [Phase 42 planning]: Verify how ctx->module->funcs is populated and accessible from emit_c.c before designing test discovery loop
+- Array-of-Iron_Closure type resolution causes compiler hang — must be fixed in Phase 33 before loop snapshot examples can work
+
+### Decisions (Phase 38)
+
+- [Phase 38-01]: iron_string_len returns byte count (not codepoint count) — O(1), consistent with STR-ADV-01 deferral
+- [Phase 38-01]: iron_string_char_at returns empty string for out-of-range index (no crash)
+- [Phase 38-01]: iron_string_count returns 0 for empty sub (avoids strstr infinite-loop pitfall)
+- [Phase 38-01]: All 10 method bodies appended to iron_string.c Phase 38 section; no existing code modified
 
 ## Session Continuity
 
-Last session: 2026-04-02T21:30:07.224Z
-Stopped at: Completed 37-compiler-dispatch-fixes-technical-debt/37-04-PLAN.md
+Last session: 2026-04-02T23:09:57Z
+Stopped at: Completed 38-01-PLAN.md (Phase 38 Plan 01 complete)
 Resume file: None
