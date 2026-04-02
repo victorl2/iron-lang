@@ -714,7 +714,13 @@ Plans:
   3. `iron build` with more than 96 modules in the clang argv does not silently corrupt the stack; the static assert in `build.c` fires at compile time if the buffer ceiling is crossed
   4. `import os` in a source file is detected correctly and does not fire on the substring `os` inside a comment or string literal
   5. All existing integration and benchmark tests pass with no regressions on macOS, Linux, and Windows
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — String and collection method dispatch (typecheck.c + hir_to_lir.c + wrapper files)
+- [ ] 37-02-PLAN.md — Build system fixes (argv_buf[128] + token-level import detection)
+- [ ] 37-03-PLAN.md — argc/argv threading through iron_runtime_init()
+- [ ] 37-04-PLAN.md — Windows portability documentation (WINDOWS-TODO comments)
 
 ### Phase 38: String Built-In Methods
 **Goal**: Every string method in the Iron language definition is callable from Iron programs and produces correct output, with integration tests proving each one
