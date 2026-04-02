@@ -199,7 +199,13 @@ void iron_threads_shutdown(void);
 
 /* ── Runtime lifecycle ───────────────────────────────────────────────────── */
 
-void iron_runtime_init(void) {
+/* Stored during iron_runtime_init for later access by iron_os_args() */
+static int    s_iron_argc = 0;
+static char **s_iron_argv = NULL;
+
+void iron_runtime_init(int argc, char **argv) {
+    s_iron_argc = argc;
+    s_iron_argv = argv;
     iron__ensure_intern_lock();
     IRON_MUTEX_LOCK(s_intern_lock);
     if (s_intern_table == NULL) {

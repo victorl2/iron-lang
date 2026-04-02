@@ -3437,9 +3437,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         iron_strbuf_appendf(&ctx.main_wrapper,
                              "int main(int argc, char** argv) {\n");
         iron_strbuf_appendf(&ctx.main_wrapper,
-                             "    (void)argc; (void)argv;\n");
-        iron_strbuf_appendf(&ctx.main_wrapper,
-                             "    iron_runtime_init();\n");
+                             "    iron_runtime_init(argc, argv);\n");
         iron_strbuf_appendf(&ctx.main_wrapper,
                              "    Iron_main();\n");
         iron_strbuf_appendf(&ctx.main_wrapper,
