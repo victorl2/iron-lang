@@ -131,7 +131,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Integration Tests
 
-- [ ] **ITEST-01**: Integration tests exist for all string methods
+- [x] **ITEST-01**: Integration tests exist for all string methods
 - [ ] **ITEST-02**: Integration tests exist for all collection operations
 - [ ] **ITEST-03**: Integration tests exist for all math additions
 - [ ] **ITEST-04**: Integration tests exist for all IO additions
