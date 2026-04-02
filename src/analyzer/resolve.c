@@ -760,6 +760,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             { "Float32", IRON_TYPE_FLOAT32 },
             { "Float64", IRON_TYPE_FLOAT64 },
             { "Bool",    IRON_TYPE_BOOL    },
+            { "String",  IRON_TYPE_STRING  },
         };
         for (int pi = 0; pi < (int)(sizeof(prims)/sizeof(prims[0])); pi++) {
             Iron_Type *pt = iron_type_make_primitive(prims[pi].kind);

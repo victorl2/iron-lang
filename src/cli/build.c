@@ -760,6 +760,29 @@ int iron_build(const char *source_path, const char *output_path,
 
     iron_arena_free(&detect_arena);
 
+    /* 1h. Always prepend string.iron — String methods are available on every
+     * String variable without an explicit import statement. */
+    {
+        char *str_path = make_path(base_dir, "stdlib/string.iron");
+        if (str_path) {
+            long str_size = 0;
+            char *str_src = read_file(str_path, &str_size);
+            free(str_path);
+            if (str_src) {
+                size_t combined_len = (size_t)str_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, str_src, (size_t)str_size);
+                    combined[str_size] = '\n';
+                    strcpy(combined + str_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(str_src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();

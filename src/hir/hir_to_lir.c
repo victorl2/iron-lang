@@ -779,6 +779,57 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             Iron_Type *obj_type = expr->method_call.object->type;
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
+            } else if (obj_type->kind == IRON_TYPE_STRING) {
+                /* String: "string" is already lowercase — lowercasing loop is a no-op.
+                 * Result: snprintf → "string_upper" → mangle_func_name → "Iron_string_upper" */
+                type_name = "string";
+            } else if (obj_type->kind == IRON_TYPE_ARRAY) {
+                /* Collection: build the full "Iron_List_<elem_suffix>_<method>" name
+                 * directly and return early. mangle_func_name() skips names that
+                 * already start with "Iron_", so no double-prefixing. */
+                Iron_Type *elem = obj_type->array.elem;
+                const char *elem_suffix = "int64_t";
+                if (elem) {
+                    switch (elem->kind) {
+                        case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
+                        case IRON_TYPE_INT32:  elem_suffix = "int32_t";     break;
+                        case IRON_TYPE_FLOAT:  elem_suffix = "double";      break;
+                        case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
+                        case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
+                        case IRON_TYPE_OBJECT:
+                            if (elem->object.decl) {
+                                size_t slen = 5 + strlen(elem->object.decl->name) + 1;
+                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                snprintf(s, slen, "Iron_%s", elem->object.decl->name);
+                                elem_suffix = s;
+                            }
+                            break;
+                        default: break;
+                    }
+                }
+                const char *coll_method = expr->method_call.method;
+                size_t clen = 10 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
+                char *full_name = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
+                snprintf(full_name, clen, "Iron_List_%s_%s", elem_suffix, coll_method);
+
+                /* Build args and return early — skip the generic mangling path below */
+                IronLIR_ValueId *coll_args = NULL;
+                if (!is_static_call) {
+                    IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+                    arrput(coll_args, self_val);
+                }
+                for (int i = 0; i < expr->method_call.arg_count; i++) {
+                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    arrput(coll_args, av);
+                }
+                int coll_argc = (int)arrlen(coll_args);
+                IronLIR_Instr *coll_fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                                               full_name, NULL, span);
+                IronLIR_Instr *coll_call = iron_lir_call(ctx->current_func, ctx->current_block,
+                                                           NULL, coll_fref->id,
+                                                           coll_args, coll_argc, type, span);
+                arrfree(coll_args);
+                return coll_call->id;
             }
         }
         /* Detect static method calls: receiver is a type reference, not an instance.
