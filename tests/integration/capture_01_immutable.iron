@@ -1,0 +1,5 @@
+func main() {
+  val name = "Iron"
+  val greet = func() { println("Hello from {name}") }
+  greet()
+}
