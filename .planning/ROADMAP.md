@@ -661,7 +661,7 @@ Plans:
   3. A lambda created inside a loop with `val captured = i` captures a fresh per-iteration copy of `i`; each closure in a collection holds its own independent value
   4. DCE does not remove `MAKE_CLOSURE` instructions; the function inliner skips all `__lambda_*` functions; copy propagation and store-load elimination respect heap-box indirection for `var` captures
   5. Lambda capture examples 1, 2, 3, 4, 7, 12, 13, and 14 from `docs/lambda-capture/` all compile and produce the documented correct output
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 - [ ] 33-01-PLAN.md — Test scaffolds + parser func-type annotation fix (root cause of hang)
 - [ ] 33-02-PLAN.md — Typecheck resolver + runtime Iron_List_Iron_Closure + DCE purity fix
@@ -831,7 +831,7 @@ Phases execute in numeric order: 37 → 38 → 39 → 40 → 41 → 42
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 32. Capture Foundation | 2/3 | In Progress|  | 2026-04-02 |
-| 33. Value & Mutable Captures + Optimizer Guards | 1/3 | In Progress|  | - |
+| 33. Value & Mutable Captures + Optimizer Guards | 2/3 | In Progress|  | - |
 | 34. Advanced Captures | v0.1.0-alpha | 0/TBD | Not started | - |
 | 35. Concurrency Captures | v0.1.0-alpha | 0/TBD | Not started | - |
 | 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | 0/TBD | Not started | - |
