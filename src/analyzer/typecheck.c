@@ -223,6 +223,38 @@ static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *i
             init_node->kind == IRON_NODE_INT_LIT);
 }
 
+/* Try to extract a compile-time constant integer from an AST node.
+ * Returns true if the node is a constant integer (INT_LIT or -INT_LIT),
+ * and writes the value to *out. Returns false otherwise. */
+__attribute__((unused))
+static bool try_get_constant_int(Iron_Node *node, long long *out) {
+    if (!node) return false;
+    if (node->kind == IRON_NODE_INT_LIT) {
+        Iron_IntLit *lit = (Iron_IntLit *)node;
+        if (!lit->value) return false;
+        errno = 0;
+        long long v = strtoll(lit->value, NULL, 10);
+        if (errno) return false;
+        *out = v;
+        return true;
+    }
+    /* Handle unary minus: -42 is UNARY(-, INT_LIT(42)) */
+    if (node->kind == IRON_NODE_UNARY) {
+        Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+        if (ue->op == IRON_TOK_MINUS && ue->operand &&
+            ue->operand->kind == IRON_NODE_INT_LIT) {
+            Iron_IntLit *lit = (Iron_IntLit *)ue->operand;
+            if (!lit->value) return false;
+            errno = 0;
+            long long v = strtoll(lit->value, NULL, 10);
+            if (errno) return false;
+            *out = -v;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ── Narrowing map helpers ────────────────────────────────────────────────── */
 
 static Iron_Type *narrowing_get(TypeCtx *ctx, const char *name) {
