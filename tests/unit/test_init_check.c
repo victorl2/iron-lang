@@ -67,31 +67,31 @@ static bool has_error(int code) {
 
 /* Test 1: var without init used before assignment => E0314 */
 void test_var_used_before_init(void) {
-    run_init_check("fn main() {\n  var x: Int\n  val y = x\n}");
+    run_init_check("func main() {\n  var x: Int\n  val y = x\n}");
     TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
 /* Test 2: var with init used after init => no E0314 */
 void test_var_with_init_no_error(void) {
-    run_init_check("fn main() {\n  var x: Int = 5\n  val y = x\n}");
+    run_init_check("func main() {\n  var x: Int = 5\n  val y = x\n}");
     TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
 /* Test 3: var assigned then used => no E0314 */
 void test_var_assigned_then_used_no_error(void) {
-    run_init_check("fn main() {\n  var x: Int\n  x = 5\n  val y = x\n}");
+    run_init_check("func main() {\n  var x: Int\n  x = 5\n  val y = x\n}");
     TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
 /* Test 4: val always has init => no E0314 */
 void test_val_always_initialized(void) {
-    run_init_check("fn main() {\n  val x = 10\n  val y = x\n}");
+    run_init_check("func main() {\n  val x = 10\n  val y = x\n}");
     TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
 /* Test 5: function param always initialized => no E0314 */
 void test_param_always_initialized(void) {
-    run_init_check("fn foo(x: Int) {\n  val y = x\n}");
+    run_init_check("func foo(x: Int) {\n  val y = x\n}");
     TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
