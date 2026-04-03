@@ -30,6 +30,7 @@
 #include "parser/parser.h"
 #include "parser/ast.h"
 #include "analyzer/analyzer.h"
+#include "analyzer/capture.h"
 #include "hir/hir_lower.h"
 #include "hir/hir_to_lir.h"
 #include "lir/emit_c.h"
@@ -837,6 +838,13 @@ int iron_build(const char *source_path, const char *output_path,
         free(source);
         free(base_dir);
         return 1;
+    }
+
+    /* 5a. Verbose: print capture analysis summary */
+    if (opts.verbose) {
+        fprintf(stderr, "=== Capture Analysis ===\n");
+        iron_capture_verbose_report((Iron_Program *)ast, &arena);
+        fprintf(stderr, "=== End Capture Analysis ===\n\n");
     }
 
     /* 6. Lower AST to HIR (module creates its own internal arena) */
