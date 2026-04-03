@@ -751,7 +751,7 @@ Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 an
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 32. AST and Type System Foundation | 2/3 | Complete    | 2026-04-02 | - |
 | 33. Resolver and Type Checker | 2/2 | Complete    | 2026-04-03 | - |
-| 34. HIR Extensions and Match Lowering | v0.0.8-alpha | 0/? | Not started | - |
+| 34. HIR Extensions and Match Lowering | 1/2 | In Progress|  | - |
 | 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/? | Not started | - |
 | 36. Methods on Enums and Syntax Migration | v0.0.8-alpha | 0/? | Not started | - |
 | 37. Generic Enums | v0.0.8-alpha | 0/? | Not started | - |
