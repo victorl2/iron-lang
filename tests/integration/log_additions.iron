@@ -1,0 +1,22 @@
+-- Integration test: LOG-01..02
+-- Log output (Log.debug/info/warn/error) goes to stderr with a timestamp
+-- and cannot be matched in .expected. This test verifies:
+--   LOG-02: log constants (DEBUG/INFO/WARN/ERROR) are accessible and correct
+--   LOG-01: log.set_level compiles and runs without error
+import log
+
+func main() {
+    -- LOG-02: constants accessible and correctly ordered
+    val d = Log.DEBUG
+    val i = Log.INFO
+    val w = Log.WARN
+    val e = Log.ERROR
+    println("{d}")
+    println("{i}")
+    println("{w}")
+    println("{e}")
+
+    -- LOG-01: set_level callable
+    Log.set_level(Log.ERROR)
+    println("set_level ok")
+}
