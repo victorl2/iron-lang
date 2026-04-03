@@ -1,6 +1,3 @@
-# Planning files (GSD workflow state) — DO NOT remove this entry
-.planning/
-
 # Build directories
 build/
 build_dbg/
