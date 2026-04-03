@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <errno.h>
 
 /* ── Type checker context ────────────────────────────────────────────────── */
 
@@ -103,7 +104,6 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                                                    strlen(suggestion)) : NULL);
 }
 
-__attribute__((unused))
 static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
                          const char *msg, const char *suggestion) {
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
@@ -112,7 +112,6 @@ static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
                                                    strlen(suggestion)) : NULL);
 }
 
-__attribute__((unused))
 static int type_bit_width(const Iron_Type *t) {
     if (!t) return 0;
     switch (t->kind) {
@@ -128,7 +127,6 @@ static int type_bit_width(const Iron_Type *t) {
     }
 }
 
-__attribute__((unused))
 static bool value_fits_type(int64_t val, const Iron_Type *t) {
     if (!t) return false;
     switch (t->kind) {
@@ -561,7 +559,62 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         }
                         if (is_numeric_or_bool) {
                             /* Type-check the argument */
-                            check_expr(ctx, ce->args[0]);
+                            Iron_Type *src_type = check_expr(ctx, ce->args[0]);
+
+                            /* Cast source validation: source must be numeric or bool */
+                            if (src_type && src_type->kind != IRON_TYPE_ERROR) {
+                                bool src_ok = iron_type_is_numeric(src_type) ||
+                                              src_type->kind == IRON_TYPE_BOOL;
+                                if (!src_ok) {
+                                    char msg[256];
+                                    const char *src_s = iron_type_to_string(src_type, ctx->arena);
+                                    const char *tgt_s = iron_type_to_string(target_t, ctx->arena);
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot cast '%s' to '%s': source must be numeric or Bool",
+                                             src_s, tgt_s);
+                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg, NULL);
+                                }
+                                /* Int->Bool is disallowed (must use explicit comparison) */
+                                else if (iron_type_is_integer(src_type) &&
+                                         target_t->kind == IRON_TYPE_BOOL) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot cast integer to Bool");
+                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg,
+                                               "use 'x != 0' instead");
+                                }
+                                /* Narrowing check: wider integer -> narrower integer */
+                                else if (iron_type_is_integer(src_type) &&
+                                         iron_type_is_integer(target_t) &&
+                                         type_bit_width(src_type) > type_bit_width(target_t)) {
+                                    /* Check if source is a constant that fits */
+                                    if (ce->args[0]->kind == IRON_NODE_INT_LIT) {
+                                        Iron_IntLit *lit = (Iron_IntLit *)ce->args[0];
+                                        errno = 0;
+                                        int64_t val = strtoll(lit->value, NULL, 10);
+                                        if (errno == ERANGE || !value_fits_type(val, target_t)) {
+                                            char msg[256];
+                                            snprintf(msg, sizeof(msg),
+                                                     "%s does not fit in %s",
+                                                     lit->value,
+                                                     iron_type_to_string(target_t, ctx->arena));
+                                            emit_error(ctx, IRON_ERR_CAST_OVERFLOW, ce->span,
+                                                       msg, NULL);
+                                        }
+                                        /* else: constant fits, no warning */
+                                    } else {
+                                        char msg[256];
+                                        const char *src_s = iron_type_to_string(src_type, ctx->arena);
+                                        const char *tgt_s = iron_type_to_string(target_t, ctx->arena);
+                                        snprintf(msg, sizeof(msg),
+                                                 "narrowing cast from '%s' to '%s' may lose data",
+                                                 src_s, tgt_s);
+                                        emit_warning(ctx, IRON_WARN_NARROWING_CAST, ce->span,
+                                                     msg, "verify value is in range");
+                                    }
+                                }
+                            }
+
                             /* Mark as primitive cast for the lowerer */
                             ce->is_primitive_cast = true;
                             result = target_t;
