@@ -367,6 +367,7 @@ typedef struct {
     struct Iron_Type   *resolved_type;  /* set by type checker */
     const char         *name;
     struct Iron_Symbol *resolved_sym;   /* set by resolver; NULL = unresolved */
+    const char         *constraint_name;  /* generic param constraint; NULL if unconstrained */
 } Iron_Ident;
 
 typedef struct {
