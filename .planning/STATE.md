@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 33 context gathered
-last_updated: "2026-04-03T00:54:34.474Z"
-last_activity: 2026-04-02 -- Completed 32-02 call argument validation
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-04-03T01:46:48.348Z"
+last_activity: 2026-04-03 -- Completed 33-01 error codes, helpers, and match exhaustiveness
 progress:
   total_phases: 8
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 5
+  completed_plans: 3
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** Every invalid Iron program must produce a clear diagnostic at compile time -- no silent pass-through to the C backend.
-**Current focus:** v0.0.8-alpha Semantic Analysis Gaps -- Phase 32 (LIR Verifier Hardening) in progress
+**Current focus:** v0.0.8-alpha Semantic Analysis Gaps -- Phase 33 (Type Validation Checks) in progress
 
 ## Current Position
 
-Phase: 32 of 39 (LIR Verifier Hardening)
-Plan: 2 of 2 in current phase (PHASE COMPLETE)
+Phase: 33 of 39 (Type Validation Checks)
+Plan: 1 of 3 in current phase
 Status: In progress
-Last activity: 2026-04-02 -- Completed 32-02 call argument validation
+Last activity: 2026-04-03 -- Completed 33-01 error codes, helpers, and match exhaustiveness
 
 Progress: [##########] 100%
 
@@ -50,6 +50,7 @@ Progress: [##########] 100%
 - Trend: Consistent
 
 *Updated after each plan completion*
+| Phase 33 P01 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,8 @@ Recent decisions affecting current work:
 - [32-01]: PHI mismatch diagnostic uses function name + block label (not type names) to keep snprintf simple and avoid arena allocation in error paths
 - [32-02]: Linear scan of module->funcs for callee lookup in call validation -- sufficient for verification pass
 - [32-02]: Indirect calls skipped silently in Invariant 8 since LIR lacks function type signatures (AGEN-01)
+- [Phase 33]: Used __attribute__((unused)) for helper functions staged for Plans 02/03 to satisfy -Werror
+- [Phase 33]: Stack-allocated bool[256] array for enum variant coverage tracking -- safe since enums are small
 
 ### Pending Todos
 
@@ -76,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-03T00:54:34.472Z
-Stopped at: Phase 33 context gathered
-Resume file: .planning/phases/33-type-validation-checks/33-CONTEXT.md
+Last session: 2026-04-03T01:46:48.345Z
+Stopped at: Completed 33-01-PLAN.md
+Resume file: None
