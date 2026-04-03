@@ -1,0 +1,9 @@
+func main() {
+  var count = 0
+  val inc = func() { count += 1 }
+  val get = func() -> Int { return count }
+  inc()
+  inc()
+  inc()
+  println("{get()}")
+}

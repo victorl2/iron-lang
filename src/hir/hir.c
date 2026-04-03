@@ -428,17 +428,21 @@ IronHIR_Expr *iron_hir_expr_closure(IronHIR_Module *mod,
                                       IronHIR_Param *params, int param_count,
                                       Iron_Type *return_type, IronHIR_Block *body,
                                       Iron_Type *type, const char *lifted_name,
+                                      Iron_CaptureEntry *captures, int capture_count,
                                       Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
     memset(e, 0, sizeof(*e));
-    e->kind                   = IRON_HIR_EXPR_CLOSURE;
-    e->span                   = span;
-    e->type                   = type;
-    e->closure.params         = params;
-    e->closure.param_count    = param_count;
-    e->closure.return_type    = return_type;
-    e->closure.body           = body;
-    e->closure.lifted_name    = lifted_name;
+    e->kind                        = IRON_HIR_EXPR_CLOSURE;
+    e->span                        = span;
+    e->type                        = type;
+    e->closure.params              = params;
+    e->closure.param_count         = param_count;
+    e->closure.return_type         = return_type;
+    e->closure.body                = body;
+    e->closure.lifted_name         = lifted_name;
+    e->closure.captures            = captures;
+    e->closure.capture_count       = capture_count;
+    e->closure.capture_var_ids     = NULL;
     return e;
 }
 

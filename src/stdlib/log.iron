@@ -1,7 +1,13 @@
 -- log.iron -- Iron wrapper for the Log stdlib module
-object Log {}
+object Log {
+  val DEBUG: Int
+  val INFO: Int
+  val WARN: Int
+  val ERROR: Int
+}
 
 func Log.debug(msg: String) {}
 func Log.info(msg: String) {}
 func Log.warn(msg: String) {}
 func Log.error(msg: String) {}
+func Log.set_level(level: Int) {}

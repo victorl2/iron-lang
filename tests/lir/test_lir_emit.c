@@ -84,7 +84,7 @@ void test_emit_hello_world(void) {
     TEST_ASSERT_NOT_NULL(strstr(result, "#include \"runtime/iron_runtime.h\""));
     TEST_ASSERT_NOT_NULL(strstr(result, "Iron_main"));
     TEST_ASSERT_NOT_NULL(strstr(result, "int main("));
-    TEST_ASSERT_NOT_NULL(strstr(result, "iron_runtime_init()"));
+    TEST_ASSERT_NOT_NULL(strstr(result, "iron_runtime_init(argc, argv)"));
     TEST_ASSERT_NOT_NULL(strstr(result, "iron_runtime_shutdown()"));
     TEST_ASSERT_NOT_NULL(strstr(result, "iron_string_from_literal"));
 

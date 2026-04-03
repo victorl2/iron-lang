@@ -1,0 +1,12 @@
+-- Test: STR-05 (starts_with), STR-06 (ends_with)
+func main() {
+    val s = "hello world"
+    val r1 = s.starts_with("hello")
+    val r2 = s.starts_with("world")
+    val r3 = s.ends_with("world")
+    val r4 = s.ends_with("hello")
+    println("{r1}")
+    println("{r2}")
+    println("{r3}")
+    println("{r4}")
+}

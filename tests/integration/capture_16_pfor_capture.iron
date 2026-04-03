@@ -1,0 +1,10 @@
+-- capture_16_pfor_capture.iron: parallel for captures an outer array
+-- Tests that a pfor body can read a val array from the enclosing scope.
+
+func main() {
+  val factors = [2, 4, 8]
+  for i in 3 parallel {
+    val v = factors[i] * (i + 1)
+  }
+  println("pfor captured")
+}

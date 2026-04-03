@@ -30,6 +30,7 @@
 #include "parser/parser.h"
 #include "parser/ast.h"
 #include "analyzer/analyzer.h"
+#include "analyzer/capture.h"
 #include "hir/hir_lower.h"
 #include "hir/hir_to_lir.h"
 #include "lir/emit_c.h"
@@ -38,6 +39,7 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
+#include "cli/iron_import_detect.h"
 
 #ifndef _WIN32
 extern char **environ;
@@ -510,7 +512,9 @@ static int invoke_clang(const char *c_file, const char *output,
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *rl_src = NULL, *rl_i_flag = NULL;
 
-    const char *argv_buf[96];
+    const char *argv_buf[128];
+    _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 128,
+                   "argv_buf too small — bump if adding new stdlib modules");
     int ai = 0;
 
     if (build_src_list(argv_buf, &ai, c_file, output,
@@ -637,8 +641,13 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1c–1g. Detect stdlib imports and prepend .iron wrappers.
+     * Use a temporary arena for the token-level import detection so the
+     * lexer allocations do not linger until full compilation. */
+    Iron_Arena detect_arena = iron_arena_create(32 * 1024);
+
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
-    if (strstr(source, "import raylib") != NULL) {
+    if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         opts.use_raylib = true;
         /* Locate raylib.iron relative to base_dir */
         char *rl_path = make_path(base_dir, "stdlib/raylib.iron");
@@ -663,7 +672,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1d. Detect "import math" and prepend math.iron */
-    if (strstr(source, "import math") != NULL) {
+    if (iron_detect_import(source, source_path, "math", &detect_arena)) {
         char *math_path = make_path(base_dir, "stdlib/math.iron");
         if (math_path) {
             long math_size = 0;
@@ -685,7 +694,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1e. Detect "import io" and prepend io.iron */
-    if (strstr(source, "import io") != NULL) {
+    if (iron_detect_import(source, source_path, "io", &detect_arena)) {
         char *io_path = make_path(base_dir, "stdlib/io.iron");
         if (io_path) {
             long io_size = 0;
@@ -707,7 +716,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1f. Detect "import time" and prepend time.iron */
-    if (strstr(source, "import time") != NULL) {
+    if (iron_detect_import(source, source_path, "time", &detect_arena)) {
         char *time_path = make_path(base_dir, "stdlib/time.iron");
         if (time_path) {
             long time_size = 0;
@@ -729,7 +738,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 1g. Detect "import log" and prepend log.iron */
-    if (strstr(source, "import log") != NULL) {
+    if (iron_detect_import(source, source_path, "log", &detect_arena)) {
         char *log_path = make_path(base_dir, "stdlib/log.iron");
         if (log_path) {
             long log_size = 0;
@@ -746,6 +755,31 @@ int iron_build(const char *source_path, const char *output_path,
                     source = combined;
                 }
                 free(log_src);
+            }
+        }
+    }
+
+    iron_arena_free(&detect_arena);
+
+    /* 1h. Always prepend string.iron — String methods are available on every
+     * String variable without an explicit import statement. */
+    {
+        char *str_path = make_path(base_dir, "stdlib/string.iron");
+        if (str_path) {
+            long str_size = 0;
+            char *str_src = read_file(str_path, &str_size);
+            free(str_path);
+            if (str_src) {
+                size_t combined_len = (size_t)str_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, str_src, (size_t)str_size);
+                    combined[str_size] = '\n';
+                    strcpy(combined + str_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(str_src);
             }
         }
     }
@@ -804,6 +838,13 @@ int iron_build(const char *source_path, const char *output_path,
         free(source);
         free(base_dir);
         return 1;
+    }
+
+    /* 5a. Verbose: print capture analysis summary */
+    if (opts.verbose) {
+        fprintf(stderr, "=== Capture Analysis ===\n");
+        iron_capture_verbose_report((Iron_Program *)ast, &arena);
+        fprintf(stderr, "=== End Capture Analysis ===\n\n");
     }
 
     /* 6. Lower AST to HIR (module creates its own internal arena) */

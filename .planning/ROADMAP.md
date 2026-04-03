@@ -7,7 +7,9 @@
 - v0.0.3-alpha Package Manager - Phases 12-14 (shipped 2026-03-28)
 - v0.0.5-alpha IR Optimization & High IR Architecture - Phases 15-20 (shipped 2026-03-30)
 - v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (shipped 2026-03-31)
-- v0.0.7-alpha Performance Optimization - Phases 24-30 (active)
+- v0.0.7-alpha Performance Optimization - Phases 24-31 (shipped 2026-04-01)
+- v0.1.0-alpha Lambda Capture - Phases 32-36 (active — Phase 32 complete, 33-36 pending)
+- v0.2.0-alpha Standard Library Expansion - Phases 37-42 (queued)
 
 ## Phases
 
@@ -70,16 +72,36 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
-### v0.0.7-alpha Performance Optimization
+<details>
+<summary>v0.0.7-alpha Performance Optimization (Phases 24-31) - SHIPPED 2026-04-01</summary>
 
-- [ ] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
-- [ ] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
-- [ ] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
+- [x] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
+- [x] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
+- [x] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
 - [x] **Phase 27: Function Inlining** - Small pure non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint
-- [ ] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
-- [ ] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
-- [ ] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
+- [x] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
+- [x] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
+- [x] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
 - [x] **Phase 31: Spawn/Await Correctness** - Verify spawn/await semantics work end-to-end; fix concurrency benchmarks for fair timing
+
+</details>
+
+### v0.1.0-alpha Lambda Capture
+
+- [x] **Phase 32: Capture Foundation** - Free variable analysis pass and IronClosure fat-pointer representation give the compiler the substrate all capture patterns require (completed 2026-04-02)
+- [x] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All 8 capture tests green (200/200 integration tests pass); 6 compiler bugs fixed; OPT-01/02/03 optimizer guards verified (completed 2026-04-03)
+- [ ] **Phase 34: Advanced Captures** - Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and higher-order function patterns all compile and run correctly
+- [x] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
+- [ ] **Phase 36: Diagnostics, Benchmarks & Test Suite** - Capture errors produce clear diagnostics; closure call overhead is benchmarked; all 20 canonical capture examples have integration tests
+
+### v0.2.0-alpha Standard Library Expansion
+
+- [ ] **Phase 37: Compiler Dispatch Fixes + Technical Debt** - String and collection method dispatch compiles correctly; all pre-existing portability and build bugs are fixed
+- [ ] **Phase 38: String Built-In Methods** - All 19 string methods are callable from Iron programs with correct behavior and integration tests
+- [ ] **Phase 39: Module Completions (Math, IO, Time, Log)** - All four existing stdlib modules implement their full language-definition.md specification
+- [ ] **Phase 40: Collection Higher-Order Operations** - List, Map, and Set gain higher-order methods using the Iron_Closure callback ABI
+- [ ] **Phase 41: OS Module** - New os module gives Iron programs access to environment variables, process info, working directory, and file system metadata
+- [ ] **Phase 42: Testing Module** - New test module provides a complete test framework with discovery, isolation, assertions, and iron test integration
 
 ## Phase Details
 
@@ -493,7 +515,8 @@ Plans:
 
 </details>
 
-### v0.0.7-alpha Phase Details
+<details>
+<summary>v0.0.7-alpha Phase Details (Phases 24-31)</summary>
 
 ### Phase 24: Range Bound Hoisting
 **Goal**: Every for-range loop evaluates its bound exactly once in the pre-header block instead of on every back-edge, eliminating redundant `Iron_range()` calls from the hot path
@@ -506,7 +529,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [x] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
 
 ### Phase 25: Stack Array Promotion
 **Goal**: `fill(CONST, val)` calls where the count is a compile-time constant <=1024 and the result does not escape the function emit stack-allocated arrays via `alloca()` instead of heap allocation
@@ -519,7 +542,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
+- [x] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
 
 ### Phase 26: LOAD Expression Inlining
 **Goal**: LOAD instructions are eligible for expression inlining when their single use is in the same basic block as the LOAD definition, removing one layer of copy temporaries from every function
@@ -532,7 +555,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
+- [x] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
 
 ### Phase 27: Function Inlining
 **Goal**: Small, pure, non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint so the merged code receives full optimizer benefit
@@ -559,40 +582,220 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
+- [x] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
 
 ### Phase 29: Sized Integers
 **Goal**: Iron programs can declare `Int32` variables that emit `int32_t` in generated C, enabling 32-bit memory bandwidth for array-heavy algorithms
 **Depends on**: Phase 28
-**Requirements**: INT-01, INT-02
+**Requirements**: INT32-01, INT32-02, INT32-03, INT32-04
 **Success Criteria** (what must be TRUE):
-  1. `val x: Int32 = 0` compiles through the full pipeline and emits `int32_t x = 0;` in the generated C; the Iron type system accepts `Int32` in variable declarations, function parameters, and return types
-  2. An array declared as `[Int32]` emits a `int32_t*` pointer in generated C; arithmetic on `Int32` elements operates on 32-bit values at runtime
-  3. All existing tests continue to pass; `Int32` programs compile with `clang -std=c11 -Wall -Werror` with zero warnings
+  1. `val x: Int32 = 42` compiles and emits `int32_t x = 42;` in generated C; `Int32` is a recognized type name in the type checker and propagates through arithmetic
+  2. A `List[Int32]` uses the pre-instantiated `Iron_List_int32_t` macro expansion; ARRAY_LIT of Int32 values does not produce type errors
+  3. Benchmark programs using `Int32` for inner-loop variables produce correct output and show improvement in memory-bandwidth-bound cases
+  4. All 137 benchmarks and integration tests pass; no regressions in programs using `Int` (the default 64-bit integer)
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 29-01-PLAN.md — Int32 type coercion, runtime list, integration tests
-- [ ] 29-02-PLAN.md — connected_components Int32 rewrite and micro-benchmark
+- [x] 29-01-PLAN.md — Int32 type: parser, type checker, C emitter, pre-instantiation
+- [x] 29-02-PLAN.md — Int32 regression tests and benchmark validation
 
 ### Phase 30: Benchmark Validation and Exploration
-**Goal**: The full benchmark suite is compared against the pre-optimization baseline to confirm measurable improvement; any remaining high-overhead benchmarks are analyzed for additional optimization opportunities
+**Goal**: The full benchmark suite is run against the pre-optimization baseline, any remaining performance outliers are investigated, and the optimization pipeline is documented
 **Depends on**: Phase 29
-**Requirements**: BENCH-01, BENCH-02
+**Requirements**: BENCH-06, BENCH-07
 **Success Criteria** (what must be TRUE):
-  1. A benchmark comparison run with `--compare` mode shows aggregate improvement over the v0.0.6-alpha baseline; the majority of benchmarks that previously exceeded 3x of C now meet or beat that threshold
-  2. The connected_components benchmark shows measurable improvement over its v0.0.6-alpha ratio (was ~167x); the remaining gap is identified and attributed to known out-of-scope factors (goto-based loops, int64 width)
-  3. Any benchmark still above 3x that is not explained by an out-of-scope factor is documented with a root-cause analysis and a concrete proposal for a follow-up optimization
+  1. A full run of all 137 benchmarks completes with 100% pass rate at current thresholds; results are archived as the v0.0.7-alpha baseline
+  2. Any benchmark exceeding 1.5x C parity after all optimizations is investigated; the root cause is documented and either a fix is implemented or the threshold is raised with justification
+  3. The optimization pipeline documentation accurately describes all passes in order with their purpose and known limitations
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
-- [ ] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
+- [x] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
+- [x] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
+
+### Phase 31: Spawn/Await Correctness
+**Goal**: Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
+**Depends on**: Phase 30
+**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
+**Success Criteria** (what must be TRUE):
+  1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
+  2. Multiple spawn+await pairs work correctly in sequence
+  3. Fire-and-forget spawn compiles with compiler warning about un-captured handle
+  4. parallel-for blocks until all iterations complete (no regression)
+  5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
+  6. Full benchmark and test suites pass with updated thresholds
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 31-01-PLAN.md — Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
+- [x] 31-02-PLAN.md — Benchmark updates + threshold re-validation + human verification
+
+</details>
+
+### v0.1.0-alpha Phase Details (Phases 32-36)
+
+### Phase 32: Capture Foundation
+**Goal**: The compiler knows what each lambda captures and represents all closure values as typed fat pointers — the substrate all other capture phases depend on
+**Depends on**: Phase 31
+**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04
+**Success Criteria** (what must be TRUE):
+  1. The compiler runs a free variable analysis pass on every lambda body before HIR lowering and annotates `Iron_LambdaExpr` with the capture set; non-capturing lambdas produce an empty capture set with no behavioral change
+  2. All closure values in generated C use `Iron_Closure {void *env; void (*fn)(void*); }` fat-pointer struct instead of bare `void*`; zero-capture closures emit `{ .env = NULL, .fn = fn }` for type uniformity
+  3. Lifted lambda functions in generated C accept a `void *_env` first parameter; captured variables inside the body are read via `((env_t *)_env)->field` derefs
+  4. Every lambda that captures at least one variable emits a `__lambda_N_env_t` typedef into the `struct_bodies` section of the generated C, appearing before the lifted function definition
+  5. All existing integration and benchmark tests pass with no regressions; non-capturing lambda tests continue to produce correct output
+**Plans:** 3/3 plans complete
+
+Plans:
+- [x] 32-01-PLAN.md — Capture analysis pass + AST data structures
+- [x] 32-02-PLAN.md — Iron_Closure representation + HIR/LIR wiring + emit_c.c atomic switch
+- [x] 32-03-PLAN.md — Integration tests for examples 1-4 + regression verification
+
+### Phase 33: Value & Mutable Captures + Optimizer Guards
+**Goal**: Immutable and mutable capture patterns work end-to-end, optimizer passes cannot break them, and the core capture test suite is green
+**Depends on**: Phase 32
+**Requirements**: CAPT-01, CAPT-02, CAPT-03, CAPT-04, OPT-01, OPT-02, OPT-03
+**Success Criteria** (what must be TRUE):
+  1. Capturing an immutable `val` by value copies the value into the env struct at closure creation; the captured copy is independent of any subsequent reassignment of the outer name
+  2. Capturing a mutable `var` by reference promotes it to a heap cell (`T*` field in env); mutations inside the lambda are visible to code outside the lambda in the same scope
+  3. A lambda created inside a loop with `val captured = i` captures a fresh per-iteration copy of `i`; each closure in a collection holds its own independent value
+  4. DCE does not remove `MAKE_CLOSURE` instructions; the function inliner skips all `__lambda_*` functions; copy propagation and store-load elimination respect heap-box indirection for `var` captures
+  5. Lambda capture examples 1, 2, 3, 4, 7, 12, 13, and 14 from `docs/lambda-capture/` all compile and produce the documented correct output
+**Plans:** 3/3 plans executed ✓
+Plans:
+- [x] 33-01-PLAN.md — Test scaffolds + parser func-type annotation fix (root cause of hang)
+- [x] 33-02-PLAN.md — Typecheck resolver + runtime Iron_List_Iron_Closure + DCE purity fix
+- [x] 33-03-PLAN.md — Full capture test suite green + optimizer guard verification
+
+### Phase 34: Advanced Captures
+**Goal**: Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and all higher-order function patterns compile and run correctly
+**Depends on**: Phase 33
+**Requirements**: LIFE-01, LIFE-02, LIFE-03, LIFE-04, HOF-01, HOF-02, HOF-03, HOF-04, HOF-05
+**Success Criteria** (what must be TRUE):
+  1. A closure returned from a function outlives its creating scope; the env struct is heap-allocated and not freed when the creating function returns; the caller can invoke the closure and observe correct values
+  2. Two sibling closures in the same scope that capture the same `var` share a single heap cell; a mutation through one closure is immediately visible when reading through the other
+  3. A recursive lambda defined via `var factorial = ...` that captures itself by reference correctly calls itself recursively via the updated closure pointer (two-step placeholder-then-overwrite init)
+  4. A lambda defined inside another lambda correctly captures variables from both the outer and inner scopes; three levels of env indirection (example 9) produce correct output
+  5. Lambda capture examples 5, 6, 9, 10, 11, 17, 18, 19, and 20 from `docs/lambda-capture/` all compile and produce the documented correct output
+**Plans:** TBD
+
+### Phase 35: Concurrency Captures
+**Goal**: Spawn tasks and parallel-for bodies can capture read-only outer variables in their env structs, with correct env lifetime across thread boundaries
+**Depends on**: Phase 34
+**Requirements**: CONC-01, CONC-02
+**Success Criteria** (what must be TRUE):
+  1. A `spawn` block that reads outer variables compiles with those variables in the task's env struct; the spawned thread accesses the captured values correctly and the env outlives the thread execution
+  2. A `parallel for` body that references a captured read-only array compiles with the array pointer in the pfor chunk function's env; all iterations read the correct values
+  3. Lambda capture examples 15 and 16 from `docs/lambda-capture/` compile and produce the documented correct output
+  4. All existing spawn and parallel-for tests continue to pass with no regressions
+**Plans:** TBD
+
+### Phase 36: Diagnostics, Benchmarks & Test Suite
+**Goal**: The milestone is complete: all 20 capture examples pass, capture errors produce clear diagnostics, and closure call overhead is measured
+**Depends on**: Phase 35
+**Requirements**: DIAG-01, DIAG-02, DIAG-03
+**Success Criteria** (what must be TRUE):
+  1. A lambda that references an outer variable without capturing it produces a compiler error with a source snippet pointing to the offending reference and a suggestion to capture it
+  2. A closure performance benchmark exists and reports measurable closure call overhead vs an equivalent direct function call; results are documented
+  3. Integration tests for all 20 canonical lambda capture examples exist in the test suite and all pass; the test suite can be run as a group to verify capture correctness
+**Plans:** TBD
+
+### v0.2.0-alpha Phase Details (Phases 37-42)
+
+### Phase 37: Compiler Dispatch Fixes + Technical Debt
+**Goal**: String and collection method calls route to the correct C runtime functions; all pre-existing build and portability bugs are eliminated so every subsequent phase starts on a clean, passing baseline
+**Depends on**: Phase 36
+**Requirements**: COMP-01, COMP-02, COMP-03, COMP-04, COMP-05, COMP-06, COMP-07
+**Success Criteria** (what must be TRUE):
+  1. `s.upper()` on an `IRON_TYPE_STRING` receiver compiles without a link error and calls `Iron_string_upper(self)` in the generated C; the same holds for every built-in string method name
+  2. `list.filter(fn)` on an `IRON_TYPE_ARRAY` receiver compiles without a link error and calls the correctly mangled `Iron_List_T_filter(self, closure)` in generated C
+  3. `iron build` with more than 96 modules in the clang argv does not silently corrupt the stack; the static assert in `build.c` fires at compile time if the buffer ceiling is crossed
+  4. `import os` in a source file is detected correctly and does not fire on the substring `os` inside a comment or string literal
+  5. All existing integration and benchmark tests pass with no regressions on macOS, Linux, and Windows
+**Plans**: 4 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — String and collection method dispatch (typecheck.c + hir_to_lir.c + wrapper files)
+- [ ] 37-02-PLAN.md — Build system fixes (argv_buf[128] + token-level import detection)
+- [ ] 37-03-PLAN.md — argc/argv threading through iron_runtime_init()
+- [ ] 37-04-PLAN.md — Windows portability documentation (WINDOWS-TODO comments)
+
+### Phase 38: String Built-In Methods
+**Goal**: Every string method in the Iron language definition is callable from Iron programs and produces correct output, with integration tests proving each one
+**Depends on**: Phase 37
+**Requirements**: STR-01, STR-02, STR-03, STR-04, STR-05, STR-06, STR-07, STR-08, STR-09, STR-10, STR-11, STR-12, STR-13, STR-14, STR-15, STR-16, STR-17, STR-18, STR-19, ITEST-01
+**Success Criteria** (what must be TRUE):
+  1. `"hello".upper()` returns `"HELLO"` and `"WORLD".lower()` returns `"world"` in Iron programs; `"  hi  ".trim()` returns `"hi"`
+  2. `"hello world".split(" ")` returns a `List[String]` with two elements; `", ".join(list)` reassembles them correctly
+  3. `"abcabc".replace("a", "x")` returns `"xbcxbc"`; `s.substring(1, 3)` and `s.index_of(sub)` return correct values
+  4. `s.to_int()` parses `"42"` to the integer 42; `s.to_float()` parses `"3.14"` to a float; both handle non-numeric input without crashing
+  5. Integration tests for all 19 string methods exist in the test suite and pass on all three platforms
+**Plans**: 3 plans
+
+Plans:
+- [ ] 38-01-PLAN.md — Simple string methods (upper, lower, trim, contains, starts_with, ends_with, index_of, char_at, len, count)
+- [ ] 38-02-PLAN.md — Complex string methods (split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right)
+- [ ] 38-03-PLAN.md — Integration tests for all 19 string methods
+
+### Phase 39: Module Completions (Math, IO, Time, Log)
+**Goal**: All four existing stdlib modules implement their complete language-definition.md specification, closing every gap between the spec and the working implementation
+**Depends on**: Phase 37
+**Requirements**: MATH-01, MATH-02, MATH-03, MATH-04, MATH-05, MATH-06, MATH-07, MATH-08, MATH-09, MATH-10, IO-01, IO-02, IO-03, IO-04, IO-05, IO-06, IO-07, IO-08, IO-09, IO-10, TIME-01, TIME-02, TIME-03, TIME-04, TIME-05, LOG-01, LOG-02, ITEST-03, ITEST-04, ITEST-05
+**Success Criteria** (what must be TRUE):
+  1. `math.asin(1.0)`, `math.acos(0.0)`, `math.atan2(1.0, 1.0)`, `math.sign(-5)`, `math.seed(42)`, `math.random_float(0.0, 1.0)`, `math.log(2.718)`, `math.log2(8.0)`, `math.exp(1.0)`, and `math.hypot(3.0, 4.0)` all compile and return correct values
+  2. `io.read_bytes(path)` and `io.write_bytes(path, bytes)` round-trip binary data; `io.read_line()` reads one line from stdin; `io.append_file(path, content)` appends without truncating; `io.read_lines(path)` returns each line as a `List[String]`
+  3. `io.basename("/a/b/c.txt")` returns `"c.txt"`; `io.dirname("/a/b/c.txt")` returns `"/a/b"`; `io.join_path("a", "b")` returns `"a/b"`; `io.extension("file.iron")` returns `"iron"`; `io.is_dir(path)` returns correct bool
+  4. `time.since(start)` returns elapsed seconds; `time.Timer(1.5)` creates a timer with a duration field; `timer.done()`, `timer.update(dt)`, and `timer.reset()` all work correctly
+  5. `log.set_level(log.WARN)` causes DEBUG and INFO messages to be suppressed; `log.DEBUG`, `log.INFO`, `log.WARN`, and `log.ERROR` are accessible constants
+**Plans**: 5 plans
+
+Plans:
+- [ ] 39-01-PLAN.md — Math completion (asin, acos, atan2, sign, seed, random_float, log, log2, exp, hypot)
+- [ ] 39-02-PLAN.md — IO completion (read_line, append_file, basename, dirname, join_path, extension, is_dir, read_lines)
+- [ ] 39-03-PLAN.md — Time redesign (accumulator Timer + time.since)
+- [ ] 39-04-PLAN.md — Log completion (DEBUG/INFO/WARN/ERROR constants + set_level declaration)
+- [ ] 39-05-PLAN.md — Integration tests for math, IO, time, and log additions
+
+### Phase 40: Collection Higher-Order Operations
+**Goal**: List, Map, and Set gain higher-order methods that accept Iron closures, enabling functional-style data transformation in Iron programs
+**Depends on**: Phase 37
+**Requirements**: COLL-01, COLL-02, COLL-03, COLL-04, COLL-05, COLL-06, COLL-07, COLL-08, COLL-09, COLL-10, COLL-11, COLL-12, COLL-13, COLL-14, COLL-15, COLL-16, COLL-17, COLL-18, COLL-19, ITEST-02
+**Success Criteria** (what must be TRUE):
+  1. `list.filter(fn)` returns a new list containing only elements for which `fn` returns true; `list.map(fn)` returns a new list with each element transformed by `fn` (same type only)
+  2. `list.sort()` sorts a list of integers or strings in place; `list.reverse()` reverses in place; `list.find(fn)` returns the first matching element or a null/default value
+  3. `list.any(fn)` returns true if any element matches; `list.all(fn)` returns true if all match; `list.reduce(fn, init)` folds the list into a single value
+  4. `map.keys()` returns all keys as a `List`; `map.values()` returns all values as a `List`; `set.union(other)`, `set.intersection(other)`, `set.difference(other)`, and `set.to_list()` all produce correct results
+  5. Integration tests for all 19 collection operations exist and pass on all three platforms
+**Plans**: TBD
+
+### Phase 41: OS Module
+**Goal**: Iron programs can read environment variables, inspect the process, navigate the file system, and exit with a status code — the minimum needed for CLI tools — without dropping to C
+**Depends on**: Phase 39
+**Requirements**: OS-01, OS-02, OS-03, OS-04, OS-05, OS-06, OS-07, OS-08, OS-09, OS-10, OS-11, OS-12, ITEST-06
+**Success Criteria** (what must be TRUE):
+  1. `os.env("HOME")` returns the value of the HOME environment variable; `os.set_env("FOO", "bar")` sets it; `os.environ()` returns all environment variables as a `Map[String, String]`
+  2. `os.args()` returns the command-line arguments passed to the Iron program as a `List[String]`; `os.exit(1)` terminates the process with the given code
+  3. `os.cwd()` returns the current working directory; `os.chdir(path)` changes it; `os.home_dir()` returns the user home directory; `os.temp_dir()` returns the system temp directory
+  4. `os.getpid()` returns the current process ID as an integer; `os.is_dir(path)` returns the correct bool; `os.stat(path)` returns file size, modification time, and type
+  5. Integration tests for all 12 OS functions exist and pass on macOS and Linux
+**Plans**: TBD
+
+### Phase 42: Testing Module
+**Goal**: Iron programs can be tested in Iron using a built-in test framework that discovers, runs, and reports tests — making iron test usable for stdlib and user code alike
+**Depends on**: Phase 38, Phase 40
+**Requirements**: TEST-01, TEST-02, TEST-03, TEST-04, TEST-05, TEST-06, TEST-07, TEST-08, TEST-09, TEST-10, TEST-11, ITEST-07
+**Success Criteria** (what must be TRUE):
+  1. `test.assert_eq(a, b)`, `test.assert_true(cond)`, `test.assert_false(cond)`, `test.assert_ne(a, b)`, and `test.fail(msg)` all compile, and a failing assertion reports the expected vs actual values with a source location
+  2. `iron test` on a file containing `fun test_foo() { ... }` and `fun test_bar() { ... }` discovers both functions automatically and runs them without any manual registration
+  3. A test that calls `test.fail("boom")` does not abort the remaining tests in the suite; the runner continues and the final report shows which tests passed and which failed
+  4. The final output includes a pass/fail count with colored output (green for pass, red for fail) and elapsed time per test
+  5. `test.skip("reason")` marks a test as skipped with the reason shown in output; `test_setup()` and `test_teardown()` are called before and after each test function when defined
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
+Phases execute in numeric order: 37 → 38 → 39 → 40 → 41 → 42
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -619,29 +822,22 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
 | 21. Parallel-For Fix | v0.0.6-alpha | 1/1 | Complete | 2026-03-31 |
 | 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
-| 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
-| 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
-| 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
-| 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
-| 28. Phi Elimination Improvement | 1/1 | Complete    | 2026-04-01 | - |
-| 29. Sized Integers | 2/2 | Complete    | 2026-04-01 | - |
-| 30. Benchmark Validation and Exploration | 2/2 | Complete    | 2026-04-01 | - |
-| 31. Spawn/Await Correctness | 2/2 | Complete   | 2026-04-01 | - |
-
-### Phase 31: Spawn/Await Correctness
-
-**Goal:** Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
-**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
-**Depends on:** Phase 30
-**Success Criteria** (what must be TRUE):
-  1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
-  2. Multiple spawn+await pairs work correctly in sequence
-  3. Fire-and-forget spawn compiles with compiler warning about un-captured handle
-  4. parallel-for blocks until all iterations complete (no regression)
-  5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
-  6. Full benchmark and test suites pass with updated thresholds
-**Plans:** 2/2 plans complete
-
-Plans:
-- [ ] 31-01-PLAN.md -- Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
-- [ ] 31-02-PLAN.md -- Benchmark updates + threshold re-validation + human verification
+| 24. Range Bound Hoisting | v0.0.7-alpha | 1/1 | Complete | 2026-03-31 |
+| 25. Stack Array Promotion | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 26. LOAD Expression Inlining | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 27. Function Inlining | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 28. Phi Elimination Improvement | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 29. Sized Integers | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 32. Capture Foundation | 2/3 | In Progress|  | 2026-04-02 |
+| 33. Value & Mutable Captures + Optimizer Guards | 2/3 | In Progress|  | - |
+| 34. Advanced Captures | v0.1.0-alpha | 0/TBD | Not started | - |
+| 35. Concurrency Captures | v0.1.0-alpha | 1/1 | Complete | 2026-04-03 |
+| 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | 0/TBD | Not started | - |
+| 37. Compiler Dispatch Fixes + Technical Debt | 4/4 | Complete   | 2026-04-02 | - |
+| 38. String Built-In Methods | 3/3 | Complete   | 2026-04-02 | - |
+| 39. Module Completions (Math, IO, Time, Log) | 5/5 | Complete   | 2026-04-03 | - |
+| 40. Collection Higher-Order Operations | v0.2.0-alpha | 0/TBD | Not started | - |
+| 41. OS Module | v0.2.0-alpha | 0/TBD | Not started | - |
+| 42. Testing Module | v0.2.0-alpha | 0/TBD | Not started | - |

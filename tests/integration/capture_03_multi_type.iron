@@ -1,0 +1,10 @@
+func main() {
+  var x = 10
+  var y = 20.5
+  var label = "point"
+  val describe = func() -> String {
+    return "{label}: ({x}, {y})"
+  }
+  x = 42
+  println(describe())
+}

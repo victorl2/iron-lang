@@ -128,6 +128,19 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     if (iron_type_equals(decl_t, init_t)) return true;
     /* Int32 -> Int: implicit widening (always safe) */
     if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+    /* func-type compatibility: two func types with equal param counts are compatible
+     * when their return types are both "void-like" (either IRON_TYPE_VOID or NULL).
+     * This allows lambdas with unresolved return type (NULL) to be passed to
+     * parameters typed as func() -> Void. */
+    if (decl_t->kind == IRON_TYPE_FUNC && init_t->kind == IRON_TYPE_FUNC) {
+        if (decl_t->func.param_count == init_t->func.param_count) {
+            bool decl_void = (!decl_t->func.return_type ||
+                              decl_t->func.return_type->kind == IRON_TYPE_VOID);
+            bool init_void = (!init_t->func.return_type ||
+                              init_t->func.return_type->kind == IRON_TYPE_VOID);
+            if (decl_void && init_void) return true;
+        }
+    }
     return false;
 }
 
@@ -178,6 +191,42 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)ann_node;
     const char *name = ann->name;
     Iron_Type *base = NULL;
+
+    /* Phase 33: func-type annotation — func(T, U) -> R */
+    if (ann->is_func) {
+        /* Resolve parameter types */
+        Iron_Type **param_types = NULL;
+        int param_count = ann->func_param_count;
+        if (param_count > 0) {
+            param_types = iron_arena_alloc(ctx->arena, sizeof(Iron_Type *) * param_count, _Alignof(Iron_Type *));
+            for (int i = 0; i < param_count; i++) {
+                param_types[i] = resolve_type_annotation(ctx, ann->func_params[i]);
+            }
+        }
+
+        /* Resolve return type (NULL means void) */
+        Iron_Type *ret = ann->func_return
+            ? resolve_type_annotation(ctx, ann->func_return)
+            : iron_type_make_primitive(IRON_TYPE_VOID);
+
+        base = iron_type_make_func(ctx->arena, param_types, param_count, ret);
+
+        /* If this is an array-of-func, wrap in array type */
+        if (ann->is_array) {
+            int size = -1;
+            if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
+                Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
+                if (il->value) size = (int)strtol(il->value, NULL, 10);
+            }
+            base = iron_type_make_array(ctx->arena, base, size);
+        }
+
+        if (ann->is_nullable) {
+            base = iron_type_make_nullable(ctx->arena, base);
+        }
+
+        return base;
+    }
 
     /* Check primitives by name */
     if      (strcmp(name, "Int")     == 0) base = iron_type_make_primitive(IRON_TYPE_INT);
@@ -633,7 +682,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
-            check_expr(ctx, mc->object);
+            Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 
             /* Try to resolve the return type by finding the matching method decl.
@@ -650,6 +699,41 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                            obj_id->resolved_type->kind == IRON_TYPE_OBJECT) {
                     /* Instance method: receiver has object type */
                     type_name_mc = obj_id->resolved_type->object.decl->name;
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_STRING) {
+                    /* String instance method: resolve via string.iron wrapper decls */
+                    type_name_mc = "String";
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_ARRAY) {
+                    /* Collection instance method: resolve return type heuristically.
+                     * We skip the decl scan for arrays because the return type
+                     * depends on the element type. */
+                    Iron_Type *arr_type = obj_id->resolved_type;
+                    const char *method = mc->method;
+                    if (strcmp(method, "sort") == 0 || strcmp(method, "reverse") == 0 ||
+                        strcmp(method, "for_each") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    } else if (strcmp(method, "any") == 0 || strcmp(method, "all") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_BOOL);
+                    } else if (strcmp(method, "find") == 0 ||
+                               strcmp(method, "get") == 0 ||
+                               strcmp(method, "pop") == 0) {
+                        /* Return the element type */
+                        result = (arr_type->array.elem != NULL)
+                                     ? arr_type->array.elem
+                                     : iron_type_make_primitive(IRON_TYPE_VOID);
+                    } else if (strcmp(method, "len") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_INT);
+                    } else if (strcmp(method, "push") == 0 ||
+                               strcmp(method, "set") == 0 ||
+                               strcmp(method, "free") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    } else {
+                        /* filter, map, slice, unique, reduce, clone: return same array type */
+                        result = arr_type;
+                    }
+                    mc->resolved_type = result;
+                    break;  /* skip decl scan — return type already resolved */
                 }
                 if (type_name_mc && ctx->program) {
                     for (int i = 0; i < ctx->program->decl_count; i++) {
@@ -657,6 +741,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, type_name_mc) == 0 &&
+                            strcmp(md->method_name, mc->method) == 0) {
+                            if (md->resolved_return_type) {
+                                result = md->resolved_return_type;
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_STRING) {
+                /* Non-ident receiver with String type (e.g. string literal, interp string,
+                 * or chained method call): resolve via string.iron wrapper decls. */
+                if (ctx->program) {
+                    for (int i = 0; i < ctx->program->decl_count; i++) {
+                        Iron_Node *d = ctx->program->decls[i];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, "String") == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;

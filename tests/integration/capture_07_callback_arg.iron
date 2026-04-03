@@ -1,0 +1,10 @@
+func apply_twice(f: func()) {
+  f()
+  f()
+}
+
+func main() {
+  var total = 0
+  apply_twice(func() { total += 10 })
+  println("{total}")
+}

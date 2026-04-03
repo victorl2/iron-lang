@@ -1,0 +1,1 @@
+{"iterations": 1, "timeout_sec": 120, "max_ratio": 5.0, "note": "Phase 36 DIAG-02: closure vs direct call overhead correctness benchmark. Verifies direct and closure calls produce identical results."}

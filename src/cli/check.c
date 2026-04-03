@@ -26,6 +26,7 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
+#include "cli/iron_import_detect.h"
 
 /* ── Helper: read a file into a heap-allocated string ────────────────────── */
 
@@ -157,8 +158,11 @@ int iron_check(const char *source_path, bool verbose) {
     char *source = check_read_file(source_path);
     if (!source) { free(base_dir); return 1; }
 
-    /* Detect stdlib imports and prepend .iron wrappers (same as build.c) */
-    if (strstr(source, "import raylib") != NULL) {
+    /* Detect stdlib imports and prepend .iron wrappers (same as build.c).
+     * Use a temporary arena for the token-level import detection. */
+    Iron_Arena detect_arena = iron_arena_create(32 * 1024);
+
+    if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         char *rl_path = check_make_path(base_dir, "stdlib/raylib.iron");
         if (rl_path) {
             long rl_size = 0;
@@ -179,7 +183,7 @@ int iron_check(const char *source_path, bool verbose) {
         }
     }
 
-    if (strstr(source, "import math") != NULL) {
+    if (iron_detect_import(source, source_path, "math", &detect_arena)) {
         char *path = check_make_path(base_dir, "stdlib/math.iron");
         if (path) {
             long sz = 0;
@@ -200,7 +204,7 @@ int iron_check(const char *source_path, bool verbose) {
         }
     }
 
-    if (strstr(source, "import io") != NULL) {
+    if (iron_detect_import(source, source_path, "io", &detect_arena)) {
         char *path = check_make_path(base_dir, "stdlib/io.iron");
         if (path) {
             long sz = 0;
@@ -221,7 +225,7 @@ int iron_check(const char *source_path, bool verbose) {
         }
     }
 
-    if (strstr(source, "import time") != NULL) {
+    if (iron_detect_import(source, source_path, "time", &detect_arena)) {
         char *path = check_make_path(base_dir, "stdlib/time.iron");
         if (path) {
             long sz = 0;
@@ -242,7 +246,7 @@ int iron_check(const char *source_path, bool verbose) {
         }
     }
 
-    if (strstr(source, "import log") != NULL) {
+    if (iron_detect_import(source, source_path, "log", &detect_arena)) {
         char *path = check_make_path(base_dir, "stdlib/log.iron");
         if (path) {
             long sz = 0;
@@ -259,6 +263,30 @@ int iron_check(const char *source_path, bool verbose) {
                     source = combined;
                 }
                 free(src);
+            }
+        }
+    }
+
+    iron_arena_free(&detect_arena);
+
+    /* Always prepend string.iron — String methods are available without import */
+    {
+        char *str_path = check_make_path(base_dir, "stdlib/string.iron");
+        if (str_path) {
+            long str_size = 0;
+            char *str_src = check_read_stdlib(str_path, &str_size);
+            free(str_path);
+            if (str_src) {
+                size_t combined_len = (size_t)str_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, str_src, (size_t)str_size);
+                    combined[str_size] = '\n';
+                    strcpy(combined + str_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(str_src);
             }
         }
     }

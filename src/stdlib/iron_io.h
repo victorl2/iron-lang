@@ -34,4 +34,14 @@ static inline Iron_String Iron_io_read_bytes(Iron_String path) {
     return Iron_io_read_bytes_result(path).v0;
 }
 
+/* ── Phase 39 additions ──────────────────────────────────────────────────── */
+Iron_String            Iron_io_read_line(void);
+Iron_Error             Iron_io_append_file(Iron_String path, Iron_String content);
+Iron_String            Iron_io_basename(Iron_String path);
+Iron_String            Iron_io_dirname(Iron_String path);
+Iron_String            Iron_io_join_path(Iron_String a, Iron_String b);
+Iron_String            Iron_io_extension(Iron_String path);
+bool                   Iron_io_is_dir(Iron_String path);
+Iron_List_Iron_String  Iron_io_read_lines(Iron_String path);
+
 #endif /* IRON_IO_H */

@@ -11,6 +11,13 @@
 struct Iron_Symbol;
 struct Iron_Type;
 
+/* Capture analysis annotation — set by capture.c pass */
+typedef struct {
+    const char      *name;        /* original Iron variable name */
+    struct Iron_Type *type;       /* resolved type from symbol table */
+    bool             is_mutable;  /* true = var capture (by pointer), false = val (by value) */
+} Iron_CaptureEntry;
+
 /* ── Node kinds ──────────────────────────────────────────────────────────── */
 
 typedef enum {
@@ -203,6 +210,11 @@ typedef struct {
     int           generic_arg_count;
     bool          is_array;
     Iron_Node    *array_size;  /* NULL if dynamic/no size */
+    /* Phase 33: function type annotations — func(T, U) -> R */
+    bool          is_func;
+    Iron_Node   **func_params;      /* array of Iron_TypeAnnotation* for param types */
+    int           func_param_count;
+    Iron_Node    *func_return;      /* return type annotation, NULL means void */
 } Iron_TypeAnnotation;
 
 /* ── Statements ──────────────────────────────────────────────────────────── */
@@ -258,13 +270,15 @@ typedef struct {
 } Iron_WhileStmt;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;        /* IRON_NODE_FOR */
-    const char   *var_name;
-    Iron_Node    *iterable;
-    Iron_Node    *body;
-    bool          is_parallel;
-    Iron_Node    *pool_expr;   /* NULL if default pool */
+    Iron_Span          span;
+    Iron_NodeKind      kind;        /* IRON_NODE_FOR */
+    const char        *var_name;
+    Iron_Node         *iterable;
+    Iron_Node         *body;
+    bool               is_parallel;
+    Iron_Node         *pool_expr;   /* NULL if default pool */
+    Iron_CaptureEntry *pfor_captures;      /* set by capture analysis for parallel-for; NULL otherwise */
+    int                pfor_capture_count; /* 0 for non-capturing pfor bodies */
 } Iron_ForStmt;
 
 typedef struct {
@@ -302,12 +316,14 @@ typedef struct {
 } Iron_LeakStmt;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;          /* IRON_NODE_SPAWN */
-    const char   *name;
-    Iron_Node    *pool_expr;     /* NULL if default */
-    Iron_Node    *body;
-    const char   *handle_name;  /* NULL if no handle */
+    Iron_Span          span;
+    Iron_NodeKind      kind;          /* IRON_NODE_SPAWN */
+    const char        *name;
+    Iron_Node         *pool_expr;     /* NULL if default */
+    Iron_Node         *body;
+    const char        *handle_name;  /* NULL if no handle */
+    Iron_CaptureEntry *captures;      /* set by capture analysis; NULL before analysis */
+    int                capture_count; /* 0 for non-capturing spawn blocks */
 } Iron_SpawnStmt;
 
 typedef struct {
@@ -439,6 +455,8 @@ typedef struct {
     int                param_count;
     Iron_Node         *return_type;  /* NULL if inferred */
     Iron_Node         *body;
+    Iron_CaptureEntry *captures;      /* set by capture analysis; NULL before analysis */
+    int                capture_count; /* 0 for non-capturing lambdas */
 } Iron_LambdaExpr;
 
 typedef struct {

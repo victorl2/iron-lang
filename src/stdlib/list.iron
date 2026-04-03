@@ -1,0 +1,14 @@
+-- list.iron -- Iron wrapper for List built-in methods
+-- Note: return types for List methods are resolved heuristically in typecheck.c
+-- for IRON_TYPE_ARRAY receivers. These declarations document the API.
+func List.sort() -> Void {}
+func List.reverse() -> Void {}
+func List.for_each(fn: Func) -> Void {}
+func List.filter(fn: Func) -> List {}
+func List.map(fn: Func) -> List {}
+func List.slice(start: Int, end: Int) -> List {}
+func List.unique() -> List {}
+func List.find(fn: Func) -> Void {}
+func List.any(fn: Func) -> Bool {}
+func List.all(fn: Func) -> Bool {}
+func List.reduce(fn: Func, init: Void) -> Void {}

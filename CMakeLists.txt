@@ -69,6 +69,7 @@ add_library(iron_compiler STATIC
     src/analyzer/resolve.c
     src/analyzer/typecheck.c
     src/analyzer/escape.c
+    src/analyzer/capture.c
     src/analyzer/concurrency.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
@@ -119,6 +120,7 @@ add_executable(ironc
     src/cli/fmt.c
     src/cli/test_runner.c
     src/cli/toml.c
+    src/cli/iron_import_detect.c
 )
 target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)

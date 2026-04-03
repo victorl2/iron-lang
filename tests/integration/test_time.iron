@@ -2,7 +2,7 @@ import time
 
 func main() {
   val ms = Time.now_ms()
-  val t = Timer.create()
-  val elapsed = Timer.since(t)
+  val t = Time.Timer(1.0)
+  val done = Timer.done(t)
   println("time works")
 }

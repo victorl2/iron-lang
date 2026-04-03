@@ -1,0 +1,12 @@
+-- Test: STR-15 (len), STR-16 (repeat)
+func main() {
+    val l1 = "hello".len()
+    val l2 = "".len()
+    val l3 = "hello world".len()
+    println("{l1}")
+    println("{l2}")
+    println("{l3}")
+    println("ab".repeat(3))
+    println("x".repeat(1))
+    println("hi".repeat(0))
+}
