@@ -1,12 +1,20 @@
--- ADT pattern binding test
--- Phase 33: verifies pattern destructuring extracts payload into named bindings
--- NOTE: requires Phase 34+35 for end-to-end execution; iron check should pass
+-- ADT pattern binding test: construct variants, match them, use payload values
 
 enum Shape {
-  Circle(Float),
-  Rect(Float, Float),
+  Circle(Int),
+  Rect(Int, Int),
+}
+
+func describe(s: Shape) -> String {
+  match s {
+    Shape.Circle(r) -> "circle r={r}"
+    Shape.Rect(w, h) -> "rect w={w} h={h}"
+  }
 }
 
 func main() {
-  println("adt_pattern_binding: ok")
+  val c = Shape.Circle(5)
+  val r = Shape.Rect(10, 20)
+  println(describe(c))
+  println(describe(r))
 }

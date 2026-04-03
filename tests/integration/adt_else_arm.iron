@@ -1,6 +1,4 @@
--- ADT else arm test
--- Phase 33: verifies else arm satisfies exhaustiveness
--- NOTE: requires Phase 34+35 for end-to-end execution; iron check should pass
+-- ADT else arm test: else catches remaining variants
 
 enum Color {
   Red,
@@ -9,6 +7,16 @@ enum Color {
   Custom(Int, Int, Int),
 }
 
+func describe(c: Color) -> String {
+  match c {
+    Color.Custom(r, g, b) -> "custom {r},{g},{b}"
+    else -> "basic"
+  }
+}
+
 func main() {
-  println("adt_else_arm: ok")
+  val c1 = Color.Red
+  val c2 = Color.Custom(255, 128, 0)
+  println(describe(c1))
+  println(describe(c2))
 }
