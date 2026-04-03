@@ -117,6 +117,11 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_PRIVATE_ACCESS       221
 #define IRON_ERR_NUMERIC_CONVERSION   222
 #define IRON_ERR_CIRCULAR_TYPE        223
+#define IRON_ERR_NONEXHAUSTIVE_MATCH  224
+#define IRON_ERR_PATTERN_ARITY        225
+#define IRON_ERR_UNREACHABLE_ARM      226
+#define IRON_ERR_BINDING_SHADOWS      227
+#define IRON_ERR_UNKNOWN_VARIANT      228
 
 /* Comptime errors */
 #define IRON_ERR_COMPTIME_STEP_LIMIT  230
