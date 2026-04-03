@@ -743,6 +743,8 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
 
     case IRON_LIR_SPAWN:
         REPL(instr->spawn.pool_val);
+        for (int i = 0; i < instr->spawn.capture_count; i++)
+            REPL(instr->spawn.captures[i]);
         break;
 
     case IRON_LIR_PARALLEL_FOR:
@@ -937,6 +939,9 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
 
     case IRON_LIR_SPAWN:
         PUSH(instr->spawn.pool_val);
+        for (int i = 0; i < instr->spawn.capture_count; i++) {
+            PUSH(instr->spawn.captures[i]);
+        }
         break;
 
     case IRON_LIR_PARALLEL_FOR:

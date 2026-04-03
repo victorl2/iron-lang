@@ -395,6 +395,80 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
     arrfree(captures);
 }
 
+/* Core capture analysis for a spawn block (Iron_SpawnStmt).
+ * Spawn blocks can capture outer-scope variables by value (read-only captures
+ * for val-bindings, or pointer captures for var-bindings). */
+static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
+    /* Build locals: all val/var decls inside the spawn body */
+    StrSet *locals = NULL;
+    collect_locals(ss->body, &locals);
+
+    /* Collect captures via ident walk */
+    TmpCapture *captures = NULL;
+    StrSet     *seen     = NULL;
+    collect_idents(ss->body, &locals, &captures, &seen);
+
+    /* Copy to arena-allocated array */
+    int count = (int)arrlen(captures);
+    if (count > 0) {
+        Iron_CaptureEntry *arr = iron_arena_alloc(
+            ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
+            _Alignof(Iron_CaptureEntry));
+        for (int i = 0; i < count; i++) {
+            arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
+                                                  strlen(captures[i].name));
+            arr[i].type       = captures[i].type;
+            arr[i].is_mutable = captures[i].is_mutable;
+        }
+        ss->captures      = arr;
+        ss->capture_count = count;
+    } else {
+        ss->captures      = NULL;
+        ss->capture_count = 0;
+    }
+
+    shfree(locals);
+    shfree(seen);
+    arrfree(captures);
+}
+
+/* Core capture analysis for a parallel-for body (Iron_ForStmt with is_parallel).
+ * The loop variable is a local; any other outer-scope references are captures. */
+static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
+    /* Build locals: the loop variable + all decls inside the body */
+    StrSet *locals = NULL;
+    shput(locals, fs->var_name, 1);
+    collect_locals(fs->body, &locals);
+
+    /* Collect captures via ident walk (also walk iterable for range expr) */
+    TmpCapture *captures = NULL;
+    StrSet     *seen     = NULL;
+    collect_idents(fs->body, &locals, &captures, &seen);
+
+    /* Copy to arena-allocated array */
+    int count = (int)arrlen(captures);
+    if (count > 0) {
+        Iron_CaptureEntry *arr = iron_arena_alloc(
+            ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
+            _Alignof(Iron_CaptureEntry));
+        for (int i = 0; i < count; i++) {
+            arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
+                                                  strlen(captures[i].name));
+            arr[i].type       = captures[i].type;
+            arr[i].is_mutable = captures[i].is_mutable;
+        }
+        fs->pfor_captures      = arr;
+        fs->pfor_capture_count = count;
+    } else {
+        fs->pfor_captures      = NULL;
+        fs->pfor_capture_count = 0;
+    }
+
+    shfree(locals);
+    shfree(seen);
+    arrfree(captures);
+}
+
 /* ── Lambda walker ────────────────────────────────────────────────────────── */
 
 /* Recursively walk `node` searching for IRON_NODE_LAMBDA nodes. When found,
@@ -459,6 +533,10 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             walk_node_for_lambdas(ctx, fs->iterable);
             walk_node_for_lambdas(ctx, fs->body);
+            /* Perform capture analysis for parallel-for bodies */
+            if (fs->is_parallel) {
+                find_pfor_captures(ctx, fs);
+            }
             break;
         }
         case IRON_NODE_MATCH: {
@@ -586,6 +664,8 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
             walk_node_for_lambdas(ctx, ss->pool_expr);
             walk_node_for_lambdas(ctx, ss->body);
+            /* Perform capture analysis for spawn block body */
+            find_spawn_captures(ctx, ss);
             break;
         }
         default:
