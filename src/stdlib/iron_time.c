@@ -26,19 +26,29 @@ void Iron_time_sleep(int64_t ms) {
     nanosleep(&ts, NULL);
 }
 
-/* ── Timer ───────────────────────────────────────────────────────────────── */
+/* ── Elapsed time ────────────────────────────────────────────────────────── */
 
-Iron_Timer Iron_timer_create(void) {
+double Iron_time_since(double start) {
+    return Iron_time_now() - start;
+}
+
+/* ── Timer (accumulator style) ───────────────────────────────────────────── */
+
+Iron_Timer Iron_time_Timer(double duration_s) {
     Iron_Timer t;
-    t.start_ms = Iron_time_now_ms();
+    t.elapsed_ms  = 0;
+    t.duration_ms = (int64_t)(duration_s * 1000.0);
     return t;
 }
 
-int64_t Iron_timer_since(Iron_Timer t) {
-    return Iron_time_now_ms() - t.start_ms;
+bool Iron_timer_done(Iron_Timer t) {
+    return t.elapsed_ms >= t.duration_ms;
 }
 
-Iron_Timer Iron_timer_reset(Iron_Timer t) {
-    t.start_ms = Iron_time_now_ms();
-    return t;
+void Iron_timer_update(Iron_Timer *t, double dt) {
+    t->elapsed_ms += (int64_t)(dt * 1000.0);
+}
+
+void Iron_timer_reset(Iron_Timer *t) {
+    t->elapsed_ms = 0;
 }
