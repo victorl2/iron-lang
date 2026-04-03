@@ -21,7 +21,7 @@ Requirements for ADT milestone. Each maps to roadmap phases.
 - [x] **MATCH-03**: `_` wildcard ignores individual fields in patterns
 - [x] **MATCH-04**: `else` arm catches all remaining variants
 - [x] **MATCH-05**: Compiler errors on non-exhaustive match (lists missing variants in diagnostic)
-- [ ] **MATCH-06**: Nested pattern destructuring works (`BinOp(IntLit(n), _, _)`)
+- [x] **MATCH-06**: Nested pattern destructuring works (`BinOp(IntLit(n), _, _)`)
 - [x] **MATCH-07**: Existing match statements migrate from `{ }` arm syntax to `->` syntax
 
 ### Methods on Enums
@@ -75,7 +75,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MATCH-03 | Phase 33 | Complete |
 | MATCH-04 | Phase 33 | Complete |
 | MATCH-05 | Phase 33 | Complete |
-| MATCH-06 | Phase 34 | Pending |
+| MATCH-06 | Phase 34 | Complete |
 | MATCH-07 | Phase 33 + Phase 36 | Complete |
 | EMETH-01 | Phase 36 | Pending |
 | EMETH-02 | Phase 36 | Pending |
