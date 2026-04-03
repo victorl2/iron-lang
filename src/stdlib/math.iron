@@ -16,3 +16,13 @@ func Math.round(x: Float) -> Float {}
 func Math.lerp(a: Float, b: Float, t: Float) -> Float {}
 func Math.random() -> Float {}
 func Math.random_int(min: Int, max: Int) -> Int {}
+func Math.asin(x: Float) -> Float {}
+func Math.acos(x: Float) -> Float {}
+func Math.atan2(y: Float, x: Float) -> Float {}
+func Math.sign(x: Float) -> Int {}
+func Math.seed(n: Int) {}
+func Math.random_float(min: Float, max: Float) -> Float {}
+func Math.log(x: Float) -> Float {}
+func Math.log2(x: Float) -> Float {}
+func Math.exp(x: Float) -> Float {}
+func Math.hypot(a: Float, b: Float) -> Float {}
