@@ -782,6 +782,25 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                     left = (Iron_Node *)mc;
                 }
             } else {
+                /* Check for unit enum variant: UppercaseType.UppercaseVariant (no parens) */
+                if (left->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *ident_node = (Iron_Ident *)left;
+                    bool looks_like_type    = (ident_node->name[0] >= 'A' && ident_node->name[0] <= 'Z');
+                    bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
+                    if (looks_like_type && looks_like_variant) {
+                        Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
+                        ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
+                        ec->span          = iron_span_merge(left->span,
+                                                            iron_token_span(p, iron_current(p)));
+                        ec->resolved_type = NULL;
+                        ec->enum_name     = ident_node->name;
+                        ec->variant_name  = name;
+                        ec->args          = NULL;
+                        ec->arg_count     = 0;
+                        left = (Iron_Node *)ec;
+                        continue;
+                    }
+                }
                 /* Field access: obj.field */
                 Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
                 fa->kind   = IRON_NODE_FIELD_ACCESS;
@@ -1040,12 +1059,24 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
                 arrput(binding_names,   (const char *)NULL);
                 arrput(nested_patterns, (Iron_Node *)NULL);
             } else if (iron_check(p, IRON_TOK_IDENTIFIER)) {
-                /* Simple name binding — nested patterns are Phase 34 */
-                Iron_Token *name_tok = iron_advance(p);
-                const char *bname = iron_arena_strdup(p->arena, name_tok->value,
-                                                       strlen(name_tok->value));
-                arrput(binding_names,   bname);
-                arrput(nested_patterns, (Iron_Node *)NULL);
+                Iron_Token *name_tok = iron_current(p);
+                /* Nested pattern: uppercase identifier followed by '.' is a sub-pattern */
+                bool is_nested = (name_tok->value[0] >= 'A' && name_tok->value[0] <= 'Z')
+                                  && (p->pos + 1 < p->token_count)
+                                  && (p->tokens[p->pos + 1].kind == IRON_TOK_DOT);
+                if (is_nested) {
+                    /* Recursively parse nested pattern e.g. Inner.Val(n) */
+                    Iron_Node *nested_pat = iron_parse_pattern(p);
+                    arrput(binding_names,   (const char *)NULL);
+                    arrput(nested_patterns, nested_pat);
+                } else {
+                    /* Simple name binding */
+                    iron_advance(p);
+                    const char *bname = iron_arena_strdup(p->arena, name_tok->value,
+                                                           strlen(name_tok->value));
+                    arrput(binding_names,   bname);
+                    arrput(nested_patterns, (Iron_Node *)NULL);
+                }
             } else {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
