@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: in-progress
-stopped_at: Completed 38-01-PLAN.md
-last_updated: "2026-04-03T11:22:00Z"
-last_activity: 2026-04-03 -- Completed 38-01 field/index mutation detection
+status: completed
+stopped_at: Completed 38-02-PLAN.md
+last_updated: "2026-04-03T11:31:54.467Z"
+last_activity: 2026-04-03 -- Completed 38-02 spawn capture analysis and race detection
 progress:
   total_phases: 8
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 14
-  completed_plans: 13
-  percent: 93
+  completed_plans: 14
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 ## Current Position
 
 Phase: 38 of 39 (Concurrency Safety)
-Plan: 1 of 2 in current phase
-Status: Plan 38-01 complete -- field/index mutation detection implemented
-Last activity: 2026-04-03 -- Completed 38-01 field/index mutation detection
+Plan: 2 of 2 in current phase
+Status: Phase 38 complete -- all concurrency safety plans done
+Last activity: 2026-04-03 -- Completed 38-02 spawn capture analysis and race detection
 
-Progress: [█████████░] 93%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Progress: [█████████░] 93%
 | Phase 37 P01 | 9min | 2 tasks | 3 files |
 | Phase 37 P02 | 8min | 2 tasks | 1 file |
 | Phase 38 P01 | 2min | 1 task | 2 files |
+| Phase 38 P02 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Recent decisions affecting current work:
 - [37-01]: Max 16 generic params per declaration via stack-allocated array -- avoids heap allocation
 - [38-01]: Reused expr_ident_name pattern from escape.c as independent static helper in concurrency.c -- same recursive logic, keeps analyzers self-contained
 - [38-01]: Conservative skip for non-identifier-rooted assignment targets (expr_ident_name returns NULL) -- don't flag what we can't analyze
+- [Phase 38]: [38-02]: Two-pass spawn analysis (collect_local_names + collect_spawn_refs) avoids false positives on spawn-local variables
+- [Phase 38]: [38-02]: Bounded spawn capture tracking (MAX_SPAWN_CAPTURES=64) prevents unbounded allocation
 
 ### Pending Todos
 
@@ -115,6 +118,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-03T11:19:47Z
-Stopped at: Completed 38-01-PLAN.md
+Last session: 2026-04-03T11:31:54.463Z
+Stopped at: Completed 38-02-PLAN.md
 Resume file: None
