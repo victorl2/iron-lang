@@ -186,11 +186,11 @@ static void iron_parser_sync_stmt(Iron_Parser *p) {
 
 /* ── Type annotation ─────────────────────────────────────────────────────── */
 
-/* Parse: TypeName[?][GenericArgs] or [TypeName; Size] or [TypeName] */
+/* Parse: TypeName[?][GenericArgs] or [TypeName; Size] or [TypeName] or func(T)->R */
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
 
-    /* Array type: [T] or [T; N] */
+    /* Array type: [T] or [T; N] or [func(T)->R] */
     if (iron_match(p, IRON_TOK_LBRACKET)) {
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
@@ -200,12 +200,35 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         ann->generic_arg_count = 0;
         ann->array_size        = NULL;
 
-        /* element type name */
-        if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        /* Initialize func-type fields */
+        ann->is_func           = false;
+        ann->func_params       = NULL;
+        ann->func_param_count  = 0;
+        ann->func_return       = NULL;
+
+        /* element type: either func(...) -> R or a named type */
+        if (iron_check(p, IRON_TOK_FUNC)) {
+            /* Parse func type as array element: [func(T) -> R] */
+            Iron_Node *elem = iron_parse_type_annotation(p);
+            if (elem && elem->kind == IRON_NODE_TYPE_ANNOTATION) {
+                Iron_TypeAnnotation *elem_ann = (Iron_TypeAnnotation *)elem;
+                ann->name             = "func";
+                ann->is_func          = elem_ann->is_func;
+                ann->func_params      = elem_ann->func_params;
+                ann->func_param_count = elem_ann->func_param_count;
+                ann->func_return      = elem_ann->func_return;
+            } else {
+                ann->name = "<error>";
+            }
+        } else if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected type name in array type", NULL);
+            /* CRITICAL FIX: skip forward to ] to prevent infinite loop */
+            while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
+                iron_advance(p);
+            }
             ann->name = "<error>";
         } else {
             Iron_Token *name_tok = iron_advance(p);
@@ -219,6 +242,50 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         }
 
         iron_expect(p, IRON_TOK_RBRACKET);
+        ann->span = iron_span_merge(iron_token_span(p, start),
+                                    iron_token_span(p, iron_current(p)));
+        return (Iron_Node *)ann;
+    }
+
+    /* Standalone func type annotation: func(T, U) -> R */
+    if (iron_check(p, IRON_TOK_FUNC)) {
+        iron_advance(p);  /* consume 'func' */
+
+        Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        ann->kind              = IRON_NODE_TYPE_ANNOTATION;
+        ann->is_array          = false;
+        ann->array_size        = NULL;
+        ann->is_nullable       = false;
+        ann->generic_args      = NULL;
+        ann->generic_arg_count = 0;
+        ann->is_func           = true;
+        ann->name              = "func";
+
+        /* Parse parameter types: ( [TypeAnn, ...] ) */
+        ann->func_params      = NULL;
+        ann->func_param_count = 0;
+        if (iron_match(p, IRON_TOK_LPAREN)) {
+            Iron_Node **params = NULL;
+            int param_count = 0;
+            while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
+                if (param_count > 0) {
+                    iron_expect(p, IRON_TOK_COMMA);
+                }
+                Iron_Node *param_type = iron_parse_type_annotation(p);
+                arrput(params, param_type);
+                param_count++;
+            }
+            iron_expect(p, IRON_TOK_RPAREN);
+            ann->func_params      = params;
+            ann->func_param_count = param_count;
+        }
+
+        /* Parse optional return type: -> R */
+        ann->func_return = NULL;
+        if (iron_match(p, IRON_TOK_ARROW)) {
+            ann->func_return = iron_parse_type_annotation(p);
+        }
+
         ann->span = iron_span_merge(iron_token_span(p, start),
                                     iron_token_span(p, iron_current(p)));
         return (Iron_Node *)ann;
@@ -252,6 +319,12 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         ann->generic_args      = NULL;
         ann->generic_arg_count = 0;
     }
+
+    /* Initialize func-type fields for named type */
+    ann->is_func           = false;
+    ann->func_params       = NULL;
+    ann->func_param_count  = 0;
+    ann->func_return       = NULL;
 
     ann->span = iron_span_merge(iron_token_span(p, start),
                                 iron_token_span(p, iron_current(p)));
