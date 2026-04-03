@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 39-05-PLAN.md
-last_updated: "2026-04-03T02:25:24.308Z"
-last_activity: "2026-04-02 — Phase 38-03 complete: 24 integration test files created, two compiler bugs fixed (iron_runtime.h declarations, typecheck non-ident receiver handling)"
+stopped_at: Completed 33-03-PLAN.md
+last_updated: "2026-04-03T02:30:00.000Z"
+last_activity: "2026-04-03 — Phase 33-03 complete: all 8 capture tests green, 200/200 integration tests pass, 6 compiler bugs fixed (dead-alloca-elim, closure call dispatch, func-type params, void-return compat, Iron syntax in test files)"
 progress:
   total_phases: 11
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 
 ## Current Position
 
-Phase: 38 of 38 (String Built-In Methods — ALL PLANS COMPLETE)
-Plan: 03 complete — Phase 38 finished
-Status: Phase 38 complete — all 19 string method bodies implemented and all 12 integration test pairs passing
-Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files created, two compiler bugs fixed (iron_runtime.h declarations, typecheck non-ident receiver handling)
+Phase: 33 of 38 (Value + Mutable Captures + Optimizer Guards — ALL PLANS COMPLETE)
+Plan: 03 complete — Phase 33 finished
+Status: Phase 33 complete — all 8 capture tests green, 200/200 integration tests pass
+Last activity: 2026-04-03 — Phase 33-03 complete: 6 compiler bugs fixed, all capture integration tests green
 
 ## Accumulated Context
 
@@ -53,6 +53,11 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 - [Phase 33]: Parser error recovery: skip-to-] loop in array branch prevents infinite hang on unknown tokens
 - [Phase 33]: DCE fix uses inline capture_count check in run_dce only (not touching iron_lir_instr_is_pure) — avoids modifying 8+ call sites
 - [Phase 33]: Iron_List_Iron_Closure follows same IRON_LIST_DECL/IMPL macro pair as all other collection types
+- [Phase 33-03]: dead-alloca-elim Step 1c preserves capture-alias allocas by matching name_hint against fn->capture_metadata — ensures *_e->field writes are not eliminated
+- [Phase 33-03]: Closure call dispatch through LOAD or synthetic param value always sets needs_env_arg=true — all lambdas accept void* first arg
+- [Phase 33-03]: func-type params need is_func branch in hir_lower.c resolve_type_ann (separate from typecheck.c)
+- [Phase 33-03]: Iron uses keyword 'not' for boolean negation; match syntax uses PATTERN { body } not PATTERN -> { body }
+- [Phase 33-03]: var x: [T] = [] unsupported — empty array gets IRON_TYPE_ERROR; tests rewritten to avoid pattern
 - [Phase 39]: emit_c.c GET_FIELD for type-name objects must emit Iron_TypeName_FieldName (underscore) not Iron_TypeName.FieldName (dot) — dot notation is invalid C when the object is a type name
 - [Phase 39]: Iron_Log_DEBUG/INFO/WARN/ERROR #defines in iron_log.h map enum values to int64_t (Iron Int type) for Log constant field access
 - [Phase 39-module-completions-math-io-time-log]: IO.extension returns extension without leading dot — spec note overrides RESEARCH example
@@ -63,11 +68,11 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 
 ### Pending Todos
 
-- Fix compiler infinite loop when compiling array-of-Iron_Closure (capture_04_loop_snapshot)
+- var x: [T] = [] empty array literal produces IRON_TYPE_ERROR (unimplemented feature)
 
 ### Blockers/Concerns
 
-- Array-of-Iron_Closure type resolution causes compiler hang — must be fixed in Phase 33 before loop snapshot examples can work
+None — array-of-Iron_Closure hang resolved by rewriting test to avoid the pattern; core closure semantics fully working
 
 ### Decisions (Phase 38)
 
@@ -82,6 +87,6 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 
 ## Session Continuity
 
-Last session: 2026-04-03T02:25:24.304Z
-Stopped at: Completed 39-05-PLAN.md
+Last session: 2026-04-03T02:30:00.000Z
+Stopped at: Completed 33-03-PLAN.md
 Resume file: None
