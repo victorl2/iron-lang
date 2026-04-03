@@ -250,19 +250,23 @@ struct IronLIR_Instr {
 
         /* IRON_LIR_SPAWN */
         struct {
-            const char    *lifted_func_name;
-            IronLIR_ValueId pool_val;
-            const char    *handle_name;
+            const char        *lifted_func_name;
+            IronLIR_ValueId    pool_val;
+            const char        *handle_name;
+            IronLIR_ValueId   *captures;        /* stb_ds array of captured value IDs */
+            int                capture_count;
+            Iron_CaptureEntry *capture_metadata; /* name/type/is_mutable per capture */
         } spawn;
 
         /* IRON_LIR_PARALLEL_FOR */
         struct {
-            const char     *loop_var_name;
-            IronLIR_ValueId  range_val;
-            const char     *chunk_func_name;
-            IronLIR_ValueId  pool_val;
-            IronLIR_ValueId *captures;    /* stb_ds array */
-            int             capture_count;
+            const char        *loop_var_name;
+            IronLIR_ValueId    range_val;
+            const char        *chunk_func_name;
+            IronLIR_ValueId    pool_val;
+            IronLIR_ValueId   *captures;          /* stb_ds array */
+            int                capture_count;
+            Iron_CaptureEntry *capture_metadata;  /* name/type/is_mutable per capture */
         } parallel_for;
 
         /* IRON_LIR_AWAIT */
@@ -494,13 +498,16 @@ IronLIR_Instr *iron_lir_func_ref(IronLIR_Func *fn, IronLIR_Block *block,
 IronLIR_Instr *iron_lir_spawn(IronLIR_Func *fn, IronLIR_Block *block,
                              const char *lifted_func_name,
                              IronLIR_ValueId pool_val, const char *handle_name,
-                             Iron_Type *type, Iron_Span span);
+                             Iron_Type *type, Iron_Span span,
+                             IronLIR_ValueId *captures, int capture_count,
+                             Iron_CaptureEntry *capture_metadata);
 IronLIR_Instr *iron_lir_parallel_for(IronLIR_Func *fn, IronLIR_Block *block,
                                     const char *loop_var_name,
                                     IronLIR_ValueId range_val,
                                     const char *chunk_func_name,
                                     IronLIR_ValueId pool_val,
                                     IronLIR_ValueId *captures, int capture_count,
+                                    Iron_CaptureEntry *capture_metadata,
                                     Iron_Span span);
 IronLIR_Instr *iron_lir_await(IronLIR_Func *fn, IronLIR_Block *block,
                              IronLIR_ValueId handle,

@@ -1,0 +1,14 @@
+-- capture_15_spawn_capture.iron: spawn block captures an outer array
+-- Tests that a spawn body can read a val array from the enclosing scope.
+
+func main() {
+  val data = [10, 20, 30]
+  val h = spawn("sum_task") {
+    var sum = 0
+    for item in data {
+      sum = sum + item
+    }
+    println("sum: {sum}")
+  }
+  await h
+}

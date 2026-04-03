@@ -270,13 +270,15 @@ typedef struct {
 } Iron_WhileStmt;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;        /* IRON_NODE_FOR */
-    const char   *var_name;
-    Iron_Node    *iterable;
-    Iron_Node    *body;
-    bool          is_parallel;
-    Iron_Node    *pool_expr;   /* NULL if default pool */
+    Iron_Span          span;
+    Iron_NodeKind      kind;        /* IRON_NODE_FOR */
+    const char        *var_name;
+    Iron_Node         *iterable;
+    Iron_Node         *body;
+    bool               is_parallel;
+    Iron_Node         *pool_expr;   /* NULL if default pool */
+    Iron_CaptureEntry *pfor_captures;      /* set by capture analysis for parallel-for; NULL otherwise */
+    int                pfor_capture_count; /* 0 for non-capturing pfor bodies */
 } Iron_ForStmt;
 
 typedef struct {
@@ -314,12 +316,14 @@ typedef struct {
 } Iron_LeakStmt;
 
 typedef struct {
-    Iron_Span     span;
-    Iron_NodeKind kind;          /* IRON_NODE_SPAWN */
-    const char   *name;
-    Iron_Node    *pool_expr;     /* NULL if default */
-    Iron_Node    *body;
-    const char   *handle_name;  /* NULL if no handle */
+    Iron_Span          span;
+    Iron_NodeKind      kind;          /* IRON_NODE_SPAWN */
+    const char        *name;
+    Iron_Node         *pool_expr;     /* NULL if default */
+    Iron_Node         *body;
+    const char        *handle_name;  /* NULL if no handle */
+    Iron_CaptureEntry *captures;      /* set by capture analysis; NULL before analysis */
+    int                capture_count; /* 0 for non-capturing spawn blocks */
 } Iron_SpawnStmt;
 
 typedef struct {
