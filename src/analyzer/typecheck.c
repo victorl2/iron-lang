@@ -254,6 +254,102 @@ static bool try_get_constant_int(Iron_Node *node, long long *out) {
     return false;
 }
 
+/* ── Generic constraint helpers ──────────────────────────────────────────── */
+
+/* Check if concrete_type satisfies the named constraint.
+ * A constraint is satisfied if:
+ *   (a) The constraint name resolves to an interface, and the concrete type
+ *       is an object that declares `implements ConstraintName`, OR
+ *   (b) The constraint name resolves to an interface, and the concrete type
+ *       is an object that has methods matching all interface method signatures
+ *       (structural check via program->decls scan).
+ * Returns true if satisfied or if constraint cannot be resolved. */
+static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
+                                       const char *constraint_name) {
+    if (!concrete_type || !constraint_name) return true;
+    if (concrete_type->kind == IRON_TYPE_ERROR) return true;
+
+    /* Look up the constraint as an interface */
+    Iron_Symbol *csym = iron_scope_lookup(ctx->global_scope, constraint_name);
+    if (!csym || csym->sym_kind != IRON_SYM_INTERFACE) return true;
+
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)csym->decl_node;
+    if (!iface) return true;
+
+    /* Check (a): object explicitly implements the interface */
+    if (concrete_type->kind == IRON_TYPE_OBJECT && concrete_type->object.decl) {
+        Iron_ObjectDecl *od = concrete_type->object.decl;
+        for (int i = 0; i < od->implements_count; i++) {
+            if (strcmp(od->implements_names[i], constraint_name) == 0)
+                return true;
+        }
+    }
+
+    /* Check (b): structural -- object has all required methods */
+    if (concrete_type->kind == IRON_TYPE_OBJECT && concrete_type->object.decl) {
+        Iron_ObjectDecl *od = concrete_type->object.decl;
+        bool all_found = true;
+        for (int k = 0; k < iface->method_count; k++) {
+            Iron_Node *sig = iface->method_sigs[k];
+            if (!sig) continue;
+            const char *mname = NULL;
+            if (sig->kind == IRON_NODE_FUNC_DECL)
+                mname = ((Iron_FuncDecl *)sig)->name;
+            if (!mname) continue;
+
+            bool found = false;
+            for (int m = 0; m < ctx->program->decl_count; m++) {
+                Iron_Node *d = ctx->program->decls[m];
+                if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *meth = (Iron_MethodDecl *)d;
+                if (strcmp(meth->type_name, od->name) == 0 &&
+                    strcmp(meth->method_name, mname) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) { all_found = false; break; }
+        }
+        if (all_found) return true;
+    }
+
+    /* Primitives and other non-object types do not satisfy interface constraints */
+    return false;
+}
+
+/* Check generic constraints for a declaration with generic params.
+ * generic_params: array of Iron_Ident* nodes (from FuncDecl/ObjectDecl)
+ * generic_param_count: number of generic params
+ * concrete_types: array of Iron_Type* for each param
+ * concrete_count: number of concrete types provided
+ * span: source span for error reporting */
+static void check_generic_constraints(TypeCtx *ctx,
+                                       Iron_Node **generic_params,
+                                       int generic_param_count,
+                                       Iron_Type **concrete_types,
+                                       int concrete_count,
+                                       Iron_Span span) {
+    int check_count = generic_param_count < concrete_count
+                      ? generic_param_count : concrete_count;
+    for (int i = 0; i < check_count; i++) {
+        if (!generic_params[i]) continue;
+        Iron_Ident *gp = (Iron_Ident *)generic_params[i];
+        if (!gp->constraint_name) continue;
+
+        Iron_Type *concrete = concrete_types[i];
+        if (!type_satisfies_constraint(ctx, concrete, gp->constraint_name)) {
+            char msg[512];
+            const char *type_str = concrete
+                ? iron_type_to_string(concrete, ctx->arena)
+                : "unknown";
+            snprintf(msg, sizeof(msg),
+                     "type '%s' does not satisfy constraint '%s'",
+                     type_str, gp->constraint_name);
+            emit_error(ctx, IRON_ERR_GENERIC_CONSTRAINT, span, msg, NULL);
+        }
+    }
+}
+
 /* ── Narrowing map helpers ────────────────────────────────────────────────── */
 
 static Iron_Type *narrowing_get(TypeCtx *ctx, const char *name) {
@@ -700,6 +796,28 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             }
                         }
                     }
+                    /* Check generic constraints on call-as-construction */
+                    if (od && od->generic_param_count > 0 && od->generic_params) {
+                        Iron_Type *concrete[16];
+                        int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
+                        for (int gi = 0; gi < gc; gi++) {
+                            concrete[gi] = NULL;
+                            Iron_Ident *gp = (Iron_Ident *)od->generic_params[gi];
+                            if (!gp) continue;
+                            for (int fi = 0; fi < od->field_count && fi < ce->arg_count; fi++) {
+                                Iron_Field *fld = (Iron_Field *)od->fields[fi];
+                                if (fld && fld->type_ann && fld->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
+                                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fld->type_ann;
+                                    if (strcmp(ta->name, gp->name) == 0) {
+                                        concrete[gi] = check_expr(ctx, ce->args[fi]);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        check_generic_constraints(ctx, od->generic_params, od->generic_param_count,
+                                                  concrete, gc, ce->span);
+                    }
                     result = callee_sym->type;
                     ce->resolved_type = result;
                     callee_id->resolved_type = result;
@@ -799,6 +917,42 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* Narrow literal args to match parameter type */
                     if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         ((Iron_IntLit *)ce->args[i])->resolved_type = param_type;
+                    }
+                }
+            }
+
+            /* Check generic constraints if callee is a generic function */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                Iron_Symbol *fn_sym = iron_scope_lookup(ctx->global_scope, fn_id->name);
+                if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION && fn_sym->decl_node) {
+                    Iron_FuncDecl *fd = (Iron_FuncDecl *)fn_sym->decl_node;
+                    if (fd->generic_param_count > 0 && fd->generic_params) {
+                        Iron_Type *concrete[16];
+                        int gc = fd->generic_param_count < 16 ? fd->generic_param_count : 16;
+                        for (int gi = 0; gi < gc; gi++) {
+                            concrete[gi] = NULL;
+                            Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
+                            if (!gp) continue;
+                            for (int pi = 0; pi < fd->param_count && pi < ce->arg_count; pi++) {
+                                Iron_Param *fp = (Iron_Param *)fd->params[pi];
+                                if (fp && fp->type_ann && fp->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
+                                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fp->type_ann;
+                                    if (strcmp(ta->name, gp->name) == 0) {
+                                        concrete[gi] = check_expr(ctx, ce->args[pi]);
+                                        break;
+                                    }
+                                    if (ta->is_array && concrete[gi] == NULL) {
+                                        Iron_Type *arg_t = check_expr(ctx, ce->args[pi]);
+                                        if (arg_t && arg_t->kind == IRON_TYPE_ARRAY) {
+                                            concrete[gi] = arg_t->array.elem;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        check_generic_constraints(ctx, fd->generic_params, fd->generic_param_count,
+                                                  concrete, gc, ce->span);
                     }
                 }
             }
@@ -947,6 +1101,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             ((Iron_IntLit *)ce->args[i])->resolved_type = fld_t;
                         }
                     }
+                }
+                /* Check generic constraints on type construction */
+                if (od && od->generic_param_count > 0 && od->generic_params &&
+                    ce->generic_arg_count > 0 && ce->generic_args) {
+                    Iron_Type *concrete[16];
+                    int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
+                    int ac = ce->generic_arg_count < gc ? ce->generic_arg_count : gc;
+                    for (int gi = 0; gi < gc; gi++) {
+                        concrete[gi] = NULL;
+                        if (gi < ac && ce->generic_args[gi]) {
+                            concrete[gi] = resolve_type_annotation(ctx, ce->generic_args[gi]);
+                        }
+                    }
+                    check_generic_constraints(ctx, od->generic_params, od->generic_param_count,
+                                              concrete, gc, ce->span);
                 }
                 result = sym->type;
             } else if (sym->sym_kind == IRON_SYM_FUNCTION) {
