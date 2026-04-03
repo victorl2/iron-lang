@@ -1,77 +1,36 @@
 /* solution.c — C reference for closure call overhead benchmark.
- * Equivalent computation using function pointer dispatch to simulate
- * Iron_Closure calling convention (fn pointer + env pointer). */
+ * Uses function pointer (simulating Iron_Closure) to call add(x,y)
+ * in a loop, matching the Iron main.iron program. */
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
 #include <time.h>
 
-/* Simulated Iron_Closure fat-pointer */
-typedef struct {
-    int64_t (*fn)(void *env, int64_t x);
-    void *env;
-} Closure;
+static int64_t add_direct(int64_t x, int64_t y) { return x + y; }
 
-/* Environment for capturing closure */
-typedef struct { int64_t multiplier; } EnvCapturing;
-
-/* Lifted functions */
-static int64_t fn_direct(int64_t x)          { return x * 2; }
-static int64_t fn_non_cap(void *e, int64_t x) { (void)e; return x * 2; }
-static int64_t fn_cap(void *e, int64_t x)    {
-    EnvCapturing *env = (EnvCapturing *)e;
-    return x * env->multiplier;
-}
-
-static int64_t now_ms(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
-}
+typedef struct { void *env; int64_t (*fn)(void*, int64_t, int64_t); } Closure;
+static int64_t add_via_closure(void *e, int64_t x, int64_t y) { (void)e; return x + y; }
 
 int main(void) {
-    const int n = 500;
-    const int iterations = 1000000;
+    const int64_t iterations = 1000000;
+    Closure cl = { NULL, add_via_closure };
 
-    int64_t *arr = malloc((size_t)n * sizeof(int64_t));
-    for (int i = 0; i < n; i++) arr[i] = i;
+    struct timespec ts0, ts1;
+    clock_gettime(CLOCK_MONOTONIC, &ts0);
 
-    /* Direct call baseline */
-    int64_t t1 = now_ms();
-    int64_t sum1 = 0;
-    for (int it = 0; it < iterations; it++)
-        for (int idx = 0; idx < n; idx++)
-            sum1 += fn_direct(arr[idx]);
-    int64_t e1 = now_ms() - t1;
+    int64_t sum_direct = 0;
+    for (int64_t i = 0; i < iterations; i++)
+        sum_direct += add_direct(i, 1);
 
-    /* Non-capturing closure */
-    Closure nc = { fn_non_cap, NULL };
-    int64_t t2 = now_ms();
-    int64_t sum2 = 0;
-    for (int it = 0; it < iterations; it++)
-        for (int idx = 0; idx < n; idx++)
-            sum2 += nc.fn(nc.env, arr[idx]);
-    int64_t e2 = now_ms() - t2;
+    int64_t sum_closure = 0;
+    for (int64_t i = 0; i < iterations; i++)
+        sum_closure += cl.fn(cl.env, i, 1);
 
-    /* Capturing closure */
-    EnvCapturing env = { 2 };
-    Closure cap = { fn_cap, &env };
-    int64_t t3 = now_ms();
-    int64_t sum3 = 0;
-    for (int it = 0; it < iterations; it++)
-        for (int idx = 0; idx < n; idx++)
-            sum3 += cap.fn(cap.env, arr[idx]);
-    int64_t e3 = now_ms() - t3;
+    clock_gettime(CLOCK_MONOTONIC, &ts1);
+    int64_t ms = (ts1.tv_sec - ts0.tv_sec) * 1000 + (ts1.tv_nsec - ts0.tv_nsec) / 1000000;
 
-    printf("=== Closure Call Overhead Benchmark ===\n");
-    printf("Array size: %d, Iterations: %d\n", n, iterations);
-    printf("Direct call (ms):            %lld\n", (long long)e1);
-    printf("Non-capturing closure (ms):  %lld\n", (long long)e2);
-    printf("Capturing closure (ms):      %lld\n", (long long)e3);
-    printf("All results equal: %s\n",
-           (sum1 == sum2 && sum2 == sum3) ? "true" : "false");
-
-    free(arr);
+    printf("direct: %lld\n", (long long)sum_direct);
+    printf("closure: %lld\n", (long long)sum_closure);
+    if (sum_direct == sum_closure) printf("MATCH\n");
+    printf("Total time: %lld ms\n", (long long)ms);
     return 0;
 }
