@@ -30,10 +30,10 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Cast Safety
 
-- [ ] **CAST-01**: Compiler validates that the source expression type is numeric or bool before allowing primitive cast
-- [ ] **CAST-02**: Compiler emits `IRON_ERR_INVALID_CAST` when source type is not castable
-- [ ] **CAST-03**: Compiler emits `IRON_WARN_NARROWING_CAST` for wider-to-narrower integer casts
-- [ ] **CAST-04**: Compiler validates compile-time constant values fit in the target narrow type (literal range check)
+- [x] **CAST-01**: Compiler validates that the source expression type is numeric or bool before allowing primitive cast
+- [x] **CAST-02**: Compiler emits `IRON_ERR_INVALID_CAST` when source type is not castable
+- [x] **CAST-03**: Compiler emits `IRON_WARN_NARROWING_CAST` for wider-to-narrower integer casts
+- [x] **CAST-04**: Compiler validates compile-time constant values fit in the target narrow type (literal range check)
 
 ### Definite Assignment
 
@@ -129,10 +129,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | MATCH-01 | Phase 33 | Complete |
 | MATCH-02 | Phase 33 | Complete |
 | MATCH-03 | Phase 33 | Complete |
-| CAST-01 | Phase 33 | Pending |
-| CAST-02 | Phase 33 | Pending |
-| CAST-03 | Phase 33 | Pending |
-| CAST-04 | Phase 33 | Pending |
+| CAST-01 | Phase 33 | Complete |
+| CAST-02 | Phase 33 | Complete |
+| CAST-03 | Phase 33 | Complete |
+| CAST-04 | Phase 33 | Complete |
 | STRN-01 | Phase 33 | Pending |
 | STRN-02 | Phase 33 | Pending |
 | OVFL-01 | Phase 33 | Pending |
