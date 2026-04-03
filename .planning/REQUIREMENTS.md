@@ -37,9 +37,9 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Definite Assignment
 
-- [ ] **INIT-01**: Compiler performs definite assignment analysis tracking initialization state across control flow paths
-- [ ] **INIT-02**: Compiler detects variables that may be read before being assigned on all paths
-- [ ] **INIT-03**: Compiler emits `IRON_ERR_POSSIBLY_UNINITIALIZED` when a variable may be used uninitialized
+- [x] **INIT-01**: Compiler performs definite assignment analysis tracking initialization state across control flow paths
+- [x] **INIT-02**: Compiler detects variables that may be read before being assigned on all paths
+- [x] **INIT-03**: Compiler emits `IRON_ERR_POSSIBLY_UNINITIALIZED` when a variable may be used uninitialized
 - [ ] **INIT-04**: Analysis handles if/else, match, loops, and early returns correctly
 
 ### Array Bounds
@@ -149,9 +149,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | ESC-02 | Phase 35 | Complete |
 | ESC-03 | Phase 35 | Complete |
 | ESC-04 | Phase 35 | Complete |
-| INIT-01 | Phase 36 | Pending |
-| INIT-02 | Phase 36 | Pending |
-| INIT-03 | Phase 36 | Pending |
+| INIT-01 | Phase 36 | Complete |
+| INIT-02 | Phase 36 | Complete |
+| INIT-03 | Phase 36 | Complete |
 | INIT-04 | Phase 36 | Pending |
 | GEN-01 | Phase 37 | Pending |
 | GEN-02 | Phase 37 | Pending |
