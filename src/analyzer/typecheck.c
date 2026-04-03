@@ -64,6 +64,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node);
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count);
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
 
+/* ── ADT helpers ─────────────────────────────────────────────────────────── */
+
+/* Find variant index by name in an enum declaration. Returns -1 if not found. */
+static int find_variant_index(Iron_EnumDecl *ed, const char *name) {
+    for (int i = 0; i < ed->variant_count; i++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+        if (strcmp(ev->name, name) == 0) return i;
+    }
+    return -1;
+}
+
 /* ── Scope helpers ───────────────────────────────────────────────────────── */
 
 static void tc_push_scope(TypeCtx *ctx, Iron_ScopeKind kind) {
@@ -920,6 +931,59 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+            /* Look up enum type in global scope */
+            Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, ec->enum_name);
+            if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) {
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                break;
+            }
+            Iron_Type *enum_type = esym->type;
+            Iron_EnumDecl *ed = enum_type->enu.decl;
+            int vi = find_variant_index(ed, ec->variant_name);
+            if (vi < 0) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
+                         ec->enum_name, ec->variant_name);
+                emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, NULL);
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                break;
+            }
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+            /* Check argument count matches payload count */
+            if (ec->arg_count != ev->payload_count) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "%s.%s expects %d argument(s) but got %d",
+                         ec->enum_name, ec->variant_name, ev->payload_count, ec->arg_count);
+                emit_error(ctx, IRON_ERR_PATTERN_ARITY, ec->span, msg, NULL);
+                ec->resolved_type = enum_type;
+                result = enum_type;
+                break;
+            }
+            /* Type-check each argument against variant payload types */
+            Iron_Type **ptypes = enum_type->enu.variant_payload_types
+                                 ? enum_type->enu.variant_payload_types[vi] : NULL;
+            for (int j = 0; j < ec->arg_count; j++) {
+                Iron_Type *arg_t = check_expr(ctx, ec->args[j]);
+                if (ptypes && ptypes[j] && arg_t &&
+                    arg_t->kind != IRON_TYPE_ERROR && ptypes[j]->kind != IRON_TYPE_ERROR) {
+                    if (!iron_type_equals(arg_t, ptypes[j])) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "argument %d to %s.%s: expected %s but got %s",
+                                 j + 1, ec->enum_name, ec->variant_name,
+                                 iron_type_to_string(ptypes[j], ctx->arena),
+                                 iron_type_to_string(arg_t, ctx->arena));
+                        emit_error(ctx, IRON_ERR_ARG_TYPE, ec->span, msg, NULL);
+                    }
+                }
+            }
+            ec->resolved_type = enum_type;
+            result = enum_type;
+            break;
+        }
+
         default:
             result = iron_type_make_primitive(IRON_TYPE_ERROR);
             break;
@@ -1236,18 +1300,148 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
-            check_expr(ctx, ms->subject);
+            Iron_Type *subject_type = check_expr(ctx, ms->subject);
+            /* Process each case arm */
             for (int i = 0; i < ms->case_count; i++) {
                 if (ms->cases[i]) check_stmt(ctx, ms->cases[i]);
             }
             if (ms->else_body) check_stmt(ctx, ms->else_body);
+            /* Exhaustiveness check — only for enum subjects with payloads */
+            if (subject_type && subject_type->kind == IRON_TYPE_ENUM) {
+                Iron_EnumDecl *ed = subject_type->enu.decl;
+                if (ed && ed->has_payloads) {
+                    bool *covered = iron_arena_alloc(ctx->arena,
+                        sizeof(bool) * (size_t)ed->variant_count, _Alignof(bool));
+                    memset(covered, 0, sizeof(bool) * (size_t)ed->variant_count);
+                    bool has_catch_all = (ms->else_body != NULL);
+                    for (int i = 0; i < ms->case_count; i++) {
+                        Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                        if (!mc || !mc->pattern) continue;
+                        if (mc->pattern->kind != IRON_NODE_PATTERN) continue;
+                        Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
+                        const char *vname = p->variant_name;
+                        int vi = find_variant_index(ed, vname);
+                        if (vi < 0) {
+                            /* Unknown variant — already reported by resolver; skip */
+                            continue;
+                        }
+                        if (covered[vi]) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "unreachable match arm: variant '%s' already covered",
+                                     vname);
+                            emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span,
+                                       msg, NULL);
+                        } else {
+                            covered[vi] = true;
+                        }
+                        /* Check pattern arity (binding_count must match payload_count) */
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+                        if (p->binding_count != ev->payload_count) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "%s expects %d field(s) but pattern has %d",
+                                     vname, ev->payload_count, p->binding_count);
+                            emit_error(ctx, IRON_ERR_PATTERN_ARITY, mc->pattern->span,
+                                       msg, NULL);
+                        }
+                    }
+                    if (!has_catch_all) {
+                        /* Check for missing variants */
+                        int missing_count = 0;
+                        for (int i = 0; i < ed->variant_count; i++) {
+                            if (!covered[i]) missing_count++;
+                        }
+                        if (missing_count > 0) {
+                            char msg[512];
+                            int pos = snprintf(msg, sizeof(msg),
+                                               "non-exhaustive match: missing variant(s): ");
+                            bool first = true;
+                            for (int i = 0; i < ed->variant_count; i++) {
+                                if (!covered[i]) {
+                                    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                                    if (!first) pos += snprintf(msg + pos, sizeof(msg) - pos, ", ");
+                                    pos += snprintf(msg + pos, sizeof(msg) - pos, "%s", ev->name);
+                                    first = false;
+                                }
+                            }
+                            emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span,
+                                       msg, "add 'else -> ...' or handle each variant");
+                        }
+                    } else {
+                        /* else arm present: emit info note listing which variants it catches */
+                        int uncovered_count = 0;
+                        for (int i = 0; i < ed->variant_count; i++) {
+                            if (!covered[i]) uncovered_count++;
+                        }
+                        if (uncovered_count > 0) {
+                            char msg[512];
+                            int pos = snprintf(msg, sizeof(msg), "else catches: ");
+                            bool first = true;
+                            for (int i = 0; i < ed->variant_count; i++) {
+                                if (!covered[i]) {
+                                    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                                    if (!first) pos += snprintf(msg + pos, sizeof(msg) - pos, ", ");
+                                    pos += snprintf(msg + pos, sizeof(msg) - pos, "%s", ev->name);
+                                    first = false;
+                                }
+                            }
+                            (void)pos;  /* suppress unused-variable warning */
+                            iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE, 0,
+                                           ms->span,
+                                           iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                           NULL);
+                        }
+                    }
+                }
+            }
             break;
         }
 
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
-            if (mc->pattern) check_expr(ctx, mc->pattern);
+            tc_push_scope(ctx, IRON_SCOPE_BLOCK);
+            if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                Iron_Pattern *pat = (Iron_Pattern *)mc->pattern;
+                /* Determine the enum type from the pattern's enum_name */
+                Iron_Type *enum_type = NULL;
+                Iron_EnumDecl *ed = NULL;
+                if (pat->enum_name) {
+                    Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
+                    if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
+                        enum_type = esym->type;
+                        ed = enum_type->enu.decl;
+                    }
+                } else {
+                    /* Unqualified pattern — search global scope for enum containing variant */
+                    Iron_Symbol *vsym = iron_scope_lookup(ctx->global_scope, pat->variant_name);
+                    if (vsym && vsym->type && vsym->type->kind == IRON_TYPE_ENUM) {
+                        enum_type = vsym->type;
+                        ed = enum_type->enu.decl;
+                    }
+                }
+                if (ed && enum_type && enum_type->enu.variant_payload_types) {
+                    int vi = find_variant_index(ed, pat->variant_name);
+                    if (vi >= 0) {
+                        Iron_Type **ptypes = enum_type->enu.variant_payload_types[vi];
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+                        for (int j = 0; j < pat->binding_count && j < ev->payload_count; j++) {
+                            const char *bname = pat->binding_names[j];
+                            if (!bname) continue;  /* wildcard _ */
+                            Iron_Type *btype = (ptypes && ptypes[j]) ? ptypes[j]
+                                               : iron_type_make_primitive(IRON_TYPE_ERROR);
+                            tc_define(ctx, bname, IRON_SYM_VARIABLE,
+                                      mc->pattern, pat->span,
+                                      /*is_mutable=*/false, btype);
+                        }
+                    }
+                }
+            } else if (mc->pattern) {
+                /* Non-pattern (e.g. integer literal) — check as expression */
+                check_expr(ctx, mc->pattern);
+            }
             if (mc->body) check_stmt(ctx, mc->body);
+            tc_pop_scope(ctx);
             break;
         }
 
@@ -1522,6 +1716,38 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             /* Update the resolver's existing symbol with the resolved type */
             Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, vd->name);
             if (sym) sym->type = decl_type;
+        }
+    }
+
+    /* Pre-pass: populate variant_payload_types for ADT enums.
+     * Must run before function bodies reference IRON_NODE_ENUM_CONSTRUCT or
+     * IRON_NODE_MATCH so that variant type information is available. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl || decl->kind != IRON_NODE_ENUM_DECL) continue;
+        Iron_EnumDecl *ed = (Iron_EnumDecl *)decl;
+        if (!ed->has_payloads) continue;
+        /* Look up the enum's type (registered by resolver in global scope) */
+        Iron_Symbol *esym = iron_scope_lookup(ctx.global_scope, ed->name);
+        if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) continue;
+        Iron_Type *ty = esym->type;
+        /* Allocate outer array of Iron_Type** pointers */
+        Iron_Type ***vpt = iron_arena_alloc(ctx.arena,
+            sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));
+        memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
+        ty->enu.variant_payload_types = vpt;
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (ev->payload_count == 0) {
+                vpt[j] = NULL;
+                continue;
+            }
+            Iron_Type **row = iron_arena_alloc(ctx.arena,
+                sizeof(Iron_Type *) * (size_t)ev->payload_count, _Alignof(Iron_Type *));
+            for (int k = 0; k < ev->payload_count; k++) {
+                row[k] = resolve_type_annotation(&ctx, ev->payload_type_anns[k]);
+            }
+            vpt[j] = row;
         }
     }
 
