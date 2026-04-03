@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 36-01-PLAN.md
-last_updated: "2026-04-03T04:00:40.000Z"
-last_activity: 2026-04-03 -- Completed 36-01 definite assignment analysis pass
+stopped_at: Completed 36-02-PLAN.md
+last_updated: "2026-04-03T10:06:18.000Z"
+last_activity: 2026-04-03 -- Completed 36-02 control flow branch merging
 progress:
   total_phases: 8
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 9
-  percent: 90
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 ## Current Position
 
 Phase: 36 of 39 (Definite Assignment Analysis)
-Plan: 2 of 2 in current phase
-Status: Plan 36-01 complete, ready for 36-02
-Last activity: 2026-04-03 -- Completed 36-01 definite assignment analysis pass
+Plan: 2 of 2 in current phase (COMPLETE)
+Status: Phase 36 complete -- all plans executed
+Last activity: 2026-04-03 -- Completed 36-02 control flow branch merging
 
-Progress: [█████████ ] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
-- Average duration: 7min
-- Total execution time: 1.03 hours
+- Total plans completed: 10
+- Average duration: 8.4min
+- Total execution time: 1.40 hours
 
 **By Phase:**
 
@@ -47,10 +47,10 @@ Progress: [█████████ ] 90%
 | 33 - Type Validation Checks | 3 | 13min | 4.3min |
 | 34 - Bounds Checking | 2 | 10min | 5min |
 | 35 - Escape Analysis Extension | 1 | 15min | 15min |
-| 36 - Definite Assignment Analysis | 1/2 | 22min | 22min |
+| 36 - Definite Assignment Analysis | 2/2 | 44min | 22min |
 
 **Recent Trend:**
-- Last 5 plans: 33-03 (5min), 34-01 (5min), 34-02 (5min), 35-01 (15min), 36-01 (22min)
+- Last 5 plans: 34-01 (5min), 34-02 (5min), 35-01 (15min), 36-01 (22min), 36-02 (22min)
 - Trend: Increasing complexity
 
 *Updated after each plan completion*
@@ -61,6 +61,7 @@ Progress: [█████████ ] 90%
 | Phase 34 P02 | 5min | 1 task | 2 files |
 | Phase 35 P01 | 15min | 2 tasks | 2 files |
 | Phase 36 P01 | 22min | 1 task | 7 files |
+| Phase 36 P02 | 22min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,9 @@ Recent decisions affecting current work:
 - [36-01]: Iron uses 'func' keyword not 'fn' -- test sources corrected during TDD RED phase
 - [36-01]: Optimistic if/while/for handling in Plan 01: assignments inside branches count for subsequent code (Plan 02 will add proper control flow merging)
 - [36-01]: MAX_UNINIT_VARS=256 bounded array avoids dynamic allocation, sufficient for function-scope tracking
+- [36-02]: Multi-branch merge: collect snapshots from non-returning branches, intersect, union with before-state
+- [36-02]: If without else restores to before-state (implicit empty else); loop bodies always save/restore
+- [36-02]: Match exhaustiveness requires explicit else clause; without it, case arm assignments not trusted
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-03T04:00:40.000Z
-Stopped at: Completed 36-01-PLAN.md
+Last session: 2026-04-03T10:06:18.000Z
+Stopped at: Completed 36-02-PLAN.md
 Resume file: None
