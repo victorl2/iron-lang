@@ -684,10 +684,10 @@ Plans:
   3. Passing a heap value as a function argument marks it as escaping; no premature free is inserted for values passed to functions
   4. `expr_ident_name()` or equivalent correctly resolves field-access and index-access targets for escape tracking
   5. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 3 plans
+**Plans**: 1 plan
 
 Plans:
-- [ ] 35-01: Extend escape analysis for field, index, and argument targets
+- [ ] 35-01-PLAN.md — Extend expr_ident_name for field/index targets, add call argument escape tracking
 
 ### Phase 36: Definite Assignment Analysis
 **Goal**: Variables that may be read before being assigned on all control flow paths produce a compile-time error, preventing undefined behavior from uninitialized reads
