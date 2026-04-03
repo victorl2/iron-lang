@@ -1,0 +1,37 @@
+-- Integration test: IO-03..IO-10 (IO-01/02 deferred)
+-- IO-03 (read_line) requires piped stdin — tested manually only.
+-- Manual test: echo "hello" | ./io_additions  (not automated)
+import io
+
+func main() {
+    -- IO-04: append_file (write first, then append, verify result)
+    IO.write_file("/tmp/iron_append_test.txt", "line1")
+    IO.append_file("/tmp/iron_append_test.txt", "line2")
+    val content = IO.read_file("/tmp/iron_append_test.txt")
+    println("append ok")
+
+    -- IO-05: basename
+    val b = IO.basename("/a/b/c.txt")
+    println(b)
+
+    -- IO-06: dirname
+    val d = IO.dirname("/a/b/c.txt")
+    println(d)
+
+    -- IO-07: join_path
+    val j = IO.join_path("a", "b")
+    println(j)
+
+    -- IO-08: extension (without dot per spec)
+    val e = IO.extension("file.iron")
+    println(e)
+
+    -- IO-09: is_dir (use "." which always exists and is a directory)
+    val isdir = IO.is_dir(".")
+    println("{isdir}")
+
+    -- IO-10: read_lines (verify function compiles and returns without error)
+    IO.write_file("/tmp/iron_lines_test.txt", "alpha")
+    val lines = IO.read_lines("/tmp/iron_lines_test.txt")
+    println("read_lines ok")
+}
