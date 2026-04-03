@@ -715,14 +715,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         result = iron_type_make_primitive(IRON_TYPE_VOID);
                     } else if (strcmp(method, "any") == 0 || strcmp(method, "all") == 0) {
                         result = iron_type_make_primitive(IRON_TYPE_BOOL);
-                    } else if (strcmp(method, "find") == 0) {
+                    } else if (strcmp(method, "find") == 0 ||
+                               strcmp(method, "get") == 0 ||
+                               strcmp(method, "pop") == 0) {
+                        /* Return the element type */
                         result = (arr_type->array.elem != NULL)
                                      ? arr_type->array.elem
                                      : iron_type_make_primitive(IRON_TYPE_VOID);
                     } else if (strcmp(method, "len") == 0) {
                         result = iron_type_make_primitive(IRON_TYPE_INT);
+                    } else if (strcmp(method, "push") == 0 ||
+                               strcmp(method, "set") == 0 ||
+                               strcmp(method, "free") == 0) {
+                        result = iron_type_make_primitive(IRON_TYPE_VOID);
                     } else {
-                        /* filter, map, slice, unique, reduce: return same array type */
+                        /* filter, map, slice, unique, reduce, clone: return same array type */
                         result = arr_type;
                     }
                     mc->resolved_type = result;
