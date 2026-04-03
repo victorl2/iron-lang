@@ -1081,6 +1081,59 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         return iron_hir_expr_is(mod, val, check_ty, span);
     }
 
+    /* ── ADT enum variant construction ─────────────────────────────────── */
+    case IRON_NODE_ENUM_CONSTRUCT: {
+        Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+        Iron_Type *ty = ec->resolved_type;
+        /* Find variant index */
+        int variant_idx = -1;
+        if (ty && ty->kind == IRON_TYPE_ENUM && ty->enu.decl) {
+            Iron_EnumDecl *ed = ty->enu.decl;
+            for (int i = 0; i < ed->variant_count; i++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                if (strcmp(ev->name, ec->variant_name) == 0) {
+                    variant_idx = i;
+                    break;
+                }
+            }
+        }
+        /* Lower args */
+        IronHIR_Expr **args = NULL;
+        for (int i = 0; i < ec->arg_count; i++) {
+            IronHIR_Expr *a = lower_expr_hir(ctx, ec->args[i]);
+            arrput(args, a);
+        }
+        int ac = (int)arrlen(args);
+        /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        return iron_hir_expr_enum_construct(mod, ty, ec->enum_name, ec->variant_name,
+                                             variant_idx, args, ac, span);
+    }
+
+    /* ── ADT pattern ─────────────────────────────────────────────────────── */
+    case IRON_NODE_PATTERN: {
+        Iron_Pattern *pat = (Iron_Pattern *)node;
+        /* Variant index is -1 here; resolved from match scrutinee type in hir_to_lir.c */
+        int variant_idx = -1;
+        /* Lower nested patterns recursively */
+        IronHIR_Expr **nested = NULL;
+        for (int i = 0; i < pat->binding_count; i++) {
+            if (pat->nested_patterns && pat->nested_patterns[i]) {
+                IronHIR_Expr *np = lower_expr_hir(ctx, pat->nested_patterns[i]);
+                arrput(nested, np);
+            } else {
+                arrput(nested, NULL);
+            }
+        }
+        /* Copy binding names */
+        const char **names = NULL;
+        for (int i = 0; i < pat->binding_count; i++) {
+            arrput(names, pat->binding_names ? pat->binding_names[i] : NULL);
+        }
+        /* NOTE: nested and names stb_ds array ownership transfers to HIR expr — do NOT arrfree */
+        return iron_hir_expr_pattern(mod, pat->enum_name, pat->variant_name,
+                                      variant_idx, names, nested, pat->binding_count, span);
+    }
+
     /* ── Error or unsupported node ───────────────────────────────────────── */
     case IRON_NODE_ERROR:
     default:
