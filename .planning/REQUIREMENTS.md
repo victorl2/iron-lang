@@ -64,14 +64,14 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Compound Overflow
 
-- [ ] **OVFL-01**: Compiler detects compound assignments (`+=`, `-=`, `*=`, `/=`) on narrow integer types (Int8, Int16, UInt8, etc.)
-- [ ] **OVFL-02**: Compiler emits `IRON_WARN_POSSIBLE_OVERFLOW` when target type is narrower than platform int and RHS is not a fitting constant
-- [ ] **OVFL-03**: Compiler validates compile-time constant RHS values fit in the narrow target type
+- [x] **OVFL-01**: Compiler detects compound assignments (`+=`, `-=`, `*=`, `/=`) on narrow integer types (Int8, Int16, UInt8, etc.)
+- [x] **OVFL-02**: Compiler emits `IRON_WARN_POSSIBLE_OVERFLOW` when target type is narrower than platform int and RHS is not a fitting constant
+- [x] **OVFL-03**: Compiler validates compile-time constant RHS values fit in the narrow target type
 
 ### String Interpolation
 
-- [ ] **STRN-01**: Compiler validates that interpolated expression types are stringifiable (primitives, String, Bool, or types with `to_string`)
-- [ ] **STRN-02**: Compiler emits `IRON_ERR_NOT_STRINGABLE` for types without string conversion capability
+- [x] **STRN-01**: Compiler validates that interpolated expression types are stringifiable (primitives, String, Bool, or types with `to_string`)
+- [x] **STRN-02**: Compiler emits `IRON_ERR_NOT_STRINGABLE` for types without string conversion capability
 
 ### Concurrency
 
@@ -133,11 +133,11 @@ Deferred to future release. Tracked but not in current roadmap.
 | CAST-02 | Phase 33 | Complete |
 | CAST-03 | Phase 33 | Complete |
 | CAST-04 | Phase 33 | Complete |
-| STRN-01 | Phase 33 | Pending |
-| STRN-02 | Phase 33 | Pending |
-| OVFL-01 | Phase 33 | Pending |
-| OVFL-02 | Phase 33 | Pending |
-| OVFL-03 | Phase 33 | Pending |
+| STRN-01 | Phase 33 | Complete |
+| STRN-02 | Phase 33 | Complete |
+| OVFL-01 | Phase 33 | Complete |
+| OVFL-02 | Phase 33 | Complete |
+| OVFL-03 | Phase 33 | Complete |
 | BOUNDS-01 | Phase 34 | Pending |
 | BOUNDS-02 | Phase 34 | Pending |
 | BOUNDS-03 | Phase 34 | Pending |
