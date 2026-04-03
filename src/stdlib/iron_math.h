@@ -9,6 +9,14 @@
 #define IRON_TAU 6.28318530717958647692
 #define IRON_E   2.71828182845904523536
 
+/* ── Math object constant fields (Iron_Math_PI etc.) ─────────────────────── */
+/* These #defines map the compiler-emitted Iron_Math_XXX identifiers (produced
+ * by Iron code `Math.PI`, `Math.TAU`, `Math.E`) to the raw #define values.
+ * The Iron codegen emits type-name field accesses as Iron_TypeName_FieldName. */
+#define Iron_Math_PI  IRON_PI
+#define Iron_Math_TAU IRON_TAU
+#define Iron_Math_E   IRON_E
+
 /* ── Trig and math wrappers ──────────────────────────────────────────────── */
 double Iron_math_sin(double x);
 double Iron_math_cos(double x);
