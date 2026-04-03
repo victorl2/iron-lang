@@ -1022,10 +1022,57 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_SLICE: {
             Iron_SliceExpr *se = (Iron_SliceExpr *)node;
             Iron_Type *obj_type = check_expr(ctx, se->object);
-            check_expr(ctx, se->start);
-            check_expr(ctx, se->end);
+            Iron_Type *start_type = se->start ? check_expr(ctx, se->start) : NULL;
+            Iron_Type *end_type   = se->end   ? check_expr(ctx, se->end)   : NULL;
             result = obj_type ? obj_type : iron_type_make_primitive(IRON_TYPE_ERROR);
             se->resolved_type = result;
+
+            /* SLICE-01: Validate start and end are integer types */
+            if (start_type && start_type->kind != IRON_TYPE_ERROR &&
+                !iron_type_is_integer(start_type)) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, se->start->span,
+                           "slice start must be an integer type", NULL);
+            }
+            if (end_type && end_type->kind != IRON_TYPE_ERROR &&
+                !iron_type_is_integer(end_type)) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, se->end->span,
+                           "slice end must be an integer type", NULL);
+            }
+
+            /* SLICE-02/03/04: Check constant bounds */
+            long long start_val, end_val;
+            bool has_start = se->start && try_get_constant_int(se->start, &start_val);
+            bool has_end   = se->end   && try_get_constant_int(se->end, &end_val);
+
+            if (has_start && start_val < 0) {
+                char msg[128];
+                snprintf(msg, sizeof(msg),
+                         "slice start %lld is negative", start_val);
+                emit_error(ctx, IRON_ERR_INVALID_SLICE_BOUNDS,
+                           se->start->span, msg, NULL);
+            } else if (has_start && has_end && start_val > end_val) {
+                /* SLICE-02: start <= end */
+                char msg[128];
+                snprintf(msg, sizeof(msg),
+                         "slice start %lld is greater than end %lld",
+                         start_val, end_val);
+                emit_error(ctx, IRON_ERR_INVALID_SLICE_BOUNDS,
+                           se->start->span, msg, NULL);
+            }
+
+            /* SLICE-03: end <= array size when all are constants */
+            if (has_end && obj_type && obj_type->kind == IRON_TYPE_ARRAY &&
+                obj_type->array.size >= 0) {
+                if (end_val > obj_type->array.size) {
+                    char msg[128];
+                    snprintf(msg, sizeof(msg),
+                             "slice end %lld exceeds array size %d",
+                             end_val, obj_type->array.size);
+                    emit_error(ctx, IRON_ERR_INVALID_SLICE_BOUNDS,
+                               se->end->span, msg, NULL);
+                }
+            }
+
             break;
         }
 
