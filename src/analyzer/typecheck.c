@@ -103,6 +103,91 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                                                    strlen(suggestion)) : NULL);
 }
 
+__attribute__((unused))
+static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
+                         const char *msg, const char *suggestion) {
+    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
+                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                   suggestion ? iron_arena_strdup(ctx->arena, suggestion,
+                                                   strlen(suggestion)) : NULL);
+}
+
+__attribute__((unused))
+static int type_bit_width(const Iron_Type *t) {
+    if (!t) return 0;
+    switch (t->kind) {
+        case IRON_TYPE_INT8:   case IRON_TYPE_UINT8:   return 8;
+        case IRON_TYPE_INT16:  case IRON_TYPE_UINT16:  return 16;
+        case IRON_TYPE_INT32:  case IRON_TYPE_UINT32:  return 32;
+        case IRON_TYPE_INT64:  case IRON_TYPE_UINT64:  return 64;
+        case IRON_TYPE_INT:    case IRON_TYPE_UINT:    return 64;
+        case IRON_TYPE_FLOAT32:                        return 32;
+        case IRON_TYPE_FLOAT64: case IRON_TYPE_FLOAT:  return 64;
+        case IRON_TYPE_BOOL:                           return 1;
+        default:                                       return 0;
+    }
+}
+
+__attribute__((unused))
+static bool value_fits_type(int64_t val, const Iron_Type *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case IRON_TYPE_INT8:   return val >= -128 && val <= 127;
+        case IRON_TYPE_INT16:  return val >= -32768 && val <= 32767;
+        case IRON_TYPE_INT32:  return val >= INT32_MIN && val <= INT32_MAX;
+        case IRON_TYPE_INT64:  return true;
+        case IRON_TYPE_INT:    return true;
+        case IRON_TYPE_UINT8:  return val >= 0 && val <= 255;
+        case IRON_TYPE_UINT16: return val >= 0 && val <= 65535;
+        case IRON_TYPE_UINT32: return val >= 0 && (uint64_t)val <= UINT32_MAX;
+        case IRON_TYPE_UINT64: return val >= 0;
+        case IRON_TYPE_UINT:   return val >= 0;
+        default:               return true;
+    }
+}
+
+__attribute__((unused))
+static bool is_narrow_integer(const Iron_Type *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case IRON_TYPE_INT8:  case IRON_TYPE_INT16:  case IRON_TYPE_INT32:
+        case IRON_TYPE_UINT8: case IRON_TYPE_UINT16: case IRON_TYPE_UINT32:
+            return true;
+        default:
+            return false;
+    }
+}
+
+__attribute__((unused))
+static bool is_compound_assign_op(Iron_OpKind op) {
+    return op == IRON_TOK_PLUS_ASSIGN ||
+           op == IRON_TOK_MINUS_ASSIGN ||
+           op == IRON_TOK_STAR_ASSIGN ||
+           op == IRON_TOK_SLASH_ASSIGN;
+}
+
+__attribute__((unused))
+static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
+    if (!t) return false;
+    if (iron_type_is_numeric(t)) return true;
+    if (t->kind == IRON_TYPE_BOOL) return true;
+    if (t->kind == IRON_TYPE_STRING) return true;
+    if (t->kind == IRON_TYPE_ENUM) return true;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
+        const char *tname = t->object.decl->name;
+        for (int i = 0; i < ctx->program->decl_count; i++) {
+            Iron_Node *d = ctx->program->decls[i];
+            if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            if (strcmp(md->type_name, tname) == 0 &&
+                strcmp(md->method_name, "to_string") == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static void emit_type_mismatch(TypeCtx *ctx, Iron_Span span,
                                 Iron_Type *expected, Iron_Type *got) {
     char msg[512];
