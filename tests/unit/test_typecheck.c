@@ -465,6 +465,155 @@ void test_int32_explicit_cast_no_error(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
+/* ── ADT type checker tests ───────────────────────────────────────────────── */
+
+/* Test 27: Enum construct produces an IRON_TYPE_ENUM-typed expression */
+void test_tc_adt_enum_construct_type(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Circle(1.0)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* Test 28: Arity mismatch on enum construct produces IRON_ERR_PATTERN_ARITY (225) */
+void test_tc_adt_enum_construct_arity_error(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Circle(1.0, 2.0)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(225));
+}
+
+/* Test 29: Non-exhaustive match on ADT enum produces IRON_ERR_NONEXHAUSTIVE_MATCH (224) */
+void test_tc_adt_exhaustive_error(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "  Rect(Float, Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Circle(1.0)\n"
+        "  match s {\n"
+        "    Shape.Circle(r) -> {\n"
+        "      val x = r\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(224));
+}
+
+/* Test 30: else arm satisfies exhaustiveness — no error */
+void test_tc_adt_exhaustive_with_else(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "  Rect(Float, Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Circle(1.0)\n"
+        "  match s {\n"
+        "    Shape.Circle(r) -> {\n"
+        "      val x = r\n"
+        "    }\n"
+        "    else -> {\n"
+        "      val y = 0\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* Test 31: Duplicate variant arm produces IRON_ERR_UNREACHABLE_ARM (226) */
+void test_tc_adt_unreachable_arm(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "  Rect(Float, Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Circle(1.0)\n"
+        "  match s {\n"
+        "    Shape.Circle(r) -> {\n"
+        "      val x = r\n"
+        "    }\n"
+        "    Shape.Circle(z) -> {\n"
+        "      val y = z\n"
+        "    }\n"
+        "    Shape.Rect(w, h) -> {\n"
+        "      val a = w\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(226));
+}
+
+/* Test 32: All variants explicitly covered — no error */
+void test_tc_adt_exhaustive_all_variants(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "  Rect(Float, Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Circle(1.0)\n"
+        "  match s {\n"
+        "    Shape.Circle(r) -> {\n"
+        "      val x = r\n"
+        "    }\n"
+        "    Shape.Rect(w, h) -> {\n"
+        "      val y = w\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* Test 33: Wildcard _ in pattern does not introduce binding — no error */
+void test_tc_adt_wildcard_in_pattern(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Rect(Float, Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Rect(1.0, 2.0)\n"
+        "  match s {\n"
+        "    Shape.Rect(_, h) -> {\n"
+        "      val x = h\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* Test 34: Integer match with else — no exhaustiveness error (regression) */
+void test_tc_adt_integer_match_unchanged(void) {
+    const char *src =
+        "func main() {\n"
+        "  val x = 42\n"
+        "  match x {\n"
+        "    1 -> { val a = 1 }\n"
+        "    2 -> { val b = 2 }\n"
+        "    else -> { val c = 0 }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -496,6 +645,14 @@ int main(void) {
     RUN_TEST(test_int32_variable_narrowing_error);
     RUN_TEST(test_int32_widening_no_error);
     RUN_TEST(test_int32_explicit_cast_no_error);
+    RUN_TEST(test_tc_adt_enum_construct_type);
+    RUN_TEST(test_tc_adt_enum_construct_arity_error);
+    RUN_TEST(test_tc_adt_exhaustive_error);
+    RUN_TEST(test_tc_adt_exhaustive_with_else);
+    RUN_TEST(test_tc_adt_unreachable_arm);
+    RUN_TEST(test_tc_adt_exhaustive_all_variants);
+    RUN_TEST(test_tc_adt_wildcard_in_pattern);
+    RUN_TEST(test_tc_adt_integer_match_unchanged);
 
     return UNITY_END();
 }
