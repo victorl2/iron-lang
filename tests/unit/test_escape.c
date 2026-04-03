@@ -502,6 +502,159 @@ void test_heap_with_leak_return_no_error(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
 }
 
+/* ── Test 12: heap escapes via field assign (obj.field = d) => E0207 ────── */
+
+void test_heap_escapes_via_field_assign(void) {
+    Iron_HeapExpr *he = make_heap_expr(&g_arena);
+    Iron_ValDecl  *vd = make_val(&g_arena, "d", (Iron_Node *)he);
+
+    /* Build: obj.field = d */
+    Iron_FieldAccess *fa = ARENA_ALLOC(&g_arena, Iron_FieldAccess);
+    fa->span          = ts(3, 3);
+    fa->kind          = IRON_NODE_FIELD_ACCESS;
+    fa->resolved_type = NULL;
+    fa->object        = (Iron_Node *)make_ident(&g_arena, "obj");
+    fa->field         = "field";
+
+    Iron_AssignStmt *as = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    as->span   = ts(3, 3);
+    as->kind   = IRON_NODE_ASSIGN;
+    as->target = (Iron_Node *)fa;
+    as->value  = (Iron_Node *)make_ident(&g_arena, "d");
+    as->op     = 0;
+
+    Iron_Node **stmts = make_stmts(&g_arena, 2);
+    stmts[0] = (Iron_Node *)vd;
+    stmts[1] = (Iron_Node *)as;
+
+    Iron_Program *prog   = make_prog(&g_arena, "field_assign_escape", stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
+    TEST_ASSERT_TRUE(he->escapes);
+}
+
+/* ── Test 13: heap escapes via index assign (arr[0] = d) => E0207 ────────── */
+
+void test_heap_escapes_via_index_assign(void) {
+    Iron_HeapExpr *he = make_heap_expr(&g_arena);
+    Iron_ValDecl  *vd = make_val(&g_arena, "d", (Iron_Node *)he);
+
+    /* Build index expression: arr[0] */
+    Iron_IntLit *idx = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    idx->span          = ts(3, 7);
+    idx->kind          = IRON_NODE_INT_LIT;
+    idx->resolved_type = NULL;
+    idx->value         = "0";
+
+    Iron_IndexExpr *ie = ARENA_ALLOC(&g_arena, Iron_IndexExpr);
+    ie->span          = ts(3, 3);
+    ie->kind          = IRON_NODE_INDEX;
+    ie->resolved_type = NULL;
+    ie->object        = (Iron_Node *)make_ident(&g_arena, "arr");
+    ie->index         = (Iron_Node *)idx;
+
+    Iron_AssignStmt *as = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    as->span   = ts(3, 3);
+    as->kind   = IRON_NODE_ASSIGN;
+    as->target = (Iron_Node *)ie;
+    as->value  = (Iron_Node *)make_ident(&g_arena, "d");
+    as->op     = 0;
+
+    Iron_Node **stmts = make_stmts(&g_arena, 2);
+    stmts[0] = (Iron_Node *)vd;
+    stmts[1] = (Iron_Node *)as;
+
+    Iron_Program *prog   = make_prog(&g_arena, "index_assign_escape", stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
+    TEST_ASSERT_TRUE(he->escapes);
+}
+
+/* ── Test 14: heap escapes via chained field (a.b.c = d) => E0207 ────────── */
+
+void test_heap_escapes_via_chained_field(void) {
+    Iron_HeapExpr *he = make_heap_expr(&g_arena);
+    Iron_ValDecl  *vd = make_val(&g_arena, "d", (Iron_Node *)he);
+
+    /* Build: a.b.c = d (nested FieldAccess) */
+    Iron_FieldAccess *inner = ARENA_ALLOC(&g_arena, Iron_FieldAccess);
+    inner->span          = ts(3, 3);
+    inner->kind          = IRON_NODE_FIELD_ACCESS;
+    inner->resolved_type = NULL;
+    inner->object        = (Iron_Node *)make_ident(&g_arena, "a");
+    inner->field         = "b";
+
+    Iron_FieldAccess *outer = ARENA_ALLOC(&g_arena, Iron_FieldAccess);
+    outer->span          = ts(3, 3);
+    outer->kind          = IRON_NODE_FIELD_ACCESS;
+    outer->resolved_type = NULL;
+    outer->object        = (Iron_Node *)inner;
+    outer->field         = "c";
+
+    Iron_AssignStmt *as = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    as->span   = ts(3, 3);
+    as->kind   = IRON_NODE_ASSIGN;
+    as->target = (Iron_Node *)outer;
+    as->value  = (Iron_Node *)make_ident(&g_arena, "d");
+    as->op     = 0;
+
+    Iron_Node **stmts = make_stmts(&g_arena, 2);
+    stmts[0] = (Iron_Node *)vd;
+    stmts[1] = (Iron_Node *)as;
+
+    Iron_Program *prog   = make_prog(&g_arena, "chained_field_escape", stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
+    TEST_ASSERT_TRUE(he->escapes);
+}
+
+/* ── Test 15: non-heap field assign => no false positive ─────────────────── */
+
+void test_no_false_positive_field_assign_nonheap(void) {
+    /* val x = 42; obj.field = x — x is not heap, so no E0207 */
+    Iron_IntLit *lit = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    lit->span          = ts(2, 11);
+    lit->kind          = IRON_NODE_INT_LIT;
+    lit->resolved_type = NULL;
+    lit->value         = "42";
+
+    Iron_ValDecl *val_x = make_val(&g_arena, "x", (Iron_Node *)lit);
+
+    Iron_FieldAccess *fa = ARENA_ALLOC(&g_arena, Iron_FieldAccess);
+    fa->span          = ts(3, 3);
+    fa->kind          = IRON_NODE_FIELD_ACCESS;
+    fa->resolved_type = NULL;
+    fa->object        = (Iron_Node *)make_ident(&g_arena, "obj");
+    fa->field         = "field";
+
+    Iron_AssignStmt *as = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    as->span   = ts(3, 3);
+    as->kind   = IRON_NODE_ASSIGN;
+    as->target = (Iron_Node *)fa;
+    as->value  = (Iron_Node *)make_ident(&g_arena, "x");
+    as->op     = 0;
+
+    Iron_Node **stmts = make_stmts(&g_arena, 2);
+    stmts[0] = (Iron_Node *)val_x;
+    stmts[1] = (Iron_Node *)as;
+
+    Iron_Program *prog   = make_prog(&g_arena, "field_nonheap", stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -518,6 +671,10 @@ int main(void) {
     RUN_TEST(test_rc_exempt_from_escape);
     RUN_TEST(test_heap_escaped_via_assign);
     RUN_TEST(test_heap_with_leak_return_no_error);
+    RUN_TEST(test_heap_escapes_via_field_assign);
+    RUN_TEST(test_heap_escapes_via_index_assign);
+    RUN_TEST(test_heap_escapes_via_chained_field);
+    RUN_TEST(test_no_false_positive_field_assign_nonheap);
 
     return UNITY_END();
 }
