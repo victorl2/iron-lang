@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 34-01-PLAN (advanced captures)
-last_updated: "2026-04-03T03:18:42.417Z"
-last_activity: "2026-04-03 — Phase 33-03 complete: 6 compiler bugs fixed, all capture integration tests green"
+stopped_at: Completed 35-01-PLAN (concurrency captures)
+last_updated: "2026-04-03T05:00:00.000Z"
+last_activity: "2026-04-03 — Phase 35-01 complete: spawn/pfor capture infrastructure, 212/212 integration tests pass"
 progress:
   total_phases: 11
   completed_phases: 5
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 
 ## Current Position
 
-Phase: 33 of 38 (Value + Mutable Captures + Optimizer Guards — ALL PLANS COMPLETE)
-Plan: 03 complete — Phase 33 finished
-Status: Phase 33 complete — all 8 capture tests green, 200/200 integration tests pass
-Last activity: 2026-04-03 — Phase 33-03 complete: 6 compiler bugs fixed, all capture integration tests green
+Phase: 35 of 39 (Concurrency Captures — ALL PLANS COMPLETE)
+Plan: 01 complete — Phase 35 finished
+Status: Phase 35 complete — spawn/pfor captures working, 212/212 integration tests pass
+Last activity: 2026-04-03 — Phase 35-01 complete: spawn/pfor capture infrastructure, stack-array env-field fix
 
 ## Accumulated Context
 
@@ -68,6 +68,10 @@ Last activity: 2026-04-03 — Phase 33-03 complete: 6 compiler bugs fixed, all c
 - [Phase 34]: Uniform _env calling convention: ALL lifted lambdas accept void* as first param regardless of capture count — ensures closure dispatch works for both capturing and non-capturing closures
 - [Phase 34]: SET_FIELD through captured struct pointer: detect LOAD from mutable capture alloca and write through env pointer (_e->structname->field) instead of local copy
 - [Phase 34]: Closure-field method dispatch: method call lowering detects is_func fields and emits GET_FIELD (IRON_TYPE_FUNC typed) + closure call — not static method lookup
+- [Phase 35]: Spawn/pfor env struct fields for array captures use Iron_List_T so lifted function can iterate via .items/.count
+- [Phase 35]: Stack-array captures wrapped as (Iron_List_T){ .items = _vN, .count = _vN_len } compound literal when populating env fields — emit_capture_rhs helper detects via get_stack_array_origin
+- [Phase 35]: DCE live-set for IRON_LIR_SPAWN must include all capture operands to prevent premature elimination of captured values
+- [Phase 35]: LiftPending carries capture_var_ids/metadata arrays across HIR lowering Pass 2 to Pass 3
 
 ### Pending Todos
 
@@ -90,6 +94,6 @@ None — array-of-Iron_Closure hang resolved by rewriting test to avoid the patt
 
 ## Session Continuity
 
-Last session: 2026-04-03T03:18:42.414Z
-Stopped at: Completed 34-01-PLAN (advanced captures)
+Last session: 2026-04-03T05:00:00.000Z
+Stopped at: Completed 35-01-PLAN (concurrency captures)
 Resume file: None
