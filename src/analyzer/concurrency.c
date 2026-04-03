@@ -6,9 +6,8 @@
  *   1. Parallel-for bodies may not mutate outer non-mutex variables (E0208).
  *      "Outer" means declared outside the parallel-for body block.
  *      Reading outer variables is fine.
- *
- * Future:
- *   - Spawn block capture validation (Phase 3).
+ *   2. Spawn block capture analysis: mutable captures of outer variables
+ *      flagged as potential data races (W0604).
  */
 
 #include "analyzer/concurrency.h"
@@ -30,6 +29,11 @@ typedef struct {
 
     /* Are we currently inside a parallel-for body? */
     bool           in_parallel;
+
+    /* Spawn capture analysis state */
+    bool           in_spawn;
+    const char   **spawn_writes;  /* stb_ds: names written inside spawn body */
+    const char   **spawn_reads;   /* stb_ds: names read inside spawn body   */
 } ConcurrencyCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -64,6 +68,12 @@ static void emit_err(ConcurrencyCtx *ctx, int code, Iron_Span span,
                    iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
 }
 
+static void emit_warn(ConcurrencyCtx *ctx, int code, Iron_Span span,
+                      const char *msg) {
+    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
+                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+}
+
 /* ── Collect locally-defined names in a block ─────────────────────────────── */
 
 /* Collect all val/var declaration names from a list of statements.
@@ -81,6 +91,86 @@ static void collect_local_names(ConcurrencyCtx *ctx,
             Iron_Block *blk = (Iron_Block *)s;
             collect_local_names(ctx, blk->stmts, blk->stmt_count);
         }
+    }
+}
+
+/* ── Spawn capture analysis: collect outer refs from spawn body ───────────── */
+
+#define MAX_SPAWN_CAPTURES 64
+
+/* Recursively walk a spawn body, recording outer-variable writes and reads. */
+static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
+    if (!node) return;
+
+    /* Bound check: stop collecting if we hit the limit */
+    if (arrlen(ctx->spawn_writes) + arrlen(ctx->spawn_reads) >= MAX_SPAWN_CAPTURES)
+        return;
+
+    switch (node->kind) {
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            /* Write: extract root name from assignment target */
+            const char *tgt_name = expr_ident_name(as->target);
+            if (tgt_name && !name_is_local(ctx, tgt_name)) {
+                arrpush(ctx->spawn_writes, tgt_name);
+            }
+            /* The RHS may read outer variables -- recurse */
+            collect_spawn_refs(ctx, as->value);
+            break;
+        }
+        case IRON_NODE_VAL_DECL: {
+            Iron_ValDecl *vd = (Iron_ValDecl *)node;
+            /* Register as local, then check init for reads */
+            arrpush(ctx->local_names, vd->name);
+            collect_spawn_refs(ctx, vd->init);
+            break;
+        }
+        case IRON_NODE_VAR_DECL: {
+            Iron_VarDecl *vd = (Iron_VarDecl *)node;
+            /* Register as local, then check init for reads */
+            arrpush(ctx->local_names, vd->name);
+            collect_spawn_refs(ctx, vd->init);
+            break;
+        }
+        case IRON_NODE_IDENT: {
+            /* An identifier in expression context: potential outer read */
+            const char *name = ((Iron_Ident *)node)->name;
+            if (name && !name_is_local(ctx, name)) {
+                arrpush(ctx->spawn_reads, name);
+            }
+            break;
+        }
+        case IRON_NODE_BLOCK: {
+            Iron_Block *blk = (Iron_Block *)node;
+            for (int i = 0; i < blk->stmt_count; i++) {
+                collect_spawn_refs(ctx, blk->stmts[i]);
+            }
+            break;
+        }
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is = (Iron_IfStmt *)node;
+            collect_spawn_refs(ctx, is->condition);
+            collect_spawn_refs(ctx, is->body);
+            for (int i = 0; i < is->elif_count; i++) {
+                collect_spawn_refs(ctx, is->elif_bodies[i]);
+            }
+            if (is->else_body) collect_spawn_refs(ctx, is->else_body);
+            break;
+        }
+        case IRON_NODE_WHILE: {
+            Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
+            collect_spawn_refs(ctx, ws->condition);
+            collect_spawn_refs(ctx, ws->body);
+            break;
+        }
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            if (fs->var_name) arrpush(ctx->local_names, fs->var_name);
+            collect_spawn_refs(ctx, fs->body);
+            break;
+        }
+        default:
+            break;
     }
 }
 
@@ -213,6 +303,46 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
             if (ws->body) walk_stmt(ctx, ws->body);
             break;
         }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            if (!ss->body) break;
+
+            /* Save state */
+            bool prev_in_spawn = ctx->in_spawn;
+            int saved_local_count  = arrlen(ctx->local_names);
+            int saved_write_count  = arrlen(ctx->spawn_writes);
+            int saved_read_count   = arrlen(ctx->spawn_reads);
+
+            ctx->in_spawn = true;
+
+            /* Collect local names from spawn body block first */
+            if (ss->body->kind == IRON_NODE_BLOCK) {
+                Iron_Block *body = (Iron_Block *)ss->body;
+                collect_local_names(ctx, body->stmts, body->stmt_count);
+            }
+
+            /* Walk spawn body to collect outer refs */
+            collect_spawn_refs(ctx, ss->body);
+
+            /* Emit warnings for each outer write */
+            int cur_writes = arrlen(ctx->spawn_writes);
+            for (int w = saved_write_count; w < cur_writes; w++) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "spawn block '%s' mutates outer variable '%s'; "
+                         "potential data race (E0604)",
+                         ss->name ? ss->name : "<anonymous>",
+                         ctx->spawn_writes[w]);
+                emit_warn(ctx, IRON_WARN_SPAWN_DATA_RACE, ss->span, msg);
+            }
+
+            /* Restore state */
+            arrsetlen(ctx->local_names,  saved_local_count);
+            arrsetlen(ctx->spawn_writes, saved_write_count);
+            arrsetlen(ctx->spawn_reads,  saved_read_count);
+            ctx->in_spawn = prev_in_spawn;
+            break;
+        }
         default:
             break;
     }
@@ -240,10 +370,13 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     (void)global_scope;
 
     ConcurrencyCtx ctx;
-    ctx.arena       = arena;
-    ctx.diags       = diags;
-    ctx.local_names = NULL;
-    ctx.in_parallel = false;
+    ctx.arena        = arena;
+    ctx.diags        = diags;
+    ctx.local_names  = NULL;
+    ctx.in_parallel  = false;
+    ctx.in_spawn     = false;
+    ctx.spawn_writes = NULL;
+    ctx.spawn_reads  = NULL;
 
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
@@ -265,4 +398,6 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     }
 
     arrfree(ctx.local_names);
+    arrfree(ctx.spawn_writes);
+    arrfree(ctx.spawn_reads);
 }

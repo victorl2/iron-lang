@@ -165,5 +165,6 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_WARN_NARROWING_CAST        601
 #define IRON_WARN_NOT_STRINGABLE        602
 #define IRON_WARN_POSSIBLE_OVERFLOW     603
+#define IRON_WARN_SPAWN_DATA_RACE      604
 
 #endif /* IRON_DIAGNOSTICS_H */
