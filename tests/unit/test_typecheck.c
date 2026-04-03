@@ -578,6 +578,89 @@ void test_duplicate_match_arm(void) {
     TEST_ASSERT_TRUE(has_error(IRON_ERR_DUPLICATE_MATCH_ARM));
 }
 
+/* ── Test 33: cast from non-numeric/non-bool source => E0310 ─────────────── */
+
+void test_cast_invalid_source(void) {
+    const char *src =
+        "func main() {\n"
+        "  val s: String = \"hello\"\n"
+        "  val n = Int(s)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INVALID_CAST));
+}
+
+/* ── Test 34: Bool->Int cast is allowed (no error) ──────────────────────── */
+
+void test_cast_bool_to_int_ok(void) {
+    const char *src =
+        "func main() {\n"
+        "  val b = true\n"
+        "  val n = Int(b)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Test 35: Int->Bool cast is rejected => E0310 ───────────────────────── */
+
+void test_cast_int_to_bool_error(void) {
+    const char *src =
+        "func main() {\n"
+        "  val n = 42\n"
+        "  val b = Bool(n)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INVALID_CAST));
+}
+
+/* ── Test 36: wider-to-narrower integer cast warns => W0601 ─────────────── */
+
+void test_cast_narrowing_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  val n: Int = 1000\n"
+        "  val x = Int8(n)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_WARN_NARROWING_CAST));
+}
+
+/* ── Test 37: narrower-to-wider integer cast is silent ──────────────────── */
+
+void test_cast_widening_no_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  val n: Int32 = 42\n"
+        "  val x = Int(n)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_WARN_NARROWING_CAST));
+}
+
+/* ── Test 38: constant literal overflows target => E0311 ────────────────── */
+
+void test_cast_overflow_constant(void) {
+    const char *src =
+        "func main() {\n"
+        "  val x = Int8(300)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_CAST_OVERFLOW));
+}
+
+/* ── Test 39: constant literal fits target => no warning or error ────────── */
+
+void test_cast_constant_fits_no_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  val x = Int8(42)\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_WARN_NARROWING_CAST));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_CAST_OVERFLOW));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -615,6 +698,13 @@ int main(void) {
     RUN_TEST(test_nonexhaustive_match_non_enum);
     RUN_TEST(test_match_non_enum_with_else);
     RUN_TEST(test_duplicate_match_arm);
+    RUN_TEST(test_cast_invalid_source);
+    RUN_TEST(test_cast_bool_to_int_ok);
+    RUN_TEST(test_cast_int_to_bool_error);
+    RUN_TEST(test_cast_narrowing_warning);
+    RUN_TEST(test_cast_widening_no_warning);
+    RUN_TEST(test_cast_overflow_constant);
+    RUN_TEST(test_cast_constant_fits_no_warning);
 
     return UNITY_END();
 }
