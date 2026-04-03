@@ -854,6 +854,92 @@ void test_index_non_constant_skip(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_INDEX_OUT_OF_BOUNDS));
 }
 
+/* ── Test 55: arr[0:2] on [Int; 3] => no error (valid slice) ───────────── */
+
+void test_slice_valid(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val s = arr[0..2]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INVALID_SLICE_BOUNDS));
+}
+
+/* ── Test 56: arr[2:1] on [Int; 3] => IRON_ERR_INVALID_SLICE_BOUNDS ───── */
+
+void test_slice_start_greater_than_end(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val s = arr[2..1]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INVALID_SLICE_BOUNDS));
+}
+
+/* ── Test 57: arr[0:4] on [Int; 3] => IRON_ERR_INVALID_SLICE_BOUNDS ───── */
+
+void test_slice_end_exceeds_size(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val s = arr[0..4]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INVALID_SLICE_BOUNDS));
+}
+
+/* ── Test 58: arr[-1:2] on [Int; 3] => IRON_ERR_INVALID_SLICE_BOUNDS ──── */
+
+void test_slice_negative_start(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val s = arr[-1..2]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INVALID_SLICE_BOUNDS));
+}
+
+/* ── Test 59: arr["a":"b"] => IRON_ERR_TYPE_MISMATCH (non-integer) ─────── */
+
+void test_slice_non_integer_bounds(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val s = arr[\"a\"..\"b\"]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+/* ── Test 60: arr[x:y] (non-constant) => no bounds error (skip) ───────── */
+
+void test_slice_non_constant_skip(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  var x = 0\n"
+        "  var y = 2\n"
+        "  val s = arr[x..y]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INVALID_SLICE_BOUNDS));
+}
+
+/* ── Test 61: arr[0:3] on [Int; 3] => no error (end == size, exclusive) ── */
+
+void test_slice_end_equals_size_valid(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val s = arr[0..3]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INVALID_SLICE_BOUNDS));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -913,6 +999,13 @@ int main(void) {
     RUN_TEST(test_index_non_integer_type);
     RUN_TEST(test_index_valid_zero);
     RUN_TEST(test_index_non_constant_skip);
+    RUN_TEST(test_slice_valid);
+    RUN_TEST(test_slice_start_greater_than_end);
+    RUN_TEST(test_slice_end_exceeds_size);
+    RUN_TEST(test_slice_negative_start);
+    RUN_TEST(test_slice_non_integer_bounds);
+    RUN_TEST(test_slice_non_constant_skip);
+    RUN_TEST(test_slice_end_equals_size_valid);
 
     return UNITY_END();
 }
