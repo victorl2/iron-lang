@@ -1,0 +1,8 @@
+func make_adder(x: Int) -> func(Int) -> Int {
+  return func(y: Int) -> Int { return x + y }
+}
+
+func main() {
+  val add5 = make_adder(5)
+  println("{add5(10)}")
+}

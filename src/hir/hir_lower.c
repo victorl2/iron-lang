@@ -1421,25 +1421,24 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                 ret_ty = ret_ty->func.return_type;
             }
 
-            /* If capturing, prepend a void *_env parameter as the first param */
+            /* Always prepend a void *_env parameter as the first param.
+             * All lifted lambda functions use a uniform calling convention:
+             * fn(void *_env, arg0, arg1, ...). For non-capturing closures,
+             * _env is NULL at call sites and ignored inside the function.
+             * This ensures indirect calls through Iron_Closure always work
+             * regardless of whether the closure captures variables. */
             IronHIR_Param *final_params = NULL;
-            int total_params = le->param_count;
-            if (le->capture_count > 0) {
-                total_params = le->param_count + 1;
-                /* Build new params array: [_env, param0, param1, ...] */
-                final_params = (IronHIR_Param *)iron_arena_alloc(
-                    mod->arena,
-                    (size_t)total_params * sizeof(IronHIR_Param),
-                    _Alignof(IronHIR_Param));
-                /* _env placeholder — VarId set below after alloc */
-                final_params[0].name   = "_env";
-                final_params[0].type   = NULL; /* void* — emit_c handles NULL-typed params */
-                final_params[0].var_id = IRON_HIR_VAR_INVALID;
-                for (int p = 0; p < le->param_count; p++) {
-                    final_params[p + 1] = params ? params[p] : (IronHIR_Param){0};
-                }
-            } else {
-                final_params = params;
+            int total_params = le->param_count + 1;
+            final_params = (IronHIR_Param *)iron_arena_alloc(
+                mod->arena,
+                (size_t)total_params * sizeof(IronHIR_Param),
+                _Alignof(IronHIR_Param));
+            /* _env placeholder — VarId set below after alloc */
+            final_params[0].name   = "_env";
+            final_params[0].type   = NULL; /* void* — emit_c handles NULL-typed params */
+            final_params[0].var_id = IRON_HIR_VAR_INVALID;
+            for (int p = 0; p < le->param_count; p++) {
+                final_params[p + 1] = params ? params[p] : (IronHIR_Param){0};
             }
 
             IronHIR_Func *lifted = iron_hir_func_create(mod, lp->lifted_name,
@@ -1456,8 +1455,8 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
             ctx->current_func = lifted;
             ctx->current_func_name = lp->lifted_name;
 
-            /* Declare _env param in scope if capturing */
-            if (le->capture_count > 0) {
+            /* Declare _env param in scope (always present — uniform calling convention) */
+            {
                 IronHIR_VarId env_vid = iron_hir_alloc_var(mod, "_env", NULL, false);
                 final_params[0].var_id = env_vid;
                 declare_var(ctx, "_env", env_vid);
@@ -1465,7 +1464,7 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
             for (int p = 0; p < le->param_count; p++) {
                 Iron_Param *ap = (Iron_Param *)le->params[p];
-                int pi = (le->capture_count > 0) ? p + 1 : p;
+                int pi = p + 1; /* offset 1 for _env at position 0 */
                 Iron_Type  *pt = params ? params[p].type : NULL;
                 IronHIR_VarId pid = iron_hir_alloc_var(mod, ap->name, pt, false);
                 if (final_params) final_params[pi].var_id = pid;
