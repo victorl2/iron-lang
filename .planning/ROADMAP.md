@@ -678,10 +678,9 @@ Plans:
   2. Calling `.area()` on a `Shape` value returns the correct computed result.
   3. All existing test files that used `{ }` arm syntax have been migrated to `->` and pass.
   4. A match arm written with the old `{ }` syntax produces a clear parse error after migration is declared complete.
-**Plans**: 2 plans
+**Plans**: 1 plan
 Plans:
-- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
-- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
+- [ ] 36-01-PLAN.md -- Enable enum methods (EMETH-01, EMETH-02) + integration tests
 
 ### Phase 37: Generic Enums
 **Goal**: Users can define generic enums (`Option[T]`, `Result[T, E]`), instantiate them with concrete types, and match on them — each concrete instantiation is monomorphized to a distinct C typedef with type-argument-aware name mangling.
@@ -752,7 +751,7 @@ Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 an
 | 32. AST and Type System Foundation | 2/3 | Complete    | 2026-04-02 | - |
 | 33. Resolver and Type Checker | 2/2 | Complete    | 2026-04-03 | - |
 | 34. HIR Extensions and Match Lowering | 2/2 | Complete    | 2026-04-03 | - |
-| 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/? | Not started | - |
+| 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/0 | Complete (satisfied by Phase 34) | 2026-04-03 |
 | 36. Methods on Enums and Syntax Migration | v0.0.8-alpha | 0/? | Not started | - |
 | 37. Generic Enums | v0.0.8-alpha | 0/? | Not started | - |
 | 38. Recursive Variant Auto-Boxing | v0.0.8-alpha | 0/? | Not started | - |
