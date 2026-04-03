@@ -4,11 +4,14 @@ object Time {}
 func Time.now() -> Float {}
 func Time.now_ms() -> Int {}
 func Time.sleep(ms: Int) {}
+func Time.since(start: Float) -> Float {}
+func Time.Timer(duration: Float) -> Timer {}
 
 object Timer {
-  val start_ms: Int
+  val elapsed_ms: Int
+  val duration_ms: Int
 }
 
-func Timer.create() -> Timer {}
-func Timer.since(t: Timer) -> Int {}
-func Timer.reset(t: Timer) -> Timer {}
+func Timer.done(t: Timer) -> Bool {}
+func Timer.update(t: Timer, dt: Float) {}
+func Timer.reset(t: Timer) {}
