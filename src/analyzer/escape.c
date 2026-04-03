@@ -73,13 +73,21 @@ static void emit_err(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) 
 
 /* ── Name extraction from expression nodes ───────────────────────────────── */
 
-/* Get the name of an expression if it is a bare identifier, else NULL. */
+/* Get the root identifier name from an expression.  Recurses through
+ * field-access and index nodes to find the underlying identifier.
+ * Returns NULL if the expression is not rooted in an identifier. */
 static const char *expr_ident_name(Iron_Node *node) {
     if (!node) return NULL;
-    if (node->kind == IRON_NODE_IDENT) {
-        return ((Iron_Ident *)node)->name;
+    switch (node->kind) {
+        case IRON_NODE_IDENT:
+            return ((Iron_Ident *)node)->name;
+        case IRON_NODE_FIELD_ACCESS:
+            return expr_ident_name(((Iron_FieldAccess *)node)->object);
+        case IRON_NODE_INDEX:
+            return expr_ident_name(((Iron_IndexExpr *)node)->object);
+        default:
+            return NULL;
     }
-    return NULL;
 }
 
 /* ── Collect pass: walk a block and record heap bindings, freed, leaked ───── */
