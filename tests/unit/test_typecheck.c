@@ -781,6 +781,79 @@ void test_compound_subtract_narrow_warning(void) {
     TEST_ASSERT_TRUE(has_error(IRON_WARN_POSSIBLE_OVERFLOW));
 }
 
+/* ── Test 49: arr[5] on [Int; 3] => E0312 index out of bounds ────────────── */
+
+void test_index_out_of_bounds_high(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val x = arr[5]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INDEX_OUT_OF_BOUNDS));
+}
+
+/* ── Test 50: arr[2] on [Int; 3] => no error (valid last index) ─────────── */
+
+void test_index_valid_last(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val x = arr[2]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INDEX_OUT_OF_BOUNDS));
+}
+
+/* ── Test 51: arr[-1] on [Int; 3] => E0312 index out of bounds ──────────── */
+
+void test_index_negative(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val x = arr[-1]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INDEX_OUT_OF_BOUNDS));
+}
+
+/* ── Test 52: arr["hello"] => E0222 type mismatch (non-integer index) ───── */
+
+void test_index_non_integer_type(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val x = arr[\"hello\"]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+/* ── Test 53: arr[0] on [Int; 3] => no error (valid first index) ────────── */
+
+void test_index_valid_zero(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  val x = arr[0]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INDEX_OUT_OF_BOUNDS));
+}
+
+/* ── Test 54: arr[i] (non-constant) => no bounds error (skip) ───────────── */
+
+void test_index_non_constant_skip(void) {
+    const char *src =
+        "func main() {\n"
+        "  val arr: [Int; 3] = [1, 2, 3]\n"
+        "  var i = 1\n"
+        "  val x = arr[i]\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INDEX_OUT_OF_BOUNDS));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -834,6 +907,12 @@ int main(void) {
     RUN_TEST(test_compound_narrow_constant_overflows_warning);
     RUN_TEST(test_compound_full_width_no_warning);
     RUN_TEST(test_compound_subtract_narrow_warning);
+    RUN_TEST(test_index_out_of_bounds_high);
+    RUN_TEST(test_index_valid_last);
+    RUN_TEST(test_index_negative);
+    RUN_TEST(test_index_non_integer_type);
+    RUN_TEST(test_index_valid_zero);
+    RUN_TEST(test_index_non_constant_skip);
 
     return UNITY_END();
 }
