@@ -91,7 +91,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 32: Capture Foundation** - Free variable analysis pass and IronClosure fat-pointer representation give the compiler the substrate all capture patterns require (completed 2026-04-02)
 - [x] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All 8 capture tests green (200/200 integration tests pass); 6 compiler bugs fixed; OPT-01/02/03 optimizer guards verified (completed 2026-04-03)
 - [ ] **Phase 34: Advanced Captures** - Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and higher-order function patterns all compile and run correctly
-- [ ] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
+- [x] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
 - [ ] **Phase 36: Diagnostics, Benchmarks & Test Suite** - Capture errors produce clear diagnostics; closure call overhead is benchmarked; all 20 canonical capture examples have integration tests
 
 ### v0.2.0-alpha Standard Library Expansion
@@ -833,7 +833,7 @@ Phases execute in numeric order: 37 → 38 → 39 → 40 → 41 → 42
 | 32. Capture Foundation | 2/3 | In Progress|  | 2026-04-02 |
 | 33. Value & Mutable Captures + Optimizer Guards | 2/3 | In Progress|  | - |
 | 34. Advanced Captures | v0.1.0-alpha | 0/TBD | Not started | - |
-| 35. Concurrency Captures | v0.1.0-alpha | 0/TBD | Not started | - |
+| 35. Concurrency Captures | v0.1.0-alpha | 1/1 | Complete | 2026-04-03 |
 | 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | 0/TBD | Not started | - |
 | 37. Compiler Dispatch Fixes + Technical Debt | 4/4 | Complete   | 2026-04-02 | - |
 | 38. String Built-In Methods | 3/3 | Complete   | 2026-04-02 | - |
