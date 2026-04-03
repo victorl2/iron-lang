@@ -188,23 +188,20 @@ void test_time_sleep(void) {
     TEST_ASSERT_GREATER_OR_EQUAL_INT64(10, after - before);
 }
 
-void test_timer_create_since(void) {
-    Iron_Timer t = Iron_timer_create();
-    Iron_time_sleep(5);
-    int64_t elapsed = Iron_timer_since(t);
-    TEST_ASSERT_GREATER_OR_EQUAL_INT64(5, elapsed);
+void test_timer_create_done(void) {
+    /* Timer with 0.001s (1ms) duration — should be done after sleeping 10ms */
+    Iron_Timer t = Iron_time_Timer(0.001);
+    TEST_ASSERT_FALSE(Iron_timer_done(t));
+    Iron_timer_update(&t, 0.010);  /* simulate 10ms elapsed */
+    TEST_ASSERT_TRUE(Iron_timer_done(t));
 }
 
 void test_timer_reset(void) {
-    Iron_Timer t = Iron_timer_create();
-    Iron_time_sleep(10);
-    int64_t before_reset = Iron_timer_since(t);
-
-    t = Iron_timer_reset(t);
-    int64_t after_reset = Iron_timer_since(t);
-
-    TEST_ASSERT_GREATER_OR_EQUAL_INT64(10, before_reset);
-    TEST_ASSERT_LESS_THAN_INT64(before_reset, after_reset + 1);
+    Iron_Timer t = Iron_time_Timer(0.050);  /* 50ms timer */
+    Iron_timer_update(&t, 0.060);           /* exceed duration */
+    TEST_ASSERT_TRUE(Iron_timer_done(t));
+    Iron_timer_reset(&t);                   /* reset elapsed to 0 */
+    TEST_ASSERT_FALSE(Iron_timer_done(t));  /* no longer done */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -274,7 +271,7 @@ int main(void) {
     /* Time */
     RUN_TEST(test_time_now_ms);
     RUN_TEST(test_time_sleep);
-    RUN_TEST(test_timer_create_since);
+    RUN_TEST(test_timer_create_done);
     RUN_TEST(test_timer_reset);
 
     /* Log */
