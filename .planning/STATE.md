@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 32-02-PLAN.md
-last_updated: "2026-04-02T21:51:50.849Z"
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-04-03T01:00:35.303Z"
 last_activity: 2026-04-02 — Completed 32-01 (AST and Type System Foundation data layer)
 progress:
   total_phases: 7
-  completed_phases: 0
-  total_plans: 3
-  completed_plans: 2
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 4
   percent: 5
 ---
 
@@ -51,6 +51,7 @@ Progress: [█░░░░░░░░░] 5%
 
 *Updated after each plan completion*
 | Phase 32 P32-02 | 4min | 2 tasks | 2 files |
+| Phase 33 P01 | 18min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,8 @@ Recent decisions affecting current work:
 - [32-01]: variant_payload_types in Iron_Type.enu is a triple pointer zeroed by existing memset; Phase 33 populates it
 - [Phase 32]: Uppercase heuristic for enum construction: UppercaseName.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT; lowercase remains IRON_NODE_METHOD_CALL; Phase 33 reclassifies edge cases
 - [Phase 32]: Old { } match arm syntax is a parse error with recovery: diagnostic emitted, block parsed, arm added to AST
+- [Phase 33]: IRON_NODE_PATTERN and IRON_NODE_ENUM_CONSTRUCT resolved in resolve_node (not resolve_expr) since resolve_expr is a thin delegate
+- [Phase 33]: Shadow check for pattern bindings uses ctx->current_scope->parent to avoid false self-blocking within arm scope
 
 ### Project Notes
 
@@ -88,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-02T21:51:50.846Z
-Stopped at: Completed 32-02-PLAN.md
+Last session: 2026-04-03T01:00:35.300Z
+Stopped at: Completed 33-01-PLAN.md
 Resume file: None
