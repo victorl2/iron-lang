@@ -128,6 +128,19 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     if (iron_type_equals(decl_t, init_t)) return true;
     /* Int32 -> Int: implicit widening (always safe) */
     if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+    /* func-type compatibility: two func types with equal param counts are compatible
+     * when their return types are both "void-like" (either IRON_TYPE_VOID or NULL).
+     * This allows lambdas with unresolved return type (NULL) to be passed to
+     * parameters typed as func() -> Void. */
+    if (decl_t->kind == IRON_TYPE_FUNC && init_t->kind == IRON_TYPE_FUNC) {
+        if (decl_t->func.param_count == init_t->func.param_count) {
+            bool decl_void = (!decl_t->func.return_type ||
+                              decl_t->func.return_type->kind == IRON_TYPE_VOID);
+            bool init_void = (!init_t->func.return_type ||
+                              init_t->func.return_type->kind == IRON_TYPE_VOID);
+            if (decl_void && init_void) return true;
+        }
+    }
     return false;
 }
 

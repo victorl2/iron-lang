@@ -162,6 +162,33 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann_node;
 
     Iron_Type *base = NULL;
+
+    /* Phase 33: func-type annotation — func(T1, T2) -> R */
+    if (ta->is_func) {
+        Iron_Type **param_types = NULL;
+        int param_count = ta->func_param_count;
+        if (param_count > 0) {
+            param_types = (Iron_Type **)iron_arena_alloc(
+                ctx->module->arena,
+                (size_t)param_count * sizeof(Iron_Type *),
+                _Alignof(Iron_Type *));
+            for (int i = 0; i < param_count; i++) {
+                param_types[i] = resolve_type_ann(ctx, ta->func_params[i]);
+            }
+        }
+        Iron_Type *ret = ta->func_return
+            ? resolve_type_ann(ctx, ta->func_return)
+            : iron_type_make_primitive(IRON_TYPE_VOID);
+        base = iron_type_make_func(ctx->module->arena, param_types, param_count, ret);
+        if (ta->is_nullable && base) {
+            base = iron_type_make_nullable(ctx->module->arena, base);
+        }
+        if (ta->is_array && base) {
+            base = iron_type_make_array(ctx->module->arena, base, -1);
+        }
+        return base;
+    }
+
     if (strcmp(ta->name, "Int") == 0)         base = iron_type_make_primitive(IRON_TYPE_INT);
     else if (strcmp(ta->name, "Float") == 0)  base = iron_type_make_primitive(IRON_TYPE_FLOAT);
     else if (strcmp(ta->name, "Bool") == 0)   base = iron_type_make_primitive(IRON_TYPE_BOOL);
