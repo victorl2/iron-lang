@@ -747,7 +747,14 @@ Plans:
   3. `io.basename("/a/b/c.txt")` returns `"c.txt"`; `io.dirname("/a/b/c.txt")` returns `"/a/b"`; `io.join_path("a", "b")` returns `"a/b"`; `io.extension("file.iron")` returns `"iron"`; `io.is_dir(path)` returns correct bool
   4. `time.since(start)` returns elapsed seconds; `time.Timer(1.5)` creates a timer with a duration field; `timer.done()`, `timer.update(dt)`, and `timer.reset()` all work correctly
   5. `log.set_level(log.WARN)` causes DEBUG and INFO messages to be suppressed; `log.DEBUG`, `log.INFO`, `log.WARN`, and `log.ERROR` are accessible constants
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 39-01-PLAN.md — Math completion (asin, acos, atan2, sign, seed, random_float, log, log2, exp, hypot)
+- [ ] 39-02-PLAN.md — IO completion (read_line, append_file, basename, dirname, join_path, extension, is_dir, read_lines)
+- [ ] 39-03-PLAN.md — Time redesign (accumulator Timer + time.since)
+- [ ] 39-04-PLAN.md — Log completion (DEBUG/INFO/WARN/ERROR constants + set_level declaration)
+- [ ] 39-05-PLAN.md — Integration tests for math, IO, time, and log additions
 
 ### Phase 40: Collection Higher-Order Operations
 **Goal**: List, Map, and Set gain higher-order methods that accept Iron closures, enabling functional-style data transformation in Iron programs
