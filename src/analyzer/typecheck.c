@@ -144,7 +144,6 @@ static bool value_fits_type(int64_t val, const Iron_Type *t) {
     }
 }
 
-__attribute__((unused))
 static bool is_narrow_integer(const Iron_Type *t) {
     if (!t) return false;
     switch (t->kind) {
@@ -156,7 +155,6 @@ static bool is_narrow_integer(const Iron_Type *t) {
     }
 }
 
-__attribute__((unused))
 static bool is_compound_assign_op(Iron_OpKind op) {
     return op == IRON_TOK_PLUS_ASSIGN ||
            op == IRON_TOK_MINUS_ASSIGN ||
@@ -1221,6 +1219,30 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             /* Narrow literal in assignment (e.g., x = 42 where x: Int32) */
             if (is_int_literal_narrowing(target_type, value_type, as->value)) {
                 ((Iron_IntLit *)as->value)->resolved_type = target_type;
+            }
+            /* Compound assignment overflow detection */
+            if (is_compound_assign_op(as->op) && target_type &&
+                target_type->kind != IRON_TYPE_ERROR &&
+                is_narrow_integer(target_type)) {
+                /* Check if RHS is a constant that fits the narrow target */
+                bool suppress = false;
+                if (as->value->kind == IRON_NODE_INT_LIT) {
+                    Iron_IntLit *lit = (Iron_IntLit *)as->value;
+                    errno = 0;
+                    int64_t val = strtoll(lit->value, NULL, 10);
+                    if (errno != ERANGE && value_fits_type(val, target_type)) {
+                        suppress = true;  /* constant fits -- no warning */
+                    }
+                }
+                if (!suppress) {
+                    char msg[256];
+                    const char *tgt_s = iron_type_to_string(target_type, ctx->arena);
+                    snprintf(msg, sizeof(msg),
+                             "compound assignment on narrow type '%s' may overflow",
+                             tgt_s);
+                    emit_warning(ctx, IRON_WARN_POSSIBLE_OVERFLOW, as->span,
+                                 msg, "consider using a wider type or checking bounds");
+                }
             }
             break;
         }
