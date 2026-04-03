@@ -95,6 +95,48 @@ void test_param_always_initialized(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
+/* ── Control flow tests (Plan 02) ──────────────────────────────────────── */
+
+/* Test 6: var assigned in both if and else branches => NO error */
+void test_if_else_both_assign(void) {
+    run_init_check("func main() {\n  var x: Int\n  if true {\n    x = 1\n  } else {\n    x = 2\n  }\n  val y = x\n}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 7: var assigned in if without else => ERROR */
+void test_if_without_else_not_assigned(void) {
+    run_init_check("func main() {\n  var x: Int\n  if true {\n    x = 1\n  }\n  val y = x\n}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 8: var assigned in if but not in else => ERROR */
+void test_if_else_one_branch_missing(void) {
+    run_init_check("func main() {\n  var x: Int\n  if true {\n    x = 1\n  } else {\n    val z = 0\n  }\n  val y = x\n}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 9: var assigned in all match arms with else => NO error */
+void test_match_all_arms_assign(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  val v = 1\n"
+        "  match v {\n"
+        "    1 { x = 10 }\n"
+        "    2 { x = 20 }\n"
+        "    else { x = 30 }\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 10: if branch returns early, else assigns => NO error */
+void test_if_early_return_else_assigns(void) {
+    run_init_check("func main() -> Int {\n  var x: Int\n  if true {\n    return 0\n  } else {\n    x = 2\n  }\n  return x\n}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
 /* ── Runner ─────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -104,5 +146,10 @@ int main(void) {
     RUN_TEST(test_var_assigned_then_used_no_error);
     RUN_TEST(test_val_always_initialized);
     RUN_TEST(test_param_always_initialized);
+    RUN_TEST(test_if_else_both_assign);
+    RUN_TEST(test_if_without_else_not_assigned);
+    RUN_TEST(test_if_else_one_branch_missing);
+    RUN_TEST(test_match_all_arms_assign);
+    RUN_TEST(test_if_early_return_else_assigns);
     return UNITY_END();
 }
