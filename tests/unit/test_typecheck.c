@@ -940,6 +940,128 @@ void test_slice_end_equals_size_valid(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_INVALID_SLICE_BOUNDS));
 }
 
+/* ── Generic constraint checking tests ────────────────────────────────────── */
+
+/* GEN-01 negative: constraint satisfied on function call => no error */
+void test_generic_constraint_satisfied_no_error(void) {
+    parse_and_resolve(
+        "interface Printable {\n"
+        "  func to_string() -> String\n"
+        "}\n"
+        "object MyObj implements Printable {\n"
+        "  var value: Int\n"
+        "}\n"
+        "func MyObj.to_string() -> String {\n"
+        "  return \"obj\"\n"
+        "}\n"
+        "func show[T: Printable](x: T) {\n"
+        "  println(\"shown\")\n"
+        "}\n"
+        "func main() {\n"
+        "  show(MyObj(1))\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_GENERIC_CONSTRAINT));
+}
+
+/* GEN-02 positive: constraint violated on function call => error */
+void test_generic_constraint_violated_function_call(void) {
+    parse_and_resolve(
+        "interface Printable {\n"
+        "  func to_string() -> String\n"
+        "}\n"
+        "func show[T: Printable](x: T) {\n"
+        "  println(\"shown\")\n"
+        "}\n"
+        "func main() {\n"
+        "  show(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_GENERIC_CONSTRAINT));
+}
+
+/* GEN-03 positive: constraint violated on construction => error
+ * Uses call-as-construction path: Container(42) where field type T
+ * is inferred from the Int arg, which does not implement Printable. */
+void test_generic_constraint_violated_construction(void) {
+    parse_and_resolve(
+        "interface Printable {\n"
+        "  func to_string() -> String\n"
+        "}\n"
+        "object Container[T: Printable] {\n"
+        "  var item: T\n"
+        "}\n"
+        "func main() {\n"
+        "  val c = Container(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_GENERIC_CONSTRAINT));
+}
+
+/* GEN-03 negative: constraint satisfied on construction => no error
+ * Uses call-as-construction path: Container(MyObj(1)) where field type T
+ * is inferred from the MyObj arg, which implements Printable. */
+void test_generic_constraint_satisfied_construction(void) {
+    parse_and_resolve(
+        "interface Printable {\n"
+        "  func to_string() -> String\n"
+        "}\n"
+        "object MyObj implements Printable {\n"
+        "  var value: Int\n"
+        "}\n"
+        "func MyObj.to_string() -> String {\n"
+        "  return \"obj\"\n"
+        "}\n"
+        "object Container[T: Printable] {\n"
+        "  var item: T\n"
+        "}\n"
+        "func main() {\n"
+        "  val c = Container(MyObj(1))\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_GENERIC_CONSTRAINT));
+}
+
+/* GEN-01: unconstrained generic produces no constraint error */
+void test_generic_unconstrained_no_error(void) {
+    parse_and_resolve(
+        "func identity[T](x: T) -> T {\n"
+        "  return x\n"
+        "}\n"
+        "func main() {\n"
+        "  val r = identity(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_GENERIC_CONSTRAINT));
+}
+
+/* GEN-04: error message names constraint and type */
+void test_generic_constraint_error_message(void) {
+    parse_and_resolve(
+        "interface Sortable {\n"
+        "  func compare() -> Int\n"
+        "}\n"
+        "func sort_it[T: Sortable](x: T) {\n"
+        "  println(\"sorted\")\n"
+        "}\n"
+        "func main() {\n"
+        "  sort_it(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_GENERIC_CONSTRAINT));
+    /* Verify the message mentions the constraint name */
+    bool found_msg = false;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_ERR_GENERIC_CONSTRAINT &&
+            g_diags.items[i].message &&
+            strstr(g_diags.items[i].message, "Sortable") != NULL) {
+            found_msg = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(found_msg);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1006,6 +1128,13 @@ int main(void) {
     RUN_TEST(test_slice_non_integer_bounds);
     RUN_TEST(test_slice_non_constant_skip);
     RUN_TEST(test_slice_end_equals_size_valid);
+
+    RUN_TEST(test_generic_constraint_satisfied_no_error);
+    RUN_TEST(test_generic_constraint_violated_function_call);
+    RUN_TEST(test_generic_constraint_violated_construction);
+    RUN_TEST(test_generic_constraint_satisfied_construction);
+    RUN_TEST(test_generic_unconstrained_no_error);
+    RUN_TEST(test_generic_constraint_error_message);
 
     return UNITY_END();
 }
