@@ -17,12 +17,12 @@ Requirements for ADT milestone. Each maps to roadmap phases.
 ### Pattern Matching
 
 - [x] **MATCH-01**: Match arms use `->` syntax for single expressions and `-> { }` for multi-line blocks
-- [ ] **MATCH-02**: Pattern matching destructures variant payloads into named bindings (`Circle(r) -> use(r)`)
-- [ ] **MATCH-03**: `_` wildcard ignores individual fields in patterns
+- [x] **MATCH-02**: Pattern matching destructures variant payloads into named bindings (`Circle(r) -> use(r)`)
+- [x] **MATCH-03**: `_` wildcard ignores individual fields in patterns
 - [ ] **MATCH-04**: `else` arm catches all remaining variants
 - [ ] **MATCH-05**: Compiler errors on non-exhaustive match (lists missing variants in diagnostic)
 - [ ] **MATCH-06**: Nested pattern destructuring works (`BinOp(IntLit(n), _, _)`)
-- [ ] **MATCH-07**: Existing match statements migrate from `{ }` arm syntax to `->` syntax
+- [x] **MATCH-07**: Existing match statements migrate from `{ }` arm syntax to `->` syntax
 
 ### Methods on Enums
 
@@ -71,12 +71,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EDATA-03 | Phase 32 + Phase 35 | Pending |
 | EDATA-04 | Phase 38 | Pending |
 | MATCH-01 | Phase 32 + Phase 36 | Complete |
-| MATCH-02 | Phase 33 | Pending |
-| MATCH-03 | Phase 33 | Pending |
+| MATCH-02 | Phase 33 | Complete |
+| MATCH-03 | Phase 33 | Complete |
 | MATCH-04 | Phase 33 | Pending |
 | MATCH-05 | Phase 33 | Pending |
 | MATCH-06 | Phase 34 | Pending |
-| MATCH-07 | Phase 33 + Phase 36 | Pending |
+| MATCH-07 | Phase 33 + Phase 36 | Complete |
 | EMETH-01 | Phase 36 | Pending |
 | EMETH-02 | Phase 36 | Pending |
 | GENER-01 | Phase 37 | Pending |
