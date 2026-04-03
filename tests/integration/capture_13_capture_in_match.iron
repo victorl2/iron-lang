@@ -1,0 +1,12 @@
+func main() {
+  var result = ""
+  val handler = func(code: Int) {
+    match code {
+      200 -> { result = "ok" }
+      404 -> { result = "not found" }
+      _ -> { result = "error" }
+    }
+  }
+  handler(404)
+  println(result)
+}
