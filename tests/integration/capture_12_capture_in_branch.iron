@@ -2,7 +2,7 @@ func main() {
   var message = "none"
   val flag = true
   var action = func() { message = "was true" }
-  if !flag {
+  if not flag {
     action = func() { message = "was false" }
   }
   action()

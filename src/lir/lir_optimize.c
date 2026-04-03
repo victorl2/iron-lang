@@ -1446,6 +1446,28 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
         }
         hmfree(escape_set);
 
+        /* Step 1c: Capture alias safety check — lifted lambda functions use allocas
+         * as aliases for env fields. If the alloca's name_hint matches a capture
+         * name, it must not be eliminated (emit_c.c redirects stores to it into
+         * *_e->field writes). */
+        if (fn->capture_count > 0 && fn->capture_metadata) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    if (in->kind != IRON_LIR_ALLOCA) continue;
+                    const char *hint = in->alloca.name_hint;
+                    if (!hint) continue;
+                    for (int ci = 0; ci < fn->capture_count; ci++) {
+                        if (strcmp(hint, fn->capture_metadata[ci].name) == 0) {
+                            hmput(loaded, in->id, true);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         /* Step 2: Identify dead allocas (not in loaded set) */
         struct { IronLIR_ValueId key; bool value; } *dead_alloca = NULL;
         for (int bi = 0; bi < fn->block_count; bi++) {

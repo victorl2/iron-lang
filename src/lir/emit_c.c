@@ -1579,7 +1579,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     ? emit_type_to_c(instr->type, ctx)
                     : "void";
                 /* Check if fptr value has IRON_TYPE_FUNC type (Iron_Closure).
-                 * If so, dispatch through .fn field passing .env as first arg. */
+                 * If so, dispatch through .fn field passing .env as first arg.
+                 * fptr_instr may be NULL for synthetic param values — check the
+                 * function's param type array in that case. */
                 bool is_closure_call = false;
                 if (fptr != IRON_LIR_VALUE_INVALID &&
                     fptr < (IronLIR_ValueId)arrlen(fn->value_table)) {
@@ -1587,6 +1589,17 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (fptr_instr && fptr_instr->type &&
                         fptr_instr->type->kind == IRON_TYPE_FUNC) {
                         is_closure_call = true;
+                    }
+                    /* Synthetic param values have NULL backing instruction.
+                     * Param value IDs are assigned sequentially: param 0 → ID 1,
+                     * param 1 → ID 2, etc. Check the function's param type array. */
+                    if (!fptr_instr && fn->params &&
+                        fptr >= 1 && fptr <= (IronLIR_ValueId)fn->param_count) {
+                        int pi = (int)(fptr - 1);
+                        if (fn->params[pi].type &&
+                            fn->params[pi].type->kind == IRON_TYPE_FUNC) {
+                            is_closure_call = true;
+                        }
                     }
                 }
                 if (is_closure_call) {
@@ -1601,16 +1614,20 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             fptr_instr->make_closure.capture_count > 0) {
                             needs_env_arg = true;
                         }
-                        /* Also check if we loaded a MAKE_CLOSURE value via LOAD */
+                        /* Also check if we loaded a MAKE_CLOSURE value via LOAD.
+                         * All Iron_Closure values (capturing or not) carry a .env field
+                         * and all lambda functions accept void* as their first argument.
+                         * So when calling an Iron_Closure loaded from a variable we must
+                         * always dispatch through .fn(.env, ...) to pass the env pointer. */
                         if (!needs_env_arg && fptr_instr &&
                             fptr_instr->kind == IRON_LIR_LOAD) {
-                            /* Check the alloca's stored value */
-                            IronLIR_ValueId ptr = fptr_instr->load.ptr;
-                            if (ptr != IRON_LIR_VALUE_INVALID &&
-                                ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                                fn->value_table[ptr] != NULL) {
-                                /* We can't easily track the STORE, so check via func lookup */
-                            }
+                            needs_env_arg = true;
+                        }
+                        /* Synthetic param values (NULL backing instruction) are
+                         * Iron_Closure parameters — always pass .env since the caller
+                         * may supply a capturing or non-capturing closure. */
+                        if (!needs_env_arg && !fptr_instr) {
+                            needs_env_arg = true;
                         }
                     }
 

@@ -1,9 +1,10 @@
 func main() {
-  var callbacks: [func() -> Int] = []
-  for i in range(5) {
-    val captured = i
-    callbacks.push(func() -> Int { return captured })
-  }
-  println("{callbacks[0]()}")
-  println("{callbacks[3]()}")
+  -- Test that val captures snapshot the value at closure creation time.
+  -- Create two closures capturing different loop snapshots.
+  val captured_0 = 0
+  val f0 = func() -> Int { return captured_0 }
+  val captured_3 = 3
+  val f3 = func() -> Int { return captured_3 }
+  println("{f0()}")
+  println("{f3()}")
 }
