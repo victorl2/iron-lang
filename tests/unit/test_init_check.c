@@ -137,6 +137,68 @@ void test_if_early_return_else_assigns(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
+/* ── Loop conservatism and edge case tests (Plan 02, Task 2) ──────────── */
+
+/* Test 11: var assigned in while loop body => ERROR (loop may not execute) */
+void test_while_loop_not_definite(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  while true {\n"
+        "    x = 1\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 12: var assigned in for loop body => ERROR (loop may not execute) */
+void test_for_loop_not_definite(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  val arr = [1, 2, 3]\n"
+        "  for i in arr {\n"
+        "    x = 1\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 13: multiple vars assigned in both if and else branches => NO error */
+void test_multiple_vars_if_else(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  if true {\n"
+        "    x = 1\n"
+        "    y = 1\n"
+        "  } else {\n"
+        "    x = 2\n"
+        "    y = 2\n"
+        "  }\n"
+        "  val a = x\n"
+        "  val b = y\n"
+        "}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 14: var assigned before if => stays assigned after if-without-else */
+void test_assigned_before_if_stays_assigned(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  x = 1\n"
+        "  if true {\n"
+        "    x = 2\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
 /* ── Runner ─────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -151,5 +213,9 @@ int main(void) {
     RUN_TEST(test_if_else_one_branch_missing);
     RUN_TEST(test_match_all_arms_assign);
     RUN_TEST(test_if_early_return_else_assigns);
+    RUN_TEST(test_while_loop_not_definite);
+    RUN_TEST(test_for_loop_not_definite);
+    RUN_TEST(test_multiple_vars_if_else);
+    RUN_TEST(test_assigned_before_if_stays_assigned);
     return UNITY_END();
 }
