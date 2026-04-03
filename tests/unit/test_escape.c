@@ -655,6 +655,100 @@ void test_no_false_positive_field_assign_nonheap(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
 }
 
+/* ── Test 16: heap escapes via call argument => E0207 ────────────────────── */
+
+void test_heap_escapes_via_call_arg(void) {
+    Iron_HeapExpr *he = make_heap_expr(&g_arena);
+    Iron_ValDecl  *vd = make_val(&g_arena, "d", (Iron_Node *)he);
+
+    /* Build: someFunc(d) */
+    Iron_CallExpr *call = ARENA_ALLOC(&g_arena, Iron_CallExpr);
+    call->span             = ts(3, 3);
+    call->kind             = IRON_NODE_CALL;
+    call->resolved_type    = NULL;
+    call->callee           = (Iron_Node *)make_ident(&g_arena, "someFunc");
+    call->args             = iron_arena_alloc(&g_arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    call->args[0]          = (Iron_Node *)make_ident(&g_arena, "d");
+    call->arg_count        = 1;
+    call->is_primitive_cast = false;
+
+    Iron_Node **stmts = make_stmts(&g_arena, 2);
+    stmts[0] = (Iron_Node *)vd;
+    stmts[1] = (Iron_Node *)call;
+
+    Iron_Program *prog   = make_prog(&g_arena, "call_arg_escape", stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
+    TEST_ASSERT_TRUE(he->escapes);
+}
+
+/* ── Test 17: heap escapes via method call argument => E0207 ─────────────── */
+
+void test_heap_escapes_via_method_call_arg(void) {
+    Iron_HeapExpr *he = make_heap_expr(&g_arena);
+    Iron_ValDecl  *vd = make_val(&g_arena, "d", (Iron_Node *)he);
+
+    /* Build: obj.doStuff(d) */
+    Iron_MethodCallExpr *mc = ARENA_ALLOC(&g_arena, Iron_MethodCallExpr);
+    mc->span          = ts(3, 3);
+    mc->kind          = IRON_NODE_METHOD_CALL;
+    mc->resolved_type = NULL;
+    mc->object        = (Iron_Node *)make_ident(&g_arena, "obj");
+    mc->method        = "doStuff";
+    mc->args          = iron_arena_alloc(&g_arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    mc->args[0]       = (Iron_Node *)make_ident(&g_arena, "d");
+    mc->arg_count     = 1;
+
+    Iron_Node **stmts = make_stmts(&g_arena, 2);
+    stmts[0] = (Iron_Node *)vd;
+    stmts[1] = (Iron_Node *)mc;
+
+    Iron_Program *prog   = make_prog(&g_arena, "method_call_escape", stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
+    TEST_ASSERT_TRUE(he->escapes);
+}
+
+/* ── Test 18: non-heap call argument => no false positive ────────────────── */
+
+void test_no_false_positive_call_arg_nonheap(void) {
+    /* val x = 42; someFunc(x) — x is not heap, no E0207 */
+    Iron_IntLit *lit = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    lit->span          = ts(2, 11);
+    lit->kind          = IRON_NODE_INT_LIT;
+    lit->resolved_type = NULL;
+    lit->value         = "42";
+
+    Iron_ValDecl *val_x = make_val(&g_arena, "x", (Iron_Node *)lit);
+
+    Iron_CallExpr *call = ARENA_ALLOC(&g_arena, Iron_CallExpr);
+    call->span             = ts(3, 3);
+    call->kind             = IRON_NODE_CALL;
+    call->resolved_type    = NULL;
+    call->callee           = (Iron_Node *)make_ident(&g_arena, "someFunc");
+    call->args             = iron_arena_alloc(&g_arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+    call->args[0]          = (Iron_Node *)make_ident(&g_arena, "x");
+    call->arg_count        = 1;
+    call->is_primitive_cast = false;
+
+    Iron_Node **stmts = make_stmts(&g_arena, 2);
+    stmts[0] = (Iron_Node *)val_x;
+    stmts[1] = (Iron_Node *)call;
+
+    Iron_Program *prog   = make_prog(&g_arena, "call_nonheap", stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -675,6 +769,9 @@ int main(void) {
     RUN_TEST(test_heap_escapes_via_index_assign);
     RUN_TEST(test_heap_escapes_via_chained_field);
     RUN_TEST(test_no_false_positive_field_assign_nonheap);
+    RUN_TEST(test_heap_escapes_via_call_arg);
+    RUN_TEST(test_heap_escapes_via_method_call_arg);
+    RUN_TEST(test_no_false_positive_call_arg_nonheap);
 
     return UNITY_END();
 }
