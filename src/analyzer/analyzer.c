@@ -1,6 +1,7 @@
 #include "analyzer/analyzer.h"
 #include "analyzer/resolve.h"
 #include "analyzer/typecheck.h"
+#include "analyzer/init_check.h"
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
 #include "comptime/comptime.h"
@@ -30,6 +31,9 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
         result.has_errors = true;
         return result;  /* Cannot continue analysis with type errors */
     }
+
+    /* Step 3.5: Definite assignment analysis */
+    iron_init_check(program, result.global_scope, arena, diags);
 
     /* Step 4: Escape analysis */
     iron_escape_analyze(program, result.global_scope, arena, diags);
