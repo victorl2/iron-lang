@@ -667,7 +667,7 @@ void test_interp_primitive_no_warning(void) {
     const char *src =
         "func main() {\n"
         "  val n = 42\n"
-        "  val s = \"value is \\(n)\"\n"
+        "  val s = \"value is {n}\"\n"
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
@@ -679,7 +679,7 @@ void test_interp_bool_no_warning(void) {
     const char *src =
         "func main() {\n"
         "  val b = true\n"
-        "  val s = \"value is \\(b)\"\n"
+        "  val s = \"value is {b}\"\n"
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
@@ -694,7 +694,7 @@ void test_interp_not_stringable(void) {
         "}\n"
         "func main() {\n"
         "  val f = Foo(1)\n"
-        "  val s = \"value is \\(f)\"\n"
+        "  val s = \"value is {f}\"\n"
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_TRUE(has_error(IRON_WARN_NOT_STRINGABLE));
@@ -712,7 +712,7 @@ void test_interp_object_with_to_string_ok(void) {
         "}\n"
         "func main() {\n"
         "  val b = Bar(1)\n"
-        "  val s = \"value is \\(b)\"\n"
+        "  val s = \"value is {b}\"\n"
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
