@@ -672,7 +672,38 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             type_name = instr->construct.type->object.decl->name;
         }
         iron_strbuf_appendf(sb, "/* %s */ (%s){", type_name, c_type);
+        /* ADT enum with payloads */
         if (instr->construct.type &&
+            instr->construct.type->kind == IRON_TYPE_ENUM &&
+            instr->construct.type->enu.decl &&
+            instr->construct.type->enu.decl->has_payloads) {
+            Iron_EnumDecl *adt_ed = instr->construct.type->enu.decl;
+            const char *adt_mangled = emit_mangle_name(adt_ed->name, ctx->arena);
+            int variant_idx = 0;
+            if (instr->construct.field_count > 0) {
+                IronLIR_ValueId tag_vid = instr->construct.field_vals[0];
+                if (tag_vid < (IronLIR_ValueId)arrlen(fn->value_table)) {
+                    IronLIR_Instr *tag_instr = fn->value_table[tag_vid];
+                    if (tag_instr && tag_instr->kind == IRON_LIR_CONST_INT) {
+                        variant_idx = (int)tag_instr->const_int.value;
+                    }
+                }
+            }
+            if (variant_idx < 0 || variant_idx >= adt_ed->variant_count) variant_idx = 0;
+            Iron_EnumVariant *adt_ev = (Iron_EnumVariant *)adt_ed->variants[variant_idx];
+            iron_strbuf_appendf(sb, " .tag = %s_TAG_%s", adt_mangled, adt_ev->name);
+            int payload_count = instr->construct.field_count - 1;
+            if (payload_count > 0 && adt_ev->payload_count > 0) {
+                iron_strbuf_appendf(sb, ", .data.%s = {", adt_ev->name);
+                for (int pi = 0; pi < payload_count; pi++) {
+                    if (pi > 0) iron_strbuf_appendf(sb, ", ");
+                    else iron_strbuf_appendf(sb, " ");
+                    iron_strbuf_appendf(sb, "._%d = ", pi);
+                    emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, use_block_id, depth+1);
+                }
+                iron_strbuf_appendf(sb, " }");
+            }
+        } else if (instr->construct.type &&
             instr->construct.type->kind == IRON_TYPE_OBJECT &&
             instr->construct.type->object.decl) {
             Iron_ObjectDecl *od = instr->construct.type->object.decl;
@@ -1769,8 +1800,43 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = {");
 
-        /* Use field names from the object decl if available */
+        /* ADT enum with payloads: emit { .tag = T_TAG_V, .data.V = { payload... } } */
         if (instr->construct.type &&
+            instr->construct.type->kind == IRON_TYPE_ENUM &&
+            instr->construct.type->enu.decl &&
+            instr->construct.type->enu.decl->has_payloads) {
+            Iron_EnumDecl *adt_ed = instr->construct.type->enu.decl;
+            const char *adt_mangled = emit_mangle_name(adt_ed->name, ctx->arena);
+            /* Determine variant index from first field value (tag int constant) */
+            int variant_idx = 0;
+            if (instr->construct.field_count > 0) {
+                IronLIR_ValueId tag_vid = instr->construct.field_vals[0];
+                if (tag_vid < (IronLIR_ValueId)arrlen(fn->value_table)) {
+                    IronLIR_Instr *tag_instr = fn->value_table[tag_vid];
+                    if (tag_instr && tag_instr->kind == IRON_LIR_CONST_INT) {
+                        variant_idx = (int)tag_instr->const_int.value;
+                    }
+                }
+            }
+            if (variant_idx < 0 || variant_idx >= adt_ed->variant_count)
+                variant_idx = 0;
+            Iron_EnumVariant *adt_ev = (Iron_EnumVariant *)adt_ed->variants[variant_idx];
+            /* Emit .tag */
+            iron_strbuf_appendf(sb, " .tag = %s_TAG_%s", adt_mangled, adt_ev->name);
+            /* Emit .data.VariantName = { payload... } if any payloads */
+            int payload_count = instr->construct.field_count - 1;
+            if (payload_count > 0 && adt_ev->payload_count > 0) {
+                iron_strbuf_appendf(sb, ", .data.%s = {", adt_ev->name);
+                for (int pi = 0; pi < payload_count; pi++) {
+                    if (pi > 0) iron_strbuf_appendf(sb, ", ");
+                    else iron_strbuf_appendf(sb, " ");
+                    iron_strbuf_appendf(sb, "._%d = ", pi);
+                    emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, ctx->current_block_id, 0);
+                }
+                iron_strbuf_appendf(sb, " }");
+            }
+        /* Use field names from the object decl if available */
+        } else if (instr->construct.type &&
             instr->construct.type->kind == IRON_TYPE_OBJECT &&
             instr->construct.type->object.decl) {
             Iron_ObjectDecl *od = instr->construct.type->object.decl;
@@ -3137,22 +3203,83 @@ static void emit_type_decls(EmitCtx *ctx) {
         if (!ed) continue;
 
         const char *mangled = emit_mangle_name(ed->name, ctx->arena);
-        iron_strbuf_appendf(&ctx->enum_defs, "typedef enum {\n");
-        for (int j = 0; j < ed->variant_count; j++) {
-            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
-            if (ev->has_explicit_value) {
-                iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s = %d",
-                                     mangled, ev->name, ev->explicit_value);
-            } else {
-                iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s",
-                                     mangled, ev->name);
+
+        if (ed->has_payloads) {
+            /* ADT enum: emit tagged-union struct layout into struct_bodies */
+
+            /* Forward declaration for the outer struct */
+            iron_strbuf_appendf(&ctx->forward_decls,
+                                 "typedef struct %s %s;\n", mangled, mangled);
+
+            /* Tag enum */
+            iron_strbuf_appendf(&ctx->struct_bodies, "typedef enum {\n");
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                                     "    %s_TAG_%s = %d,\n", mangled, ev->name, j);
             }
-            if (j < ed->variant_count - 1) {
-                iron_strbuf_appendf(&ctx->enum_defs, ",");
+            iron_strbuf_appendf(&ctx->struct_bodies, "} %s_Tag;\n\n", mangled);
+
+            /* Per-variant payload structs (only for variants with payloads) */
+            Iron_Type ***vpt = td->type->enu.variant_payload_types;
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                if (ev->payload_count <= 0) continue;
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                                     "typedef struct { ");
+                for (int k = 0; k < ev->payload_count; k++) {
+                    const char *pt = "void*";
+                    if (vpt && vpt[j] && vpt[j][k]) {
+                        pt = emit_type_to_c(vpt[j][k], ctx);
+                    }
+                    if (k > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
+                    iron_strbuf_appendf(&ctx->struct_bodies, "%s _%d;", pt, k);
+                }
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                                     " } %s_%s_data;\n", mangled, ev->name);
             }
-            iron_strbuf_appendf(&ctx->enum_defs, "\n");
+            iron_strbuf_appendf(&ctx->struct_bodies, "\n");
+
+            /* Union of payloads */
+            iron_strbuf_appendf(&ctx->struct_bodies, "typedef union {\n");
+            iron_strbuf_appendf(&ctx->struct_bodies, "    char _dummy;\n");
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                if (ev->payload_count <= 0) continue;
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                                     "    %s_%s_data %s;\n",
+                                     mangled, ev->name, ev->name);
+            }
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "} %s_data_t;\n\n", mangled);
+
+            /* The ADT struct */
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "struct %s {\n", mangled);
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "    %s_Tag tag;\n", mangled);
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "    %s_data_t data;\n", mangled);
+            iron_strbuf_appendf(&ctx->struct_bodies, "};\n\n");
+        } else {
+            /* Plain enum: emit unchanged typedef enum */
+            iron_strbuf_appendf(&ctx->enum_defs, "typedef enum {\n");
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                if (ev->has_explicit_value) {
+                    iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s = %d",
+                                         mangled, ev->name, ev->explicit_value);
+                } else {
+                    iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s",
+                                         mangled, ev->name);
+                }
+                if (j < ed->variant_count - 1) {
+                    iron_strbuf_appendf(&ctx->enum_defs, ",");
+                }
+                iron_strbuf_appendf(&ctx->enum_defs, "\n");
+            }
+            iron_strbuf_appendf(&ctx->enum_defs, "} %s;\n\n", mangled);
         }
-        iron_strbuf_appendf(&ctx->enum_defs, "} %s;\n\n", mangled);
     }
 }
 
