@@ -562,46 +562,46 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_EQ:
-        iron_strbuf_appendf(sb, "(");
+        if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " == ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_NEQ:
-        iron_strbuf_appendf(sb, "(");
+        if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " != ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_LT:
-        iron_strbuf_appendf(sb, "(");
+        if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " < ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_LTE:
-        iron_strbuf_appendf(sb, "(");
+        if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " <= ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_GT:
-        iron_strbuf_appendf(sb, "(");
+        if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " > ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_GTE:
-        iron_strbuf_appendf(sb, "(");
+        if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " >= ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_AND:
         iron_strbuf_appendf(sb, "(");
