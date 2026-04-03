@@ -34,10 +34,14 @@ typedef enum {
 } LiftKind;
 
 typedef struct {
-    LiftKind      kind;
-    Iron_Node    *ast_node;        /* the lambda/spawn/pfor AST node */
-    const char   *lifted_name;     /* assigned name (__lambda_N, etc.) */
-    const char   *enclosing_func;  /* name of the function containing this */
+    LiftKind           kind;
+    Iron_Node         *ast_node;        /* the lambda/spawn/pfor AST node */
+    const char        *lifted_name;     /* assigned name (__lambda_N, etc.) */
+    const char        *enclosing_func;  /* name of the function containing this */
+    /* Capture info for spawn/pfor: populated in Pass 2 while outer scope is live */
+    IronHIR_VarId     *capture_var_ids; /* stb_ds array: outer-scope VarIds */
+    Iron_CaptureEntry *captures;        /* capture metadata (name, type, is_mutable) */
+    int                capture_count;
 } LiftPending;
 
 /* ── Per-scope frame type ────────────────────────────────────────────────── */
@@ -347,14 +351,31 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
 
             IronHIR_Stmt *spawn_s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
             spawn_s->spawn.handle_var = id;  /* bind spawn result to h */
+
+            /* Resolve capture VarIds from current (outer) scope while it is live */
+            if (ss->capture_count > 0 && ss->captures) {
+                IronHIR_VarId *cap_var_ids = NULL;
+                for (int c = 0; c < ss->capture_count; c++) {
+                    IronHIR_VarId vid = lookup_var(ctx, ss->captures[c].name);
+                    arrput(cap_var_ids, vid);
+                }
+                spawn_s->spawn.capture_var_ids = cap_var_ids;
+                spawn_s->spawn.captures        = ss->captures;
+                spawn_s->spawn.capture_count   = ss->capture_count;
+            }
+
             iron_hir_block_add_stmt(blk, spawn_s);
 
-            /* Queue for lifting */
+            /* Queue for lifting — store capture info while outer scope is still live */
             LiftPending lp;
-            lp.kind           = LIFT_SPAWN;
-            lp.ast_node       = vd->init;
-            lp.lifted_name    = name_copy;
-            lp.enclosing_func = ctx->current_func_name;
+            memset(&lp, 0, sizeof(lp));
+            lp.kind             = LIFT_SPAWN;
+            lp.ast_node         = vd->init;
+            lp.lifted_name      = name_copy;
+            lp.enclosing_func   = ctx->current_func_name;
+            lp.captures         = ss->captures;
+            lp.capture_count    = ss->capture_count;
+            lp.capture_var_ids  = spawn_s->spawn.capture_var_ids;
             arrput(ctx->pending_lifts, lp);
 
             /* Create HIR LET with null init -- the spawn result will be bound
@@ -499,15 +520,32 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                                    range_expr,
                                                                    pfor_body,
                                                                    void_ty, name_copy, span);
+
+            /* Resolve pfor capture VarIds from current (outer) scope while it is live */
+            if (fs->pfor_capture_count > 0 && fs->pfor_captures) {
+                IronHIR_VarId *cap_var_ids = NULL;
+                for (int c = 0; c < fs->pfor_capture_count; c++) {
+                    IronHIR_VarId vid = lookup_var(ctx, fs->pfor_captures[c].name);
+                    arrput(cap_var_ids, vid);
+                }
+                pfor_expr->parallel_for.capture_var_ids = cap_var_ids;
+                pfor_expr->parallel_for.captures        = fs->pfor_captures;
+                pfor_expr->parallel_for.capture_count   = fs->pfor_capture_count;
+            }
+
             IronHIR_Stmt *s = iron_hir_stmt_expr(mod, pfor_expr, span);
             iron_hir_block_add_stmt(blk, s);
 
-            /* Queue for lifting */
+            /* Queue for lifting — store capture info while outer scope is still live */
             LiftPending lp;
-            lp.kind          = LIFT_PARALLEL_FOR;
-            lp.ast_node      = node;
-            lp.lifted_name   = name_copy;
-            lp.enclosing_func = ctx->current_func_name;
+            memset(&lp, 0, sizeof(lp));
+            lp.kind             = LIFT_PARALLEL_FOR;
+            lp.ast_node         = node;
+            lp.lifted_name      = name_copy;
+            lp.enclosing_func   = ctx->current_func_name;
+            lp.captures         = fs->pfor_captures;
+            lp.capture_count    = fs->pfor_capture_count;
+            lp.capture_var_ids  = pfor_expr->parallel_for.capture_var_ids;
             arrput(ctx->pending_lifts, lp);
             return NULL;
         }
@@ -713,14 +751,34 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
 
         IronHIR_Stmt *s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
+
+        /* Resolve capture VarIds from the current (enclosing) scope.
+         * capture analysis (pass 3b of semantic pipeline) has already populated
+         * ss->captures[]. We resolve each capture name to its outer-scope VarId
+         * while the outer scope is still live (Pass 2). */
+        if (ss->capture_count > 0 && ss->captures) {
+            IronHIR_VarId *cap_var_ids = NULL;
+            for (int c = 0; c < ss->capture_count; c++) {
+                IronHIR_VarId vid = lookup_var(ctx, ss->captures[c].name);
+                arrput(cap_var_ids, vid);
+            }
+            s->spawn.capture_var_ids = cap_var_ids;
+            s->spawn.captures        = ss->captures;
+            s->spawn.capture_count   = ss->capture_count;
+        }
+
         iron_hir_block_add_stmt(blk, s);
 
-        /* Queue for lifting */
+        /* Queue for lifting — store capture info while outer scope is still live */
         LiftPending lp;
-        lp.kind           = LIFT_SPAWN;
-        lp.ast_node       = node;
-        lp.lifted_name    = name_copy;
-        lp.enclosing_func = ctx->current_func_name;
+        memset(&lp, 0, sizeof(lp));
+        lp.kind             = LIFT_SPAWN;
+        lp.ast_node         = node;
+        lp.lifted_name      = name_copy;
+        lp.enclosing_func   = ctx->current_func_name;
+        lp.captures         = ss->captures;
+        lp.capture_count    = ss->capture_count;
+        lp.capture_var_ids  = s->spawn.capture_var_ids; /* resolved in outer scope above */
         arrput(ctx->pending_lifts, lp);
         return NULL;
     }
@@ -1028,6 +1086,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
 
         /* Queue for lifting */
         LiftPending lp;
+        memset(&lp, 0, sizeof(lp));
         lp.kind           = LIFT_LAMBDA;
         lp.ast_node       = node;
         lp.lifted_name    = name_copy;
@@ -1527,18 +1586,69 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                     }
                 }
             }
-            /* Spawn body is a block; create a function with the inferred return type */
+
+            /* Spawn body is a block; create a function with the inferred return type.
+             * If there are captures, prepend a void *_env parameter (like lifted lambdas)
+             * so emit_c can pass the env struct to the spawned function. */
+            int cap_count = lp->capture_count;
+            Iron_CaptureEntry *cap_meta = lp->captures;
+
+            IronHIR_Param *final_params = NULL;
+            int total_params = 0;
+            if (cap_count > 0) {
+                total_params = 1; /* only _env */
+                final_params = (IronHIR_Param *)iron_arena_alloc(
+                    mod->arena,
+                    (size_t)total_params * sizeof(IronHIR_Param),
+                    _Alignof(IronHIR_Param));
+                final_params[0].name   = "_env";
+                final_params[0].type   = NULL; /* void* */
+                final_params[0].var_id = IRON_HIR_VAR_INVALID;
+            }
+
             IronHIR_Func *lifted = iron_hir_func_create(mod, lp->lifted_name,
-                                                          NULL, 0, spawn_ret_ty);
+                                                          final_params, total_params,
+                                                          spawn_ret_ty);
             lifted->body = iron_hir_block_create(mod);
+
+            /* Store capture metadata on the lifted function (same as for lambdas) */
+            lifted->captures      = cap_meta;
+            lifted->capture_count = cap_count;
 
             push_scope(ctx);
             ctx->current_func = lifted;
             ctx->current_func_name = lp->lifted_name;
 
+            /* Declare _env param in scope if there are captures */
+            if (cap_count > 0 && final_params) {
+                IronHIR_VarId env_vid = iron_hir_alloc_var(mod, "_env", NULL, false);
+                final_params[0].var_id = env_vid;
+                declare_var(ctx, "_env", env_vid);
+            }
+
             IronHIR_Block *saved = ctx->current_block;
             ctx->current_block = lifted->body;
             push_defer_scope_hir(ctx);
+
+            /* Declare captured variables in scope and emit LET statements, just
+             * like LIFT_LAMBDA. emit_c redirects accesses to env field reads. */
+            if (cap_count > 0 && cap_meta) {
+                for (int c = 0; c < cap_count; c++) {
+                    IronHIR_VarId cvid = iron_hir_alloc_var(mod,
+                                                              cap_meta[c].name,
+                                                              cap_meta[c].type,
+                                                              cap_meta[c].is_mutable);
+                    declare_var(ctx, cap_meta[c].name, cvid);
+                    Iron_Span zero_span = {0};
+                    IronHIR_Stmt *cap_let = iron_hir_stmt_let(mod, cvid,
+                                                                cap_meta[c].type,
+                                                                NULL, /* no init */
+                                                                true, /* mutable: alloca always created */
+                                                                zero_span);
+                    iron_hir_block_add_stmt(lifted->body, cap_let);
+                }
+            }
+
             lower_block_hir(ctx, (Iron_Block *)ss->body, lifted->body);
             pop_defer_scope_hir(ctx);
             ctx->current_block = saved;
@@ -1551,31 +1661,75 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
         case LIFT_PARALLEL_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)lp->ast_node;
-            /* pfor chunk function: takes the loop variable as an Int parameter */
+            /* pfor chunk function: takes the loop variable as first Int param.
+             * If there are captures, prepend a void *_env parameter. */
+            int pfor_cap_count = lp->capture_count;
+            Iron_CaptureEntry *pfor_cap_meta = lp->captures;
+
             Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+            /* Total params: optionally _env + the loop variable */
+            int total_pfor_params = (pfor_cap_count > 0) ? 2 : 1;
             IronHIR_Param *params = (IronHIR_Param *)iron_arena_alloc(
                 mod->arena,
-                sizeof(IronHIR_Param),
+                (size_t)total_pfor_params * sizeof(IronHIR_Param),
                 _Alignof(IronHIR_Param));
-            params[0].name   = fs->var_name;
-            params[0].type   = int_ty;
-            params[0].var_id = IRON_HIR_VAR_INVALID;
+            int loop_var_idx = 0;
+            if (pfor_cap_count > 0) {
+                /* _env as first param */
+                params[0].name   = "_env";
+                params[0].type   = NULL; /* void* */
+                params[0].var_id = IRON_HIR_VAR_INVALID;
+                loop_var_idx = 1;
+            }
+            params[loop_var_idx].name   = fs->var_name;
+            params[loop_var_idx].type   = int_ty;
+            params[loop_var_idx].var_id = IRON_HIR_VAR_INVALID;
 
             IronHIR_Func *lifted = iron_hir_func_create(mod, lp->lifted_name,
-                                                          params, 1, NULL);
+                                                          params, total_pfor_params, NULL);
             lifted->body = iron_hir_block_create(mod);
+
+            /* Store capture metadata on the lifted function */
+            lifted->captures      = pfor_cap_meta;
+            lifted->capture_count = pfor_cap_count;
 
             push_scope(ctx);
             ctx->current_func = lifted;
             ctx->current_func_name = lp->lifted_name;
 
+            /* Declare _env param in scope if there are captures */
+            if (pfor_cap_count > 0) {
+                IronHIR_VarId env_vid = iron_hir_alloc_var(mod, "_env", NULL, false);
+                params[0].var_id = env_vid;
+                declare_var(ctx, "_env", env_vid);
+            }
+
             IronHIR_VarId pid = iron_hir_alloc_var(mod, fs->var_name, int_ty, false);
-            params[0].var_id = pid;
+            params[loop_var_idx].var_id = pid;
             declare_var(ctx, fs->var_name, pid);
 
             IronHIR_Block *saved = ctx->current_block;
             ctx->current_block = lifted->body;
             push_defer_scope_hir(ctx);
+
+            /* Declare captured variables in scope and emit LET stmts */
+            if (pfor_cap_count > 0 && pfor_cap_meta) {
+                for (int c = 0; c < pfor_cap_count; c++) {
+                    IronHIR_VarId cvid = iron_hir_alloc_var(mod,
+                                                              pfor_cap_meta[c].name,
+                                                              pfor_cap_meta[c].type,
+                                                              pfor_cap_meta[c].is_mutable);
+                    declare_var(ctx, pfor_cap_meta[c].name, cvid);
+                    Iron_Span zero_span = {0};
+                    IronHIR_Stmt *cap_let = iron_hir_stmt_let(mod, cvid,
+                                                                pfor_cap_meta[c].type,
+                                                                NULL,
+                                                                true,
+                                                                zero_span);
+                    iron_hir_block_add_stmt(lifted->body, cap_let);
+                }
+            }
+
             lower_block_hir(ctx, (Iron_Block *)fs->body, lifted->body);
             pop_defer_scope_hir(ctx);
             ctx->current_block = saved;

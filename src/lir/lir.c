@@ -461,11 +461,19 @@ IronLIR_Instr *iron_lir_func_ref(IronLIR_Func *fn, IronLIR_Block *block,
 IronLIR_Instr *iron_lir_spawn(IronLIR_Func *fn, IronLIR_Block *block,
                              const char *lifted_func_name,
                              IronLIR_ValueId pool_val, const char *handle_name,
-                             Iron_Type *type, Iron_Span span) {
+                             Iron_Type *type, Iron_Span span,
+                             IronLIR_ValueId *captures, int capture_count,
+                             Iron_CaptureEntry *capture_metadata) {
     IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_SPAWN, type, span, true);
-    i->spawn.lifted_func_name = lifted_func_name;
-    i->spawn.pool_val         = pool_val;
-    i->spawn.handle_name      = handle_name;
+    i->spawn.lifted_func_name  = lifted_func_name;
+    i->spawn.pool_val          = pool_val;
+    i->spawn.handle_name       = handle_name;
+    i->spawn.capture_count     = capture_count;
+    i->spawn.capture_metadata  = capture_metadata;
+    i->spawn.captures          = NULL;
+    for (int k = 0; k < capture_count; k++) {
+        arrput(i->spawn.captures, captures[k]);
+    }
     return i;
 }
 
@@ -475,14 +483,16 @@ IronLIR_Instr *iron_lir_parallel_for(IronLIR_Func *fn, IronLIR_Block *block,
                                     const char *chunk_func_name,
                                     IronLIR_ValueId pool_val,
                                     IronLIR_ValueId *captures, int capture_count,
+                                    Iron_CaptureEntry *capture_metadata,
                                     Iron_Span span) {
     IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_PARALLEL_FOR, NULL, span, false);
-    i->parallel_for.loop_var_name   = loop_var_name;
-    i->parallel_for.range_val       = range_val;
-    i->parallel_for.chunk_func_name = chunk_func_name;
-    i->parallel_for.pool_val        = pool_val;
-    i->parallel_for.capture_count   = capture_count;
-    i->parallel_for.captures        = NULL;
+    i->parallel_for.loop_var_name    = loop_var_name;
+    i->parallel_for.range_val        = range_val;
+    i->parallel_for.chunk_func_name  = chunk_func_name;
+    i->parallel_for.pool_val         = pool_val;
+    i->parallel_for.capture_count    = capture_count;
+    i->parallel_for.capture_metadata = capture_metadata;
+    i->parallel_for.captures         = NULL;
     for (int k = 0; k < capture_count; k++) {
         arrput(i->parallel_for.captures, captures[k]);
     }

@@ -214,10 +214,13 @@ struct IronHIR_Stmt {
 
         /* IRON_HIR_STMT_SPAWN */
         struct {
-            const char    *handle_name;
-            IronHIR_Block *body;
-            const char    *lifted_name; /* assigned top-level name e.g. "__spawn_0" */
-            IronHIR_VarId  handle_var;  /* var ID for the handle (0 = no binding) */
+            const char        *handle_name;
+            IronHIR_Block     *body;
+            const char        *lifted_name;   /* assigned top-level name e.g. "__spawn_0" */
+            IronHIR_VarId      handle_var;    /* var ID for the handle (0 = no binding) */
+            IronHIR_VarId     *capture_var_ids; /* stb_ds array: outer-scope VarIds for each capture */
+            Iron_CaptureEntry *captures;        /* capture metadata (name, type, is_mutable) */
+            int                capture_count;
         } spawn;
 
         /* IRON_HIR_STMT_LEAK */
@@ -371,10 +374,13 @@ struct IronHIR_Expr {
 
         /* IRON_HIR_EXPR_PARALLEL_FOR */
         struct {
-            IronHIR_VarId  var_id;
-            IronHIR_Expr  *range;
-            IronHIR_Block *body;
-            const char    *lifted_name; /* assigned top-level name e.g. "__pfor_0" */
+            IronHIR_VarId      var_id;
+            IronHIR_Expr      *range;
+            IronHIR_Block     *body;
+            const char        *lifted_name;       /* assigned top-level name e.g. "__pfor_0" */
+            IronHIR_VarId     *capture_var_ids;   /* stb_ds array: outer-scope VarIds */
+            Iron_CaptureEntry *captures;           /* capture metadata */
+            int                capture_count;
         } parallel_for;
 
         /* IRON_HIR_EXPR_COMPTIME */

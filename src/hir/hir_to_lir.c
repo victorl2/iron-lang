@@ -1013,7 +1013,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     case IRON_HIR_EXPR_PARALLEL_FOR: {
         /* The pfor body is lifted to a top-level HIR function by hir_lower.c.
          * flatten_func() in Pass 1 converts it to LIR.
-         * Here we only need to emit PARALLEL_FOR with the stored lifted name. */
+         * Here we emit PARALLEL_FOR with the stored lifted name and capture values. */
         const char *chunk_name = expr->parallel_for.lifted_name;
         if (!chunk_name) chunk_name = "__pfor_unknown";
 
@@ -1023,11 +1023,45 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         /* Get var name for loop variable */
         const char *var_name = iron_hir_var_name(ctx->hir, expr->parallel_for.var_id);
 
-        return iron_lir_parallel_for(ctx->current_func, ctx->current_block,
+        /* Evaluate capture values from the outer scope */
+        IronLIR_ValueId *pfor_cap_vals = NULL;
+        int pfor_cap_count = expr->parallel_for.capture_count;
+        Iron_CaptureEntry *pfor_cap_meta = expr->parallel_for.captures;
+        if (pfor_cap_count > 0 && expr->parallel_for.capture_var_ids) {
+            for (int ci = 0; ci < pfor_cap_count; ci++) {
+                IronHIR_VarId vid = expr->parallel_for.capture_var_ids[ci];
+                IronLIR_ValueId lir_val = IRON_LIR_VALUE_INVALID;
+                bool is_mutable = pfor_cap_meta ? pfor_cap_meta[ci].is_mutable : false;
+                if (is_mutable) {
+                    ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                    if (ai >= 0) lir_val = ctx->var_alloca_map[ai].value;
+                } else {
+                    ptrdiff_t vi2 = hmgeti(ctx->val_binding_map, vid);
+                    if (vi2 >= 0) {
+                        lir_val = ctx->val_binding_map[vi2].value;
+                    } else {
+                        ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                        if (ai >= 0) {
+                            Iron_Type *cap_ty = pfor_cap_meta ? pfor_cap_meta[ci].type : NULL;
+                            IronLIR_Instr *load = iron_lir_load(
+                                ctx->current_func, ctx->current_block,
+                                ctx->var_alloca_map[ai].value, cap_ty, span);
+                            lir_val = load->id;
+                        }
+                    }
+                }
+                arrput(pfor_cap_vals, lir_val);
+            }
+        }
+
+        IronLIR_ValueId result = iron_lir_parallel_for(ctx->current_func, ctx->current_block,
                                       var_name ? var_name : "i",
                                       range_val, chunk_name,
                                       IRON_LIR_VALUE_INVALID,
-                                      NULL, 0, span)->id;
+                                      pfor_cap_vals, pfor_cap_count, pfor_cap_meta,
+                                      span)->id;
+        if (pfor_cap_vals) arrfree(pfor_cap_vals);
+        return result;
     }
 
     case IRON_HIR_EXPR_COMPTIME:
@@ -1549,7 +1583,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
     case IRON_HIR_STMT_SPAWN: {
         /* The spawn body is lifted to a top-level HIR function by hir_lower.c.
          * flatten_func() in Pass 1 converts it to LIR.
-         * Here we only emit a SPAWN instruction referencing the stored lifted name. */
+         * Here we emit a SPAWN instruction referencing the stored lifted name,
+         * along with capture values evaluated from the current (outer) scope. */
         const char *lifted_name = stmt->spawn.lifted_name;
         if (!lifted_name) lifted_name = "__spawn_unknown";
 
@@ -1562,11 +1597,47 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 ? iron_type_make_primitive(IRON_TYPE_NULL)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
 
+            /* Evaluate capture values from the outer scope */
+            IronLIR_ValueId *cap_vals = NULL;
+            int cap_count = stmt->spawn.capture_count;
+            Iron_CaptureEntry *cap_meta = stmt->spawn.captures;
+            if (cap_count > 0 && stmt->spawn.capture_var_ids) {
+                for (int ci = 0; ci < cap_count; ci++) {
+                    IronHIR_VarId vid = stmt->spawn.capture_var_ids[ci];
+                    IronLIR_ValueId lir_val = IRON_LIR_VALUE_INVALID;
+                    bool is_mutable = cap_meta ? cap_meta[ci].is_mutable : false;
+                    if (is_mutable) {
+                        /* var capture: pass the alloca ValueId */
+                        ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                        if (ai >= 0) lir_val = ctx->var_alloca_map[ai].value;
+                    } else {
+                        /* val capture: load the current value */
+                        ptrdiff_t vi2 = hmgeti(ctx->val_binding_map, vid);
+                        if (vi2 >= 0) {
+                            lir_val = ctx->val_binding_map[vi2].value;
+                        } else {
+                            ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+                            if (ai >= 0) {
+                                Iron_Type *cap_ty = cap_meta ? cap_meta[ci].type : NULL;
+                                IronLIR_Instr *load = iron_lir_load(
+                                    ctx->current_func, ctx->current_block,
+                                    ctx->var_alloca_map[ai].value, cap_ty, span);
+                                lir_val = load->id;
+                            }
+                        }
+                    }
+                    arrput(cap_vals, lir_val);
+                }
+            }
+
             IronLIR_Instr *spawn_instr =
                 iron_lir_spawn(ctx->current_func, ctx->current_block,
                                lifted_name, IRON_LIR_VALUE_INVALID,
                                stmt->spawn.handle_name,
-                               spawn_type, span);
+                               spawn_type, span,
+                               cap_vals, cap_count, cap_meta);
+
+            if (cap_vals) arrfree(cap_vals);
 
             /* If this spawn is bound to a handle variable, record the LIR
              * value ID so that IRON_HIR_STMT_LET (with null init) can bind it */
