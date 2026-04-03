@@ -91,7 +91,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 33: Type Validation Checks** - Match exhaustiveness, cast safety, string interpolation stringability, and compound overflow checks catch invalid code in the type checker
 - [ ] **Phase 34: Bounds Checking** - Constant array index and slice bounds are validated at compile time against known sizes
 - [ ] **Phase 35: Escape Analysis Extension** - Field assignment, array index assignment, and function argument passing are tracked for heap escape
-- [ ] **Phase 36: Definite Assignment Analysis** - Variables used before initialization on any control flow path produce a compile error
+- [x] **Phase 36: Definite Assignment Analysis** - Variables used before initialization on any control flow path produce a compile error
 - [ ] **Phase 37: Generic Constraint Checking** - Concrete type arguments that violate declared generic constraints are rejected at instantiation sites
 - [ ] **Phase 38: Concurrency Safety** - Mutation detection in parallel/spawn blocks covers field access, array index, and read-write race patterns
 - [ ] **Phase 39: Diagnostic Test Sweep** - Every new diagnostic has positive and negative tests; complex analyses have edge-case coverage
@@ -702,8 +702,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 36-01-PLAN.md — Init check pass infrastructure, error code, pipeline wiring, basic uninitialized var detection
-- [ ] 36-02-PLAN.md — Control flow branch merging for if/else, match, loops, and early returns
+- [x] 36-01-PLAN.md — Init check pass infrastructure, error code, pipeline wiring, basic uninitialized var detection
+- [x] 36-02-PLAN.md — Control flow branch merging for if/else, match, loops, and early returns
 
 ### Phase 37: Generic Constraint Checking
 **Goal**: Concrete type arguments that do not satisfy declared generic constraints are rejected at instantiation sites with a clear diagnostic, preventing downstream type errors in monomorphized code
@@ -793,7 +793,7 @@ Phases execute in numeric order: 32 -> 33 -> 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 33. Type Validation Checks | 3/3 | Complete    | 2026-04-03 | - |
 | 34. Bounds Checking | 2/2 | Complete    | 2026-04-03 | - |
 | 35. Escape Analysis Extension | 1/1 | Complete    | 2026-04-03 | - |
-| 36. Definite Assignment Analysis | 1/2 | In Progress|  | - |
+| 36. Definite Assignment Analysis | 2/2 | Complete    | 2026-04-03 | - |
 | 37. Generic Constraint Checking | v0.0.8-alpha | 0/1 | Not started | - |
 | 38. Concurrency Safety | v0.0.8-alpha | 0/2 | Not started | - |
 | 39. Diagnostic Test Sweep | v0.0.8-alpha | 0/2 | Not started | - |
