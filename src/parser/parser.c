@@ -277,6 +277,13 @@ static Iron_Node **iron_parse_generic_params(Iron_Parser *p, int *out_count,
             id->span       = iron_token_span(p, t);
             id->kind       = IRON_NODE_IDENT;
             id->name       = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            id->constraint_name = NULL;
+            if (iron_match(p, IRON_TOK_COLON)) {
+                if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                    Iron_Token *ct = iron_advance(p);
+                    id->constraint_name = iron_arena_strdup(p->arena, ct->value, strlen(ct->value));
+                }
+            }
             arrput(arr, (Iron_Node *)id);
             (*out_count)++;
         } else {
@@ -662,32 +669,35 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_IDENTIFIER: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            id->kind         = IRON_NODE_IDENT;
-            id->span         = iron_token_span(p, t);
-            id->name         = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            id->resolved_sym = NULL;
-            id->resolved_type = NULL;
+            id->kind            = IRON_NODE_IDENT;
+            id->span            = iron_token_span(p, t);
+            id->name            = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            id->resolved_sym    = NULL;
+            id->resolved_type   = NULL;
+            id->constraint_name = NULL;
             return (Iron_Node *)id;
         }
         /* self and super are expression keywords that resolve to idents */
         case IRON_TOK_SELF: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            id->kind         = IRON_NODE_IDENT;
-            id->span         = iron_token_span(p, t);
-            id->name         = "self";
-            id->resolved_sym = NULL;
-            id->resolved_type = NULL;
+            id->kind            = IRON_NODE_IDENT;
+            id->span            = iron_token_span(p, t);
+            id->name            = "self";
+            id->resolved_sym    = NULL;
+            id->resolved_type   = NULL;
+            id->constraint_name = NULL;
             return (Iron_Node *)id;
         }
         case IRON_TOK_SUPER: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            id->kind         = IRON_NODE_IDENT;
-            id->span         = iron_token_span(p, t);
-            id->name         = "super";
-            id->resolved_sym = NULL;
-            id->resolved_type = NULL;
+            id->kind            = IRON_NODE_IDENT;
+            id->span            = iron_token_span(p, t);
+            id->name            = "super";
+            id->resolved_sym    = NULL;
+            id->resolved_type   = NULL;
+            id->constraint_name = NULL;
             return (Iron_Node *)id;
         }
         default:
