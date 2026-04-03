@@ -89,11 +89,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Time Completion
 
-- [ ] **TIME-01**: User can call `time.since(start)` to get elapsed seconds since a timestamp
-- [ ] **TIME-02**: User can create a Timer with `time.Timer(duration)` with a duration field
-- [ ] **TIME-03**: User can call `timer.done()` to check if the timer has expired
-- [ ] **TIME-04**: User can call `timer.update(dt)` to advance the timer
-- [ ] **TIME-05**: User can call `timer.reset()` to reset the timer (returns void, not Timer)
+- [x] **TIME-01**: User can call `time.since(start)` to get elapsed seconds since a timestamp
+- [x] **TIME-02**: User can create a Timer with `time.Timer(duration)` with a duration field
+- [x] **TIME-03**: User can call `timer.done()` to check if the timer has expired
+- [x] **TIME-04**: User can call `timer.update(dt)` to advance the timer
+- [x] **TIME-05**: User can call `timer.reset()` to reset the timer (returns void, not Timer)
 
 ### Log Completion
 
