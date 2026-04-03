@@ -34,6 +34,22 @@ typedef struct {
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
+/* Recursively extract the root identifier name from an expression.
+ * Handles bare identifiers, field access chains, and index expressions. */
+static const char *expr_ident_name(Iron_Node *node) {
+    if (!node) return NULL;
+    switch (node->kind) {
+        case IRON_NODE_IDENT:
+            return ((Iron_Ident *)node)->name;
+        case IRON_NODE_FIELD_ACCESS:
+            return expr_ident_name(((Iron_FieldAccess *)node)->object);
+        case IRON_NODE_INDEX:
+            return expr_ident_name(((Iron_IndexExpr *)node)->object);
+        default:
+            return NULL;
+    }
+}
+
 static bool name_is_local(ConcurrencyCtx *ctx, const char *name) {
     int n = arrlen(ctx->local_names);
     for (int i = 0; i < n; i++) {
@@ -80,13 +96,13 @@ static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
             if (!as->target) break;
 
-            /* Only check identifier targets */
-            if (as->target->kind != IRON_NODE_IDENT) break;
+            /* Extract root variable name from the assignment target.
+             * Handles bare identifiers, field access chains (obj.field),
+             * and index expressions (arr[i]). */
+            const char *name = expr_ident_name(as->target);
+            if (!name) break;  /* Non-identifier-rooted target; skip */
 
-            Iron_Ident *tid = (Iron_Ident *)as->target;
-            const char *name = tid->name;
-
-            /* If the target is NOT in our local set, it's an outer variable */
+            /* If the target root is NOT in our local set, it's an outer variable */
             if (!name_is_local(ctx, name)) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
