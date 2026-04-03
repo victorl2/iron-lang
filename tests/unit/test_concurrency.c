@@ -47,6 +47,15 @@ static bool has_error(int code) {
     return false;
 }
 
+static bool has_warning(int code) {
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == code &&
+            g_diags.items[i].level == IRON_DIAG_WARNING)
+            return true;
+    }
+    return false;
+}
+
 /* ── Span helper ─────────────────────────────────────────────────────────── */
 static Iron_Span ts(int l, int c) {
     return iron_span_make("test.iron", (uint32_t)l, (uint32_t)c,
@@ -212,6 +221,25 @@ static Iron_Program *make_prog(Iron_Arena *a, const char *fn_name,
     prog->decls      = decls;
     prog->decl_count = 1;
     return prog;
+}
+
+/* Make a spawn statement with a body block. */
+static Iron_SpawnStmt *make_spawn_stmt(Iron_Arena *a, const char *name,
+                                        Iron_Node **body_stmts, int body_count) {
+    Iron_Block *body = ARENA_ALLOC(a, Iron_Block);
+    body->span       = ts(3, 20);
+    body->kind       = IRON_NODE_BLOCK;
+    body->stmts      = body_stmts;
+    body->stmt_count = body_count;
+
+    Iron_SpawnStmt *ss = ARENA_ALLOC(a, Iron_SpawnStmt);
+    ss->span        = ts(3, 3);
+    ss->kind        = IRON_NODE_SPAWN;
+    ss->name        = name;
+    ss->pool_expr   = NULL;
+    ss->body        = (Iron_Node *)body;
+    ss->handle_name = NULL;
+    return ss;
 }
 
 /* ── Test 1: parallel-for body mutates outer mutable var => E0208 ─────────── */
@@ -553,6 +581,213 @@ void test_parallel_for_partitioned_local_index_ok(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
 
+/* ── Test 10: spawn block writes outer var => IRON_WARN_SPAWN_DATA_RACE ───── */
+
+void test_spawn_write_outer_var_race(void) {
+    /* var total = 0
+     * spawn("t1") { total = 1 }    <- writes outer var
+     */
+    Iron_VarDecl *var_total = make_var_int(&g_arena, "total");
+
+    /* Spawn body: total = 1 */
+    Iron_Ident *tgt = make_ident(&g_arena, "total");
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(4, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(4, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)tgt;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)assign;
+
+    Iron_SpawnStmt *spawn = make_spawn_stmt(&g_arena, "t1", body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)var_total;
+    fn_stmts[1] = (Iron_Node *)spawn;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_write", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+}
+
+/* ── Test 11: spawn block writes outer var via field => IRON_WARN_SPAWN_DATA_RACE ── */
+
+void test_spawn_field_write_outer_race(void) {
+    /* var obj = 0
+     * spawn("t2") { obj.x = 1 }    <- writes outer via field
+     */
+    Iron_VarDecl *var_obj = make_var_int(&g_arena, "obj");
+
+    /* Spawn body: obj.x = 1 */
+    Iron_Ident *obj_id = make_ident(&g_arena, "obj");
+    Iron_FieldAccess *fa = make_field_access(&g_arena, (Iron_Node *)obj_id, "x");
+
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(4, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(4, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)fa;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)assign;
+
+    Iron_SpawnStmt *spawn = make_spawn_stmt(&g_arena, "t2", body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)var_obj;
+    fn_stmts[1] = (Iron_Node *)spawn;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_field_write", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+}
+
+/* ── Test 12: spawn block writes outer var via index => IRON_WARN_SPAWN_DATA_RACE ── */
+
+void test_spawn_index_write_outer_race(void) {
+    /* var arr = 0
+     * spawn("t3") { arr[0] = 1 }    <- writes outer via index
+     */
+    Iron_VarDecl *var_arr = make_var_int(&g_arena, "arr");
+
+    /* Spawn body: arr[0] = 1 */
+    Iron_Ident *arr_id = make_ident(&g_arena, "arr");
+
+    Iron_IntLit *idx = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    idx->span          = ts(4, 8);
+    idx->kind          = IRON_NODE_INT_LIT;
+    idx->resolved_type = NULL;
+    idx->value         = "0";
+
+    Iron_IndexExpr *ie = make_index_expr(&g_arena, (Iron_Node *)arr_id,
+                                          (Iron_Node *)idx);
+
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(4, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(4, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)ie;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)assign;
+
+    Iron_SpawnStmt *spawn = make_spawn_stmt(&g_arena, "t3", body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)var_arr;
+    fn_stmts[1] = (Iron_Node *)spawn;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_index_write", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+}
+
+/* ── Test 13: spawn block reads outer var only => no warning ──────────────── */
+
+void test_spawn_read_outer_var_ok(void) {
+    /* val data = 0
+     * spawn("t4") { val x = data }    <- read only, no write
+     */
+    Iron_ValDecl *val_data = make_val_int(&g_arena, "data", 0);
+
+    /* Spawn body: val x = data */
+    Iron_Ident *read_id = make_ident(&g_arena, "data");
+    Iron_ValDecl *val_x = ARENA_ALLOC(&g_arena, Iron_ValDecl);
+    val_x->span         = ts(4, 7);
+    val_x->kind         = IRON_NODE_VAL_DECL;
+    val_x->name         = "x";
+    val_x->type_ann     = NULL;
+    val_x->init         = (Iron_Node *)read_id;
+    val_x->declared_type = NULL;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)val_x;
+
+    Iron_SpawnStmt *spawn = make_spawn_stmt(&g_arena, "t4", body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)val_data;
+    fn_stmts[1] = (Iron_Node *)spawn;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_read_ok", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+}
+
+/* ── Test 14: spawn block writes only local variable => no warning ────────── */
+
+void test_spawn_write_local_var_ok(void) {
+    /* spawn("t5") { var local = 0; local = 1 }    <- local only
+     */
+    Iron_VarDecl *local_var = make_var_int(&g_arena, "local");
+    local_var->span = ts(4, 7);
+
+    /* Assign: local = 1 */
+    Iron_Ident *tgt = make_ident(&g_arena, "local");
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(5, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(5, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)tgt;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 2);
+    body_stmts[0] = (Iron_Node *)local_var;
+    body_stmts[1] = (Iron_Node *)assign;
+
+    Iron_SpawnStmt *spawn = make_spawn_stmt(&g_arena, "t5", body_stmts, 2);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 1);
+    fn_stmts[0] = (Iron_Node *)spawn;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_local_ok", fn_stmts, 1);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -567,6 +802,13 @@ int main(void) {
     RUN_TEST(test_parallel_for_index_mutation_error);
     RUN_TEST(test_parallel_for_local_field_mutation_ok);
     RUN_TEST(test_parallel_for_partitioned_local_index_ok);
+
+    /* Spawn capture analysis tests */
+    RUN_TEST(test_spawn_write_outer_var_race);
+    RUN_TEST(test_spawn_field_write_outer_race);
+    RUN_TEST(test_spawn_index_write_outer_race);
+    RUN_TEST(test_spawn_read_outer_var_ok);
+    RUN_TEST(test_spawn_write_local_var_ok);
 
     return UNITY_END();
 }
