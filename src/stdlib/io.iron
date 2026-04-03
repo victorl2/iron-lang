@@ -7,3 +7,11 @@ func IO.file_exists(path: String) -> Bool {}
 func IO.create_dir(path: String) {}
 func IO.delete_file(path: String) {}
 func IO.list_files(dir_path: String) -> String {}
+func IO.read_line() -> String {}
+func IO.append_file(path: String, content: String) {}
+func IO.basename(path: String) -> String {}
+func IO.dirname(path: String) -> String {}
+func IO.join_path(a: String, b: String) -> String {}
+func IO.extension(path: String) -> String {}
+func IO.is_dir(path: String) -> Bool {}
+func IO.read_lines(path: String) -> [String] {}
