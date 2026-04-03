@@ -77,9 +77,9 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 - [x] **CONC-01**: Mutation detection in parallel/spawn blocks covers field access expressions (not just bare identifiers)
 - [x] **CONC-02**: Mutation detection in parallel/spawn blocks covers array index expressions
-- [ ] **CONC-03**: Compiler detects concurrent reads of variables being written in spawn blocks (read-write races)
-- [ ] **CONC-04**: Compiler performs capture analysis for spawn blocks tracking which outer variables are referenced
-- [ ] **CONC-05**: Compiler validates that mutable captures in spawn blocks are flagged as potential data races
+- [x] **CONC-03**: Compiler detects concurrent reads of variables being written in spawn blocks (read-write races)
+- [x] **CONC-04**: Compiler performs capture analysis for spawn blocks tracking which outer variables are referenced
+- [x] **CONC-05**: Compiler validates that mutable captures in spawn blocks are flagged as potential data races
 
 ### Testing
 
@@ -159,9 +159,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | GEN-04 | Phase 37 | Complete |
 | CONC-01 | Phase 38 | Complete |
 | CONC-02 | Phase 38 | Complete |
-| CONC-03 | Phase 38 | Pending |
-| CONC-04 | Phase 38 | Pending |
-| CONC-05 | Phase 38 | Pending |
+| CONC-03 | Phase 38 | Complete |
+| CONC-04 | Phase 38 | Complete |
+| CONC-05 | Phase 38 | Complete |
 | TEST-01 | Phase 39 | Pending |
 | TEST-02 | Phase 39 | Pending |
 | TEST-03 | Phase 39 | Pending |
