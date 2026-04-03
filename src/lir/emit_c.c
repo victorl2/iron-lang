@@ -1644,13 +1644,13 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             /* All closures (capturing or not) use env-first convention */
                             needs_env_arg = true;
                         }
-                        /* Also check if we loaded a MAKE_CLOSURE value via LOAD.
-                         * All Iron_Closure values (capturing or not) carry a .env field
-                         * and all lambda functions accept void* as their first argument.
-                         * So when calling an Iron_Closure loaded from a variable we must
-                         * always dispatch through .fn(.env, ...) to pass the env pointer. */
+                        /* Also check if we loaded a MAKE_CLOSURE value via LOAD or
+                         * retrieved one via GET_FIELD. All Iron_Closure values carry
+                         * a .env field and all lambda functions accept void* as their
+                         * first argument. Always dispatch through .fn(.env, ...). */
                         if (!needs_env_arg && fptr_instr &&
-                            fptr_instr->kind == IRON_LIR_LOAD) {
+                            (fptr_instr->kind == IRON_LIR_LOAD ||
+                             fptr_instr->kind == IRON_LIR_GET_FIELD)) {
                             needs_env_arg = true;
                         }
                         /* Synthetic param values (NULL backing instruction) are
@@ -1668,11 +1668,13 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
                     if (needs_env_arg) {
                         /* Capturing closure: dispatch through .fn with .env as first arg.
-                         * Using (void*, ...) allows extra typed arguments. */
+                         * Using (void*, ...) allows extra typed arguments.
+                         * Use emit_expr_to_buf for fptr so inline-eligible values
+                         * (e.g. GET_FIELD of a func field) are emitted correctly. */
                         iron_strbuf_appendf(sb, "((%s (*)(void*, ...))", ret_c);
-                        emit_val(sb, fptr);
+                        emit_expr_to_buf(sb, fptr, fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ".fn)(");
-                        emit_val(sb, fptr);
+                        emit_expr_to_buf(sb, fptr, fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ".env");
                         /* .env is already emitted as first arg; subsequent args get comma prefix */
                         has_env_arg = true;
@@ -3294,7 +3296,10 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
             const char *c_type = "int64_t";
             if (f->type_ann) {
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-                if (ta->is_nullable) {
+                if (ta->is_func) {
+                    /* func() field: emit as Iron_Closure fat pointer */
+                    c_type = "Iron_Closure";
+                } else if (ta->is_nullable) {
                     /* Build Optional type name from annotation */
                     const char *inner_c = annotation_to_c(ta->name, ctx);
                     Iron_StrBuf opt_sb = iron_strbuf_create(64);

@@ -779,6 +779,35 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             Iron_Type *obj_type = expr->method_call.object->type;
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
+                /* Check if method name is actually a func-typed field on the object.
+                 * If so, dispatch through the closure field rather than a static method. */
+                Iron_ObjectDecl *od = obj_type->object.decl;
+                for (int fi = 0; fi < od->field_count; fi++) {
+                    Iron_Field *fld = (Iron_Field *)od->fields[fi];
+                    if (!fld || strcmp(fld->name, expr->method_call.method) != 0) continue;
+                    if (!fld->type_ann ||
+                        fld->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
+                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fld->type_ann;
+                    if (!ta->is_func) continue;
+                    /* The method is a func-typed field — emit GET_FIELD + closure call.
+                     * The GET_FIELD must have IRON_TYPE_FUNC type so the CALL emitter
+                     * recognises it as a closure call and dispatches through .fn(.env,...). */
+                    IronLIR_ValueId obj_val = lower_expr(ctx, expr->method_call.object);
+                    Iron_Type *closure_type = iron_type_make_func(ctx->lir_arena, NULL, 0, type);
+                    IronLIR_Instr *gf = iron_lir_get_field(ctx->current_func, ctx->current_block,
+                                                             obj_val, fld->name, closure_type, span);
+                    IronLIR_ValueId *cargs = NULL;
+                    for (int ai = 0; ai < expr->method_call.arg_count; ai++) {
+                        IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[ai]);
+                        arrput(cargs, av);
+                    }
+                    int carg_count = (int)arrlen(cargs);
+                    IronLIR_Instr *cl = iron_lir_call(ctx->current_func, ctx->current_block,
+                                                        NULL, gf->id,
+                                                        cargs, carg_count, type, span);
+                    arrfree(cargs);
+                    return cl->id;
+                }
             } else if (obj_type->kind == IRON_TYPE_STRING) {
                 /* String: "string" is already lowercase — lowercasing loop is a no-op.
                  * Result: snprintf → "string_upper" → mangle_func_name → "Iron_string_upper" */
