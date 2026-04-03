@@ -23,10 +23,10 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Generic Constraints
 
-- [ ] **GEN-01**: Compiler validates that concrete type arguments satisfy declared generic constraints at instantiation sites
-- [ ] **GEN-02**: Compiler checks constraint satisfaction for generic function calls
-- [ ] **GEN-03**: Compiler checks constraint satisfaction for generic type construction
-- [ ] **GEN-04**: Compiler emits `IRON_ERR_CONSTRAINT_NOT_SATISFIED` when a concrete type does not meet the constraint
+- [x] **GEN-01**: Compiler validates that concrete type arguments satisfy declared generic constraints at instantiation sites
+- [x] **GEN-02**: Compiler checks constraint satisfaction for generic function calls
+- [x] **GEN-03**: Compiler checks constraint satisfaction for generic type construction
+- [x] **GEN-04**: Compiler emits `IRON_ERR_CONSTRAINT_NOT_SATISFIED` when a concrete type does not meet the constraint
 
 ### Cast Safety
 
@@ -153,10 +153,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | INIT-02 | Phase 36 | Complete |
 | INIT-03 | Phase 36 | Complete |
 | INIT-04 | Phase 36 | Complete |
-| GEN-01 | Phase 37 | Pending |
-| GEN-02 | Phase 37 | Pending |
-| GEN-03 | Phase 37 | Pending |
-| GEN-04 | Phase 37 | Pending |
+| GEN-01 | Phase 37 | Complete |
+| GEN-02 | Phase 37 | Complete |
+| GEN-03 | Phase 37 | Complete |
+| GEN-04 | Phase 37 | Complete |
 | CONC-01 | Phase 38 | Pending |
 | CONC-02 | Phase 38 | Pending |
 | CONC-03 | Phase 38 | Pending |
