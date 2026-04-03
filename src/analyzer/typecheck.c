@@ -1321,11 +1321,92 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
-            check_expr(ctx, ms->subject);
+            Iron_Type *subj_type = check_expr(ctx, ms->subject);
             for (int i = 0; i < ms->case_count; i++) {
                 if (ms->cases[i]) check_stmt(ctx, ms->cases[i]);
             }
             if (ms->else_body) check_stmt(ctx, ms->else_body);
+
+            /* Exhaustiveness check */
+            if (subj_type && subj_type->kind == IRON_TYPE_ENUM && subj_type->enu.decl) {
+                Iron_EnumDecl *edecl = subj_type->enu.decl;
+                int vc = edecl->variant_count;
+                /* Stack-allocate covered array (enums are small) */
+                bool covered[256];
+                if (vc > 256) vc = 256;  /* safety cap */
+                for (int i = 0; i < vc; i++) covered[i] = false;
+
+                for (int ci = 0; ci < ms->case_count; ci++) {
+                    if (!ms->cases[ci]) continue;
+                    Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[ci];
+                    if (!mc->pattern) continue;
+
+                    /* Pattern must be an IDENT resolving to an IRON_SYM_ENUM_VARIANT */
+                    if (mc->pattern->kind == IRON_NODE_IDENT) {
+                        Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                        if (pid->resolved_sym &&
+                            pid->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT) {
+                            /* Verify variant belongs to the SAME enum */
+                            if (pid->resolved_sym->type &&
+                                iron_type_equals(pid->resolved_sym->type, subj_type)) {
+                                /* Find variant index by name */
+                                for (int vi = 0; vi < vc; vi++) {
+                                    Iron_EnumVariant *ev =
+                                        (Iron_EnumVariant *)edecl->variants[vi];
+                                    if (ev && strcmp(ev->name, pid->name) == 0) {
+                                        if (covered[vi]) {
+                                            char msg[256];
+                                            snprintf(msg, sizeof(msg),
+                                                     "duplicate match arm for variant '%s'",
+                                                     pid->name);
+                                            emit_error(ctx, IRON_ERR_DUPLICATE_MATCH_ARM,
+                                                       mc->pattern->span, msg, NULL);
+                                        }
+                                        covered[vi] = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                /* Check for uncovered variants (only if no else clause) */
+                if (!ms->else_body) {
+                    char uncovered_names[1024];
+                    uncovered_names[0] = '\0';
+                    int uncovered_count = 0;
+                    for (int vi = 0; vi < vc; vi++) {
+                        if (!covered[vi]) {
+                            Iron_EnumVariant *ev =
+                                (Iron_EnumVariant *)edecl->variants[vi];
+                            if (ev) {
+                                if (uncovered_count > 0)
+                                    strncat(uncovered_names, ", ",
+                                            sizeof(uncovered_names) - strlen(uncovered_names) - 1);
+                                strncat(uncovered_names, ev->name,
+                                        sizeof(uncovered_names) - strlen(uncovered_names) - 1);
+                                uncovered_count++;
+                            }
+                        }
+                    }
+                    if (uncovered_count > 0) {
+                        char msg[1280];
+                        snprintf(msg, sizeof(msg),
+                                 "non-exhaustive match: uncovered variant(s): %s",
+                                 uncovered_names);
+                        emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH,
+                                   ms->subject->span, msg,
+                                   "add the missing variants or an else clause");
+                    }
+                }
+            } else if (!ms->else_body) {
+                /* Non-enum subject without else clause */
+                emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH,
+                           ms->subject->span,
+                           "match on non-enum type requires else clause",
+                           "add an else clause");
+            }
             break;
         }
 
