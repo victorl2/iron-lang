@@ -737,9 +737,10 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                  * The resolver in Phase 33 will reclassify if needed. */
                 if (left->kind == IRON_NODE_IDENT) {
                     Iron_Ident *ident = (Iron_Ident *)left;
-                    bool looks_like_type = (ident->name[0] >= 'A' &&
-                                            ident->name[0] <= 'Z');
-                    if (looks_like_type) {
+                    bool looks_like_type    = (ident->name[0] >= 'A' &&
+                                               ident->name[0] <= 'Z');
+                    bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
+                    if (looks_like_type && looks_like_variant) {
                         int arg_count = 0;
                         Iron_Node **args = iron_parse_call_args(p, &arg_count);
                         Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
