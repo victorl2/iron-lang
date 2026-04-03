@@ -1,0 +1,24 @@
+-- Integration test: TIME-01..05
+-- time.since() returns Float — do not print directly.
+-- KNOWN LIMITATION: Timer.update and Timer.reset cause a compile error
+-- because Iron passes struct self by value but the C functions take Iron_Timer*.
+-- Tests for Timer.update (TIME-04) and Timer.reset (TIME-05) are omitted from
+-- automated coverage; they require a compiler fix to pass self by pointer.
+-- TIME-04 and TIME-05 are verified to compile individually in iron_time.c only.
+import time
+
+func main() {
+    -- TIME-01: time.since
+    val start = Time.now()
+    val elapsed = Time.since(start)
+    println("since ok")
+
+    -- TIME-02: Timer constructor with duration and elapsed fields
+    val t = Time.Timer(5.0)
+    println("{t.duration_ms}")
+    println("{t.elapsed_ms}")
+
+    -- TIME-03: timer.done (false — elapsed=0, duration=5000ms)
+    val d1 = Timer.done(t)
+    println("{d1}")
+}
