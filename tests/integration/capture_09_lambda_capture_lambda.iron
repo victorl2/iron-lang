@@ -1,0 +1,5 @@
+func main() {
+  val doubler = func(x: Int) -> Int { return x * 2 }
+  val apply = func(value: Int) -> Int { return doubler(value) }
+  println("{apply(21)}")
+}

@@ -1603,15 +1603,16 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                 }
                 if (is_closure_call) {
-                    /* Determine if the lifted function expects a void *_env first arg.
-                     * Only capturing closures have _env; non-capturing ones don't.
-                     * Check by looking up the lifted function in the module. */
+                    /* All lifted lambda functions use a uniform calling convention:
+                     * fn(void *_env, arg0, arg1, ...). Always pass closure.env as
+                     * the first argument, regardless of capture count. Non-capturing
+                     * closures have env=NULL and their lifted function ignores it. */
                     bool needs_env_arg = false;
                     if (fptr != IRON_LIR_VALUE_INVALID &&
                         fptr < (IronLIR_ValueId)arrlen(fn->value_table)) {
                         IronLIR_Instr *fptr_instr = fn->value_table[fptr];
-                        if (fptr_instr && fptr_instr->kind == IRON_LIR_MAKE_CLOSURE &&
-                            fptr_instr->make_closure.capture_count > 0) {
+                        if (fptr_instr && fptr_instr->kind == IRON_LIR_MAKE_CLOSURE) {
+                            /* All closures (capturing or not) use env-first convention */
                             needs_env_arg = true;
                         }
                         /* Also check if we loaded a MAKE_CLOSURE value via LOAD.
