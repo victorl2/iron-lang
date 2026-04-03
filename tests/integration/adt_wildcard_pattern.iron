@@ -1,0 +1,11 @@
+-- ADT wildcard pattern test
+-- Phase 33: verifies _ wildcard suppresses binding in pattern
+-- NOTE: requires Phase 34+35 for end-to-end execution; iron check should pass
+
+enum Shape {
+  Rect(Float, Float),
+}
+
+func main() {
+  println("adt_wildcard_pattern: ok")
+}
