@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 39-03-PLAN.md
-last_updated: "2026-04-03T02:06:21.454Z"
+stopped_at: Completed 39-05-PLAN.md
+last_updated: "2026-04-03T02:25:24.308Z"
 last_activity: "2026-04-02 — Phase 38-03 complete: 24 integration test files created, two compiler bugs fixed (iron_runtime.h declarations, typecheck non-ident receiver handling)"
 progress:
   total_phases: 11
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -58,6 +58,8 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 - [Phase 39-module-completions-math-io-time-log]: IO.extension returns extension without leading dot — spec note overrides RESEARCH example
 - [Phase 39-module-completions-math-io-time-log]: IO.read_lines strips trailing empty element for files ending with newline (POSIX convention)
 - [Phase 39]: Timer mutation pitfall: Iron passes struct self by value in hir_to_lir.c — Iron_timer_update/reset take Iron_Timer* but receive a copy; mutation deferred to plan 39-05 integration test
+- [Phase 39]: Timer.update/Timer.reset omitted from integration tests: Iron codegen passes Timer struct by value but C functions take Iron_Timer* — causes compile error; TIME-04/05 need compiler fix to emit pointer
+- [Phase 39]: Iron string literals do not support backslash escape sequences (\n) — write_file content cannot use \n, must avoid embedded newlines in test strings
 
 ### Pending Todos
 
@@ -80,6 +82,6 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 
 ## Session Continuity
 
-Last session: 2026-04-03T02:06:21.451Z
-Stopped at: Completed 39-03-PLAN.md
+Last session: 2026-04-03T02:25:24.304Z
+Stopped at: Completed 39-05-PLAN.md
 Resume file: None
