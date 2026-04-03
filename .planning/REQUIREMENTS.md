@@ -50,10 +50,10 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Slice Bounds
 
-- [ ] **SLICE-01**: Compiler validates that slice start and end expressions resolve to integer types
-- [ ] **SLICE-02**: Compiler validates `start <= end` when both are compile-time constants
-- [ ] **SLICE-03**: Compiler validates slice bounds are within array size when all values are compile-time constants
-- [ ] **SLICE-04**: Compiler emits `IRON_ERR_INVALID_SLICE_BOUNDS` for invalid constant slice bounds
+- [x] **SLICE-01**: Compiler validates that slice start and end expressions resolve to integer types
+- [x] **SLICE-02**: Compiler validates `start <= end` when both are compile-time constants
+- [x] **SLICE-03**: Compiler validates slice bounds are within array size when all values are compile-time constants
+- [x] **SLICE-04**: Compiler emits `IRON_ERR_INVALID_SLICE_BOUNDS` for invalid constant slice bounds
 
 ### Escape Analysis
 
@@ -141,10 +141,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | BOUNDS-01 | Phase 34 | Complete |
 | BOUNDS-02 | Phase 34 | Complete |
 | BOUNDS-03 | Phase 34 | Complete |
-| SLICE-01 | Phase 34 | Pending |
-| SLICE-02 | Phase 34 | Pending |
-| SLICE-03 | Phase 34 | Pending |
-| SLICE-04 | Phase 34 | Pending |
+| SLICE-01 | Phase 34 | Complete |
+| SLICE-02 | Phase 34 | Complete |
+| SLICE-03 | Phase 34 | Complete |
+| SLICE-04 | Phase 34 | Complete |
 | ESC-01 | Phase 35 | Pending |
 | ESC-02 | Phase 35 | Pending |
 | ESC-03 | Phase 35 | Pending |
