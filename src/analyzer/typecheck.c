@@ -179,6 +179,42 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     const char *name = ann->name;
     Iron_Type *base = NULL;
 
+    /* Phase 33: func-type annotation — func(T, U) -> R */
+    if (ann->is_func) {
+        /* Resolve parameter types */
+        Iron_Type **param_types = NULL;
+        int param_count = ann->func_param_count;
+        if (param_count > 0) {
+            param_types = iron_arena_alloc(ctx->arena, sizeof(Iron_Type *) * param_count, _Alignof(Iron_Type *));
+            for (int i = 0; i < param_count; i++) {
+                param_types[i] = resolve_type_annotation(ctx, ann->func_params[i]);
+            }
+        }
+
+        /* Resolve return type (NULL means void) */
+        Iron_Type *ret = ann->func_return
+            ? resolve_type_annotation(ctx, ann->func_return)
+            : iron_type_make_primitive(IRON_TYPE_VOID);
+
+        base = iron_type_make_func(ctx->arena, param_types, param_count, ret);
+
+        /* If this is an array-of-func, wrap in array type */
+        if (ann->is_array) {
+            int size = -1;
+            if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
+                Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
+                if (il->value) size = (int)strtol(il->value, NULL, 10);
+            }
+            base = iron_type_make_array(ctx->arena, base, size);
+        }
+
+        if (ann->is_nullable) {
+            base = iron_type_make_nullable(ctx->arena, base);
+        }
+
+        return base;
+    }
+
     /* Check primitives by name */
     if      (strcmp(name, "Int")     == 0) base = iron_type_make_primitive(IRON_TYPE_INT);
     else if (strcmp(name, "Int8")    == 0) base = iron_type_make_primitive(IRON_TYPE_INT8);
