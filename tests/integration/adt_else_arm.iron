@@ -9,9 +9,10 @@ enum Color {
 
 func describe(c: Color) -> String {
   match c {
-    Color.Custom(r, g, b) -> "custom {r},{g},{b}"
-    else -> "basic"
+    Color.Custom(r, g, b) -> return "custom {r},{g},{b}"
+    else -> return "basic"
   }
+  return "unknown"
 }
 
 func main() {

@@ -104,6 +104,54 @@ static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
     return iron_scope_lookup(ctx->current_scope, name);
 }
 
+/* Recursively define binding variables from a pattern into the current scope.
+ * enum_type: the Iron_Type of the enum being matched by this pattern.
+ * pattern_node: the Iron_Pattern AST node. */
+static void tc_define_pattern_bindings(TypeCtx *ctx,
+                                        Iron_Type *enum_type,
+                                        Iron_Node *pattern_node) {
+    if (!pattern_node || pattern_node->kind != IRON_NODE_PATTERN) return;
+    Iron_Pattern *pat = (Iron_Pattern *)pattern_node;
+
+    Iron_EnumDecl *ed = NULL;
+    Iron_Type     *pat_enum_type = enum_type;
+
+    /* If the pattern names its own enum (e.g. Inner.Val(n)), resolve by name */
+    if (pat->enum_name) {
+        Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
+        if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
+            pat_enum_type = esym->type;
+        }
+    }
+    if (pat_enum_type && pat_enum_type->kind == IRON_TYPE_ENUM) {
+        ed = pat_enum_type->enu.decl;
+    }
+    if (!ed || !pat_enum_type || !pat_enum_type->enu.variant_payload_types) return;
+
+    int vi = find_variant_index(ed, pat->variant_name);
+    if (vi < 0) return;
+
+    Iron_Type **ptypes = pat_enum_type->enu.variant_payload_types[vi];
+    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+    for (int j = 0; j < pat->binding_count && j < ev->payload_count; j++) {
+        const char *bname = pat->binding_names ? pat->binding_names[j] : NULL;
+        Iron_Node  *nested = (pat->nested_patterns && pat->nested_patterns[j])
+                              ? pat->nested_patterns[j] : NULL;
+        if (bname) {
+            /* Simple binding: define variable with payload type */
+            Iron_Type *btype = (ptypes && ptypes[j]) ? ptypes[j]
+                               : iron_type_make_primitive(IRON_TYPE_ERROR);
+            tc_define(ctx, bname, IRON_SYM_VARIABLE, pattern_node, pat->span,
+                      /*is_mutable=*/false, btype);
+        } else if (nested) {
+            /* Nested pattern: recurse with the payload type as the context enum type */
+            Iron_Type *payload_type = (ptypes && ptypes[j]) ? ptypes[j] : NULL;
+            tc_define_pattern_bindings(ctx, payload_type, nested);
+        }
+        /* else: wildcard _ — no binding */
+    }
+}
+
 /* ── Diagnostic helpers ──────────────────────────────────────────────────── */
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
@@ -1402,40 +1450,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
-                Iron_Pattern *pat = (Iron_Pattern *)mc->pattern;
-                /* Determine the enum type from the pattern's enum_name */
-                Iron_Type *enum_type = NULL;
-                Iron_EnumDecl *ed = NULL;
-                if (pat->enum_name) {
-                    Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
-                    if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
-                        enum_type = esym->type;
-                        ed = enum_type->enu.decl;
-                    }
-                } else {
-                    /* Unqualified pattern — search global scope for enum containing variant */
-                    Iron_Symbol *vsym = iron_scope_lookup(ctx->global_scope, pat->variant_name);
-                    if (vsym && vsym->type && vsym->type->kind == IRON_TYPE_ENUM) {
-                        enum_type = vsym->type;
-                        ed = enum_type->enu.decl;
-                    }
-                }
-                if (ed && enum_type && enum_type->enu.variant_payload_types) {
-                    int vi = find_variant_index(ed, pat->variant_name);
-                    if (vi >= 0) {
-                        Iron_Type **ptypes = enum_type->enu.variant_payload_types[vi];
-                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
-                        for (int j = 0; j < pat->binding_count && j < ev->payload_count; j++) {
-                            const char *bname = pat->binding_names[j];
-                            if (!bname) continue;  /* wildcard _ */
-                            Iron_Type *btype = (ptypes && ptypes[j]) ? ptypes[j]
-                                               : iron_type_make_primitive(IRON_TYPE_ERROR);
-                            tc_define(ctx, bname, IRON_SYM_VARIABLE,
-                                      mc->pattern, pat->span,
-                                      /*is_mutable=*/false, btype);
-                        }
-                    }
-                }
+                /* Recursively define all binding variables (including nested patterns) */
+                tc_define_pattern_bindings(ctx, NULL, mc->pattern);
             } else if (mc->pattern) {
                 /* Non-pattern (e.g. integer literal) — check as expression */
                 check_expr(ctx, mc->pattern);

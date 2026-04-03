@@ -7,9 +7,10 @@ enum Shape {
 
 func describe(s: Shape) -> String {
   match s {
-    Shape.Circle(r) -> "circle r={r}"
-    Shape.Rect(w, h) -> "rect w={w} h={h}"
+    Shape.Circle(r) -> return "circle r={r}"
+    Shape.Rect(w, h) -> return "rect w={w} h={h}"
   }
+  return "unknown"
 }
 
 func main() {
