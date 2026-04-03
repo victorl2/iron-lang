@@ -718,6 +718,69 @@ void test_interp_object_with_to_string_ok(void) {
     TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
 }
 
+/* ── Test 44: compound assign on narrow Int8, non-constant RHS => W0603 ──── */
+
+void test_compound_narrow_overflow_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  var x: Int8 = 1\n"
+        "  var y: Int = 100\n"
+        "  x += y\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_WARN_POSSIBLE_OVERFLOW));
+}
+
+/* ── Test 45: compound assign on narrow Int8, constant that fits => no W0603 */
+
+void test_compound_narrow_constant_fits_no_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  var x: Int8 = 1\n"
+        "  x += 5\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_WARN_POSSIBLE_OVERFLOW));
+}
+
+/* ── Test 46: compound assign on narrow Int8, constant overflows => W0603 ── */
+
+void test_compound_narrow_constant_overflows_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  var x: Int8 = 1\n"
+        "  x += 200\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_WARN_POSSIBLE_OVERFLOW));
+}
+
+/* ── Test 47: compound assign on full-width Int => no W0603 ────────────────── */
+
+void test_compound_full_width_no_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  var x: Int = 1\n"
+        "  var y: Int = 100\n"
+        "  x += y\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_WARN_POSSIBLE_OVERFLOW));
+}
+
+/* ── Test 48: compound -= on narrow UInt8 => W0603 ─────────────────────────── */
+
+void test_compound_subtract_narrow_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  var x: UInt8 = 10\n"
+        "  var y: Int = 5\n"
+        "  x -= y\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_WARN_POSSIBLE_OVERFLOW));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -766,6 +829,11 @@ int main(void) {
     RUN_TEST(test_interp_bool_no_warning);
     RUN_TEST(test_interp_not_stringable);
     RUN_TEST(test_interp_object_with_to_string_ok);
+    RUN_TEST(test_compound_narrow_overflow_warning);
+    RUN_TEST(test_compound_narrow_constant_fits_no_warning);
+    RUN_TEST(test_compound_narrow_constant_overflows_warning);
+    RUN_TEST(test_compound_full_width_no_warning);
+    RUN_TEST(test_compound_subtract_narrow_warning);
 
     return UNITY_END();
 }
