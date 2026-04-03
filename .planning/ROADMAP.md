@@ -661,7 +661,11 @@ Plans:
   3. A lambda created inside a loop with `val captured = i` captures a fresh per-iteration copy of `i`; each closure in a collection holds its own independent value
   4. DCE does not remove `MAKE_CLOSURE` instructions; the function inliner skips all `__lambda_*` functions; copy propagation and store-load elimination respect heap-box indirection for `var` captures
   5. Lambda capture examples 1, 2, 3, 4, 7, 12, 13, and 14 from `docs/lambda-capture/` all compile and produce the documented correct output
-**Plans:** TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 33-01-PLAN.md — Test scaffolds + parser func-type annotation fix (root cause of hang)
+- [ ] 33-02-PLAN.md — Typecheck resolver + runtime Iron_List_Iron_Closure + DCE purity fix
+- [ ] 33-03-PLAN.md — Full capture test suite green + optimizer guard verification
 
 ### Phase 34: Advanced Captures
 **Goal**: Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and all higher-order function patterns compile and run correctly
