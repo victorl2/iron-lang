@@ -33,6 +33,11 @@ typedef struct {
     /* Names of variables definitely assigned at current program point.
      * Uses a bool parallel array indexed same as uninit_vars. */
     bool          assigned[MAX_UNINIT_VARS];
+
+    /* Set true when a RETURN statement is encountered in current branch.
+     * Used for control flow merging: a branch that returns is excluded
+     * from the intersection at merge points. */
+    bool          has_return;
 } InitCheckCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -63,6 +68,34 @@ static void emit_uninit_error(InitCheckCtx *ctx, Iron_Span span,
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_ERR_POSSIBLY_UNINITIALIZED, span,
                    iron_arena_strdup(ctx->arena, buf, strlen(buf)), NULL);
+}
+
+/* ── Snapshot helpers for control flow merging ───────────────────────────── */
+
+/* Save current assigned state into a snapshot buffer */
+static void save_assigned(InitCheckCtx *ctx, bool *snapshot) {
+    memcpy(snapshot, ctx->assigned, sizeof(bool) * MAX_UNINIT_VARS);
+}
+
+/* Restore assigned state from a snapshot */
+static void restore_assigned(InitCheckCtx *ctx, const bool *snapshot) {
+    memcpy(ctx->assigned, snapshot, sizeof(bool) * MAX_UNINIT_VARS);
+}
+
+/* Intersect: a[i] = a[i] AND b[i]
+ * After if/else, a var is only definitely assigned if BOTH branches assigned it. */
+static void intersect_assigned_pair(bool *a, const bool *b, int count) {
+    for (int i = 0; i < count; i++) {
+        a[i] = a[i] && b[i];
+    }
+}
+
+/* Union: assigned[i] = assigned[i] OR other[i]
+ * Used when one branch returns -- surviving path's assignments are kept. */
+static void union_assigned(InitCheckCtx *ctx, const bool *other) {
+    for (int i = 0; i < ctx->uninit_count; i++) {
+        ctx->assigned[i] = ctx->assigned[i] || other[i];
+    }
 }
 
 /* ── Expression walker ───────────────────────────────────────────────────── */
@@ -216,6 +249,7 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
     case IRON_NODE_RETURN: {
         Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
         if (rs->value) check_expr_uses(ctx, rs->value);
+        ctx->has_return = true;
         break;
     }
     case IRON_NODE_BLOCK: {
@@ -228,34 +262,187 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
     case IRON_NODE_IF: {
         Iron_IfStmt *ifs = (Iron_IfStmt *)node;
         check_expr_uses(ctx, ifs->condition);
-        check_stmt_init(ctx, ifs->body);
-        for (int i = 0; i < ifs->elif_count; i++) {
-            check_expr_uses(ctx, ifs->elif_conds[i]);
-            check_stmt_init(ctx, ifs->elif_bodies[i]);
+
+        if (ifs->else_body) {
+            /* if/else (possibly with elif): assigned after = intersection
+             * of all non-returning branches.  Collect snapshots from each
+             * branch, then merge. */
+            bool before[MAX_UNINIT_VARS];
+            save_assigned(ctx, before);
+
+            /* Total branches: 1 (if) + elif_count + 1 (else) */
+            int total_branches = 1 + ifs->elif_count + 1;
+            bool snapshots[MAX_UNINIT_VARS]; /* accumulated result */
+            bool branch_snap[MAX_UNINIT_VARS];
+            bool all_return = true;
+            bool first_non_return = true;
+
+            /* Walk if-body */
+            ctx->has_return = false;
+            check_stmt_init(ctx, ifs->body);
+            save_assigned(ctx, branch_snap);
+            if (!ctx->has_return) {
+                memcpy(snapshots, branch_snap, sizeof(bool) * MAX_UNINIT_VARS);
+                first_non_return = false;
+            }
+            all_return = all_return && ctx->has_return;
+
+            /* Walk elif branches */
+            for (int i = 0; i < ifs->elif_count; i++) {
+                restore_assigned(ctx, before);
+                check_expr_uses(ctx, ifs->elif_conds[i]);
+                ctx->has_return = false;
+                check_stmt_init(ctx, ifs->elif_bodies[i]);
+                save_assigned(ctx, branch_snap);
+                if (!ctx->has_return) {
+                    if (first_non_return) {
+                        memcpy(snapshots, branch_snap, sizeof(bool) * MAX_UNINIT_VARS);
+                        first_non_return = false;
+                    } else {
+                        intersect_assigned_pair(snapshots, branch_snap, ctx->uninit_count);
+                    }
+                }
+                all_return = all_return && ctx->has_return;
+            }
+
+            /* Walk else-body */
+            restore_assigned(ctx, before);
+            ctx->has_return = false;
+            check_stmt_init(ctx, ifs->else_body);
+            save_assigned(ctx, branch_snap);
+            if (!ctx->has_return) {
+                if (first_non_return) {
+                    memcpy(snapshots, branch_snap, sizeof(bool) * MAX_UNINIT_VARS);
+                    first_non_return = false;
+                } else {
+                    intersect_assigned_pair(snapshots, branch_snap, ctx->uninit_count);
+                }
+            }
+            all_return = all_return && ctx->has_return;
+
+            (void)total_branches;
+
+            if (all_return) {
+                ctx->has_return = true;
+                restore_assigned(ctx, before);
+            } else {
+                /* Merge: before | intersection of non-returning branches */
+                restore_assigned(ctx, before);
+                if (!first_non_return) {
+                    union_assigned(ctx, snapshots);
+                }
+                ctx->has_return = false;
+            }
+        } else {
+            /* if without else: body assignments are NOT definite
+             * (the else path is implicit empty -- skips all assignments) */
+            bool before[MAX_UNINIT_VARS];
+            save_assigned(ctx, before);
+            ctx->has_return = false;
+            check_stmt_init(ctx, ifs->body);
+            /* Restore to before state -- assignments in if-only are not definite */
+            restore_assigned(ctx, before);
+            ctx->has_return = false;
         }
-        if (ifs->else_body) check_stmt_init(ctx, ifs->else_body);
         break;
     }
     case IRON_NODE_WHILE: {
         Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
         check_expr_uses(ctx, ws->condition);
+        /* Loop may execute zero times: save state, walk body, restore */
+        bool before[MAX_UNINIT_VARS];
+        save_assigned(ctx, before);
+        ctx->has_return = false;
         check_stmt_init(ctx, ws->body);
+        restore_assigned(ctx, before);
+        ctx->has_return = false;
         break;
     }
     case IRON_NODE_FOR: {
         Iron_ForStmt *fs = (Iron_ForStmt *)node;
-        check_expr_uses(ctx, fs->iterable);
+        if (fs->iterable) check_expr_uses(ctx, fs->iterable);
+        /* Loop may execute zero times: save state, walk body, restore */
+        bool before[MAX_UNINIT_VARS];
+        save_assigned(ctx, before);
+        ctx->has_return = false;
         check_stmt_init(ctx, fs->body);
+        restore_assigned(ctx, before);
+        ctx->has_return = false;
         break;
     }
     case IRON_NODE_MATCH: {
         Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
         check_expr_uses(ctx, ms->subject);
-        for (int i = 0; i < ms->case_count; i++) {
-            Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
-            check_stmt_init(ctx, mc->body);
+
+        /* Match is exhaustive only if it has an else clause */
+        if (ms->else_body && ms->case_count > 0) {
+            bool before[MAX_UNINIT_VARS];
+            save_assigned(ctx, before);
+
+            bool result[MAX_UNINIT_VARS];
+            bool arm_snap[MAX_UNINIT_VARS];
+            bool all_return = true;
+            bool first_non_return = true;
+
+            /* Walk each case arm */
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                restore_assigned(ctx, before);
+                ctx->has_return = false;
+                check_stmt_init(ctx, mc->body);
+                save_assigned(ctx, arm_snap);
+                if (!ctx->has_return) {
+                    if (first_non_return) {
+                        memcpy(result, arm_snap, sizeof(bool) * MAX_UNINIT_VARS);
+                        first_non_return = false;
+                    } else {
+                        intersect_assigned_pair(result, arm_snap, ctx->uninit_count);
+                    }
+                }
+                all_return = all_return && ctx->has_return;
+            }
+
+            /* Walk else body */
+            restore_assigned(ctx, before);
+            ctx->has_return = false;
+            check_stmt_init(ctx, ms->else_body);
+            save_assigned(ctx, arm_snap);
+            if (!ctx->has_return) {
+                if (first_non_return) {
+                    memcpy(result, arm_snap, sizeof(bool) * MAX_UNINIT_VARS);
+                    first_non_return = false;
+                } else {
+                    intersect_assigned_pair(result, arm_snap, ctx->uninit_count);
+                }
+            }
+            all_return = all_return && ctx->has_return;
+
+            if (all_return) {
+                ctx->has_return = true;
+                restore_assigned(ctx, before);
+            } else {
+                restore_assigned(ctx, before);
+                if (!first_non_return) {
+                    union_assigned(ctx, result);
+                }
+                ctx->has_return = false;
+            }
+        } else {
+            /* Match without else or no cases: walk but don't trust assignments */
+            bool before[MAX_UNINIT_VARS];
+            save_assigned(ctx, before);
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                restore_assigned(ctx, before);
+                check_stmt_init(ctx, mc->body);
+            }
+            if (ms->else_body) {
+                restore_assigned(ctx, before);
+                check_stmt_init(ctx, ms->else_body);
+            }
+            restore_assigned(ctx, before);
+            ctx->has_return = false;
         }
-        if (ms->else_body) check_stmt_init(ctx, ms->else_body);
         break;
     }
     case IRON_NODE_FREE: {
@@ -284,6 +471,7 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
 
 static void check_function(InitCheckCtx *ctx, Iron_FuncDecl *fn) {
     ctx->uninit_count = 0;
+    ctx->has_return = false;
     memset(ctx->assigned, 0, sizeof(ctx->assigned));
 
     /* Parameters are always initialized -- do NOT register them. */
@@ -310,6 +498,7 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.arena = arena;
             ctx.diags = diags;
             ctx.uninit_count = 0;
+            ctx.has_return = false;
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             check_function(&ctx, (Iron_FuncDecl *)decl);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
@@ -319,6 +508,7 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.arena = arena;
             ctx.diags = diags;
             ctx.uninit_count = 0;
+            ctx.has_return = false;
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             if (md->body) {
                 check_stmt_init(&ctx, md->body);
