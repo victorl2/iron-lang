@@ -14,8 +14,10 @@
  */
 
 #include "analyzer/capture.h"
+#include "analyzer/types.h"
 #include "vendor/stb_ds.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 
@@ -673,6 +675,124 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
     }
 }
 
+/* ── Verbose report helpers ───────────────────────────────────────────────── */
+
+/* Walk the AST and print capture info for every lambda/spawn/pfor found.
+ * Called by iron_capture_verbose_report only when --verbose is active. */
+static void verbose_walk(Iron_Node *node, Iron_Arena *arena, int depth) {
+    if (!node) return;
+    switch (node->kind) {
+        case IRON_NODE_LAMBDA: {
+            Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
+            fprintf(stderr, "  [capture] lambda at %s:%u captures %d variable(s):\n",
+                    le->span.filename ? le->span.filename : "<unknown>",
+                    le->span.line,
+                    le->capture_count);
+            for (int i = 0; i < le->capture_count; i++) {
+                const char *kind = le->captures[i].is_mutable ? "var (ref)" : "val (copy)";
+                const char *type_str = le->captures[i].type
+                    ? iron_type_to_string(le->captures[i].type, arena)
+                    : "?";
+                fprintf(stderr, "            %s: %s  [%s]\n",
+                        le->captures[i].name, type_str, kind);
+            }
+            /* Recurse into the body for nested lambdas */
+            verbose_walk(le->body, arena, depth + 1);
+            break;
+        }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            fprintf(stderr, "  [capture] spawn at %s:%u captures %d variable(s):\n",
+                    ss->span.filename ? ss->span.filename : "<unknown>",
+                    ss->span.line,
+                    ss->capture_count);
+            for (int i = 0; i < ss->capture_count; i++) {
+                const char *kind = ss->captures[i].is_mutable ? "var (ref)" : "val (copy)";
+                const char *type_str = ss->captures[i].type
+                    ? iron_type_to_string(ss->captures[i].type, arena)
+                    : "?";
+                fprintf(stderr, "            %s: %s  [%s]\n",
+                        ss->captures[i].name, type_str, kind);
+            }
+            verbose_walk(ss->pool_expr, arena, depth);
+            verbose_walk(ss->body, arena, depth);
+            break;
+        }
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            if (fs->is_parallel && fs->pfor_capture_count > 0) {
+                fprintf(stderr, "  [capture] pfor at %s:%u captures %d variable(s):\n",
+                        fs->span.filename ? fs->span.filename : "<unknown>",
+                        fs->span.line,
+                        fs->pfor_capture_count);
+                for (int i = 0; i < fs->pfor_capture_count; i++) {
+                    const char *kind = fs->pfor_captures[i].is_mutable ? "var (ref)" : "val (copy)";
+                    const char *type_str = fs->pfor_captures[i].type
+                        ? iron_type_to_string(fs->pfor_captures[i].type, arena)
+                        : "?";
+                    fprintf(stderr, "            %s: %s  [%s]\n",
+                            fs->pfor_captures[i].name, type_str, kind);
+                }
+            }
+            verbose_walk(fs->iterable, arena, depth);
+            verbose_walk(fs->body, arena, depth);
+            break;
+        }
+        case IRON_NODE_BLOCK: {
+            Iron_Block *blk = (Iron_Block *)node;
+            for (int i = 0; i < blk->stmt_count; i++) {
+                verbose_walk(blk->stmts[i], arena, depth);
+            }
+            break;
+        }
+        case IRON_NODE_VAL_DECL: {
+            Iron_ValDecl *vd = (Iron_ValDecl *)node;
+            verbose_walk(vd->init, arena, depth);
+            break;
+        }
+        case IRON_NODE_VAR_DECL: {
+            Iron_VarDecl *vd = (Iron_VarDecl *)node;
+            verbose_walk(vd->init, arena, depth);
+            break;
+        }
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is = (Iron_IfStmt *)node;
+            verbose_walk(is->condition, arena, depth);
+            verbose_walk(is->body, arena, depth);
+            for (int i = 0; i < is->elif_count; i++) {
+                verbose_walk(is->elif_bodies[i], arena, depth);
+            }
+            verbose_walk(is->else_body, arena, depth);
+            break;
+        }
+        case IRON_NODE_WHILE: {
+            Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
+            verbose_walk(ws->body, arena, depth);
+            break;
+        }
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            verbose_walk(as->value, arena, depth);
+            break;
+        }
+        case IRON_NODE_RETURN: {
+            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
+            verbose_walk(rs->value, arena, depth);
+            break;
+        }
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *ce = (Iron_CallExpr *)node;
+            verbose_walk(ce->callee, arena, depth);
+            for (int i = 0; i < ce->arg_count; i++) {
+                verbose_walk(ce->args[i], arena, depth);
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
@@ -702,4 +822,33 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
                 break;
         }
     }
+}
+
+void iron_capture_verbose_report(Iron_Program *program, Iron_Arena *arena) {
+    if (!program) return;
+
+    int total_lambdas = 0;
+    int capturing_lambdas = 0;
+
+    /* Count pass: walk all top-level declarations */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl) continue;
+        switch (decl->kind) {
+            case IRON_NODE_FUNC_DECL: {
+                Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+                if (fd->body) verbose_walk(fd->body, arena, 0);
+                break;
+            }
+            case IRON_NODE_METHOD_DECL: {
+                Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+                if (md->body) verbose_walk(md->body, arena, 0);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    (void)total_lambdas;
+    (void)capturing_lambdas;
 }
