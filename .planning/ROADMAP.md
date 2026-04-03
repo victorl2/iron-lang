@@ -618,7 +618,7 @@ Plans:
   2. A source file declaring a plain C-style enum parses and the compiler produces identical C output to before this phase — no regression on any existing test.
   3. Match arm `->` syntax parses for both single-expression (`-> expr`) and block (`-> { ... }`) forms without error.
   4. Attempting to use named-field variant syntax produces a clear parse error (out-of-scope guard).
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 32-01-PLAN.md -- Lexer, AST structs, type system extension (data layer foundation)
@@ -635,7 +635,11 @@ Plans:
   3. `_` wildcard in a pattern position suppresses the binding and satisfies that field's exhaustiveness requirement.
   4. An `else` arm satisfies exhaustiveness checking for all remaining variants.
   5. Existing `{ }` match arm syntax continues to compile unchanged during the migration transition.
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 33-01-PLAN.md -- Error codes + resolver extensions (pattern binding, enum construct, match-case scoping)
+- [ ] 33-02-PLAN.md -- Type checker (payload types, exhaustiveness, binding types) + tests
 
 ### Phase 34: HIR Extensions and Match Lowering
 **Goal**: ADT constructions and destructuring patterns are representable in HIR and lowered to LIR — match compiles to a tag-checked switch with correct payload field extraction, and binding-variable ALLOCAs are hoisted to function entry to avoid the known goto-bypass UB.
@@ -730,7 +734,7 @@ Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 an
 | 29. Sized Integers | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
-| 32. AST and Type System Foundation | 2/3 | In Progress|  | - |
+| 32. AST and Type System Foundation | 2/3 | Complete    | 2026-04-02 | - |
 | 33. Resolver and Type Checker | v0.0.8-alpha | 0/? | Not started | - |
 | 34. HIR Extensions and Match Lowering | v0.0.8-alpha | 0/? | Not started | - |
 | 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/? | Not started | - |
