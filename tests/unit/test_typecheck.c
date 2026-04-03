@@ -465,6 +465,119 @@ void test_int32_explicit_cast_no_error(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
+/* ── Test 27: non-exhaustive match on enum (missing variant) => E0308 ───── */
+
+void test_nonexhaustive_match_enum(void) {
+    const char *src =
+        "enum Color {\n"
+        "  Red,\n"
+        "  Green,\n"
+        "  Blue\n"
+        "}\n"
+        "func main() {\n"
+        "  val c = Red\n"
+        "  match c {\n"
+        "    Red { }\n"
+        "    Green { }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_NONEXHAUSTIVE_MATCH));
+}
+
+/* ── Test 28: exhaustive match covering all variants => no error ─────────── */
+
+void test_exhaustive_match_all_variants(void) {
+    const char *src =
+        "enum Color {\n"
+        "  Red,\n"
+        "  Green,\n"
+        "  Blue\n"
+        "}\n"
+        "func main() {\n"
+        "  val c = Red\n"
+        "  match c {\n"
+        "    Red { }\n"
+        "    Green { }\n"
+        "    Blue { }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Test 29: match with else clause => no error even with missing variants ── */
+
+void test_exhaustive_match_with_else(void) {
+    const char *src =
+        "enum Color {\n"
+        "  Red,\n"
+        "  Green,\n"
+        "  Blue\n"
+        "}\n"
+        "func main() {\n"
+        "  val c = Red\n"
+        "  match c {\n"
+        "    Red { }\n"
+        "    else { }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Test 30: non-exhaustive match on non-enum type => E0308 ─────────────── */
+
+void test_nonexhaustive_match_non_enum(void) {
+    const char *src =
+        "func main() {\n"
+        "  val x: Int = 5\n"
+        "  match x {\n"
+        "    1 { }\n"
+        "    2 { }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_NONEXHAUSTIVE_MATCH));
+}
+
+/* ── Test 31: match on non-enum with else => no error ────────────────────── */
+
+void test_match_non_enum_with_else(void) {
+    const char *src =
+        "func main() {\n"
+        "  val x: Int = 5\n"
+        "  match x {\n"
+        "    1 { }\n"
+        "    else { }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Test 32: duplicate match arm => E0309 ───────────────────────────────── */
+
+void test_duplicate_match_arm(void) {
+    const char *src =
+        "enum Color {\n"
+        "  Red,\n"
+        "  Green,\n"
+        "  Blue\n"
+        "}\n"
+        "func main() {\n"
+        "  val c = Red\n"
+        "  match c {\n"
+        "    Red { }\n"
+        "    Red { }\n"
+        "    Green { }\n"
+        "    Blue { }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_DUPLICATE_MATCH_ARM));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -496,6 +609,12 @@ int main(void) {
     RUN_TEST(test_int32_variable_narrowing_error);
     RUN_TEST(test_int32_widening_no_error);
     RUN_TEST(test_int32_explicit_cast_no_error);
+    RUN_TEST(test_nonexhaustive_match_enum);
+    RUN_TEST(test_exhaustive_match_all_variants);
+    RUN_TEST(test_exhaustive_match_with_else);
+    RUN_TEST(test_nonexhaustive_match_non_enum);
+    RUN_TEST(test_match_non_enum_with_else);
+    RUN_TEST(test_duplicate_match_arm);
 
     return UNITY_END();
 }
