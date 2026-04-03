@@ -140,6 +140,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_CAST_OVERFLOW          311
 #define IRON_ERR_INDEX_OUT_OF_BOUNDS    312
 #define IRON_ERR_INVALID_SLICE_BOUNDS   313
+#define IRON_ERR_POSSIBLY_UNINITIALIZED 314
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
