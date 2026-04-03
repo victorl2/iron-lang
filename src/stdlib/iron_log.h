@@ -18,4 +18,14 @@ void Iron_log_info(Iron_String msg);
 void Iron_log_warn(Iron_String msg);
 void Iron_log_error(Iron_String msg);
 
+/* ── Log level constants (Iron_Log_DEBUG etc.) ───────────────────────────── */
+/* These #defines map the compiler-emitted Iron_Log_XXX identifiers (produced
+ * by Iron code `Log.DEBUG`, `Log.INFO`, etc.) to the corresponding enum values.
+ * The Iron codegen emits type-name field accesses as Iron_TypeName_FieldName
+ * (e.g. Iron_Log_DEBUG) rather than as a struct member access. */
+#define Iron_Log_DEBUG ((int64_t)IRON_LOG_DEBUG)
+#define Iron_Log_INFO  ((int64_t)IRON_LOG_INFO)
+#define Iron_Log_WARN  ((int64_t)IRON_LOG_WARN)
+#define Iron_Log_ERROR ((int64_t)IRON_LOG_ERROR)
+
 #endif /* IRON_LOG_H */

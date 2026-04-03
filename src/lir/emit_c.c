@@ -375,6 +375,20 @@ static bool val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return false;
 }
 
+/* Determine if a LIR value is a FUNC_REF used as a type-name namespace
+ * (e.g. "Math" in Math.PI, "Log" in Log.DEBUG).  When a field is accessed
+ * on such a value the object is not a runtime struct instance but a type
+ * name — emitting "Iron_Math.PI" produces invalid C.  Instead we emit the
+ * constant macro name "Iron_Math_PI" so that the corresponding #define in
+ * the module header resolves to the correct value. */
+static bool val_is_type_ref(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return false;
+    return instr->kind == IRON_LIR_FUNC_REF;
+}
+
 /* ── Stack-array tracking helpers ────────────────────────────────────────── */
 
 /* Check if a ValueId is known to be a stack-represented array.
@@ -637,6 +651,16 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             instr->field.field && strcmp(instr->field.field, "count") == 0) {
             emit_val(sb, instr->field.object);
             iron_strbuf_appendf(sb, "_len");
+            break;
+        }
+        /* Type-name namespace access: Math.PI, Log.DEBUG, etc.
+         * The object is a FUNC_REF (type name), not a runtime instance.
+         * Emit Iron_TypeName_FieldName so the #define in the module header
+         * resolves to the correct compile-time constant. */
+        if (val_is_type_ref(fn, instr->field.object)) {
+            IronLIR_Instr *ref = fn->value_table[instr->field.object];
+            const char *type_c = resolve_func_c_name(ctx, ref->func_ref.func_name);
+            iron_strbuf_appendf(sb, "%s_%s", type_c, instr->field.field);
             break;
         }
         bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
@@ -1266,6 +1290,19 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->field.object);
             iron_strbuf_appendf(sb, "_len;\n");
+            break;
+        }
+        /* Type-name namespace access: Math.PI, Log.DEBUG, etc.
+         * The object is a FUNC_REF (type name), not a runtime instance.
+         * Emit Iron_TypeName_FieldName so the #define in the module header
+         * resolves to the correct compile-time constant. */
+        if (val_is_type_ref(fn, instr->field.object)) {
+            IronLIR_Instr *ref = fn->value_table[instr->field.object];
+            const char *type_c = resolve_func_c_name(ctx, ref->func_ref.func_name);
+            emit_indent(sb, ind);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = %s_%s;\n", type_c, instr->field.field);
             break;
         }
         /* object.field or object->field for heap/rc pointers */
