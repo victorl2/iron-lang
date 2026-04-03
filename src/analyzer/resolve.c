@@ -615,8 +615,14 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             }
             /* Introduce binding variables into current (arm) scope */
             for (int i = 0; i < pat->binding_count; i++) {
-                const char *bname = pat->binding_names[i];
-                if (!bname) continue;  /* wildcard _ — no binding */
+                const char *bname = pat->binding_names ? pat->binding_names[i] : NULL;
+                if (!bname) {
+                    /* Wildcard _ or nested pattern slot — recurse into nested pattern if present */
+                    if (pat->nested_patterns && pat->nested_patterns[i]) {
+                        resolve_node(ctx, pat->nested_patterns[i]);
+                    }
+                    continue;
+                }
                 /* Check for shadowing: look up in PARENT scope (arm scope's parent) */
                 Iron_Symbol *outer = iron_scope_lookup(ctx->current_scope->parent, bname);
                 if (outer) {

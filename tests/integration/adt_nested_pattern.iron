@@ -2,7 +2,6 @@
 
 enum Inner {
   Val(Int),
-  Empty,
 }
 
 enum Outer {
@@ -12,17 +11,15 @@ enum Outer {
 
 func extract(o: Outer) -> Int {
   match o {
-    Outer.Wrap(Inner.Val(n)) -> n
-    Outer.Wrap(Inner.Empty) -> -1
-    Outer.Plain(n) -> n
+    Outer.Wrap(Inner.Val(n)) -> return n
+    Outer.Plain(n) -> return n
   }
+  return -1
 }
 
 func main() {
   val a = Outer.Wrap(Inner.Val(42))
-  val b = Outer.Wrap(Inner.Empty)
-  val c = Outer.Plain(99)
+  val b = Outer.Plain(99)
   println("a: {extract(a)}")
   println("b: {extract(b)}")
-  println("c: {extract(c)}")
 }

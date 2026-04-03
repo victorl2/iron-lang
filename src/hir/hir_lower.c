@@ -277,6 +277,92 @@ static bool is_compound_assign(Iron_OpKind op) {
            op == IRON_TOK_SLASH_ASSIGN;
 }
 
+/* ── ADT pattern binding injection ────────────────────────────────────────── */
+
+/* Recursively inject IRON_HIR_STMT_LET nodes for pattern bindings into `out`.
+ * scrut_expr: the HIR expression for the match scrutinee (or a sub-value for nested).
+ * enum_type:  the Iron_Type of the value being matched (may be NULL for top-level,
+ *             resolved from pat->enum_name via global_scope).
+ * pat:        the Iron_Pattern AST node.
+ * field_prefix: dotted field path built up so far (empty string for top-level).
+ * out:        the HIR block into which LET stmts are prepended. */
+static void inject_pattern_let_stmts(IronHIR_LowerCtx *ctx,
+                                      IronHIR_Block     *out,
+                                      IronHIR_Expr      *scrut_expr,
+                                      Iron_Type         *enum_type,
+                                      Iron_Pattern      *pat,
+                                      const char        *field_prefix,
+                                      Iron_Span          span) {
+    IronHIR_Module *mod = ctx->module;
+
+    /* Resolve enum type from pattern name if not provided */
+    if (!enum_type && pat->enum_name) {
+        Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
+        if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
+            enum_type = esym->type;
+        }
+    }
+    if (!enum_type || enum_type->kind != IRON_TYPE_ENUM) return;
+
+    Iron_EnumDecl *ed = enum_type->enu.decl;
+    if (!ed || !enum_type->enu.variant_payload_types) return;
+
+    /* Find variant index */
+    int vi = -1;
+    for (int i = 0; i < ed->variant_count; i++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+        if (strcmp(ev->name, pat->variant_name) == 0) { vi = i; break; }
+    }
+    if (vi < 0) return;
+
+    Iron_Type **ptypes = enum_type->enu.variant_payload_types[vi];
+    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+
+    for (int b = 0; b < pat->binding_count && b < ev->payload_count; b++) {
+        const char *bname  = pat->binding_names ? pat->binding_names[b] : NULL;
+        Iron_Node  *nested = (pat->nested_patterns && pat->nested_patterns[b])
+                             ? pat->nested_patterns[b] : NULL;
+        Iron_Type  *ptype  = (ptypes && ptypes[b]) ? ptypes[b] : NULL;
+
+        /* Build the field path for this slot */
+        char slot_field[256];
+        if (field_prefix && field_prefix[0]) {
+            snprintf(slot_field, sizeof(slot_field), "%s.data.%s._%d",
+                     field_prefix, pat->variant_name, b);
+        } else {
+            snprintf(slot_field, sizeof(slot_field), "data.%s._%d",
+                     pat->variant_name, b);
+        }
+
+        if (bname) {
+            /* Simple binding: val bname = scrut.data.VariantName._b */
+            IronHIR_Expr *field_expr = iron_hir_expr_field_access(mod, scrut_expr,
+                                         iron_arena_strdup(mod->arena, slot_field,
+                                                           strlen(slot_field)),
+                                         ptype, span);
+            IronHIR_VarId vid = iron_hir_alloc_var(mod, bname, ptype, false);
+            declare_var(ctx, bname, vid);
+            IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, vid, ptype, field_expr,
+                                                      false, span);
+            iron_hir_block_add_stmt(out, let_s);
+        } else if (nested && nested->kind == IRON_NODE_PATTERN) {
+            /* Nested pattern: recurse with the sub-enum type */
+            Iron_Pattern *npat = (Iron_Pattern *)nested;
+            /* Resolve nested enum type */
+            Iron_Type *nested_enum_type = ptype;
+            if (npat->enum_name) {
+                Iron_Symbol *esym2 = iron_scope_lookup(ctx->global_scope, npat->enum_name);
+                if (esym2 && esym2->type && esym2->type->kind == IRON_TYPE_ENUM) {
+                    nested_enum_type = esym2->type;
+                }
+            }
+            inject_pattern_let_stmts(ctx, out, scrut_expr, nested_enum_type,
+                                      npat, slot_field, span);
+        }
+        /* else: wildcard _ — skip */
+    }
+}
+
 /* Lower a single statement node; emit it into ctx->current_block.
  * Returns a HIR stmt if the caller needs to add it to a block manually,
  * otherwise NULL (already appended). */
@@ -590,13 +676,26 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_MATCH: {
         Iron_MatchStmt *ms    = (Iron_MatchStmt *)node;
         IronHIR_Expr   *scrut = lower_expr_hir(ctx, ms->subject);
+        Iron_Type      *scrut_ty = expr_type(ms->subject);
         IronHIR_MatchArm *arms = NULL;
 
         for (int i = 0; i < ms->case_count; i++) {
             Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
             IronHIR_Expr  *pat = lower_expr_hir(ctx, mc->pattern);
             IronHIR_Block *mbody = iron_hir_block_create(mod);
-            lower_block_hir(ctx, (Iron_Block *)mc->body, mbody);
+
+            /* For ADT patterns: push scope, inject binding LET stmts, lower body */
+            if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                Iron_Pattern *ast_pat = (Iron_Pattern *)mc->pattern;
+                push_scope(ctx);
+                inject_pattern_let_stmts(ctx, mbody, scrut, scrut_ty,
+                                          ast_pat, "", span);
+                lower_block_hir(ctx, (Iron_Block *)mc->body, mbody);
+                pop_scope(ctx);
+            } else {
+                lower_block_hir(ctx, (Iron_Block *)mc->body, mbody);
+            }
+
             IronHIR_MatchArm arm;
             arm.pattern = pat;
             arm.guard   = NULL;

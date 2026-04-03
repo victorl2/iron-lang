@@ -460,13 +460,22 @@ static void lower_type_decls_from_ast(HIR_to_LIR_Ctx *ctx) {
                                       obj->name, obj_type);
     }
 
-    /* 0c: Enums */
+    /* 0c: Enums — look up the Iron_Type from the global scope (created by resolver) */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind != IRON_NODE_ENUM_DECL) continue;
         Iron_EnumDecl *en = (Iron_EnumDecl *)decl;
+        /* Look up the enum type from global scope to get the fully-populated Iron_Type
+         * (including variant_payload_types set by the type checker). */
+        Iron_Type *enum_type = NULL;
+        if (ctx->global_scope) {
+            Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, en->name);
+            if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
+                enum_type = esym->type;
+            }
+        }
         iron_lir_module_add_type_decl(ctx->lir_module, IRON_LIR_TYPE_ENUM,
-                                      en->name, NULL);
+                                      en->name, enum_type);
     }
 
     /* 0d: Extern functions */
@@ -984,6 +993,36 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
     }
 
+    case IRON_HIR_EXPR_ENUM_CONSTRUCT: {
+        /* Build field_vals: [tag_const_int, payload_arg_0, payload_arg_1, ...] */
+        IronLIR_ValueId *field_vals = NULL;
+        Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+        /* Tag value as constant integer */
+        IronLIR_ValueId tag_const = iron_lir_const_int(ctx->current_func, ctx->current_block,
+                                                         (int64_t)expr->enum_construct.variant_index,
+                                                         int_type, span)->id;
+        arrput(field_vals, tag_const);
+
+        /* Payload arguments */
+        for (int i = 0; i < expr->enum_construct.arg_count; i++) {
+            IronLIR_ValueId av = lower_expr(ctx, expr->enum_construct.args[i]);
+            arrput(field_vals, av);
+        }
+
+        int fc = (int)arrlen(field_vals);
+        IronLIR_Instr *instr = iron_lir_construct(ctx->current_func, ctx->current_block,
+                                                    expr->enum_construct.type,
+                                                    field_vals, fc, span);
+        arrfree(field_vals);
+        return instr->id;
+    }
+
+    case IRON_HIR_EXPR_PATTERN:
+        /* Patterns are used as match arm conditions, not standalone expressions.
+         * If somehow reached as an expression, emit poison. */
+        return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
+
     default:
         return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
     }
@@ -1309,32 +1348,124 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
 
         /* Create arm blocks */
         IronLIR_Block **arm_blocks = NULL;
-        for (int i = 0; i < arm_count; i++) {
-            IronLIR_Block *arm_blk = new_block(ctx, make_label(ctx, "match_arm"));
-            arrput(arm_blocks, arm_blk);
-            /* Only add integer pattern arms to switch case table */
-            IronHIR_MatchArm *arm = &stmt->match_stmt.arms[i];
-            if (arm->pattern && arm->pattern->kind == IRON_HIR_EXPR_INT_LIT) {
-                arrput(case_values, (int)arm->pattern->int_lit.value);
-                arrput(case_blocks, arm_blk->id);
-            } else {
-                /* Non-integer pattern: use as default arm */
-                default_block = arm_blk;
+
+        /* ── Detect ADT enum match ────────────────────────────────────────── */
+        bool is_adt_match = false;
+        Iron_EnumDecl *match_ed = NULL;
+        Iron_Type *subj_type = stmt->match_stmt.scrutinee->type;
+        if (subj_type && subj_type->kind == IRON_TYPE_ENUM && subj_type->enu.decl) {
+            match_ed = subj_type->enu.decl;
+            if (match_ed->has_payloads) {
+                is_adt_match = true;
             }
         }
 
-        int cc = (int)arrlen(case_blocks);
-        iron_lir_switch(ctx->current_func, ctx->current_block,
-                        subj, default_block->id,
-                        case_values, case_blocks, cc, span);
+        if (is_adt_match) {
+            /* ── ADT enum match: tag-based SWITCH ────────────────────────── */
+            Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
 
-        /* Lower each arm body */
-        for (int i = 0; i < arm_count; i++) {
-            IronHIR_MatchArm *arm = &stmt->match_stmt.arms[i];
-            switch_block(ctx, arm_blocks[i]);
-            lower_block_stmts(ctx, arm->body);
-            if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
-                iron_lir_jump(ctx->current_func, ctx->current_block, join_block->id, span);
+            /* 2a. Store scrutinee to an alloca so arm blocks can re-load it */
+            IronLIR_ValueId scrut_alloca = emit_alloca_in_entry(ctx, subj_type, "__match_scrut", span);
+            iron_lir_store(ctx->current_func, ctx->current_block, scrut_alloca, subj, span);
+
+            /* 2b. Extract tag via GET_FIELD */
+            IronLIR_ValueId scrut_load = iron_lir_load(ctx->current_func, ctx->current_block,
+                                                         scrut_alloca, subj_type, span)->id;
+            IronLIR_ValueId tag_val = iron_lir_get_field(ctx->current_func, ctx->current_block,
+                                                          scrut_load, "tag", int_type, span)->id;
+
+            /* 2c-2d. Create arm blocks and build case table */
+            int *arm_varindices = NULL;
+            for (int i = 0; i < arm_count; i++) {
+                IronLIR_Block *arm_blk = new_block(ctx, make_label(ctx, "match_arm"));
+                arrput(arm_blocks, arm_blk);
+                IronHIR_MatchArm *arm = &stmt->match_stmt.arms[i];
+                if (arm->pattern && arm->pattern->kind == IRON_HIR_EXPR_PATTERN) {
+                    /* Find variant index from enum decl by name */
+                    int vidx = arm->pattern->pattern.variant_index;
+                    if (vidx < 0) {
+                        /* Resolve variant index by name comparison */
+                        const char *vname = arm->pattern->pattern.variant_name;
+                        for (int j = 0; j < match_ed->variant_count; j++) {
+                            Iron_EnumVariant *ev = (Iron_EnumVariant *)match_ed->variants[j];
+                            if (strcmp(ev->name, vname) == 0) {
+                                vidx = j;
+                                break;
+                            }
+                        }
+                    }
+                    arrput(arm_varindices, vidx);
+                    arrput(case_values, vidx);
+                    arrput(case_blocks, arm_blk->id);
+                } else if (arm->pattern && arm->pattern->kind == IRON_HIR_EXPR_ENUM_CONSTRUCT) {
+                    /* Unit variant used as pattern (no payload) */
+                    int vidx = arm->pattern->enum_construct.variant_index;
+                    if (vidx < 0) {
+                        const char *vname = arm->pattern->enum_construct.variant_name;
+                        for (int j = 0; j < match_ed->variant_count; j++) {
+                            Iron_EnumVariant *ev = (Iron_EnumVariant *)match_ed->variants[j];
+                            if (strcmp(ev->name, vname) == 0) {
+                                vidx = j;
+                                break;
+                            }
+                        }
+                    }
+                    arrput(arm_varindices, vidx);
+                    arrput(case_values, vidx);
+                    arrput(case_blocks, arm_blk->id);
+                } else {
+                    /* null_lit = else arm */
+                    arrput(arm_varindices, -1);
+                    default_block = arm_blk;
+                }
+            }
+
+            /* 2e. Emit SWITCH on tag */
+            int cc = (int)arrlen(case_blocks);
+            iron_lir_switch(ctx->current_func, ctx->current_block,
+                            tag_val, default_block->id,
+                            case_values, case_blocks, cc, span);
+
+            /* 2f. Lower each arm body (binding LETs are injected by hir_lower.c) */
+            for (int i = 0; i < arm_count; i++) {
+                IronHIR_MatchArm *arm = &stmt->match_stmt.arms[i];
+                switch_block(ctx, arm_blocks[i]);
+                lower_block_stmts(ctx, arm->body);
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_jump(ctx->current_func, ctx->current_block, join_block->id, span);
+                }
+            }
+
+            arrfree(arm_varindices);
+        } else {
+            /* ── Non-ADT match: integer / value SWITCH (original path) ────── */
+            for (int i = 0; i < arm_count; i++) {
+                IronLIR_Block *arm_blk = new_block(ctx, make_label(ctx, "match_arm"));
+                arrput(arm_blocks, arm_blk);
+                /* Only add integer pattern arms to switch case table */
+                IronHIR_MatchArm *arm = &stmt->match_stmt.arms[i];
+                if (arm->pattern && arm->pattern->kind == IRON_HIR_EXPR_INT_LIT) {
+                    arrput(case_values, (int)arm->pattern->int_lit.value);
+                    arrput(case_blocks, arm_blk->id);
+                } else {
+                    /* Non-integer pattern: use as default arm */
+                    default_block = arm_blk;
+                }
+            }
+
+            int cc = (int)arrlen(case_blocks);
+            iron_lir_switch(ctx->current_func, ctx->current_block,
+                            subj, default_block->id,
+                            case_values, case_blocks, cc, span);
+
+            /* Lower each arm body */
+            for (int i = 0; i < arm_count; i++) {
+                IronHIR_MatchArm *arm = &stmt->match_stmt.arms[i];
+                switch_block(ctx, arm_blocks[i]);
+                lower_block_stmts(ctx, arm->body);
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_jump(ctx->current_func, ctx->current_block, join_block->id, span);
+                }
             }
         }
 
