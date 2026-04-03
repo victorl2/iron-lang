@@ -1,0 +1,9 @@
+func main() {
+  var callbacks: [func() -> Int] = []
+  for i in range(5) {
+    val captured = i
+    callbacks.push(func() -> Int { return captured })
+  }
+  println("{callbacks[0]()}")
+  println("{callbacks[3]()}")
+}
