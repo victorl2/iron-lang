@@ -635,7 +635,7 @@ Plans:
   3. `_` wildcard in a pattern position suppresses the binding and satisfies that field's exhaustiveness requirement.
   4. An `else` arm satisfies exhaustiveness checking for all remaining variants.
   5. Existing `{ }` match arm syntax continues to compile unchanged during the migration transition.
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 33-01-PLAN.md -- Error codes + resolver extensions (pattern binding, enum construct, match-case scoping)
@@ -735,7 +735,7 @@ Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 an
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 32. AST and Type System Foundation | 2/3 | Complete    | 2026-04-02 | - |
-| 33. Resolver and Type Checker | 1/2 | In Progress|  | - |
+| 33. Resolver and Type Checker | 2/2 | Complete   | 2026-04-03 | - |
 | 34. HIR Extensions and Match Lowering | v0.0.8-alpha | 0/? | Not started | - |
 | 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/? | Not started | - |
 | 36. Methods on Enums and Syntax Migration | v0.0.8-alpha | 0/? | Not started | - |
