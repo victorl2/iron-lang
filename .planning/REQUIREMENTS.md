@@ -63,16 +63,16 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Math Completion
 
-- [ ] **MATH-01**: User can call `math.asin(x)` for inverse sine
-- [ ] **MATH-02**: User can call `math.acos(x)` for inverse cosine
-- [ ] **MATH-03**: User can call `math.atan2(y, x)` for two-argument arctangent
-- [ ] **MATH-04**: User can call `math.sign(x)` to get -1, 0, or 1
-- [ ] **MATH-05**: User can call `math.seed(n)` to seed the random number generator
-- [ ] **MATH-06**: User can call `math.random_float(min, max)` for a float-range random
-- [ ] **MATH-07**: User can call `math.log(x)` for natural logarithm
-- [ ] **MATH-08**: User can call `math.log2(x)` for base-2 logarithm
-- [ ] **MATH-09**: User can call `math.exp(x)` for e^x
-- [ ] **MATH-10**: User can call `math.hypot(a, b)` for sqrt(a^2 + b^2)
+- [x] **MATH-01**: User can call `math.asin(x)` for inverse sine
+- [x] **MATH-02**: User can call `math.acos(x)` for inverse cosine
+- [x] **MATH-03**: User can call `math.atan2(y, x)` for two-argument arctangent
+- [x] **MATH-04**: User can call `math.sign(x)` to get -1, 0, or 1
+- [x] **MATH-05**: User can call `math.seed(n)` to seed the random number generator
+- [x] **MATH-06**: User can call `math.random_float(min, max)` for a float-range random
+- [x] **MATH-07**: User can call `math.log(x)` for natural logarithm
+- [x] **MATH-08**: User can call `math.log2(x)` for base-2 logarithm
+- [x] **MATH-09**: User can call `math.exp(x)` for e^x
+- [x] **MATH-10**: User can call `math.hypot(a, b)` for sqrt(a^2 + b^2)
 
 ### IO Completion
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 38-03-PLAN.md (Phase 38 Plan 03 complete — all 12 str_* integration tests pass)
-last_updated: "2026-04-02T23:39:54.686Z"
-last_activity: "2026-04-02 — Phase 38-02 complete: split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right added to iron_string.c"
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-04-03T01:44:44.504Z"
+last_activity: "2026-04-02 — Phase 38-03 complete: 24 integration test files created, two compiler bugs fixed (iron_runtime.h declarations, typecheck non-ident receiver handling)"
 progress:
   total_phases: 11
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 18
+  completed_plans: 12
 ---
 
 # Project State
@@ -46,6 +46,11 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 - [Phase 38-03]: Iron_runtime.h needs explicit forward decls for Iron_string_* methods — generated C calls them without implicit declarations (ISO C99)
 - [Phase 38-03]: typecheck.c method call handler must use check_expr return value for non-ident receivers; string literal receivers on String type now resolve via decl scan
 - [Phase 38-03]: Iron integration tests: booleans print as true/false in interpolation; float 0.0 prints as 0; use val-binding for bool results to avoid nested-quote hang
+- [Phase 39]: File-scope __thread RNG (s_math_rng/s_math_rng_init) replaces function-local copies so Math.seed() affects random() and random_int()
+- [Phase 39]: Iron_math_sign returns int64_t (-1/0/1) matching Iron Int return type; Iron_math_log wraps log() without collision via Iron_ prefix
+- [Phase 33]: capture_12 uses rewritten imperative form instead of if-as-expression to avoid unimplemented codegen path
+- [Phase 33]: Iron_TypeAnnotation.is_func: func-type annotations parsed with is_func=true, func_params[], func_return for downstream typecheck/codegen
+- [Phase 33]: Parser error recovery: skip-to-] loop in array branch prevents infinite hang on unknown tokens
 
 ### Pending Todos
 
@@ -68,6 +73,6 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 
 ## Session Continuity
 
-Last session: 2026-04-02T23:39:54.679Z
-Stopped at: Completed 38-03-PLAN.md (Phase 38 Plan 03 complete — all 12 str_* integration tests pass)
+Last session: 2026-04-03T01:44:44.501Z
+Stopped at: Completed 33-01-PLAN.md
 Resume file: None
