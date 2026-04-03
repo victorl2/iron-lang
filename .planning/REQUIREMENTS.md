@@ -9,9 +9,9 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Match Analysis
 
-- [ ] **MATCH-01**: Compiler checks that match statements on enum types cover all variants or have an else clause
-- [ ] **MATCH-02**: Compiler emits `IRON_ERR_NONEXHAUSTIVE_MATCH` listing uncovered variants when coverage is incomplete
-- [ ] **MATCH-03**: Compiler requires else clause when match subject is not an enum type
+- [x] **MATCH-01**: Compiler checks that match statements on enum types cover all variants or have an else clause
+- [x] **MATCH-02**: Compiler emits `IRON_ERR_NONEXHAUSTIVE_MATCH` listing uncovered variants when coverage is incomplete
+- [x] **MATCH-03**: Compiler requires else clause when match subject is not an enum type
 
 ### LIR Verification
 
@@ -126,9 +126,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | LIR-03 | Phase 32 | Complete |
 | LIR-04 | Phase 32 | Complete |
 | LIR-05 | Phase 32 | Complete |
-| MATCH-01 | Phase 33 | Pending |
-| MATCH-02 | Phase 33 | Pending |
-| MATCH-03 | Phase 33 | Pending |
+| MATCH-01 | Phase 33 | Complete |
+| MATCH-02 | Phase 33 | Complete |
+| MATCH-03 | Phase 33 | Complete |
 | CAST-01 | Phase 33 | Pending |
 | CAST-02 | Phase 33 | Pending |
 | CAST-03 | Phase 33 | Pending |
