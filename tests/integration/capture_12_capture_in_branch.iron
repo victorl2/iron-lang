@@ -1,0 +1,10 @@
+func main() {
+  var message = "none"
+  val flag = true
+  var action = func() { message = "was true" }
+  if !flag {
+    action = func() { message = "was false" }
+  }
+  action()
+  println(message)
+}
