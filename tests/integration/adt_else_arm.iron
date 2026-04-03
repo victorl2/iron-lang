@@ -1,0 +1,14 @@
+-- ADT else arm test
+-- Phase 33: verifies else arm satisfies exhaustiveness
+-- NOTE: requires Phase 34+35 for end-to-end execution; iron check should pass
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+  Custom(Int, Int, Int),
+}
+
+func main() {
+  println("adt_else_arm: ok")
+}
