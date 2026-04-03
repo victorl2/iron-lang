@@ -164,7 +164,6 @@ static bool is_compound_assign_op(Iron_OpKind op) {
            op == IRON_TOK_SLASH_ASSIGN;
 }
 
-__attribute__((unused))
 static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
     if (!t) return false;
     if (iron_type_is_numeric(t)) return true;
@@ -388,7 +387,20 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INTERP_STRING: {
             Iron_InterpString *n = (Iron_InterpString *)node;
             for (int i = 0; i < n->part_count; i++) {
-                check_expr(ctx, n->parts[i]);
+                Iron_Type *part_type = check_expr(ctx, n->parts[i]);
+                /* Skip string literals -- they are always stringifiable */
+                if (n->parts[i]->kind != IRON_NODE_STRING_LIT && part_type) {
+                    if (!is_stringifiable(ctx, part_type)) {
+                        char msg[256];
+                        const char *ts = iron_type_to_string(part_type, ctx->arena);
+                        snprintf(msg, sizeof(msg),
+                                 "type '%s' cannot be interpolated into a string "
+                                 "(will use address printing)", ts);
+                        emit_warning(ctx, IRON_WARN_NOT_STRINGABLE,
+                                     n->parts[i]->span, msg,
+                                     "add a to_string() method to this type");
+                    }
+                }
             }
             result = iron_type_make_primitive(IRON_TYPE_STRING);
             n->resolved_type = result;
