@@ -650,7 +650,10 @@ Plans:
   2. Match binding variables are accessible inside arm bodies and hold the correct runtime values.
   3. Nested pattern matching (`BinOp(IntLit(n), _, _)`) compiles and binds inner-variant fields correctly.
   4. The known `bug_vla_goto_bypass` fragility does not surface on any match-containing program (binding ALLOCAs are hoisted to function entry).
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
+- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
 
 ### Phase 35: C Emitter — Tagged Union Structs
 **Goal**: The C backend emits correct tagged-union structs for ADT enums (`struct { tag_t tag; union { ... } data; }`) while keeping `typedef enum` for plain C-style enums, making the feature fully verifiable end-to-end for the first time.
@@ -661,7 +664,10 @@ Plans:
   2. All existing non-ADT enum programs produce identical C output to before this phase (no regression).
   3. The generated C for ADT programs compiles cleanly under `-Wall -Wextra` with no new warnings.
   4. Payload field loads in generated C are always dominated by the corresponding tag-switch case — no speculative payload access.
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
+- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
 
 ### Phase 36: Methods on Enums and Syntax Migration
 **Goal**: Methods can be defined on enum types using the same `func Type.method()` syntax as objects, `self` refers to the enum value and is usable in match, and the `{ }` to `->` arm syntax migration is complete across the test suite.
@@ -672,7 +678,10 @@ Plans:
   2. Calling `.area()` on a `Shape` value returns the correct computed result.
   3. All existing test files that used `{ }` arm syntax have been migrated to `->` and pass.
   4. A match arm written with the old `{ }` syntax produces a clear parse error after migration is declared complete.
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
+- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
 
 ### Phase 37: Generic Enums
 **Goal**: Users can define generic enums (`Option[T]`, `Result[T, E]`), instantiate them with concrete types, and match on them — each concrete instantiation is monomorphized to a distinct C typedef with type-argument-aware name mangling.
@@ -683,7 +692,10 @@ Plans:
   2. Two instantiations of the same generic enum (`Option[Int]` and `Option[String]`) produce distinct C typedef names and do not collide.
   3. Matching on a generic enum variant correctly binds the concrete payload type (not the type parameter).
   4. Nested generic types (`Result[Option[T], E]`) monomorphize without error or infinite expansion.
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
+- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
 
 ### Phase 38: Recursive Variant Auto-Boxing
 **Goal**: The compiler detects recursive variant types (a variant whose payload directly or transitively contains the owning enum) and automatically heap-allocates those fields via the arena, so users can write recursive data types without any annotation.
@@ -694,7 +706,10 @@ Plans:
   2. Constructing and matching on a recursive ADT value at runtime produces correct results under ASan.
   3. Only the recursive payload slots are auto-boxed — non-recursive variants in the same enum are emitted inline (no over-boxing).
   4. No explicit annotation (`Box`, `indirect`, etc.) is required from the user.
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
+- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
 
 ## Progress
 
@@ -735,7 +750,7 @@ Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 an
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 32. AST and Type System Foundation | 2/3 | Complete    | 2026-04-02 | - |
-| 33. Resolver and Type Checker | 2/2 | Complete   | 2026-04-03 | - |
+| 33. Resolver and Type Checker | 2/2 | Complete    | 2026-04-03 | - |
 | 34. HIR Extensions and Match Lowering | v0.0.8-alpha | 0/? | Not started | - |
 | 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/? | Not started | - |
 | 36. Methods on Enums and Syntax Migration | v0.0.8-alpha | 0/? | Not started | - |
