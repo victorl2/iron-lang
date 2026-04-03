@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 33-01-PLAN.md
-last_updated: "2026-04-03T01:00:35.303Z"
+stopped_at: Completed 33-02-PLAN.md
+last_updated: "2026-04-03T01:15:41.882Z"
 last_activity: 2026-04-02 — Completed 32-01 (AST and Type System Foundation data layer)
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 5
 ---
 
@@ -52,6 +52,7 @@ Progress: [█░░░░░░░░░] 5%
 *Updated after each plan completion*
 | Phase 32 P32-02 | 4min | 2 tasks | 2 files |
 | Phase 33 P01 | 18min | 2 tasks | 3 files |
+| Phase 33 P02 | 22min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Recent decisions affecting current work:
 - [Phase 32]: Old { } match arm syntax is a parse error with recovery: diagnostic emitted, block parsed, arm added to AST
 - [Phase 33]: IRON_NODE_PATTERN and IRON_NODE_ENUM_CONSTRUCT resolved in resolve_node (not resolve_expr) since resolve_expr is a thin delegate
 - [Phase 33]: Shadow check for pattern bindings uses ctx->current_scope->parent to avoid false self-blocking within arm scope
+- [Phase 33]: variant_payload_types population runs as a dedicated pre-pass in iron_typecheck before function signatures and bodies
+- [Phase 33]: IRON_NODE_MATCH exhaustiveness checking only fires when subject_type->kind == IRON_TYPE_ENUM && ed->has_payloads — integer matches are unaffected
 
 ### Project Notes
 
@@ -91,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-03T01:00:35.300Z
-Stopped at: Completed 33-01-PLAN.md
+Last session: 2026-04-03T01:15:41.879Z
+Stopped at: Completed 33-02-PLAN.md
 Resume file: None
