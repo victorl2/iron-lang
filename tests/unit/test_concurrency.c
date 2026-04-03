@@ -114,6 +114,28 @@ static Iron_Ident *make_ident(Iron_Arena *a, const char *name) {
     return id;
 }
 
+static Iron_FieldAccess *make_field_access(Iron_Arena *a, Iron_Node *object,
+                                            const char *field_name) {
+    Iron_FieldAccess *fa = ARENA_ALLOC(a, Iron_FieldAccess);
+    fa->span          = ts(4, 5);
+    fa->kind          = IRON_NODE_FIELD_ACCESS;
+    fa->resolved_type = NULL;
+    fa->object        = object;
+    fa->field         = field_name;
+    return fa;
+}
+
+static Iron_IndexExpr *make_index_expr(Iron_Arena *a, Iron_Node *object,
+                                        Iron_Node *index) {
+    Iron_IndexExpr *ie = ARENA_ALLOC(a, Iron_IndexExpr);
+    ie->span          = ts(4, 5);
+    ie->kind          = IRON_NODE_INDEX;
+    ie->resolved_type = NULL;
+    ie->object        = object;
+    ie->index         = index;
+    return ie;
+}
+
 /* Make compound-assign: target += rhs_lit */
 static Iron_AssignStmt *make_compound_assign(Iron_Arena *a, const char *target_name,
                                               int op_kind) {
@@ -344,6 +366,193 @@ void test_parallel_for_loop_var_ok(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
 
+/* ── Test 6: parallel-for body mutates outer var via field access => E0208 ── */
+
+void test_parallel_for_field_mutation_error(void) {
+    /* var obj = ...
+     * for i in range(10) parallel {
+     *   obj.x = 1      <- ERROR: mutates outer var through field access
+     * }
+     */
+    Iron_VarDecl *var_obj = make_var_int(&g_arena, "obj");
+
+    /* Body: obj.x = 1 */
+    Iron_Ident *obj_id = make_ident(&g_arena, "obj");
+    Iron_FieldAccess *fa = make_field_access(&g_arena, (Iron_Node *)obj_id, "x");
+
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(4, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(4, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)fa;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)assign;
+
+    Iron_ForStmt *for_s = make_for_stmt(&g_arena, true, body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)var_obj;
+    fn_stmts[1] = (Iron_Node *)for_s;
+
+    Iron_Program *prog   = make_prog(&g_arena, "par_field_mut", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PARALLEL_MUTATION));
+}
+
+/* ── Test 7: parallel-for body mutates outer var via index => E0208 ──────── */
+
+void test_parallel_for_index_mutation_error(void) {
+    /* var arr = ...
+     * for i in range(10) parallel {
+     *   arr[0] = 1      <- ERROR: mutates outer var through index
+     * }
+     */
+    Iron_VarDecl *var_arr = make_var_int(&g_arena, "arr");
+
+    /* Body: arr[0] = 1 */
+    Iron_Ident *arr_id = make_ident(&g_arena, "arr");
+
+    Iron_IntLit *idx = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    idx->span          = ts(4, 8);
+    idx->kind          = IRON_NODE_INT_LIT;
+    idx->resolved_type = NULL;
+    idx->value         = "0";
+
+    Iron_IndexExpr *ie = make_index_expr(&g_arena, (Iron_Node *)arr_id,
+                                          (Iron_Node *)idx);
+
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(4, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(4, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)ie;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)assign;
+
+    Iron_ForStmt *for_s = make_for_stmt(&g_arena, true, body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)var_arr;
+    fn_stmts[1] = (Iron_Node *)for_s;
+
+    Iron_Program *prog   = make_prog(&g_arena, "par_index_mut", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PARALLEL_MUTATION));
+}
+
+/* ── Test 8: parallel-for body mutates local var via field => no E0208 ───── */
+
+void test_parallel_for_local_field_mutation_ok(void) {
+    /* for i in range(10) parallel {
+     *   var local_s = 0
+     *   local_s.x = 1     <- local var, no outer mutation
+     * }
+     */
+    Iron_VarDecl *local_s = make_var_int(&g_arena, "local_s");
+    local_s->span = ts(4, 7);
+
+    Iron_Ident *ls_id = make_ident(&g_arena, "local_s");
+    Iron_FieldAccess *fa = make_field_access(&g_arena, (Iron_Node *)ls_id, "x");
+
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(5, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(5, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)fa;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 2);
+    body_stmts[0] = (Iron_Node *)local_s;
+    body_stmts[1] = (Iron_Node *)assign;
+
+    Iron_ForStmt *for_s = make_for_stmt(&g_arena, true, body_stmts, 2);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 1);
+    fn_stmts[0] = (Iron_Node *)for_s;
+
+    Iron_Program *prog   = make_prog(&g_arena, "par_local_field_ok", fn_stmts, 1);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
+}
+
+/* ── Test 9: parallel-for body mutates local var via index => no E0208 ───── */
+
+void test_parallel_for_partitioned_local_index_ok(void) {
+    /* for i in range(10) parallel {
+     *   var local_a = 0
+     *   local_a[i] = 1     <- local var, no outer mutation
+     * }
+     */
+    Iron_VarDecl *local_a = make_var_int(&g_arena, "local_a");
+    local_a->span = ts(4, 7);
+
+    Iron_Ident *la_id = make_ident(&g_arena, "local_a");
+    Iron_Ident *idx_i = make_ident(&g_arena, "i");
+
+    Iron_IndexExpr *ie = make_index_expr(&g_arena, (Iron_Node *)la_id,
+                                          (Iron_Node *)idx_i);
+
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(5, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(5, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)ie;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 2);
+    body_stmts[0] = (Iron_Node *)local_a;
+    body_stmts[1] = (Iron_Node *)assign;
+
+    Iron_ForStmt *for_s = make_for_stmt(&g_arena, true, body_stmts, 2);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 1);
+    fn_stmts[0] = (Iron_Node *)for_s;
+
+    Iron_Program *prog   = make_prog(&g_arena, "par_local_index_ok", fn_stmts, 1);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -354,6 +563,10 @@ int main(void) {
     RUN_TEST(test_parallel_for_local_mutation_ok);
     RUN_TEST(test_sequential_for_outer_mutation_ok);
     RUN_TEST(test_parallel_for_loop_var_ok);
+    RUN_TEST(test_parallel_for_field_mutation_error);
+    RUN_TEST(test_parallel_for_index_mutation_error);
+    RUN_TEST(test_parallel_for_local_field_mutation_ok);
+    RUN_TEST(test_parallel_for_partitioned_local_index_ok);
 
     return UNITY_END();
 }
