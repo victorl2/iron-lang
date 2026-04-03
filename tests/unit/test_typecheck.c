@@ -661,6 +661,63 @@ void test_cast_constant_fits_no_warning(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_CAST_OVERFLOW));
 }
 
+/* ── Test 40: string interpolation with primitive => no W0602 ────────────── */
+
+void test_interp_primitive_no_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  val n = 42\n"
+        "  val s = \"value is \\(n)\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
+}
+
+/* ── Test 41: string interpolation with Bool => no W0602 ────────────────── */
+
+void test_interp_bool_no_warning(void) {
+    const char *src =
+        "func main() {\n"
+        "  val b = true\n"
+        "  val s = \"value is \\(b)\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
+}
+
+/* ── Test 42: non-stringifiable object in interpolation => W0602 ─────────── */
+
+void test_interp_not_stringable(void) {
+    const char *src =
+        "object Foo {\n"
+        "  val x: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  val f = Foo(1)\n"
+        "  val s = \"value is \\(f)\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_TRUE(has_error(IRON_WARN_NOT_STRINGABLE));
+}
+
+/* ── Test 43: object with to_string() in interpolation => no W0602 ───────── */
+
+void test_interp_object_with_to_string_ok(void) {
+    const char *src =
+        "object Bar {\n"
+        "  val x: Int\n"
+        "}\n"
+        "func Bar.to_string() -> String {\n"
+        "  return \"Bar\"\n"
+        "}\n"
+        "func main() {\n"
+        "  val b = Bar(1)\n"
+        "  val s = \"value is \\(b)\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -705,6 +762,10 @@ int main(void) {
     RUN_TEST(test_cast_widening_no_warning);
     RUN_TEST(test_cast_overflow_constant);
     RUN_TEST(test_cast_constant_fits_no_warning);
+    RUN_TEST(test_interp_primitive_no_warning);
+    RUN_TEST(test_interp_bool_no_warning);
+    RUN_TEST(test_interp_not_stringable);
+    RUN_TEST(test_interp_object_with_to_string_ok);
 
     return UNITY_END();
 }
