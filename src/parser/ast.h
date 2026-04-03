@@ -210,6 +210,11 @@ typedef struct {
     int           generic_arg_count;
     bool          is_array;
     Iron_Node    *array_size;  /* NULL if dynamic/no size */
+    /* Phase 33: function type annotations — func(T, U) -> R */
+    bool          is_func;
+    Iron_Node   **func_params;      /* array of Iron_TypeAnnotation* for param types */
+    int           func_param_count;
+    Iron_Node    *func_return;      /* return type annotation, NULL means void */
 } Iron_TypeAnnotation;
 
 /* ── Statements ──────────────────────────────────────────────────────────── */
