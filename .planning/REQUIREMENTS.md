@@ -26,7 +26,7 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 - [x] **GEN-01**: Compiler validates that concrete type arguments satisfy declared generic constraints at instantiation sites
 - [x] **GEN-02**: Compiler checks constraint satisfaction for generic function calls
 - [x] **GEN-03**: Compiler checks constraint satisfaction for generic type construction
-- [x] **GEN-04**: Compiler emits `IRON_ERR_CONSTRAINT_NOT_SATISFIED` when a concrete type does not meet the constraint
+- [x] **GEN-04**: Compiler emits `IRON_ERR_GENERIC_CONSTRAINT` (206) when a concrete type does not meet the constraint
 
 ### Cast Safety
 
