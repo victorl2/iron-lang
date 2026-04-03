@@ -635,7 +635,7 @@ Plans:
   2. A direct call instruction whose argument types do not match the callee's parameter types produces `IRON_ERR_LIR_CALL_TYPE_MISMATCH` at verification time
   3. A direct call instruction with wrong argument count produces a diagnostic at verification time
   4. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 32-01-PLAN.md — PHI type consistency checks in LIR verifier
@@ -651,12 +651,12 @@ Plans:
   3. A string interpolation containing a type that is not a primitive, String, Bool, or has no `to_string` method produces `IRON_ERR_NOT_STRINGABLE`
   4. A compound assignment (`+=`, `-=`, `*=`) on a narrow integer type (Int8, Int16, UInt8, etc.) where the RHS is not a fitting constant produces `IRON_WARN_POSSIBLE_OVERFLOW`
   5. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 33-01: Match exhaustiveness checking
-- [ ] 33-02: Cast safety validation
-- [ ] 33-03: String interpolation stringability and compound overflow checks
+- [ ] 33-01-PLAN.md — Error codes, shared helpers, and match exhaustiveness
+- [ ] 33-02-PLAN.md — Cast safety validation
+- [ ] 33-03-PLAN.md — String interpolation stringability and compound overflow
 
 ### Phase 34: Bounds Checking
 **Goal**: Constant array indices and slice bounds that are provably out of range produce compile-time errors instead of generating C that crashes at runtime
@@ -668,7 +668,7 @@ Plans:
   3. Slice expressions where start > end (both constants) produce `IRON_ERR_INVALID_SLICE_BOUNDS`; slices where bounds exceed array size (all constants) also error
   4. Slice start and end expressions that are not integer types produce a type error diagnostic
   5. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 34-01: Constant array index bounds validation
@@ -684,7 +684,7 @@ Plans:
   3. Passing a heap value as a function argument marks it as escaping; no premature free is inserted for values passed to functions
   4. `expr_ident_name()` or equivalent correctly resolves field-access and index-access targets for escape tracking
   5. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 35-01: Extend escape analysis for field, index, and argument targets
@@ -699,7 +699,7 @@ Plans:
   3. A variable assigned inside a loop body but used after the loop (which may execute zero times) produces `IRON_ERR_POSSIBLY_UNINITIALIZED`
   4. A variable assigned in all branches of a match/if-else and used afterwards does NOT produce a false positive
   5. All existing tests and benchmarks continue to pass (analysis uses bounded worklist, no excessive memory)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 36-01: Definite assignment dataflow analysis with worklist algorithm
@@ -714,7 +714,7 @@ Plans:
   2. `var s = Stack<MyType>()` where `Stack` requires `T: Printable` and `MyType` does not implement `Printable` produces the same diagnostic at the construction site
   3. A generic call or construction with a type that satisfies the constraint compiles without diagnostic
   4. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 37-01: Generic constraint validation at function call and type construction sites
@@ -729,7 +729,7 @@ Plans:
   3. A spawn block that reads a variable also written by the outer scope (or another spawn) produces a read-write race diagnostic
   4. Spawn blocks perform capture analysis identifying which outer variables are referenced; mutable captures are flagged as potential data races
   5. All existing tests and benchmarks continue to pass (no false positives on valid concurrent patterns like partitioned parallel-for)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 38-01: Field and array index mutation detection in parallel/spawn blocks
@@ -745,7 +745,7 @@ Plans:
   3. Definite assignment analysis has edge-case tests for nested if/else, match with fallthrough, loops with break/continue, and early returns
   4. Concurrency analysis has edge-case tests for nested spawn, spawn inside parallel-for, and multiple spawn blocks sharing variables
   5. The full test suite passes with zero regressions; test count grows by at least 30 new diagnostic-focused tests
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 39-01: Positive and negative test cases for all new diagnostics
