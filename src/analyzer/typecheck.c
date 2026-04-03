@@ -226,7 +226,6 @@ static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *i
 /* Try to extract a compile-time constant integer from an AST node.
  * Returns true if the node is a constant integer (INT_LIT or -INT_LIT),
  * and writes the value to *out. Returns false otherwise. */
-__attribute__((unused))
 static bool try_get_constant_int(Iron_Node *node, long long *out) {
     if (!node) return false;
     if (node->kind == IRON_NODE_INT_LIT) {
@@ -988,9 +987,31 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INDEX: {
             Iron_IndexExpr *idx_e = (Iron_IndexExpr *)node;
             Iron_Type *obj_type = check_expr(ctx, idx_e->object);
-            check_expr(ctx, idx_e->index);
+            Iron_Type *idx_type = check_expr(ctx, idx_e->index);
+
             if (obj_type && obj_type->kind == IRON_TYPE_ARRAY) {
                 result = obj_type->array.elem;
+
+                /* BOUNDS-03: Validate index expression is an integer type */
+                if (idx_type && idx_type->kind != IRON_TYPE_ERROR &&
+                    !iron_type_is_integer(idx_type)) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, idx_e->index->span,
+                               "array index must be an integer type", NULL);
+                }
+
+                /* BOUNDS-01/02: Check constant index against known array size */
+                long long idx_val;
+                if (obj_type->array.size >= 0 &&
+                    try_get_constant_int(idx_e->index, &idx_val)) {
+                    if (idx_val < 0 || idx_val >= obj_type->array.size) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "index %lld is out of bounds for array of size %d",
+                                 idx_val, obj_type->array.size);
+                        emit_error(ctx, IRON_ERR_INDEX_OUT_OF_BOUNDS,
+                                   idx_e->index->span, msg, NULL);
+                    }
+                }
             } else {
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
