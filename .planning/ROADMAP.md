@@ -635,7 +635,7 @@ Plans:
   2. A direct call instruction whose argument types do not match the callee's parameter types produces `IRON_ERR_LIR_CALL_TYPE_MISMATCH` at verification time
   3. A direct call instruction with wrong argument count produces a diagnostic at verification time
   4. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
 - [ ] 32-01-PLAN.md — PHI type consistency checks in LIR verifier
@@ -651,7 +651,7 @@ Plans:
   3. A string interpolation containing a type that is not a primitive, String, Bool, or has no `to_string` method produces `IRON_ERR_NOT_STRINGABLE`
   4. A compound assignment (`+=`, `-=`, `*=`) on a narrow integer type (Int8, Int16, UInt8, etc.) where the RHS is not a fitting constant produces `IRON_WARN_POSSIBLE_OVERFLOW`
   5. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
 - [ ] 33-01-PLAN.md — Error codes, shared helpers, and match exhaustiveness
@@ -699,11 +699,11 @@ Plans:
   3. A variable assigned inside a loop body but used after the loop (which may execute zero times) produces `IRON_ERR_POSSIBLY_UNINITIALIZED`
   4. A variable assigned in all branches of a match/if-else and used afterwards does NOT produce a false positive
   5. All existing tests and benchmarks continue to pass (analysis uses bounded worklist, no excessive memory)
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
-- [ ] 36-01: Definite assignment dataflow analysis with worklist algorithm
-- [ ] 36-02: Control flow coverage for if/else, match, loops, and early returns
+- [ ] 36-01-PLAN.md — Init check pass infrastructure, error code, pipeline wiring, basic uninitialized var detection
+- [ ] 36-02-PLAN.md — Control flow branch merging for if/else, match, loops, and early returns
 
 ### Phase 37: Generic Constraint Checking
 **Goal**: Concrete type arguments that do not satisfy declared generic constraints are rejected at instantiation sites with a clear diagnostic, preventing downstream type errors in monomorphized code
@@ -714,7 +714,7 @@ Plans:
   2. `var s = Stack<MyType>()` where `Stack` requires `T: Printable` and `MyType` does not implement `Printable` produces the same diagnostic at the construction site
   3. A generic call or construction with a type that satisfies the constraint compiles without diagnostic
   4. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
 - [ ] 37-01: Generic constraint validation at function call and type construction sites
@@ -729,7 +729,7 @@ Plans:
   3. A spawn block that reads a variable also written by the outer scope (or another spawn) produces a read-write race diagnostic
   4. Spawn blocks perform capture analysis identifying which outer variables are referenced; mutable captures are flagged as potential data races
   5. All existing tests and benchmarks continue to pass (no false positives on valid concurrent patterns like partitioned parallel-for)
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
 - [ ] 38-01: Field and array index mutation detection in parallel/spawn blocks
@@ -745,7 +745,7 @@ Plans:
   3. Definite assignment analysis has edge-case tests for nested if/else, match with fallthrough, loops with break/continue, and early returns
   4. Concurrency analysis has edge-case tests for nested spawn, spawn inside parallel-for, and multiple spawn blocks sharing variables
   5. The full test suite passes with zero regressions; test count grows by at least 30 new diagnostic-focused tests
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
 - [ ] 39-01: Positive and negative test cases for all new diagnostics
