@@ -1,0 +1,25 @@
+object GameState {
+  var score: Int
+  var lives: Int
+  var running: Bool
+}
+
+func main() {
+  var state = GameState(0, 3, true)
+  val on_coin = func() { state.score += 100 }
+  val on_damage = func() {
+    state.lives -= 1
+    if state.lives <= 0 {
+      state.running = false
+    }
+  }
+  on_coin()
+  on_coin()
+  on_damage()
+  on_coin()
+  on_damage()
+  on_damage()
+  println("Score: {state.score}")
+  println("Lives: {state.lives}")
+  println("Running: {state.running}")
+}

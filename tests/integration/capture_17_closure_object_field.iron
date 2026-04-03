@@ -1,0 +1,14 @@
+object Button {
+  val label: String
+  val on_click: func()
+}
+
+func main() {
+  var click_count = 0
+  val btn = Button("Fire", func() {
+    click_count += 1
+    println("Fired! ({click_count})")
+  })
+  btn.on_click()
+  btn.on_click()
+}

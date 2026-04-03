@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 33-03-PLAN.md
-last_updated: "2026-04-03T02:30:00.000Z"
-last_activity: "2026-04-03 — Phase 33-03 complete: all 8 capture tests green, 200/200 integration tests pass, 6 compiler bugs fixed (dead-alloca-elim, closure call dispatch, func-type params, void-return compat, Iron syntax in test files)"
+stopped_at: Completed 34-01-PLAN (advanced captures)
+last_updated: "2026-04-03T03:18:42.417Z"
+last_activity: "2026-04-03 — Phase 33-03 complete: 6 compiler bugs fixed, all capture integration tests green"
 progress:
   total_phases: 11
   completed_phases: 5
   total_plans: 18
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -65,6 +65,9 @@ Last activity: 2026-04-03 — Phase 33-03 complete: 6 compiler bugs fixed, all c
 - [Phase 39]: Timer mutation pitfall: Iron passes struct self by value in hir_to_lir.c — Iron_timer_update/reset take Iron_Timer* but receive a copy; mutation deferred to plan 39-05 integration test
 - [Phase 39]: Timer.update/Timer.reset omitted from integration tests: Iron codegen passes Timer struct by value but C functions take Iron_Timer* — causes compile error; TIME-04/05 need compiler fix to emit pointer
 - [Phase 39]: Iron string literals do not support backslash escape sequences (\n) — write_file content cannot use \n, must avoid embedded newlines in test strings
+- [Phase 34]: Uniform _env calling convention: ALL lifted lambdas accept void* as first param regardless of capture count — ensures closure dispatch works for both capturing and non-capturing closures
+- [Phase 34]: SET_FIELD through captured struct pointer: detect LOAD from mutable capture alloca and write through env pointer (_e->structname->field) instead of local copy
+- [Phase 34]: Closure-field method dispatch: method call lowering detects is_func fields and emits GET_FIELD (IRON_TYPE_FUNC typed) + closure call — not static method lookup
 
 ### Pending Todos
 
@@ -87,6 +90,6 @@ None — array-of-Iron_Closure hang resolved by rewriting test to avoid the patt
 
 ## Session Continuity
 
-Last session: 2026-04-03T02:30:00.000Z
-Stopped at: Completed 33-03-PLAN.md
+Last session: 2026-04-03T03:18:42.414Z
+Stopped at: Completed 34-01-PLAN (advanced captures)
 Resume file: None
