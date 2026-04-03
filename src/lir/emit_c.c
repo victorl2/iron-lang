@@ -1319,13 +1319,42 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_SET_FIELD: {
-        /* object.field = value or object->field = value for heap/rc */
-        emit_indent(sb, ind);
-        emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-        bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
-        iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr ? "->" : ".", instr->field.field);
-        emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ";\n");
+        /* When the object is a LOAD from a mutable var-capture alloca, write
+         * through the captured pointer: _e->capturename->fieldname = value.
+         * Otherwise use the standard object.field or object->field emission. */
+        bool wrote_via_capture = false;
+        if (ctx->capture_alias_map) {
+            IronLIR_ValueId obj_id = instr->field.object;
+            if (obj_id != IRON_LIR_VALUE_INVALID &&
+                obj_id < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[obj_id] != NULL) {
+                IronLIR_Instr *obj_instr = fn->value_table[obj_id];
+                if (obj_instr->kind == IRON_LIR_LOAD) {
+                    ptrdiff_t ca_idx = hmgeti(ctx->capture_alias_map, obj_instr->load.ptr);
+                    if (ca_idx >= 0) {
+                        int ci = ctx->capture_alias_map[ca_idx].value;
+                        Iron_CaptureEntry *cap = &ctx->current_captures[ci];
+                        if (cap->is_mutable) {
+                            /* Write through the capture pointer to the original struct */
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "_e->%s->%s = ", cap->name, instr->field.field);
+                            emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ";\n");
+                            wrote_via_capture = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (!wrote_via_capture) {
+            /* object.field = value or object->field = value for heap/rc */
+            emit_indent(sb, ind);
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+            bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
+            iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr ? "->" : ".", instr->field.field);
+            emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ";\n");
+        }
         break;
     }
 
