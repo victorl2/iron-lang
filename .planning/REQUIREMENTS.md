@@ -57,10 +57,10 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Escape Analysis
 
-- [ ] **ESC-01**: Escape analysis tracks heap values assigned through field access (`obj.field = heap_val`)
-- [ ] **ESC-02**: Escape analysis tracks heap values assigned through array index (`arr[i] = heap_val`)
-- [ ] **ESC-03**: Escape analysis tracks heap values passed as function arguments
-- [ ] **ESC-04**: Extended `expr_ident_name()` or equivalent recognizes field-access and index-access targets
+- [x] **ESC-01**: Escape analysis tracks heap values assigned through field access (`obj.field = heap_val`)
+- [x] **ESC-02**: Escape analysis tracks heap values assigned through array index (`arr[i] = heap_val`)
+- [x] **ESC-03**: Escape analysis tracks heap values passed as function arguments
+- [x] **ESC-04**: Extended `expr_ident_name()` or equivalent recognizes field-access and index-access targets
 
 ### Compound Overflow
 
@@ -145,10 +145,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | SLICE-02 | Phase 34 | Complete |
 | SLICE-03 | Phase 34 | Complete |
 | SLICE-04 | Phase 34 | Complete |
-| ESC-01 | Phase 35 | Pending |
-| ESC-02 | Phase 35 | Pending |
-| ESC-03 | Phase 35 | Pending |
-| ESC-04 | Phase 35 | Pending |
+| ESC-01 | Phase 35 | Complete |
+| ESC-02 | Phase 35 | Complete |
+| ESC-03 | Phase 35 | Complete |
+| ESC-04 | Phase 35 | Complete |
 | INIT-01 | Phase 36 | Pending |
 | INIT-02 | Phase 36 | Pending |
 | INIT-03 | Phase 36 | Pending |
