@@ -159,6 +159,29 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             }
             break;
         }
+        case IRON_NODE_CALL: {
+            /* Conservatively mark any heap binding passed as a function
+             * argument as escaped -- the callee may store the pointer. */
+            Iron_CallExpr *call = (Iron_CallExpr *)node;
+            for (int i = 0; i < call->arg_count; i++) {
+                const char *arg_name = expr_ident_name(call->args[i]);
+                if (arg_name && find_heap_for_name(ctx, arg_name)) {
+                    arrpush(ctx->escaped_names, arg_name);
+                }
+            }
+            break;
+        }
+        case IRON_NODE_METHOD_CALL: {
+            /* Same conservative treatment for method call arguments. */
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            for (int i = 0; i < mc->arg_count; i++) {
+                const char *arg_name = expr_ident_name(mc->args[i]);
+                if (arg_name && find_heap_for_name(ctx, arg_name)) {
+                    arrpush(ctx->escaped_names, arg_name);
+                }
+            }
+            break;
+        }
         case IRON_NODE_BLOCK: {
             Iron_Block *blk = (Iron_Block *)node;
             collect_stmts(ctx, blk->stmts, blk->stmt_count);
