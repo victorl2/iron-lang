@@ -97,8 +97,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Log Completion
 
-- [ ] **LOG-01**: User can call `log.set_level(level)` to filter log output at runtime
-- [ ] **LOG-02**: Log level constants `log.DEBUG`, `log.INFO`, `log.WARN`, `log.ERROR` are available
+- [x] **LOG-01**: User can call `log.set_level(level)` to filter log output at runtime
+- [x] **LOG-02**: Log level constants `log.DEBUG`, `log.INFO`, `log.WARN`, `log.ERROR` are available
 
 ### OS Module
 
