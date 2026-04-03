@@ -44,9 +44,9 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Array Bounds
 
-- [ ] **BOUNDS-01**: Compiler validates constant array indices against known array sizes (`0 <= index < size`)
-- [ ] **BOUNDS-02**: Compiler emits `IRON_ERR_INDEX_OUT_OF_BOUNDS` for provably out-of-bounds constant indices
-- [ ] **BOUNDS-03**: Compiler validates that array index expressions resolve to integer types
+- [x] **BOUNDS-01**: Compiler validates constant array indices against known array sizes (`0 <= index < size`)
+- [x] **BOUNDS-02**: Compiler emits `IRON_ERR_INDEX_OUT_OF_BOUNDS` for provably out-of-bounds constant indices
+- [x] **BOUNDS-03**: Compiler validates that array index expressions resolve to integer types
 
 ### Slice Bounds
 
@@ -138,9 +138,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | OVFL-01 | Phase 33 | Complete |
 | OVFL-02 | Phase 33 | Complete |
 | OVFL-03 | Phase 33 | Complete |
-| BOUNDS-01 | Phase 34 | Pending |
-| BOUNDS-02 | Phase 34 | Pending |
-| BOUNDS-03 | Phase 34 | Pending |
+| BOUNDS-01 | Phase 34 | Complete |
+| BOUNDS-02 | Phase 34 | Complete |
+| BOUNDS-03 | Phase 34 | Complete |
 | SLICE-01 | Phase 34 | Pending |
 | SLICE-02 | Phase 34 | Pending |
 | SLICE-03 | Phase 34 | Pending |
