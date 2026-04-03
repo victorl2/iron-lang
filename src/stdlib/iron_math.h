@@ -34,4 +34,16 @@ double   Iron_rng_next_float(Iron_RNG *rng);  /* [0.0, 1.0) */
 double  Iron_math_random(void);                        /* [0.0, 1.0) */
 int64_t Iron_math_random_int(int64_t min, int64_t max);
 
+/* ── Phase 39 additions ──────────────────────────────────────────────────── */
+double  Iron_math_asin(double x);
+double  Iron_math_acos(double x);
+double  Iron_math_atan2(double y, double x);
+int64_t Iron_math_sign(double x);
+void    Iron_math_seed(int64_t n);
+double  Iron_math_random_float(double min, double max);
+double  Iron_math_log(double x);
+double  Iron_math_log2(double x);
+double  Iron_math_exp(double x);
+double  Iron_math_hypot(double a, double b);
+
 #endif /* IRON_MATH_H */
