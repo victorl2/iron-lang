@@ -1,11 +1,23 @@
--- ADT wildcard pattern test
--- Phase 33: verifies _ wildcard suppresses binding in pattern
--- NOTE: requires Phase 34+35 for end-to-end execution; iron check should pass
+-- ADT wildcard pattern test: _ suppresses binding in pattern
 
-enum Shape {
-  Rect(Float, Float),
+enum Pair {
+  Both(Int, Int),
+}
+
+func first(p: Pair) -> Int {
+  match p {
+    Pair.Both(a, _) -> a
+  }
+}
+
+func second(p: Pair) -> Int {
+  match p {
+    Pair.Both(_, b) -> b
+  }
 }
 
 func main() {
-  println("adt_wildcard_pattern: ok")
+  val p = Pair.Both(42, 99)
+  println("first: {first(p)}")
+  println("second: {second(p)}")
 }

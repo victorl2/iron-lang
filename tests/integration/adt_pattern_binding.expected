@@ -1,1 +1,2 @@
-adt_pattern_binding: ok
+circle r=5
+rect w=10 h=20
