@@ -593,3 +593,45 @@ IronHIR_Expr *iron_hir_expr_is(IronHIR_Module *mod, IronHIR_Expr *value,
     e->is_check.check_type = check_type;
     return e;
 }
+
+IronHIR_Expr *iron_hir_expr_enum_construct(IronHIR_Module *mod, Iron_Type *type,
+                                             const char *enum_name,
+                                             const char *variant_name,
+                                             int variant_index,
+                                             IronHIR_Expr **args, int arg_count,
+                                             Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    memset(e, 0, sizeof(*e));
+    e->kind                          = IRON_HIR_EXPR_ENUM_CONSTRUCT;
+    e->span                          = span;
+    e->type                          = type;
+    e->enum_construct.type           = type;
+    e->enum_construct.enum_name      = enum_name;
+    e->enum_construct.variant_name   = variant_name;
+    e->enum_construct.variant_index  = variant_index;
+    e->enum_construct.args           = args;
+    e->enum_construct.arg_count      = arg_count;
+    return e;
+}
+
+IronHIR_Expr *iron_hir_expr_pattern(IronHIR_Module *mod,
+                                      const char *enum_name,
+                                      const char *variant_name,
+                                      int variant_index,
+                                      const char **binding_names,
+                                      IronHIR_Expr **nested_patterns,
+                                      int binding_count,
+                                      Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    memset(e, 0, sizeof(*e));
+    e->kind                          = IRON_HIR_EXPR_PATTERN;
+    e->span                          = span;
+    e->type                          = NULL; /* patterns have no value type */
+    e->pattern.enum_name             = enum_name;
+    e->pattern.variant_name          = variant_name;
+    e->pattern.variant_index         = variant_index;
+    e->pattern.binding_names         = binding_names;
+    e->pattern.nested_patterns       = nested_patterns;
+    e->pattern.binding_count         = binding_count;
+    return e;
+}
