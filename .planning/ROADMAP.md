@@ -717,7 +717,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 37-01: Generic constraint validation at function call and type construction sites
+- [ ] 37-01-PLAN.md -- Parser + type checker constraint validation at call and construct sites
+- [ ] 37-02-PLAN.md -- Unit tests for generic constraint checking
 
 ### Phase 38: Concurrency Safety
 **Goal**: Mutation detection in parallel and spawn blocks covers field access, array index expressions, and read-write race patterns so that concurrent code with data races produces compile-time warnings
