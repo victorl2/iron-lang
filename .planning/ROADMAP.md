@@ -89,7 +89,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### v0.1.0-alpha Lambda Capture
 
 - [x] **Phase 32: Capture Foundation** - Free variable analysis pass and IronClosure fat-pointer representation give the compiler the substrate all capture patterns require (completed 2026-04-02)
-- [ ] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All core capture patterns (immutable, mutable, loop snapshot) work end-to-end; optimizer passes are guarded against breaking captures
+- [x] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All 8 capture tests green (200/200 integration tests pass); 6 compiler bugs fixed; OPT-01/02/03 optimizer guards verified (completed 2026-04-03)
 - [ ] **Phase 34: Advanced Captures** - Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and higher-order function patterns all compile and run correctly
 - [ ] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
 - [ ] **Phase 36: Diagnostics, Benchmarks & Test Suite** - Capture errors produce clear diagnostics; closure call overhead is benchmarked; all 20 canonical capture examples have integration tests
@@ -661,11 +661,11 @@ Plans:
   3. A lambda created inside a loop with `val captured = i` captures a fresh per-iteration copy of `i`; each closure in a collection holds its own independent value
   4. DCE does not remove `MAKE_CLOSURE` instructions; the function inliner skips all `__lambda_*` functions; copy propagation and store-load elimination respect heap-box indirection for `var` captures
   5. Lambda capture examples 1, 2, 3, 4, 7, 12, 13, and 14 from `docs/lambda-capture/` all compile and produce the documented correct output
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed ✓
 Plans:
-- [ ] 33-01-PLAN.md — Test scaffolds + parser func-type annotation fix (root cause of hang)
-- [ ] 33-02-PLAN.md — Typecheck resolver + runtime Iron_List_Iron_Closure + DCE purity fix
-- [ ] 33-03-PLAN.md — Full capture test suite green + optimizer guard verification
+- [x] 33-01-PLAN.md — Test scaffolds + parser func-type annotation fix (root cause of hang)
+- [x] 33-02-PLAN.md — Typecheck resolver + runtime Iron_List_Iron_Closure + DCE purity fix
+- [x] 33-03-PLAN.md — Full capture test suite green + optimizer guard verification
 
 ### Phase 34: Advanced Captures
 **Goal**: Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and all higher-order function patterns compile and run correctly
