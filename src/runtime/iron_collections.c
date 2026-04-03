@@ -37,6 +37,7 @@ IRON_LIST_IMPL(int32_t,     int32_t)
 IRON_LIST_IMPL(double,      double)
 IRON_LIST_IMPL(bool,        bool)
 IRON_LIST_IMPL(Iron_String, Iron_String)
+IRON_LIST_IMPL(Iron_Closure, Iron_Closure)
 
 /* ── Map implementations ──────────────────────────────────────────────────── */
 

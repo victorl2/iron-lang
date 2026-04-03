@@ -1225,8 +1225,11 @@ static bool run_dce(IronLIR_Module *module) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
-                /* Live if: side-effecting, or has no result (STORE, terminators) */
+                /* Live if: side-effecting, or has no result (STORE, terminators),
+                 * or is a capturing closure (must not be DCE-eliminated) */
                 if (!iron_lir_instr_is_pure(in->kind) ||
+                    (in->kind == IRON_LIR_MAKE_CLOSURE &&
+                     in->make_closure.capture_count > 0) ||
                     in->id == IRON_LIR_VALUE_INVALID) {
                     if (in->id != IRON_LIR_VALUE_INVALID) {
                         hmput(live, in->id, true);
@@ -1285,8 +1288,11 @@ static bool run_dce(IronLIR_Module *module) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 bool is_live = false;
 
-                /* Always keep side-effecting instructions and terminators */
+                /* Always keep side-effecting instructions, terminators,
+                 * and capturing closures (must not be DCE-eliminated) */
                 if (!iron_lir_instr_is_pure(in->kind) ||
+                    (in->kind == IRON_LIR_MAKE_CLOSURE &&
+                     in->make_closure.capture_count > 0) ||
                     in->id == IRON_LIR_VALUE_INVALID) {
                     is_live = true;
                 } else {

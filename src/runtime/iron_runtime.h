@@ -562,6 +562,7 @@ typedef struct Iron_List_int32_t    { int32_t     *items; int64_t count; int64_t
 typedef struct Iron_List_double     { double      *items; int64_t count; int64_t capacity; } Iron_List_double;
 typedef struct Iron_List_bool       { bool        *items; int64_t count; int64_t capacity; } Iron_List_bool;
 typedef struct Iron_List_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_List_Iron_String;
+typedef struct Iron_List_Iron_Closure { Iron_Closure *items; int64_t count; int64_t capacity; } Iron_List_Iron_Closure;
 
 typedef struct Iron_Map_Iron_String_int64_t    { Iron_String *keys; int64_t     *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_int64_t;
 typedef struct Iron_Map_Iron_String_Iron_String { Iron_String *keys; Iron_String *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_Iron_String;
@@ -577,6 +578,7 @@ IRON_LIST_DECL(int32_t,     int32_t)
 IRON_LIST_DECL(double,      double)
 IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)
+IRON_LIST_DECL(Iron_Closure, Iron_Closure)
 
 IRON_MAP_DECL(Iron_String, int64_t,     Iron_String, int64_t)
 IRON_MAP_DECL(Iron_String, Iron_String, Iron_String, Iron_String)
