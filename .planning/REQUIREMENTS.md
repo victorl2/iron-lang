@@ -78,14 +78,14 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [ ] **IO-01**: User can call `io.read_bytes(path)` to read binary file contents
 - [ ] **IO-02**: User can call `io.write_bytes(path, bytes)` to write binary data
-- [ ] **IO-03**: User can call `io.read_line()` to read a single line from stdin
-- [ ] **IO-04**: User can call `io.append_file(path, content)` to append to a file
-- [ ] **IO-05**: User can call `io.basename(path)` to get the filename component
-- [ ] **IO-06**: User can call `io.dirname(path)` to get the directory component
-- [ ] **IO-07**: User can call `io.join_path(a, b)` to concatenate path components
-- [ ] **IO-08**: User can call `io.extension(path)` to get the file extension
-- [ ] **IO-09**: User can call `io.is_dir(path)` to check if a path is a directory
-- [ ] **IO-10**: User can call `io.read_lines(path)` to read a file into `List[String]`
+- [x] **IO-03**: User can call `io.read_line()` to read a single line from stdin
+- [x] **IO-04**: User can call `io.append_file(path, content)` to append to a file
+- [x] **IO-05**: User can call `io.basename(path)` to get the filename component
+- [x] **IO-06**: User can call `io.dirname(path)` to get the directory component
+- [x] **IO-07**: User can call `io.join_path(a, b)` to concatenate path components
+- [x] **IO-08**: User can call `io.extension(path)` to get the file extension
+- [x] **IO-09**: User can call `io.is_dir(path)` to check if a path is a directory
+- [x] **IO-10**: User can call `io.read_lines(path)` to read a file into `List[String]`
 
 ### Time Completion
 

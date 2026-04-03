@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 39-04-PLAN.md
-last_updated: "2026-04-03T02:00:43.424Z"
+stopped_at: Completed 39-02-PLAN.md
+last_updated: "2026-04-03T02:05:38.560Z"
 last_activity: "2026-04-02 — Phase 38-03 complete: 24 integration test files created, two compiler bugs fixed (iron_runtime.h declarations, typecheck non-ident receiver handling)"
 progress:
   total_phases: 11
   completed_phases: 3
   total_plans: 18
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # Project State
@@ -55,6 +55,8 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 - [Phase 33]: Iron_List_Iron_Closure follows same IRON_LIST_DECL/IMPL macro pair as all other collection types
 - [Phase 39]: emit_c.c GET_FIELD for type-name objects must emit Iron_TypeName_FieldName (underscore) not Iron_TypeName.FieldName (dot) — dot notation is invalid C when the object is a type name
 - [Phase 39]: Iron_Log_DEBUG/INFO/WARN/ERROR #defines in iron_log.h map enum values to int64_t (Iron Int type) for Log constant field access
+- [Phase 39-module-completions-math-io-time-log]: IO.extension returns extension without leading dot — spec note overrides RESEARCH example
+- [Phase 39-module-completions-math-io-time-log]: IO.read_lines strips trailing empty element for files ending with newline (POSIX convention)
 
 ### Pending Todos
 
@@ -77,6 +79,6 @@ Last activity: 2026-04-02 — Phase 38-03 complete: 24 integration test files cr
 
 ## Session Continuity
 
-Last session: 2026-04-03T02:00:43.421Z
-Stopped at: Completed 39-04-PLAN.md
+Last session: 2026-04-03T02:05:38.557Z
+Stopped at: Completed 39-02-PLAN.md
 Resume file: None
