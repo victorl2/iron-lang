@@ -668,11 +668,11 @@ Plans:
   3. Slice expressions where start > end (both constants) produce `IRON_ERR_INVALID_SLICE_BOUNDS`; slices where bounds exceed array size (all constants) also error
   4. Slice start and end expressions that are not integer types produce a type error diagnostic
   5. All existing tests and benchmarks continue to pass (no false positives on valid code)
-**Plans**: 3 plans
+**Plans**: 2 plans
 
 Plans:
-- [ ] 34-01: Constant array index bounds validation
-- [ ] 34-02: Slice bounds type and range validation
+- [ ] 34-01-PLAN.md — Error codes, constant-extraction helper, and array index bounds validation
+- [ ] 34-02-PLAN.md — Slice bounds type and range validation
 
 ### Phase 35: Escape Analysis Extension
 **Goal**: Escape analysis tracks heap values through field assignments, array index assignments, and function argument passing so that escape-dependent optimizations and warnings cover real-world patterns
