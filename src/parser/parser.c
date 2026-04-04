@@ -244,10 +244,21 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     /* nullable? */
     ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
 
-    /* generic args: [T, U] */
+    /* generic args: Type[T, U] where T, U are full type annotations (supports nested generics) */
     if (iron_check(p, IRON_TOK_LBRACKET)) {
-        ann->generic_args = iron_parse_generic_params(p, &ann->generic_arg_count,
-                                                      p->arena);
+        iron_advance(p);  /* consume '[' */
+        iron_skip_newlines(p);
+        ann->generic_args = NULL;
+        ann->generic_arg_count = 0;
+        while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
+            Iron_Node *arg = iron_parse_type_annotation(p);
+            arrput(ann->generic_args, arg);
+            ann->generic_arg_count++;
+            iron_skip_newlines(p);
+            if (!iron_match(p, IRON_TOK_COMMA)) break;
+            iron_skip_newlines(p);
+        }
+        iron_expect(p, IRON_TOK_RBRACKET);
     } else {
         ann->generic_args      = NULL;
         ann->generic_arg_count = 0;
@@ -2051,6 +2062,13 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     }
     Iron_Token *name_tok = iron_advance(p);
 
+    /* Optional generic params: [T, E, ...] */
+    Iron_Node **generic_params = NULL;
+    int generic_count = 0;
+    if (iron_check(p, IRON_TOK_LBRACKET)) {
+        generic_params = iron_parse_generic_params(p, &generic_count, p->arena);
+    }
+
     if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
     iron_skip_newlines(p);
 
@@ -2123,9 +2141,11 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
                                           iron_token_span(p, end));
     n->name            = iron_arena_strdup(p->arena, name_tok->value,
                                             strlen(name_tok->value));
-    n->variants        = variants;
-    n->variant_count   = variant_count;
-    n->has_payloads    = has_payloads;
+    n->variants             = variants;
+    n->variant_count        = variant_count;
+    n->has_payloads         = has_payloads;
+    n->generic_params       = generic_params;
+    n->generic_param_count  = generic_count;
     (void)is_private;
     return (Iron_Node *)n;
 }
