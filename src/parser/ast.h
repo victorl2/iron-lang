@@ -136,7 +136,9 @@ typedef struct Iron_EnumDecl {
     const char   *name;
     Iron_Node   **variants;
     int           variant_count;
-    bool          has_payloads;  /* true if any variant has payload_count > 0 */
+    bool          has_payloads;       /* true if any variant has payload_count > 0 */
+    Iron_Node   **generic_params;     /* NULL for non-generic enums */
+    int           generic_param_count; /* 0 for non-generic enums */
 } Iron_EnumDecl;
 
 typedef struct {
