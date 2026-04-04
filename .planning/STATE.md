@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** Every invalid Iron program must produce a clear diagnostic at compile time -- no silent pass-through to the C backend.
-**Current focus:** v0.0.8-alpha Semantic Analysis Gaps -- Phase 39 (Diagnostic Test Sweep) in progress
+**Current focus:** v0.0.8-alpha Semantic Analysis Gaps -- Phase 39 (Diagnostic Test Sweep) complete
 
 ## Current Position
 
 Phase: 39 of 39 (Diagnostic Test Sweep)
-Plan: 1 of 2 in current phase
-Status: Plan 39-01 complete -- diagnostic coverage audit and gap filling done
-Last activity: 2026-04-03 -- Completed 39-01 diagnostic test sweep coverage audit
+Plan: 2 of 2 in current phase
+Status: Phase 39 complete -- all diagnostic test sweep plans done
+Last activity: 2026-04-03 -- Completed 39-02 complex analysis edge-case tests
 
 Progress: [██████████] 100%
 
