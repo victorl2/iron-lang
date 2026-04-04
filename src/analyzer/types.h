@@ -73,6 +73,9 @@ typedef struct Iron_Type {
         struct {
             struct Iron_EnumDecl      *decl;
             struct Iron_Type        ***variant_payload_types; /* [variant_idx][payload_idx]; populated by Phase 33 type checker */
+            struct Iron_Type         **type_args;             /* NULL for non-generic enums */
+            int                        type_arg_count;        /* 0 for non-generic enums */
+            const char                *mangled_name;          /* e.g. "Iron_Option_Int"; NULL for non-generic */
         } enu;
 
         /* IRON_TYPE_NULLABLE */
