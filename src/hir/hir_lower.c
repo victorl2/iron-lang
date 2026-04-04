@@ -1351,6 +1351,12 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                 self_type = iron_type_make_object(mod->arena, od);
                                 break;
                             }
+                        } else if (d->kind == IRON_NODE_ENUM_DECL) {
+                            Iron_EnumDecl *ed = (Iron_EnumDecl *)d;
+                            if (strcmp(ed->name, md->type_name) == 0) {
+                                self_type = iron_type_make_enum(mod->arena, ed);
+                                break;
+                            }
                         }
                     }
                 }

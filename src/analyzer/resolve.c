@@ -173,7 +173,7 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
                        "method declared on undeclared type", NULL);
         return;
     }
-    if (owner->sym_kind != IRON_SYM_TYPE) {
+    if (owner->sym_kind != IRON_SYM_TYPE && owner->sym_kind != IRON_SYM_ENUM) {
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
                        "method declared on non-object type", NULL);

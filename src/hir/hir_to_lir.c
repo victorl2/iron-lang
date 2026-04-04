@@ -788,6 +788,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             Iron_Type *obj_type = expr->method_call.object->type;
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
+            } else if (obj_type->kind == IRON_TYPE_ENUM && obj_type->enu.decl) {
+                type_name = obj_type->enu.decl->name;
             }
         }
         /* Detect static method calls: receiver is a type reference, not an instance.
@@ -1446,6 +1448,23 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 IronHIR_MatchArm *arm = &stmt->match_stmt.arms[i];
                 if (arm->pattern && arm->pattern->kind == IRON_HIR_EXPR_INT_LIT) {
                     arrput(case_values, (int)arm->pattern->int_lit.value);
+                    arrput(case_blocks, arm_blk->id);
+                } else if (arm->pattern &&
+                           arm->pattern->kind == IRON_HIR_EXPR_PATTERN &&
+                           match_ed) {
+                    /* Plain enum variant pattern (unit or payload): look up variant index */
+                    int vidx = arm->pattern->pattern.variant_index;
+                    if (vidx < 0) {
+                        const char *vname = arm->pattern->pattern.variant_name;
+                        for (int j = 0; j < match_ed->variant_count; j++) {
+                            Iron_EnumVariant *ev = (Iron_EnumVariant *)match_ed->variants[j];
+                            if (strcmp(ev->name, vname) == 0) {
+                                vidx = j;
+                                break;
+                            }
+                        }
+                    }
+                    arrput(case_values, vidx);
                     arrput(case_blocks, arm_blk->id);
                 } else {
                     /* Non-integer pattern: use as default arm */

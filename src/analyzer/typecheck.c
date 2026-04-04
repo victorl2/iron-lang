@@ -709,6 +709,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                            obj_id->resolved_type->kind == IRON_TYPE_OBJECT) {
                     /* Instance method: receiver has object type */
                     type_name_mc = obj_id->resolved_type->object.decl->name;
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_ENUM &&
+                           obj_id->resolved_type->enu.decl) {
+                    /* Instance method on enum value */
+                    type_name_mc = obj_id->resolved_type->enu.decl->name;
                 }
                 if (type_name_mc && ctx->program) {
                     for (int i = 0; i < ctx->program->decl_count; i++) {
