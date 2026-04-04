@@ -788,6 +788,281 @@ void test_spawn_write_local_var_ok(void) {
     TEST_ASSERT_FALSE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
 
+/* ── Edge-case tests (Phase 39, Plan 02) ─────────────────────────────────── */
+
+/* Test 15: Spawn inside sequential for loop, writes outer var => WARN */
+void test_spawn_inside_sequential_for(void) {
+    /* var x = 0
+     * for i in range(10) {        -- sequential for
+     *   spawn("s") { x = 1 }      -- writes outer var from spawn
+     * }
+     */
+    Iron_VarDecl *var_x = make_var_int(&g_arena, "x");
+
+    /* Spawn body: x = 1 */
+    Iron_Ident *tgt = make_ident(&g_arena, "x");
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(5, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign->span   = ts(5, 5);
+    assign->kind   = IRON_NODE_ASSIGN;
+    assign->target = (Iron_Node *)tgt;
+    assign->value  = (Iron_Node *)rhs;
+    assign->op     = 0;
+
+    Iron_Node **spawn_body = make_stmts(&g_arena, 1);
+    spawn_body[0] = (Iron_Node *)assign;
+
+    Iron_SpawnStmt *spawn = make_spawn_stmt(&g_arena, "s", spawn_body, 1);
+
+    /* Sequential for loop body: spawn(...) */
+    Iron_Node **for_body = make_stmts(&g_arena, 1);
+    for_body[0] = (Iron_Node *)spawn;
+
+    Iron_ForStmt *for_s = make_for_stmt(&g_arena, false /* sequential */, for_body, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)var_x;
+    fn_stmts[1] = (Iron_Node *)for_s;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_in_for", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+}
+
+/* Test 16: Multiple spawn blocks sharing same outer variable => WARN */
+void test_multiple_spawns_same_var(void) {
+    /* var shared = 0
+     * spawn("s1") { shared = 1 }
+     * spawn("s2") { shared = 2 }
+     */
+    Iron_VarDecl *var_shared = make_var_int(&g_arena, "shared");
+
+    /* Spawn s1 body: shared = 1 */
+    Iron_Ident *tgt1 = make_ident(&g_arena, "shared");
+    Iron_IntLit *rhs1 = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs1->span          = ts(4, 15);
+    rhs1->kind          = IRON_NODE_INT_LIT;
+    rhs1->resolved_type = NULL;
+    rhs1->value         = "1";
+
+    Iron_AssignStmt *assign1 = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign1->span   = ts(4, 5);
+    assign1->kind   = IRON_NODE_ASSIGN;
+    assign1->target = (Iron_Node *)tgt1;
+    assign1->value  = (Iron_Node *)rhs1;
+    assign1->op     = 0;
+
+    Iron_Node **s1_body = make_stmts(&g_arena, 1);
+    s1_body[0] = (Iron_Node *)assign1;
+    Iron_SpawnStmt *spawn1 = make_spawn_stmt(&g_arena, "s1", s1_body, 1);
+
+    /* Spawn s2 body: shared = 2 */
+    Iron_Ident *tgt2 = make_ident(&g_arena, "shared");
+    Iron_IntLit *rhs2 = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs2->span          = ts(5, 15);
+    rhs2->kind          = IRON_NODE_INT_LIT;
+    rhs2->resolved_type = NULL;
+    rhs2->value         = "2";
+
+    Iron_AssignStmt *assign2 = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign2->span   = ts(5, 5);
+    assign2->kind   = IRON_NODE_ASSIGN;
+    assign2->target = (Iron_Node *)tgt2;
+    assign2->value  = (Iron_Node *)rhs2;
+    assign2->op     = 0;
+
+    Iron_Node **s2_body = make_stmts(&g_arena, 1);
+    s2_body[0] = (Iron_Node *)assign2;
+    Iron_SpawnStmt *spawn2 = make_spawn_stmt(&g_arena, "s2", s2_body, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 3);
+    fn_stmts[0] = (Iron_Node *)var_shared;
+    fn_stmts[1] = (Iron_Node *)spawn1;
+    fn_stmts[2] = (Iron_Node *)spawn2;
+
+    Iron_Program *prog   = make_prog(&g_arena, "multi_spawn", fn_stmts, 3);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+}
+
+/* Test 17: Spawn reads var x, different spawn writes var y => only y warns */
+void test_spawn_read_write_different_vars(void) {
+    /* val x = 0
+     * var y = 0
+     * spawn("s1") { val z = x }   -- reads x only (val => no write)
+     * spawn("s2") { y = 1 }       -- writes y => WARN
+     */
+    Iron_ValDecl *val_x = make_val_int(&g_arena, "x", 0);
+    Iron_VarDecl *var_y = make_var_int(&g_arena, "y");
+
+    /* Spawn s1 body: val z = x (read only) */
+    Iron_Ident *read_x = make_ident(&g_arena, "x");
+    Iron_ValDecl *val_z = ARENA_ALLOC(&g_arena, Iron_ValDecl);
+    val_z->span         = ts(4, 7);
+    val_z->kind         = IRON_NODE_VAL_DECL;
+    val_z->name         = "z";
+    val_z->type_ann     = NULL;
+    val_z->init         = (Iron_Node *)read_x;
+    val_z->declared_type = NULL;
+
+    Iron_Node **s1_body = make_stmts(&g_arena, 1);
+    s1_body[0] = (Iron_Node *)val_z;
+    Iron_SpawnStmt *spawn1 = make_spawn_stmt(&g_arena, "s1", s1_body, 1);
+
+    /* Spawn s2 body: y = 1 (write) */
+    Iron_Ident *tgt_y = make_ident(&g_arena, "y");
+    Iron_IntLit *rhs = ARENA_ALLOC(&g_arena, Iron_IntLit);
+    rhs->span          = ts(5, 15);
+    rhs->kind          = IRON_NODE_INT_LIT;
+    rhs->resolved_type = NULL;
+    rhs->value         = "1";
+
+    Iron_AssignStmt *assign_y = ARENA_ALLOC(&g_arena, Iron_AssignStmt);
+    assign_y->span   = ts(5, 5);
+    assign_y->kind   = IRON_NODE_ASSIGN;
+    assign_y->target = (Iron_Node *)tgt_y;
+    assign_y->value  = (Iron_Node *)rhs;
+    assign_y->op     = 0;
+
+    Iron_Node **s2_body = make_stmts(&g_arena, 1);
+    s2_body[0] = (Iron_Node *)assign_y;
+    Iron_SpawnStmt *spawn2 = make_spawn_stmt(&g_arena, "s2", s2_body, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 4);
+    fn_stmts[0] = (Iron_Node *)val_x;
+    fn_stmts[1] = (Iron_Node *)var_y;
+    fn_stmts[2] = (Iron_Node *)spawn1;
+    fn_stmts[3] = (Iron_Node *)spawn2;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_rw_diff", fn_stmts, 4);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    /* s2 writes y => WARN */
+    TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+
+    /* Check that the warning mentions 'y', not 'x' */
+    bool found_y_warn = false;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_WARN_SPAWN_DATA_RACE &&
+            g_diags.items[i].level == IRON_DIAG_WARNING &&
+            strstr(g_diags.items[i].message, "'y'") != NULL) {
+            found_y_warn = true;
+        }
+    }
+    TEST_ASSERT_TRUE(found_y_warn);
+}
+
+/* Test 18: Parallel-for body with nested sequential for that mutates outer => ERROR */
+void test_parallel_for_nested_sequential_for_outer_mutation(void) {
+    /* var total = 0
+     * for |i| in range(10) {          -- parallel
+     *   for j in range(5) {            -- sequential nested
+     *     total = 1                     -- outer mutation through nesting
+     *   }
+     * }
+     */
+    Iron_VarDecl *var_total = make_var_int(&g_arena, "total");
+
+    /* Inner sequential for body: total = 1 */
+    Iron_AssignStmt *incr = make_compound_assign(&g_arena, "total", 0);
+
+    Iron_Node **inner_body = make_stmts(&g_arena, 1);
+    inner_body[0] = (Iron_Node *)incr;
+
+    Iron_ForStmt *inner_for = make_for_stmt(&g_arena, false /* sequential */, inner_body, 1);
+    inner_for->var_name = "j";
+
+    /* Outer parallel for body: inner sequential for */
+    Iron_Node **outer_body = make_stmts(&g_arena, 1);
+    outer_body[0] = (Iron_Node *)inner_for;
+
+    Iron_ForStmt *outer_for = make_for_stmt(&g_arena, true /* parallel */, outer_body, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)var_total;
+    fn_stmts[1] = (Iron_Node *)outer_for;
+
+    Iron_Program *prog   = make_prog(&g_arena, "par_nested_seq_mut", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PARALLEL_MUTATION));
+}
+
+/* Test 19: Parallel-for body only reads outer val => NO error */
+void test_parallel_for_read_only_ok(void) {
+    /* val limit = 0
+     * for |i| in range(10) {
+     *   val x = limit            -- read only, OK
+     * }
+     */
+    Iron_ValDecl *val_limit = make_val_int(&g_arena, "limit", 0);
+
+    /* Body: val x = limit */
+    Iron_Ident *read_id = make_ident(&g_arena, "limit");
+    Iron_ValDecl *val_x = ARENA_ALLOC(&g_arena, Iron_ValDecl);
+    val_x->span         = ts(4, 7);
+    val_x->kind         = IRON_NODE_VAL_DECL;
+    val_x->name         = "x";
+    val_x->type_ann     = NULL;
+    val_x->init         = (Iron_Node *)read_id;
+    val_x->declared_type = NULL;
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)val_x;
+
+    Iron_ForStmt *for_s = make_for_stmt(&g_arena, true, body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 2);
+    fn_stmts[0] = (Iron_Node *)val_limit;
+    fn_stmts[1] = (Iron_Node *)for_s;
+
+    Iron_Program *prog   = make_prog(&g_arena, "par_read_only", fn_stmts, 2);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
+}
+
+/* Test 20: Spawn block with only local declarations => NO warning */
+void test_spawn_only_locals_ok(void) {
+    /* spawn("clean") { val local = 42 }   -- no outer refs
+     */
+    Iron_ValDecl *val_local = make_val_int(&g_arena, "local", 1);
+    val_local->span = ts(4, 7);
+
+    Iron_Node **body_stmts = make_stmts(&g_arena, 1);
+    body_stmts[0] = (Iron_Node *)val_local;
+
+    Iron_SpawnStmt *spawn = make_spawn_stmt(&g_arena, "clean", body_stmts, 1);
+
+    Iron_Node **fn_stmts = make_stmts(&g_arena, 1);
+    fn_stmts[0] = (Iron_Node *)spawn;
+
+    Iron_Program *prog   = make_prog(&g_arena, "spawn_locals_only", fn_stmts, 1);
+    Iron_Scope   *global = resolve_quiet(prog, &g_arena);
+
+    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+
+    TEST_ASSERT_FALSE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -809,6 +1084,14 @@ int main(void) {
     RUN_TEST(test_spawn_index_write_outer_race);
     RUN_TEST(test_spawn_read_outer_var_ok);
     RUN_TEST(test_spawn_write_local_var_ok);
+
+    /* Edge-case tests (Phase 39, Plan 02) */
+    RUN_TEST(test_spawn_inside_sequential_for);
+    RUN_TEST(test_multiple_spawns_same_var);
+    RUN_TEST(test_spawn_read_write_different_vars);
+    RUN_TEST(test_parallel_for_nested_sequential_for_outer_mutation);
+    RUN_TEST(test_parallel_for_read_only_ok);
+    RUN_TEST(test_spawn_only_locals_ok);
 
     return UNITY_END();
 }
