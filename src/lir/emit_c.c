@@ -73,6 +73,11 @@ typedef struct {
     /* Backward-referenced values hoisted to function entry (type _vN;).
      * At the definition site, emit assignment without type prefix. */
     struct { IronLIR_ValueId key; bool value; } *phi_hoisted;
+
+    /* Phase 38: Per-function map of ALLOCA ids whose type is a recursive ADT enum
+     * with at least one boxed payload field.  Populated in the pre-scan;
+     * consulted at RETURN sites to emit _free() calls for non-returned locals. */
+    struct { IronLIR_ValueId key; Iron_Type *value; } *adt_boxed_allocas;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -1785,6 +1790,31 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             hmfree(freed);
         }
 
+        /* Phase 38: Free recursive ADT locals that are NOT the returned value */
+        if (ctx->adt_boxed_allocas) {
+            IronLIR_ValueId ret_alloca = IRON_LIR_VALUE_INVALID;
+            /* Identify which alloca holds the returned value (chase LOAD -> alloca) */
+            if (!instr->ret.is_void) {
+                IronLIR_ValueId rv = instr->ret.value;
+                if (rv != IRON_LIR_VALUE_INVALID &&
+                    rv < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[rv] != NULL &&
+                    fn->value_table[rv]->kind == IRON_LIR_LOAD) {
+                    ret_alloca = fn->value_table[rv]->load.ptr;
+                }
+            }
+            for (ptrdiff_t ai = 0; ai < hmlen(ctx->adt_boxed_allocas); ai++) {
+                IronLIR_ValueId alloca_id = ctx->adt_boxed_allocas[ai].key;
+                Iron_Type *atype = ctx->adt_boxed_allocas[ai].value;
+                /* Skip the alloca that holds the returned value */
+                if (alloca_id == ret_alloca) continue;
+                const char *atype_c = emit_type_to_c(atype, ctx);
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s_free(&_v%u);\n",
+                                    atype_c, (unsigned)alloca_id);
+            }
+        }
+
         emit_indent(sb, ind);
         if (instr->ret.is_void) {
             iron_strbuf_appendf(sb, "return;\n");
@@ -2598,6 +2628,10 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                       ? &ctx->lifted_funcs
                       : &ctx->implementations;
 
+    /* Reset per-function ADT boxed-alloca tracking map (Phase 38) */
+    hmfree(ctx->adt_boxed_allocas);
+    ctx->adt_boxed_allocas = NULL;
+
     /* Reset per-function stack-array tracking map */
     hmfree(ctx->opt_info->stack_array_ids);
     ctx->opt_info->stack_array_ids = NULL;
@@ -2789,6 +2823,39 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             hmput(ctx->opt_info->heap_array_ids, ha_pre[i].key, ha_pre[i].value);
         }
         hmfree(ha_pre);
+    }
+
+    /* ── ADT boxed-alloca pre-scan (Phase 38) ─────────────────────────────
+     * Collect ALLOCA instructions whose alloc_type is a recursive ADT enum
+     * (i.e. payload_is_boxed is non-NULL and at least one slot is boxed).
+     * These locals will be freed at every RETURN site (unless returned). */
+    {
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *block = fn->blocks[bi];
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                IronLIR_Instr *in = block->instrs[ii];
+                if (in->kind != IRON_LIR_ALLOCA) continue;
+                Iron_Type *atype = in->alloca.alloc_type;
+                if (!atype || atype->kind != IRON_TYPE_ENUM) continue;
+                if (!atype->enu.payload_is_boxed) continue;
+                Iron_EnumDecl *aed = atype->enu.decl;
+                if (!aed) continue;
+                bool any_boxed = false;
+                for (int avi = 0; avi < aed->variant_count && !any_boxed; avi++) {
+                    if (!atype->enu.payload_is_boxed[avi]) continue;
+                    Iron_EnumVariant *aev = (Iron_EnumVariant *)aed->variants[avi];
+                    for (int ak = 0; ak < aev->payload_count; ak++) {
+                        if (atype->enu.payload_is_boxed[avi][ak]) {
+                            any_boxed = true;
+                            break;
+                        }
+                    }
+                }
+                if (any_boxed) {
+                    hmput(ctx->adt_boxed_allocas, in->id, atype);
+                }
+            }
+        }
     }
 
     /* ── Read-only parameter alias pre-scan ────────────────────────────────
@@ -3046,6 +3113,10 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     ctx->inline_eligible = NULL;
     ctx->value_block = NULL;
     /* Note: opt_info maps are owned by opt_info and freed by iron_lir_optimize_info_free() */
+
+    /* Cleanup per-function ADT boxed-alloca map (Phase 38) */
+    hmfree(ctx->adt_boxed_allocas);
+    ctx->adt_boxed_allocas = NULL;
 }
 
 /* ── Type declaration emission ────────────────────────────────────────────── */
@@ -3394,6 +3465,62 @@ static void emit_type_decls(EmitCtx *ctx) {
             iron_strbuf_appendf(&ctx->struct_bodies,
                                  "    %s_data_t data;\n", mangled);
             iron_strbuf_appendf(&ctx->struct_bodies, "};\n\n");
+
+            /* Phase 38: Emit a static _free helper if any variant has boxed fields */
+            bool has_any_boxed = false;
+            if (td->type->enu.payload_is_boxed) {
+                for (int j2 = 0; j2 < ed->variant_count && !has_any_boxed; j2++) {
+                    if (!td->type->enu.payload_is_boxed[j2]) continue;
+                    Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
+                    for (int k2 = 0; k2 < ev2->payload_count; k2++) {
+                        if (td->type->enu.payload_is_boxed[j2][k2]) {
+                            has_any_boxed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (has_any_boxed) {
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "static void %s_free(%s *v) {\n", mangled, mangled);
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "    if (!v) return;\n");
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "    switch (v->tag) {\n");
+                for (int j2 = 0; j2 < ed->variant_count; j2++) {
+                    Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
+                    iron_strbuf_appendf(&ctx->struct_bodies,
+                        "    case %s_TAG_%s:", mangled, ev2->name);
+                    bool variant_has_boxed = false;
+                    if (td->type->enu.payload_is_boxed &&
+                        td->type->enu.payload_is_boxed[j2]) {
+                        for (int k2 = 0; k2 < ev2->payload_count; k2++) {
+                            if (td->type->enu.payload_is_boxed[j2][k2]) {
+                                variant_has_boxed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!variant_has_boxed) {
+                        iron_strbuf_appendf(&ctx->struct_bodies, " break;\n");
+                    } else {
+                        iron_strbuf_appendf(&ctx->struct_bodies, "\n");
+                        for (int k2 = 0; k2 < ev2->payload_count; k2++) {
+                            if (td->type->enu.payload_is_boxed[j2] &&
+                                td->type->enu.payload_is_boxed[j2][k2]) {
+                                iron_strbuf_appendf(&ctx->struct_bodies,
+                                    "        %s_free(v->data.%s._%d);\n",
+                                    mangled, ev2->name, k2);
+                                iron_strbuf_appendf(&ctx->struct_bodies,
+                                    "        free(v->data.%s._%d);\n",
+                                    ev2->name, k2);
+                            }
+                        }
+                        iron_strbuf_appendf(&ctx->struct_bodies, "        break;\n");
+                    }
+                }
+                iron_strbuf_appendf(&ctx->struct_bodies, "    }\n}\n\n");
+            }
         } else {
             /* Plain enum: emit unchanged typedef enum */
             iron_strbuf_appendf(&ctx->enum_defs, "typedef enum {\n");
