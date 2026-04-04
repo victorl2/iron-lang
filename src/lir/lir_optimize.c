@@ -1930,6 +1930,26 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
                         eligible = false;
                     }
                 }
+                /* CONSTRUCT with boxed payload fields cannot be inlined:
+                 * the statement emitter needs to pre-emit malloc statements. */
+                if (eligible && in->kind == IRON_LIR_CONSTRUCT &&
+                    in->construct.type &&
+                    in->construct.type->kind == IRON_TYPE_ENUM &&
+                    in->construct.type->enu.payload_is_boxed) {
+                    Iron_EnumDecl *ced = in->construct.type->enu.decl;
+                    if (ced) {
+                        for (int vi = 0; vi < ced->variant_count && eligible; vi++) {
+                            Iron_EnumVariant *cev = (Iron_EnumVariant *)ced->variants[vi];
+                            if (in->construct.type->enu.payload_is_boxed[vi]) {
+                                for (int pk = 0; pk < cev->payload_count && eligible; pk++) {
+                                    if (in->construct.type->enu.payload_is_boxed[vi][pk]) {
+                                        eligible = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else if (in->kind == IRON_LIR_CALL) {
                 /* Check if callee is pure */
                 const char *callee_name = NULL;
