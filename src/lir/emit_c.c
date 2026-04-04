@@ -200,6 +200,9 @@ static const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             return emit_mangle_name(t->object.decl->name, ctx->arena);
 
         case IRON_TYPE_ENUM:
+            if (t->enu.mangled_name) {
+                return t->enu.mangled_name; /* already "Iron_Option_Int" */
+            }
             return emit_mangle_name(t->enu.decl->name, ctx->arena);
 
         case IRON_TYPE_INTERFACE:
@@ -3202,7 +3205,20 @@ static void emit_type_decls(EmitCtx *ctx) {
         Iron_EnumDecl *ed = td->type->enu.decl;
         if (!ed) continue;
 
-        const char *mangled = emit_mangle_name(ed->name, ctx->arena);
+        /* Use mangled_name for monomorphized generics (e.g. "Iron_Option_Int"),
+         * fall back to the standard mangle for non-generic enums. */
+        const char *mangled;
+        if (td->type->enu.mangled_name) {
+            mangled = td->type->enu.mangled_name;
+        } else {
+            mangled = emit_mangle_name(ed->name, ctx->arena);
+        }
+
+        /* Deduplicate: skip if already emitted (relevant for monomorphized enums
+         * that may be registered multiple times from different use sites). */
+        if (shgeti(ctx->mono_registry, mangled) >= 0) continue;
+        shput(ctx->mono_registry,
+              iron_arena_strdup(ctx->arena, mangled, strlen(mangled)), true);
 
         if (ed->has_payloads) {
             /* ADT enum: emit tagged-union struct layout into struct_bodies */
