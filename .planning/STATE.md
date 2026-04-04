@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 34-hir-extensions-and-match-lowering/34-02-PLAN.md
-last_updated: "2026-04-03T03:36:28.726Z"
+stopped_at: Completed 36-01-PLAN.md
+last_updated: "2026-04-04T13:15:52.519Z"
 last_activity: 2026-04-02 — Completed 32-01 (AST and Type System Foundation data layer)
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
+  completed_phases: 4
+  total_plans: 8
+  completed_plans: 8
   percent: 5
 ---
 
@@ -55,6 +55,7 @@ Progress: [█░░░░░░░░░] 5%
 | Phase 33 P02 | 22min | 3 tasks | 8 files |
 | Phase 34 P01 | 4min | 2 tasks | 5 files |
 | Phase 34-hir-extensions-and-match-lowering P02 | 120 | 2 tasks | 9 files |
+| Phase 36 P01 | 20 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 34-hir-extensions-and-match-lowering]: Unit enum variant (Color.Red) detected by uppercase heuristic in parser DOT handler; produces IRON_NODE_ENUM_CONSTRUCT with arg_count=0
 - [Phase 34-hir-extensions-and-match-lowering]: Pattern bindings injected as HIR STMT_LET nodes before arm body lowering, reusing existing LET emitter rather than adding special ADT extraction to hir_to_lir.c
 - [Phase 34-hir-extensions-and-match-lowering]: Nested pattern field path built as dotted string (data.Wrap._0.data.Val._0); emit_c.c expands it correctly
+- [Phase 36-01]: Plain enum match lowering: IRON_HIR_EXPR_PATTERN is used for ALL variant patterns (unit and payload), not IRON_HIR_EXPR_ENUM_CONSTRUCT — fixed in non-ADT SWITCH path in hir_to_lir.c
+- [Phase 36-01]: Enum methods: all four sites need updating together — resolver guard, HIR self-type lookup, LIR method-call type-name mangling, typecheck return type resolution
 
 ### Project Notes
 
@@ -101,6 +104,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-03T03:10:40.885Z
-Stopped at: Completed 34-hir-extensions-and-match-lowering/34-02-PLAN.md
+Last session: 2026-04-04T13:15:52.516Z
+Stopped at: Completed 36-01-PLAN.md
 Resume file: None
