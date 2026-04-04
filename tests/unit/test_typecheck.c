@@ -504,6 +504,7 @@ void test_exhaustive_match_all_variants(void) {
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_NONEXHAUSTIVE_MATCH));
 }
 
 /* ── Test 29: match with else clause => no error even with missing variants ── */
@@ -578,6 +579,27 @@ void test_duplicate_match_arm(void) {
     TEST_ASSERT_TRUE(has_error(IRON_ERR_DUPLICATE_MATCH_ARM));
 }
 
+/* ── Test 32b: unique match arms => no IRON_ERR_DUPLICATE_MATCH_ARM ──────── */
+
+void test_unique_match_arms_no_duplicate_error(void) {
+    const char *src =
+        "enum Color {\n"
+        "  Red,\n"
+        "  Green,\n"
+        "  Blue\n"
+        "}\n"
+        "func main() {\n"
+        "  val c = Red\n"
+        "  match c {\n"
+        "    Red { }\n"
+        "    Green { }\n"
+        "    Blue { }\n"
+        "  }\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_DUPLICATE_MATCH_ARM));
+}
+
 /* ── Test 33: cast from non-numeric/non-bool source => E0310 ─────────────── */
 
 void test_cast_invalid_source(void) {
@@ -600,6 +622,7 @@ void test_cast_bool_to_int_ok(void) {
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INVALID_CAST));
 }
 
 /* ── Test 35: Int->Bool cast is rejected => E0310 ───────────────────────── */
@@ -1099,6 +1122,7 @@ int main(void) {
     RUN_TEST(test_nonexhaustive_match_non_enum);
     RUN_TEST(test_match_non_enum_with_else);
     RUN_TEST(test_duplicate_match_arm);
+    RUN_TEST(test_unique_match_arms_no_duplicate_error);
     RUN_TEST(test_cast_invalid_source);
     RUN_TEST(test_cast_bool_to_int_ok);
     RUN_TEST(test_cast_int_to_bool_error);
