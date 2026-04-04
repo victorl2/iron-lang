@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 38-02-PLAN.md
-last_updated: "2026-04-03T11:34:50.244Z"
-last_activity: 2026-04-03 -- Completed 38-02 spawn capture analysis and race detection
+stopped_at: Completed 39-02-PLAN.md
+last_updated: "2026-04-04T13:12:25.186Z"
+last_activity: 2026-04-03 -- Completed 39-02 complex analysis edge-case tests
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 14
-  completed_plans: 14
+  completed_phases: 8
+  total_plans: 16
+  completed_plans: 16
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-02)
 
 **Core value:** Every invalid Iron program must produce a clear diagnostic at compile time -- no silent pass-through to the C backend.
-**Current focus:** v0.0.8-alpha Semantic Analysis Gaps -- Phase 38 (Concurrency Safety) in progress
+**Current focus:** v0.0.8-alpha Semantic Analysis Gaps -- Phase 39 (Diagnostic Test Sweep) in progress
 
 ## Current Position
 
-Phase: 38 of 39 (Concurrency Safety)
-Plan: 2 of 2 in current phase
-Status: Phase 38 complete -- all concurrency safety plans done
-Last activity: 2026-04-03 -- Completed 38-02 spawn capture analysis and race detection
+Phase: 39 of 39 (Diagnostic Test Sweep)
+Plan: 1 of 2 in current phase
+Status: Plan 39-01 complete -- diagnostic coverage audit and gap filling done
+Last activity: 2026-04-03 -- Completed 39-01 diagnostic test sweep coverage audit
 
 Progress: [██████████] 100%
 
@@ -68,6 +68,8 @@ Progress: [██████████] 100%
 | Phase 37 P02 | 8min | 2 tasks | 1 file |
 | Phase 38 P01 | 2min | 1 task | 2 files |
 | Phase 38 P02 | 5min | 2 tasks | 3 files |
+| Phase 39 P01 | 3min | 2 tasks | 2 files |
+| Phase 39 P02 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -106,6 +108,8 @@ Recent decisions affecting current work:
 - [38-01]: Conservative skip for non-identifier-rooted assignment targets (expr_ident_name returns NULL) -- don't flag what we can't analyze
 - [Phase 38]: [38-02]: Two-pass spawn analysis (collect_local_names + collect_spawn_refs) avoids false positives on spawn-local variables
 - [Phase 38]: [38-02]: Bounded spawn capture tracking (MAX_SPAWN_CAPTURES=64) prevents unbounded allocation
+- [Phase 39]: Explicit TEST_ASSERT_FALSE assertions required for all diagnostic codes -- implicit error_count==0 does not satisfy grep-based coverage audit
+- [Phase 39]: Used source-string parsing for init_check tests and hand-built AST for concurrency tests, matching existing patterns in each file
 
 ### Pending Todos
 
@@ -118,6 +122,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-03T11:31:54.463Z
-Stopped at: Completed 38-02-PLAN.md
+Last session: 2026-04-04T13:12:25.183Z
+Stopped at: Completed 39-02-PLAN.md
 Resume file: None
