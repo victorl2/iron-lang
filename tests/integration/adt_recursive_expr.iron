@@ -1,0 +1,39 @@
+-- ADT recursive expression tree test (EDATA-04): BinOp with boxed Expr fields
+
+enum Op {
+  Add,
+  Mul,
+}
+
+enum Expr {
+  IntLit(Int),
+  BinOp(Expr, Op, Expr),
+}
+
+func eval(e: Expr) -> Int {
+  match e {
+    Expr.IntLit(n) -> return n
+    Expr.BinOp(left, op, right) -> {
+      val l = eval(left)
+      val r = eval(right)
+      match op {
+        Op.Add -> return l + r
+        Op.Mul -> return l * r
+      }
+      return 0
+    }
+  }
+  return 0
+}
+
+func main() {
+  val expr = Expr.BinOp(
+    Expr.IntLit(2),
+    Op.Add,
+    Expr.BinOp(Expr.IntLit(3), Op.Mul, Expr.IntLit(4))
+  )
+  println("result: {eval(expr)}")
+
+  val simple = Expr.IntLit(42)
+  println("simple: {eval(simple)}")
+}
