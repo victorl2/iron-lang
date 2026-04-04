@@ -681,7 +681,9 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             instr->construct.type->enu.decl &&
             instr->construct.type->enu.decl->has_payloads) {
             Iron_EnumDecl *adt_ed = instr->construct.type->enu.decl;
-            const char *adt_mangled = emit_mangle_name(adt_ed->name, ctx->arena);
+            const char *adt_mangled = instr->construct.type->enu.mangled_name
+                ? instr->construct.type->enu.mangled_name
+                : emit_mangle_name(adt_ed->name, ctx->arena);
             int variant_idx = 0;
             if (instr->construct.field_count > 0) {
                 IronLIR_ValueId tag_vid = instr->construct.field_vals[0];
@@ -1809,7 +1811,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             instr->construct.type->enu.decl &&
             instr->construct.type->enu.decl->has_payloads) {
             Iron_EnumDecl *adt_ed = instr->construct.type->enu.decl;
-            const char *adt_mangled = emit_mangle_name(adt_ed->name, ctx->arena);
+            const char *adt_mangled = instr->construct.type->enu.mangled_name
+                ? instr->construct.type->enu.mangled_name
+                : emit_mangle_name(adt_ed->name, ctx->arena);
             /* Determine variant index from first field value (tag int constant) */
             int variant_idx = 0;
             if (instr->construct.field_count > 0) {

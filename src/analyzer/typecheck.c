@@ -65,6 +65,51 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node);
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count);
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
 
+/* ── Mangling helpers ────────────────────────────────────────────────────── */
+
+/* Return the C-identifier-safe name component for a type when building a
+ * monomorphized enum's mangled name.
+ *
+ * For primitives, return the plain name (e.g. "Int", "String").
+ * For a monomorphized generic enum, strip the "Iron_" prefix from the
+ * mangled_name (e.g. "Iron_Option_Int" -> "Option_Int").
+ * For a non-generic enum, return the enum decl name.
+ * This ensures nested generics like Result[Option[Int], String] produce
+ * "Iron_Result_Option_Int_String" (valid C identifier). */
+static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) {
+    if (!t) return "unknown";
+    switch (t->kind) {
+        case IRON_TYPE_INT:    return "Int";
+        case IRON_TYPE_INT8:   return "Int8";
+        case IRON_TYPE_INT16:  return "Int16";
+        case IRON_TYPE_INT32:  return "Int32";
+        case IRON_TYPE_INT64:  return "Int64";
+        case IRON_TYPE_UINT:   return "UInt";
+        case IRON_TYPE_UINT8:  return "UInt8";
+        case IRON_TYPE_UINT16: return "UInt16";
+        case IRON_TYPE_UINT32: return "UInt32";
+        case IRON_TYPE_UINT64: return "UInt64";
+        case IRON_TYPE_FLOAT:  return "Float";
+        case IRON_TYPE_FLOAT32: return "Float32";
+        case IRON_TYPE_FLOAT64: return "Float64";
+        case IRON_TYPE_BOOL:   return "Bool";
+        case IRON_TYPE_STRING: return "String";
+        case IRON_TYPE_VOID:   return "void";
+        case IRON_TYPE_ENUM:
+            if (t->enu.mangled_name) {
+                /* Strip "Iron_" prefix: "Iron_Option_Int" -> "Option_Int" */
+                const char *mn = t->enu.mangled_name;
+                if (strncmp(mn, "Iron_", 5) == 0) return mn + 5;
+                return mn;
+            }
+            if (t->enu.decl) return t->enu.decl->name;
+            return "Enum";
+        default:
+            /* Fallback: use iron_type_to_string but replace brackets with underscores */
+            return iron_type_to_string(t, arena);
+    }
+}
+
 /* ── ADT helpers ─────────────────────────────────────────────────────────── */
 
 /* Find variant index by name in an enum declaration. Returns -1 if not found. */
@@ -189,6 +234,29 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     /* Int32 -> Int: implicit widening (always safe) */
     if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
     return false;
+}
+
+/* Context-directed generic enum completion:
+ * When `val r: Result[Int, String] = Result.Ok(100)`, only T=Int can be
+ * inferred from the construct; E cannot be inferred from Ok's payload.
+ * If the declared type is a fully-instantiated monomorphized enum with the
+ * same base decl, copy its type_args into the construct's resolved_type so
+ * the types match without a spurious type-mismatch error.
+ * This does NOT validate that the inferred args are compatible — that is
+ * enforced by the construct's own argument type-check above. */
+static void maybe_fill_missing_generic_args(Iron_Node *init_node,
+                                             Iron_Type *decl_type) {
+    if (!init_node || !decl_type) return;
+    if (decl_type->kind != IRON_TYPE_ENUM) return;
+    if (!decl_type->enu.mangled_name) return;  /* decl_type not a monomorphized generic */
+    if (init_node->kind != IRON_NODE_ENUM_CONSTRUCT) return;
+    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)init_node;
+    if (!ec->resolved_type) return;
+    if (ec->resolved_type->kind != IRON_TYPE_ENUM) return;
+    if (ec->resolved_type->enu.decl != decl_type->enu.decl) return;  /* different base enum */
+    /* Both are instantiations of the same generic enum.
+     * Replace ec->resolved_type with decl_type to fill in any missing args. */
+    ec->resolved_type = decl_type;
 }
 
 /* Allow integer literals to implicitly narrow to Int32.
@@ -339,7 +407,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     iron_strbuf_appendf(&sb, "Iron_%s", ed->name);
                     for (int i = 0; i < ann->generic_arg_count; i++) {
                         iron_strbuf_appendf(&sb, "_%s",
-                            iron_type_to_string(type_args[i], ctx->arena));
+                            type_mangle_component(type_args[i], ctx->arena));
                     }
                     const char *mangled = iron_arena_strdup(ctx->arena,
                         iron_strbuf_get(&sb), sb.len);
@@ -1200,13 +1268,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
                 ctx->global_scope = saved_gen;
 
-                /* Build mangled name from inferred args */
+                /* Build mangled name from inferred args.
+                 * Use type_mangle_component to ensure C-identifier-safe names
+                 * for nested generic types (e.g. Option[Int] -> "Option_Int"). */
                 Iron_StrBuf sb = iron_strbuf_create(64);
                 iron_strbuf_appendf(&sb, "Iron_%s", ed->name);
                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
                     if (inferred_args[gi]) {
                         iron_strbuf_appendf(&sb, "_%s",
-                            iron_type_to_string(inferred_args[gi], ctx->arena));
+                            type_mangle_component(inferred_args[gi], ctx->arena));
                     } else {
                         iron_strbuf_appendf(&sb, "_unknown");
                     }
@@ -1358,6 +1428,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (!decl_type && init_type) {
                 decl_type = init_type;
             } else if (decl_type && init_type) {
+                /* Context-directed generic enum completion: if the construct has
+                 * unresolved type args, fill them in from the declared type. */
+                maybe_fill_missing_generic_args(vd->init, decl_type);
+                init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
+                    ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
+                    : init_type;
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
@@ -1400,6 +1476,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (!decl_type && init_type) {
                 decl_type = init_type;
             } else if (decl_type && init_type) {
+                /* Context-directed generic enum completion: if the construct has
+                 * unresolved type args, fill them in from the declared type. */
+                maybe_fill_missing_generic_args(vd->init, decl_type);
+                init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
+                    ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
+                    : init_type;
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
