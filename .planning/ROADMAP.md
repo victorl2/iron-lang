@@ -697,7 +697,7 @@ Plans:
 - [ ] 37-02-PLAN.md -- HIR/LIR registration, C emitter, and integration tests (GENER-01, GENER-02, GENER-03)
 
 ### Phase 38: Recursive Variant Auto-Boxing
-**Goal**: The compiler detects recursive variant types (a variant whose payload directly or transitively contains the owning enum) and automatically heap-allocates those fields via the arena, so users can write recursive data types without any annotation.
+**Goal**: The compiler detects recursive variant types (a variant whose payload directly or transitively contains the owning enum) and automatically heap-allocates those fields via malloc, so users can write recursive data types without any annotation.
 **Depends on**: Phase 35
 **Requirements**: EDATA-04
 **Success Criteria** (what must be TRUE):
@@ -707,8 +707,8 @@ Plans:
   4. No explicit annotation (`Box`, `indirect`, etc.) is required from the user.
 **Plans**: 2 plans
 Plans:
-- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
-- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
+- [ ] 38-01-PLAN.md -- Auto-boxing detection + C emission (struct layout, CONSTRUCT malloc, GET_FIELD deref)
+- [ ] 38-02-PLAN.md -- Recursive free helpers + RETURN-site free injection + generic recursive enum test
 
 ## Progress
 
@@ -754,4 +754,4 @@ Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 an
 | 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/0 | Complete (satisfied by Phase 34) | 2026-04-03 |
 | 36. Methods on Enums and Syntax Migration | 1/1 | Complete    | 2026-04-04 | - |
 | 37. Generic Enums | 2/2 | Complete    | 2026-04-04 | - |
-| 38. Recursive Variant Auto-Boxing | v0.0.8-alpha | 0/? | Not started | - |
+| 38. Recursive Variant Auto-Boxing | 1/2 | In Progress|  | - |
