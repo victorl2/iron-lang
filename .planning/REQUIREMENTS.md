@@ -31,8 +31,8 @@ Requirements for ADT milestone. Each maps to roadmap phases.
 
 ### Generic Enums
 
-- [ ] **GENER-01**: Enums support generic type parameters (`Option[T]`, `Result[T, E]`)
-- [ ] **GENER-02**: Generic enums are monomorphized (consistent with existing generic functions/objects)
+- [x] **GENER-01**: Enums support generic type parameters (`Option[T]`, `Result[T, E]`)
+- [x] **GENER-02**: Generic enums are monomorphized (consistent with existing generic functions/objects)
 - [ ] **GENER-03**: C emission uses type-argument-aware mangling to avoid typedef collisions
 
 ## v2 Requirements
@@ -79,8 +79,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MATCH-07 | Phase 33 + Phase 36 | Complete |
 | EMETH-01 | Phase 36 | Complete |
 | EMETH-02 | Phase 36 | Complete |
-| GENER-01 | Phase 37 | Pending |
-| GENER-02 | Phase 37 | Pending |
+| GENER-01 | Phase 37 | Complete |
+| GENER-02 | Phase 37 | Complete |
 | GENER-03 | Phase 37 | Pending |
 
 **Coverage:**
