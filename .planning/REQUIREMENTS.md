@@ -11,7 +11,7 @@ Requirements for ADT milestone. Each maps to roadmap phases.
 
 - [ ] **EDATA-01**: Enum variants can hold tuple-style associated data (`Circle(Float)`, `BinOp(Expr, Op, Expr)`)
 - [x] **EDATA-02**: Variant construction uses dot syntax (`Shape.Circle(5.0)`)
-- [ ] **EDATA-03**: Plain C-style enums (no payloads) continue to compile and work unchanged
+- [x] **EDATA-03**: Plain C-style enums (no payloads) continue to compile and work unchanged
 - [ ] **EDATA-04**: Compiler detects recursive variant types and auto-boxes them (heap allocation via arena)
 
 ### Pattern Matching
@@ -26,8 +26,8 @@ Requirements for ADT milestone. Each maps to roadmap phases.
 
 ### Methods on Enums
 
-- [ ] **EMETH-01**: Methods can be defined on enum types using `func EnumType.method()` syntax
-- [ ] **EMETH-02**: `self` in enum methods refers to the enum value, usable in match
+- [x] **EMETH-01**: Methods can be defined on enum types using `func EnumType.method()` syntax
+- [x] **EMETH-02**: `self` in enum methods refers to the enum value, usable in match
 
 ### Generic Enums
 
@@ -68,7 +68,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | EDATA-01 | Phase 32 | Pending |
 | EDATA-02 | Phase 32 | Complete |
-| EDATA-03 | Phase 32 + Phase 35 | Pending |
+| EDATA-03 | Phase 32 + Phase 34 | Complete |
 | EDATA-04 | Phase 38 | Pending |
 | MATCH-01 | Phase 32 + Phase 36 | Complete |
 | MATCH-02 | Phase 33 | Complete |
@@ -77,8 +77,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MATCH-05 | Phase 33 | Complete |
 | MATCH-06 | Phase 34 | Complete |
 | MATCH-07 | Phase 33 + Phase 36 | Complete |
-| EMETH-01 | Phase 36 | Pending |
-| EMETH-02 | Phase 36 | Pending |
+| EMETH-01 | Phase 36 | Complete |
+| EMETH-02 | Phase 36 | Complete |
 | GENER-01 | Phase 37 | Pending |
 | GENER-02 | Phase 37 | Pending |
 | GENER-03 | Phase 37 | Pending |
