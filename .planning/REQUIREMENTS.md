@@ -83,8 +83,8 @@ Requirements for closing all 12 semantic analysis gaps. Each maps to roadmap pha
 
 ### Testing
 
-- [ ] **TEST-01**: Each new error/warning diagnostic has at least one test case with Iron source that triggers it
-- [ ] **TEST-02**: Each diagnostic has at least one test case with valid Iron source that should NOT trigger it (no false positives)
+- [x] **TEST-01**: Each new error/warning diagnostic has at least one test case with Iron source that triggers it
+- [x] **TEST-02**: Each diagnostic has at least one test case with valid Iron source that should NOT trigger it (no false positives)
 - [ ] **TEST-03**: Complex analyses (definite assignment, escape, concurrency) have edge-case tests for branching, loops, and nested structures
 
 ## v2 Requirements
@@ -162,8 +162,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | CONC-03 | Phase 38 | Complete |
 | CONC-04 | Phase 38 | Complete |
 | CONC-05 | Phase 38 | Complete |
-| TEST-01 | Phase 39 | Pending |
-| TEST-02 | Phase 39 | Pending |
+| TEST-01 | Phase 39 | Complete |
+| TEST-02 | Phase 39 | Complete |
 | TEST-03 | Phase 39 | Pending |
 
 **Coverage:**
