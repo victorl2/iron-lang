@@ -693,8 +693,8 @@ Plans:
   4. Nested generic types (`Result[Option[T], E]`) monomorphize without error or infinite expansion.
 **Plans**: 2 plans
 Plans:
-- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
-- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
+- [ ] 37-01-PLAN.md -- AST, types, parser, and type checker for generic enum support (GENER-01, GENER-02)
+- [ ] 37-02-PLAN.md -- HIR/LIR registration, C emitter, and integration tests (GENER-01, GENER-02, GENER-03)
 
 ### Phase 38: Recursive Variant Auto-Boxing
 **Goal**: The compiler detects recursive variant types (a variant whose payload directly or transitively contains the owning enum) and automatically heap-allocates those fields via the arena, so users can write recursive data types without any annotation.
