@@ -248,6 +248,44 @@ static void check_body_stmts(ConcurrencyCtx *ctx, Iron_Node **stmts, int count) 
 static void walk_stmts(ConcurrencyCtx *ctx, Iron_Node **stmts, int count);
 static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node);
 
+/* After mutation checking in parallel-for bodies, also walk for nested
+ * spawn/parallel-for blocks that need their own analysis. */
+static void walk_nested_in_parallel_body(ConcurrencyCtx *ctx, Iron_Node *node) {
+    if (!node) return;
+    switch (node->kind) {
+        case IRON_NODE_BLOCK: {
+            Iron_Block *blk = (Iron_Block *)node;
+            for (int i = 0; i < blk->stmt_count; i++)
+                walk_nested_in_parallel_body(ctx, blk->stmts[i]);
+            break;
+        }
+        case IRON_NODE_SPAWN:
+            /* Delegate to walk_stmt which handles spawn capture analysis */
+            walk_stmt(ctx, node);
+            break;
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is = (Iron_IfStmt *)node;
+            if (is->body) walk_nested_in_parallel_body(ctx, is->body);
+            for (int i = 0; i < is->elif_count; i++)
+                walk_nested_in_parallel_body(ctx, is->elif_bodies[i]);
+            if (is->else_body) walk_nested_in_parallel_body(ctx, is->else_body);
+            break;
+        }
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            if (fs->body) walk_nested_in_parallel_body(ctx, fs->body);
+            break;
+        }
+        case IRON_NODE_WHILE: {
+            Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
+            if (ws->body) walk_nested_in_parallel_body(ctx, ws->body);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
     if (!node) return;
     switch (node->kind) {
@@ -274,6 +312,9 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
 
                 /* Check assignments in the body */
                 check_stmt_for_mutation(ctx, fs->body);
+
+                /* Walk nested spawn/parallel-for blocks inside the body */
+                walk_nested_in_parallel_body(ctx, fs->body);
 
                 /* Restore local names to pre-parallel-for state */
                 arrsetlen(ctx->local_names, saved_count);
