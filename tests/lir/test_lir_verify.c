@@ -313,6 +313,7 @@ void test_verify_phi_well_formed(void) {
 
     TEST_ASSERT_TRUE(result);
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    TEST_ASSERT_FALSE(has_error(&diags, IRON_ERR_LIR_PHI_TYPE_MISMATCH));
 
     iron_diaglist_free(&diags);
     iron_lir_module_destroy(mod);
