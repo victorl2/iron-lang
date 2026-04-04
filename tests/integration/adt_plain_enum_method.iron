@@ -7,7 +7,7 @@ enum Dir {
   West,
 }
 
-func Dir.is_vertical() -> bool {
+func Dir.is_vertical() -> Bool {
   match self {
     Dir.North -> return true
     Dir.South -> return true
