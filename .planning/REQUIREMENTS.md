@@ -12,7 +12,7 @@ Requirements for ADT milestone. Each maps to roadmap phases.
 - [ ] **EDATA-01**: Enum variants can hold tuple-style associated data (`Circle(Float)`, `BinOp(Expr, Op, Expr)`)
 - [x] **EDATA-02**: Variant construction uses dot syntax (`Shape.Circle(5.0)`)
 - [x] **EDATA-03**: Plain C-style enums (no payloads) continue to compile and work unchanged
-- [ ] **EDATA-04**: Compiler detects recursive variant types and auto-boxes them (heap allocation via arena)
+- [x] **EDATA-04**: Compiler detects recursive variant types and auto-boxes them (heap allocation via arena)
 
 ### Pattern Matching
 
@@ -69,7 +69,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EDATA-01 | Phase 32 | Pending |
 | EDATA-02 | Phase 32 | Complete |
 | EDATA-03 | Phase 32 + Phase 34 | Complete |
-| EDATA-04 | Phase 38 | Pending |
+| EDATA-04 | Phase 38 | Complete |
 | MATCH-01 | Phase 32 + Phase 36 | Complete |
 | MATCH-02 | Phase 33 | Complete |
 | MATCH-03 | Phase 33 | Complete |
