@@ -26,6 +26,7 @@
 
 #include "analyzer/typecheck.h"
 #include "lexer/lexer.h"
+#include "util/strbuf.h"
 #include "vendor/stb_ds.h"
 
 #include <string.h>
@@ -225,6 +226,59 @@ static NarrowEntry *narrowing_copy(TypeCtx *ctx) {
     return copy;
 }
 
+/* ── Generic type substitution ───────────────────────────────────────────── */
+
+/* Recursively substitute IRON_TYPE_GENERIC_PARAM with concrete types.
+ * Maps ed->generic_params[i].name -> type_args[i]. */
+static Iron_Type *substitute_generic_type(TypeCtx *ctx, Iron_Type *t,
+                                           Iron_EnumDecl *ed,
+                                           Iron_Type **type_args,
+                                           int type_arg_count) {
+    if (!t) return t;
+    switch (t->kind) {
+        case IRON_TYPE_GENERIC_PARAM: {
+            /* Find the param index by name */
+            for (int i = 0; i < type_arg_count && i < ed->generic_param_count; i++) {
+                Iron_Ident *param = (Iron_Ident *)ed->generic_params[i];
+                if (param && t->generic_param.name &&
+                    strcmp(param->name, t->generic_param.name) == 0) {
+                    return type_args[i];
+                }
+            }
+            return t; /* unmatched param, return as-is */
+        }
+        case IRON_TYPE_NULLABLE: {
+            Iron_Type *inner = substitute_generic_type(ctx, t->nullable.inner,
+                                                        ed, type_args, type_arg_count);
+            if (inner == t->nullable.inner) return t;
+            return iron_type_make_nullable(ctx->arena, inner);
+        }
+        case IRON_TYPE_ARRAY: {
+            Iron_Type *elem = substitute_generic_type(ctx, t->array.elem,
+                                                       ed, type_args, type_arg_count);
+            if (elem == t->array.elem) return t;
+            return iron_type_make_array(ctx->arena, elem, t->array.size);
+        }
+        case IRON_TYPE_ENUM: {
+            /* Nested generic enum: no deep substitution in this phase */
+            if (t->enu.type_arg_count == 0) return t;
+            bool changed = false;
+            Iron_Type **new_args = iron_arena_alloc(ctx->arena,
+                sizeof(Iron_Type *) * (size_t)t->enu.type_arg_count,
+                _Alignof(Iron_Type *));
+            for (int i = 0; i < t->enu.type_arg_count; i++) {
+                new_args[i] = substitute_generic_type(ctx, t->enu.type_args[i],
+                                                       ed, type_args, type_arg_count);
+                if (new_args[i] != t->enu.type_args[i]) changed = true;
+            }
+            if (!changed) return t;
+            return t; /* nested generic substitution deferred */
+        }
+        default:
+            return t; /* primitive types, etc. — no substitution needed */
+    }
+}
+
 /* ── Type annotation resolution ─────────────────────────────────────────── */
 
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
@@ -260,6 +314,91 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
         if (sym) {
             base = sym->type;
+            /* Generic enum instantiation: Option[Int], Result[T, E] */
+            if (base && base->kind == IRON_TYPE_ENUM &&
+                base->enu.decl && base->enu.decl->generic_param_count > 0 &&
+                ann->generic_arg_count > 0) {
+                Iron_EnumDecl *ed = base->enu.decl;
+                if (ann->generic_arg_count != ed->generic_param_count) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "generic enum '%s' expects %d type argument(s) but got %d",
+                             ed->name, ed->generic_param_count, ann->generic_arg_count);
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ann_node->span, msg, NULL);
+                } else {
+                    /* Resolve each generic arg to a concrete type */
+                    Iron_Type **type_args = iron_arena_alloc(ctx->arena,
+                        sizeof(Iron_Type *) * (size_t)ann->generic_arg_count,
+                        _Alignof(Iron_Type *));
+                    for (int i = 0; i < ann->generic_arg_count; i++) {
+                        type_args[i] = resolve_type_annotation(ctx, ann->generic_args[i]);
+                    }
+
+                    /* Build mangled name: "Iron_Option_Int", "Iron_Result_Int_String" */
+                    Iron_StrBuf sb = iron_strbuf_create(64);
+                    iron_strbuf_appendf(&sb, "Iron_%s", ed->name);
+                    for (int i = 0; i < ann->generic_arg_count; i++) {
+                        iron_strbuf_appendf(&sb, "_%s",
+                            iron_type_to_string(type_args[i], ctx->arena));
+                    }
+                    const char *mangled = iron_arena_strdup(ctx->arena,
+                        iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+
+                    /* Build monomorphized Iron_Type */
+                    Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
+                        _Alignof(Iron_Type));
+                    memset(mono, 0, sizeof(*mono));
+                    mono->kind = IRON_TYPE_ENUM;
+                    mono->enu.decl = ed;
+                    mono->enu.type_args = type_args;
+                    mono->enu.type_arg_count = ann->generic_arg_count;
+                    mono->enu.mangled_name = mangled;
+
+                    /* Substitute variant_payload_types:
+                     * Push generic param names as GENERIC_PARAM types in a temporary scope,
+                     * resolve each variant's payload type annotations, then substitute. */
+                    Iron_Scope *saved_scope = ctx->global_scope;
+                    Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+                        ctx->global_scope, IRON_SCOPE_BLOCK);
+                    for (int i = 0; i < ed->generic_param_count; i++) {
+                        Iron_Ident *param = (Iron_Ident *)ed->generic_params[i];
+                        if (param) {
+                            Iron_Type *gpt = iron_type_make_generic_param(
+                                ctx->arena, param->name, NULL);
+                            Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
+                                param->name, IRON_SYM_TYPE, NULL,
+                                (Iron_Span){0, 0, 0, 0, 0});
+                            gsym->type = gpt;
+                            iron_scope_define(gen_scope, ctx->arena, gsym);
+                        }
+                    }
+                    ctx->global_scope = gen_scope;
+
+                    Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
+                        sizeof(Iron_Type **) * (size_t)ed->variant_count,
+                        _Alignof(Iron_Type **));
+                    memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
+                    for (int j = 0; j < ed->variant_count; j++) {
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                        if (ev->payload_count == 0) { vpt[j] = NULL; continue; }
+                        Iron_Type **row = iron_arena_alloc(ctx->arena,
+                            sizeof(Iron_Type *) * (size_t)ev->payload_count,
+                            _Alignof(Iron_Type *));
+                        for (int k = 0; k < ev->payload_count; k++) {
+                            Iron_Type *pt = resolve_type_annotation(
+                                ctx, ev->payload_type_anns[k]);
+                            row[k] = substitute_generic_type(ctx, pt, ed,
+                                type_args, ann->generic_arg_count);
+                        }
+                        vpt[j] = row;
+                    }
+                    ctx->global_scope = saved_scope;
+
+                    mono->enu.variant_payload_types = vpt;
+                    base = mono;
+                }
+            }
         } else {
             char msg[256];
             snprintf(msg, sizeof(msg), "unknown type '%s'", name);
@@ -994,6 +1133,142 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
             Iron_Type *enum_type = esym->type;
             Iron_EnumDecl *ed = enum_type->enu.decl;
+
+            /* Generic enum: infer type args from argument types */
+            if (ed->generic_param_count > 0) {
+                int vi = find_variant_index(ed, ec->variant_name);
+                if (vi < 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
+                             ec->enum_name, ec->variant_name);
+                    emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, NULL);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    break;
+                }
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+                if (ec->arg_count != ev->payload_count) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "%s.%s expects %d argument(s) but got %d",
+                             ec->enum_name, ec->variant_name, ev->payload_count, ec->arg_count);
+                    emit_error(ctx, IRON_ERR_PATTERN_ARITY, ec->span, msg, NULL);
+                    ec->resolved_type = enum_type;
+                    result = enum_type;
+                    break;
+                }
+
+                /* Infer type args from argument types */
+                Iron_Type **inferred_args = iron_arena_alloc(ctx->arena,
+                    sizeof(Iron_Type *) * (size_t)ed->generic_param_count,
+                    _Alignof(Iron_Type *));
+                memset(inferred_args, 0,
+                    sizeof(Iron_Type *) * (size_t)ed->generic_param_count);
+
+                /* Push generic param scope for resolving payload type annotations */
+                Iron_Scope *saved_gen = ctx->global_scope;
+                Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+                    ctx->global_scope, IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                    if (param) {
+                        Iron_Type *gpt = iron_type_make_generic_param(
+                            ctx->arena, param->name, NULL);
+                        Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
+                            param->name, IRON_SYM_TYPE, NULL,
+                            (Iron_Span){0, 0, 0, 0, 0});
+                        gsym->type = gpt;
+                        iron_scope_define(gen_scope, ctx->arena, gsym);
+                    }
+                }
+                ctx->global_scope = gen_scope;
+
+                /* Type-check args and infer generic type params */
+                for (int j = 0; j < ec->arg_count; j++) {
+                    Iron_Type *arg_t = check_expr(ctx, ec->args[j]);
+                    Iron_Type *expected = resolve_type_annotation(
+                        ctx, ev->payload_type_anns[j]);
+                    /* If expected is GENERIC_PARAM, map it to arg_t */
+                    if (expected && expected->kind == IRON_TYPE_GENERIC_PARAM) {
+                        for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                            Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                            if (param && expected->generic_param.name &&
+                                strcmp(param->name, expected->generic_param.name) == 0) {
+                                inferred_args[gi] = arg_t;
+                                break;
+                            }
+                        }
+                    }
+                }
+                ctx->global_scope = saved_gen;
+
+                /* Build mangled name from inferred args */
+                Iron_StrBuf sb = iron_strbuf_create(64);
+                iron_strbuf_appendf(&sb, "Iron_%s", ed->name);
+                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    if (inferred_args[gi]) {
+                        iron_strbuf_appendf(&sb, "_%s",
+                            iron_type_to_string(inferred_args[gi], ctx->arena));
+                    } else {
+                        iron_strbuf_appendf(&sb, "_unknown");
+                    }
+                }
+                const char *mangled = iron_arena_strdup(ctx->arena,
+                    iron_strbuf_get(&sb), sb.len);
+                iron_strbuf_free(&sb);
+
+                /* Create monomorphized type */
+                Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
+                    _Alignof(Iron_Type));
+                memset(mono, 0, sizeof(*mono));
+                mono->kind = IRON_TYPE_ENUM;
+                mono->enu.decl = ed;
+                mono->enu.type_args = inferred_args;
+                mono->enu.type_arg_count = ed->generic_param_count;
+                mono->enu.mangled_name = mangled;
+
+                /* Substitute variant_payload_types */
+                Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
+                    sizeof(Iron_Type **) * (size_t)ed->variant_count,
+                    _Alignof(Iron_Type **));
+                memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
+                Iron_Scope *saved_gen2 = ctx->global_scope;
+                Iron_Scope *gen2 = iron_scope_create(ctx->arena,
+                    ctx->global_scope, IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                    if (param) {
+                        Iron_Type *gpt = iron_type_make_generic_param(
+                            ctx->arena, param->name, NULL);
+                        Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
+                            param->name, IRON_SYM_TYPE, NULL,
+                            (Iron_Span){0, 0, 0, 0, 0});
+                        gsym->type = gpt;
+                        iron_scope_define(gen2, ctx->arena, gsym);
+                    }
+                }
+                ctx->global_scope = gen2;
+                for (int vj = 0; vj < ed->variant_count; vj++) {
+                    Iron_EnumVariant *vev = (Iron_EnumVariant *)ed->variants[vj];
+                    if (vev->payload_count == 0) { vpt[vj] = NULL; continue; }
+                    Iron_Type **row = iron_arena_alloc(ctx->arena,
+                        sizeof(Iron_Type *) * (size_t)vev->payload_count,
+                        _Alignof(Iron_Type *));
+                    for (int kk = 0; kk < vev->payload_count; kk++) {
+                        Iron_Type *pt = resolve_type_annotation(
+                            ctx, vev->payload_type_anns[kk]);
+                        row[kk] = substitute_generic_type(ctx, pt, ed,
+                            inferred_args, ed->generic_param_count);
+                    }
+                    vpt[vj] = row;
+                }
+                ctx->global_scope = saved_gen2;
+                mono->enu.variant_payload_types = vpt;
+
+                ec->resolved_type = mono;
+                result = mono;
+                break;
+            }
+
+            /* Non-generic enum: standard handling */
             int vi = find_variant_index(ed, ec->variant_name);
             if (vi < 0) {
                 char msg[256];
@@ -1748,6 +2023,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         if (!decl || decl->kind != IRON_NODE_ENUM_DECL) continue;
         Iron_EnumDecl *ed = (Iron_EnumDecl *)decl;
         if (!ed->has_payloads) continue;
+        if (ed->generic_param_count > 0) continue; /* monomorphized in resolve_type_annotation */
         /* Look up the enum's type (registered by resolver in global scope) */
         Iron_Symbol *esym = iron_scope_lookup(ctx.global_scope, ed->name);
         if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) continue;
