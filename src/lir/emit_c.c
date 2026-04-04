@@ -1251,12 +1251,78 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
         /* Use -> when the object value comes from a heap or rc allocation,
          * or when loaded from an alloca that holds a pointer (RC-typed alloca). */
         bool obj_is_ptr = val_is_heap_ptr(fn, instr->field.object);
-        iron_strbuf_appendf(sb, "%s%s;\n", obj_is_ptr ? "->" : ".", instr->field.field);
+
+        /* Check if this field access is on a boxed recursive ADT slot:
+         * field path format is "data.VariantName._N" — if slot N is boxed, wrap with *() */
+        bool needs_deref = false;
+        if (instr->field.field) {
+            const char *last_dot = strrchr(instr->field.field, '.');
+            if (last_dot && last_dot[1] == '_' && last_dot[2] >= '0' && last_dot[2] <= '9') {
+                const char *data_pos = strstr(instr->field.field, "data.");
+                if (data_pos) {
+                    const char *vname_start = data_pos + 5; /* skip "data." */
+                    const char *vname_end = strchr(vname_start, '.');
+                    if (vname_end) {
+                        int slot_idx = atoi(last_dot + 2);
+                        /* Resolve the object's enum type through LOAD/ALLOCA */
+                        Iron_Type *obj_enum_type = NULL;
+                        IronLIR_ValueId obj_vid = instr->field.object;
+                        /* First try direct type */
+                        Iron_Type *direct_t = get_value_type(fn, obj_vid);
+                        if (direct_t && direct_t->kind == IRON_TYPE_ENUM) {
+                            obj_enum_type = direct_t;
+                        } else if (obj_vid != IRON_LIR_VALUE_INVALID &&
+                                   obj_vid < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                   fn->value_table[obj_vid] &&
+                                   fn->value_table[obj_vid]->kind == IRON_LIR_LOAD) {
+                            /* LOAD from ALLOCA: look at the alloca type */
+                            IronLIR_ValueId ptr = fn->value_table[obj_vid]->load.ptr;
+                            if (ptr != IRON_LIR_VALUE_INVALID &&
+                                ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                fn->value_table[ptr] &&
+                                fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
+                                Iron_Type *at = fn->value_table[ptr]->alloca.alloc_type;
+                                if (at && at->kind == IRON_TYPE_ENUM) obj_enum_type = at;
+                            }
+                        }
+                        if (obj_enum_type && obj_enum_type->enu.decl &&
+                            obj_enum_type->enu.payload_is_boxed) {
+                            Iron_EnumDecl *ged = obj_enum_type->enu.decl;
+                            size_t vname_len = (size_t)(vname_end - vname_start);
+                            char vname[128];
+                            if (vname_len < sizeof(vname)) {
+                                memcpy(vname, vname_start, vname_len);
+                                vname[vname_len] = '\0';
+                                for (int vi = 0; vi < ged->variant_count; vi++) {
+                                    Iron_EnumVariant *gev = (Iron_EnumVariant *)ged->variants[vi];
+                                    if (strcmp(gev->name, vname) == 0) {
+                                        if (obj_enum_type->enu.payload_is_boxed[vi] &&
+                                            slot_idx < gev->payload_count &&
+                                            obj_enum_type->enu.payload_is_boxed[vi][slot_idx]) {
+                                            needs_deref = true;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (needs_deref) {
+            iron_strbuf_appendf(sb, " = *(");
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "%s%s);\n", obj_is_ptr ? "->" : ".", instr->field.field);
+        } else {
+            iron_strbuf_appendf(sb, " = ");
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "%s%s;\n", obj_is_ptr ? "->" : ".", instr->field.field);
+        }
         break;
     }
 
@@ -1800,10 +1866,6 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_CONSTRUCT: {
         /* Emit: T _vN = { .field0 = _vA, .field1 = _vB, ... }; */
         const char *c_type = emit_type_to_c(instr->construct.type, ctx);
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", c_type);
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = {");
 
         /* ADT enum with payloads: emit { .tag = T_TAG_V, .data.V = { payload... } } */
         if (instr->construct.type &&
@@ -1828,17 +1890,50 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             if (variant_idx < 0 || variant_idx >= adt_ed->variant_count)
                 variant_idx = 0;
             Iron_EnumVariant *adt_ev = (Iron_EnumVariant *)adt_ed->variants[variant_idx];
+            int payload_count = instr->construct.field_count - 1;
+
+            /* Pre-emit malloc for boxed fields (before struct literal) */
+            bool *pib = NULL;
+            if (instr->construct.type->enu.payload_is_boxed &&
+                instr->construct.type->enu.payload_is_boxed[variant_idx]) {
+                pib = instr->construct.type->enu.payload_is_boxed[variant_idx];
+            }
+            if (pib && payload_count > 0 && adt_ev->payload_count > 0) {
+                for (int pi = 0; pi < payload_count && pi < adt_ev->payload_count; pi++) {
+                    if (pib[pi]) {
+                        Iron_Type ***vpt_box = instr->construct.type->enu.variant_payload_types;
+                        const char *field_type = (vpt_box && vpt_box[variant_idx] && vpt_box[variant_idx][pi])
+                            ? emit_type_to_c(vpt_box[variant_idx][pi], ctx) : "void";
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s *__box_%u_%d = (%s *)malloc(sizeof(%s));\n",
+                            field_type, (unsigned)instr->id, pi, field_type, field_type);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "*__box_%u_%d = ", (unsigned)instr->id, pi);
+                        emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ";\n");
+                    }
+                }
+            }
+
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {");
+
             /* Emit .tag */
             iron_strbuf_appendf(sb, " .tag = %s_TAG_%s", adt_mangled, adt_ev->name);
             /* Emit .data.VariantName = { payload... } if any payloads */
-            int payload_count = instr->construct.field_count - 1;
             if (payload_count > 0 && adt_ev->payload_count > 0) {
                 iron_strbuf_appendf(sb, ", .data.%s = {", adt_ev->name);
-                for (int pi = 0; pi < payload_count; pi++) {
+                for (int pi = 0; pi < payload_count && pi < adt_ev->payload_count; pi++) {
                     if (pi > 0) iron_strbuf_appendf(sb, ", ");
                     else iron_strbuf_appendf(sb, " ");
                     iron_strbuf_appendf(sb, "._%d = ", pi);
-                    emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, ctx->current_block_id, 0);
+                    if (pib && pib[pi]) {
+                        iron_strbuf_appendf(sb, "__box_%u_%d", (unsigned)instr->id, pi);
+                    } else {
+                        emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, ctx->current_block_id, 0);
+                    }
                 }
                 iron_strbuf_appendf(sb, " }");
             }
@@ -1846,6 +1941,10 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else if (instr->construct.type &&
             instr->construct.type->kind == IRON_TYPE_OBJECT &&
             instr->construct.type->object.decl) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {");
             Iron_ObjectDecl *od = instr->construct.type->object.decl;
             int field_start = 0;
             /* If the object has a parent, first field is _base */
@@ -1874,6 +1973,10 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, ctx->current_block_id, 0);
             }
         } else {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {");
             /* Fallback: positional initialization */
             for (int i = 0; i < instr->construct.field_count; i++) {
                 if (i > 0) iron_strbuf_appendf(sb, ", ");
@@ -3252,8 +3355,18 @@ static void emit_type_decls(EmitCtx *ctx) {
                     if (vpt && vpt[j] && vpt[j][k]) {
                         pt = emit_type_to_c(vpt[j][k], ctx);
                     }
+                    bool is_boxed = false;
+                    if (td->type->enu.payload_is_boxed &&
+                        td->type->enu.payload_is_boxed[j] &&
+                        td->type->enu.payload_is_boxed[j][k]) {
+                        is_boxed = true;
+                    }
                     if (k > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
-                    iron_strbuf_appendf(&ctx->struct_bodies, "%s _%d;", pt, k);
+                    if (is_boxed) {
+                        iron_strbuf_appendf(&ctx->struct_bodies, "%s *_%d;", pt, k);
+                    } else {
+                        iron_strbuf_appendf(&ctx->struct_bodies, "%s _%d;", pt, k);
+                    }
                 }
                 iron_strbuf_appendf(&ctx->struct_bodies,
                                      " } %s_%s_data;\n", mangled, ev->name);
