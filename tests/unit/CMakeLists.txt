@@ -63,6 +63,11 @@ target_link_libraries(test_concurrency iron_compiler unity)
 add_test(NAME test_concurrency COMMAND test_concurrency)
 set_tests_properties(test_concurrency PROPERTIES LABELS "unit")
 
+add_executable(test_init_check test_init_check.c)
+target_link_libraries(test_init_check iron_compiler unity)
+add_test(NAME test_init_check COMMAND test_init_check)
+set_tests_properties(test_init_check PROPERTIES LABELS "unit")
+
 add_executable(test_comptime test_comptime.c)
 target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)

@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <errno.h>
 
 /* ── Type checker context ────────────────────────────────────────────────── */
 
@@ -103,6 +104,85 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                                                    strlen(suggestion)) : NULL);
 }
 
+static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
+                         const char *msg, const char *suggestion) {
+    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
+                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                   suggestion ? iron_arena_strdup(ctx->arena, suggestion,
+                                                   strlen(suggestion)) : NULL);
+}
+
+static int type_bit_width(const Iron_Type *t) {
+    if (!t) return 0;
+    switch (t->kind) {
+        case IRON_TYPE_INT8:   case IRON_TYPE_UINT8:   return 8;
+        case IRON_TYPE_INT16:  case IRON_TYPE_UINT16:  return 16;
+        case IRON_TYPE_INT32:  case IRON_TYPE_UINT32:  return 32;
+        case IRON_TYPE_INT64:  case IRON_TYPE_UINT64:  return 64;
+        case IRON_TYPE_INT:    case IRON_TYPE_UINT:    return 64;
+        case IRON_TYPE_FLOAT32:                        return 32;
+        case IRON_TYPE_FLOAT64: case IRON_TYPE_FLOAT:  return 64;
+        case IRON_TYPE_BOOL:                           return 1;
+        default:                                       return 0;
+    }
+}
+
+static bool value_fits_type(int64_t val, const Iron_Type *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case IRON_TYPE_INT8:   return val >= -128 && val <= 127;
+        case IRON_TYPE_INT16:  return val >= -32768 && val <= 32767;
+        case IRON_TYPE_INT32:  return val >= INT32_MIN && val <= INT32_MAX;
+        case IRON_TYPE_INT64:  return true;
+        case IRON_TYPE_INT:    return true;
+        case IRON_TYPE_UINT8:  return val >= 0 && val <= 255;
+        case IRON_TYPE_UINT16: return val >= 0 && val <= 65535;
+        case IRON_TYPE_UINT32: return val >= 0 && (uint64_t)val <= UINT32_MAX;
+        case IRON_TYPE_UINT64: return val >= 0;
+        case IRON_TYPE_UINT:   return val >= 0;
+        default:               return true;
+    }
+}
+
+static bool is_narrow_integer(const Iron_Type *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case IRON_TYPE_INT8:  case IRON_TYPE_INT16:  case IRON_TYPE_INT32:
+        case IRON_TYPE_UINT8: case IRON_TYPE_UINT16: case IRON_TYPE_UINT32:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool is_compound_assign_op(Iron_OpKind op) {
+    return op == IRON_TOK_PLUS_ASSIGN ||
+           op == IRON_TOK_MINUS_ASSIGN ||
+           op == IRON_TOK_STAR_ASSIGN ||
+           op == IRON_TOK_SLASH_ASSIGN;
+}
+
+static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
+    if (!t) return false;
+    if (iron_type_is_numeric(t)) return true;
+    if (t->kind == IRON_TYPE_BOOL) return true;
+    if (t->kind == IRON_TYPE_STRING) return true;
+    if (t->kind == IRON_TYPE_ENUM) return true;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
+        const char *tname = t->object.decl->name;
+        for (int i = 0; i < ctx->program->decl_count; i++) {
+            Iron_Node *d = ctx->program->decls[i];
+            if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            if (strcmp(md->type_name, tname) == 0 &&
+                strcmp(md->method_name, "to_string") == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static void emit_type_mismatch(TypeCtx *ctx, Iron_Span span,
                                 Iron_Type *expected, Iron_Type *got) {
     char msg[512];
@@ -141,6 +221,133 @@ static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *i
     return (decl_t->kind == IRON_TYPE_INT32 &&
             init_t->kind == IRON_TYPE_INT &&
             init_node->kind == IRON_NODE_INT_LIT);
+}
+
+/* Try to extract a compile-time constant integer from an AST node.
+ * Returns true if the node is a constant integer (INT_LIT or -INT_LIT),
+ * and writes the value to *out. Returns false otherwise. */
+static bool try_get_constant_int(Iron_Node *node, long long *out) {
+    if (!node) return false;
+    if (node->kind == IRON_NODE_INT_LIT) {
+        Iron_IntLit *lit = (Iron_IntLit *)node;
+        if (!lit->value) return false;
+        errno = 0;
+        long long v = strtoll(lit->value, NULL, 10);
+        if (errno) return false;
+        *out = v;
+        return true;
+    }
+    /* Handle unary minus: -42 is UNARY(-, INT_LIT(42)) */
+    if (node->kind == IRON_NODE_UNARY) {
+        Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+        if (ue->op == IRON_TOK_MINUS && ue->operand &&
+            ue->operand->kind == IRON_NODE_INT_LIT) {
+            Iron_IntLit *lit = (Iron_IntLit *)ue->operand;
+            if (!lit->value) return false;
+            errno = 0;
+            long long v = strtoll(lit->value, NULL, 10);
+            if (errno) return false;
+            *out = -v;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* ── Generic constraint helpers ──────────────────────────────────────────── */
+
+/* Check if concrete_type satisfies the named constraint.
+ * A constraint is satisfied if:
+ *   (a) The constraint name resolves to an interface, and the concrete type
+ *       is an object that declares `implements ConstraintName`, OR
+ *   (b) The constraint name resolves to an interface, and the concrete type
+ *       is an object that has methods matching all interface method signatures
+ *       (structural check via program->decls scan).
+ * Returns true if satisfied or if constraint cannot be resolved. */
+static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
+                                       const char *constraint_name) {
+    if (!concrete_type || !constraint_name) return true;
+    if (concrete_type->kind == IRON_TYPE_ERROR) return true;
+
+    /* Look up the constraint as an interface */
+    Iron_Symbol *csym = iron_scope_lookup(ctx->global_scope, constraint_name);
+    if (!csym || csym->sym_kind != IRON_SYM_INTERFACE) return true;
+
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)csym->decl_node;
+    if (!iface) return true;
+
+    /* Check (a): object explicitly implements the interface */
+    if (concrete_type->kind == IRON_TYPE_OBJECT && concrete_type->object.decl) {
+        Iron_ObjectDecl *od = concrete_type->object.decl;
+        for (int i = 0; i < od->implements_count; i++) {
+            if (strcmp(od->implements_names[i], constraint_name) == 0)
+                return true;
+        }
+    }
+
+    /* Check (b): structural -- object has all required methods */
+    if (concrete_type->kind == IRON_TYPE_OBJECT && concrete_type->object.decl) {
+        Iron_ObjectDecl *od = concrete_type->object.decl;
+        bool all_found = true;
+        for (int k = 0; k < iface->method_count; k++) {
+            Iron_Node *sig = iface->method_sigs[k];
+            if (!sig) continue;
+            const char *mname = NULL;
+            if (sig->kind == IRON_NODE_FUNC_DECL)
+                mname = ((Iron_FuncDecl *)sig)->name;
+            if (!mname) continue;
+
+            bool found = false;
+            for (int m = 0; m < ctx->program->decl_count; m++) {
+                Iron_Node *d = ctx->program->decls[m];
+                if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *meth = (Iron_MethodDecl *)d;
+                if (strcmp(meth->type_name, od->name) == 0 &&
+                    strcmp(meth->method_name, mname) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) { all_found = false; break; }
+        }
+        if (all_found) return true;
+    }
+
+    /* Primitives and other non-object types do not satisfy interface constraints */
+    return false;
+}
+
+/* Check generic constraints for a declaration with generic params.
+ * generic_params: array of Iron_Ident* nodes (from FuncDecl/ObjectDecl)
+ * generic_param_count: number of generic params
+ * concrete_types: array of Iron_Type* for each param
+ * concrete_count: number of concrete types provided
+ * span: source span for error reporting */
+static void check_generic_constraints(TypeCtx *ctx,
+                                       Iron_Node **generic_params,
+                                       int generic_param_count,
+                                       Iron_Type **concrete_types,
+                                       int concrete_count,
+                                       Iron_Span span) {
+    int check_count = generic_param_count < concrete_count
+                      ? generic_param_count : concrete_count;
+    for (int i = 0; i < check_count; i++) {
+        if (!generic_params[i]) continue;
+        Iron_Ident *gp = (Iron_Ident *)generic_params[i];
+        if (!gp->constraint_name) continue;
+
+        Iron_Type *concrete = concrete_types[i];
+        if (!type_satisfies_constraint(ctx, concrete, gp->constraint_name)) {
+            char msg[512];
+            const char *type_str = concrete
+                ? iron_type_to_string(concrete, ctx->arena)
+                : "unknown";
+            snprintf(msg, sizeof(msg),
+                     "type '%s' does not satisfy constraint '%s'",
+                     type_str, gp->constraint_name);
+            emit_error(ctx, IRON_ERR_GENERIC_CONSTRAINT, span, msg, NULL);
+        }
+    }
 }
 
 /* ── Narrowing map helpers ────────────────────────────────────────────────── */
@@ -305,7 +512,20 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INTERP_STRING: {
             Iron_InterpString *n = (Iron_InterpString *)node;
             for (int i = 0; i < n->part_count; i++) {
-                check_expr(ctx, n->parts[i]);
+                Iron_Type *part_type = check_expr(ctx, n->parts[i]);
+                /* Skip string literals -- they are always stringifiable */
+                if (n->parts[i]->kind != IRON_NODE_STRING_LIT && part_type) {
+                    if (!is_stringifiable(ctx, part_type)) {
+                        char msg[256];
+                        const char *ts = iron_type_to_string(part_type, ctx->arena);
+                        snprintf(msg, sizeof(msg),
+                                 "type '%s' cannot be interpolated into a string "
+                                 "(will use address printing)", ts);
+                        emit_warning(ctx, IRON_WARN_NOT_STRINGABLE,
+                                     n->parts[i]->span, msg,
+                                     "add a to_string() method to this type");
+                    }
+                }
             }
             result = iron_type_make_primitive(IRON_TYPE_STRING);
             n->resolved_type = result;
@@ -476,7 +696,62 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         }
                         if (is_numeric_or_bool) {
                             /* Type-check the argument */
-                            check_expr(ctx, ce->args[0]);
+                            Iron_Type *src_type = check_expr(ctx, ce->args[0]);
+
+                            /* Cast source validation: source must be numeric or bool */
+                            if (src_type && src_type->kind != IRON_TYPE_ERROR) {
+                                bool src_ok = iron_type_is_numeric(src_type) ||
+                                              src_type->kind == IRON_TYPE_BOOL;
+                                if (!src_ok) {
+                                    char msg[256];
+                                    const char *src_s = iron_type_to_string(src_type, ctx->arena);
+                                    const char *tgt_s = iron_type_to_string(target_t, ctx->arena);
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot cast '%s' to '%s': source must be numeric or Bool",
+                                             src_s, tgt_s);
+                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg, NULL);
+                                }
+                                /* Int->Bool is disallowed (must use explicit comparison) */
+                                else if (iron_type_is_integer(src_type) &&
+                                         target_t->kind == IRON_TYPE_BOOL) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot cast integer to Bool");
+                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg,
+                                               "use 'x != 0' instead");
+                                }
+                                /* Narrowing check: wider integer -> narrower integer */
+                                else if (iron_type_is_integer(src_type) &&
+                                         iron_type_is_integer(target_t) &&
+                                         type_bit_width(src_type) > type_bit_width(target_t)) {
+                                    /* Check if source is a constant that fits */
+                                    if (ce->args[0]->kind == IRON_NODE_INT_LIT) {
+                                        Iron_IntLit *lit = (Iron_IntLit *)ce->args[0];
+                                        errno = 0;
+                                        int64_t val = strtoll(lit->value, NULL, 10);
+                                        if (errno == ERANGE || !value_fits_type(val, target_t)) {
+                                            char msg[256];
+                                            snprintf(msg, sizeof(msg),
+                                                     "%s does not fit in %s",
+                                                     lit->value,
+                                                     iron_type_to_string(target_t, ctx->arena));
+                                            emit_error(ctx, IRON_ERR_CAST_OVERFLOW, ce->span,
+                                                       msg, NULL);
+                                        }
+                                        /* else: constant fits, no warning */
+                                    } else {
+                                        char msg[256];
+                                        const char *src_s = iron_type_to_string(src_type, ctx->arena);
+                                        const char *tgt_s = iron_type_to_string(target_t, ctx->arena);
+                                        snprintf(msg, sizeof(msg),
+                                                 "narrowing cast from '%s' to '%s' may lose data",
+                                                 src_s, tgt_s);
+                                        emit_warning(ctx, IRON_WARN_NARROWING_CAST, ce->span,
+                                                     msg, "verify value is in range");
+                                    }
+                                }
+                            }
+
                             /* Mark as primitive cast for the lowerer */
                             ce->is_primitive_cast = true;
                             result = target_t;
@@ -520,6 +795,28 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 ((Iron_IntLit *)ce->args[i])->resolved_type = fld_t;
                             }
                         }
+                    }
+                    /* Check generic constraints on call-as-construction */
+                    if (od && od->generic_param_count > 0 && od->generic_params) {
+                        Iron_Type *concrete[16];
+                        int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
+                        for (int gi = 0; gi < gc; gi++) {
+                            concrete[gi] = NULL;
+                            Iron_Ident *gp = (Iron_Ident *)od->generic_params[gi];
+                            if (!gp) continue;
+                            for (int fi = 0; fi < od->field_count && fi < ce->arg_count; fi++) {
+                                Iron_Field *fld = (Iron_Field *)od->fields[fi];
+                                if (fld && fld->type_ann && fld->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
+                                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fld->type_ann;
+                                    if (strcmp(ta->name, gp->name) == 0) {
+                                        concrete[gi] = check_expr(ctx, ce->args[fi]);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        check_generic_constraints(ctx, od->generic_params, od->generic_param_count,
+                                                  concrete, gc, ce->span);
                     }
                     result = callee_sym->type;
                     ce->resolved_type = result;
@@ -620,6 +917,42 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* Narrow literal args to match parameter type */
                     if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         ((Iron_IntLit *)ce->args[i])->resolved_type = param_type;
+                    }
+                }
+            }
+
+            /* Check generic constraints if callee is a generic function */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                Iron_Symbol *fn_sym = iron_scope_lookup(ctx->global_scope, fn_id->name);
+                if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION && fn_sym->decl_node) {
+                    Iron_FuncDecl *fd = (Iron_FuncDecl *)fn_sym->decl_node;
+                    if (fd->generic_param_count > 0 && fd->generic_params) {
+                        Iron_Type *concrete[16];
+                        int gc = fd->generic_param_count < 16 ? fd->generic_param_count : 16;
+                        for (int gi = 0; gi < gc; gi++) {
+                            concrete[gi] = NULL;
+                            Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
+                            if (!gp) continue;
+                            for (int pi = 0; pi < fd->param_count && pi < ce->arg_count; pi++) {
+                                Iron_Param *fp = (Iron_Param *)fd->params[pi];
+                                if (fp && fp->type_ann && fp->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
+                                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fp->type_ann;
+                                    if (strcmp(ta->name, gp->name) == 0) {
+                                        concrete[gi] = check_expr(ctx, ce->args[pi]);
+                                        break;
+                                    }
+                                    if (ta->is_array && concrete[gi] == NULL) {
+                                        Iron_Type *arg_t = check_expr(ctx, ce->args[pi]);
+                                        if (arg_t && arg_t->kind == IRON_TYPE_ARRAY) {
+                                            concrete[gi] = arg_t->array.elem;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        check_generic_constraints(ctx, fd->generic_params, fd->generic_param_count,
+                                                  concrete, gc, ce->span);
                     }
                 }
             }
@@ -769,6 +1102,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         }
                     }
                 }
+                /* Check generic constraints on type construction */
+                if (od && od->generic_param_count > 0 && od->generic_params &&
+                    ce->generic_arg_count > 0 && ce->generic_args) {
+                    Iron_Type *concrete[16];
+                    int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
+                    int ac = ce->generic_arg_count < gc ? ce->generic_arg_count : gc;
+                    for (int gi = 0; gi < gc; gi++) {
+                        concrete[gi] = NULL;
+                        if (gi < ac && ce->generic_args[gi]) {
+                            concrete[gi] = resolve_type_annotation(ctx, ce->generic_args[gi]);
+                        }
+                    }
+                    check_generic_constraints(ctx, od->generic_params, od->generic_param_count,
+                                              concrete, gc, ce->span);
+                }
                 result = sym->type;
             } else if (sym->sym_kind == IRON_SYM_FUNCTION) {
                 Iron_Type *ft = sym->type;
@@ -808,9 +1156,31 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INDEX: {
             Iron_IndexExpr *idx_e = (Iron_IndexExpr *)node;
             Iron_Type *obj_type = check_expr(ctx, idx_e->object);
-            check_expr(ctx, idx_e->index);
+            Iron_Type *idx_type = check_expr(ctx, idx_e->index);
+
             if (obj_type && obj_type->kind == IRON_TYPE_ARRAY) {
                 result = obj_type->array.elem;
+
+                /* BOUNDS-03: Validate index expression is an integer type */
+                if (idx_type && idx_type->kind != IRON_TYPE_ERROR &&
+                    !iron_type_is_integer(idx_type)) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, idx_e->index->span,
+                               "array index must be an integer type", NULL);
+                }
+
+                /* BOUNDS-01/02: Check constant index against known array size */
+                long long idx_val;
+                if (obj_type->array.size >= 0 &&
+                    try_get_constant_int(idx_e->index, &idx_val)) {
+                    if (idx_val < 0 || idx_val >= obj_type->array.size) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "index %lld is out of bounds for array of size %d",
+                                 idx_val, obj_type->array.size);
+                        emit_error(ctx, IRON_ERR_INDEX_OUT_OF_BOUNDS,
+                                   idx_e->index->span, msg, NULL);
+                    }
+                }
             } else {
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
@@ -821,10 +1191,57 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_SLICE: {
             Iron_SliceExpr *se = (Iron_SliceExpr *)node;
             Iron_Type *obj_type = check_expr(ctx, se->object);
-            check_expr(ctx, se->start);
-            check_expr(ctx, se->end);
+            Iron_Type *start_type = se->start ? check_expr(ctx, se->start) : NULL;
+            Iron_Type *end_type   = se->end   ? check_expr(ctx, se->end)   : NULL;
             result = obj_type ? obj_type : iron_type_make_primitive(IRON_TYPE_ERROR);
             se->resolved_type = result;
+
+            /* SLICE-01: Validate start and end are integer types */
+            if (start_type && start_type->kind != IRON_TYPE_ERROR &&
+                !iron_type_is_integer(start_type)) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, se->start->span,
+                           "slice start must be an integer type", NULL);
+            }
+            if (end_type && end_type->kind != IRON_TYPE_ERROR &&
+                !iron_type_is_integer(end_type)) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, se->end->span,
+                           "slice end must be an integer type", NULL);
+            }
+
+            /* SLICE-02/03/04: Check constant bounds */
+            long long start_val, end_val;
+            bool has_start = se->start && try_get_constant_int(se->start, &start_val);
+            bool has_end   = se->end   && try_get_constant_int(se->end, &end_val);
+
+            if (has_start && start_val < 0) {
+                char msg[128];
+                snprintf(msg, sizeof(msg),
+                         "slice start %lld is negative", start_val);
+                emit_error(ctx, IRON_ERR_INVALID_SLICE_BOUNDS,
+                           se->start->span, msg, NULL);
+            } else if (has_start && has_end && start_val > end_val) {
+                /* SLICE-02: start <= end */
+                char msg[128];
+                snprintf(msg, sizeof(msg),
+                         "slice start %lld is greater than end %lld",
+                         start_val, end_val);
+                emit_error(ctx, IRON_ERR_INVALID_SLICE_BOUNDS,
+                           se->start->span, msg, NULL);
+            }
+
+            /* SLICE-03: end <= array size when all are constants */
+            if (has_end && obj_type && obj_type->kind == IRON_TYPE_ARRAY &&
+                obj_type->array.size >= 0) {
+                if (end_val > obj_type->array.size) {
+                    char msg[128];
+                    snprintf(msg, sizeof(msg),
+                             "slice end %lld exceeds array size %d",
+                             end_val, obj_type->array.size);
+                    emit_error(ctx, IRON_ERR_INVALID_SLICE_BOUNDS,
+                               se->end->span, msg, NULL);
+                }
+            }
+
             break;
         }
 
@@ -1072,6 +1489,30 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (is_int_literal_narrowing(target_type, value_type, as->value)) {
                 ((Iron_IntLit *)as->value)->resolved_type = target_type;
             }
+            /* Compound assignment overflow detection */
+            if (is_compound_assign_op(as->op) && target_type &&
+                target_type->kind != IRON_TYPE_ERROR &&
+                is_narrow_integer(target_type)) {
+                /* Check if RHS is a constant that fits the narrow target */
+                bool suppress = false;
+                if (as->value->kind == IRON_NODE_INT_LIT) {
+                    Iron_IntLit *lit = (Iron_IntLit *)as->value;
+                    errno = 0;
+                    int64_t val = strtoll(lit->value, NULL, 10);
+                    if (errno != ERANGE && value_fits_type(val, target_type)) {
+                        suppress = true;  /* constant fits -- no warning */
+                    }
+                }
+                if (!suppress) {
+                    char msg[256];
+                    const char *tgt_s = iron_type_to_string(target_type, ctx->arena);
+                    snprintf(msg, sizeof(msg),
+                             "compound assignment on narrow type '%s' may overflow",
+                             tgt_s);
+                    emit_warning(ctx, IRON_WARN_POSSIBLE_OVERFLOW, as->span,
+                                 msg, "consider using a wider type or checking bounds");
+                }
+            }
             break;
         }
 
@@ -1236,11 +1677,92 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
-            check_expr(ctx, ms->subject);
+            Iron_Type *subj_type = check_expr(ctx, ms->subject);
             for (int i = 0; i < ms->case_count; i++) {
                 if (ms->cases[i]) check_stmt(ctx, ms->cases[i]);
             }
             if (ms->else_body) check_stmt(ctx, ms->else_body);
+
+            /* Exhaustiveness check */
+            if (subj_type && subj_type->kind == IRON_TYPE_ENUM && subj_type->enu.decl) {
+                Iron_EnumDecl *edecl = subj_type->enu.decl;
+                int vc = edecl->variant_count;
+                /* Stack-allocate covered array (enums are small) */
+                bool covered[256];
+                if (vc > 256) vc = 256;  /* safety cap */
+                for (int i = 0; i < vc; i++) covered[i] = false;
+
+                for (int ci = 0; ci < ms->case_count; ci++) {
+                    if (!ms->cases[ci]) continue;
+                    Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[ci];
+                    if (!mc->pattern) continue;
+
+                    /* Pattern must be an IDENT resolving to an IRON_SYM_ENUM_VARIANT */
+                    if (mc->pattern->kind == IRON_NODE_IDENT) {
+                        Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                        if (pid->resolved_sym &&
+                            pid->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT) {
+                            /* Verify variant belongs to the SAME enum */
+                            if (pid->resolved_sym->type &&
+                                iron_type_equals(pid->resolved_sym->type, subj_type)) {
+                                /* Find variant index by name */
+                                for (int vi = 0; vi < vc; vi++) {
+                                    Iron_EnumVariant *ev =
+                                        (Iron_EnumVariant *)edecl->variants[vi];
+                                    if (ev && strcmp(ev->name, pid->name) == 0) {
+                                        if (covered[vi]) {
+                                            char msg[256];
+                                            snprintf(msg, sizeof(msg),
+                                                     "duplicate match arm for variant '%s'",
+                                                     pid->name);
+                                            emit_error(ctx, IRON_ERR_DUPLICATE_MATCH_ARM,
+                                                       mc->pattern->span, msg, NULL);
+                                        }
+                                        covered[vi] = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                /* Check for uncovered variants (only if no else clause) */
+                if (!ms->else_body) {
+                    char uncovered_names[1024];
+                    uncovered_names[0] = '\0';
+                    int uncovered_count = 0;
+                    for (int vi = 0; vi < vc; vi++) {
+                        if (!covered[vi]) {
+                            Iron_EnumVariant *ev =
+                                (Iron_EnumVariant *)edecl->variants[vi];
+                            if (ev) {
+                                if (uncovered_count > 0)
+                                    strncat(uncovered_names, ", ",
+                                            sizeof(uncovered_names) - strlen(uncovered_names) - 1);
+                                strncat(uncovered_names, ev->name,
+                                        sizeof(uncovered_names) - strlen(uncovered_names) - 1);
+                                uncovered_count++;
+                            }
+                        }
+                    }
+                    if (uncovered_count > 0) {
+                        char msg[1280];
+                        snprintf(msg, sizeof(msg),
+                                 "non-exhaustive match: uncovered variant(s): %s",
+                                 uncovered_names);
+                        emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH,
+                                   ms->subject->span, msg,
+                                   "add the missing variants or an else clause");
+                    }
+                }
+            } else if (!ms->else_body) {
+                /* Non-enum subject without else clause */
+                emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH,
+                           ms->subject->span,
+                           "match on non-enum type requires else clause",
+                           "add an else clause");
+            }
             break;
         }
 

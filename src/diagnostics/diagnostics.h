@@ -130,6 +130,17 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_LIR_INSTR_AFTER_TERMINATOR 303
 #define IRON_ERR_LIR_NO_ENTRY_BLOCK         304
 #define IRON_ERR_LIR_RETURN_TYPE_MISMATCH   305
+#define IRON_ERR_LIR_PHI_TYPE_MISMATCH      306
+#define IRON_ERR_LIR_CALL_TYPE_MISMATCH     307
+
+/* Type validation errors (308+ range) */
+#define IRON_ERR_NONEXHAUSTIVE_MATCH    308
+#define IRON_ERR_DUPLICATE_MATCH_ARM    309
+#define IRON_ERR_INVALID_CAST           310
+#define IRON_ERR_CAST_OVERFLOW          311
+#define IRON_ERR_INDEX_OUT_OF_BOUNDS    312
+#define IRON_ERR_INVALID_SLICE_BOUNDS   313
+#define IRON_ERR_POSSIBLY_UNINITIALIZED 314
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
@@ -149,5 +160,11 @@ void iron_diaglist_free(Iron_DiagList *list);
 
 /* Warning codes (600 range) */
 #define IRON_WARN_SPAWN_NO_HANDLE     600
+
+/* Type validation warnings (601+ range) */
+#define IRON_WARN_NARROWING_CAST        601
+#define IRON_WARN_NOT_STRINGABLE        602
+#define IRON_WARN_POSSIBLE_OVERFLOW     603
+#define IRON_WARN_SPAWN_DATA_RACE      604
 
 #endif /* IRON_DIAGNOSTICS_H */

@@ -7,7 +7,8 @@
 - v0.0.3-alpha Package Manager - Phases 12-14 (shipped 2026-03-28)
 - v0.0.5-alpha IR Optimization & High IR Architecture - Phases 15-20 (shipped 2026-03-30)
 - v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (shipped 2026-03-31)
-- v0.0.7-alpha Performance Optimization - Phases 24-30 (active)
+- v0.0.7-alpha Performance Optimization - Phases 24-31 (shipped 2026-04-01)
+- v0.0.8-alpha Semantic Analysis Gaps - Phases 32-39 (active)
 
 ## Phases
 
@@ -66,20 +67,34 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 21: Parallel-For Fix** - pfor integration tests and pfor-dependent algorithm tests all compile and pass after fixing `is_lifted_func()` prefix recognition (completed 2026-03-31)
 - [x] **Phase 22: Struct Codegen Fix** - Spurious constructor wrapping and excess CONSTRUCT field emission are eliminated; struct-dependent algorithm tests produce correct output (completed 2026-03-31)
-- [x] **Phase 23: Correctness Audit** - Systematic HIR→LIR→C audit identifies and fixes any remaining correctness gaps; new test cases cover all problem areas (completed 2026-03-31)
+- [x] **Phase 23: Correctness Audit** - Systematic HIR-to-LIR-to-C audit identifies and fixes any remaining correctness gaps; new test cases cover all problem areas (completed 2026-03-31)
 
 </details>
 
-### v0.0.7-alpha Performance Optimization
+<details>
+<summary>v0.0.7-alpha Performance Optimization (Phases 24-31) - SHIPPED 2026-04-01</summary>
 
-- [ ] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
-- [ ] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
-- [ ] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
+- [x] **Phase 24: Range Bound Hoisting** - `Iron_range()` is evaluated once in the loop pre-header; all for-range benchmarks show measurable speedup
+- [x] **Phase 25: Stack Array Promotion** - `fill(CONST, val)` with constant size promotes to `alloca()`-based stack allocation for non-escaping small arrays
+- [x] **Phase 26: LOAD Expression Inlining** - LOAD instructions are inline-eligible when their use is in the same block; cross-block LOADs remain excluded
 - [x] **Phase 27: Function Inlining** - Small pure non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint
-- [ ] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
-- [ ] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
-- [ ] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
+- [x] **Phase 28: Phi Elimination Improvement** - Copy coalescing in phi elimination reduces generated temporaries in complex control flow
+- [x] **Phase 29: Sized Integers** - `Int32` type annotation emits `int32_t` in generated C; array operations use 32-bit memory bandwidth
+- [x] **Phase 30: Benchmark Validation and Exploration** - Full benchmark suite run against pre-optimization baseline; exploration pass identifies any remaining opportunities
 - [x] **Phase 31: Spawn/Await Correctness** - Verify spawn/await semantics work end-to-end; fix concurrency benchmarks for fair timing
+
+</details>
+
+### v0.0.8-alpha Semantic Analysis Gaps
+
+- [ ] **Phase 32: LIR Verifier Hardening** - PHI type consistency and call argument validation catch type mismatches in the LIR before C emission
+- [ ] **Phase 33: Type Validation Checks** - Match exhaustiveness, cast safety, string interpolation stringability, and compound overflow checks catch invalid code in the type checker
+- [ ] **Phase 34: Bounds Checking** - Constant array index and slice bounds are validated at compile time against known sizes
+- [ ] **Phase 35: Escape Analysis Extension** - Field assignment, array index assignment, and function argument passing are tracked for heap escape
+- [x] **Phase 36: Definite Assignment Analysis** - Variables used before initialization on any control flow path produce a compile error
+- [ ] **Phase 37: Generic Constraint Checking** - Concrete type arguments that violate declared generic constraints are rejected at instantiation sites
+- [ ] **Phase 38: Concurrency Safety** - Mutation detection in parallel/spawn blocks covers field access, array index, and read-write race patterns
+- [ ] **Phase 39: Diagnostic Test Sweep** - Every new diagnostic has positive and negative tests; complex analyses have edge-case coverage
 
 ## Phase Details
 
@@ -297,16 +312,16 @@ Plans:
 **Depends on**: Phase 11
 **Requirements**: CLI2-01, CLI2-02, CLI2-03, CLI2-04
 **Success Criteria** (what must be TRUE):
-  1. `ironc build main.iron`, `ironc run main.iron`, `ironc check main.iron`, `ironc fmt main.iron`, and `ironc test tests/` all behave identically to the old `iron` equivalents — no behavior change, only a binary rename
+  1. `ironc build main.iron`, `ironc run main.iron`, `ironc check main.iron`, `ironc fmt main.iron`, and `ironc test tests/` all behave identically to the old `iron` equivalents -- no behavior change, only a binary rename
   2. `iron build main.iron` continues to work and produce the same output as before (backward compat fallback); a file argument triggers single-file mode with an optional deprecation hint
-  3. The `iron` binary discovers `ironc` at runtime by resolving its own executable path and checking for a sibling binary — no compile-time hardcoded paths, no `IRON_SOURCE_DIR` dependency
+  3. The `iron` binary discovers `ironc` at runtime by resolving its own executable path and checking for a sibling binary -- no compile-time hardcoded paths, no `IRON_SOURCE_DIR` dependency
   4. `cmake --install` (or the install script) installs both `iron` and `ironc` to the same directory and adds that directory to PATH
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 12-01-PLAN.md — Rename CMake target to ironc, add runtime path resolution
-- [x] 12-02-PLAN.md — Create iron package manager CLI with forwarding to ironc
-- [x] 12-03-PLAN.md — Install pipeline, CI workflows, and end-to-end verification
+- [x] 12-01-PLAN.md
+- [x] 12-02-PLAN.md
+- [x] 12-03-PLAN.md
 
 ### Phase 13: Project Workflow
 **Goal**: Users can create, build, run, check, and test iron.toml projects using the `iron` CLI with Cargo-style colored output
@@ -314,15 +329,15 @@ Plans:
 **Requirements**: PROJ-01, PROJ-02, PROJ-03, PROJ-04, PROJ-05, PROJ-06, DEP-01, DEP-02, CLI2-05
 **Success Criteria** (what must be TRUE):
   1. `iron init` in an empty directory creates `iron.toml` (with `[package]` and empty `[dependencies]`), `src/main.iron`, and `.gitignore`; `iron init --lib` creates `src/lib.iron` instead
-  2. `iron build` in a directory with `iron.toml` reads the manifest, collects source files, and produces a working binary via `ironc` — no dependency section required
+  2. `iron build` in a directory with `iron.toml` reads the manifest, collects source files, and produces a working binary via `ironc` -- no dependency section required
   3. `iron run` builds and immediately executes the package binary; `iron check` reports type errors without producing any output file; `iron test` discovers and runs all tests in the package
   4. All `iron` status lines use Cargo-style formatting: `  Compiling name v0.1.0`, `   Finished dev in 0.42s`, `    Running ./target/name`; colors are suppressed when stdout is not a TTY or `NO_COLOR` is set; Windows enables VT processing at startup
   5. `iron.toml` accepts `[dependencies]` entries in the form `name = { git = "owner/repo", version = "X.Y.Z" }` and parses them without error (resolution deferred to Phase 14)
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 13-01-PLAN.md — TOML parser extension, color.h, ironc --output flag
-- [x] 13-02-PLAN.md — iron init, build, run, check, test commands
+- [x] 13-01-PLAN.md
+- [x] 13-02-PLAN.md
 
 ### Phase 14: Dependency Resolution and Lockfile
 **Goal**: Iron projects can declare GitHub-sourced dependencies that are automatically fetched, compiled together, and pinned in a reproducible lockfile
@@ -336,8 +351,8 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 14-01-PLAN.md — Fetcher (GitHub API + tarball + cache) and lockfile (iron.lock read/write) infrastructure
-- [x] 14-02-PLAN.md — DFS resolver, source concatenation, cmd_build integration, CMake tests
+- [x] 14-01-PLAN.md
+- [x] 14-02-PLAN.md
 
 </details>
 
@@ -356,9 +371,9 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 15-01-PLAN.md — Extract passes from emit_c.c into ir_optimize module, wire CLI flags
-- [x] 15-02-PLAN.md — Implement copy propagation, constant folding, DCE with fixpoint loop
-- [x] 15-03-PLAN.md — Unit tests and .iron integration tests for all three passes
+- [x] 15-01-PLAN.md
+- [x] 15-02-PLAN.md
+- [x] 15-03-PLAN.md
 
 ### Phase 16: Expression Inlining
 **Goal**: The C emission backend reconstructs compound expressions for single-use pure values instead of emitting one temporary variable per IR instruction, closing the largest single performance gap
@@ -371,9 +386,9 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 16-01-PLAN.md — Use-count analysis, function purity, inline eligibility infrastructure, emit_expr_to_buf, unit tests
-- [x] 16-02-PLAN.md — Integration tests for expression inlining across Iron features
-- [x] 16-03-PLAN.md — Benchmark parity assertion for median_two_sorted_arrays
+- [x] 16-01-PLAN.md
+- [x] 16-02-PLAN.md
+- [x] 16-03-PLAN.md
 
 ### Phase 17: Strength Reduction & Store/Load Elimination
 **Goal**: Loop index patterns use induction variables instead of multiply-add, and redundant memory operations are removed
@@ -386,9 +401,9 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 17-01-PLAN.md — Store/load elimination with escape analysis, 3 unit tests
-- [x] 17-02-PLAN.md — Dominator tree, loop analysis, strength reduction pass, 3 unit tests
-- [x] 17-03-PLAN.md — Integration tests for both passes, full regression verification
+- [x] 17-01-PLAN.md
+- [x] 17-02-PLAN.md
+- [x] 17-03-PLAN.md
 
 ### Phase 18: Benchmark Validation
 **Goal**: Every benchmark meets its configured performance threshold, confirming the optimization passes collectively close the performance gap
@@ -402,10 +417,10 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
-- [x] 18-01-PLAN.md — Fix ARRAY_LIT inlining bug, add int32 emission-time narrowing
-- [x] 18-02-PLAN.md — Benchmark runner --json output and --compare mode
-- [x] 18-03-PLAN.md — 10 concurrency correctness benchmarks
-- [x] 18-04-PLAN.md — Threshold tuning and full suite validation
+- [x] 18-01-PLAN.md
+- [x] 18-02-PLAN.md
+- [x] 18-03-PLAN.md
+- [x] 18-04-PLAN.md
 
 ### Phase 19: LIR Rename & HIR Foundation
 **Goal**: The current IR is renamed to Lower IR (LIR) throughout the codebase, and a new High IR layer with structured control flow, named variables, and language-level constructs is established with printer and verifier
@@ -419,9 +434,9 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 19-01-PLAN.md — LIR rename: move directories and rename all IR symbols to LIR
-- [x] 19-02-PLAN.md — HIR data structures, constructors, and unit tests
-- [x] 19-03-PLAN.md — HIR printer and verifier with snapshot and error tests
+- [x] 19-01-PLAN.md
+- [x] 19-02-PLAN.md
+- [x] 19-03-PLAN.md
 
 ### Phase 20: HIR Lowering & Pipeline Cutover
 **Goal**: The compiler pipeline is AST-to-HIR-to-LIR-to-C, with the direct AST-to-LIR path removed after parity is confirmed
@@ -435,13 +450,13 @@ Plans:
 **Plans:** 7/7 plans complete
 
 Plans:
-- [x] 20-01-PLAN.md — AST-to-HIR lowering implementation + smoke tests
-- [x] 20-02-PLAN.md — HIR-to-LIR three-pass SSA lowering + smoke tests
-- [x] 20-03-PLAN.md — Pipeline wiring in build.c + parity verification
-- [x] 20-04-PLAN.md — Cutover: delete old lower files + cleanup
-- [x] 20-05-PLAN.md — Unit test suite: AST-to-HIR (50 tests)
-- [x] 20-06-PLAN.md — Unit test suite: HIR-to-LIR (50 tests)
-- [x] 20-07-PLAN.md — Integration test suite (100 .iron tests)
+- [x] 20-01-PLAN.md
+- [x] 20-02-PLAN.md
+- [x] 20-03-PLAN.md
+- [x] 20-04-PLAN.md
+- [x] 20-05-PLAN.md
+- [x] 20-06-PLAN.md
+- [x] 20-07-PLAN.md
 
 </details>
 
@@ -459,10 +474,10 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 21-01-PLAN.md — Fix is_lifted_func() prefix check and verify all pfor tests pass
+- [x] 21-01-PLAN.md
 
 ### Phase 22: Struct Codegen Fix
-**Goal**: Struct values are passed cleanly through the HIR pipeline — no spurious constructor wrapping, no excess CONSTRUCT field emission — and all struct-dependent algorithm tests produce correct output
+**Goal**: Struct values are passed cleanly through the HIR pipeline -- no spurious constructor wrapping, no excess CONSTRUCT field emission -- and all struct-dependent algorithm tests produce correct output
 **Depends on**: Phase 21
 **Requirements**: STRUCT-01, STRUCT-02, STRUCT-03, ALG-01, ALG-02, ALG-03
 **Success Criteria** (what must be TRUE):
@@ -474,11 +489,11 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 22-01-PLAN.md — Fix both struct bugs: remove spurious constructor detection + add field count clamp
-- [x] 22-02-PLAN.md — Add regression test and verify all algorithm/integration/composite tests pass
+- [x] 22-01-PLAN.md
+- [x] 22-02-PLAN.md
 
 ### Phase 23: Correctness Audit
-**Goal**: A systematic review of the HIR→LIR→C pipeline surface area identifies any remaining correctness bugs, all found issues are fixed with regression tests, and new test cases cover the problem areas addressed this milestone
+**Goal**: A systematic review of the HIR-to-LIR-to-C pipeline surface area identifies any remaining correctness bugs, all found issues are fixed with regression tests, and new test cases cover the problem areas addressed this milestone
 **Depends on**: Phase 22
 **Requirements**: AUDIT-01, AUDIT-02, AUDIT-03
 **Success Criteria** (what must be TRUE):
@@ -488,12 +503,13 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 23-01-PLAN.md — Systematic HIR→LIR→C audit and fix any additional issues
-- [x] 23-02-PLAN.md — New correctness test cases for pfor, struct passing, and audit findings
+- [x] 23-01-PLAN.md
+- [x] 23-02-PLAN.md
 
 </details>
 
-### v0.0.7-alpha Phase Details
+<details>
+<summary>v0.0.7-alpha Phase Details (Phases 24-31)</summary>
 
 ### Phase 24: Range Bound Hoisting
 **Goal**: Every for-range loop evaluates its bound exactly once in the pre-header block instead of on every back-edge, eliminating redundant `Iron_range()` calls from the hot path
@@ -506,7 +522,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [x] 24-01-PLAN.md
 
 ### Phase 25: Stack Array Promotion
 **Goal**: `fill(CONST, val)` calls where the count is a compile-time constant <=1024 and the result does not escape the function emit stack-allocated arrays via `alloca()` instead of heap allocation
@@ -519,7 +535,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
+- [x] 25-01-PLAN.md
 
 ### Phase 26: LOAD Expression Inlining
 **Goal**: LOAD instructions are eligible for expression inlining when their single use is in the same basic block as the LOAD definition, removing one layer of copy temporaries from every function
@@ -532,7 +548,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
+- [x] 26-01-PLAN.md
 
 ### Phase 27: Function Inlining
 **Goal**: Small, pure, non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint so the merged code receives full optimizer benefit
@@ -546,7 +562,7 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 27-01-PLAN.md — Implement run_function_inlining with regression test
+- [x] 27-01-PLAN.md
 
 ### Phase 28: Phi Elimination Improvement
 **Goal**: Dead alloca elimination removes write-only phi-origin temporaries from generated C, reducing variable count in functions with complex control flow
@@ -559,7 +575,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
+- [x] 28-01-PLAN.md
 
 ### Phase 29: Sized Integers
 **Goal**: Iron programs can declare `Int32` variables that emit `int32_t` in generated C, enabling 32-bit memory bandwidth for array-heavy algorithms
@@ -572,8 +588,8 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 29-01-PLAN.md — Int32 type coercion, runtime list, integration tests
-- [ ] 29-02-PLAN.md — connected_components Int32 rewrite and micro-benchmark
+- [x] 29-01-PLAN.md
+- [x] 29-02-PLAN.md
 
 ### Phase 30: Benchmark Validation and Exploration
 **Goal**: The full benchmark suite is compared against the pre-optimization baseline to confirm measurable improvement; any remaining high-overhead benchmarks are analyzed for additional optimization opportunities
@@ -586,13 +602,160 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
-- [ ] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
+- [x] 30-01-PLAN.md
+- [x] 30-02-PLAN.md
+
+### Phase 31: Spawn/Await Correctness
+**Goal:** Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
+**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
+**Depends on:** Phase 30
+**Success Criteria** (what must be TRUE):
+  1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
+  2. Multiple spawn+await pairs work correctly in sequence
+  3. Fire-and-forget spawn compiles with compiler warning about un-captured handle
+  4. parallel-for blocks until all iterations complete (no regression)
+  5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
+  6. Full benchmark and test suites pass with updated thresholds
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 31-01-PLAN.md
+- [x] 31-02-PLAN.md
+
+</details>
+
+### v0.0.8-alpha Semantic Analysis Gaps Phase Details
+
+### Phase 32: LIR Verifier Hardening
+**Goal**: The LIR verifier catches type mismatches in PHI nodes and call instructions before they reach the C emitter, preventing invalid C output from well-typed Iron programs
+**Depends on**: Phase 31
+**Requirements**: LIR-01, LIR-02, LIR-03, LIR-04, LIR-05
+**Success Criteria** (what must be TRUE):
+  1. A PHI node whose incoming values have different types from the PHI result type produces `IRON_ERR_LIR_PHI_TYPE_MISMATCH` at verification time, not a silent C compilation failure
+  2. A direct call instruction whose argument types do not match the callee's parameter types produces `IRON_ERR_LIR_CALL_TYPE_MISMATCH` at verification time
+  3. A direct call instruction with wrong argument count produces a diagnostic at verification time
+  4. All existing tests and benchmarks continue to pass (no false positives on valid code)
+**Plans**: 2 plans
+
+Plans:
+- [ ] 32-01-PLAN.md — PHI type consistency checks in LIR verifier
+- [ ] 32-02-PLAN.md — Call argument type and count validation in LIR verifier
+
+### Phase 33: Type Validation Checks
+**Goal**: The type checker catches match exhaustiveness violations, unsafe casts, non-stringable interpolations, and narrow-integer overflow risks at compile time
+**Depends on**: Phase 32
+**Requirements**: MATCH-01, MATCH-02, MATCH-03, CAST-01, CAST-02, CAST-03, CAST-04, STRN-01, STRN-02, OVFL-01, OVFL-02, OVFL-03
+**Success Criteria** (what must be TRUE):
+  1. A match statement on an enum type that does not cover all variants and has no else clause produces `IRON_ERR_NONEXHAUSTIVE_MATCH` listing the uncovered variants; a match on a non-enum type without else also errors
+  2. A cast from a non-numeric, non-bool type (e.g., String to Int) produces `IRON_ERR_INVALID_CAST`; a wider-to-narrower integer cast produces `IRON_WARN_NARROWING_CAST`; a constant value outside the target range produces a specific error
+  3. A string interpolation containing a type that is not a primitive, String, Bool, or has no `to_string` method produces `IRON_ERR_NOT_STRINGABLE`
+  4. A compound assignment (`+=`, `-=`, `*=`) on a narrow integer type (Int8, Int16, UInt8, etc.) where the RHS is not a fitting constant produces `IRON_WARN_POSSIBLE_OVERFLOW`
+  5. All existing tests and benchmarks continue to pass (no false positives on valid code)
+**Plans**: 2 plans
+
+Plans:
+- [ ] 33-01-PLAN.md — Error codes, shared helpers, and match exhaustiveness
+- [ ] 33-02-PLAN.md — Cast safety validation
+- [ ] 33-03-PLAN.md — String interpolation stringability and compound overflow
+
+### Phase 34: Bounds Checking
+**Goal**: Constant array indices and slice bounds that are provably out of range produce compile-time errors instead of generating C that crashes at runtime
+**Depends on**: Phase 33
+**Requirements**: BOUNDS-01, BOUNDS-02, BOUNDS-03, SLICE-01, SLICE-02, SLICE-03, SLICE-04
+**Success Criteria** (what must be TRUE):
+  1. `arr[5]` on an array of known size 3 produces `IRON_ERR_INDEX_OUT_OF_BOUNDS`; `arr[-1]` also errors; `arr[2]` on size-3 array passes without diagnostic
+  2. An array index expression that is not an integer type produces a type error diagnostic
+  3. Slice expressions where start > end (both constants) produce `IRON_ERR_INVALID_SLICE_BOUNDS`; slices where bounds exceed array size (all constants) also error
+  4. Slice start and end expressions that are not integer types produce a type error diagnostic
+  5. All existing tests and benchmarks continue to pass (no false positives on valid code)
+**Plans**: 2 plans
+
+Plans:
+- [ ] 34-01-PLAN.md — Error codes, constant-extraction helper, and array index bounds validation
+- [ ] 34-02-PLAN.md — Slice bounds type and range validation
+
+### Phase 35: Escape Analysis Extension
+**Goal**: Escape analysis tracks heap values through field assignments, array index assignments, and function argument passing so that escape-dependent optimizations and warnings cover real-world patterns
+**Depends on**: Phase 34
+**Requirements**: ESC-01, ESC-02, ESC-03, ESC-04
+**Success Criteria** (what must be TRUE):
+  1. `obj.field = heap_val` correctly marks `heap_val` as escaping; the compiler does not insert a premature free for values stored into object fields
+  2. `arr[i] = heap_val` correctly marks `heap_val` as escaping; the compiler does not insert a premature free for values stored into array elements
+  3. Passing a heap value as a function argument marks it as escaping; no premature free is inserted for values passed to functions
+  4. `expr_ident_name()` or equivalent correctly resolves field-access and index-access targets for escape tracking
+  5. All existing tests and benchmarks continue to pass (no false positives on valid code)
+**Plans**: 1 plan
+
+Plans:
+- [ ] 35-01-PLAN.md — Extend expr_ident_name for field/index targets, add call argument escape tracking
+
+### Phase 36: Definite Assignment Analysis
+**Goal**: Variables that may be read before being assigned on all control flow paths produce a compile-time error, preventing undefined behavior from uninitialized reads
+**Depends on**: Phase 35
+**Requirements**: INIT-01, INIT-02, INIT-03, INIT-04
+**Success Criteria** (what must be TRUE):
+  1. A variable declared without an initializer and used before any assignment on all paths produces `IRON_ERR_POSSIBLY_UNINITIALIZED`
+  2. A variable assigned in one branch of an if/else but not the other, then used after the if/else, produces `IRON_ERR_POSSIBLY_UNINITIALIZED`
+  3. A variable assigned inside a loop body but used after the loop (which may execute zero times) produces `IRON_ERR_POSSIBLY_UNINITIALIZED`
+  4. A variable assigned in all branches of a match/if-else and used afterwards does NOT produce a false positive
+  5. All existing tests and benchmarks continue to pass (analysis uses bounded worklist, no excessive memory)
+**Plans**: 2 plans
+
+Plans:
+- [x] 36-01-PLAN.md — Init check pass infrastructure, error code, pipeline wiring, basic uninitialized var detection
+- [x] 36-02-PLAN.md — Control flow branch merging for if/else, match, loops, and early returns
+
+### Phase 37: Generic Constraint Checking
+**Goal**: Concrete type arguments that do not satisfy declared generic constraints are rejected at instantiation sites with a clear diagnostic, preventing downstream type errors in monomorphized code
+**Depends on**: Phase 36
+**Requirements**: GEN-01, GEN-02, GEN-03, GEN-04
+**Success Criteria** (what must be TRUE):
+  1. `fn sort<T: Comparable>(arr: [T])` called with a type that does not implement `Comparable` produces `IRON_ERR_CONSTRAINT_NOT_SATISFIED` naming the constraint and the failing type
+  2. `var s = Stack<MyType>()` where `Stack` requires `T: Printable` and `MyType` does not implement `Printable` produces the same diagnostic at the construction site
+  3. A generic call or construction with a type that satisfies the constraint compiles without diagnostic
+  4. All existing tests and benchmarks continue to pass (no false positives on valid code)
+**Plans**: 2 plans
+
+Plans:
+- [ ] 37-01-PLAN.md -- Parser + type checker constraint validation at call and construct sites
+- [ ] 37-02-PLAN.md -- Unit tests for generic constraint checking
+
+### Phase 38: Concurrency Safety
+**Goal**: Mutation detection in parallel and spawn blocks covers field access, array index expressions, and read-write race patterns so that concurrent code with data races produces compile-time warnings
+**Depends on**: Phase 37
+**Requirements**: CONC-01, CONC-02, CONC-03, CONC-04, CONC-05
+**Success Criteria** (what must be TRUE):
+  1. `parallel for ... { obj.field = val }` where `obj` is a shared outer variable produces a mutation warning (not just bare `obj = val`)
+  2. `parallel for ... { arr[i] = val }` where `arr` is a shared outer variable produces a mutation warning for non-partitioned access patterns
+  3. A spawn block that reads a variable also written by the outer scope (or another spawn) produces a read-write race diagnostic
+  4. Spawn blocks perform capture analysis identifying which outer variables are referenced; mutable captures are flagged as potential data races
+  5. All existing tests and benchmarks continue to pass (no false positives on valid concurrent patterns like partitioned parallel-for)
+**Plans**: 2 plans
+
+Plans:
+- [ ] 38-01: Field and array index mutation detection in parallel/spawn blocks
+- [ ] 38-02: Capture analysis and read-write race detection for spawn blocks
+
+### Phase 39: Diagnostic Test Sweep
+**Goal**: Every new diagnostic introduced in phases 32-38 has both positive tests (triggers the diagnostic) and negative tests (valid code that must not trigger it), with edge-case coverage for complex analyses
+**Depends on**: Phase 38
+**Requirements**: TEST-01, TEST-02, TEST-03
+**Success Criteria** (what must be TRUE):
+  1. Every `IRON_ERR_*` and `IRON_WARN_*` diagnostic added in this milestone has at least one .iron test file that triggers it and verifies the error code
+  2. Every new diagnostic has at least one .iron test file with valid code that exercises the same language feature without triggering the diagnostic (no false positives)
+  3. Definite assignment analysis has edge-case tests for nested if/else, match with fallthrough, loops with break/continue, and early returns
+  4. Concurrency analysis has edge-case tests for nested spawn, spawn inside parallel-for, and multiple spawn blocks sharing variables
+  5. The full test suite passes with zero regressions; test count grows by at least 30 new diagnostic-focused tests
+**Plans**: 2 plans
+
+Plans:
+- [ ] 39-01: Positive and negative test cases for all new diagnostics
+- [ ] 39-02: Edge-case tests for definite assignment, escape, and concurrency analyses
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
+Phases execute in numeric order: 32 -> 33 -> 34 -> 35 -> 36 -> 37 -> 38 -> 39
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -619,29 +782,19 @@ Phases execute in numeric order: 24 -> 25 -> 26 -> 27 -> 28 -> 29 -> 30 -> 31
 | 21. Parallel-For Fix | v0.0.6-alpha | 1/1 | Complete | 2026-03-31 |
 | 22. Struct Codegen Fix | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
 | 23. Correctness Audit | v0.0.6-alpha | 2/2 | Complete | 2026-03-31 |
-| 24. Range Bound Hoisting | 1/1 | Complete    | 2026-03-31 | - |
-| 25. Stack Array Promotion | 1/1 | Complete    | 2026-04-01 | - |
-| 26. LOAD Expression Inlining | 1/1 | Complete    | 2026-04-01 | - |
-| 27. Function Inlining | 2/2 | Complete    | 2026-04-01 | 2026-03-31 |
-| 28. Phi Elimination Improvement | 1/1 | Complete    | 2026-04-01 | - |
-| 29. Sized Integers | 2/2 | Complete    | 2026-04-01 | - |
-| 30. Benchmark Validation and Exploration | 2/2 | Complete    | 2026-04-01 | - |
-| 31. Spawn/Await Correctness | 2/2 | Complete   | 2026-04-01 | - |
-
-### Phase 31: Spawn/Await Correctness
-
-**Goal:** Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
-**Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
-**Depends on:** Phase 30
-**Success Criteria** (what must be TRUE):
-  1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
-  2. Multiple spawn+await pairs work correctly in sequence
-  3. Fire-and-forget spawn compiles with compiler warning about un-captured handle
-  4. parallel-for blocks until all iterations complete (no regression)
-  5. spawn_independent_work benchmark uses await for fair timing vs C pthread_join
-  6. Full benchmark and test suites pass with updated thresholds
-**Plans:** 2/2 plans complete
-
-Plans:
-- [ ] 31-01-PLAN.md -- Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
-- [ ] 31-02-PLAN.md -- Benchmark updates + threshold re-validation + human verification
+| 24. Range Bound Hoisting | v0.0.7-alpha | 1/1 | Complete | 2026-03-31 |
+| 25. Stack Array Promotion | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 26. LOAD Expression Inlining | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 27. Function Inlining | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 28. Phi Elimination Improvement | v0.0.7-alpha | 1/1 | Complete | 2026-04-01 |
+| 29. Sized Integers | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
+| 32. LIR Verifier Hardening | 2/2 | Complete    | 2026-04-02 | - |
+| 33. Type Validation Checks | 3/3 | Complete    | 2026-04-03 | - |
+| 34. Bounds Checking | 2/2 | Complete    | 2026-04-03 | - |
+| 35. Escape Analysis Extension | 1/1 | Complete    | 2026-04-03 | - |
+| 36. Definite Assignment Analysis | 2/2 | Complete    | 2026-04-03 | - |
+| 37. Generic Constraint Checking | 2/2 | Complete    | 2026-04-03 | - |
+| 38. Concurrency Safety | 2/2 | Complete    | 2026-04-03 | - |
+| 39. Diagnostic Test Sweep | 2/2 | Complete    | 2026-04-04 | - |
