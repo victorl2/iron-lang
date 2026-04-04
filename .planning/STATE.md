@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 37-01-PLAN.md
-last_updated: "2026-04-04T20:50:27.391Z"
+stopped_at: Completed 37-02-PLAN.md
+last_updated: "2026-04-04T21:22:36.899Z"
 last_activity: 2026-04-02 — Completed 32-01 (AST and Type System Foundation data layer)
 progress:
   total_phases: 7
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
   percent: 5
 ---
 
@@ -57,6 +57,7 @@ Progress: [█░░░░░░░░░] 5%
 | Phase 34-hir-extensions-and-match-lowering P02 | 120 | 2 tasks | 9 files |
 | Phase 36 P01 | 20 | 2 tasks | 8 files |
 | Phase 37-generic-enums P01 | 35min | 2 tasks | 5 files |
+| Phase 37-generic-enums P02 | 85min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,9 @@ Recent decisions affecting current work:
 - [Phase 36-01]: Enum methods: all four sites need updating together — resolver guard, HIR self-type lookup, LIR method-call type-name mangling, typecheck return type resolution
 - [Phase 37-generic-enums]: types.c includes parser/ast.h to access Iron_EnumDecl->name for iron_type_to_string
 - [Phase 37-generic-enums]: Generic enum variant_payload_types pre-pass skips generic enums; monomorphization populates payload types at use site
+- [Phase 37-generic-enums]: build_hir_params_named uses global scope function symbol resolved param types to fix Option[Int] in function params
+- [Phase 37-generic-enums]: type_mangle_component strips Iron_ prefix from nested generic enum mangled_name for C-safe identifiers
+- [Phase 37-generic-enums]: maybe_fill_missing_generic_args enables context-directed monomorphization for multi-param enums with partial arg inference
 
 ### Project Notes
 
@@ -107,6 +111,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-04T20:50:27.389Z
-Stopped at: Completed 37-01-PLAN.md
+Last session: 2026-04-04T21:22:36.897Z
+Stopped at: Completed 37-02-PLAN.md
 Resume file: None
