@@ -47,6 +47,11 @@ typedef struct {
 } SpawnResultEntry;
 
 typedef struct {
+    char        *key;   /* stb_ds strdup key -- mangled name */
+    Iron_Type   *value; /* the in-progress or completed mono type */
+} MonoRegistryEntry;
+
+typedef struct {
     Iron_Arena        *arena;
     Iron_DiagList     *diags;
     Iron_Scope        *global_scope;
@@ -56,6 +61,7 @@ typedef struct {
     NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
+    MonoRegistryEntry *mono_registry;        /* stb_ds map: mangled_name -> mono Iron_Type* (cycle detection + caching) */
 } TypeCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -298,55 +304,6 @@ static NarrowEntry *narrowing_copy(TypeCtx *ctx) {
 
 /* Recursively substitute IRON_TYPE_GENERIC_PARAM with concrete types.
  * Maps ed->generic_params[i].name -> type_args[i]. */
-static Iron_Type *substitute_generic_type(TypeCtx *ctx, Iron_Type *t,
-                                           Iron_EnumDecl *ed,
-                                           Iron_Type **type_args,
-                                           int type_arg_count) {
-    if (!t) return t;
-    switch (t->kind) {
-        case IRON_TYPE_GENERIC_PARAM: {
-            /* Find the param index by name */
-            for (int i = 0; i < type_arg_count && i < ed->generic_param_count; i++) {
-                Iron_Ident *param = (Iron_Ident *)ed->generic_params[i];
-                if (param && t->generic_param.name &&
-                    strcmp(param->name, t->generic_param.name) == 0) {
-                    return type_args[i];
-                }
-            }
-            return t; /* unmatched param, return as-is */
-        }
-        case IRON_TYPE_NULLABLE: {
-            Iron_Type *inner = substitute_generic_type(ctx, t->nullable.inner,
-                                                        ed, type_args, type_arg_count);
-            if (inner == t->nullable.inner) return t;
-            return iron_type_make_nullable(ctx->arena, inner);
-        }
-        case IRON_TYPE_ARRAY: {
-            Iron_Type *elem = substitute_generic_type(ctx, t->array.elem,
-                                                       ed, type_args, type_arg_count);
-            if (elem == t->array.elem) return t;
-            return iron_type_make_array(ctx->arena, elem, t->array.size);
-        }
-        case IRON_TYPE_ENUM: {
-            /* Nested generic enum: no deep substitution in this phase */
-            if (t->enu.type_arg_count == 0) return t;
-            bool changed = false;
-            Iron_Type **new_args = iron_arena_alloc(ctx->arena,
-                sizeof(Iron_Type *) * (size_t)t->enu.type_arg_count,
-                _Alignof(Iron_Type *));
-            for (int i = 0; i < t->enu.type_arg_count; i++) {
-                new_args[i] = substitute_generic_type(ctx, t->enu.type_args[i],
-                                                       ed, type_args, type_arg_count);
-                if (new_args[i] != t->enu.type_args[i]) changed = true;
-            }
-            if (!changed) return t;
-            return t; /* nested generic substitution deferred */
-        }
-        default:
-            return t; /* primitive types, etc. — no substitution needed */
-    }
-}
-
 /* ── Type annotation resolution ─────────────────────────────────────────── */
 
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
@@ -413,6 +370,18 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                         iron_strbuf_get(&sb), sb.len);
                     iron_strbuf_free(&sb);
 
+                    /* Cycle detection / caching: if this mangled name is already being
+                     * resolved (recursive generic enum like Tree[T] whose Branch variant
+                     * references Tree[T] again), return the in-progress mono type to
+                     * break the cycle. Also serves as a cache for repeat uses. */
+                    {
+                        ptrdiff_t reg_idx = shgeti(ctx->mono_registry, mangled);
+                        if (reg_idx >= 0) {
+                            base = ctx->mono_registry[reg_idx].value;
+                            goto done_generic_mono;
+                        }
+                    }
+
                     /* Build monomorphized Iron_Type */
                     Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
                         _Alignof(Iron_Type));
@@ -423,21 +392,33 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     mono->enu.type_arg_count = ann->generic_arg_count;
                     mono->enu.mangled_name = mangled;
 
+                    /* Register mono BEFORE resolving payloads to break recursive cycles
+                     * (e.g. Tree[T] → Branch(Tree[T], Tree[T]) → Tree[T] again). */
+                    shput(ctx->mono_registry,
+                          iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
+                          mono);
+
                     /* Substitute variant_payload_types:
-                     * Push generic param names as GENERIC_PARAM types in a temporary scope,
-                     * resolve each variant's payload type annotations, then substitute. */
+                     * Bind generic param names to their CONCRETE type args in a temporary
+                     * scope so that recursive resolve_type_annotation calls for payloads
+                     * like Tree[T] resolve directly to Tree[Int] (no post-substitution
+                     * needed).  Self-referential payloads (e.g. Branch(Tree[T], Tree[T]))
+                     * will find "Iron_Tree_Int" already in mono_registry and return mono,
+                     * breaking the cycle without infinite recursion. */
                     Iron_Scope *saved_scope = ctx->global_scope;
                     Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
                         ctx->global_scope, IRON_SCOPE_BLOCK);
                     for (int i = 0; i < ed->generic_param_count; i++) {
                         Iron_Ident *param = (Iron_Ident *)ed->generic_params[i];
                         if (param) {
-                            Iron_Type *gpt = iron_type_make_generic_param(
-                                ctx->arena, param->name, NULL);
                             Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
                                 param->name, IRON_SYM_TYPE, NULL,
                                 (Iron_Span){0, 0, 0, 0, 0});
-                            gsym->type = gpt;
+                            /* Bind the CONCRETE type arg (not a GENERIC_PARAM placeholder).
+                             * This ensures Tree[T] resolves to Tree[Int] directly. */
+                            gsym->type = (i < ann->generic_arg_count) ? type_args[i]
+                                         : iron_type_make_generic_param(
+                                               ctx->arena, param->name, NULL);
                             iron_scope_define(gen_scope, ctx->arena, gsym);
                         }
                     }
@@ -454,10 +435,10 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                             sizeof(Iron_Type *) * (size_t)ev->payload_count,
                             _Alignof(Iron_Type *));
                         for (int k = 0; k < ev->payload_count; k++) {
-                            Iron_Type *pt = resolve_type_annotation(
+                            /* T is already bound to the concrete type arg in gen_scope,
+                             * so no post-substitution is needed. */
+                            row[k] = resolve_type_annotation(
                                 ctx, ev->payload_type_anns[k]);
-                            row[k] = substitute_generic_type(ctx, pt, ed,
-                                type_args, ann->generic_arg_count);
                         }
                         vpt[j] = row;
                     }
@@ -484,6 +465,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     }
                     mono->enu.payload_is_boxed = pib;
                     base = mono;
+                    done_generic_mono:;
                 }
             }
         } else {
@@ -1284,6 +1266,31 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             }
                         }
                     }
+                    /* If expected is a generic enum like Tree[T] and arg_t is the
+                     * same enum with concrete type args like Tree[Int], infer T=Int.
+                     * This handles recursive generic variants: Branch(Tree[T], Tree[T]). */
+                    if (expected && expected->kind == IRON_TYPE_ENUM &&
+                        arg_t && arg_t->kind == IRON_TYPE_ENUM &&
+                        expected->enu.decl && expected->enu.decl == arg_t->enu.decl &&
+                        expected->enu.type_arg_count > 0 &&
+                        expected->enu.type_arg_count == arg_t->enu.type_arg_count) {
+                        for (int ta = 0; ta < expected->enu.type_arg_count; ta++) {
+                            Iron_Type *exp_ta = expected->enu.type_args
+                                               ? expected->enu.type_args[ta] : NULL;
+                            Iron_Type *arg_ta = arg_t->enu.type_args
+                                               ? arg_t->enu.type_args[ta] : NULL;
+                            if (exp_ta && exp_ta->kind == IRON_TYPE_GENERIC_PARAM && arg_ta) {
+                                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                                    Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                                    if (param && exp_ta->generic_param.name &&
+                                        strcmp(param->name, exp_ta->generic_param.name) == 0) {
+                                        inferred_args[gi] = arg_ta;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 ctx->global_scope = saved_gen;
 
@@ -1304,6 +1311,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     iron_strbuf_get(&sb), sb.len);
                 iron_strbuf_free(&sb);
 
+                /* Check mono_registry: if this mangled type was already built
+                 * (e.g. from the function signature resolution), reuse it to
+                 * ensure payload_is_boxed is correctly populated. */
+                {
+                    ptrdiff_t reg2_idx = shgeti(ctx->mono_registry, mangled);
+                    if (reg2_idx >= 0) {
+                        ec->resolved_type = ctx->mono_registry[reg2_idx].value;
+                        result = ec->resolved_type;
+                        break;
+                    }
+                }
+
                 /* Create monomorphized type */
                 Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
                     _Alignof(Iron_Type));
@@ -1314,7 +1333,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 mono->enu.type_arg_count = ed->generic_param_count;
                 mono->enu.mangled_name = mangled;
 
-                /* Substitute variant_payload_types */
+                /* Register in mono_registry before payload resolution (cycle detection). */
+                shput(ctx->mono_registry,
+                      iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
+                      mono);
+
+                /* Substitute variant_payload_types:
+                 * Bind concrete inferred_args in gen_scope (not GENERIC_PARAMs)
+                 * so recursive payload resolution sees Tree[Int] not Tree[T]. */
                 Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
                     sizeof(Iron_Type **) * (size_t)ed->variant_count,
                     _Alignof(Iron_Type **));
@@ -1325,12 +1351,13 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
                     Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                     if (param) {
-                        Iron_Type *gpt = iron_type_make_generic_param(
-                            ctx->arena, param->name, NULL);
                         Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
                             param->name, IRON_SYM_TYPE, NULL,
                             (Iron_Span){0, 0, 0, 0, 0});
-                        gsym->type = gpt;
+                        gsym->type = (gi < ed->generic_param_count && inferred_args[gi])
+                                     ? inferred_args[gi]
+                                     : iron_type_make_generic_param(
+                                           ctx->arena, param->name, NULL);
                         iron_scope_define(gen2, ctx->arena, gsym);
                     }
                 }
@@ -1342,10 +1369,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         sizeof(Iron_Type *) * (size_t)vev->payload_count,
                         _Alignof(Iron_Type *));
                     for (int kk = 0; kk < vev->payload_count; kk++) {
-                        Iron_Type *pt = resolve_type_annotation(
-                            ctx, vev->payload_type_anns[kk]);
-                        row[kk] = substitute_generic_type(ctx, pt, ed,
-                            inferred_args, ed->generic_param_count);
+                        /* T is bound to concrete inferred_args[i] in gen2 scope,
+                         * so no post-substitution needed. */
+                        row[kk] = resolve_type_annotation(ctx, vev->payload_type_anns[kk]);
                     }
                     vpt[vj] = row;
                 }
@@ -2101,8 +2127,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.narrowed            = NULL;
     ctx.program             = program;
     ctx.spawn_result_types  = NULL;
+    ctx.mono_registry       = NULL;
     sh_new_strdup(ctx.narrowed);
     sh_new_strdup(ctx.spawn_result_types);
+    sh_new_strdup(ctx.mono_registry);
 
     /* Check top-level val/var declarations first so their init expressions
      * have resolved_type set before function bodies reference them.
