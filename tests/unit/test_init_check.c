@@ -199,6 +199,143 @@ void test_assigned_before_if_stays_assigned(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
 }
 
+/* ── Edge-case tests (Phase 39, Plan 02) ───────────────────────────────── */
+
+/* Test 15: Nested if/else, both inner branches assign => NO error */
+void test_nested_if_else_both_assign(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  if true {\n"
+        "    if true {\n"
+        "      x = 1\n"
+        "    } else {\n"
+        "      x = 2\n"
+        "    }\n"
+        "  } else {\n"
+        "    x = 3\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 16: Nested if, inner assigns but outer else doesn't => ERROR */
+void test_nested_if_inner_only(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  if true {\n"
+        "    if true {\n"
+        "      x = 1\n"
+        "    } else {\n"
+        "      x = 2\n"
+        "    }\n"
+        "  } else {\n"
+        "    val z = 0\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 17: Match without else clause, assignments not trusted => ERROR */
+void test_match_without_else_not_definite(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  val v = 1\n"
+        "  match v {\n"
+        "    1 { x = 10 }\n"
+        "    2 { x = 20 }\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 18: Match with else but some non-else arms missing assignment => ERROR */
+void test_match_some_arms_missing_assignment(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  val v = 1\n"
+        "  match v {\n"
+        "    1 { x = 10 }\n"
+        "    2 { val z = 0 }\n"
+        "    else { x = 30 }\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 19: If with return in both branches => no uninitialized error */
+void test_if_return_in_both_branches(void) {
+    run_init_check(
+        "func main() -> Int {\n"
+        "  var x: Int\n"
+        "  if true {\n"
+        "    return 1\n"
+        "  } else {\n"
+        "    return 2\n"
+        "  }\n"
+        "}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 20: Var assigned before for loop, used after => NO error */
+void test_for_loop_assign_before_loop(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  x = 5\n"
+        "  val arr = [1, 2, 3]\n"
+        "  for i in arr {\n"
+        "    x = i\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 21: Nested match inside if-else, both paths assign => NO error */
+void test_nested_match_inside_if(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  if true {\n"
+        "    val v = 1\n"
+        "    match v {\n"
+        "      1 { x = 10 }\n"
+        "      else { x = 20 }\n"
+        "    }\n"
+        "  } else {\n"
+        "    x = 30\n"
+        "  }\n"
+        "  val y = x\n"
+        "}");
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
+/* Test 22: Multiple vars, one assigned in all branches, one not => ERROR */
+void test_multiple_vars_partial_assignment(void) {
+    run_init_check(
+        "func main() {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  if true {\n"
+        "    x = 1\n"
+        "    y = 1\n"
+        "  } else {\n"
+        "    x = 2\n"
+        "  }\n"
+        "  val a = x\n"
+        "  val b = y\n"
+        "}");
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_POSSIBLY_UNINITIALIZED));
+}
+
 /* ── Runner ─────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -217,5 +354,13 @@ int main(void) {
     RUN_TEST(test_for_loop_not_definite);
     RUN_TEST(test_multiple_vars_if_else);
     RUN_TEST(test_assigned_before_if_stays_assigned);
+    RUN_TEST(test_nested_if_else_both_assign);
+    RUN_TEST(test_nested_if_inner_only);
+    RUN_TEST(test_match_without_else_not_definite);
+    RUN_TEST(test_match_some_arms_missing_assignment);
+    RUN_TEST(test_if_return_in_both_branches);
+    RUN_TEST(test_for_loop_assign_before_loop);
+    RUN_TEST(test_nested_match_inside_if);
+    RUN_TEST(test_multiple_vars_partial_assignment);
     return UNITY_END();
 }
