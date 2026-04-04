@@ -464,6 +464,25 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     ctx->global_scope = saved_scope;
 
                     mono->enu.variant_payload_types = vpt;
+
+                    /* Compute payload_is_boxed for monomorphized type */
+                    bool **pib = iron_arena_alloc(ctx->arena,
+                        sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                    memset(pib, 0, sizeof(bool *) * (size_t)ed->variant_count);
+                    for (int j = 0; j < ed->variant_count; j++) {
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                        if (ev->payload_count == 0) continue;
+                        bool *pib_row = iron_arena_alloc(ctx->arena,
+                            sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+                        memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
+                        for (int k = 0; k < ev->payload_count; k++) {
+                            if (vpt[j] && vpt[j][k]) {
+                                pib_row[k] = iron_type_equals(vpt[j][k], mono);
+                            }
+                        }
+                        pib[j] = pib_row;
+                    }
+                    mono->enu.payload_is_boxed = pib;
                     base = mono;
                 }
             }
@@ -1333,6 +1352,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 ctx->global_scope = saved_gen2;
                 mono->enu.variant_payload_types = vpt;
 
+                /* Compute payload_is_boxed for monomorphized type (path 2) */
+                bool **pib2 = iron_arena_alloc(ctx->arena,
+                    sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                memset(pib2, 0, sizeof(bool *) * (size_t)ed->variant_count);
+                for (int vj2 = 0; vj2 < ed->variant_count; vj2++) {
+                    Iron_EnumVariant *vev2 = (Iron_EnumVariant *)ed->variants[vj2];
+                    if (vev2->payload_count == 0) continue;
+                    bool *pib2_row = iron_arena_alloc(ctx->arena,
+                        sizeof(bool) * (size_t)vev2->payload_count, _Alignof(bool));
+                    memset(pib2_row, 0, sizeof(bool) * (size_t)vev2->payload_count);
+                    for (int kk2 = 0; kk2 < vev2->payload_count; kk2++) {
+                        if (vpt[vj2] && vpt[vj2][kk2]) {
+                            pib2_row[kk2] = iron_type_equals(vpt[vj2][kk2], mono);
+                        }
+                    }
+                    pib2[vj2] = pib2_row;
+                }
+                mono->enu.payload_is_boxed = pib2;
+
                 ec->resolved_type = mono;
                 result = mono;
                 break;
@@ -2115,6 +2153,11 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));
         memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
         ty->enu.variant_payload_types = vpt;
+        /* Allocate payload_is_boxed parallel structure on the type */
+        bool **pib_ty = iron_arena_alloc(ctx.arena,
+            sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+        memset(pib_ty, 0, sizeof(bool *) * (size_t)ed->variant_count);
+        ty->enu.payload_is_boxed = pib_ty;
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
             if (ev->payload_count == 0) {
@@ -2123,10 +2166,21 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             }
             Iron_Type **row = iron_arena_alloc(ctx.arena,
                 sizeof(Iron_Type *) * (size_t)ev->payload_count, _Alignof(Iron_Type *));
+            /* Allocate boxing flags for this variant */
+            ev->payload_is_boxed = iron_arena_alloc(ctx.arena,
+                sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            memset(ev->payload_is_boxed, 0, sizeof(bool) * (size_t)ev->payload_count);
+            bool *pib_row = iron_arena_alloc(ctx.arena,
+                sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
             for (int k = 0; k < ev->payload_count; k++) {
                 row[k] = resolve_type_annotation(&ctx, ev->payload_type_anns[k]);
+                /* Mark boxed if payload type is the same enum type (recursive) */
+                ev->payload_is_boxed[k] = iron_type_equals(row[k], ty);
+                pib_row[k] = ev->payload_is_boxed[k];
             }
             vpt[j] = row;
+            pib_ty[j] = pib_row;
         }
     }
 

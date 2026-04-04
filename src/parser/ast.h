@@ -199,6 +199,7 @@ typedef struct {
     int           explicit_value;      /* only valid when has_explicit_value */
     Iron_Node   **payload_type_anns;   /* array of IRON_NODE_TYPE_ANNOTATION nodes; NULL if plain */
     int           payload_count;       /* 0 for plain variants */
+    bool         *payload_is_boxed;    /* [payload_count]; true if field is recursive (auto-boxed) */
 } Iron_EnumVariant;
 
 typedef struct {
