@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 38-01-PLAN.md (recursive variant auto-boxing)
-last_updated: "2026-04-04T23:13:41Z"
-last_activity: 2026-04-04 — Completed 38-01 (recursive variant auto-boxing core infrastructure)
+stopped_at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
+last_updated: "2026-04-04T23:58:28.628Z"
+last_activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
 progress:
   total_phases: 7
-  completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
+  completed_phases: 6
+  total_plans: 12
+  completed_plans: 12
   percent: 5
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 ## Current Position
 
 Phase: 38 of 38 (Recursive Variant Auto-Boxing)
-Plan: 1 of 2 completed
-Status: In Progress
-Last activity: 2026-04-04 — Completed 38-01 (recursive variant auto-boxing core infrastructure)
+Plan: 2 of 2 completed
+Status: Complete
+Last activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
 
-Progress: [█░░░░░░░░░] 5%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [█░░░░░░░░░] 5%
 | Phase 37-generic-enums P01 | 35min | 2 tasks | 5 files |
 | Phase 37-generic-enums P02 | 85min | 2 tasks | 14 files |
 | Phase 38 P01 | 24min | 2 tasks | 9 files |
+| Phase 38 P02 | 36 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,9 @@ Recent decisions affecting current work:
 - [Phase 38-01]: payload_is_boxed stored on Iron_Type.enu (not just AST node) so both generic and non-generic enums share the same emit_c.c read path
 - [Phase 38-01]: enum_defs (plain C enums) emitted before struct_bodies in final C output so non-recursive enum fields in ADT variant structs compile correctly
 - [Phase 38-01]: GET_FIELD dereference for boxed slots resolves object enum type via LOAD->ALLOCA chain traversal
+- [Phase 38-02]: mono_registry on TypeCtx enables cycle detection and caching: register mono before payload loop, all recursive resolutions find in-progress type
+- [Phase 38-02]: Concrete type args bound in gen_scope (T=Int not T=GENERIC_PARAM): resolve_type_annotation(Tree[T]) returns Tree[Int] directly via registry hit
+- [Phase 38-02]: substitute_generic_type removed: defective for IRON_TYPE_ENUM, replaced by concrete gen_scope binding approach
 
 ### Project Notes
 
@@ -115,6 +119,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-04T21:44:09.241Z
-Stopped at: Phase 38 context gathered
-Resume file: .planning/phases/38-recursive-variant-auto-boxing/38-CONTEXT.md
+Last session: 2026-04-04T23:58:28.625Z
+Stopped at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
+Resume file: None
