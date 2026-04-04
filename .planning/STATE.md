@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 36-01-PLAN.md
-last_updated: "2026-04-04T13:24:57.073Z"
+stopped_at: Completed 37-01-PLAN.md
+last_updated: "2026-04-04T20:50:27.391Z"
 last_activity: 2026-04-02 — Completed 32-01 (AST and Type System Foundation data layer)
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
   percent: 5
 ---
 
@@ -56,6 +56,7 @@ Progress: [█░░░░░░░░░] 5%
 | Phase 34 P01 | 4min | 2 tasks | 5 files |
 | Phase 34-hir-extensions-and-match-lowering P02 | 120 | 2 tasks | 9 files |
 | Phase 36 P01 | 20 | 2 tasks | 8 files |
+| Phase 37-generic-enums P01 | 35min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,8 @@ Recent decisions affecting current work:
 - [Phase 34-hir-extensions-and-match-lowering]: Nested pattern field path built as dotted string (data.Wrap._0.data.Val._0); emit_c.c expands it correctly
 - [Phase 36-01]: Plain enum match lowering: IRON_HIR_EXPR_PATTERN is used for ALL variant patterns (unit and payload), not IRON_HIR_EXPR_ENUM_CONSTRUCT — fixed in non-ADT SWITCH path in hir_to_lir.c
 - [Phase 36-01]: Enum methods: all four sites need updating together — resolver guard, HIR self-type lookup, LIR method-call type-name mangling, typecheck return type resolution
+- [Phase 37-generic-enums]: types.c includes parser/ast.h to access Iron_EnumDecl->name for iron_type_to_string
+- [Phase 37-generic-enums]: Generic enum variant_payload_types pre-pass skips generic enums; monomorphization populates payload types at use site
 
 ### Project Notes
 
@@ -104,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-04T13:15:52.516Z
-Stopped at: Completed 36-01-PLAN.md
+Last session: 2026-04-04T20:50:27.389Z
+Stopped at: Completed 37-01-PLAN.md
 Resume file: None
