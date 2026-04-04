@@ -1,0 +1,17 @@
+-- Generic enum: nested generic type args
+
+enum Option[T] {
+  Some(T),
+  None,
+}
+
+enum Result[T, E] {
+  Ok(T),
+  Err(E),
+}
+
+func main() {
+  val inner: Option[Int] = Option.Some(99)
+  val outer: Result[Option[Int], String] = Result.Ok(inner)
+  println("nested: ok")
+}

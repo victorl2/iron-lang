@@ -208,22 +208,50 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
 
 /* ── Build HIR param array from AST params ───────────────────────────────── */
 
-static IronHIR_Param *build_hir_params(IronHIR_LowerCtx *ctx,
-                                        Iron_Node **params, int param_count) {
+static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
+                                               Iron_Node **params,
+                                               int param_count,
+                                               const char *func_name) {
     if (param_count == 0) return NULL;
+
+    /* Try to get pre-resolved param types from the global-scope function symbol.
+     * The type checker runs before HIR lowering and resolves generic type annotations
+     * (e.g. Option[Int]) into monomorphized Iron_Type objects.  We use these
+     * resolved types instead of re-resolving from the raw type annotation, which
+     * would lose the generic instantiation information. */
+    Iron_Type **resolved_types = NULL;
+    if (func_name && ctx->global_scope) {
+        Iron_Symbol *fsym = iron_scope_lookup(ctx->global_scope, func_name);
+        if (fsym && fsym->type && fsym->type->kind == IRON_TYPE_FUNC &&
+            fsym->type->func.param_count == param_count) {
+            resolved_types = fsym->type->func.param_types;
+        }
+    }
+
     IronHIR_Param *arr = (IronHIR_Param *)iron_arena_alloc(
         ctx->module->arena,
         (size_t)param_count * sizeof(IronHIR_Param),
         _Alignof(IronHIR_Param));
     for (int p = 0; p < param_count; p++) {
         Iron_Param *ap = (Iron_Param *)params[p];
-        Iron_Type  *pt = resolve_type_ann(ctx, ap->type_ann);
+        Iron_Type  *pt;
+        if (resolved_types && resolved_types[p]) {
+            pt = resolved_types[p];  /* use type-checker resolved type */
+        } else {
+            pt = resolve_type_ann(ctx, ap->type_ann);
+        }
         arr[p].name   = ap->name;
         arr[p].type   = pt;
         /* var_id assigned later when we push func scope */
         arr[p].var_id = IRON_HIR_VAR_INVALID;
     }
     return arr;
+}
+
+/* Backwards-compat wrapper — no function name, no global-scope lookup */
+static IronHIR_Param *build_hir_params(IronHIR_LowerCtx *ctx,
+                                        Iron_Node **params, int param_count) {
+    return build_hir_params_named(ctx, params, param_count, NULL);
 }
 
 /* ── Find HIR func by name ───────────────────────────────────────────────── */
@@ -1276,8 +1304,9 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd   = (Iron_FuncDecl *)decl;
-            IronHIR_Param *params = build_hir_params(ctx, fd->params,
-                                                      fd->param_count);
+            IronHIR_Param *params = build_hir_params_named(ctx, fd->params,
+                                                            fd->param_count,
+                                                            fd->name);
             Iron_Type *ret_ty = fd->resolved_return_type;
             if (!ret_ty) {
                 ret_ty = resolve_type_ann(ctx, fd->return_type);

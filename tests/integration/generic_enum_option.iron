@@ -1,0 +1,11 @@
+-- Generic enum: Option[T] basic test
+
+enum Option[T] {
+  Some(T),
+  None,
+}
+
+func main() {
+  val x: Option[Int] = Option.Some(42)
+  println("option_int: ok")
+}
