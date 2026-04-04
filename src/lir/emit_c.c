@@ -3513,10 +3513,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         ctx.includes.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.forward_decls),
                         ctx.forward_decls.len);
-    iron_strbuf_append(&output, iron_strbuf_get(&ctx.struct_bodies),
-                        ctx.struct_bodies.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.enum_defs),
                         ctx.enum_defs.len);
+    iron_strbuf_append(&output, iron_strbuf_get(&ctx.struct_bodies),
+                        ctx.struct_bodies.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.global_consts),
                         ctx.global_consts.len);
     iron_strbuf_append(&output, iron_strbuf_get(&ctx.prototypes),
