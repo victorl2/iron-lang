@@ -1,0 +1,29 @@
+-- Generic enum: two distinct instantiations
+
+enum Option[T] {
+  Some(T),
+  None,
+}
+
+func show_int(o: Option[Int]) -> String {
+  match o {
+    Option.Some(v) -> return "int:{v}"
+    Option.None -> return "none"
+  }
+  return "none"
+}
+
+func show_str(o: Option[String]) -> String {
+  match o {
+    Option.Some(v) -> return "str:{v}"
+    Option.None -> return "none"
+  }
+  return "none"
+}
+
+func main() {
+  val a: Option[Int] = Option.Some(7)
+  val b: Option[String] = Option.Some("hello")
+  println(show_int(a))
+  println(show_str(b))
+}

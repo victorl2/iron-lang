@@ -173,7 +173,7 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
                        "method declared on undeclared type", NULL);
         return;
     }
-    if (owner->sym_kind != IRON_SYM_TYPE) {
+    if (owner->sym_kind != IRON_SYM_TYPE && owner->sym_kind != IRON_SYM_ENUM) {
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
                        "method declared on non-object type", NULL);
@@ -420,8 +420,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
-            if (mc->pattern) resolve_expr(ctx, mc->pattern);
+            push_scope(ctx, IRON_SCOPE_BLOCK);
+            if (mc->pattern) resolve_node(ctx, mc->pattern);
             if (mc->body) resolve_node(ctx, mc->body);
+            pop_scope(ctx);
             break;
         }
 
@@ -575,6 +577,104 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             Iron_ArrayLit *al = (Iron_ArrayLit *)node;
             if (al->size) resolve_expr(ctx, al->size);
             resolve_node_list(ctx, al->elements, al->element_count);
+            break;
+        }
+
+        case IRON_NODE_PATTERN: {
+            Iron_Pattern *pat = (Iron_Pattern *)node;
+            /* If fully-qualified (Shape.Circle), validate enum exists in scope */
+            if (pat->enum_name) {
+                Iron_Symbol *esym = iron_scope_lookup(ctx->current_scope, pat->enum_name);
+                if (!esym || esym->sym_kind != IRON_SYM_ENUM) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "unknown enum '%s'", pat->enum_name);
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNKNOWN_VARIANT, pat->span,
+                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                    break;
+                }
+                /* Validate variant exists in the enum */
+                Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
+                bool found = false;
+                for (int i = 0; i < ed->variant_count; i++) {
+                    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                    if (strcmp(ev->name, pat->variant_name) == 0) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
+                             pat->enum_name, pat->variant_name);
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNKNOWN_VARIANT, pat->span,
+                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                    break;
+                }
+            }
+            /* Introduce binding variables into current (arm) scope */
+            for (int i = 0; i < pat->binding_count; i++) {
+                const char *bname = pat->binding_names ? pat->binding_names[i] : NULL;
+                if (!bname) {
+                    /* Wildcard _ or nested pattern slot — recurse into nested pattern if present */
+                    if (pat->nested_patterns && pat->nested_patterns[i]) {
+                        resolve_node(ctx, pat->nested_patterns[i]);
+                    }
+                    continue;
+                }
+                /* Check for shadowing: look up in PARENT scope (arm scope's parent) */
+                Iron_Symbol *outer = iron_scope_lookup(ctx->current_scope->parent, bname);
+                if (outer) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "pattern binding '%s' shadows outer variable", bname);
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_BINDING_SHADOWS, pat->span,
+                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                }
+                /* Define binding as immutable variable in arm scope */
+                define_sym(ctx, bname, IRON_SYM_VARIABLE, node, pat->span,
+                           /*is_mutable=*/false, /*is_private=*/false);
+            }
+            break;
+        }
+
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+            /* Validate enum exists */
+            Iron_Symbol *esym = iron_scope_lookup(ctx->current_scope, ec->enum_name);
+            if (!esym || esym->sym_kind != IRON_SYM_ENUM) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "unknown enum '%s'", ec->enum_name);
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNKNOWN_VARIANT, ec->span,
+                               iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                break;
+            }
+            /* Validate variant exists */
+            Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
+            bool found = false;
+            for (int i = 0; i < ed->variant_count; i++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                if (strcmp(ev->name, ec->variant_name) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
+                         ec->enum_name, ec->variant_name);
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNKNOWN_VARIANT, ec->span,
+                               iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                break;
+            }
+            /* Resolve arg expressions */
+            for (int i = 0; i < ec->arg_count; i++) {
+                if (ec->args[i]) resolve_expr(ctx, ec->args[i]);
+            }
             break;
         }
 

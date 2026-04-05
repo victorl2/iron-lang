@@ -208,22 +208,50 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
 
 /* ── Build HIR param array from AST params ───────────────────────────────── */
 
-static IronHIR_Param *build_hir_params(IronHIR_LowerCtx *ctx,
-                                        Iron_Node **params, int param_count) {
+static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
+                                               Iron_Node **params,
+                                               int param_count,
+                                               const char *func_name) {
     if (param_count == 0) return NULL;
+
+    /* Try to get pre-resolved param types from the global-scope function symbol.
+     * The type checker runs before HIR lowering and resolves generic type annotations
+     * (e.g. Option[Int]) into monomorphized Iron_Type objects.  We use these
+     * resolved types instead of re-resolving from the raw type annotation, which
+     * would lose the generic instantiation information. */
+    Iron_Type **resolved_types = NULL;
+    if (func_name && ctx->global_scope) {
+        Iron_Symbol *fsym = iron_scope_lookup(ctx->global_scope, func_name);
+        if (fsym && fsym->type && fsym->type->kind == IRON_TYPE_FUNC &&
+            fsym->type->func.param_count == param_count) {
+            resolved_types = fsym->type->func.param_types;
+        }
+    }
+
     IronHIR_Param *arr = (IronHIR_Param *)iron_arena_alloc(
         ctx->module->arena,
         (size_t)param_count * sizeof(IronHIR_Param),
         _Alignof(IronHIR_Param));
     for (int p = 0; p < param_count; p++) {
         Iron_Param *ap = (Iron_Param *)params[p];
-        Iron_Type  *pt = resolve_type_ann(ctx, ap->type_ann);
+        Iron_Type  *pt;
+        if (resolved_types && resolved_types[p]) {
+            pt = resolved_types[p];  /* use type-checker resolved type */
+        } else {
+            pt = resolve_type_ann(ctx, ap->type_ann);
+        }
         arr[p].name   = ap->name;
         arr[p].type   = pt;
         /* var_id assigned later when we push func scope */
         arr[p].var_id = IRON_HIR_VAR_INVALID;
     }
     return arr;
+}
+
+/* Backwards-compat wrapper — no function name, no global-scope lookup */
+static IronHIR_Param *build_hir_params(IronHIR_LowerCtx *ctx,
+                                        Iron_Node **params, int param_count) {
+    return build_hir_params_named(ctx, params, param_count, NULL);
 }
 
 /* ── Find HIR func by name ───────────────────────────────────────────────── */
@@ -275,6 +303,92 @@ static bool is_compound_assign(Iron_OpKind op) {
            op == IRON_TOK_MINUS_ASSIGN ||
            op == IRON_TOK_STAR_ASSIGN  ||
            op == IRON_TOK_SLASH_ASSIGN;
+}
+
+/* ── ADT pattern binding injection ────────────────────────────────────────── */
+
+/* Recursively inject IRON_HIR_STMT_LET nodes for pattern bindings into `out`.
+ * scrut_expr: the HIR expression for the match scrutinee (or a sub-value for nested).
+ * enum_type:  the Iron_Type of the value being matched (may be NULL for top-level,
+ *             resolved from pat->enum_name via global_scope).
+ * pat:        the Iron_Pattern AST node.
+ * field_prefix: dotted field path built up so far (empty string for top-level).
+ * out:        the HIR block into which LET stmts are prepended. */
+static void inject_pattern_let_stmts(IronHIR_LowerCtx *ctx,
+                                      IronHIR_Block     *out,
+                                      IronHIR_Expr      *scrut_expr,
+                                      Iron_Type         *enum_type,
+                                      Iron_Pattern      *pat,
+                                      const char        *field_prefix,
+                                      Iron_Span          span) {
+    IronHIR_Module *mod = ctx->module;
+
+    /* Resolve enum type from pattern name if not provided */
+    if (!enum_type && pat->enum_name) {
+        Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
+        if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
+            enum_type = esym->type;
+        }
+    }
+    if (!enum_type || enum_type->kind != IRON_TYPE_ENUM) return;
+
+    Iron_EnumDecl *ed = enum_type->enu.decl;
+    if (!ed || !enum_type->enu.variant_payload_types) return;
+
+    /* Find variant index */
+    int vi = -1;
+    for (int i = 0; i < ed->variant_count; i++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+        if (strcmp(ev->name, pat->variant_name) == 0) { vi = i; break; }
+    }
+    if (vi < 0) return;
+
+    Iron_Type **ptypes = enum_type->enu.variant_payload_types[vi];
+    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+
+    for (int b = 0; b < pat->binding_count && b < ev->payload_count; b++) {
+        const char *bname  = pat->binding_names ? pat->binding_names[b] : NULL;
+        Iron_Node  *nested = (pat->nested_patterns && pat->nested_patterns[b])
+                             ? pat->nested_patterns[b] : NULL;
+        Iron_Type  *ptype  = (ptypes && ptypes[b]) ? ptypes[b] : NULL;
+
+        /* Build the field path for this slot */
+        char slot_field[256];
+        if (field_prefix && field_prefix[0]) {
+            snprintf(slot_field, sizeof(slot_field), "%s.data.%s._%d",
+                     field_prefix, pat->variant_name, b);
+        } else {
+            snprintf(slot_field, sizeof(slot_field), "data.%s._%d",
+                     pat->variant_name, b);
+        }
+
+        if (bname) {
+            /* Simple binding: val bname = scrut.data.VariantName._b */
+            IronHIR_Expr *field_expr = iron_hir_expr_field_access(mod, scrut_expr,
+                                         iron_arena_strdup(mod->arena, slot_field,
+                                                           strlen(slot_field)),
+                                         ptype, span);
+            IronHIR_VarId vid = iron_hir_alloc_var(mod, bname, ptype, false);
+            declare_var(ctx, bname, vid);
+            IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, vid, ptype, field_expr,
+                                                      false, span);
+            iron_hir_block_add_stmt(out, let_s);
+        } else if (nested && nested->kind == IRON_NODE_PATTERN) {
+            /* Nested pattern: recurse with the sub-enum type */
+            Iron_Pattern *npat = (Iron_Pattern *)nested;
+            /* Resolve nested enum type */
+            Iron_Type *nested_enum_type = ptype;
+            if (npat->enum_name) {
+                Iron_Symbol *esym2 = iron_scope_lookup(ctx->global_scope, npat->enum_name);
+                if (esym2 && esym2->type && esym2->type->kind == IRON_TYPE_ENUM) {
+                    nested_enum_type = esym2->type;
+                }
+            }
+            inject_pattern_let_stmts(ctx, out, scrut_expr, nested_enum_type,
+                                      npat, slot_field, span);
+        }
+        /* else: wildcard _ — skip */
+    }
 }
 
 /* Lower a single statement node; emit it into ctx->current_block.
@@ -590,13 +704,26 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_MATCH: {
         Iron_MatchStmt *ms    = (Iron_MatchStmt *)node;
         IronHIR_Expr   *scrut = lower_expr_hir(ctx, ms->subject);
+        Iron_Type      *scrut_ty = expr_type(ms->subject);
         IronHIR_MatchArm *arms = NULL;
 
         for (int i = 0; i < ms->case_count; i++) {
             Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
             IronHIR_Expr  *pat = lower_expr_hir(ctx, mc->pattern);
             IronHIR_Block *mbody = iron_hir_block_create(mod);
-            lower_block_hir(ctx, (Iron_Block *)mc->body, mbody);
+
+            /* For ADT patterns: push scope, inject binding LET stmts, lower body */
+            if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                Iron_Pattern *ast_pat = (Iron_Pattern *)mc->pattern;
+                push_scope(ctx);
+                inject_pattern_let_stmts(ctx, mbody, scrut, scrut_ty,
+                                          ast_pat, "", span);
+                lower_block_hir(ctx, (Iron_Block *)mc->body, mbody);
+                pop_scope(ctx);
+            } else {
+                lower_block_hir(ctx, (Iron_Block *)mc->body, mbody);
+            }
+
             IronHIR_MatchArm arm;
             arm.pattern = pat;
             arm.guard   = NULL;
@@ -1081,6 +1208,59 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         return iron_hir_expr_is(mod, val, check_ty, span);
     }
 
+    /* ── ADT enum variant construction ─────────────────────────────────── */
+    case IRON_NODE_ENUM_CONSTRUCT: {
+        Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+        Iron_Type *ty = ec->resolved_type;
+        /* Find variant index */
+        int variant_idx = -1;
+        if (ty && ty->kind == IRON_TYPE_ENUM && ty->enu.decl) {
+            Iron_EnumDecl *ed = ty->enu.decl;
+            for (int i = 0; i < ed->variant_count; i++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                if (strcmp(ev->name, ec->variant_name) == 0) {
+                    variant_idx = i;
+                    break;
+                }
+            }
+        }
+        /* Lower args */
+        IronHIR_Expr **args = NULL;
+        for (int i = 0; i < ec->arg_count; i++) {
+            IronHIR_Expr *a = lower_expr_hir(ctx, ec->args[i]);
+            arrput(args, a);
+        }
+        int ac = (int)arrlen(args);
+        /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        return iron_hir_expr_enum_construct(mod, ty, ec->enum_name, ec->variant_name,
+                                             variant_idx, args, ac, span);
+    }
+
+    /* ── ADT pattern ─────────────────────────────────────────────────────── */
+    case IRON_NODE_PATTERN: {
+        Iron_Pattern *pat = (Iron_Pattern *)node;
+        /* Variant index is -1 here; resolved from match scrutinee type in hir_to_lir.c */
+        int variant_idx = -1;
+        /* Lower nested patterns recursively */
+        IronHIR_Expr **nested = NULL;
+        for (int i = 0; i < pat->binding_count; i++) {
+            if (pat->nested_patterns && pat->nested_patterns[i]) {
+                IronHIR_Expr *np = lower_expr_hir(ctx, pat->nested_patterns[i]);
+                arrput(nested, np);
+            } else {
+                arrput(nested, NULL);
+            }
+        }
+        /* Copy binding names */
+        const char **names = NULL;
+        for (int i = 0; i < pat->binding_count; i++) {
+            arrput(names, pat->binding_names ? pat->binding_names[i] : NULL);
+        }
+        /* NOTE: nested and names stb_ds array ownership transfers to HIR expr — do NOT arrfree */
+        return iron_hir_expr_pattern(mod, pat->enum_name, pat->variant_name,
+                                      variant_idx, names, nested, pat->binding_count, span);
+    }
+
     /* ── Error or unsupported node ───────────────────────────────────────── */
     case IRON_NODE_ERROR:
     default:
@@ -1124,8 +1304,9 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd   = (Iron_FuncDecl *)decl;
-            IronHIR_Param *params = build_hir_params(ctx, fd->params,
-                                                      fd->param_count);
+            IronHIR_Param *params = build_hir_params_named(ctx, fd->params,
+                                                            fd->param_count,
+                                                            fd->name);
             Iron_Type *ret_ty = fd->resolved_return_type;
             if (!ret_ty) {
                 ret_ty = resolve_type_ann(ctx, fd->return_type);
@@ -1197,6 +1378,12 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
                             if (strcmp(od->name, md->type_name) == 0) {
                                 self_type = iron_type_make_object(mod->arena, od);
+                                break;
+                            }
+                        } else if (d->kind == IRON_NODE_ENUM_DECL) {
+                            Iron_EnumDecl *ed = (Iron_EnumDecl *)d;
+                            if (strcmp(ed->name, md->type_name) == 0) {
+                                self_type = iron_type_make_enum(mod->arena, ed);
                                 break;
                             }
                         }

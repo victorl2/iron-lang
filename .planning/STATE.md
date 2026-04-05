@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: complete
-stopped_at: "Completed 31-02-PLAN.md spawn benchmark await migration + human verification approved"
-last_updated: "2026-04-01T21:30:00.000Z"
-last_activity: "2026-04-01 — Phase 31 complete: all 6 spawn benchmarks use await, thresholds updated, human verification approved"
+status: completed
+stopped_at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
+last_updated: "2026-04-05T00:13:06.572Z"
+last_activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
 progress:
-  total_phases: 8
-  completed_phases: 8
+  total_phases: 7
+  completed_phases: 6
   total_plans: 12
   completed_plans: 12
   percent: 100
@@ -18,25 +18,48 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-31)
+See: .planning/PROJECT.md (updated 2026-04-02)
 
-**Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** v0.0.7-alpha Performance Optimization — Phase 31 (Spawn/Await Correctness) in progress, Plan 02 (benchmark updates) next
+**Core value:** Enums can carry data in their variants, and `match` exhaustively destructures them — the type system guarantees every case is handled.
+**Current focus:** v0.0.8-alpha Algebraic Data Types — Phase 32 (AST and Type System Foundation) ready to plan
 
 ## Current Position
 
-Phase: 31 of 31 (Spawn/Await Correctness)
-Plan: 02 complete
-Status: Phase complete — 2 of 2 plans complete
-Last activity: 2026-04-01 — Phase 31 complete: all 6 spawn benchmarks use await, thresholds updated, human verification approved
+Phase: 38 of 38 (Recursive Variant Auto-Boxing)
+Plan: 2 of 2 completed
+Status: Complete
+Last activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
 
-Progress: [█████████░] 92%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
-**Velocity (from v0.0.6-alpha):**
-- Total plans completed: 5 (phases 21-23)
-- Phases: 21, 22, 23
+**Velocity:**
+- Total plans completed: 1
+- Average duration: 25 min
+- Total execution time: 0.4 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 32    | 1     | 25min | 25min    |
+
+**Recent Trend:**
+- Last 5 plans: -
+- Trend: -
+
+*Updated after each plan completion*
+| Phase 32 P32-02 | 4min | 2 tasks | 2 files |
+| Phase 33 P01 | 18min | 2 tasks | 3 files |
+| Phase 33 P02 | 22min | 3 tasks | 8 files |
+| Phase 34 P01 | 4min | 2 tasks | 5 files |
+| Phase 34-hir-extensions-and-match-lowering P02 | 120 | 2 tasks | 9 files |
+| Phase 36 P01 | 20 | 2 tasks | 8 files |
+| Phase 37-generic-enums P01 | 35min | 2 tasks | 5 files |
+| Phase 37-generic-enums P02 | 85min | 2 tasks | 14 files |
+| Phase 38 P01 | 24min | 2 tasks | 9 files |
+| Phase 38 P02 | 36 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -45,37 +68,43 @@ Progress: [█████████░] 92%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Phase 22-struct-codegen-fix]: Constructor detection must check callee FUNC_REF's own type not call result type
-- [Phase 23-01]: mutable heap var alloca typed as RC(T); val_is_heap_ptr() follows LOAD->ALLOCA chain; method self-arg dereferenced at call site when callee expects value type
-- [Phase 23-02]: CONST_NULL with IRON_TYPE_OBJECT emits zero-initialized struct ({0}); range-for defer wrap in IRON_HIR_STMT_BLOCK for correct scope ordering
-- [v0.0.7-alpha roadmap]: Phase ordering: P1 (hoisting) -> P4 (fill) -> P5 (LOAD) -> P0 (inlining) -> P2 (phi) -> P3 (int32) -> benchmark. Research-recommended order. Phi and int32 come after all four primary passes are committed.
-- [v0.0.7-alpha roadmap]: Function inlining (Phase 27) carries highest risk — mandatory value ID remap via fresh next_value_id++, recursion guard, array param mode restriction. Verify find_root param mode before planning.
-- [Phase 24-range-bound-hoisting]: count_alloca placed in pre_header while active block, LOAD replaces GET_FIELD in header — bound computed once per loop entry
-- [Phase 25-stack-array-promotion]: Apply constant-count gate in both optimizer AND emitter pre-scan: dynamic fills must be excluded in both places to prevent type mismatch for escaping fills
-- [Phase 25-stack-array-promotion]: fill_hoisted map pattern: fill() declaration hoisting mirrors phi_hoisted — entry declarations, init-only at call site; reusable pattern for any array declaration hoisting
-- [Phase 26-load-expression-inlining]: LOAD blanket exclusion removed: cross-block guard at lir_optimize.c:1779-1785 already handles dangerous case; blanket exclusion was redundant
-- [Phase 26-load-expression-inlining]: bug_vla_goto_bypass pre-existing: confirmed failing before phase 26 on commit c333493; deferred to separate fix (VLA declaration hoisting needed)
-- [Phase 27-function-inlining]: Threshold 30 (not 20): phi_eliminate adds ~9 extra param alloca/store pairs per function; source-level instruction count is unreliable for threshold decisions
-- [Phase 27-function-inlining]: Result alloca must be inserted at call_block/call_idx BEFORE block split — placement in merge block causes C declaration-after-use errors
-- [Phase 27-function-inlining]: Step 9 result_remap applied to ALL original caller blocks, not just cont — CALL results may be referenced in branch target blocks (earlier block indices)
-- [Phase 27-function-inlining]: emit_c.c backward-ref hoisting extended to ALLOCA and all value-producing instrs; use_block_min requires comprehensive operand tracking across all instruction kinds
-- [Phase 27]: is_hoisted guard must be applied to ALL value-producing instruction cases in emit_instr — any instruction can be backward-ref hoisted when inlining rearranges blocks
-- [Phase 28-phi-elimination]: run_dead_alloca_elimination must be placed AFTER compute_escape_set in lir_optimize.c — C99 requires function to be declared before use (no implicit declaration allowed)
-- [Phase 28-phi-elimination]: GET_INDEX/SET_INDEX/GET_FIELD/SET_FIELD uses of an alloca must mark it as live (same as LOAD) — prevents removing arrays mutated via index/field ops without explicit LOAD
-- [Phase 28-phi-elimination]: Post-fixpoint single pass is sufficient for dead alloca elimination — copy-prop already removed single-store loads; inside-fixpoint placement adds marginal benefit only
-- [Phase 29-02]: get_value_type() helper: parameter value IDs (1..param_count) have NULL value_table entries; fn->params[vid-1].type fallback required for correct GET_INDEX/SET_INDEX type lookup for array parameters
-- [Phase 29-02]: Phi zero-init for sized integers: IRON_TYPE_INT8/16/32/64 and UINT variants must use iron_lir_const_int(0) not const_null; missing in original hir_to_lir.c which only handled INT and BOOL
-- [Phase 30-01]: Sub-ms concurrency benchmarks require 5.0x threshold to absorb 1ms timer granularity noise — ratio is meaningless at sub-ms resolution
-- [Phase 30-01]: connected_components threshold 500.0->1.5 validates Phase 29 Int32 array promotion: benchmark now runs at 0.5x (faster than C)
-- [Phase 30-02]: Top 3 outlier root causes all FUTURE PASS or ARCHITECTURAL — no prototype fixes committed; deep-dive documented as proposals for P6/P7 phases
-- [Phase 30-02]: three_sum overhead: skip_dup_lo/hi not inlined due to array-param restriction; relaxing for const (read-only) array params is safe and is the proposed fix
-- [Phase 31-spawn-await-correctness]: IRON_TYPE_NULL for handled spawn LIR type: keeps handle as void* without conflating with OBJECT type used for struct constructors
-- [Phase 31-spawn-await-correctness]: Wrapper function emitted per spawn in lifted_funcs: no HIR signature change required; wrapper captures lifted fn return value into handle->result
-- [Phase 31-spawn-await-correctness]: All spawn benchmark thresholds updated via update_thresholds.py from measured ratios; spawn configs annotated with Phase 31 await-based timing notes
+- [Roadmap]: Phases 32-35 are strictly sequential (AST → type checker → HIR → C emitter); phases 37 and 38 are independent of each other and both depend on phase 35.
+- [Roadmap]: Phase 36 (methods + syntax migration) depends on phase 35 (end-to-end testability), not on phases 37-38.
+- [Roadmap]: MATCH-01 (-> syntax parsing) and MATCH-07 (migration) both assigned to phase 32/36 respectively; MATCH-01 covers the parse-time portion in phase 32 and the migration completion in phase 36.
+- [Research]: bug_vla_goto_bypass must be addressed in phase 34 (match lowering) — binding ALLOCAs must be hoisted to function entry alongside the ALLOCA hoisting fix.
+- [Research]: Generic enum monomorphization (phase 37) has MEDIUM confidence on integration cost — requires codebase inspection of IronLIR_Module.mono_registry before planning.
+- [Research]: Recursive auto-boxing (phase 38) requires validating arena ownership for auto-boxed fields before planning.
+- [32-01]: IRON_TOK_WILDCARD only fires on bare _ (single underscore); _unused remains IRON_TOK_IDENTIFIER
+- [32-01]: val _ = expr and var _ = expr are valid discard bindings; parser accepts IRON_TOK_WILDCARD as name
+- [32-01]: variant_payload_types in Iron_Type.enu is a triple pointer zeroed by existing memset; Phase 33 populates it
+- [Phase 32]: Uppercase heuristic for enum construction: UppercaseName.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT; lowercase remains IRON_NODE_METHOD_CALL; Phase 33 reclassifies edge cases
+- [Phase 32]: Old { } match arm syntax is a parse error with recovery: diagnostic emitted, block parsed, arm added to AST
+- [Phase 33]: IRON_NODE_PATTERN and IRON_NODE_ENUM_CONSTRUCT resolved in resolve_node (not resolve_expr) since resolve_expr is a thin delegate
+- [Phase 33]: Shadow check for pattern bindings uses ctx->current_scope->parent to avoid false self-blocking within arm scope
+- [Phase 33]: variant_payload_types population runs as a dedicated pre-pass in iron_typecheck before function signatures and bodies
+- [Phase 33]: IRON_NODE_MATCH exhaustiveness checking only fires when subject_type->kind == IRON_TYPE_ENUM && ed->has_payloads — integer matches are unaffected
+- [Phase 34]: ADT enum structs emitted into struct_bodies (not enum_defs) for correct C output order
+- [Phase 34]: IRON_NODE_PATTERN lowering stores variant_index = -1 to be resolved in Plan 02 from match scrutinee type
+- [Phase 34-hir-extensions-and-match-lowering]: Unit enum variant (Color.Red) detected by uppercase heuristic in parser DOT handler; produces IRON_NODE_ENUM_CONSTRUCT with arg_count=0
+- [Phase 34-hir-extensions-and-match-lowering]: Pattern bindings injected as HIR STMT_LET nodes before arm body lowering, reusing existing LET emitter rather than adding special ADT extraction to hir_to_lir.c
+- [Phase 34-hir-extensions-and-match-lowering]: Nested pattern field path built as dotted string (data.Wrap._0.data.Val._0); emit_c.c expands it correctly
+- [Phase 36-01]: Plain enum match lowering: IRON_HIR_EXPR_PATTERN is used for ALL variant patterns (unit and payload), not IRON_HIR_EXPR_ENUM_CONSTRUCT — fixed in non-ADT SWITCH path in hir_to_lir.c
+- [Phase 36-01]: Enum methods: all four sites need updating together — resolver guard, HIR self-type lookup, LIR method-call type-name mangling, typecheck return type resolution
+- [Phase 37-generic-enums]: types.c includes parser/ast.h to access Iron_EnumDecl->name for iron_type_to_string
+- [Phase 37-generic-enums]: Generic enum variant_payload_types pre-pass skips generic enums; monomorphization populates payload types at use site
+- [Phase 37-generic-enums]: build_hir_params_named uses global scope function symbol resolved param types to fix Option[Int] in function params
+- [Phase 37-generic-enums]: type_mangle_component strips Iron_ prefix from nested generic enum mangled_name for C-safe identifiers
+- [Phase 37-generic-enums]: maybe_fill_missing_generic_args enables context-directed monomorphization for multi-param enums with partial arg inference
+- [Phase 38-01]: payload_is_boxed stored on Iron_Type.enu (not just AST node) so both generic and non-generic enums share the same emit_c.c read path
+- [Phase 38-01]: enum_defs (plain C enums) emitted before struct_bodies in final C output so non-recursive enum fields in ADT variant structs compile correctly
+- [Phase 38-01]: GET_FIELD dereference for boxed slots resolves object enum type via LOAD->ALLOCA chain traversal
+- [Phase 38-02]: mono_registry on TypeCtx enables cycle detection and caching: register mono before payload loop, all recursive resolutions find in-progress type
+- [Phase 38-02]: Concrete type args bound in gen_scope (T=Int not T=GENERIC_PARAM): resolve_type_annotation(Tree[T]) returns Tree[Int] directly via registry hit
+- [Phase 38-02]: substitute_generic_type removed: defective for IRON_TYPE_ENUM, replaced by concrete gen_scope binding approach
 
-### Roadmap Evolution
+### Project Notes
 
-- Phase 31 added: Spawn/Await Correctness — discovered during Phase 30 UAT that concurrency_spawn_captured benchmark uses fire-and-forget spawn without await, making timing comparison unfair vs C's pthread_join
+- This milestone is being developed on a **separate branch and PR** from main.
 
 ### Pending Todos
 
@@ -83,11 +112,13 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 27 planning]: Verify actual array parameter mode for `find_root(parent, x)` in connected_components before implementing inlining — if ARRAY_PARAM_LIST, the initial restriction blocks the primary benchmark target
-- [Phase 25 planning]: Inspect generated C for connected_components before writing new code — stack array promotion path may already work for fill(50, 0) and only need declaration placement fix
+- [Phase 34 planning]: Inspect hir_to_lir.c lines 1296-1346 and the ALLOCA hoisting logic before writing the plan — highest-risk phase.
+- [Phase 37 planning]: Validate type substitution path in existing generic function monomorphization before planning generic enum work.
+- [Phase 38 planning]: Read escape analysis output for a prototype recursive enum to confirm arena ownership is correct.
+- [General]: Mixed-payload enums (some variants with payloads, some without, e.g. `enum Foo { A, B(Int) }`) need a policy decision before phase 32 ships.
 
 ## Session Continuity
 
-Last session: 2026-04-01T21:30:00.000Z
-Stopped at: Completed 31-02-PLAN.md spawn benchmark await migration + human verification approved
+Last session: 2026-04-04T23:58:28.625Z
+Stopped at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
 Resume file: None

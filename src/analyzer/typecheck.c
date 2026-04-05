@@ -26,6 +26,7 @@
 
 #include "analyzer/typecheck.h"
 #include "lexer/lexer.h"
+#include "util/strbuf.h"
 #include "vendor/stb_ds.h"
 
 #include <string.h>
@@ -46,6 +47,11 @@ typedef struct {
 } SpawnResultEntry;
 
 typedef struct {
+    char        *key;   /* stb_ds strdup key -- mangled name */
+    Iron_Type   *value; /* the in-progress or completed mono type */
+} MonoRegistryEntry;
+
+typedef struct {
     Iron_Arena        *arena;
     Iron_DiagList     *diags;
     Iron_Scope        *global_scope;
@@ -55,6 +61,7 @@ typedef struct {
     NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
+    MonoRegistryEntry *mono_registry;        /* stb_ds map: mangled_name -> mono Iron_Type* (cycle detection + caching) */
 } TypeCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -63,6 +70,62 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node);
 static void check_stmt(TypeCtx *ctx, Iron_Node *node);
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count);
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
+
+/* ── Mangling helpers ────────────────────────────────────────────────────── */
+
+/* Return the C-identifier-safe name component for a type when building a
+ * monomorphized enum's mangled name.
+ *
+ * For primitives, return the plain name (e.g. "Int", "String").
+ * For a monomorphized generic enum, strip the "Iron_" prefix from the
+ * mangled_name (e.g. "Iron_Option_Int" -> "Option_Int").
+ * For a non-generic enum, return the enum decl name.
+ * This ensures nested generics like Result[Option[Int], String] produce
+ * "Iron_Result_Option_Int_String" (valid C identifier). */
+static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) {
+    if (!t) return "unknown";
+    switch (t->kind) {
+        case IRON_TYPE_INT:    return "Int";
+        case IRON_TYPE_INT8:   return "Int8";
+        case IRON_TYPE_INT16:  return "Int16";
+        case IRON_TYPE_INT32:  return "Int32";
+        case IRON_TYPE_INT64:  return "Int64";
+        case IRON_TYPE_UINT:   return "UInt";
+        case IRON_TYPE_UINT8:  return "UInt8";
+        case IRON_TYPE_UINT16: return "UInt16";
+        case IRON_TYPE_UINT32: return "UInt32";
+        case IRON_TYPE_UINT64: return "UInt64";
+        case IRON_TYPE_FLOAT:  return "Float";
+        case IRON_TYPE_FLOAT32: return "Float32";
+        case IRON_TYPE_FLOAT64: return "Float64";
+        case IRON_TYPE_BOOL:   return "Bool";
+        case IRON_TYPE_STRING: return "String";
+        case IRON_TYPE_VOID:   return "void";
+        case IRON_TYPE_ENUM:
+            if (t->enu.mangled_name) {
+                /* Strip "Iron_" prefix: "Iron_Option_Int" -> "Option_Int" */
+                const char *mn = t->enu.mangled_name;
+                if (strncmp(mn, "Iron_", 5) == 0) return mn + 5;
+                return mn;
+            }
+            if (t->enu.decl) return t->enu.decl->name;
+            return "Enum";
+        default:
+            /* Fallback: use iron_type_to_string but replace brackets with underscores */
+            return iron_type_to_string(t, arena);
+    }
+}
+
+/* ── ADT helpers ─────────────────────────────────────────────────────────── */
+
+/* Find variant index by name in an enum declaration. Returns -1 if not found. */
+static int find_variant_index(Iron_EnumDecl *ed, const char *name) {
+    for (int i = 0; i < ed->variant_count; i++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+        if (strcmp(ev->name, name) == 0) return i;
+    }
+    return -1;
+}
 
 /* ── Scope helpers ───────────────────────────────────────────────────────── */
 
@@ -91,6 +154,54 @@ static Iron_Symbol *tc_define(TypeCtx *ctx, const char *name, Iron_SymbolKind ki
 /* Look up a symbol in the type-checker's scope chain. */
 static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
     return iron_scope_lookup(ctx->current_scope, name);
+}
+
+/* Recursively define binding variables from a pattern into the current scope.
+ * enum_type: the Iron_Type of the enum being matched by this pattern.
+ * pattern_node: the Iron_Pattern AST node. */
+static void tc_define_pattern_bindings(TypeCtx *ctx,
+                                        Iron_Type *enum_type,
+                                        Iron_Node *pattern_node) {
+    if (!pattern_node || pattern_node->kind != IRON_NODE_PATTERN) return;
+    Iron_Pattern *pat = (Iron_Pattern *)pattern_node;
+
+    Iron_EnumDecl *ed = NULL;
+    Iron_Type     *pat_enum_type = enum_type;
+
+    /* If the pattern names its own enum (e.g. Inner.Val(n)), resolve by name */
+    if (pat->enum_name) {
+        Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
+        if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
+            pat_enum_type = esym->type;
+        }
+    }
+    if (pat_enum_type && pat_enum_type->kind == IRON_TYPE_ENUM) {
+        ed = pat_enum_type->enu.decl;
+    }
+    if (!ed || !pat_enum_type || !pat_enum_type->enu.variant_payload_types) return;
+
+    int vi = find_variant_index(ed, pat->variant_name);
+    if (vi < 0) return;
+
+    Iron_Type **ptypes = pat_enum_type->enu.variant_payload_types[vi];
+    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+    for (int j = 0; j < pat->binding_count && j < ev->payload_count; j++) {
+        const char *bname = pat->binding_names ? pat->binding_names[j] : NULL;
+        Iron_Node  *nested = (pat->nested_patterns && pat->nested_patterns[j])
+                              ? pat->nested_patterns[j] : NULL;
+        if (bname) {
+            /* Simple binding: define variable with payload type */
+            Iron_Type *btype = (ptypes && ptypes[j]) ? ptypes[j]
+                               : iron_type_make_primitive(IRON_TYPE_ERROR);
+            tc_define(ctx, bname, IRON_SYM_VARIABLE, pattern_node, pat->span,
+                      /*is_mutable=*/false, btype);
+        } else if (nested) {
+            /* Nested pattern: recurse with the payload type as the context enum type */
+            Iron_Type *payload_type = (ptypes && ptypes[j]) ? ptypes[j] : NULL;
+            tc_define_pattern_bindings(ctx, payload_type, nested);
+        }
+        /* else: wildcard _ — no binding */
+    }
 }
 
 /* ── Diagnostic helpers ──────────────────────────────────────────────────── */
@@ -131,6 +242,29 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     return false;
 }
 
+/* Context-directed generic enum completion:
+ * When `val r: Result[Int, String] = Result.Ok(100)`, only T=Int can be
+ * inferred from the construct; E cannot be inferred from Ok's payload.
+ * If the declared type is a fully-instantiated monomorphized enum with the
+ * same base decl, copy its type_args into the construct's resolved_type so
+ * the types match without a spurious type-mismatch error.
+ * This does NOT validate that the inferred args are compatible — that is
+ * enforced by the construct's own argument type-check above. */
+static void maybe_fill_missing_generic_args(Iron_Node *init_node,
+                                             Iron_Type *decl_type) {
+    if (!init_node || !decl_type) return;
+    if (decl_type->kind != IRON_TYPE_ENUM) return;
+    if (!decl_type->enu.mangled_name) return;  /* decl_type not a monomorphized generic */
+    if (init_node->kind != IRON_NODE_ENUM_CONSTRUCT) return;
+    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)init_node;
+    if (!ec->resolved_type) return;
+    if (ec->resolved_type->kind != IRON_TYPE_ENUM) return;
+    if (ec->resolved_type->enu.decl != decl_type->enu.decl) return;  /* different base enum */
+    /* Both are instantiations of the same generic enum.
+     * Replace ec->resolved_type with decl_type to fill in any missing args. */
+    ec->resolved_type = decl_type;
+}
+
 /* Allow integer literals to implicitly narrow to Int32.
  * `val x: Int32 = 42` is safe because the literal is statically known.
  * `val x: Int32 = someIntVar` is NOT allowed -- use Int32(someIntVar).
@@ -166,6 +300,10 @@ static NarrowEntry *narrowing_copy(TypeCtx *ctx) {
     return copy;
 }
 
+/* ── Generic type substitution ───────────────────────────────────────────── */
+
+/* Recursively substitute IRON_TYPE_GENERIC_PARAM with concrete types.
+ * Maps ed->generic_params[i].name -> type_args[i]. */
 /* ── Type annotation resolution ─────────────────────────────────────────── */
 
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
@@ -201,6 +339,135 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
         if (sym) {
             base = sym->type;
+            /* Generic enum instantiation: Option[Int], Result[T, E] */
+            if (base && base->kind == IRON_TYPE_ENUM &&
+                base->enu.decl && base->enu.decl->generic_param_count > 0 &&
+                ann->generic_arg_count > 0) {
+                Iron_EnumDecl *ed = base->enu.decl;
+                if (ann->generic_arg_count != ed->generic_param_count) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "generic enum '%s' expects %d type argument(s) but got %d",
+                             ed->name, ed->generic_param_count, ann->generic_arg_count);
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ann_node->span, msg, NULL);
+                } else {
+                    /* Resolve each generic arg to a concrete type */
+                    Iron_Type **type_args = iron_arena_alloc(ctx->arena,
+                        sizeof(Iron_Type *) * (size_t)ann->generic_arg_count,
+                        _Alignof(Iron_Type *));
+                    for (int i = 0; i < ann->generic_arg_count; i++) {
+                        type_args[i] = resolve_type_annotation(ctx, ann->generic_args[i]);
+                    }
+
+                    /* Build mangled name: "Iron_Option_Int", "Iron_Result_Int_String" */
+                    Iron_StrBuf sb = iron_strbuf_create(64);
+                    iron_strbuf_appendf(&sb, "Iron_%s", ed->name);
+                    for (int i = 0; i < ann->generic_arg_count; i++) {
+                        iron_strbuf_appendf(&sb, "_%s",
+                            type_mangle_component(type_args[i], ctx->arena));
+                    }
+                    const char *mangled = iron_arena_strdup(ctx->arena,
+                        iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+
+                    /* Cycle detection / caching: if this mangled name is already being
+                     * resolved (recursive generic enum like Tree[T] whose Branch variant
+                     * references Tree[T] again), return the in-progress mono type to
+                     * break the cycle. Also serves as a cache for repeat uses. */
+                    {
+                        ptrdiff_t reg_idx = shgeti(ctx->mono_registry, mangled);
+                        if (reg_idx >= 0) {
+                            base = ctx->mono_registry[reg_idx].value;
+                            goto done_generic_mono;
+                        }
+                    }
+
+                    /* Build monomorphized Iron_Type */
+                    Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
+                        _Alignof(Iron_Type));
+                    memset(mono, 0, sizeof(*mono));
+                    mono->kind = IRON_TYPE_ENUM;
+                    mono->enu.decl = ed;
+                    mono->enu.type_args = type_args;
+                    mono->enu.type_arg_count = ann->generic_arg_count;
+                    mono->enu.mangled_name = mangled;
+
+                    /* Register mono BEFORE resolving payloads to break recursive cycles
+                     * (e.g. Tree[T] → Branch(Tree[T], Tree[T]) → Tree[T] again). */
+                    shput(ctx->mono_registry,
+                          iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
+                          mono);
+
+                    /* Substitute variant_payload_types:
+                     * Bind generic param names to their CONCRETE type args in a temporary
+                     * scope so that recursive resolve_type_annotation calls for payloads
+                     * like Tree[T] resolve directly to Tree[Int] (no post-substitution
+                     * needed).  Self-referential payloads (e.g. Branch(Tree[T], Tree[T]))
+                     * will find "Iron_Tree_Int" already in mono_registry and return mono,
+                     * breaking the cycle without infinite recursion. */
+                    Iron_Scope *saved_scope = ctx->global_scope;
+                    Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+                        ctx->global_scope, IRON_SCOPE_BLOCK);
+                    for (int i = 0; i < ed->generic_param_count; i++) {
+                        Iron_Ident *param = (Iron_Ident *)ed->generic_params[i];
+                        if (param) {
+                            Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
+                                param->name, IRON_SYM_TYPE, NULL,
+                                (Iron_Span){0, 0, 0, 0, 0});
+                            /* Bind the CONCRETE type arg (not a GENERIC_PARAM placeholder).
+                             * This ensures Tree[T] resolves to Tree[Int] directly. */
+                            gsym->type = (i < ann->generic_arg_count) ? type_args[i]
+                                         : iron_type_make_generic_param(
+                                               ctx->arena, param->name, NULL);
+                            iron_scope_define(gen_scope, ctx->arena, gsym);
+                        }
+                    }
+                    ctx->global_scope = gen_scope;
+
+                    Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
+                        sizeof(Iron_Type **) * (size_t)ed->variant_count,
+                        _Alignof(Iron_Type **));
+                    memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
+                    for (int j = 0; j < ed->variant_count; j++) {
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                        if (ev->payload_count == 0) { vpt[j] = NULL; continue; }
+                        Iron_Type **row = iron_arena_alloc(ctx->arena,
+                            sizeof(Iron_Type *) * (size_t)ev->payload_count,
+                            _Alignof(Iron_Type *));
+                        for (int k = 0; k < ev->payload_count; k++) {
+                            /* T is already bound to the concrete type arg in gen_scope,
+                             * so no post-substitution is needed. */
+                            row[k] = resolve_type_annotation(
+                                ctx, ev->payload_type_anns[k]);
+                        }
+                        vpt[j] = row;
+                    }
+                    ctx->global_scope = saved_scope;
+
+                    mono->enu.variant_payload_types = vpt;
+
+                    /* Compute payload_is_boxed for monomorphized type */
+                    bool **pib = iron_arena_alloc(ctx->arena,
+                        sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                    memset(pib, 0, sizeof(bool *) * (size_t)ed->variant_count);
+                    for (int j = 0; j < ed->variant_count; j++) {
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                        if (ev->payload_count == 0) continue;
+                        bool *pib_row = iron_arena_alloc(ctx->arena,
+                            sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+                        memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
+                        for (int k = 0; k < ev->payload_count; k++) {
+                            if (vpt[j] && vpt[j][k]) {
+                                pib_row[k] = iron_type_equals(vpt[j][k], mono);
+                            }
+                        }
+                        pib[j] = pib_row;
+                    }
+                    mono->enu.payload_is_boxed = pib;
+                    base = mono;
+                    done_generic_mono:;
+                }
+            }
         } else {
             char msg[256];
             snprintf(msg, sizeof(msg), "unknown type '%s'", name);
@@ -650,6 +917,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                            obj_id->resolved_type->kind == IRON_TYPE_OBJECT) {
                     /* Instance method: receiver has object type */
                     type_name_mc = obj_id->resolved_type->object.decl->name;
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_ENUM &&
+                           obj_id->resolved_type->enu.decl) {
+                    /* Instance method on enum value */
+                    type_name_mc = obj_id->resolved_type->enu.decl->name;
                 }
                 if (type_name_mc && ctx->program) {
                     for (int i = 0; i < ctx->program->decl_count; i++) {
@@ -920,6 +1192,260 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+            /* Look up enum type in global scope */
+            Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, ec->enum_name);
+            if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) {
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                break;
+            }
+            Iron_Type *enum_type = esym->type;
+            Iron_EnumDecl *ed = enum_type->enu.decl;
+
+            /* Generic enum: infer type args from argument types */
+            if (ed->generic_param_count > 0) {
+                int vi = find_variant_index(ed, ec->variant_name);
+                if (vi < 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
+                             ec->enum_name, ec->variant_name);
+                    emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, NULL);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    break;
+                }
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+                if (ec->arg_count != ev->payload_count) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "%s.%s expects %d argument(s) but got %d",
+                             ec->enum_name, ec->variant_name, ev->payload_count, ec->arg_count);
+                    emit_error(ctx, IRON_ERR_PATTERN_ARITY, ec->span, msg, NULL);
+                    ec->resolved_type = enum_type;
+                    result = enum_type;
+                    break;
+                }
+
+                /* Infer type args from argument types */
+                Iron_Type **inferred_args = iron_arena_alloc(ctx->arena,
+                    sizeof(Iron_Type *) * (size_t)ed->generic_param_count,
+                    _Alignof(Iron_Type *));
+                memset(inferred_args, 0,
+                    sizeof(Iron_Type *) * (size_t)ed->generic_param_count);
+
+                /* Push generic param scope for resolving payload type annotations */
+                Iron_Scope *saved_gen = ctx->global_scope;
+                Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+                    ctx->global_scope, IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                    if (param) {
+                        Iron_Type *gpt = iron_type_make_generic_param(
+                            ctx->arena, param->name, NULL);
+                        Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
+                            param->name, IRON_SYM_TYPE, NULL,
+                            (Iron_Span){0, 0, 0, 0, 0});
+                        gsym->type = gpt;
+                        iron_scope_define(gen_scope, ctx->arena, gsym);
+                    }
+                }
+                ctx->global_scope = gen_scope;
+
+                /* Type-check args and infer generic type params */
+                for (int j = 0; j < ec->arg_count; j++) {
+                    Iron_Type *arg_t = check_expr(ctx, ec->args[j]);
+                    Iron_Type *expected = resolve_type_annotation(
+                        ctx, ev->payload_type_anns[j]);
+                    /* If expected is GENERIC_PARAM, map it to arg_t */
+                    if (expected && expected->kind == IRON_TYPE_GENERIC_PARAM) {
+                        for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                            Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                            if (param && expected->generic_param.name &&
+                                strcmp(param->name, expected->generic_param.name) == 0) {
+                                inferred_args[gi] = arg_t;
+                                break;
+                            }
+                        }
+                    }
+                    /* If expected is a generic enum like Tree[T] and arg_t is the
+                     * same enum with concrete type args like Tree[Int], infer T=Int.
+                     * This handles recursive generic variants: Branch(Tree[T], Tree[T]). */
+                    if (expected && expected->kind == IRON_TYPE_ENUM &&
+                        arg_t && arg_t->kind == IRON_TYPE_ENUM &&
+                        expected->enu.decl && expected->enu.decl == arg_t->enu.decl &&
+                        expected->enu.type_arg_count > 0 &&
+                        expected->enu.type_arg_count == arg_t->enu.type_arg_count) {
+                        for (int ta = 0; ta < expected->enu.type_arg_count; ta++) {
+                            Iron_Type *exp_ta = expected->enu.type_args
+                                               ? expected->enu.type_args[ta] : NULL;
+                            Iron_Type *arg_ta = arg_t->enu.type_args
+                                               ? arg_t->enu.type_args[ta] : NULL;
+                            if (exp_ta && exp_ta->kind == IRON_TYPE_GENERIC_PARAM && arg_ta) {
+                                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                                    Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                                    if (param && exp_ta->generic_param.name &&
+                                        strcmp(param->name, exp_ta->generic_param.name) == 0) {
+                                        inferred_args[gi] = arg_ta;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ctx->global_scope = saved_gen;
+
+                /* Build mangled name from inferred args.
+                 * Use type_mangle_component to ensure C-identifier-safe names
+                 * for nested generic types (e.g. Option[Int] -> "Option_Int"). */
+                Iron_StrBuf sb = iron_strbuf_create(64);
+                iron_strbuf_appendf(&sb, "Iron_%s", ed->name);
+                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    if (inferred_args[gi]) {
+                        iron_strbuf_appendf(&sb, "_%s",
+                            type_mangle_component(inferred_args[gi], ctx->arena));
+                    } else {
+                        iron_strbuf_appendf(&sb, "_unknown");
+                    }
+                }
+                const char *mangled = iron_arena_strdup(ctx->arena,
+                    iron_strbuf_get(&sb), sb.len);
+                iron_strbuf_free(&sb);
+
+                /* Check mono_registry: if this mangled type was already built
+                 * (e.g. from the function signature resolution), reuse it to
+                 * ensure payload_is_boxed is correctly populated. */
+                {
+                    ptrdiff_t reg2_idx = shgeti(ctx->mono_registry, mangled);
+                    if (reg2_idx >= 0) {
+                        ec->resolved_type = ctx->mono_registry[reg2_idx].value;
+                        result = ec->resolved_type;
+                        break;
+                    }
+                }
+
+                /* Create monomorphized type */
+                Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
+                    _Alignof(Iron_Type));
+                memset(mono, 0, sizeof(*mono));
+                mono->kind = IRON_TYPE_ENUM;
+                mono->enu.decl = ed;
+                mono->enu.type_args = inferred_args;
+                mono->enu.type_arg_count = ed->generic_param_count;
+                mono->enu.mangled_name = mangled;
+
+                /* Register in mono_registry before payload resolution (cycle detection). */
+                shput(ctx->mono_registry,
+                      iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
+                      mono);
+
+                /* Substitute variant_payload_types:
+                 * Bind concrete inferred_args in gen_scope (not GENERIC_PARAMs)
+                 * so recursive payload resolution sees Tree[Int] not Tree[T]. */
+                Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
+                    sizeof(Iron_Type **) * (size_t)ed->variant_count,
+                    _Alignof(Iron_Type **));
+                memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
+                Iron_Scope *saved_gen2 = ctx->global_scope;
+                Iron_Scope *gen2 = iron_scope_create(ctx->arena,
+                    ctx->global_scope, IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
+                    if (param) {
+                        Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
+                            param->name, IRON_SYM_TYPE, NULL,
+                            (Iron_Span){0, 0, 0, 0, 0});
+                        gsym->type = (gi < ed->generic_param_count && inferred_args[gi])
+                                     ? inferred_args[gi]
+                                     : iron_type_make_generic_param(
+                                           ctx->arena, param->name, NULL);
+                        iron_scope_define(gen2, ctx->arena, gsym);
+                    }
+                }
+                ctx->global_scope = gen2;
+                for (int vj = 0; vj < ed->variant_count; vj++) {
+                    Iron_EnumVariant *vev = (Iron_EnumVariant *)ed->variants[vj];
+                    if (vev->payload_count == 0) { vpt[vj] = NULL; continue; }
+                    Iron_Type **row = iron_arena_alloc(ctx->arena,
+                        sizeof(Iron_Type *) * (size_t)vev->payload_count,
+                        _Alignof(Iron_Type *));
+                    for (int kk = 0; kk < vev->payload_count; kk++) {
+                        /* T is bound to concrete inferred_args[i] in gen2 scope,
+                         * so no post-substitution needed. */
+                        row[kk] = resolve_type_annotation(ctx, vev->payload_type_anns[kk]);
+                    }
+                    vpt[vj] = row;
+                }
+                ctx->global_scope = saved_gen2;
+                mono->enu.variant_payload_types = vpt;
+
+                /* Compute payload_is_boxed for monomorphized type (path 2) */
+                bool **pib2 = iron_arena_alloc(ctx->arena,
+                    sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                memset(pib2, 0, sizeof(bool *) * (size_t)ed->variant_count);
+                for (int vj2 = 0; vj2 < ed->variant_count; vj2++) {
+                    Iron_EnumVariant *vev2 = (Iron_EnumVariant *)ed->variants[vj2];
+                    if (vev2->payload_count == 0) continue;
+                    bool *pib2_row = iron_arena_alloc(ctx->arena,
+                        sizeof(bool) * (size_t)vev2->payload_count, _Alignof(bool));
+                    memset(pib2_row, 0, sizeof(bool) * (size_t)vev2->payload_count);
+                    for (int kk2 = 0; kk2 < vev2->payload_count; kk2++) {
+                        if (vpt[vj2] && vpt[vj2][kk2]) {
+                            pib2_row[kk2] = iron_type_equals(vpt[vj2][kk2], mono);
+                        }
+                    }
+                    pib2[vj2] = pib2_row;
+                }
+                mono->enu.payload_is_boxed = pib2;
+
+                ec->resolved_type = mono;
+                result = mono;
+                break;
+            }
+
+            /* Non-generic enum: standard handling */
+            int vi = find_variant_index(ed, ec->variant_name);
+            if (vi < 0) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
+                         ec->enum_name, ec->variant_name);
+                emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, NULL);
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                break;
+            }
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+            /* Check argument count matches payload count */
+            if (ec->arg_count != ev->payload_count) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "%s.%s expects %d argument(s) but got %d",
+                         ec->enum_name, ec->variant_name, ev->payload_count, ec->arg_count);
+                emit_error(ctx, IRON_ERR_PATTERN_ARITY, ec->span, msg, NULL);
+                ec->resolved_type = enum_type;
+                result = enum_type;
+                break;
+            }
+            /* Type-check each argument against variant payload types */
+            Iron_Type **ptypes = enum_type->enu.variant_payload_types
+                                 ? enum_type->enu.variant_payload_types[vi] : NULL;
+            for (int j = 0; j < ec->arg_count; j++) {
+                Iron_Type *arg_t = check_expr(ctx, ec->args[j]);
+                if (ptypes && ptypes[j] && arg_t &&
+                    arg_t->kind != IRON_TYPE_ERROR && ptypes[j]->kind != IRON_TYPE_ERROR) {
+                    if (!iron_type_equals(arg_t, ptypes[j])) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "argument %d to %s.%s: expected %s but got %s",
+                                 j + 1, ec->enum_name, ec->variant_name,
+                                 iron_type_to_string(ptypes[j], ctx->arena),
+                                 iron_type_to_string(arg_t, ctx->arena));
+                        emit_error(ctx, IRON_ERR_ARG_TYPE, ec->span, msg, NULL);
+                    }
+                }
+            }
+            ec->resolved_type = enum_type;
+            result = enum_type;
+            break;
+        }
+
         default:
             result = iron_type_make_primitive(IRON_TYPE_ERROR);
             break;
@@ -966,6 +1492,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (!decl_type && init_type) {
                 decl_type = init_type;
             } else if (decl_type && init_type) {
+                /* Context-directed generic enum completion: if the construct has
+                 * unresolved type args, fill them in from the declared type. */
+                maybe_fill_missing_generic_args(vd->init, decl_type);
+                init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
+                    ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
+                    : init_type;
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
@@ -1008,6 +1540,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (!decl_type && init_type) {
                 decl_type = init_type;
             } else if (decl_type && init_type) {
+                /* Context-directed generic enum completion: if the construct has
+                 * unresolved type args, fill them in from the declared type. */
+                maybe_fill_missing_generic_args(vd->init, decl_type);
+                init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
+                    ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
+                    : init_type;
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
@@ -1236,18 +1774,116 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
-            check_expr(ctx, ms->subject);
+            Iron_Type *subject_type = check_expr(ctx, ms->subject);
+            /* Process each case arm */
             for (int i = 0; i < ms->case_count; i++) {
                 if (ms->cases[i]) check_stmt(ctx, ms->cases[i]);
             }
             if (ms->else_body) check_stmt(ctx, ms->else_body);
+            /* Exhaustiveness check — only for enum subjects with payloads */
+            if (subject_type && subject_type->kind == IRON_TYPE_ENUM) {
+                Iron_EnumDecl *ed = subject_type->enu.decl;
+                if (ed && ed->has_payloads) {
+                    bool *covered = iron_arena_alloc(ctx->arena,
+                        sizeof(bool) * (size_t)ed->variant_count, _Alignof(bool));
+                    memset(covered, 0, sizeof(bool) * (size_t)ed->variant_count);
+                    bool has_catch_all = (ms->else_body != NULL);
+                    for (int i = 0; i < ms->case_count; i++) {
+                        Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                        if (!mc || !mc->pattern) continue;
+                        if (mc->pattern->kind != IRON_NODE_PATTERN) continue;
+                        Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
+                        const char *vname = p->variant_name;
+                        int vi = find_variant_index(ed, vname);
+                        if (vi < 0) {
+                            /* Unknown variant — already reported by resolver; skip */
+                            continue;
+                        }
+                        if (covered[vi]) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "unreachable match arm: variant '%s' already covered",
+                                     vname);
+                            emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span,
+                                       msg, NULL);
+                        } else {
+                            covered[vi] = true;
+                        }
+                        /* Check pattern arity (binding_count must match payload_count) */
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+                        if (p->binding_count != ev->payload_count) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "%s expects %d field(s) but pattern has %d",
+                                     vname, ev->payload_count, p->binding_count);
+                            emit_error(ctx, IRON_ERR_PATTERN_ARITY, mc->pattern->span,
+                                       msg, NULL);
+                        }
+                    }
+                    if (!has_catch_all) {
+                        /* Check for missing variants */
+                        int missing_count = 0;
+                        for (int i = 0; i < ed->variant_count; i++) {
+                            if (!covered[i]) missing_count++;
+                        }
+                        if (missing_count > 0) {
+                            char msg[512];
+                            int pos = snprintf(msg, sizeof(msg),
+                                               "non-exhaustive match: missing variant(s): ");
+                            bool first = true;
+                            for (int i = 0; i < ed->variant_count; i++) {
+                                if (!covered[i]) {
+                                    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                                    if (!first) pos += snprintf(msg + pos, sizeof(msg) - pos, ", ");
+                                    pos += snprintf(msg + pos, sizeof(msg) - pos, "%s", ev->name);
+                                    first = false;
+                                }
+                            }
+                            emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span,
+                                       msg, "add 'else -> ...' or handle each variant");
+                        }
+                    } else {
+                        /* else arm present: emit info note listing which variants it catches */
+                        int uncovered_count = 0;
+                        for (int i = 0; i < ed->variant_count; i++) {
+                            if (!covered[i]) uncovered_count++;
+                        }
+                        if (uncovered_count > 0) {
+                            char msg[512];
+                            int pos = snprintf(msg, sizeof(msg), "else catches: ");
+                            bool first = true;
+                            for (int i = 0; i < ed->variant_count; i++) {
+                                if (!covered[i]) {
+                                    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                                    if (!first) pos += snprintf(msg + pos, sizeof(msg) - pos, ", ");
+                                    pos += snprintf(msg + pos, sizeof(msg) - pos, "%s", ev->name);
+                                    first = false;
+                                }
+                            }
+                            (void)pos;  /* suppress unused-variable warning */
+                            iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE, 0,
+                                           ms->span,
+                                           iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                           NULL);
+                        }
+                    }
+                }
+            }
             break;
         }
 
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
-            if (mc->pattern) check_expr(ctx, mc->pattern);
+            tc_push_scope(ctx, IRON_SCOPE_BLOCK);
+            if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                /* Recursively define all binding variables (including nested patterns) */
+                tc_define_pattern_bindings(ctx, NULL, mc->pattern);
+            } else if (mc->pattern) {
+                /* Non-pattern (e.g. integer literal) — check as expression */
+                check_expr(ctx, mc->pattern);
+            }
             if (mc->body) check_stmt(ctx, mc->body);
+            tc_pop_scope(ctx);
             break;
         }
 
@@ -1491,8 +2127,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.narrowed            = NULL;
     ctx.program             = program;
     ctx.spawn_result_types  = NULL;
+    ctx.mono_registry       = NULL;
     sh_new_strdup(ctx.narrowed);
     sh_new_strdup(ctx.spawn_result_types);
+    sh_new_strdup(ctx.mono_registry);
 
     /* Check top-level val/var declarations first so their init expressions
      * have resolved_type set before function bodies reference them.
@@ -1522,6 +2160,55 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             /* Update the resolver's existing symbol with the resolved type */
             Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, vd->name);
             if (sym) sym->type = decl_type;
+        }
+    }
+
+    /* Pre-pass: populate variant_payload_types for ADT enums.
+     * Must run before function bodies reference IRON_NODE_ENUM_CONSTRUCT or
+     * IRON_NODE_MATCH so that variant type information is available. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl || decl->kind != IRON_NODE_ENUM_DECL) continue;
+        Iron_EnumDecl *ed = (Iron_EnumDecl *)decl;
+        if (!ed->has_payloads) continue;
+        if (ed->generic_param_count > 0) continue; /* monomorphized in resolve_type_annotation */
+        /* Look up the enum's type (registered by resolver in global scope) */
+        Iron_Symbol *esym = iron_scope_lookup(ctx.global_scope, ed->name);
+        if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) continue;
+        Iron_Type *ty = esym->type;
+        /* Allocate outer array of Iron_Type** pointers */
+        Iron_Type ***vpt = iron_arena_alloc(ctx.arena,
+            sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));
+        memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
+        ty->enu.variant_payload_types = vpt;
+        /* Allocate payload_is_boxed parallel structure on the type */
+        bool **pib_ty = iron_arena_alloc(ctx.arena,
+            sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+        memset(pib_ty, 0, sizeof(bool *) * (size_t)ed->variant_count);
+        ty->enu.payload_is_boxed = pib_ty;
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (ev->payload_count == 0) {
+                vpt[j] = NULL;
+                continue;
+            }
+            Iron_Type **row = iron_arena_alloc(ctx.arena,
+                sizeof(Iron_Type *) * (size_t)ev->payload_count, _Alignof(Iron_Type *));
+            /* Allocate boxing flags for this variant */
+            ev->payload_is_boxed = iron_arena_alloc(ctx.arena,
+                sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            memset(ev->payload_is_boxed, 0, sizeof(bool) * (size_t)ev->payload_count);
+            bool *pib_row = iron_arena_alloc(ctx.arena,
+                sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
+            for (int k = 0; k < ev->payload_count; k++) {
+                row[k] = resolve_type_annotation(&ctx, ev->payload_type_anns[k]);
+                /* Mark boxed if payload type is the same enum type (recursive) */
+                ev->payload_is_boxed[k] = iron_type_equals(row[k], ty);
+                pib_row[k] = ev->payload_is_boxed[k];
+            }
+            vpt[j] = row;
+            pib_ty[j] = pib_row;
         }
     }
 

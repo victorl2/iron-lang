@@ -244,10 +244,21 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     /* nullable? */
     ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
 
-    /* generic args: [T, U] */
+    /* generic args: Type[T, U] where T, U are full type annotations (supports nested generics) */
     if (iron_check(p, IRON_TOK_LBRACKET)) {
-        ann->generic_args = iron_parse_generic_params(p, &ann->generic_arg_count,
-                                                      p->arena);
+        iron_advance(p);  /* consume '[' */
+        iron_skip_newlines(p);
+        ann->generic_args = NULL;
+        ann->generic_arg_count = 0;
+        while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
+            Iron_Node *arg = iron_parse_type_annotation(p);
+            arrput(ann->generic_args, arg);
+            ann->generic_arg_count++;
+            iron_skip_newlines(p);
+            if (!iron_match(p, IRON_TOK_COMMA)) break;
+            iron_skip_newlines(p);
+        }
+        iron_expect(p, IRON_TOK_RBRACKET);
     } else {
         ann->generic_args      = NULL;
         ann->generic_arg_count = 0;
@@ -729,19 +740,79 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                                                   strlen(name_tok->value));
 
             if (iron_check(p, IRON_TOK_LPAREN)) {
-                /* Method call: obj.method(args) */
-                int arg_count = 0;
-                Iron_Node **args = iron_parse_call_args(p, &arg_count);
-                Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
-                mc->kind      = IRON_NODE_METHOD_CALL;
-                mc->span      = iron_span_merge(left->span,
+                /* Heuristic: if the LHS is a simple identifier starting with
+                 * an uppercase letter, treat as enum construction:
+                 *   EnumType.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT
+                 * Otherwise treat as method call:
+                 *   variable.method(args) -> IRON_NODE_METHOD_CALL
+                 * The resolver in Phase 33 will reclassify if needed. */
+                if (left->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *ident = (Iron_Ident *)left;
+                    bool looks_like_type    = (ident->name[0] >= 'A' &&
+                                               ident->name[0] <= 'Z');
+                    bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
+                    if (looks_like_type && looks_like_variant) {
+                        int arg_count = 0;
+                        Iron_Node **args = iron_parse_call_args(p, &arg_count);
+                        Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
+                        ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
+                        ec->span          = iron_span_merge(left->span,
                                                 iron_token_span(p, iron_current(p)));
-                mc->object    = left;
-                mc->method    = name;
-                mc->args      = args;
-                mc->arg_count = arg_count;
-                left = (Iron_Node *)mc;
+                        ec->resolved_type = NULL;
+                        ec->enum_name     = ident->name;
+                        ec->variant_name  = name;
+                        ec->args          = args;
+                        ec->arg_count     = arg_count;
+                        left = (Iron_Node *)ec;
+                    } else {
+                        int arg_count = 0;
+                        Iron_Node **args = iron_parse_call_args(p, &arg_count);
+                        Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
+                        mc->kind      = IRON_NODE_METHOD_CALL;
+                        mc->span      = iron_span_merge(left->span,
+                                                        iron_token_span(p, iron_current(p)));
+                        mc->resolved_type = NULL;
+                        mc->object    = left;
+                        mc->method    = name;
+                        mc->args      = args;
+                        mc->arg_count = arg_count;
+                        left = (Iron_Node *)mc;
+                    }
+                } else {
+                    /* Non-ident LHS: always a method call */
+                    int arg_count = 0;
+                    Iron_Node **args = iron_parse_call_args(p, &arg_count);
+                    Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
+                    mc->kind      = IRON_NODE_METHOD_CALL;
+                    mc->span      = iron_span_merge(left->span,
+                                                    iron_token_span(p, iron_current(p)));
+                    mc->resolved_type = NULL;
+                    mc->object    = left;
+                    mc->method    = name;
+                    mc->args      = args;
+                    mc->arg_count = arg_count;
+                    left = (Iron_Node *)mc;
+                }
             } else {
+                /* Check for unit enum variant: UppercaseType.UppercaseVariant (no parens) */
+                if (left->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *ident_node = (Iron_Ident *)left;
+                    bool looks_like_type    = (ident_node->name[0] >= 'A' && ident_node->name[0] <= 'Z');
+                    bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
+                    if (looks_like_type && looks_like_variant) {
+                        Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
+                        ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
+                        ec->span          = iron_span_merge(left->span,
+                                                            iron_token_span(p, iron_current(p)));
+                        ec->resolved_type = NULL;
+                        ec->enum_name     = ident_node->name;
+                        ec->variant_name  = name;
+                        ec->args          = NULL;
+                        ec->arg_count     = 0;
+                        left = (Iron_Node *)ec;
+                        continue;
+                    }
+                }
                 /* Field access: obj.field */
                 Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
                 fa->kind   = IRON_NODE_FIELD_ACCESS;
@@ -959,6 +1030,94 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     return (Iron_Node *)n;
 }
 
+/* Parse a variant pattern: EnumName.VariantName(bindings...)
+ * Returns IRON_NODE_PATTERN or IRON_NODE_ERROR. */
+static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
+    Iron_Token *start = iron_current(p);
+
+    /* enum_name */
+    if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected enum name in pattern", NULL);
+        return iron_make_error(p);
+    }
+    Iron_Token *enum_tok = iron_advance(p);
+
+    if (!iron_expect(p, IRON_TOK_DOT)) return iron_make_error(p);
+
+    /* variant_name */
+    if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected variant name after '.'", NULL);
+        return iron_make_error(p);
+    }
+    Iron_Token *variant_tok = iron_advance(p);
+
+    const char **binding_names   = NULL;
+    Iron_Node  **nested_patterns = NULL;
+    int          binding_count   = 0;
+
+    /* Optional binding list: (name, _, name, ...) */
+    if (iron_match(p, IRON_TOK_LPAREN)) {
+        iron_skip_newlines(p);
+        while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
+            if (iron_check(p, IRON_TOK_WILDCARD)) {
+                /* Wildcard _ */
+                iron_advance(p);
+                arrput(binding_names,   (const char *)NULL);
+                arrput(nested_patterns, (Iron_Node *)NULL);
+            } else if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                Iron_Token *name_tok = iron_current(p);
+                /* Nested pattern: uppercase identifier followed by '.' is a sub-pattern */
+                bool is_nested = (name_tok->value[0] >= 'A' && name_tok->value[0] <= 'Z')
+                                  && (p->pos + 1 < p->token_count)
+                                  && (p->tokens[p->pos + 1].kind == IRON_TOK_DOT);
+                if (is_nested) {
+                    /* Recursively parse nested pattern e.g. Inner.Val(n) */
+                    Iron_Node *nested_pat = iron_parse_pattern(p);
+                    arrput(binding_names,   (const char *)NULL);
+                    arrput(nested_patterns, nested_pat);
+                } else {
+                    /* Simple name binding */
+                    iron_advance(p);
+                    const char *bname = iron_arena_strdup(p->arena, name_tok->value,
+                                                           strlen(name_tok->value));
+                    arrput(binding_names,   bname);
+                    arrput(nested_patterns, (Iron_Node *)NULL);
+                }
+            } else {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "expected binding name or '_' in pattern", NULL);
+                break;
+            }
+            binding_count++;
+            iron_skip_newlines(p);
+            if (!iron_match(p, IRON_TOK_COMMA)) break;
+            iron_skip_newlines(p);
+        }
+        iron_expect(p, IRON_TOK_RPAREN);
+    }
+
+    Iron_Pattern *pat   = ARENA_ALLOC(p->arena, Iron_Pattern);
+    pat->kind           = IRON_NODE_PATTERN;
+    pat->span           = iron_span_merge(iron_token_span(p, start),
+                                           iron_token_span(p, iron_current(p)));
+    pat->enum_name      = iron_arena_strdup(p->arena, enum_tok->value,
+                                             strlen(enum_tok->value));
+    pat->variant_name   = iron_arena_strdup(p->arena, variant_tok->value,
+                                             strlen(variant_tok->value));
+    pat->binding_names  = binding_names;
+    pat->nested_patterns = nested_patterns;
+    pat->binding_count  = binding_count;
+    return (Iron_Node *)pat;
+}
+
 static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'match' */
@@ -976,22 +1135,97 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
 
+        /* else -> body */
         if (iron_check(p, IRON_TOK_ELSE)) {
             iron_advance(p);
-            else_body = iron_parse_block(p);
+            if (iron_check(p, IRON_TOK_LBRACE)) {
+                /* Old syntax: else { body } — emit error but recover */
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "match arm body must use '->' syntax; '{' arm syntax is no longer supported",
+                               NULL);
+                else_body = iron_parse_block(p);
+            } else {
+                if (!iron_expect(p, IRON_TOK_ARROW)) {
+                    /* Can't recover here cleanly — skip to closing brace */
+                    iron_skip_newlines(p);
+                    break;
+                }
+                if (iron_check(p, IRON_TOK_LBRACE)) {
+                    else_body = iron_parse_block(p);
+                } else {
+                    Iron_Node *single = iron_parse_stmt(p);
+                    Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+                    blk->kind       = IRON_NODE_BLOCK;
+                    blk->span       = single->span;
+                    blk->stmts      = NULL;
+                    arrput(blk->stmts, single);
+                    blk->stmt_count = 1;
+                    else_body = (Iron_Node *)blk;
+                }
+            }
             iron_skip_newlines(p);
             break;
         }
 
-        /* Pattern is an expression (typically a qualified Ident like Enum.VARIANT) */
-        Iron_Node *pattern = iron_parse_expr(p);
-        Iron_Node *cbody   = iron_parse_block(p);
+        /* Decide pattern type by lookahead:
+         * IDENTIFIER followed by DOT → ADT variant pattern (EnumName.Variant(...))
+         * Anything else → expression pattern (integer literal, etc.) */
+        Iron_Node *pattern;
+        if (iron_check(p, IRON_TOK_IDENTIFIER) &&
+            p->pos + 1 < p->token_count &&
+            p->tokens[p->pos + 1].kind == IRON_TOK_DOT) {
+            pattern = iron_parse_pattern(p);
+        } else {
+            pattern = iron_parse_expr(p);
+        }
+
+        /* Detect old { } arm syntax — emit error but recover */
+        if (iron_check(p, IRON_TOK_LBRACE)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "match arm body must use '->' syntax; '{' arm syntax is no longer supported",
+                           NULL);
+            /* Error recovery: parse the block anyway to continue */
+            Iron_Node *cbody = iron_parse_block(p);
+            Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
+            mc->kind    = IRON_NODE_MATCH_CASE;
+            mc->span    = iron_span_merge(pattern->span, cbody->span);
+            mc->pattern = pattern;
+            mc->body    = cbody;
+            arrput(cases, (Iron_Node *)mc);
+            case_count++;
+            iron_skip_newlines(p);
+            continue;
+        }
+
+        if (!iron_expect(p, IRON_TOK_ARROW)) {
+            iron_skip_newlines(p);
+            continue;
+        }
+
+        /* Body: block { ... } or single statement (wrapped in synthetic block) */
+        Iron_Node *cbody;
+        if (iron_check(p, IRON_TOK_LBRACE)) {
+            cbody = iron_parse_block(p);
+        } else {
+            Iron_Node *single = iron_parse_stmt(p);
+            Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+            blk->kind       = IRON_NODE_BLOCK;
+            blk->span       = single->span;
+            blk->stmts      = NULL;
+            arrput(blk->stmts, single);
+            blk->stmt_count = 1;
+            cbody = (Iron_Node *)blk;
+        }
 
         Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
-        mc->kind           = IRON_NODE_MATCH_CASE;
-        mc->span           = iron_span_merge(pattern->span, cbody->span);
-        mc->pattern        = pattern;
-        mc->body           = cbody;
+        mc->kind    = IRON_NODE_MATCH_CASE;
+        mc->span    = iron_span_merge(pattern->span, cbody->span);
+        mc->pattern = pattern;
+        mc->body    = cbody;
         arrput(cases, (Iron_Node *)mc);
         case_count++;
         iron_skip_newlines(p);
@@ -1167,7 +1401,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'val' */
 
-    if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+    if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
@@ -1213,7 +1447,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'var' */
 
-    if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+    if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
@@ -1828,6 +2062,13 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     }
     Iron_Token *name_tok = iron_advance(p);
 
+    /* Optional generic params: [T, E, ...] */
+    Iron_Node **generic_params = NULL;
+    int generic_count = 0;
+    if (iron_check(p, IRON_TOK_LBRACKET)) {
+        generic_params = iron_parse_generic_params(p, &generic_count, p->arena);
+    }
+
     if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
     iron_skip_newlines(p);
 
@@ -1851,8 +2092,25 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
         v->name               = iron_arena_strdup(p->arena, vt->value, strlen(vt->value));
         v->has_explicit_value = false;
         v->explicit_value     = 0;
-        /* Optional explicit ordinal: VARIANT = INTEGER */
-        if (iron_check(p, IRON_TOK_ASSIGN)) {
+        v->payload_type_anns  = NULL;
+        v->payload_count      = 0;
+
+        /* Check for payload types: VariantName(Type, Type, ...) */
+        if (iron_match(p, IRON_TOK_LPAREN)) {
+            iron_skip_newlines(p);
+            while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
+                Iron_Node *type_ann = iron_parse_type_annotation(p);
+                arrput(v->payload_type_anns, type_ann);
+                v->payload_count++;
+                iron_skip_newlines(p);
+                if (!iron_match(p, IRON_TOK_COMMA)) break;
+                iron_skip_newlines(p);
+            }
+            iron_expect(p, IRON_TOK_RPAREN);
+            v->span = iron_span_merge(iron_token_span(p, vt),
+                                      iron_token_span(p, iron_current(p)));
+        } else if (iron_check(p, IRON_TOK_ASSIGN)) {
+            /* Optional explicit ordinal: VARIANT = INTEGER */
             iron_advance(p);  /* consume '=' */
             if (iron_check(p, IRON_TOK_INTEGER)) {
                 Iron_Token *num = iron_advance(p);
@@ -1867,6 +2125,13 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
         iron_skip_newlines(p);
     }
 
+    /* Compute has_payloads: true if any variant has associated data */
+    bool has_payloads = false;
+    for (int i = 0; i < variant_count; i++) {
+        Iron_EnumVariant *v = (Iron_EnumVariant *)variants[i];
+        if (v->payload_count > 0) { has_payloads = true; break; }
+    }
+
     Iron_Token *end = iron_current(p);
     iron_expect(p, IRON_TOK_RBRACE);
 
@@ -1876,8 +2141,11 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
                                           iron_token_span(p, end));
     n->name            = iron_arena_strdup(p->arena, name_tok->value,
                                             strlen(name_tok->value));
-    n->variants        = variants;
-    n->variant_count   = variant_count;
+    n->variants             = variants;
+    n->variant_count        = variant_count;
+    n->has_payloads         = has_payloads;
+    n->generic_params       = generic_params;
+    n->generic_param_count  = generic_count;
     (void)is_private;
     return (Iron_Node *)n;
 }

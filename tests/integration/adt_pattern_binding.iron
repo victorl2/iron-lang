@@ -1,0 +1,21 @@
+-- ADT pattern binding test: construct variants, match them, use payload values
+
+enum Shape {
+  Circle(Int),
+  Rect(Int, Int),
+}
+
+func describe(s: Shape) -> String {
+  match s {
+    Shape.Circle(r) -> return "circle r={r}"
+    Shape.Rect(w, h) -> return "rect w={w} h={h}"
+  }
+  return "unknown"
+}
+
+func main() {
+  val c = Shape.Circle(5)
+  val r = Shape.Rect(10, 20)
+  println(describe(c))
+  println(describe(r))
+}

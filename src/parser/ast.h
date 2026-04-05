@@ -73,6 +73,8 @@ typedef enum {
     IRON_NODE_MATCH_CASE,
     IRON_NODE_ENUM_VARIANT,
     IRON_NODE_TYPE_ANNOTATION,
+    IRON_NODE_PATTERN,
+    IRON_NODE_ENUM_CONSTRUCT,
 
     IRON_NODE_COUNT
 } Iron_NodeKind;
@@ -134,6 +136,9 @@ typedef struct Iron_EnumDecl {
     const char   *name;
     Iron_Node   **variants;
     int           variant_count;
+    bool          has_payloads;       /* true if any variant has payload_count > 0 */
+    Iron_Node   **generic_params;     /* NULL for non-generic enums */
+    int           generic_param_count; /* 0 for non-generic enums */
 } Iron_EnumDecl;
 
 typedef struct {
@@ -192,6 +197,9 @@ typedef struct {
     const char   *name;
     bool          has_explicit_value;  /* true when variant has = N */
     int           explicit_value;      /* only valid when has_explicit_value */
+    Iron_Node   **payload_type_anns;   /* array of IRON_NODE_TYPE_ANNOTATION nodes; NULL if plain */
+    int           payload_count;       /* 0 for plain variants */
+    bool         *payload_is_boxed;    /* [payload_count]; true if field is recursive (auto-boxed) */
 } Iron_EnumVariant;
 
 typedef struct {
@@ -204,6 +212,26 @@ typedef struct {
     bool          is_array;
     Iron_Node    *array_size;  /* NULL if dynamic/no size */
 } Iron_TypeAnnotation;
+
+typedef struct {
+    Iron_Span     span;
+    Iron_NodeKind kind;            /* IRON_NODE_PATTERN */
+    const char   *enum_name;       /* "Shape" in Shape.Circle(r) */
+    const char   *variant_name;    /* "Circle" */
+    const char  **binding_names;   /* stb_ds array; NULL entries = wildcard _ */
+    Iron_Node   **nested_patterns; /* stb_ds array; NULL entries = simple binding */
+    int           binding_count;
+} Iron_Pattern;
+
+typedef struct {
+    Iron_Span          span;
+    Iron_NodeKind      kind;           /* IRON_NODE_ENUM_CONSTRUCT */
+    struct Iron_Type  *resolved_type;  /* set by type checker */
+    const char        *enum_name;      /* "Shape" */
+    const char        *variant_name;   /* "Circle" */
+    Iron_Node        **args;           /* argument expressions; NULL for plain variants */
+    int                arg_count;
+} Iron_EnumConstruct;
 
 /* ── Statements ──────────────────────────────────────────────────────────── */
 

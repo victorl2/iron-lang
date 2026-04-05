@@ -424,6 +424,132 @@ void test_resolve_interface_registered(void) {
     TEST_ASSERT_EQUAL_INT(IRON_SYM_INTERFACE, sym->sym_kind);
 }
 
+/* ── ADT resolver tests ──────────────────────────────────────────────────── */
+
+static bool has_error_code(int code) {
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == code) return true;
+    }
+    return false;
+}
+
+/* Test 16: pattern binding 'r' introduced into arm scope without error */
+void test_resolve_adt_pattern_binding(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  match 1 {\n"
+        "    Shape.Circle(r) -> {\n"
+        "      val x = 1\n"
+        "    }\n"
+        "    else -> {}\n"
+        "  }\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(global);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* Test 17: wildcard _ in pattern does not introduce a binding (no error) */
+void test_resolve_adt_wildcard_no_binding(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Rect(Float, Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  match 1 {\n"
+        "    Shape.Rect(_, h) -> {\n"
+        "      val x = 1\n"
+        "    }\n"
+        "    else -> {}\n"
+        "  }\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(global);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* Test 18: pattern binding same name as outer variable => IRON_ERR_BINDING_SHADOWS (227) */
+void test_resolve_adt_binding_shadows_error(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val r = 1\n"
+        "  match 1 {\n"
+        "    Shape.Circle(r) -> {\n"
+        "      val x = 1\n"
+        "    }\n"
+        "    else -> {}\n"
+        "  }\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    iron_resolve(prog, &g_arena, &g_diags);
+    TEST_ASSERT_TRUE(has_error_code(227));
+}
+
+/* Test 19: pattern references non-existent variant => IRON_ERR_UNKNOWN_VARIANT (228) */
+void test_resolve_adt_unknown_variant_error(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  match 1 {\n"
+        "    Shape.Triangle(x) -> {\n"
+        "      val y = 1\n"
+        "    }\n"
+        "    else -> {}\n"
+        "  }\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    iron_resolve(prog, &g_arena, &g_diags);
+    TEST_ASSERT_TRUE(has_error_code(228));
+}
+
+/* Test 20: enum construction Shape.Circle(1.0) resolves without error */
+void test_resolve_adt_enum_construct_ok(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  val s = Shape.Circle(1.0)\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(global);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* Test 21: same binding name 'r' in two arms is fine (each arm has its own scope) */
+void test_resolve_adt_same_binding_across_arms(void) {
+    const char *src =
+        "enum Shape {\n"
+        "  Circle(Float),\n"
+        "  Square(Float),\n"
+        "}\n"
+        "func main() {\n"
+        "  match 1 {\n"
+        "    Shape.Circle(r) -> {\n"
+        "      val x = 1\n"
+        "    }\n"
+        "    Shape.Square(r) -> {\n"
+        "      val y = 1\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(global);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -444,6 +570,12 @@ int main(void) {
     RUN_TEST(test_resolve_enum_variants_registered);
     RUN_TEST(test_resolve_import_no_error);
     RUN_TEST(test_resolve_interface_registered);
+    RUN_TEST(test_resolve_adt_pattern_binding);
+    RUN_TEST(test_resolve_adt_wildcard_no_binding);
+    RUN_TEST(test_resolve_adt_binding_shadows_error);
+    RUN_TEST(test_resolve_adt_unknown_variant_error);
+    RUN_TEST(test_resolve_adt_enum_construct_ok);
+    RUN_TEST(test_resolve_adt_same_binding_across_arms);
 
     return UNITY_END();
 }

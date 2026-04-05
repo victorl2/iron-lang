@@ -80,6 +80,8 @@ typedef enum {
     IRON_HIR_EXPR_IS_NULL,       /* null check                     */
     IRON_HIR_EXPR_IS_NOT_NULL,   /* non-null check                 */
     IRON_HIR_EXPR_FUNC_REF,      /* function reference             */
+    IRON_HIR_EXPR_ENUM_CONSTRUCT, /* ADT enum variant construction  */
+    IRON_HIR_EXPR_PATTERN,        /* match arm pattern (ADT)        */
     IRON_HIR_EXPR_IS             /* type test / pattern match check */
 } IronHIR_ExprKind;
 
@@ -383,6 +385,26 @@ struct IronHIR_Expr {
             IronHIR_Expr *value;
             Iron_Type    *check_type;
         } is_check;
+
+        /* IRON_HIR_EXPR_ENUM_CONSTRUCT */
+        struct {
+            Iron_Type     *type;          /* the enum type (IRON_TYPE_ENUM) */
+            const char    *enum_name;     /* "Shape" */
+            const char    *variant_name;  /* "Circle" */
+            int            variant_index; /* index into EnumDecl.variants */
+            IronHIR_Expr **args;          /* stb_ds array of payload values */
+            int            arg_count;
+        } enum_construct;
+
+        /* IRON_HIR_EXPR_PATTERN */
+        struct {
+            const char    *enum_name;
+            const char    *variant_name;
+            int            variant_index;
+            const char   **binding_names;   /* NULL entry = wildcard */
+            IronHIR_Expr **nested_patterns; /* NULL entry = simple binding */
+            int            binding_count;
+        } pattern;
     };
 };
 
@@ -542,6 +564,20 @@ IronHIR_Expr *iron_hir_expr_comptime(IronHIR_Module *mod, IronHIR_Expr *inner,
                                       Iron_Type *type, Iron_Span span);
 IronHIR_Expr *iron_hir_expr_is(IronHIR_Module *mod, IronHIR_Expr *value,
                                 Iron_Type *check_type, Iron_Span span);
+IronHIR_Expr *iron_hir_expr_enum_construct(IronHIR_Module *mod, Iron_Type *type,
+                                            const char *enum_name,
+                                            const char *variant_name,
+                                            int variant_index,
+                                            IronHIR_Expr **args, int arg_count,
+                                            Iron_Span span);
+IronHIR_Expr *iron_hir_expr_pattern(IronHIR_Module *mod,
+                                     const char *enum_name,
+                                     const char *variant_name,
+                                     int variant_index,
+                                     const char **binding_names,
+                                     IronHIR_Expr **nested_patterns,
+                                     int binding_count,
+                                     Iron_Span span);
 
 /* ---- Printer ---- */
 char *iron_hir_print(const IronHIR_Module *module);

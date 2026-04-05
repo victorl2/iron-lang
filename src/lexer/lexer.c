@@ -145,6 +145,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_EOF]           = "IRON_TOK_EOF",
     [IRON_TOK_ERROR]         = "IRON_TOK_ERROR",
     [IRON_TOK_IDENTIFIER]    = "IRON_TOK_IDENTIFIER",
+    [IRON_TOK_WILDCARD]      = "IRON_TOK_WILDCARD",
 };
 
 const char *iron_token_kind_str(Iron_TokenKind kind) {
@@ -416,6 +417,10 @@ static Iron_Token iron_lex_identifier(Iron_Lexer *l) {
 
     uint32_t tok_len = (uint32_t)(l->pos - start_pos);
     const char *text = iron_arena_strdup(l->arena, l->src + start_pos, tok_len);
+
+    if (tok_len == 1 && text[0] == '_') {
+        return iron_make_token(l, IRON_TOK_WILDCARD, text, start_line, start_col, tok_len);
+    }
 
     Iron_TokenKind kind = keyword_lookup(text);
     return iron_make_token(l, kind, text, start_line, start_col, tok_len);
