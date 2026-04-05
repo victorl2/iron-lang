@@ -754,4 +754,4 @@ Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 an
 | 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/0 | Complete (satisfied by Phase 34) | 2026-04-03 |
 | 36. Methods on Enums and Syntax Migration | 1/1 | Complete    | 2026-04-04 | - |
 | 37. Generic Enums | 2/2 | Complete    | 2026-04-04 | - |
-| 38. Recursive Variant Auto-Boxing | 2/2 | Complete   | 2026-04-04 | - |
+| 38. Recursive Variant Auto-Boxing | 2/2 | Complete    | 2026-04-05 | - |
