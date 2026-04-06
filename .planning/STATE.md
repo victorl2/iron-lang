@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
-last_updated: "2026-04-05T00:13:06.572Z"
-last_activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
+stopped_at: Completed 39-02-PLAN.md
+last_updated: "2026-04-04T13:38:39.314Z"
+last_activity: 2026-04-03 -- Completed 39-02 complex analysis edge-case tests
 progress:
-  total_phases: 7
-  completed_phases: 6
-  total_plans: 12
-  completed_plans: 12
+  total_phases: 8
+  completed_phases: 8
+  total_plans: 16
+  completed_plans: 16
   percent: 100
 ---
 
@@ -20,46 +20,56 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-04-02)
 
-**Core value:** Enums can carry data in their variants, and `match` exhaustively destructures them — the type system guarantees every case is handled.
-**Current focus:** v0.0.8-alpha Algebraic Data Types — Phase 32 (AST and Type System Foundation) ready to plan
+**Core value:** Every invalid Iron program must produce a clear diagnostic at compile time -- no silent pass-through to the C backend.
+**Current focus:** v0.0.8-alpha Semantic Analysis Gaps -- Phase 39 (Diagnostic Test Sweep) complete
 
 ## Current Position
 
-Phase: 38 of 38 (Recursive Variant Auto-Boxing)
-Plan: 2 of 2 completed
-Status: Complete
-Last activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
+Phase: 39 of 39 (Diagnostic Test Sweep)
+Plan: 2 of 2 in current phase
+Status: Phase 39 complete -- all diagnostic test sweep plans done
+Last activity: 2026-04-03 -- Completed 39-02 complex analysis edge-case tests
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 25 min
-- Total execution time: 0.4 hours
+- Total plans completed: 13
+- Average duration: 7.2min
+- Total execution time: 1.57 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 32    | 1     | 25min | 25min    |
+| 32 - LIR Verifier Hardening | 2 | 4min | 2min |
+| 33 - Type Validation Checks | 3 | 13min | 4.3min |
+| 34 - Bounds Checking | 2 | 10min | 5min |
+| 35 - Escape Analysis Extension | 1 | 15min | 15min |
+| 36 - Definite Assignment Analysis | 2/2 | 44min | 22min |
+| 37 - Generic Constraint Checking | 2 | 17min | 8.5min |
+| 38 - Concurrency Safety | 1/2 | 2min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 35-01 (15min), 36-01 (22min), 36-02 (22min), 37-01 (9min), 38-01 (2min)
+- Trend: Variable complexity, fast plan for focused changes
 
 *Updated after each plan completion*
-| Phase 32 P32-02 | 4min | 2 tasks | 2 files |
-| Phase 33 P01 | 18min | 2 tasks | 3 files |
-| Phase 33 P02 | 22min | 3 tasks | 8 files |
-| Phase 34 P01 | 4min | 2 tasks | 5 files |
-| Phase 34-hir-extensions-and-match-lowering P02 | 120 | 2 tasks | 9 files |
-| Phase 36 P01 | 20 | 2 tasks | 8 files |
-| Phase 37-generic-enums P01 | 35min | 2 tasks | 5 files |
-| Phase 37-generic-enums P02 | 85min | 2 tasks | 14 files |
-| Phase 38 P01 | 24min | 2 tasks | 9 files |
-| Phase 38 P02 | 36 | 2 tasks | 4 files |
+| Phase 33 P01 | 5min | 2 tasks | 3 files |
+| Phase 33 P02 | 3min | 1 task | 2 files |
+| Phase 33 P03 | 5min | 2 tasks | 2 files |
+| Phase 34 P01 | 5min | 2 tasks | 3 files |
+| Phase 34 P02 | 5min | 1 task | 2 files |
+| Phase 35 P01 | 15min | 2 tasks | 2 files |
+| Phase 36 P01 | 22min | 1 task | 7 files |
+| Phase 36 P02 | 22min | 2 tasks | 2 files |
+| Phase 37 P01 | 9min | 2 tasks | 3 files |
+| Phase 37 P02 | 8min | 2 tasks | 1 file |
+| Phase 38 P01 | 2min | 1 task | 2 files |
+| Phase 38 P02 | 5min | 2 tasks | 3 files |
+| Phase 39 P01 | 3min | 2 tasks | 2 files |
+| Phase 39 P02 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -68,43 +78,38 @@ Progress: [██████████] 100%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Roadmap]: Phases 32-35 are strictly sequential (AST → type checker → HIR → C emitter); phases 37 and 38 are independent of each other and both depend on phase 35.
-- [Roadmap]: Phase 36 (methods + syntax migration) depends on phase 35 (end-to-end testability), not on phases 37-38.
-- [Roadmap]: MATCH-01 (-> syntax parsing) and MATCH-07 (migration) both assigned to phase 32/36 respectively; MATCH-01 covers the parse-time portion in phase 32 and the migration completion in phase 36.
-- [Research]: bug_vla_goto_bypass must be addressed in phase 34 (match lowering) — binding ALLOCAs must be hoisted to function entry alongside the ALLOCA hoisting fix.
-- [Research]: Generic enum monomorphization (phase 37) has MEDIUM confidence on integration cost — requires codebase inspection of IronLIR_Module.mono_registry before planning.
-- [Research]: Recursive auto-boxing (phase 38) requires validating arena ownership for auto-boxed fields before planning.
-- [32-01]: IRON_TOK_WILDCARD only fires on bare _ (single underscore); _unused remains IRON_TOK_IDENTIFIER
-- [32-01]: val _ = expr and var _ = expr are valid discard bindings; parser accepts IRON_TOK_WILDCARD as name
-- [32-01]: variant_payload_types in Iron_Type.enu is a triple pointer zeroed by existing memset; Phase 33 populates it
-- [Phase 32]: Uppercase heuristic for enum construction: UppercaseName.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT; lowercase remains IRON_NODE_METHOD_CALL; Phase 33 reclassifies edge cases
-- [Phase 32]: Old { } match arm syntax is a parse error with recovery: diagnostic emitted, block parsed, arm added to AST
-- [Phase 33]: IRON_NODE_PATTERN and IRON_NODE_ENUM_CONSTRUCT resolved in resolve_node (not resolve_expr) since resolve_expr is a thin delegate
-- [Phase 33]: Shadow check for pattern bindings uses ctx->current_scope->parent to avoid false self-blocking within arm scope
-- [Phase 33]: variant_payload_types population runs as a dedicated pre-pass in iron_typecheck before function signatures and bodies
-- [Phase 33]: IRON_NODE_MATCH exhaustiveness checking only fires when subject_type->kind == IRON_TYPE_ENUM && ed->has_payloads — integer matches are unaffected
-- [Phase 34]: ADT enum structs emitted into struct_bodies (not enum_defs) for correct C output order
-- [Phase 34]: IRON_NODE_PATTERN lowering stores variant_index = -1 to be resolved in Plan 02 from match scrutinee type
-- [Phase 34-hir-extensions-and-match-lowering]: Unit enum variant (Color.Red) detected by uppercase heuristic in parser DOT handler; produces IRON_NODE_ENUM_CONSTRUCT with arg_count=0
-- [Phase 34-hir-extensions-and-match-lowering]: Pattern bindings injected as HIR STMT_LET nodes before arm body lowering, reusing existing LET emitter rather than adding special ADT extraction to hir_to_lir.c
-- [Phase 34-hir-extensions-and-match-lowering]: Nested pattern field path built as dotted string (data.Wrap._0.data.Val._0); emit_c.c expands it correctly
-- [Phase 36-01]: Plain enum match lowering: IRON_HIR_EXPR_PATTERN is used for ALL variant patterns (unit and payload), not IRON_HIR_EXPR_ENUM_CONSTRUCT — fixed in non-ADT SWITCH path in hir_to_lir.c
-- [Phase 36-01]: Enum methods: all four sites need updating together — resolver guard, HIR self-type lookup, LIR method-call type-name mangling, typecheck return type resolution
-- [Phase 37-generic-enums]: types.c includes parser/ast.h to access Iron_EnumDecl->name for iron_type_to_string
-- [Phase 37-generic-enums]: Generic enum variant_payload_types pre-pass skips generic enums; monomorphization populates payload types at use site
-- [Phase 37-generic-enums]: build_hir_params_named uses global scope function symbol resolved param types to fix Option[Int] in function params
-- [Phase 37-generic-enums]: type_mangle_component strips Iron_ prefix from nested generic enum mangled_name for C-safe identifiers
-- [Phase 37-generic-enums]: maybe_fill_missing_generic_args enables context-directed monomorphization for multi-param enums with partial arg inference
-- [Phase 38-01]: payload_is_boxed stored on Iron_Type.enu (not just AST node) so both generic and non-generic enums share the same emit_c.c read path
-- [Phase 38-01]: enum_defs (plain C enums) emitted before struct_bodies in final C output so non-recursive enum fields in ADT variant structs compile correctly
-- [Phase 38-01]: GET_FIELD dereference for boxed slots resolves object enum type via LOAD->ALLOCA chain traversal
-- [Phase 38-02]: mono_registry on TypeCtx enables cycle detection and caching: register mono before payload loop, all recursive resolutions find in-progress type
-- [Phase 38-02]: Concrete type args bound in gen_scope (T=Int not T=GENERIC_PARAM): resolve_type_annotation(Tree[T]) returns Tree[Int] directly via registry hit
-- [Phase 38-02]: substitute_generic_type removed: defective for IRON_TYPE_ENUM, replaced by concrete gen_scope binding approach
-
-### Project Notes
-
-- This milestone is being developed on a **separate branch and PR** from main.
+- [Roadmap]: Phase ordering derived from dependency analysis -- LIR verifier first (no deps), type checks second, bounds third, escape fourth (prereq for concurrency), definite assignment fifth, generics sixth, concurrency seventh (depends on escape), test sweep last
+- [Roadmap]: Testing requirements (TEST-01, TEST-02, TEST-03) assigned to Phase 39 as a dedicated sweep rather than distributed across phases -- ensures comprehensive coverage audit after all diagnostics exist
+- [Constraint]: Memory-bounded implementations required -- worklist algorithms with bounded state, no exponential path enumeration
+- [32-01]: PHI mismatch diagnostic uses function name + block label (not type names) to keep snprintf simple and avoid arena allocation in error paths
+- [32-02]: Linear scan of module->funcs for callee lookup in call validation -- sufficient for verification pass
+- [32-02]: Indirect calls skipped silently in Invariant 8 since LIR lacks function type signatures (AGEN-01)
+- [Phase 33]: Used __attribute__((unused)) for helper functions staged for Plans 02/03 to satisfy -Werror
+- [Phase 33]: Stack-allocated bool[256] array for enum variant coverage tracking -- safe since enums are small
+- [33-02]: Used check_expr() return value for source type in cast validation -- Iron_Node base has no resolved_type field
+- [33-03]: Fixed string interpolation test syntax from \() to {} -- Iron uses curly braces for interpolation, not Swift-style backslash-parens
+- [33-03]: All __attribute__((unused)) removed from Plan 01 helpers now actively called by Plans 02/03
+- [34-01]: Used IRON_TOK_MINUS for unary negation detection in try_get_constant_int -- Iron_OpKind stores Iron_TokenKind values
+- [34-01]: Temporary __attribute__((unused)) on try_get_constant_int removed when bounds checking calls it in Task 2
+- [34-02]: Iron slice syntax uses .. (IRON_TOK_DOTDOT) not : -- plan specified : but corrected to match parser
+- [34-02]: Exclusive-end semantics for slices: arr[0..3] on size-3 array is valid, arr[0..4] is invalid
+- [35-01]: Conservative argument escape: any heap binding passed to a function/method call is marked escaped (callee may store pointer)
+- [35-01]: Recursive expr_ident_name: unified FIELD_ACCESS/INDEX traversal to extract root identifier name
+- [36-01]: Iron uses 'func' keyword not 'fn' -- test sources corrected during TDD RED phase
+- [36-01]: Optimistic if/while/for handling in Plan 01: assignments inside branches count for subsequent code (Plan 02 will add proper control flow merging)
+- [36-01]: MAX_UNINIT_VARS=256 bounded array avoids dynamic allocation, sufficient for function-scope tracking
+- [36-02]: Multi-branch merge: collect snapshots from non-returning branches, intersect, union with before-state
+- [36-02]: If without else restores to before-state (implicit empty else); loop bodies always save/restore
+- [36-02]: Match exhaustiveness requires explicit else clause; without it, case arm assignments not trusted
+- [37-01]: constraint_name field added directly to Iron_Ident (not a separate node) -- minimal AST change
+- [37-01]: Constraint satisfaction uses both nominal (implements) and structural (has-all-methods) checks -- matches check_interface_completeness pattern
+- [37-01]: Max 16 generic params per declaration via stack-allocated array -- avoids heap allocation
+- [38-01]: Reused expr_ident_name pattern from escape.c as independent static helper in concurrency.c -- same recursive logic, keeps analyzers self-contained
+- [38-01]: Conservative skip for non-identifier-rooted assignment targets (expr_ident_name returns NULL) -- don't flag what we can't analyze
+- [Phase 38]: [38-02]: Two-pass spawn analysis (collect_local_names + collect_spawn_refs) avoids false positives on spawn-local variables
+- [Phase 38]: [38-02]: Bounded spawn capture tracking (MAX_SPAWN_CAPTURES=64) prevents unbounded allocation
+- [Phase 39]: Explicit TEST_ASSERT_FALSE assertions required for all diagnostic codes -- implicit error_count==0 does not satisfy grep-based coverage audit
+- [Phase 39]: Used source-string parsing for init_check tests and hand-built AST for concurrency tests, matching existing patterns in each file
 
 ### Pending Todos
 
@@ -112,13 +117,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 34 planning]: Inspect hir_to_lir.c lines 1296-1346 and the ALLOCA hoisting logic before writing the plan — highest-risk phase.
-- [Phase 37 planning]: Validate type substitution path in existing generic function monomorphization before planning generic enum work.
-- [Phase 38 planning]: Read escape analysis output for a prototype recursive enum to confirm arena ownership is correct.
-- [General]: Mixed-payload enums (some variants with payloads, some without, e.g. `enum Foo { A, B(Int) }`) need a policy decision before phase 32 ships.
+- Memory constraint: definite assignment (Phase 36) and concurrency analysis (Phase 38) must use bounded worklist algorithms -- no unbounded allocations
+- Compatibility: all new diagnostics must not break valid Iron programs -- false positive testing is critical
 
 ## Session Continuity
 
-Last session: 2026-04-04T23:58:28.625Z
-Stopped at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
+Last session: 2026-04-04T13:12:25.183Z
+Stopped at: Completed 39-02-PLAN.md
 Resume file: None
