@@ -642,14 +642,32 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ENUM_CONSTRUCT: {
             Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
-            /* Validate enum exists */
+            /* Validate enum exists; if not, reclassify as method call / field access
+             * (the parser's uppercase heuristic may have misidentified a module
+             *  static call like Time.Timer(1.0) or a module constant like Log.DEBUG). */
             Iron_Symbol *esym = iron_scope_lookup(ctx->current_scope, ec->enum_name);
             if (!esym || esym->sym_kind != IRON_SYM_ENUM) {
-                char msg[256];
-                snprintf(msg, sizeof(msg), "unknown enum '%s'", ec->enum_name);
-                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                               IRON_ERR_UNKNOWN_VARIANT, ec->span,
-                               iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                Iron_Ident *ident_node = (Iron_Ident *)iron_arena_alloc(
+                    ctx->arena, sizeof(Iron_Ident), _Alignof(Iron_Ident));
+                ident_node->kind = IRON_NODE_IDENT;
+                ident_node->span = ec->span;
+                ident_node->name = ec->enum_name;
+                ident_node->resolved_type = NULL;
+                ident_node->resolved_sym = esym;
+                const char *member = ec->variant_name;
+                if (ec->arg_count > 0) {
+                    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)ec;
+                    mc->kind      = IRON_NODE_METHOD_CALL;
+                    mc->object    = (Iron_Node *)ident_node;
+                    mc->method    = member;
+                    resolve_expr(ctx, (Iron_Node *)mc);
+                } else {
+                    Iron_FieldAccess *fa = (Iron_FieldAccess *)ec;
+                    fa->kind   = IRON_NODE_FIELD_ACCESS;
+                    fa->object = (Iron_Node *)ident_node;
+                    fa->field  = member;
+                    resolve_expr(ctx, (Iron_Node *)fa);
+                }
                 break;
             }
             /* Validate variant exists */
