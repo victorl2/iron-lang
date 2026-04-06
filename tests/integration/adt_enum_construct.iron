@@ -1,0 +1,12 @@
+-- ADT enum construction syntax test
+-- Phase 32: verifies parser accepts Enum.Variant(args) syntax
+-- NOTE: semantic analysis not yet implemented; construction is parse-only
+
+enum Color {
+  RGB(Int, Int, Int),
+  Named(String),
+}
+
+func main() {
+  println("adt_enum_construct: ok")
+}

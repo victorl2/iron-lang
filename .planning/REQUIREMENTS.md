@@ -1,191 +1,93 @@
-# Requirements: Iron v0.2.0-alpha Standard Library Expansion
+# Requirements: Iron ADTs
 
 **Defined:** 2026-04-02
-**Core Value:** Iron programs can do real work using the standard library alone, without dropping to C for common operations.
+**Core Value:** Enums can carry data in their variants, and `match` exhaustively destructures them — the type system guarantees every case is handled.
 
 ## v1 Requirements
 
-Requirements for this milestone. Each maps to roadmap phases.
+Requirements for ADT milestone. Each maps to roadmap phases.
 
-### Compiler Fixes
+### Enum Variant Data
 
-- [x] **COMP-01**: Compiler correctly dispatches method calls on `IRON_TYPE_STRING` receivers (typecheck.c + hir_to_lir.c)
-- [x] **COMP-02**: Compiler correctly dispatches method calls on `IRON_TYPE_ARRAY` receivers for collection types (typecheck.c + hir_to_lir.c)
-- [x] **COMP-03**: `build.c` argv_buf bumped to 128 with static assert to prevent overflow when adding new modules
-- [x] **COMP-04**: `build.c` import detection replaced with token-level helper (no false positives for `import os` in comments/strings)
-- [x] **COMP-05**: Windows portability documented in existing `iron_io.c` (dirent.h, mkdir) and `iron_log.c` (localtime_r, isatty)
-- [x] **COMP-06**: `iron_math.c` `__thread` portability documented with WINDOWS-TODO comments
-- [x] **COMP-07**: `emit_c.c` threads `argc`/`argv` through `iron_runtime_init(argc, argv)` for `os.args()` support
+- [ ] **EDATA-01**: Enum variants can hold tuple-style associated data (`Circle(Float)`, `BinOp(Expr, Op, Expr)`)
+- [x] **EDATA-02**: Variant construction uses dot syntax (`Shape.Circle(5.0)`)
+- [x] **EDATA-03**: Plain C-style enums (no payloads) continue to compile and work unchanged
+- [x] **EDATA-04**: Compiler detects recursive variant types and auto-boxes them (heap allocation via arena)
 
-### String Methods
+### Pattern Matching
 
-- [x] **STR-01**: User can call `s.upper()` to get an uppercase copy of a string
-- [x] **STR-02**: User can call `s.lower()` to get a lowercase copy of a string
-- [x] **STR-03**: User can call `s.trim()` to remove leading/trailing whitespace
-- [x] **STR-04**: User can call `s.contains(sub)` to check if a string contains a substring
-- [x] **STR-05**: User can call `s.starts_with(prefix)` to check string prefix
-- [x] **STR-06**: User can call `s.ends_with(suffix)` to check string suffix
-- [x] **STR-07**: User can call `s.split(sep)` to split a string into `List[String]`
-- [x] **STR-08**: User can call `s.replace(old, new)` to substitute all occurrences
-- [x] **STR-09**: User can call `s.substring(start, end)` to extract a slice
-- [x] **STR-10**: User can call `s.index_of(sub)` to find first occurrence position (-1 if absent)
-- [x] **STR-11**: User can call `s.char_at(i)` to get the character at index i as a String
-- [x] **STR-12**: User can call `s.to_int()` to parse a string as an integer
-- [x] **STR-13**: User can call `s.to_float()` to parse a string as a float
-- [x] **STR-14**: User can call `sep.join(list)` to concatenate a list of strings with a separator
-- [x] **STR-15**: User can call `s.len()` as a method to get character count
-- [x] **STR-16**: User can call `s.repeat(n)` to repeat a string n times
-- [x] **STR-17**: User can call `s.pad_left(width, char)` to left-pad a string
-- [x] **STR-18**: User can call `s.pad_right(width, char)` to right-pad a string
-- [x] **STR-19**: User can call `s.count(sub)` to count occurrences of a substring
+- [x] **MATCH-01**: Match arms use `->` syntax for single expressions and `-> { }` for multi-line blocks
+- [x] **MATCH-02**: Pattern matching destructures variant payloads into named bindings (`Circle(r) -> use(r)`)
+- [x] **MATCH-03**: `_` wildcard ignores individual fields in patterns
+- [x] **MATCH-04**: `else` arm catches all remaining variants
+- [x] **MATCH-05**: Compiler errors on non-exhaustive match (lists missing variants in diagnostic)
+- [x] **MATCH-06**: Nested pattern destructuring works (`BinOp(IntLit(n), _, _)`)
+- [x] **MATCH-07**: Existing match statements migrate from `{ }` arm syntax to `->` syntax
 
-### Collection Operations
+### Methods on Enums
 
-- [ ] **COLL-01**: User can call `list.sort()` to sort a list in place
-- [ ] **COLL-02**: User can call `list.filter(fn)` to create a filtered copy
-- [ ] **COLL-03**: User can call `list.map(fn)` to transform all elements (same-type only)
-- [ ] **COLL-04**: User can call `list.find(fn)` to get the first matching element
-- [ ] **COLL-05**: User can call `list.reverse()` to reverse a list in place
-- [ ] **COLL-06**: User can call `list.for_each(fn)` to iterate with a callback
-- [ ] **COLL-07**: User can call `list.any(fn)` to check if any element matches a predicate
-- [ ] **COLL-08**: User can call `list.all(fn)` to check if all elements match a predicate
-- [ ] **COLL-09**: User can call `list.reduce(fn, init)` to fold/aggregate a list
-- [ ] **COLL-10**: User can call `list.slice(start, end)` to extract a sub-list
-- [ ] **COLL-11**: User can call `list.unique()` to remove duplicates
-- [ ] **COLL-12**: User can call `map.keys()` to get all keys as a List
-- [ ] **COLL-13**: User can call `map.values()` to get all values as a List
-- [ ] **COLL-14**: User can call `map.for_each(fn)` to iterate key-value pairs
-- [ ] **COLL-15**: User can call `map.merge(other)` to merge two maps
-- [ ] **COLL-16**: User can call `set.union(other)` to get the union of two sets
-- [ ] **COLL-17**: User can call `set.intersection(other)` to get the intersection
-- [ ] **COLL-18**: User can call `set.difference(other)` to get elements in self not in other
-- [ ] **COLL-19**: User can call `set.to_list()` to convert a set to a list
+- [x] **EMETH-01**: Methods can be defined on enum types using `func EnumType.method()` syntax
+- [x] **EMETH-02**: `self` in enum methods refers to the enum value, usable in match
 
-### Math Completion
+### Generic Enums
 
-- [x] **MATH-01**: User can call `math.asin(x)` for inverse sine
-- [x] **MATH-02**: User can call `math.acos(x)` for inverse cosine
-- [x] **MATH-03**: User can call `math.atan2(y, x)` for two-argument arctangent
-- [x] **MATH-04**: User can call `math.sign(x)` to get -1, 0, or 1
-- [x] **MATH-05**: User can call `math.seed(n)` to seed the random number generator
-- [x] **MATH-06**: User can call `math.random_float(min, max)` for a float-range random
-- [x] **MATH-07**: User can call `math.log(x)` for natural logarithm
-- [x] **MATH-08**: User can call `math.log2(x)` for base-2 logarithm
-- [x] **MATH-09**: User can call `math.exp(x)` for e^x
-- [x] **MATH-10**: User can call `math.hypot(a, b)` for sqrt(a^2 + b^2)
-
-### IO Completion
-
-- [ ] **IO-01**: User can call `io.read_bytes(path)` to read binary file contents
-- [ ] **IO-02**: User can call `io.write_bytes(path, bytes)` to write binary data
-- [x] **IO-03**: User can call `io.read_line()` to read a single line from stdin
-- [x] **IO-04**: User can call `io.append_file(path, content)` to append to a file
-- [x] **IO-05**: User can call `io.basename(path)` to get the filename component
-- [x] **IO-06**: User can call `io.dirname(path)` to get the directory component
-- [x] **IO-07**: User can call `io.join_path(a, b)` to concatenate path components
-- [x] **IO-08**: User can call `io.extension(path)` to get the file extension
-- [x] **IO-09**: User can call `io.is_dir(path)` to check if a path is a directory
-- [x] **IO-10**: User can call `io.read_lines(path)` to read a file into `List[String]`
-
-### Time Completion
-
-- [x] **TIME-01**: User can call `time.since(start)` to get elapsed seconds since a timestamp
-- [x] **TIME-02**: User can create a Timer with `time.Timer(duration)` with a duration field
-- [x] **TIME-03**: User can call `timer.done()` to check if the timer has expired
-- [x] **TIME-04**: User can call `timer.update(dt)` to advance the timer
-- [x] **TIME-05**: User can call `timer.reset()` to reset the timer (returns void, not Timer)
-
-### Log Completion
-
-- [x] **LOG-01**: User can call `log.set_level(level)` to filter log output at runtime
-- [x] **LOG-02**: Log level constants `log.DEBUG`, `log.INFO`, `log.WARN`, `log.ERROR` are available
-
-### OS Module
-
-- [ ] **OS-01**: User can call `os.env(key)` to read an environment variable
-- [ ] **OS-02**: User can call `os.set_env(key, value)` to set an environment variable
-- [ ] **OS-03**: User can call `os.args()` to get command-line arguments as `List[String]`
-- [ ] **OS-04**: User can call `os.exit(code)` to exit with a status code
-- [ ] **OS-05**: User can call `os.cwd()` to get the current working directory
-- [ ] **OS-06**: User can call `os.chdir(path)` to change the working directory
-- [ ] **OS-07**: User can call `os.home_dir()` to get the user's home directory
-- [ ] **OS-08**: User can call `os.temp_dir()` to get the system temp directory
-- [ ] **OS-09**: User can call `os.getpid()` to get the current process ID
-- [ ] **OS-10**: User can call `os.is_dir(path)` to check if a path is a directory
-- [ ] **OS-11**: User can call `os.stat(path)` to get file metadata (size, mod time, type)
-- [ ] **OS-12**: User can call `os.environ()` to get all environment variables as `Map[String, String]`
-
-### Testing Module
-
-- [ ] **TEST-01**: User can call `test.assert_eq(a, b)` to assert equality (Int, Float, String, Bool)
-- [ ] **TEST-02**: User can call `test.assert_true(cond)` to assert a boolean condition
-- [ ] **TEST-03**: User can call `test.assert_false(cond)` to assert false
-- [ ] **TEST-04**: User can call `test.assert_ne(a, b)` to assert not-equal
-- [ ] **TEST-05**: User can call `test.fail(msg)` to fail unconditionally with a message
-- [ ] **TEST-06**: Test runner discovers `test_*` functions automatically
-- [ ] **TEST-07**: Test runner executes all tests and reports pass/fail count with colored output
-- [ ] **TEST-08**: A failing test does not abort the entire suite (test isolation)
-- [ ] **TEST-09**: User can define `test_setup()` and `test_teardown()` for per-test hooks
-- [ ] **TEST-10**: User can call `test.skip(reason)` to skip a test with a message
-- [ ] **TEST-11**: Test output includes timing per test
-
-### Integration Tests
-
-- [x] **ITEST-01**: Integration tests exist for all string methods
-- [ ] **ITEST-02**: Integration tests exist for all collection operations
-- [ ] **ITEST-03**: Integration tests exist for all math additions
-- [ ] **ITEST-04**: Integration tests exist for all IO additions
-- [ ] **ITEST-05**: Integration tests exist for time and log additions
-- [ ] **ITEST-06**: Integration tests exist for all OS module functions
-- [ ] **ITEST-07**: Integration tests exist for the testing module itself
+- [x] **GENER-01**: Enums support generic type parameters (`Option[T]`, `Result[T, E]`)
+- [x] **GENER-02**: Generic enums are monomorphized (consistent with existing generic functions/objects)
+- [x] **GENER-03**: C emission uses type-argument-aware mangling to avoid typedef collisions
 
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
 
-### OS Module Advanced
+### Advanced Pattern Matching
 
-- **OS-ADV-01**: `os.spawn(cmd, args)` — run subprocess asynchronously with pipe capture
-- **OS-ADV-02**: `os.exec(cmd, args)` — run subprocess synchronously, return stdout
-- **OS-ADV-03**: `os.which(name)` — find executable in PATH
-- **OS-ADV-04**: `os.chmod(path, mode)` — set file permissions
-- **OS-ADV-05**: Signal handling (`os.on_signal()`)
-- **OS-ADV-06**: Symlink support
+- **AMATCH-01**: Pattern guards (`Expr.IntLit(n) if n > 0 -> ...`)
+- **AMATCH-02**: Or-patterns (`Expr.IntLit(_) | Expr.BoolLit(_) -> ...`)
+- **AMATCH-03**: Match as expression (match returns a value)
 
-### Collection Advanced
+### Named Field Variants
 
-- **COLL-ADV-01**: `list.flatten()` — flatten List[List[T]] (requires generics)
-- **COLL-ADV-02**: `list.zip(other)` — pair elements (requires tuples)
-- **COLL-ADV-03**: Cross-type `list.map(fn)` returning different element type (requires generics)
-
-### String Advanced
-
-- **STR-ADV-01**: Unicode-aware case folding for `upper()`/`lower()`
-- **STR-ADV-02**: Regex / pattern matching module
-
-### Testing Advanced
-
-- **TEST-ADV-01**: Property-based testing (requires generics)
-- **TEST-ADV-02**: Test mocking framework (requires reflection)
-- **TEST-ADV-03**: Benchmarking with `bench_*` function convention
+- **NFVAR-01**: Variants with named fields (`Circle { radius: Float }`)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Networking / HTTP module | Separate future milestone, different scope |
-| Database drivers | Application territory, use C FFI |
-| Async / non-blocking IO | Requires event loop (libuv-scale complexity) |
-| String formatting / printf | Iron already has string interpolation |
-| File system watchers | Requires inotify/kqueue/ReadDirectoryChangesW |
-| Package manager | Separate project |
-| LSP implementation | This project prepares stdlib content, not LSP infrastructure |
+| Named-field variants | Tuple-style only for v1; keeps implementation focused |
+| Pattern guards | Adds complexity to exhaustiveness checking; defer |
+| Or-patterns | Requires decision tree code-size explosion handling; defer |
+| Match as expression | Requires return-type unification across arms; defer |
+| `Option[T]` replacing `T?` | Nullable syntax stays independent; both coexist |
+| LSP implementation | This milestone is the compiler foundation for it |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| EDATA-01 | Phase 32 | Pending |
+| EDATA-02 | Phase 32 | Complete |
+| EDATA-03 | Phase 32 + Phase 34 | Complete |
+| EDATA-04 | Phase 38 | Complete |
+| MATCH-01 | Phase 32 + Phase 36 | Complete |
+| MATCH-02 | Phase 33 | Complete |
+| MATCH-03 | Phase 33 | Complete |
+| MATCH-04 | Phase 33 | Complete |
+| MATCH-05 | Phase 33 | Complete |
+| MATCH-06 | Phase 34 | Complete |
+| MATCH-07 | Phase 33 + Phase 36 | Complete |
+| EMETH-01 | Phase 36 | Complete |
+| EMETH-02 | Phase 36 | Complete |
+| GENER-01 | Phase 37 | Complete |
+| GENER-02 | Phase 37 | Complete |
+| GENER-03 | Phase 37 | Complete |
 
 **Coverage:**
-- v1 requirements: 88 total
-- Mapped to phases: 88
+- v1 requirements: 16 total
+- Mapped to phases: 16
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-02*
-*Last updated: 2026-04-02 after initial definition*
+*Last updated: 2026-04-02 after roadmap creation*

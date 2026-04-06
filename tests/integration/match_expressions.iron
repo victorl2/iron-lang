@@ -4,35 +4,35 @@
 
 func day_name(d: Int) -> String {
   match d {
-    1 { return "Monday" }
-    2 { return "Tuesday" }
-    3 { return "Wednesday" }
-    4 { return "Thursday" }
-    5 { return "Friday" }
-    6 { return "Saturday" }
-    7 { return "Sunday" }
-    else { return "invalid" }
+    1 -> return "Monday"
+    2 -> return "Tuesday"
+    3 -> return "Wednesday"
+    4 -> return "Thursday"
+    5 -> return "Friday"
+    6 -> return "Saturday"
+    7 -> return "Sunday"
+    else -> return "invalid"
   }
   return "invalid"
 }
 
 func day_type(d: Int) -> String {
   match d {
-    6 { return "weekend" }
-    7 { return "weekend" }
-    else { return "weekday" }
+    6 -> return "weekend"
+    7 -> return "weekend"
+    else -> return "weekday"
   }
   return "weekday"
 }
 
 func score_grade(score: Int) -> String {
   match score {
-    5 { return "A" }
-    4 { return "B" }
-    3 { return "C" }
-    2 { return "D" }
-    1 { return "F" }
-    else { return "invalid" }
+    5 -> return "A"
+    4 -> return "B"
+    3 -> return "C"
+    2 -> return "D"
+    1 -> return "F"
+    else -> return "invalid"
   }
   return "invalid"
 }
@@ -68,9 +68,9 @@ func main() {
   for d in range(7) {
     val dtype = day_type(d + 1)
     match d + 1 {
-      6 { weekends = weekends + 1 }
-      7 { weekends = weekends + 1 }
-      else { weekdays = weekdays + 1 }
+      6 -> weekends = weekends + 1
+      7 -> weekends = weekends + 1
+      else -> weekdays = weekdays + 1
     }
   }
   println("weekdays: {weekdays}")

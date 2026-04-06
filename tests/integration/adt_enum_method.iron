@@ -1,0 +1,21 @@
+-- ADT enum method test: methods on enums with payloads, match on self
+
+enum Shape {
+  Circle(Int),
+  Rect(Int, Int),
+}
+
+func Shape.area() -> Int {
+  match self {
+    Shape.Circle(r) -> return r * r
+    Shape.Rect(w, h) -> return w * h
+  }
+  return 0
+}
+
+func main() {
+  val c = Shape.Circle(5)
+  val r = Shape.Rect(3, 4)
+  println("{c.area()}")
+  println("{r.area()}")
+}

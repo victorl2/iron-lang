@@ -502,6 +502,38 @@ static void print_expr(Iron_StrBuf *sb, const IronHIR_Expr *expr,
         }
         break;
 
+    case IRON_HIR_EXPR_ENUM_CONSTRUCT:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "EnumConstruct(%s.%s)\n",
+                            expr->enum_construct.enum_name ? expr->enum_construct.enum_name : "?",
+                            expr->enum_construct.variant_name ? expr->enum_construct.variant_name : "?");
+        for (int i = 0; i < expr->enum_construct.arg_count; i++) {
+            if (expr->enum_construct.args && expr->enum_construct.args[i]) {
+                print_expr(sb, expr->enum_construct.args[i], mod, depth + 1, tmp);
+            }
+        }
+        break;
+
+    case IRON_HIR_EXPR_PATTERN:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "Pattern(%s.%s [",
+                            expr->pattern.enum_name ? expr->pattern.enum_name : "?",
+                            expr->pattern.variant_name ? expr->pattern.variant_name : "?");
+        for (int i = 0; i < expr->pattern.binding_count; i++) {
+            if (i > 0) iron_strbuf_appendf(sb, ", ");
+            const char *bname = expr->pattern.binding_names
+                                ? expr->pattern.binding_names[i]
+                                : NULL;
+            iron_strbuf_appendf(sb, "%s", bname ? bname : "_");
+        }
+        iron_strbuf_appendf(sb, "])\n");
+        for (int i = 0; i < expr->pattern.binding_count; i++) {
+            if (expr->pattern.nested_patterns && expr->pattern.nested_patterns[i]) {
+                print_expr(sb, expr->pattern.nested_patterns[i], mod, depth + 1, tmp);
+            }
+        }
+        break;
+
     default:
         do_indent(sb, depth);
         iron_strbuf_appendf(sb, "UnknownExpr\n");
