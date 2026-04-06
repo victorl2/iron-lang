@@ -895,6 +895,8 @@ private func Player.recalc_stats() {
 
 ## Enums
 
+### Plain Enums
+
 Simple C-style enums. Always accessed with the type prefix.
 
 ```
@@ -909,16 +911,110 @@ var state = GameState.RUNNING
 if state == GameState.PAUSED {
   draw_text("PAUSED", 300, 250, 40, WHITE)
 }
+```
 
--- use in match
-match state {
-  GameState.RUNNING { player.update(dt) }
-  GameState.PAUSED  { draw_pause_menu() }
-  GameState.MENU    { draw_main_menu() }
-  else { log.warn("unknown state") }
+### Algebraic Data Types (ADTs)
+
+Enum variants can carry data payloads, making them full algebraic data types.
+
+```
+enum Shape {
+  Circle(Float),
+  Rect(Float, Float),
+  Point,
 }
 
--- else is optional; compiler warns if match is not exhaustive
+val s = Shape.Circle(5.0)
+val r = Shape.Rect(10.0, 20.0)
+val p = Shape.Point
+```
+
+### Pattern Matching
+
+Use `match` with `->` arrow syntax to destructure enum variants. The compiler enforces exhaustiveness — all variants must be covered or an `else` arm provided.
+
+```
+match state {
+  GameState.RUNNING -> player.update(dt)
+  GameState.PAUSED  -> draw_pause_menu()
+  GameState.MENU    -> draw_main_menu()
+  else -> log.warn("unknown state")
+}
+
+-- destructuring payloads
+match shape {
+  Shape.Circle(radius) -> {
+    val area = 3.14159 * radius * radius
+    println("circle area: {area}")
+  }
+  Shape.Rect(w, h) -> println("rect area: {w * h}")
+  Shape.Point -> println("point")
+}
+
+-- wildcard _ ignores a binding
+match shape {
+  Shape.Rect(_, h) -> println("height: {h}")
+  else -> println("not a rect")
+}
+```
+
+### Methods on Enums
+
+Methods can be defined on enum types, using `match self` to dispatch on variants.
+
+```
+func Shape.area() -> Float {
+  match self {
+    Shape.Circle(r) -> return 3.14159 * r * r
+    Shape.Rect(w, h) -> return w * h
+    Shape.Point -> return 0.0
+  }
+}
+
+val s = Shape.Circle(5.0)
+println("area: {s.area()}")
+```
+
+### Generic Enums
+
+Enums support type parameters with monomorphization, just like objects.
+
+```
+enum Option[T] {
+  Some(T),
+  None,
+}
+
+enum Result[T, E] {
+  Ok(T),
+  Err(E),
+}
+
+val x = Option.Some(42)
+match x {
+  Option.Some(v) -> println("got {v}")
+  Option.None -> println("nothing")
+}
+```
+
+### Recursive Enums
+
+Enum variants can reference their own type. Recursive fields are automatically heap-allocated (auto-boxed) — no manual `heap` annotation needed.
+
+```
+enum Expr {
+  IntLit(Int),
+  BinOp(Expr, Op, Expr),
+}
+
+func eval(e: Expr) -> Int {
+  match e {
+    Expr.IntLit(n) -> return n
+    Expr.BinOp(left, op, right) -> {
+      return eval(left) + eval(right)
+    }
+  }
+}
 ```
 
 ---
@@ -1006,13 +1102,17 @@ val get_hp = func() { player.hp }
 
 ### Capture
 
-All outer variables are captured by reference implicitly.
+Lambdas automatically capture outer variables. `val` bindings are captured by value (snapshot), `var` bindings are captured by reference (shared mutation).
 
 ```
 var score = 0
 val on_kill = func() { score += 1 }
 on_kill()
-print(score)                     -- 1, captured by reference
+print(score)                     -- 1, var captured by reference
+
+val threshold = 50
+val check = func(hp: Int) -> Bool { hp < threshold }
+-- threshold captured by value (snapshot at creation time)
 ```
 
 ### Lambdas as Types
@@ -1187,7 +1287,7 @@ else       -- else branch
 for        -- loop (sequential), or parallel with `parallel` modifier
 while      -- loop with condition
 parallel   -- modifier on for loop for parallel execution
-match      -- pattern match on enums
+match      -- pattern match on enums and values (-> arrow syntax)
 return     -- return from function
 heap       -- heap allocation
 free       -- heap deallocation
@@ -1294,13 +1394,20 @@ val upper = name.upper()
 val lower = name.lower()
 val trimmed = text.trim()
 val parts = text.split(",")
-val joined = parts.join(", ")
+val joined = ",".join(parts)
 val sub = text.substring(0, 5)
 val has = text.contains("hello")
 val starts = text.starts_with("http")
 val ends = text.ends_with(".png")
 val replaced = text.replace("old", "new")
 val padded = "42".pad_left(5, "0")       -- "00042"
+val idx = text.index_of("world")         -- -1 if not found
+val ch = text.char_at(0)
+val n = text.to_int()
+val f = text.to_float()
+val repeated = "ha".repeat(3)            -- "hahaha"
+val cnt = text.count("o")
+val rpad = "42".pad_right(5, " ")        -- "42   "
 ```
 
 #### Concurrency Primitives
@@ -1338,6 +1445,10 @@ math.sqrt(x)
 math.pow(base, exp)
 math.lerp(a, b, t)
 math.sign(x)
+math.log(x)
+math.log2(x)
+math.exp(x)
+math.hypot(a, b)
 
 -- random
 math.random()                -- 0.0..1.0
@@ -1351,14 +1462,25 @@ math.seed(n)
 ```
 import io
 
-val data, val err = io.read_file("save.dat")        -- String, Err?
-val bytes, val err = io.read_bytes("image.png")      -- [UInt8], Err?
-val err = io.write_file("save.dat", data)            -- Err?
-val err = io.write_bytes("out.bin", bytes)            -- Err?
+-- file operations
+val data = io.read_file("save.dat")
+io.write_file("save.dat", data)
+io.append_file("log.txt", "entry\n")
 val exists = io.file_exists("save.dat")
 val files = io.list_files("assets/")
+val lines = io.read_lines("data.csv")
 io.create_dir("saves/")
 io.delete_file("temp.dat")
+
+-- console
+val input = io.read_line()
+
+-- path utilities
+val name = io.basename("/home/user/file.txt")     -- "file.txt"
+val dir = io.dirname("/home/user/file.txt")        -- "/home/user"
+val full = io.join_path("assets", "hero.png")      -- "assets/hero.png"
+val ext = io.extension("hero.png")                 -- ".png"
+val is_d = io.is_dir("assets/")
 ```
 
 ### `time` — Import Required

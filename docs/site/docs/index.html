@@ -561,7 +561,7 @@
       <div class="sidebar-section">
         <h3>Types &amp; Data</h3>
         <a href="#objects">Objects</a>
-        <a href="#enums">Enums</a>
+        <a href="#enums">Enums &amp; ADTs</a>
         <a href="#interfaces">Interfaces</a>
         <a href="#generics">Generics</a>
       </div>
@@ -776,17 +776,55 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
 
       <!-- Enums -->
       <h2 id="enums">Enums</h2>
-      <p>Simple C-style enums. Always accessed with the type prefix.</p>
+      <p>Simple C-style enums, always accessed with the type prefix. Enum variants can also carry data payloads, making them full algebraic data types.</p>
+
+      <h3>Plain Enums</h3>
       <div class="code-block"><pre><span class="kw">enum</span> <span class="ty">GameState</span> {
   <span class="pr">PAUSED</span>,
   <span class="pr">RUNNING</span>,
   <span class="pr">MENU</span>,
 }
 
-<span class="kw">var</span> state = <span class="ty">GameState</span>.<span class="pr">RUNNING</span>
+<span class="kw">var</span> state = <span class="ty">GameState</span>.<span class="pr">RUNNING</span></pre></div>
 
-<span class="kw">if</span> state == <span class="ty">GameState</span>.<span class="pr">PAUSED</span> {
-  <span class="fn">draw_text</span>(<span class="st">"PAUSED"</span>, <span class="nu">300</span>, <span class="nu">250</span>, <span class="nu">40</span>, <span class="pr">WHITE</span>)
+      <h3>Algebraic Data Types</h3>
+      <p>Variants can carry typed payloads.</p>
+      <div class="code-block"><pre><span class="kw">enum</span> <span class="ty">Shape</span> {
+  <span class="pr">Circle</span>(<span class="ty">Float</span>),
+  <span class="pr">Rect</span>(<span class="ty">Float</span>, <span class="ty">Float</span>),
+  <span class="pr">Point</span>,
+}
+
+<span class="kw">val</span> s = <span class="ty">Shape</span>.<span class="pr">Circle</span>(<span class="nu">5.0</span>)
+<span class="kw">val</span> r = <span class="ty">Shape</span>.<span class="pr">Rect</span>(<span class="nu">10.0</span>, <span class="nu">20.0</span>)</pre></div>
+
+      <h3>Generic Enums</h3>
+      <p>Enums support type parameters with monomorphization.</p>
+      <div class="code-block"><pre><span class="kw">enum</span> <span class="ty">Option</span>[<span class="ty">T</span>] {
+  <span class="pr">Some</span>(<span class="ty">T</span>),
+  <span class="pr">None</span>,
+}
+
+<span class="kw">enum</span> <span class="ty">Result</span>[<span class="ty">T</span>, <span class="ty">E</span>] {
+  <span class="pr">Ok</span>(<span class="ty">T</span>),
+  <span class="pr">Err</span>(<span class="ty">E</span>),
+}</pre></div>
+
+      <h3>Methods on Enums</h3>
+      <p>Use <code>match self</code> to dispatch on variants inside methods.</p>
+      <div class="code-block"><pre><span class="kw">func</span> <span class="ty">Shape</span>.<span class="fn">area</span>() -> <span class="ty">Float</span> {
+  <span class="kw">match</span> <span class="kw">self</span> {
+    <span class="ty">Shape</span>.<span class="pr">Circle</span>(r) -> <span class="kw">return</span> <span class="nu">3.14159</span> * r * r
+    <span class="ty">Shape</span>.<span class="pr">Rect</span>(w, h) -> <span class="kw">return</span> w * h
+    <span class="ty">Shape</span>.<span class="pr">Point</span> -> <span class="kw">return</span> <span class="nu">0.0</span>
+  }
+}</pre></div>
+
+      <h3>Recursive Enums</h3>
+      <p>Self-referencing variants are automatically heap-allocated (auto-boxed).</p>
+      <div class="code-block"><pre><span class="kw">enum</span> <span class="ty">Expr</span> {
+  <span class="pr">IntLit</span>(<span class="ty">Int</span>),
+  <span class="pr">BinOp</span>(<span class="ty">Expr</span>, <span class="ty">Op</span>, <span class="ty">Expr</span>),
 }</pre></div>
 
       <!-- Generics -->
@@ -863,7 +901,7 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
 
       <!-- Lambdas -->
       <h2 id="lambdas">Lambdas</h2>
-      <p>Anonymous functions use <code>func() { }</code> &mdash; same keyword, just without a name. All outer variables are captured by reference.</p>
+      <p>Anonymous functions use <code>func() { }</code> &mdash; same keyword, just without a name. Outer <code>val</code> bindings are captured by value, <code>var</code> bindings by reference.</p>
       <div class="code-block"><pre><span class="kw">val</span> double = <span class="kw">func</span>(x: <span class="ty">Int</span>) -> <span class="ty">Int</span> { x * <span class="nu">2</span> }
 
 <span class="kw">val</span> on_collision = <span class="kw">func</span>(entity: <span class="ty">Entity</span>, other: <span class="ty">Entity</span>) {
@@ -905,13 +943,28 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
 
       <!-- Pattern Matching -->
       <h2 id="pattern-matching">Pattern Matching</h2>
+      <p>Use <code>-></code> arrow syntax for match arms. The compiler enforces exhaustiveness &mdash; all variants must be covered or an <code>else</code> arm provided.</p>
       <div class="code-block"><pre><span class="kw">match</span> state {
-  <span class="ty">GameState</span>.<span class="pr">RUNNING</span> { player.<span class="fn">update</span>(dt) }
-  <span class="ty">GameState</span>.<span class="pr">PAUSED</span>  { <span class="fn">draw_pause_menu</span>() }
-  <span class="ty">GameState</span>.<span class="pr">MENU</span>    { <span class="fn">draw_main_menu</span>() }
-  <span class="kw">else</span> { log.<span class="fn">warn</span>(<span class="st">"unknown state"</span>) }
+  <span class="ty">GameState</span>.<span class="pr">RUNNING</span> -> player.<span class="fn">update</span>(dt)
+  <span class="ty">GameState</span>.<span class="pr">PAUSED</span>  -> <span class="fn">draw_pause_menu</span>()
+  <span class="ty">GameState</span>.<span class="pr">MENU</span>    -> <span class="fn">draw_main_menu</span>()
+}
+
+<span class="cm">-- destructuring payloads</span>
+<span class="kw">match</span> shape {
+  <span class="ty">Shape</span>.<span class="pr">Circle</span>(radius) -> {
+    <span class="kw">val</span> area = <span class="nu">3.14159</span> * radius * radius
+    <span class="fn">println</span>(<span class="st">"circle area: {area}"</span>)
+  }
+  <span class="ty">Shape</span>.<span class="pr">Rect</span>(w, h) -> <span class="fn">println</span>(<span class="st">"rect area: {w * h}"</span>)
+  <span class="ty">Shape</span>.<span class="pr">Point</span> -> <span class="fn">println</span>(<span class="st">"point"</span>)
+}
+
+<span class="cm">-- wildcard _ ignores a binding</span>
+<span class="kw">match</span> shape {
+  <span class="ty">Shape</span>.<span class="pr">Rect</span>(_, h) -> <span class="fn">println</span>(<span class="st">"height: {h}"</span>)
+  <span class="kw">else</span> -> <span class="fn">println</span>(<span class="st">"not a rect"</span>)
 }</pre></div>
-      <p>The <code>else</code> branch is optional. The compiler warns if the match is not exhaustive.</p>
 
       <!-- Memory Management -->
       <h2 id="memory">Memory Management</h2>
@@ -1211,7 +1264,7 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
           <tr><td><code>import</code></td><td>Module import</td></tr>
           <tr><td><code>if</code> / <code>elif</code> / <code>else</code></td><td>Conditional branching</td></tr>
           <tr><td><code>for</code> / <code>while</code></td><td>Loops</td></tr>
-          <tr><td><code>match</code></td><td>Pattern matching on enums</td></tr>
+          <tr><td><code>match</code></td><td>Pattern matching with <code>-></code> arrow syntax</td></tr>
           <tr><td><code>return</code></td><td>Return from function</td></tr>
           <tr><td><code>heap</code></td><td>Heap allocation</td></tr>
           <tr><td><code>free</code></td><td>Heap deallocation</td></tr>
