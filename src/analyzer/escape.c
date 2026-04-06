@@ -73,13 +73,21 @@ static void emit_err(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) 
 
 /* ── Name extraction from expression nodes ───────────────────────────────── */
 
-/* Get the name of an expression if it is a bare identifier, else NULL. */
+/* Get the root identifier name from an expression.  Recurses through
+ * field-access and index nodes to find the underlying identifier.
+ * Returns NULL if the expression is not rooted in an identifier. */
 static const char *expr_ident_name(Iron_Node *node) {
     if (!node) return NULL;
-    if (node->kind == IRON_NODE_IDENT) {
-        return ((Iron_Ident *)node)->name;
+    switch (node->kind) {
+        case IRON_NODE_IDENT:
+            return ((Iron_Ident *)node)->name;
+        case IRON_NODE_FIELD_ACCESS:
+            return expr_ident_name(((Iron_FieldAccess *)node)->object);
+        case IRON_NODE_INDEX:
+            return expr_ident_name(((Iron_IndexExpr *)node)->object);
+        default:
+            return NULL;
     }
-    return NULL;
 }
 
 /* ── Collect pass: walk a block and record heap bindings, freed, leaked ───── */
@@ -147,6 +155,29 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
                  *  of a heap value as a potential escape.) */
                 if (find_heap_for_name(ctx, rhs)) {
                     arrpush(ctx->escaped_names, rhs);
+                }
+            }
+            break;
+        }
+        case IRON_NODE_CALL: {
+            /* Conservatively mark any heap binding passed as a function
+             * argument as escaped -- the callee may store the pointer. */
+            Iron_CallExpr *call = (Iron_CallExpr *)node;
+            for (int i = 0; i < call->arg_count; i++) {
+                const char *arg_name = expr_ident_name(call->args[i]);
+                if (arg_name && find_heap_for_name(ctx, arg_name)) {
+                    arrpush(ctx->escaped_names, arg_name);
+                }
+            }
+            break;
+        }
+        case IRON_NODE_METHOD_CALL: {
+            /* Same conservative treatment for method call arguments. */
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            for (int i = 0; i < mc->arg_count; i++) {
+                const char *arg_name = expr_ident_name(mc->args[i]);
+                if (arg_name && find_heap_for_name(ctx, arg_name)) {
+                    arrpush(ctx->escaped_names, arg_name);
                 }
             }
             break;
