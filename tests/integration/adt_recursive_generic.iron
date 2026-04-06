@@ -1,0 +1,28 @@
+-- ADT recursive generic enum test (EDATA-04): Tree[T] with auto-boxing post-monomorphization
+
+enum Tree[T] {
+  Leaf(T),
+  Branch(Tree[T], Tree[T]),
+}
+
+func sum_tree(t: Tree[Int]) -> Int {
+  match t {
+    Tree.Leaf(n) -> return n
+    Tree.Branch(left, right) -> return sum_tree(left) + sum_tree(right)
+  }
+  return 0
+}
+
+func main() {
+  val tree = Tree.Branch(
+    Tree.Branch(Tree.Leaf(1), Tree.Leaf(2)),
+    Tree.Leaf(3)
+  )
+  println("sum: {sum_tree(tree)}")
+
+  val single = Tree.Leaf(42)
+  match single {
+    Tree.Leaf(v) -> println("leaf: {v}")
+    Tree.Branch(_, _) -> println("branch")
+  }
+}

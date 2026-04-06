@@ -1,4 +1,5 @@
 #include "analyzer/types.h"
+#include "parser/ast.h"
 #include "util/arena.h"
 #include <string.h>
 #include <stdio.h>
@@ -191,7 +192,13 @@ bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
             return a->interface.decl == b->interface.decl;
 
         case IRON_TYPE_ENUM:
-            return a->enu.decl == b->enu.decl;
+            if (a->enu.decl != b->enu.decl) return false;
+            if (a->enu.type_arg_count != b->enu.type_arg_count) return false;
+            for (int i = 0; i < a->enu.type_arg_count; i++) {
+                if (!iron_type_equals(a->enu.type_args[i], b->enu.type_args[i]))
+                    return false;
+            }
+            return true;
 
         case IRON_TYPE_GENERIC_PARAM: {
             if (!a->generic_param.name || !b->generic_param.name) return false;
@@ -287,8 +294,26 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
         case IRON_TYPE_INTERFACE:
             return "<interface>";
 
-        case IRON_TYPE_ENUM:
-            return "<enum>";
+        case IRON_TYPE_ENUM: {
+            if (!t->enu.decl) return "<enum>";
+            if (t->enu.type_arg_count == 0) return t->enu.decl->name;
+            /* Generic enum: build "Option[Int]" style string */
+            char buf[512];
+            int pos = 0;
+            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s[", t->enu.decl->name);
+            for (int i = 0; i < t->enu.type_arg_count; i++) {
+                if (i > 0)
+                    pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ", ");
+                const char *as = iron_type_to_string(t->enu.type_args[i], a);
+                pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s", as);
+            }
+            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "]");
+            size_t len = (size_t)pos + 1;
+            char *out = (char *)iron_arena_alloc(a, len, 1);
+            if (!out) return t->enu.decl->name;
+            memcpy(out, buf, len);
+            return out;
+        }
 
         case IRON_TYPE_GENERIC_PARAM:
             return t->generic_param.name ? t->generic_param.name : "<T>";

@@ -1,0 +1,12 @@
+-- ADT enum declaration with payload variants
+-- Phase 32: verifies parser accepts payload syntax
+
+enum Shape {
+  Circle(Float),
+  Rectangle(Float, Float),
+  Point,
+}
+
+func main() {
+  println("adt_enum_decl: ok")
+}

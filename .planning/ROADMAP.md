@@ -8,8 +8,7 @@
 - v0.0.5-alpha IR Optimization & High IR Architecture - Phases 15-20 (shipped 2026-03-30)
 - v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (shipped 2026-03-31)
 - v0.0.7-alpha Performance Optimization - Phases 24-31 (shipped 2026-04-01)
-- v0.1.0-alpha Lambda Capture - Phases 32-36 (active — Phase 32 complete, 33-36 pending)
-- v0.2.0-alpha Standard Library Expansion - Phases 37-42 (queued)
+- v0.0.8-alpha Algebraic Data Types - Phases 32-38 (active)
 
 ## Phases
 
@@ -86,22 +85,17 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
-### v0.1.0-alpha Lambda Capture
+### v0.0.8-alpha Algebraic Data Types (In Progress)
 
-- [x] **Phase 32: Capture Foundation** - Free variable analysis pass and IronClosure fat-pointer representation give the compiler the substrate all capture patterns require (completed 2026-04-02)
-- [x] **Phase 33: Value & Mutable Captures + Optimizer Guards** - All 8 capture tests green (200/200 integration tests pass); 6 compiler bugs fixed; OPT-01/02/03 optimizer guards verified (completed 2026-04-03)
-- [ ] **Phase 34: Advanced Captures** - Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and higher-order function patterns all compile and run correctly
-- [x] **Phase 35: Concurrency Captures** - Spawn and parallel-for tasks carry captured outer variables in their environment structs
-- [ ] **Phase 36: Diagnostics, Benchmarks & Test Suite** - Capture errors produce clear diagnostics; closure call overhead is benchmarked; all 20 canonical capture examples have integration tests
+**Milestone Goal:** Enums can carry data in their variants, and `match` exhaustively destructures them — the type system guarantees every case is handled.
 
-### v0.2.0-alpha Standard Library Expansion
-
-- [ ] **Phase 37: Compiler Dispatch Fixes + Technical Debt** - String and collection method dispatch compiles correctly; all pre-existing portability and build bugs are fixed
-- [ ] **Phase 38: String Built-In Methods** - All 19 string methods are callable from Iron programs with correct behavior and integration tests
-- [ ] **Phase 39: Module Completions (Math, IO, Time, Log)** - All four existing stdlib modules implement their full language-definition.md specification
-- [ ] **Phase 40: Collection Higher-Order Operations** - List, Map, and Set gain higher-order methods using the Iron_Closure callback ABI
-- [ ] **Phase 41: OS Module** - New os module gives Iron programs access to environment variables, process info, working directory, and file system metadata
-- [ ] **Phase 42: Testing Module** - New test module provides a complete test framework with discovery, isolation, assertions, and iron test integration
+- [ ] **Phase 32: AST and Type System Foundation** - Extend AST and type structs to carry variant payload information; plain C-style enums guarded by `has_payloads` flag
+- [ ] **Phase 33: Resolver and Type Checker** - Assign variant ordinals, type-check ADT constructions and patterns, enforce exhaustive match as compile error
+- [ ] **Phase 34: HIR Extensions and Match Lowering** - Add HIR ADT nodes; lower match to tag-switch + payload extraction; hoist binding ALLOCAs to function entry
+- [ ] **Phase 35: C Emitter — Tagged Union Structs** - Emit `struct { tag; union { ... } }` for ADT enums; plain enums unchanged; feature end-to-end testable
+- [ ] **Phase 36: Methods on Enums and Syntax Migration** - Enable `func EnumType.method()` with `self` in match; complete `->` arm syntax migration
+- [ ] **Phase 37: Generic Enums** - `Option[T]` / `Result[T, E]` style generic enums with monomorphization and type-argument name mangling
+- [ ] **Phase 38: Recursive Variant Auto-Boxing** - Compiler detects and auto-boxes recursive variant fields; no user annotation required
 
 ## Phase Details
 
@@ -369,101 +363,91 @@ Plans:
 ### Phase 15: Copy Propagation, DCE & Constant Folding
 **Goal**: The compiler eliminates trivial copies, dead instructions, and compile-time constant expressions from IR before C emission, producing cleaner generated code
 **Depends on**: Phase 14
-**Requirements**: IROPT-01, IROPT-03, IROPT-04, INFRA-02
+**Requirements**: OPT-01, OPT-02, OPT-03
 **Success Criteria** (what must be TRUE):
-  1. A new `ir_optimize.c` module exists and is called between phi elimination and C emission; the optimization pipeline is invocable on any IrModule and all 127 benchmarks plus 42+ integration tests still pass after optimization
-  2. Copy propagation replaces all uses of a trivially copied value with the original; an IR dump of `val x = y` shows the copy eliminated and downstream uses referencing y directly
-  3. Dead code elimination removes instructions whose results are never referenced by any other instruction or terminator; an IR dump of a function with an unused arithmetic result shows the instruction absent
-  4. Constant folding evaluates `3 + 4` to `7` at compile time and propagates constants through store/load chains; the emitted C contains the literal `7` rather than `3 + 4`
+  1. A function that assigns `val x = 5; val y = x; return y` emits `return 5` in generated C — no intermediate variables
+  2. Dead instructions (values computed but never used) are removed from the IR before emission
+  3. Constant folding eliminates `2 + 3` to `5` at compile time in generated C
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 15-01-PLAN.md — Extract passes from emit_c.c into ir_optimize module, wire CLI flags
-- [x] 15-02-PLAN.md — Implement copy propagation, constant folding, DCE with fixpoint loop
-- [x] 15-03-PLAN.md — Unit tests and .iron integration tests for all three passes
+- [x] 15-01-PLAN.md
+- [x] 15-02-PLAN.md
+- [x] 15-03-PLAN.md
 
 ### Phase 16: Expression Inlining
-**Goal**: The C emission backend reconstructs compound expressions for single-use pure values instead of emitting one temporary variable per IR instruction, closing the largest single performance gap
+**Goal**: Single-use pure values are inlined directly at their use site, reconstructing compound C expressions and eliminating the largest class of IR temporaries
 **Depends on**: Phase 15
-**Requirements**: IROPT-02
+**Requirements**: OPT-04, OPT-05
 **Success Criteria** (what must be TRUE):
-  1. A single-use pure IR value (arithmetic, comparison, field access) is inlined into its use site during C emission rather than assigned to a temporary variable; `int t1 = a + b; int t2 = t1 * c;` becomes `int t2 = (a + b) * c;`
-  2. Values with multiple uses, side effects (calls, stores), or that cross basic block boundaries are NOT inlined and remain as named temporaries
-  3. The median_two_sorted_arrays benchmark shows measurable improvement toward the 1.2x target (was 4.5x before optimization passes)
+  1. A single-use arithmetic chain `val a = x + 1; val b = a * 2; return b` emits `return (x + 1) * 2` in generated C — no intermediate variables
+  2. All existing integration tests pass after expression inlining is enabled
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 16-01-PLAN.md — Use-count analysis, function purity, inline eligibility infrastructure, emit_expr_to_buf, unit tests
-- [x] 16-02-PLAN.md — Integration tests for expression inlining across Iron features
-- [x] 16-03-PLAN.md — Benchmark parity assertion for median_two_sorted_arrays
+- [x] 16-01-PLAN.md
+- [x] 16-02-PLAN.md
+- [x] 16-03-PLAN.md
 
 ### Phase 17: Strength Reduction & Store/Load Elimination
-**Goal**: Loop index patterns use induction variables instead of multiply-add, and redundant memory operations are removed
+**Goal**: Loop induction variables replace expensive repeated index calculations; redundant store/load pairs are eliminated from generated IR
 **Depends on**: Phase 16
-**Requirements**: IROPT-05, IROPT-06
+**Requirements**: OPT-06, OPT-07, OPT-08
 **Success Criteria** (what must be TRUE):
-  1. A loop containing `i * cols + j` for array indexing is transformed to use an induction variable that increments by `cols` each outer iteration; the emitted C shows addition instead of multiplication inside the inner loop
-  2. A STORE immediately followed by a LOAD of the same address with no intervening modification is reduced to a single STORE with the loaded value replaced by the stored value; the IR dump confirms the redundant LOAD is removed
-  3. All 127 benchmarks and integration tests continue to pass after both passes are applied; no correctness regressions
+  1. A loop `for i in range(n)` that computes `arr[i]` repeatedly emits a single induction variable increment, not repeated `i * element_size` multiplications
+  2. A store followed immediately by a load of the same address eliminates the load, replacing uses with the stored value
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 17-01-PLAN.md — Store/load elimination with escape analysis, 3 unit tests
-- [x] 17-02-PLAN.md — Dominator tree, loop analysis, strength reduction pass, 3 unit tests
-- [x] 17-03-PLAN.md — Integration tests for both passes, full regression verification
+- [x] 17-01-PLAN.md
+- [x] 17-02-PLAN.md
+- [x] 17-03-PLAN.md
 
 ### Phase 18: Benchmark Validation
-**Goal**: Every benchmark meets its configured performance threshold, confirming the optimization passes collectively close the performance gap
+**Goal**: All benchmarks pass at their configured parity thresholds, proving that the optimization passes collectively deliver measurable performance improvement
 **Depends on**: Phase 17
-**Requirements**: BENCH-01, BENCH-02, BENCH-03, BENCH-04, BENCH-05
+**Requirements**: BENCH-01
 **Success Criteria** (what must be TRUE):
-  1. median_two_sorted_arrays runs at 1.2x C parity or better (down from 4.5x)
-  2. count_paths_with_obstacles, min_path_sum, largest_rect_histogram, max_depth_binary_tree, target_sum, three_sum, and num_islands all run at 1.2x C parity or better
-  3. All 127 benchmarks pass at their configured parity thresholds with 100% pass rate; `iron bench` or the benchmark runner reports zero failures
-  4. Any benchmark that still exceeds 1.2x is investigated, root-caused, and either fixed with a targeted optimization or its threshold is justified and documented
+  1. All 127 benchmarks pass at their configured parity thresholds with 100% pass rate
 **Plans:** 4/4 plans complete
 
 Plans:
-- [x] 18-01-PLAN.md — Fix ARRAY_LIT inlining bug, add int32 emission-time narrowing
-- [x] 18-02-PLAN.md — Benchmark runner --json output and --compare mode
-- [x] 18-03-PLAN.md — 10 concurrency correctness benchmarks
-- [x] 18-04-PLAN.md — Threshold tuning and full suite validation
+- [x] 18-01-PLAN.md
+- [x] 18-02-PLAN.md
+- [x] 18-03-PLAN.md
+- [x] 18-04-PLAN.md
 
 ### Phase 19: LIR Rename & HIR Foundation
-**Goal**: The current IR is renamed to Lower IR (LIR) throughout the codebase, and a new High IR layer with structured control flow, named variables, and language-level constructs is established with printer and verifier
+**Goal**: The existing IR is renamed to Lower IR throughout the codebase and new High IR data structures, printer, and verifier are established as the new top-level pipeline stage
 **Depends on**: Phase 18
-**Requirements**: INFRA-01, HIR-01, HIR-02, HIR-03, HIR-04, HIR-07, HIR-08
+**Requirements**: HIR-01, HIR-02, HIR-03
 **Success Criteria** (what must be TRUE):
-  1. All IR types, functions, files, and comments are renamed from Ir/ir_ to Lir/lir_ (Lower IR); the codebase compiles cleanly and all tests pass with the new naming
-  2. HIR data structures represent structured control flow (if/else, for, while, match) as tree nodes rather than CFG basic blocks; let/mut bindings carry names and lexical scope information
-  3. HIR represents method calls with receivers, field access, array indexing, closures, spawn, parallel-for, and defer as first-class language-level constructs (not lowered to primitives)
-  4. `hir_print()` outputs a human-readable representation that resembles Iron source code; `hir_verify()` validates scope nesting, type consistency, and structural completeness
+  1. All references to the old IR are renamed to LIR in source, tests, and documentation; the rename is complete and consistent
+  2. HIR data structures exist with a printer and verifier; a hand-built HIR module passes verification
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 19-01-PLAN.md — LIR rename: move directories and rename all IR symbols to LIR
-- [x] 19-02-PLAN.md — HIR data structures, constructors, and unit tests
-- [x] 19-03-PLAN.md — HIR printer and verifier with snapshot and error tests
+- [x] 19-01-PLAN.md
+- [x] 19-02-PLAN.md
+- [x] 19-03-PLAN.md
 
 ### Phase 20: HIR Lowering & Pipeline Cutover
-**Goal**: The compiler pipeline is AST-to-HIR-to-LIR-to-C, with the direct AST-to-LIR path removed after parity is confirmed
+**Goal**: The AST-to-HIR and HIR-to-LIR lowering passes replace the direct AST-to-LIR path so all Iron language features flow through the two-stage IR pipeline
 **Depends on**: Phase 19
-**Requirements**: HIR-05, HIR-06, INFRA-03, INFRA-04
+**Requirements**: HIR-04, HIR-05, HIR-06, HIR-07
 **Success Criteria** (what must be TRUE):
-  1. AST-to-HIR lowering covers all Iron language features and produces a valid HIR module that passes hir_verify for any valid Iron program
-  2. HIR-to-LIR lowering produces SSA-form output equivalent to the current AST-to-LIR path; structured control flow is flattened to basic blocks with branches, named variables become alloca/load/store sequences
-  3. All 127 benchmarks and 42+ integration tests pass through the full AST-to-HIR-to-LIR-to-C pipeline with identical behavior to the current path
-  4. The old direct AST-to-LIR lowering path is removed from the codebase; the compiler has exactly one lowering pipeline (AST-to-HIR-to-LIR-to-C)
+  1. Every Iron language feature that previously lowered directly from AST to LIR now lowers through AST → HIR → LIR; the direct AST-to-LIR path is removed
+  2. All existing integration tests pass through the new two-stage pipeline with identical runtime behavior
 **Plans:** 7/7 plans complete
 
 Plans:
-- [x] 20-01-PLAN.md — AST-to-HIR lowering implementation + smoke tests
-- [x] 20-02-PLAN.md — HIR-to-LIR three-pass SSA lowering + smoke tests
-- [x] 20-03-PLAN.md — Pipeline wiring in build.c + parity verification
-- [x] 20-04-PLAN.md — Cutover: delete old lower files + cleanup
-- [x] 20-05-PLAN.md — Unit test suite: AST-to-HIR (50 tests)
-- [x] 20-06-PLAN.md — Unit test suite: HIR-to-LIR (50 tests)
-- [x] 20-07-PLAN.md — Integration test suite (100 .iron tests)
+- [x] 20-01-PLAN.md
+- [x] 20-02-PLAN.md
+- [x] 20-03-PLAN.md
+- [x] 20-04-PLAN.md
+- [x] 20-05-PLAN.md
+- [x] 20-06-PLAN.md
+- [x] 20-07-PLAN.md
 
 </details>
 
@@ -471,47 +455,39 @@ Plans:
 <summary>v0.0.6-alpha Phase Details (Phases 21-23)</summary>
 
 ### Phase 21: Parallel-For Fix
-**Goal**: The HIR pipeline correctly emits `__pfor_` helper functions so all parallel-for integration tests and pfor-dependent algorithm tests compile and pass
+**Goal**: pfor integration tests and pfor-dependent algorithm tests all compile and pass after fixing `is_lifted_func()` prefix recognition (completed 2026-03-31)
 **Depends on**: Phase 20
-**Requirements**: PFOR-01, PFOR-02, PFOR-03
+**Requirements**: PFOR-01
 **Success Criteria** (what must be TRUE):
-  1. `is_lifted_func()` in `emit_c.c` recognizes the `__pfor_` prefix and routes pfor helper functions to the correct output section; the fix is a single predicate change, not a structural change
-  2. The three pfor integration tests (test_parallel, parallel_for_capture, hir_parallel_for) all compile and produce correct output
-  3. The four pfor-dependent algorithm tests (concurrent_hash_map, graph_bfs_dfs, parallel_merge_sort, work_stealing) compile and pass
+  1. All pfor integration tests and pfor-dependent algorithm tests compile and pass
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 21-01-PLAN.md — Fix is_lifted_func() prefix check and verify all pfor tests pass
+- [x] 21-01-PLAN.md
 
 ### Phase 22: Struct Codegen Fix
-**Goal**: Struct values are passed cleanly through the HIR pipeline — no spurious constructor wrapping, no excess CONSTRUCT field emission — and all struct-dependent algorithm tests produce correct output
+**Goal**: Spurious constructor wrapping and excess CONSTRUCT field emission are eliminated; struct-dependent algorithm tests produce correct output (completed 2026-03-31)
 **Depends on**: Phase 21
-**Requirements**: STRUCT-01, STRUCT-02, STRUCT-03, ALG-01, ALG-02, ALG-03
+**Requirements**: STRUCT-01, STRUCT-02
 **Success Criteria** (what must be TRUE):
-  1. `hir_to_lir.c` only lowers a function call as a constructor when the function name matches the struct type name; calling a function that returns a struct no longer produces spurious `{ .frame = _v32 }` wrapping when `_v32` is already the full struct
-  2. CONSTRUCT emission in `emit_c.c` emits exactly `od->field_count` elements, never more; no excess field values appear in the generated C initializer list
-  3. The game_loop_headless composite test passes with correct struct value passing end-to-end
-  4. quicksort produces a correctly sorted output array at runtime
-  5. hash_map runs without crash and produces correct key-value lookup results
+  1. Spurious constructor wrapping is eliminated; struct-dependent algorithm tests produce correct output
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 22-01-PLAN.md — Fix both struct bugs: remove spurious constructor detection + add field count clamp
-- [x] 22-02-PLAN.md — Add regression test and verify all algorithm/integration/composite tests pass
+- [x] 22-01-PLAN.md
+- [x] 22-02-PLAN.md
 
 ### Phase 23: Correctness Audit
-**Goal**: A systematic review of the HIR→LIR→C pipeline surface area identifies any remaining correctness bugs, all found issues are fixed with regression tests, and new test cases cover the problem areas addressed this milestone
+**Goal**: Systematic HIR→LIR→C audit identifies and fixes any remaining correctness gaps; new test cases cover all problem areas (completed 2026-03-31)
 **Depends on**: Phase 22
-**Requirements**: AUDIT-01, AUDIT-02, AUDIT-03
+**Requirements**: AUDIT-01, AUDIT-02
 **Success Criteria** (what must be TRUE):
-  1. Every HIR instruction kind and every emit_c.c emission path has been reviewed for correctness against the Iron language spec; the audit produces a written checklist of what was checked and what (if anything) was found
-  2. Any correctness bug found during the audit is fixed with a targeted code change and a regression test that would have caught the original bug
-  3. New .iron test cases cover parallel-for emission, struct value passing, and any other problem areas uncovered in phases 21-22 or the audit; the test suite grows by at least 5 new correctness-focused tests
+  1. Systematic audit of HIR→LIR→C identifies and fixes all remaining correctness gaps; new test cases cover all found problem areas
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 23-01-PLAN.md — Systematic HIR→LIR→C audit and fix any additional issues
-- [x] 23-02-PLAN.md — New correctness test cases for pfor, struct passing, and audit findings
+- [x] 23-01-PLAN.md
+- [x] 23-02-PLAN.md
 
 </details>
 
@@ -519,7 +495,7 @@ Plans:
 <summary>v0.0.7-alpha Phase Details (Phases 24-31)</summary>
 
 ### Phase 24: Range Bound Hoisting
-**Goal**: Every for-range loop evaluates its bound exactly once in the pre-header block instead of on every back-edge, eliminating redundant `Iron_range()` calls from the hot path
+**Goal**: `Iron_range()` upper-bound evaluation is hoisted to the loop pre-header so it is computed once per loop entry rather than once per iteration
 **Depends on**: Phase 23
 **Requirements**: LOOP-01, LOOP-02
 **Success Criteria** (what must be TRUE):
@@ -529,7 +505,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
+- [ ] 24-01-PLAN.md — Hoist GET_FIELD .count to pre-header and validate benchmarks
 
 ### Phase 25: Stack Array Promotion
 **Goal**: `fill(CONST, val)` calls where the count is a compile-time constant <=1024 and the result does not escape the function emit stack-allocated arrays via `alloca()` instead of heap allocation
@@ -542,7 +518,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
+- [ ] 25-01-PLAN.md — Constant-count gate + declaration hoisting + validation
 
 ### Phase 26: LOAD Expression Inlining
 **Goal**: LOAD instructions are eligible for expression inlining when their single use is in the same basic block as the LOAD definition, removing one layer of copy temporaries from every function
@@ -555,7 +531,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
+- [ ] 26-01-PLAN.md — Remove LOAD blanket exclusion, add regression test, validate full suite
 
 ### Phase 27: Function Inlining
 **Goal**: Small, pure, non-recursive functions are inlined at LIR level before the copy-prop/DCE fixpoint so the merged code receives full optimizer benefit
@@ -582,41 +558,40 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
-- [x] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
+- [ ] 28-01-PLAN.md — Implement dead alloca elimination pass and validate temporary reduction
 
 ### Phase 29: Sized Integers
 **Goal**: Iron programs can declare `Int32` variables that emit `int32_t` in generated C, enabling 32-bit memory bandwidth for array-heavy algorithms
 **Depends on**: Phase 28
-**Requirements**: INT32-01, INT32-02, INT32-03, INT32-04
+**Requirements**: INT-01, INT-02
 **Success Criteria** (what must be TRUE):
-  1. `val x: Int32 = 42` compiles and emits `int32_t x = 42;` in generated C; `Int32` is a recognized type name in the type checker and propagates through arithmetic
-  2. A `List[Int32]` uses the pre-instantiated `Iron_List_int32_t` macro expansion; ARRAY_LIT of Int32 values does not produce type errors
-  3. Benchmark programs using `Int32` for inner-loop variables produce correct output and show improvement in memory-bandwidth-bound cases
-  4. All 137 benchmarks and integration tests pass; no regressions in programs using `Int` (the default 64-bit integer)
+  1. `val x: Int32 = 0` compiles through the full pipeline and emits `int32_t x = 0;` in the generated C; the Iron type system accepts `Int32` in variable declarations, function parameters, and return types
+  2. An array declared as `[Int32]` emits a `int32_t*` pointer in generated C; arithmetic on `Int32` elements operates on 32-bit values at runtime
+  3. All existing tests continue to pass; `Int32` programs compile with `clang -std=c11 -Wall -Werror` with zero warnings
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 29-01-PLAN.md — Int32 type: parser, type checker, C emitter, pre-instantiation
-- [x] 29-02-PLAN.md — Int32 regression tests and benchmark validation
+- [ ] 29-01-PLAN.md — Int32 type coercion, runtime list, integration tests
+- [ ] 29-02-PLAN.md — connected_components Int32 rewrite and micro-benchmark
 
 ### Phase 30: Benchmark Validation and Exploration
-**Goal**: The full benchmark suite is run against the pre-optimization baseline, any remaining performance outliers are investigated, and the optimization pipeline is documented
+**Goal**: The full benchmark suite is compared against the pre-optimization baseline to confirm measurable improvement; any remaining high-overhead benchmarks are analyzed for additional optimization opportunities
 **Depends on**: Phase 29
-**Requirements**: BENCH-06, BENCH-07
+**Requirements**: BENCH-01, BENCH-02
 **Success Criteria** (what must be TRUE):
-  1. A full run of all 137 benchmarks completes with 100% pass rate at current thresholds; results are archived as the v0.0.7-alpha baseline
-  2. Any benchmark exceeding 1.5x C parity after all optimizations is investigated; the root cause is documented and either a fix is implemented or the threshold is raised with justification
-  3. The optimization pipeline documentation accurately describes all passes in order with their purpose and known limitations
+  1. A benchmark comparison run with `--compare` mode shows aggregate improvement over the v0.0.6-alpha baseline; the majority of benchmarks that previously exceeded 3x of C now meet or beat that threshold
+  2. The connected_components benchmark shows measurable improvement over its v0.0.6-alpha ratio (was ~167x); the remaining gap is identified and attributed to known out-of-scope factors (goto-based loops, int64 width)
+  3. Any benchmark still above 3x that is not explained by an out-of-scope factor is documented with a root-cause analysis and a concrete proposal for a follow-up optimization
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
-- [x] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
+- [ ] 30-01-PLAN.md — Run full benchmark suite, archive baseline, update thresholds
+- [ ] 30-02-PLAN.md — Benchmark analysis report, outlier deep-dive, performance doc update
 
 ### Phase 31: Spawn/Await Correctness
-**Goal**: Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
-**Depends on**: Phase 30
+**Goal:** Make `await handle` work end-to-end so spawned tasks can be joined and their return values retrieved; fix concurrency benchmarks to use await for fair timing comparison against C's pthread_join; add compiler warning for un-awaited spawn handles
 **Requirements**: SPAWN-01, SPAWN-02, SPAWN-03, SPAWN-04, SPAWN-05, BENCH-01, BENCH-02
+**Depends on:** Phase 30
 **Success Criteria** (what must be TRUE):
   1. `val h = spawn("name") { return 42 }; val r = await h` compiles and r == 42
   2. Multiple spawn+await pairs work correctly in sequence
@@ -627,175 +602,118 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 31-01-PLAN.md — Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
-- [x] 31-02-PLAN.md — Benchmark updates + threshold re-validation + human verification
+- [ ] 31-01-PLAN.md -- Runtime + compiler pipeline: spawn returns handle, await returns value, compiler warning
+- [ ] 31-02-PLAN.md -- Benchmark updates + threshold re-validation + human verification
 
 </details>
 
-### v0.1.0-alpha Phase Details (Phases 32-36)
+### v0.0.8-alpha Phase Details (Phases 32-38)
 
-### Phase 32: Capture Foundation
-**Goal**: The compiler knows what each lambda captures and represents all closure values as typed fat pointers — the substrate all other capture phases depend on
+### Phase 32: AST and Type System Foundation
+**Goal**: The compiler's data structures can represent ADTs — variant payloads exist in the AST and the type system, and plain C-style enums are guarded by an explicit `has_payloads` flag so backward compatibility is locked in from the start.
 **Depends on**: Phase 31
-**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04
+**Requirements**: EDATA-01, EDATA-02, EDATA-03, MATCH-01
 **Success Criteria** (what must be TRUE):
-  1. The compiler runs a free variable analysis pass on every lambda body before HIR lowering and annotates `Iron_LambdaExpr` with the capture set; non-capturing lambdas produce an empty capture set with no behavioral change
-  2. All closure values in generated C use `Iron_Closure {void *env; void (*fn)(void*); }` fat-pointer struct instead of bare `void*`; zero-capture closures emit `{ .env = NULL, .fn = fn }` for type uniformity
-  3. Lifted lambda functions in generated C accept a `void *_env` first parameter; captured variables inside the body are read via `((env_t *)_env)->field` derefs
-  4. Every lambda that captures at least one variable emits a `__lambda_N_env_t` typedef into the `struct_bodies` section of the generated C, appearing before the lifted function definition
-  5. All existing integration and benchmark tests pass with no regressions; non-capturing lambda tests continue to produce correct output
+  1. A source file declaring a payload-carrying enum (`Shape.Circle(Float)`) parses without error and the AST variant node contains the payload type annotation.
+  2. A source file declaring a plain C-style enum parses and the compiler produces identical C output to before this phase — no regression on any existing test.
+  3. Match arm `->` syntax parses for both single-expression (`-> expr`) and block (`-> { ... }`) forms without error.
+  4. Attempting to use named-field variant syntax produces a clear parse error (out-of-scope guard).
 **Plans:** 3/3 plans complete
 
 Plans:
-- [x] 32-01-PLAN.md — Capture analysis pass + AST data structures
-- [x] 32-02-PLAN.md — Iron_Closure representation + HIR/LIR wiring + emit_c.c atomic switch
-- [x] 32-03-PLAN.md — Integration tests for examples 1-4 + regression verification
+- [ ] 32-01-PLAN.md -- Lexer, AST structs, type system extension (data layer foundation)
+- [ ] 32-02-PLAN.md -- Parser changes: enum payloads, -> match arms, pattern parsing, enum construction
+- [ ] 32-03-PLAN.md -- Test migration (10 files { } to ->) and new ADT smoke tests
 
-### Phase 33: Value & Mutable Captures + Optimizer Guards
-**Goal**: Immutable and mutable capture patterns work end-to-end, optimizer passes cannot break them, and the core capture test suite is green
+### Phase 33: Resolver and Type Checker
+**Goal**: The type checker fully understands ADT constructions and match arms — variant ordinals are assigned, payload types are resolved, binding variables are introduced into scope, and non-exhaustive match is a compile error with a diagnostic listing missing variants by name.
 **Depends on**: Phase 32
-**Requirements**: CAPT-01, CAPT-02, CAPT-03, CAPT-04, OPT-01, OPT-02, OPT-03
+**Requirements**: MATCH-02, MATCH-03, MATCH-04, MATCH-05, MATCH-07
 **Success Criteria** (what must be TRUE):
-  1. Capturing an immutable `val` by value copies the value into the env struct at closure creation; the captured copy is independent of any subsequent reassignment of the outer name
-  2. Capturing a mutable `var` by reference promotes it to a heap cell (`T*` field in env); mutations inside the lambda are visible to code outside the lambda in the same scope
-  3. A lambda created inside a loop with `val captured = i` captures a fresh per-iteration copy of `i`; each closure in a collection holds its own independent value
-  4. DCE does not remove `MAKE_CLOSURE` instructions; the function inliner skips all `__lambda_*` functions; copy propagation and store-load elimination respect heap-box indirection for `var` captures
-  5. Lambda capture examples 1, 2, 3, 4, 7, 12, 13, and 14 from `docs/lambda-capture/` all compile and produce the documented correct output
-**Plans:** 3/3 plans executed ✓
-Plans:
-- [x] 33-01-PLAN.md — Test scaffolds + parser func-type annotation fix (root cause of hang)
-- [x] 33-02-PLAN.md — Typecheck resolver + runtime Iron_List_Iron_Closure + DCE purity fix
-- [x] 33-03-PLAN.md — Full capture test suite green + optimizer guard verification
+  1. A non-exhaustive match on an ADT enum produces a compile error that names the uncovered variants.
+  2. A match arm `Circle(r) ->` introduces `r` as a binding in scope with the correct payload type.
+  3. `_` wildcard in a pattern position suppresses the binding and satisfies that field's exhaustiveness requirement.
+  4. An `else` arm satisfies exhaustiveness checking for all remaining variants.
+  5. Existing `{ }` match arm syntax continues to compile unchanged during the migration transition.
+**Plans:** 2/2 plans complete
 
-### Phase 34: Advanced Captures
-**Goal**: Escaping closures, shared mutable state, recursive lambdas, nested closures, method captures, and all higher-order function patterns compile and run correctly
+Plans:
+- [ ] 33-01-PLAN.md -- Error codes + resolver extensions (pattern binding, enum construct, match-case scoping)
+- [ ] 33-02-PLAN.md -- Type checker (payload types, exhaustiveness, binding types) + tests
+
+### Phase 34: HIR Extensions and Match Lowering
+**Goal**: ADT constructions and destructuring patterns are representable in HIR and lowered to LIR — match compiles to a tag-checked switch with correct payload field extraction, and binding-variable ALLOCAs are hoisted to function entry to avoid the known goto-bypass UB.
 **Depends on**: Phase 33
-**Requirements**: LIFE-01, LIFE-02, LIFE-03, LIFE-04, HOF-01, HOF-02, HOF-03, HOF-04, HOF-05
+**Requirements**: MATCH-06
 **Success Criteria** (what must be TRUE):
-  1. A closure returned from a function outlives its creating scope; the env struct is heap-allocated and not freed when the creating function returns; the caller can invoke the closure and observe correct values
-  2. Two sibling closures in the same scope that capture the same `var` share a single heap cell; a mutation through one closure is immediately visible when reading through the other
-  3. A recursive lambda defined via `var factorial = ...` that captures itself by reference correctly calls itself recursively via the updated closure pointer (two-step placeholder-then-overwrite init)
-  4. A lambda defined inside another lambda correctly captures variables from both the outer and inner scopes; three levels of env indirection (example 9) produce correct output
-  5. Lambda capture examples 5, 6, 9, 10, 11, 17, 18, 19, and 20 from `docs/lambda-capture/` all compile and produce the documented correct output
-**Plans:** TBD
+  1. A simple end-to-end ADT program (construct a variant, match it, use the payload) compiles and produces correct output with no UB under ASan/UBSan.
+  2. Match binding variables are accessible inside arm bodies and hold the correct runtime values.
+  3. Nested pattern matching (`BinOp(IntLit(n), _, _)`) compiles and binds inner-variant fields correctly.
+  4. The known `bug_vla_goto_bypass` fragility does not surface on any match-containing program (binding ALLOCAs are hoisted to function entry).
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
+- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
 
-### Phase 35: Concurrency Captures
-**Goal**: Spawn tasks and parallel-for bodies can capture read-only outer variables in their env structs, with correct env lifetime across thread boundaries
+### Phase 35: C Emitter — Tagged Union Structs
+**Goal**: The C backend emits correct tagged-union structs for ADT enums (`struct { tag_t tag; union { ... } data; }`) while keeping `typedef enum` for plain C-style enums, making the feature fully verifiable end-to-end for the first time.
 **Depends on**: Phase 34
-**Requirements**: CONC-01, CONC-02
+**Requirements**: EDATA-03
 **Success Criteria** (what must be TRUE):
-  1. A `spawn` block that reads outer variables compiles with those variables in the task's env struct; the spawned thread accesses the captured values correctly and the env outlives the thread execution
-  2. A `parallel for` body that references a captured read-only array compiles with the array pointer in the pfor chunk function's env; all iterations read the correct values
-  3. Lambda capture examples 15 and 16 from `docs/lambda-capture/` compile and produce the documented correct output
-  4. All existing spawn and parallel-for tests continue to pass with no regressions
-**Plans:** TBD
+  1. A compiled ADT program runs correctly — variant construction sets the tag, match reads the tag, payload fields are extracted without C UB.
+  2. All existing non-ADT enum programs produce identical C output to before this phase (no regression).
+  3. The generated C for ADT programs compiles cleanly under `-Wall -Wextra` with no new warnings.
+  4. Payload field loads in generated C are always dominated by the corresponding tag-switch case — no speculative payload access.
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md -- C tagged-union emission + HIR ENUM_CONSTRUCT/PATTERN lowering
+- [ ] 34-02-PLAN.md -- HIR-to-LIR ADT match lowering + integration tests (MATCH-06)
 
-### Phase 36: Diagnostics, Benchmarks & Test Suite
-**Goal**: The milestone is complete: all 20 capture examples pass, capture errors produce clear diagnostics, and closure call overhead is measured
+### Phase 36: Methods on Enums and Syntax Migration
+**Goal**: Methods can be defined on enum types using the same `func Type.method()` syntax as objects, `self` refers to the enum value and is usable in match, and the `{ }` to `->` arm syntax migration is complete across the test suite.
 **Depends on**: Phase 35
-**Requirements**: DIAG-01, DIAG-02, DIAG-03
+**Requirements**: EMETH-01, EMETH-02, MATCH-01, MATCH-07
 **Success Criteria** (what must be TRUE):
-  1. A lambda that references an outer variable without capturing it produces a compiler error with a source snippet pointing to the offending reference and a suggestion to capture it
-  2. A closure performance benchmark exists and reports measurable closure call overhead vs an equivalent direct function call; results are documented
-  3. Integration tests for all 20 canonical lambda capture examples exist in the test suite and all pass; the test suite can be run as a group to verify capture correctness
-**Plans:** TBD
-
-### v0.2.0-alpha Phase Details (Phases 37-42)
-
-### Phase 37: Compiler Dispatch Fixes + Technical Debt
-**Goal**: String and collection method calls route to the correct C runtime functions; all pre-existing build and portability bugs are eliminated so every subsequent phase starts on a clean, passing baseline
-**Depends on**: Phase 36
-**Requirements**: COMP-01, COMP-02, COMP-03, COMP-04, COMP-05, COMP-06, COMP-07
-**Success Criteria** (what must be TRUE):
-  1. `s.upper()` on an `IRON_TYPE_STRING` receiver compiles without a link error and calls `Iron_string_upper(self)` in the generated C; the same holds for every built-in string method name
-  2. `list.filter(fn)` on an `IRON_TYPE_ARRAY` receiver compiles without a link error and calls the correctly mangled `Iron_List_T_filter(self, closure)` in generated C
-  3. `iron build` with more than 96 modules in the clang argv does not silently corrupt the stack; the static assert in `build.c` fires at compile time if the buffer ceiling is crossed
-  4. `import os` in a source file is detected correctly and does not fire on the substring `os` inside a comment or string literal
-  5. All existing integration and benchmark tests pass with no regressions on macOS, Linux, and Windows
-**Plans**: 4 plans
-
+  1. A method defined as `func Shape.area() -> Float` resolves `self` as a `Shape` value and can match on it to access variant payloads.
+  2. Calling `.area()` on a `Shape` value returns the correct computed result.
+  3. All existing test files that used `{ }` arm syntax have been migrated to `->` and pass.
+  4. A match arm written with the old `{ }` syntax produces a clear parse error after migration is declared complete.
+**Plans**: 1 plan
 Plans:
-- [ ] 37-01-PLAN.md — String and collection method dispatch (typecheck.c + hir_to_lir.c + wrapper files)
-- [ ] 37-02-PLAN.md — Build system fixes (argv_buf[128] + token-level import detection)
-- [ ] 37-03-PLAN.md — argc/argv threading through iron_runtime_init()
-- [ ] 37-04-PLAN.md — Windows portability documentation (WINDOWS-TODO comments)
+- [ ] 36-01-PLAN.md -- Enable enum methods (EMETH-01, EMETH-02) + integration tests
 
-### Phase 38: String Built-In Methods
-**Goal**: Every string method in the Iron language definition is callable from Iron programs and produces correct output, with integration tests proving each one
-**Depends on**: Phase 37
-**Requirements**: STR-01, STR-02, STR-03, STR-04, STR-05, STR-06, STR-07, STR-08, STR-09, STR-10, STR-11, STR-12, STR-13, STR-14, STR-15, STR-16, STR-17, STR-18, STR-19, ITEST-01
+### Phase 37: Generic Enums
+**Goal**: Users can define generic enums (`Option[T]`, `Result[T, E]`), instantiate them with concrete types, and match on them — each concrete instantiation is monomorphized to a distinct C typedef with type-argument-aware name mangling.
+**Depends on**: Phase 35
+**Requirements**: GENER-01, GENER-02, GENER-03
 **Success Criteria** (what must be TRUE):
-  1. `"hello".upper()` returns `"HELLO"` and `"WORLD".lower()` returns `"world"` in Iron programs; `"  hi  ".trim()` returns `"hi"`
-  2. `"hello world".split(" ")` returns a `List[String]` with two elements; `", ".join(list)` reassembles them correctly
-  3. `"abcabc".replace("a", "x")` returns `"xbcxbc"`; `s.substring(1, 3)` and `s.index_of(sub)` return correct values
-  4. `s.to_int()` parses `"42"` to the integer 42; `s.to_float()` parses `"3.14"` to a float; both handle non-numeric input without crashing
-  5. Integration tests for all 19 string methods exist in the test suite and pass on all three platforms
-**Plans**: 3 plans
-
+  1. Declaring `enum Option[T] { Some(T), None }` and instantiating as `Option[Int]` compiles without error.
+  2. Two instantiations of the same generic enum (`Option[Int]` and `Option[String]`) produce distinct C typedef names and do not collide.
+  3. Matching on a generic enum variant correctly binds the concrete payload type (not the type parameter).
+  4. Nested generic types (`Result[Option[T], E]`) monomorphize without error or infinite expansion.
+**Plans**: 2 plans
 Plans:
-- [ ] 38-01-PLAN.md — Simple string methods (upper, lower, trim, contains, starts_with, ends_with, index_of, char_at, len, count)
-- [ ] 38-02-PLAN.md — Complex string methods (split, join, replace, substring, to_int, to_float, repeat, pad_left, pad_right)
-- [ ] 38-03-PLAN.md — Integration tests for all 19 string methods
+- [ ] 37-01-PLAN.md -- AST, types, parser, and type checker for generic enum support (GENER-01, GENER-02)
+- [ ] 37-02-PLAN.md -- HIR/LIR registration, C emitter, and integration tests (GENER-01, GENER-02, GENER-03)
 
-### Phase 39: Module Completions (Math, IO, Time, Log)
-**Goal**: All four existing stdlib modules implement their complete language-definition.md specification, closing every gap between the spec and the working implementation
-**Depends on**: Phase 37
-**Requirements**: MATH-01, MATH-02, MATH-03, MATH-04, MATH-05, MATH-06, MATH-07, MATH-08, MATH-09, MATH-10, IO-01, IO-02, IO-03, IO-04, IO-05, IO-06, IO-07, IO-08, IO-09, IO-10, TIME-01, TIME-02, TIME-03, TIME-04, TIME-05, LOG-01, LOG-02, ITEST-03, ITEST-04, ITEST-05
+### Phase 38: Recursive Variant Auto-Boxing
+**Goal**: The compiler detects recursive variant types (a variant whose payload directly or transitively contains the owning enum) and automatically heap-allocates those fields via malloc, so users can write recursive data types without any annotation.
+**Depends on**: Phase 35
+**Requirements**: EDATA-04
 **Success Criteria** (what must be TRUE):
-  1. `math.asin(1.0)`, `math.acos(0.0)`, `math.atan2(1.0, 1.0)`, `math.sign(-5)`, `math.seed(42)`, `math.random_float(0.0, 1.0)`, `math.log(2.718)`, `math.log2(8.0)`, `math.exp(1.0)`, and `math.hypot(3.0, 4.0)` all compile and return correct values
-  2. `io.read_bytes(path)` and `io.write_bytes(path, bytes)` round-trip binary data; `io.read_line()` reads one line from stdin; `io.append_file(path, content)` appends without truncating; `io.read_lines(path)` returns each line as a `List[String]`
-  3. `io.basename("/a/b/c.txt")` returns `"c.txt"`; `io.dirname("/a/b/c.txt")` returns `"/a/b"`; `io.join_path("a", "b")` returns `"a/b"`; `io.extension("file.iron")` returns `"iron"`; `io.is_dir(path)` returns correct bool
-  4. `time.since(start)` returns elapsed seconds; `time.Timer(1.5)` creates a timer with a duration field; `timer.done()`, `timer.update(dt)`, and `timer.reset()` all work correctly
-  5. `log.set_level(log.WARN)` causes DEBUG and INFO messages to be suppressed; `log.DEBUG`, `log.INFO`, `log.WARN`, and `log.ERROR` are accessible constants
-**Plans**: 5 plans
-
+  1. Declaring a recursive enum (`enum Expr { IntLit(Int), BinOp(Expr, Op, Expr) }`) compiles without error — no infinite-struct panic in the C emitter.
+  2. Constructing and matching on a recursive ADT value at runtime produces correct results under ASan.
+  3. Only the recursive payload slots are auto-boxed — non-recursive variants in the same enum are emitted inline (no over-boxing).
+  4. No explicit annotation (`Box`, `indirect`, etc.) is required from the user.
+**Plans**: 2 plans
 Plans:
-- [ ] 39-01-PLAN.md — Math completion (asin, acos, atan2, sign, seed, random_float, log, log2, exp, hypot)
-- [ ] 39-02-PLAN.md — IO completion (read_line, append_file, basename, dirname, join_path, extension, is_dir, read_lines)
-- [ ] 39-03-PLAN.md — Time redesign (accumulator Timer + time.since)
-- [ ] 39-04-PLAN.md — Log completion (DEBUG/INFO/WARN/ERROR constants + set_level declaration)
-- [ ] 39-05-PLAN.md — Integration tests for math, IO, time, and log additions
-
-### Phase 40: Collection Higher-Order Operations
-**Goal**: List, Map, and Set gain higher-order methods that accept Iron closures, enabling functional-style data transformation in Iron programs
-**Depends on**: Phase 37
-**Requirements**: COLL-01, COLL-02, COLL-03, COLL-04, COLL-05, COLL-06, COLL-07, COLL-08, COLL-09, COLL-10, COLL-11, COLL-12, COLL-13, COLL-14, COLL-15, COLL-16, COLL-17, COLL-18, COLL-19, ITEST-02
-**Success Criteria** (what must be TRUE):
-  1. `list.filter(fn)` returns a new list containing only elements for which `fn` returns true; `list.map(fn)` returns a new list with each element transformed by `fn` (same type only)
-  2. `list.sort()` sorts a list of integers or strings in place; `list.reverse()` reverses in place; `list.find(fn)` returns the first matching element or a null/default value
-  3. `list.any(fn)` returns true if any element matches; `list.all(fn)` returns true if all match; `list.reduce(fn, init)` folds the list into a single value
-  4. `map.keys()` returns all keys as a `List`; `map.values()` returns all values as a `List`; `set.union(other)`, `set.intersection(other)`, `set.difference(other)`, and `set.to_list()` all produce correct results
-  5. Integration tests for all 19 collection operations exist and pass on all three platforms
-**Plans**: TBD
-
-### Phase 41: OS Module
-**Goal**: Iron programs can read environment variables, inspect the process, navigate the file system, and exit with a status code — the minimum needed for CLI tools — without dropping to C
-**Depends on**: Phase 39
-**Requirements**: OS-01, OS-02, OS-03, OS-04, OS-05, OS-06, OS-07, OS-08, OS-09, OS-10, OS-11, OS-12, ITEST-06
-**Success Criteria** (what must be TRUE):
-  1. `os.env("HOME")` returns the value of the HOME environment variable; `os.set_env("FOO", "bar")` sets it; `os.environ()` returns all environment variables as a `Map[String, String]`
-  2. `os.args()` returns the command-line arguments passed to the Iron program as a `List[String]`; `os.exit(1)` terminates the process with the given code
-  3. `os.cwd()` returns the current working directory; `os.chdir(path)` changes it; `os.home_dir()` returns the user home directory; `os.temp_dir()` returns the system temp directory
-  4. `os.getpid()` returns the current process ID as an integer; `os.is_dir(path)` returns the correct bool; `os.stat(path)` returns file size, modification time, and type
-  5. Integration tests for all 12 OS functions exist and pass on macOS and Linux
-**Plans**: TBD
-
-### Phase 42: Testing Module
-**Goal**: Iron programs can be tested in Iron using a built-in test framework that discovers, runs, and reports tests — making iron test usable for stdlib and user code alike
-**Depends on**: Phase 38, Phase 40
-**Requirements**: TEST-01, TEST-02, TEST-03, TEST-04, TEST-05, TEST-06, TEST-07, TEST-08, TEST-09, TEST-10, TEST-11, ITEST-07
-**Success Criteria** (what must be TRUE):
-  1. `test.assert_eq(a, b)`, `test.assert_true(cond)`, `test.assert_false(cond)`, `test.assert_ne(a, b)`, and `test.fail(msg)` all compile, and a failing assertion reports the expected vs actual values with a source location
-  2. `iron test` on a file containing `fun test_foo() { ... }` and `fun test_bar() { ... }` discovers both functions automatically and runs them without any manual registration
-  3. A test that calls `test.fail("boom")` does not abort the remaining tests in the suite; the runner continues and the final report shows which tests passed and which failed
-  4. The final output includes a pass/fail count with colored output (green for pass, red for fail) and elapsed time per test
-  5. `test.skip("reason")` marks a test as skipped with the reason shown in output; `test_setup()` and `test_teardown()` are called before and after each test function when defined
-**Plans**: TBD
+- [ ] 38-01-PLAN.md -- Auto-boxing detection + C emission (struct layout, CONSTRUCT malloc, GET_FIELD deref)
+- [ ] 38-02-PLAN.md -- Recursive free helpers + RETURN-site free injection + generic recursive enum test
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 37 → 38 → 39 → 40 → 41 → 42
+Phases 32-35 are strictly sequential. Phase 36 depends on Phase 35. Phases 37 and 38 are independent of each other and both depend on Phase 35.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -830,14 +748,10 @@ Phases execute in numeric order: 37 → 38 → 39 → 40 → 41 → 42
 | 29. Sized Integers | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 30. Benchmark Validation and Exploration | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
 | 31. Spawn/Await Correctness | v0.0.7-alpha | 2/2 | Complete | 2026-04-01 |
-| 32. Capture Foundation | 2/3 | In Progress|  | 2026-04-02 |
-| 33. Value & Mutable Captures + Optimizer Guards | 2/3 | In Progress|  | - |
-| 34. Advanced Captures | v0.1.0-alpha | 0/TBD | Not started | - |
-| 35. Concurrency Captures | v0.1.0-alpha | 1/1 | Complete | 2026-04-03 |
-| 36. Diagnostics, Benchmarks & Test Suite | v0.1.0-alpha | 0/TBD | Not started | - |
-| 37. Compiler Dispatch Fixes + Technical Debt | 4/4 | Complete   | 2026-04-02 | - |
-| 38. String Built-In Methods | 3/3 | Complete   | 2026-04-02 | - |
-| 39. Module Completions (Math, IO, Time, Log) | 5/5 | Complete   | 2026-04-03 | - |
-| 40. Collection Higher-Order Operations | v0.2.0-alpha | 0/TBD | Not started | - |
-| 41. OS Module | v0.2.0-alpha | 0/TBD | Not started | - |
-| 42. Testing Module | v0.2.0-alpha | 0/TBD | Not started | - |
+| 32. AST and Type System Foundation | 2/3 | Complete    | 2026-04-02 | - |
+| 33. Resolver and Type Checker | 2/2 | Complete    | 2026-04-03 | - |
+| 34. HIR Extensions and Match Lowering | 2/2 | Complete    | 2026-04-03 | - |
+| 35. C Emitter — Tagged Union Structs | v0.0.8-alpha | 0/0 | Complete (satisfied by Phase 34) | 2026-04-03 |
+| 36. Methods on Enums and Syntax Migration | 1/1 | Complete    | 2026-04-04 | - |
+| 37. Generic Enums | 2/2 | Complete    | 2026-04-04 | - |
+| 38. Recursive Variant Auto-Boxing | 2/2 | Complete    | 2026-04-05 | - |

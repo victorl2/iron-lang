@@ -1,0 +1,11 @@
+-- Generic enum: Result[T, E] with two type parameters
+
+enum Result[T, E] {
+  Ok(T),
+  Err(E),
+}
+
+func main() {
+  val r: Result[Int, String] = Result.Ok(100)
+  println("result_ok: ok")
+}
