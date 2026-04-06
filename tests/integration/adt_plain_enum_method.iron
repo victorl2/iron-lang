@@ -1,0 +1,24 @@
+-- Plain enum method test: methods on enums without payloads
+
+enum Dir {
+  North,
+  South,
+  East,
+  West,
+}
+
+func Dir.is_vertical() -> Bool {
+  match self {
+    Dir.North -> return true
+    Dir.South -> return true
+    else -> return false
+  }
+  return false
+}
+
+func main() {
+  val n = Dir.North
+  val e = Dir.East
+  println("{n.is_vertical()}")
+  println("{e.is_vertical()}")
+}

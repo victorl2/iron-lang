@@ -1,11 +1,11 @@
 func map_value(n: Int) -> Int {
   var out = 0
   match n {
-    1 { out = 10 }
-    2 { out = 20 }
-    3 { out = 30 }
-    4 { out = 40 }
-    else { out = 99 }
+    1 -> out = 10
+    2 -> out = 20
+    3 -> out = 30
+    4 -> out = 40
+    else -> out = 99
   }
   return out
 }

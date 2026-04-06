@@ -3,14 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 35-01-PLAN (concurrency captures)
-last_updated: "2026-04-03T05:00:00.000Z"
-last_activity: "2026-04-03 — Phase 35-01 complete: spawn/pfor capture infrastructure, 212/212 integration tests pass"
+stopped_at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
+last_updated: "2026-04-05T00:13:06.572Z"
+last_activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
 progress:
-  total_phases: 11
-  completed_phases: 5
-  total_plans: 18
-  completed_plans: 19
+  total_phases: 7
+  completed_phases: 6
+  total_plans: 12
+  completed_plans: 12
+  percent: 100
 ---
 
 # Project State
@@ -19,81 +20,105 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-04-02)
 
-**Core value:** Every Iron language feature compiles to correct, working C code that produces a native binary
-**Current focus:** v0.1.0-alpha Lambda Capture — Phase 38 string built-in methods in progress
+**Core value:** Enums can carry data in their variants, and `match` exhaustively destructures them — the type system guarantees every case is handled.
+**Current focus:** v0.0.8-alpha Algebraic Data Types — Phase 32 (AST and Type System Foundation) ready to plan
 
 ## Current Position
 
-Phase: 35 of 39 (Concurrency Captures — ALL PLANS COMPLETE)
-Plan: 01 complete — Phase 35 finished
-Status: Phase 35 complete — spawn/pfor captures working, 212/212 integration tests pass
-Last activity: 2026-04-03 — Phase 35-01 complete: spawn/pfor capture infrastructure, stack-array env-field fix
+Phase: 38 of 38 (Recursive Variant Auto-Boxing)
+Plan: 2 of 2 completed
+Status: Complete
+Last activity: 2026-04-04 — Completed 38-02 (recursive free helpers and generic enum integration test)
+
+Progress: [██████████] 100%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 1
+- Average duration: 25 min
+- Total execution time: 0.4 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 32    | 1     | 25min | 25min    |
+
+**Recent Trend:**
+- Last 5 plans: -
+- Trend: -
+
+*Updated after each plan completion*
+| Phase 32 P32-02 | 4min | 2 tasks | 2 files |
+| Phase 33 P01 | 18min | 2 tasks | 3 files |
+| Phase 33 P02 | 22min | 3 tasks | 8 files |
+| Phase 34 P01 | 4min | 2 tasks | 5 files |
+| Phase 34-hir-extensions-and-match-lowering P02 | 120 | 2 tasks | 9 files |
+| Phase 36 P01 | 20 | 2 tasks | 8 files |
+| Phase 37-generic-enums P01 | 35min | 2 tasks | 5 files |
+| Phase 37-generic-enums P02 | 85min | 2 tasks | 14 files |
+| Phase 38 P01 | 24min | 2 tasks | 9 files |
+| Phase 38 P02 | 36 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
 ### Decisions
 
-- [Phase 32]: Uniform Iron_Closure for ALL closures (capturing + non-capturing), env=NULL when no captures
-- [Phase 32]: Iron_Closure typedef in runtime/iron_runtime.h
-- [Phase 32]: Env struct fields use original Iron variable names
-- [Phase 32]: Mutable var captures use typed pointer fields (int64_t *count)
-- [Phase 32]: Capture analysis in src/analyzer/capture.c, runs between typecheck and escape analysis
-- [Phase 32]: Full val/var distinction in capture analysis
-- [Phase 32]: Self capture deferred to Phase 34
-- [Phase 32]: Non-capturing closures call lifted function directly by name
-- [Phase 32-03]: Copy-prop must exclude allocas captured by MAKE_CLOSURE (outer function's alloca forwarding bug)
-- [Phase 32-03]: capture_04 (array-of-closures) causes compiler infinite loop — deferred to Phase 33
-- [Phase 38-03]: Iron_runtime.h needs explicit forward decls for Iron_string_* methods — generated C calls them without implicit declarations (ISO C99)
-- [Phase 38-03]: typecheck.c method call handler must use check_expr return value for non-ident receivers; string literal receivers on String type now resolve via decl scan
-- [Phase 38-03]: Iron integration tests: booleans print as true/false in interpolation; float 0.0 prints as 0; use val-binding for bool results to avoid nested-quote hang
-- [Phase 39]: File-scope __thread RNG (s_math_rng/s_math_rng_init) replaces function-local copies so Math.seed() affects random() and random_int()
-- [Phase 39]: Iron_math_sign returns int64_t (-1/0/1) matching Iron Int return type; Iron_math_log wraps log() without collision via Iron_ prefix
-- [Phase 33]: capture_12 uses rewritten imperative form instead of if-as-expression to avoid unimplemented codegen path
-- [Phase 33]: Iron_TypeAnnotation.is_func: func-type annotations parsed with is_func=true, func_params[], func_return for downstream typecheck/codegen
-- [Phase 33]: Parser error recovery: skip-to-] loop in array branch prevents infinite hang on unknown tokens
-- [Phase 33]: DCE fix uses inline capture_count check in run_dce only (not touching iron_lir_instr_is_pure) — avoids modifying 8+ call sites
-- [Phase 33]: Iron_List_Iron_Closure follows same IRON_LIST_DECL/IMPL macro pair as all other collection types
-- [Phase 33-03]: dead-alloca-elim Step 1c preserves capture-alias allocas by matching name_hint against fn->capture_metadata — ensures *_e->field writes are not eliminated
-- [Phase 33-03]: Closure call dispatch through LOAD or synthetic param value always sets needs_env_arg=true — all lambdas accept void* first arg
-- [Phase 33-03]: func-type params need is_func branch in hir_lower.c resolve_type_ann (separate from typecheck.c)
-- [Phase 33-03]: Iron uses keyword 'not' for boolean negation; match syntax uses PATTERN { body } not PATTERN -> { body }
-- [Phase 33-03]: var x: [T] = [] unsupported — empty array gets IRON_TYPE_ERROR; tests rewritten to avoid pattern
-- [Phase 39]: emit_c.c GET_FIELD for type-name objects must emit Iron_TypeName_FieldName (underscore) not Iron_TypeName.FieldName (dot) — dot notation is invalid C when the object is a type name
-- [Phase 39]: Iron_Log_DEBUG/INFO/WARN/ERROR #defines in iron_log.h map enum values to int64_t (Iron Int type) for Log constant field access
-- [Phase 39-module-completions-math-io-time-log]: IO.extension returns extension without leading dot — spec note overrides RESEARCH example
-- [Phase 39-module-completions-math-io-time-log]: IO.read_lines strips trailing empty element for files ending with newline (POSIX convention)
-- [Phase 39]: Timer mutation pitfall: Iron passes struct self by value in hir_to_lir.c — Iron_timer_update/reset take Iron_Timer* but receive a copy; mutation deferred to plan 39-05 integration test
-- [Phase 39]: Timer.update/Timer.reset omitted from integration tests: Iron codegen passes Timer struct by value but C functions take Iron_Timer* — causes compile error; TIME-04/05 need compiler fix to emit pointer
-- [Phase 39]: Iron string literals do not support backslash escape sequences (\n) — write_file content cannot use \n, must avoid embedded newlines in test strings
-- [Phase 34]: Uniform _env calling convention: ALL lifted lambdas accept void* as first param regardless of capture count — ensures closure dispatch works for both capturing and non-capturing closures
-- [Phase 34]: SET_FIELD through captured struct pointer: detect LOAD from mutable capture alloca and write through env pointer (_e->structname->field) instead of local copy
-- [Phase 34]: Closure-field method dispatch: method call lowering detects is_func fields and emits GET_FIELD (IRON_TYPE_FUNC typed) + closure call — not static method lookup
-- [Phase 35]: Spawn/pfor env struct fields for array captures use Iron_List_T so lifted function can iterate via .items/.count
-- [Phase 35]: Stack-array captures wrapped as (Iron_List_T){ .items = _vN, .count = _vN_len } compound literal when populating env fields — emit_capture_rhs helper detects via get_stack_array_origin
-- [Phase 35]: DCE live-set for IRON_LIR_SPAWN must include all capture operands to prevent premature elimination of captured values
-- [Phase 35]: LiftPending carries capture_var_ids/metadata arrays across HIR lowering Pass 2 to Pass 3
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- [Roadmap]: Phases 32-35 are strictly sequential (AST → type checker → HIR → C emitter); phases 37 and 38 are independent of each other and both depend on phase 35.
+- [Roadmap]: Phase 36 (methods + syntax migration) depends on phase 35 (end-to-end testability), not on phases 37-38.
+- [Roadmap]: MATCH-01 (-> syntax parsing) and MATCH-07 (migration) both assigned to phase 32/36 respectively; MATCH-01 covers the parse-time portion in phase 32 and the migration completion in phase 36.
+- [Research]: bug_vla_goto_bypass must be addressed in phase 34 (match lowering) — binding ALLOCAs must be hoisted to function entry alongside the ALLOCA hoisting fix.
+- [Research]: Generic enum monomorphization (phase 37) has MEDIUM confidence on integration cost — requires codebase inspection of IronLIR_Module.mono_registry before planning.
+- [Research]: Recursive auto-boxing (phase 38) requires validating arena ownership for auto-boxed fields before planning.
+- [32-01]: IRON_TOK_WILDCARD only fires on bare _ (single underscore); _unused remains IRON_TOK_IDENTIFIER
+- [32-01]: val _ = expr and var _ = expr are valid discard bindings; parser accepts IRON_TOK_WILDCARD as name
+- [32-01]: variant_payload_types in Iron_Type.enu is a triple pointer zeroed by existing memset; Phase 33 populates it
+- [Phase 32]: Uppercase heuristic for enum construction: UppercaseName.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT; lowercase remains IRON_NODE_METHOD_CALL; Phase 33 reclassifies edge cases
+- [Phase 32]: Old { } match arm syntax is a parse error with recovery: diagnostic emitted, block parsed, arm added to AST
+- [Phase 33]: IRON_NODE_PATTERN and IRON_NODE_ENUM_CONSTRUCT resolved in resolve_node (not resolve_expr) since resolve_expr is a thin delegate
+- [Phase 33]: Shadow check for pattern bindings uses ctx->current_scope->parent to avoid false self-blocking within arm scope
+- [Phase 33]: variant_payload_types population runs as a dedicated pre-pass in iron_typecheck before function signatures and bodies
+- [Phase 33]: IRON_NODE_MATCH exhaustiveness checking only fires when subject_type->kind == IRON_TYPE_ENUM && ed->has_payloads — integer matches are unaffected
+- [Phase 34]: ADT enum structs emitted into struct_bodies (not enum_defs) for correct C output order
+- [Phase 34]: IRON_NODE_PATTERN lowering stores variant_index = -1 to be resolved in Plan 02 from match scrutinee type
+- [Phase 34-hir-extensions-and-match-lowering]: Unit enum variant (Color.Red) detected by uppercase heuristic in parser DOT handler; produces IRON_NODE_ENUM_CONSTRUCT with arg_count=0
+- [Phase 34-hir-extensions-and-match-lowering]: Pattern bindings injected as HIR STMT_LET nodes before arm body lowering, reusing existing LET emitter rather than adding special ADT extraction to hir_to_lir.c
+- [Phase 34-hir-extensions-and-match-lowering]: Nested pattern field path built as dotted string (data.Wrap._0.data.Val._0); emit_c.c expands it correctly
+- [Phase 36-01]: Plain enum match lowering: IRON_HIR_EXPR_PATTERN is used for ALL variant patterns (unit and payload), not IRON_HIR_EXPR_ENUM_CONSTRUCT — fixed in non-ADT SWITCH path in hir_to_lir.c
+- [Phase 36-01]: Enum methods: all four sites need updating together — resolver guard, HIR self-type lookup, LIR method-call type-name mangling, typecheck return type resolution
+- [Phase 37-generic-enums]: types.c includes parser/ast.h to access Iron_EnumDecl->name for iron_type_to_string
+- [Phase 37-generic-enums]: Generic enum variant_payload_types pre-pass skips generic enums; monomorphization populates payload types at use site
+- [Phase 37-generic-enums]: build_hir_params_named uses global scope function symbol resolved param types to fix Option[Int] in function params
+- [Phase 37-generic-enums]: type_mangle_component strips Iron_ prefix from nested generic enum mangled_name for C-safe identifiers
+- [Phase 37-generic-enums]: maybe_fill_missing_generic_args enables context-directed monomorphization for multi-param enums with partial arg inference
+- [Phase 38-01]: payload_is_boxed stored on Iron_Type.enu (not just AST node) so both generic and non-generic enums share the same emit_c.c read path
+- [Phase 38-01]: enum_defs (plain C enums) emitted before struct_bodies in final C output so non-recursive enum fields in ADT variant structs compile correctly
+- [Phase 38-01]: GET_FIELD dereference for boxed slots resolves object enum type via LOAD->ALLOCA chain traversal
+- [Phase 38-02]: mono_registry on TypeCtx enables cycle detection and caching: register mono before payload loop, all recursive resolutions find in-progress type
+- [Phase 38-02]: Concrete type args bound in gen_scope (T=Int not T=GENERIC_PARAM): resolve_type_annotation(Tree[T]) returns Tree[Int] directly via registry hit
+- [Phase 38-02]: substitute_generic_type removed: defective for IRON_TYPE_ENUM, replaced by concrete gen_scope binding approach
+
+### Project Notes
+
+- This milestone is being developed on a **separate branch and PR** from main.
 
 ### Pending Todos
 
-- var x: [T] = [] empty array literal produces IRON_TYPE_ERROR (unimplemented feature)
+None yet.
 
 ### Blockers/Concerns
 
-None — array-of-Iron_Closure hang resolved by rewriting test to avoid the pattern; core closure semantics fully working
-
-### Decisions (Phase 38)
-
-- [Phase 38-01]: iron_string_len returns byte count (not codepoint count) — O(1), consistent with STR-ADV-01 deferral
-- [Phase 38-01]: iron_string_char_at returns empty string for out-of-range index (no crash)
-- [Phase 38-01]: iron_string_count returns 0 for empty sub (avoids strstr infinite-loop pitfall)
-- [Phase 38-01]: All 10 method bodies appended to iron_string.c Phase 38 section; no existing code modified
-- [Phase 38-02]: Iron_string_replace walks source string (not output buffer) to avoid infinite loop when new_s contains old_s
-- [Phase 38-02]: to_int/to_float return 0/0.0 only when end==s (nothing consumed); partial prefix "42abc" returns 42
-- [Phase 38-02]: pad_left/pad_right use only first byte of ch parameter as the pad character
-- [Phase 38-02]: substring treats start/end_idx as byte offsets, consistent with char_at byte indexing
+- [Phase 34 planning]: Inspect hir_to_lir.c lines 1296-1346 and the ALLOCA hoisting logic before writing the plan — highest-risk phase.
+- [Phase 37 planning]: Validate type substitution path in existing generic function monomorphization before planning generic enum work.
+- [Phase 38 planning]: Read escape analysis output for a prototype recursive enum to confirm arena ownership is correct.
+- [General]: Mixed-payload enums (some variants with payloads, some without, e.g. `enum Foo { A, B(Int) }`) need a policy decision before phase 32 ships.
 
 ## Session Continuity
 
-Last session: 2026-04-03T05:00:00.000Z
-Stopped at: Completed 35-01-PLAN (concurrency captures)
+Last session: 2026-04-04T23:58:28.625Z
+Stopped at: Completed 38-02-PLAN.md (recursive free helpers and generic enum test)
 Resume file: None
