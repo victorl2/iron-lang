@@ -1858,6 +1858,352 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
 
+        /* ── Split collection method dispatch (Phase 47) ────────────────────
+         * When a collection method (map, filter, reduce, forEach, sum) is called
+         * on a split collection, emit inline per-item iteration using the _order
+         * array instead of calling the Iron_List_*_method() C runtime function
+         * (which only works on flat arrays). */
+        if (ctx->split_collection_ids && instr->call.arg_count >= 1) {
+            IronLIR_ValueId self_arg = instr->call.args[0];
+            ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, self_arg);
+            if (sp_idx >= 0) {
+                /* Identify which collection method is being called */
+                const char *fn_name = NULL;
+                IronLIR_ValueId fptr = instr->call.func_ptr;
+                if (fptr != IRON_LIR_VALUE_INVALID &&
+                    fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[fptr] != NULL &&
+                    fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF) {
+                    fn_name = resolve_func_c_name(ctx, fn->value_table[fptr]->func_ref.func_name);
+                }
+                const char *coll_method = NULL;
+                if (fn_name && strncmp(fn_name, "Iron_List_", 10) == 0) {
+                    const char *suffix = strrchr(fn_name, '_');
+                    if (suffix) {
+                        if (strcmp(suffix, "_map") == 0) coll_method = "map";
+                        else if (strcmp(suffix, "_filter") == 0) coll_method = "filter";
+                        else if (strcmp(suffix, "_reduce") == 0) coll_method = "reduce";
+                        else if (strcmp(suffix, "_forEach") == 0) coll_method = "forEach";
+                        else if (strcmp(suffix, "_sum") == 0) coll_method = "sum";
+                    }
+                }
+                if (coll_method) {
+                    /* Get interface info */
+                    const char *sp_iface = ctx->split_collection_ids[sp_idx].value;
+                    Iron_IfaceEntry *sp_entry = NULL;
+                    if (ctx->iface_reg) {
+                        for (int ri = 0; ri < (int)shlen(ctx->iface_reg->map); ri++) {
+                            const char *mc2 = emit_mangle_name(
+                                ctx->iface_reg->map[ri].value.iface_name, ctx->arena);
+                            if (strcmp(mc2, sp_iface) == 0) {
+                                sp_entry = &ctx->iface_reg->map[ri].value;
+                                break;
+                            }
+                        }
+                    }
+                    if (sp_entry) {
+                        /* Build the ordered item-fetch switch body.
+                         * Each concrete type gets a case that wraps the sub-array item
+                         * in the interface tagged union. */
+                        if (strcmp(coll_method, "map") == 0 && instr->call.arg_count >= 2) {
+                            /* map: create result list, iterate _order, call lambda, push */
+                            const char *result_list_type = emit_type_to_c(instr->type, ctx);
+                            const char *result_elem_type = (instr->type && instr->type->kind == IRON_TYPE_ARRAY && instr->type->array.elem)
+                                ? emit_type_to_c(instr->type->array.elem, ctx) : "int64_t";
+                            emit_indent(sb, ind);
+                            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", result_list_type);
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = %s_create();\n", result_list_type);
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "{\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "typedef %s (*_SpMapFn)(void *, %s);\n",
+                                result_elem_type, sp_iface);
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "_SpMapFn _sp_map_fn; memcpy(&_sp_map_fn, &");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".fn, sizeof(_sp_map_fn));\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "for (int64_t _oi = 0; _oi < ");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count; _oi++) {\n");
+                            /* Build tagged union item from _order */
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "%s _sp_item;\n", sp_iface);
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "switch (");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order[_oi].tag) {\n");
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                char lower_name[256];
+                                {
+                                    size_t nl2 = strlen(impl->type_name);
+                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
+                                                                   impl->type_name[ci3] <= 'Z')
+                                            ? impl->type_name[ci3] + 32
+                                            : impl->type_name[ci3]);
+                                    lower_name[nl2] = '\0';
+                                }
+                                emit_indent(sb, ind + 3);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = %s_from_%s(",
+                                    ji, sp_iface, impl->type_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, "._order[_oi].idx]); break;\n");
+                            }
+                            emit_indent(sb, ind + 3);
+                            iron_strbuf_appendf(sb, "default: memset(&_sp_item, 0, sizeof(_sp_item)); break;\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "}\n");
+                            /* Call lambda and push result */
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "%s_push(&", result_list_type);
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, ", _sp_map_fn(");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".env, _sp_item));\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "}\n");
+                            break;
+                        } else if (strcmp(coll_method, "filter") == 0 && instr->call.arg_count >= 2) {
+                            /* filter: create result split list, iterate _order,
+                             * call predicate, conditionally push to result */
+                            emit_indent(sb, ind);
+                            if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_SplitList_%s ", sp_iface);
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = {0};\n");
+                            /* Track result as split collection */
+                            hmput(ctx->split_collection_ids, instr->id, sp_iface);
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "{\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "typedef bool (*_SpFilterFn)(void *, %s);\n", sp_iface);
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "_SpFilterFn _sp_filter_fn; memcpy(&_sp_filter_fn, &");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".fn, sizeof(_sp_filter_fn));\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "for (int64_t _oi = 0; _oi < ");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count; _oi++) {\n");
+                            /* Build tagged union item */
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "%s _sp_item;\n", sp_iface);
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "switch (");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order[_oi].tag) {\n");
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                char lower_name[256];
+                                {
+                                    size_t nl2 = strlen(impl->type_name);
+                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
+                                                                   impl->type_name[ci3] <= 'Z')
+                                            ? impl->type_name[ci3] + 32
+                                            : impl->type_name[ci3]);
+                                    lower_name[nl2] = '\0';
+                                }
+                                emit_indent(sb, ind + 3);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = %s_from_%s(",
+                                    ji, sp_iface, impl->type_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, "._order[_oi].idx]); break;\n");
+                            }
+                            emit_indent(sb, ind + 3);
+                            iron_strbuf_appendf(sb, "default: break;\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "}\n");
+                            /* Call predicate and conditionally push */
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "if (_sp_filter_fn(");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".env, _sp_item)) {\n");
+                            emit_indent(sb, ind + 3);
+                            iron_strbuf_appendf(sb, "switch (");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order[_oi].tag) {\n");
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                char lower_name[256];
+                                {
+                                    size_t nl2 = strlen(impl->type_name);
+                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
+                                                                   impl->type_name[ci3] <= 'Z')
+                                            ? impl->type_name[ci3] + 32
+                                            : impl->type_name[ci3]);
+                                    lower_name[nl2] = '\0';
+                                }
+                                emit_indent(sb, ind + 4);
+                                iron_strbuf_appendf(sb, "case %d: Iron_SplitList_%s_push_%s(&",
+                                    ji, sp_iface, impl->type_name);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ", ");
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, "._order[_oi].idx]); break;\n");
+                            }
+                            emit_indent(sb, ind + 3);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "}\n");
+                            break;
+                        } else if (strcmp(coll_method, "reduce") == 0 && instr->call.arg_count >= 3) {
+                            /* reduce(init, f): accumulate across all items in order */
+                            const char *acc_type = emit_type_to_c(instr->type, ctx);
+                            emit_indent(sb, ind);
+                            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", acc_type);
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = ");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ";\n");
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "{\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "typedef %s (*_SpReduceFn)(void *, %s, %s);\n",
+                                acc_type, acc_type, sp_iface);
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "_SpReduceFn _sp_reduce_fn; memcpy(&_sp_reduce_fn, &");
+                            emit_expr_to_buf(sb, instr->call.args[2], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".fn, sizeof(_sp_reduce_fn));\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "for (int64_t _oi = 0; _oi < ");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count; _oi++) {\n");
+                            /* Build tagged union item */
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "%s _sp_item;\n", sp_iface);
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "switch (");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order[_oi].tag) {\n");
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                char lower_name[256];
+                                {
+                                    size_t nl2 = strlen(impl->type_name);
+                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
+                                                                   impl->type_name[ci3] <= 'Z')
+                                            ? impl->type_name[ci3] + 32
+                                            : impl->type_name[ci3]);
+                                    lower_name[nl2] = '\0';
+                                }
+                                emit_indent(sb, ind + 3);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = %s_from_%s(",
+                                    ji, sp_iface, impl->type_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, "._order[_oi].idx]); break;\n");
+                            }
+                            emit_indent(sb, ind + 3);
+                            iron_strbuf_appendf(sb, "default: memset(&_sp_item, 0, sizeof(_sp_item)); break;\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind + 2);
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = _sp_reduce_fn(");
+                            emit_expr_to_buf(sb, instr->call.args[2], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".env, ");
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, ", _sp_item);\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "}\n");
+                            break;
+                        } else if (strcmp(coll_method, "forEach") == 0 && instr->call.arg_count >= 2) {
+                            /* forEach: iterate _order, call lambda on each item */
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "{\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "typedef void (*_SpForEachFn)(void *, %s);\n", sp_iface);
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "_SpForEachFn _sp_each_fn; memcpy(&_sp_each_fn, &");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".fn, sizeof(_sp_each_fn));\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "for (int64_t _oi = 0; _oi < ");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count; _oi++) {\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "%s _sp_item;\n", sp_iface);
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "switch (");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order[_oi].tag) {\n");
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                char lower_name[256];
+                                {
+                                    size_t nl2 = strlen(impl->type_name);
+                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
+                                                                   impl->type_name[ci3] <= 'Z')
+                                            ? impl->type_name[ci3] + 32
+                                            : impl->type_name[ci3]);
+                                    lower_name[nl2] = '\0';
+                                }
+                                emit_indent(sb, ind + 3);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = %s_from_%s(",
+                                    ji, sp_iface, impl->type_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, "._order[_oi].idx]); break;\n");
+                            }
+                            emit_indent(sb, ind + 3);
+                            iron_strbuf_appendf(sb, "default: break;\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "_sp_each_fn(");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".env, _sp_item);\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "}\n");
+                            break;
+                        } else if (strcmp(coll_method, "sum") == 0) {
+                            /* sum: not meaningful on interface arrays (no + operator) */
+                            /* Emit zero-initialized result */
+                            emit_indent(sb, ind);
+                            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = 0;\n");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         bool is_void = (instr->type == NULL ||
                         instr->type->kind == IRON_TYPE_VOID);
 

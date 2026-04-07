@@ -1006,6 +1006,14 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                 elem_suffix = s;
                             }
                             break;
+                        case IRON_TYPE_INTERFACE:
+                            if (elem->interface.decl) {
+                                size_t slen = 5 + strlen(elem->interface.decl->name) + 1;
+                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                snprintf(s, slen, "Iron_%s", elem->interface.decl->name);
+                                elem_suffix = s;
+                            }
+                            break;
                         default: break;
                     }
                 }
