@@ -100,6 +100,8 @@ typedef struct Iron_Type {
         struct {
             struct Iron_Type          *elem;
             int                        size;  /* -1 = dynamic */
+            int                        layout_hint;   /* Phase 48: 0=none, 1=soa, 2=aos */
+            bool                       is_unordered;  /* Phase 48: [T, unordered] */
         } array;
 
         /* IRON_TYPE_GENERIC_PARAM */

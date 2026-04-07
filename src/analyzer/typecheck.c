@@ -577,6 +577,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                 if (il->value) size = (int)strtol(il->value, NULL, 10);
             }
             base = iron_type_make_array(ctx->arena, base, size);
+            /* Phase 48: propagate layout annotations */
+            base->array.layout_hint  = ann->layout_hint;
+            base->array.is_unordered = ann->is_unordered;
         }
 
         if (ann->is_nullable) {
@@ -760,6 +763,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             if (il->value) size = (int)strtol(il->value, NULL, 10);
         }
         base = iron_type_make_array(ctx->arena, base, size);
+        /* Phase 48: propagate layout annotations */
+        base->array.layout_hint  = ann->layout_hint;
+        base->array.is_unordered = ann->is_unordered;
     }
 
     return base;
