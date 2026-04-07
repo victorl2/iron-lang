@@ -747,31 +747,57 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
 }</pre></div>
 
       <!-- Interfaces -->
-      <h2 id="interfaces">Interfaces</h2>
-      <p>Interfaces define a contract of methods. Missing an interface method is a compile error.</p>
-      <div class="code-block"><pre><span class="kw">interface</span> <span class="ty">Drawable</span> {
+      <h2 id="interfaces">Interfaces &amp; Static Dispatch</h2>
+      <p>Interfaces define behavioral contracts. The compiler resolves all dispatch statically &mdash; no vtables, no function pointers. Interface-typed variables become tagged unions, and method calls become a match on the tag.</p>
+
+      <h3>Declaring Interfaces</h3>
+      <div class="code-block"><pre><span class="kw">interface</span> <span class="ty">Entity</span> {
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>)
   <span class="kw">func</span> <span class="fn">draw</span>()
 }
 
-<span class="kw">interface</span> <span class="ty">Updatable</span> {
-  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>)
+<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
+  <span class="kw">var</span> pos: <span class="ty">Vec2</span>
+  <span class="kw">var</span> vel: <span class="ty">Vec2</span>
 }
 
-<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">extends</span> <span class="ty">Entity</span> <span class="kw">implements</span> <span class="ty">Drawable</span>, <span class="ty">Updatable</span> {
-  <span class="kw">val</span> name:   <span class="ty">String</span>
-  <span class="kw">val</span> speed:  <span class="ty">Float</span>
+<span class="kw">object</span> <span class="ty">Enemy</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
+  <span class="kw">var</span> pos: <span class="ty">Vec2</span>
+  <span class="kw">var</span> hp: <span class="ty">Int</span>
 }
 
-<span class="cm">-- interfaces as types for polymorphism</span>
-<span class="kw">func</span> <span class="fn">draw_all</span>(items: [<span class="ty">Drawable</span>]) {
-  <span class="kw">for</span> item <span class="kw">in</span> items {
-    item.<span class="fn">draw</span>()
+<span class="cm">-- methods defined separately</span>
+<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">update</span>(dt: <span class="ty">Float</span>) { <span class="kw">self</span>.<span class="pr">pos</span>.x += <span class="kw">self</span>.<span class="pr">vel</span>.x * dt }
+<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">draw</span>() { <span class="fn">draw_rect</span>(<span class="kw">self</span>.<span class="pr">pos</span>, <span class="nu">32</span>, <span class="nu">32</span>) }</pre></div>
+
+      <h3>Interface-typed Variables</h3>
+      <p>Assign any implementing type to an interface variable. The compiler automatically wraps it in a tagged union.</p>
+      <div class="code-block"><pre><span class="cm">-- concrete type auto-wraps into the interface union</span>
+<span class="kw">val</span> e: <span class="ty">Entity</span> = <span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">0</span>,<span class="nu">0</span>), <span class="fn">vec2</span>(<span class="nu">1</span>,<span class="nu">0</span>))
+e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm">-- dispatches via tag match, not vtable</span>
+
+<span class="cm">-- pass concrete types where interface is expected</span>
+<span class="kw">func</span> <span class="fn">process</span>(e: <span class="ty">Entity</span>) { e.<span class="fn">update</span>(<span class="nu">0.016</span>) }
+<span class="fn">process</span>(<span class="ty">Enemy</span>(<span class="fn">vec2</span>(<span class="nu">5</span>,<span class="nu">3</span>), <span class="nu">100</span>))  <span class="cm">-- auto-wrapped</span></pre></div>
+
+      <h3>How It Works (Under the Hood)</h3>
+      <p>The compiler performs whole-program analysis to find all implementors of each interface, then generates:</p>
+      <ul style="margin: 0.5rem 0 1rem 1.5rem; color: var(--text-secondary);">
+        <li>A <strong>tagged union</strong> with a discriminant tag per concrete type</li>
+        <li>A <strong>dispatch function</strong> per method that switches on the tag</li>
+        <li><strong>Dead implementor elimination</strong> &mdash; unused types are pruned from the union</li>
+      </ul>
+      <div class="code-block"><pre><span class="cm">// What the compiler generates (C output):</span>
+<span class="kw">typedef</span> <span class="kw">enum</span> { Iron_Entity_TAG_Enemy = <span class="nu">0</span>, Iron_Entity_TAG_Player = <span class="nu">1</span> } Iron_Entity_Tag;
+<span class="kw">typedef</span> <span class="kw">union</span> { Iron_Enemy Enemy; Iron_Player Player; } Iron_Entity_data_t;
+<span class="kw">struct</span> Iron_Entity { Iron_Entity_Tag tag; Iron_Entity_data_t data; };
+
+<span class="cm">// Dispatch: switch on tag, not function pointer</span>
+<span class="kw">static inline</span> <span class="kw">void</span> <span class="fn">Iron_entity_update</span>(Iron_Entity self, <span class="kw">double</span> dt) {
+  <span class="kw">switch</span>(self.tag) {
+    <span class="kw">case</span> Iron_Entity_TAG_Player: <span class="fn">Iron_player_update</span>(self.data.Player, dt); <span class="kw">break</span>;
+    <span class="kw">case</span> Iron_Entity_TAG_Enemy:  <span class="fn">Iron_enemy_update</span>(self.data.Enemy, dt);  <span class="kw">break</span>;
   }
-}
-
-<span class="cm">-- runtime type checking</span>
-<span class="kw">if</span> a <span class="kw">is</span> <span class="ty">Player</span> <span class="kw">and</span> b <span class="kw">is</span> <span class="ty">Enemy</span> {
-  a.<span class="fn">take_damage</span>(b.<span class="pr">damage</span>)
 }</pre></div>
 
       <!-- Enums -->
@@ -1273,7 +1299,7 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
           <tr><td><code>rc</code></td><td>Reference-counted wrapper</td></tr>
           <tr><td><code>private</code></td><td>File-scoped visibility</td></tr>
           <tr><td><code>extends</code></td><td>Single inheritance</td></tr>
-          <tr><td><code>implements</code></td><td>Interface implementation</td></tr>
+          <tr><td><code>impl</code></td><td>Interface implementation (static dispatch)</td></tr>
           <tr><td><code>super</code></td><td>Call parent method</td></tr>
           <tr><td><code>is</code></td><td>Runtime type check</td></tr>
           <tr><td><code>spawn</code></td><td>Launch a thread</td></tr>
