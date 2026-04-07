@@ -15,6 +15,7 @@
 #include "lir/emit_c.h"
 #include "lir/lir.h"
 #include "lir/lir_optimize.h"
+#include "lir/layout_analysis.h"
 #include "util/strbuf.h"
 #include "util/arena.h"
 #include "parser/ast.h"
@@ -95,6 +96,21 @@ typedef struct {
      * When a ValueId is in this map, it's a split collection (Iron_SplitList_<Iface>)
      * instead of a standard array (Iron_List_<Iface>). */
     struct { IronLIR_ValueId key; const char *value; } *split_collection_ids;
+
+    /* Phase 48: dead field elimination — field access analysis results */
+    LayoutAnalysis layout;
+
+    /* Phase 48: split loop direct-access context */
+    struct {
+        IronLIR_ValueId get_index_vid;   /* loop var vid from GET_INDEX */
+        IronLIR_ValueId iterable_vid;    /* the split collection vid */
+        const char *lower_name;          /* lowercase impl type for array field */
+        bool is_reduced;                 /* true = using reduced storage struct */
+    } split_loop_ctx;
+    bool in_split_loop;
+
+    /* Phase 48: map of type names that use reduced storage (type_name -> true) */
+    struct { char *key; bool value; } *reduced_storage_types;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -4503,6 +4519,10 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                                     : impl2->type_name[ci3]);
                             lower_name[nl2] = '\0';
                         }
+                        /* Phase 48: Check if this type uses reduced storage */
+                        bool type_is_reduced = (shgeti(ctx->reduced_storage_types,
+                                                       impl2->type_name) >= 0);
+
                         /* Emit per-type for-loop */
                         emit_indent(sb, ctx->indent);
                         iron_strbuf_appendf(sb, "{ /* unordered split: %s */\n", impl2->type_name);
@@ -4515,14 +4535,64 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         iron_strbuf_appendf(sb, "IRON_PREFETCH(&");
                         emit_val(sb, matched->iterable_vid);
                         iron_strbuf_appendf(sb, ".%s_items[_sp_i + 8]);\n", lower_name);
-                        /* Emit element wrapping assignment */
-                        emit_indent(sb, ctx->indent + 2);
-                        iron_strbuf_appendf(sb, "%s ", sp_iface);
-                        emit_val(sb, matched->get_index_vid);
-                        iron_strbuf_appendf(sb, " = %s_from_%s(",
-                            sp_iface, impl2->type_name);
-                        emit_val(sb, matched->iterable_vid);
-                        iron_strbuf_appendf(sb, ".%s_items[_sp_i]);\n", lower_name);
+
+                        if (type_is_reduced && impl2->decl) {
+                            /* Phase 48: Reconstruct concrete object from reduced storage.
+                             * Build a full Iron_<Type> on the stack with only used fields
+                             * populated (dead fields are zero-initialized). Then wrap in
+                             * tagged union as before for method dispatch compatibility.
+                             *
+                             * Iron_Circle _tmp_circle = {0};
+                             * _tmp_circle.radius = _v3.circle_items[_sp_i].radius;
+                             * Iron_Shape _v7 = Iron_Shape_from_Circle(_tmp_circle);
+                             */
+                            const char *im2 = emit_mangle_name(impl2->type_name, ctx->arena);
+                            emit_indent(sb, ctx->indent + 2);
+                            iron_strbuf_appendf(sb, "%s _tmp_%s = {0};\n", im2, lower_name);
+                            Iron_ObjectDecl *od = impl2->decl;
+                            /* Collect which collection vids match this interface */
+                            IronLIR_ValueId *cvids = NULL;
+                            if (ctx->split_collection_ids) {
+                                for (ptrdiff_t si = 0; si < hmlen(ctx->split_collection_ids); si++) {
+                                    if (strcmp(ctx->split_collection_ids[si].value, sp_iface) == 0)
+                                        arrput(cvids, ctx->split_collection_ids[si].key);
+                                }
+                            }
+                            for (int fi = 0; fi < od->field_count; fi++) {
+                                Iron_Field *f = (Iron_Field *)od->fields[fi];
+                                bool any_used = false;
+                                for (int ci2 = 0; ci2 < (int)arrlen(cvids); ci2++) {
+                                    if (iron_layout_is_field_used(&ctx->layout,
+                                            cvids[ci2], f->name)) {
+                                        any_used = true;
+                                        break;
+                                    }
+                                }
+                                if (!any_used) continue;
+                                emit_indent(sb, ctx->indent + 2);
+                                iron_strbuf_appendf(sb, "_tmp_%s.%s = ", lower_name, f->name);
+                                emit_val(sb, matched->iterable_vid);
+                                iron_strbuf_appendf(sb, ".%s_items[_sp_i].%s;\n",
+                                    lower_name, f->name);
+                            }
+                            arrfree(cvids);
+                            /* Wrap reconstructed object in tagged union */
+                            emit_indent(sb, ctx->indent + 2);
+                            iron_strbuf_appendf(sb, "%s ", sp_iface);
+                            emit_val(sb, matched->get_index_vid);
+                            iron_strbuf_appendf(sb, " = %s_from_%s(_tmp_%s);\n",
+                                sp_iface, impl2->type_name, lower_name);
+                        } else {
+                            /* Emit element wrapping assignment (original behavior) */
+                            emit_indent(sb, ctx->indent + 2);
+                            iron_strbuf_appendf(sb, "%s ", sp_iface);
+                            emit_val(sb, matched->get_index_vid);
+                            iron_strbuf_appendf(sb, " = %s_from_%s(",
+                                sp_iface, impl2->type_name);
+                            emit_val(sb, matched->iterable_vid);
+                            iron_strbuf_appendf(sb, ".%s_items[_sp_i]);\n", lower_name);
+                        }
+
                         /* Emit body instructions (user code) */
                         int saved_indent = ctx->indent;
                         ctx->indent = saved_indent + 2;
@@ -4532,6 +4602,7 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                             emit_instr(sb, in2, fn, ctx);
                         }
                         ctx->indent = saved_indent;
+                        ctx->in_split_loop = false; /* restore after body */
                         emit_indent(sb, ctx->indent + 1);
                         iron_strbuf_appendf(sb, "}\n");
                         emit_indent(sb, ctx->indent);
@@ -4755,6 +4826,48 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                          "#define IRON_TAG_%s %d\n", mangled, type_tag);
 }
 
+/* ── Phase 48: Module-level prescan for split collections & layout analysis ── */
+
+static void prescan_split_collections(EmitCtx *ctx) {
+    if (!ctx->iface_reg) return;
+
+    /* Iterate ALL functions to find interface-typed ARRAY_LITs */
+    for (int fi = 0; fi < ctx->module->func_count; fi++) {
+        IronLIR_Func *fn = ctx->module->funcs[fi];
+        if (!fn || fn->is_extern || fn->block_count == 0) continue;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in2 = blk->instrs[ii];
+                if (in2->kind == IRON_LIR_ARRAY_LIT &&
+                    in2->array_lit.elem_type &&
+                    in2->array_lit.elem_type->kind == IRON_TYPE_INTERFACE &&
+                    in2->array_lit.elem_type->interface.decl) {
+                    const char *im = emit_mangle_name(
+                        in2->array_lit.elem_type->interface.decl->name, ctx->arena);
+                    hmput(ctx->split_collection_ids, in2->id,
+                          iron_arena_strdup(ctx->arena, im, strlen(im)));
+                }
+            }
+        }
+    }
+
+    /* Run field access analysis on the identified split collections */
+    if (ctx->split_collection_ids && hmlen(ctx->split_collection_ids) > 0) {
+        /* Convert anonymous struct map to Iron_SplitCollectionId for layout analysis */
+        Iron_SplitCollectionId *la_ids = NULL;
+        for (ptrdiff_t i = 0; i < hmlen(ctx->split_collection_ids); i++) {
+            Iron_SplitCollectionId entry;
+            entry.key = ctx->split_collection_ids[i].key;
+            entry.value = ctx->split_collection_ids[i].value;
+            hmputs(la_ids, entry);
+        }
+        ctx->layout.arena = ctx->arena;
+        iron_layout_analyze(&ctx->layout, ctx->module, la_ids, ctx->iface_reg);
+        hmfree(la_ids);
+    }
+}
+
 static void emit_type_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
 
@@ -4866,17 +4979,13 @@ static void emit_type_decls(EmitCtx *ctx) {
                     impl->type_name);
             }
 
-            /* ── Split Collection struct (Phase 41: Collection Splitting) ──────
+            /* ── Split Collection struct (Phase 41+48: Collection Splitting + Dead Field Elim)
              * For each interface, generate a split collection struct with per-type
              * sub-arrays + order index for ordered iteration.
              *
-             * typedef struct {
-             *     Iron_Circle *circle_items; int64_t circle_count; int64_t circle_cap;
-             *     Iron_Square *square_items; int64_t square_count; int64_t square_cap;
-             *     struct { uint8_t tag; int64_t idx; } *order;
-             *     int64_t order_count; int64_t order_cap;
-             *     int64_t total_count;
-             * } Iron_SplitList_Iron_Shape;
+             * Phase 48: If layout analysis shows some fields are never accessed through
+             * the split collection, emit reduced storage typedefs (Iron_<Type>_Stor)
+             * that exclude dead fields, reducing memory footprint.
              */
             {
                 /* Build lowercase interface name for C identifiers */
@@ -4890,6 +4999,74 @@ static void emit_type_decls(EmitCtx *ctx) {
                             ? entry->iface_name[ci2] + 32
                             : entry->iface_name[ci2]);
                     iface_lower[nl] = '\0';
+                }
+
+                /* Phase 48: Collect all split collection ValueIds for this interface.
+                 * Used to compute the union of used fields across all collections. */
+                IronLIR_ValueId *iface_collection_vids = NULL; /* stb_ds array */
+                if (ctx->split_collection_ids) {
+                    for (ptrdiff_t si = 0; si < hmlen(ctx->split_collection_ids); si++) {
+                        if (strcmp(ctx->split_collection_ids[si].value, iface_mangled) == 0) {
+                            arrput(iface_collection_vids, ctx->split_collection_ids[si].key);
+                        }
+                    }
+                }
+
+                /* Phase 48: For each impl type, determine which fields are used
+                 * across ALL collections of this interface (union semantics). */
+                for (int j = 0; j < entry->impl_count; j++) {
+                    Iron_IfaceImpl *impl2 = &entry->impls[j];
+                    if (!impl2->is_alive || !impl2->decl) continue;
+                    Iron_ObjectDecl *od = impl2->decl;
+
+                    int total_fields = od->field_count;
+                    int used_fields = 0;
+                    for (int fi = 0; fi < od->field_count; fi++) {
+                        Iron_Field *f = (Iron_Field *)od->fields[fi];
+                        bool any_used = false;
+                        for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                            if (iron_layout_is_field_used(&ctx->layout,
+                                    iface_collection_vids[ci2], f->name)) {
+                                any_used = true;
+                                break;
+                            }
+                        }
+                        if (any_used) used_fields++;
+                    }
+
+                    /* Emit reduced storage typedef if some fields are dead */
+                    if (used_fields < total_fields && used_fields > 0 &&
+                        arrlen(iface_collection_vids) > 0) {
+                        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+                        iron_strbuf_appendf(sb,
+                            "/* Phase 48: Reduced storage for %s (%d/%d fields) */\n",
+                            impl2->type_name, used_fields, total_fields);
+                        iron_strbuf_appendf(sb, "typedef struct {\n");
+                        for (int fi = 0; fi < od->field_count; fi++) {
+                            Iron_Field *f = (Iron_Field *)od->fields[fi];
+                            bool any_used = false;
+                            for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                                if (iron_layout_is_field_used(&ctx->layout,
+                                        iface_collection_vids[ci2], f->name)) {
+                                    any_used = true;
+                                    break;
+                                }
+                            }
+                            if (!any_used) continue;
+                            /* Emit field with C type */
+                            const char *c_type = "int64_t";
+                            if (f->type_ann) {
+                                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                                if (!ta->is_func && !ta->is_nullable && !ta->is_array) {
+                                    c_type = annotation_to_c(ta->name, ctx);
+                                }
+                            }
+                            iron_strbuf_appendf(sb, "    %s %s;\n", c_type, f->name);
+                        }
+                        iron_strbuf_appendf(sb, "} %s_Stor;\n\n", im);
+                        /* Record this type uses reduced storage */
+                        shput(ctx->reduced_storage_types, impl2->type_name, true);
+                    }
                 }
 
                 iron_strbuf_appendf(sb, "/* Split collection for %s */\n", iface_mangled);
@@ -4910,7 +5087,13 @@ static void emit_type_decls(EmitCtx *ctx) {
                                 : impl2->type_name[ci3]);
                         lower_name[nl2] = '\0';
                     }
-                    iron_strbuf_appendf(sb, "    %s *%s_items;\n", im, lower_name);
+                    /* Phase 48: Use reduced storage type if available */
+                    ptrdiff_t red_idx = shgeti(ctx->reduced_storage_types, impl2->type_name);
+                    if (red_idx >= 0) {
+                        iron_strbuf_appendf(sb, "    %s_Stor *%s_items;\n", im, lower_name);
+                    } else {
+                        iron_strbuf_appendf(sb, "    %s *%s_items;\n", im, lower_name);
+                    }
                     iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
                     iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
                 }
@@ -4937,6 +5120,18 @@ static void emit_type_decls(EmitCtx *ctx) {
                                 : impl2->type_name[ci3]);
                         lower_name[nl2] = '\0';
                     }
+                    ptrdiff_t red_idx = shgeti(ctx->reduced_storage_types, impl2->type_name);
+                    /* Build storage type name: reduced types use Iron_<Type>_Stor */
+                    char stor_type_buf[512];
+                    const char *stor_type;
+                    if (red_idx >= 0) {
+                        snprintf(stor_type_buf, sizeof(stor_type_buf), "%s_Stor", im);
+                        stor_type = stor_type_buf;
+                    } else {
+                        stor_type = im;
+                    }
+
+                    /* Push function always accepts FULL struct (caller pushes concrete object) */
                     iron_strbuf_appendf(sb,
                         "static inline void Iron_SplitList_%s_push_%s("
                         "Iron_SplitList_%s *_sl, %s _val) {\n",
@@ -4951,12 +5146,34 @@ static void emit_type_decls(EmitCtx *ctx) {
                         "    }\n",
                         lower_name, lower_name,
                         lower_name, lower_name, lower_name,
-                        lower_name, im, lower_name,
-                        lower_name, im);
-                    /* Store element */
-                    iron_strbuf_appendf(sb,
-                        "    _sl->%s_items[_sl->%s_count] = _val;\n",
-                        lower_name, lower_name);
+                        lower_name, stor_type, lower_name,
+                        lower_name, stor_type);
+
+                    /* Phase 48: For reduced storage, copy only used fields */
+                    if (red_idx >= 0 && impl2->decl) {
+                        Iron_ObjectDecl *od = impl2->decl;
+                        for (int fi = 0; fi < od->field_count; fi++) {
+                            Iron_Field *f = (Iron_Field *)od->fields[fi];
+                            bool any_used = false;
+                            for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                                if (iron_layout_is_field_used(&ctx->layout,
+                                        iface_collection_vids[ci2], f->name)) {
+                                    any_used = true;
+                                    break;
+                                }
+                            }
+                            if (!any_used) continue;
+                            iron_strbuf_appendf(sb,
+                                "    _sl->%s_items[_sl->%s_count].%s = _val.%s;\n",
+                                lower_name, lower_name, f->name, f->name);
+                        }
+                    } else {
+                        /* Store full element */
+                        iron_strbuf_appendf(sb,
+                            "    _sl->%s_items[_sl->%s_count] = _val;\n",
+                            lower_name, lower_name);
+                    }
+
                     /* Grow order index */
                     iron_strbuf_appendf(sb,
                         "    if (_sl->_order_count >= _sl->_order_cap) {\n"
@@ -4975,6 +5192,7 @@ static void emit_type_decls(EmitCtx *ctx) {
                         "}\n\n",
                         lower_name);
                 }
+                arrfree(iface_collection_vids);
 
                 /* Free function */
                 iron_strbuf_appendf(sb,
@@ -5231,6 +5449,9 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         "  #define IRON_PREFETCH(addr) ((void)0)\n"
         "#endif\n\n");
 
+    /* ── Phase 48: Module-level prescan for split collections & layout analysis */
+    prescan_split_collections(&ctx);
+
     /* ── Phase 2: Type declarations (forward decls, structs, enums) ───────── */
     emit_type_decls(&ctx);
 
@@ -5441,6 +5662,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     shfree(ctx.mono_registry);
     /* opt_info maps are owned by the caller — do NOT free here */
     hmfree(ctx.param_alias_ids);
+
+    /* Phase 48: Free layout analysis and reduced storage tracking */
+    iron_layout_free(&ctx.layout);
+    shfree(ctx.reduced_storage_types);
 
     return result;
 }
