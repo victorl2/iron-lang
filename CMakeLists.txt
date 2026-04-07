@@ -72,6 +72,7 @@ add_library(iron_compiler STATIC
     src/analyzer/capture.c
     src/analyzer/concurrency.c
     src/analyzer/init_check.c
+    src/analyzer/iface_collect.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
     src/hir/hir.c

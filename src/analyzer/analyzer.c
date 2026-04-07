@@ -45,6 +45,12 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
     /* Step 5: Concurrency checks */
     iron_concurrency_check(program, result.global_scope, arena, diags);
 
+    /* Step 5b: Interface implementor collection — build IfaceRegistry */
+    result.iface_registry = iron_iface_collect(program, arena);
+
+    /* Step 5c: Dead implementor elimination */
+    iron_iface_eliminate_dead(&result.iface_registry, program);
+
     /* Step 6: Comptime evaluation — replace IRON_NODE_COMPTIME nodes with literals */
     if (diags->error_count == 0) {
         iron_comptime_apply(program, result.global_scope, arena, diags,

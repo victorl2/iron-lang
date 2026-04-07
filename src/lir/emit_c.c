@@ -19,6 +19,7 @@
 #include "util/arena.h"
 #include "parser/ast.h"
 #include "analyzer/types.h"
+#include "analyzer/iface_collect.h"
 #include "diagnostics/diagnostics.h"
 #include "vendor/stb_ds.h"
 
@@ -86,6 +87,9 @@ typedef struct {
      * with at least one boxed payload field.  Populated in the pre-scan;
      * consulted at RETURN sites to emit _free() calls for non-returned locals. */
     struct { IronLIR_ValueId key; Iron_Type *value; } *adt_boxed_allocas;
+
+    /* Interface implementor registry for tagged union dispatch */
+    Iron_IfaceRegistry *iface_reg;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -219,6 +223,7 @@ static const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             return emit_mangle_name(t->enu.decl->name, ctx->arena);
 
         case IRON_TYPE_INTERFACE:
+            /* Tagged union struct — same mangled name as the interface */
             return emit_mangle_name(t->interface.decl->name, ctx->arena);
 
         case IRON_TYPE_NULLABLE: {
@@ -3928,45 +3933,46 @@ static void emit_type_decls(EmitCtx *ctx) {
         arrfree(topo.sorted);
     }
 
-    /* Interface vtable structs */
-    for (int i = 0; i < module->type_decl_count; i++) {
-        IronLIR_TypeDecl *td = module->type_decls[i];
-        if (td->kind != IRON_LIR_TYPE_INTERFACE) continue;
-        if (!td->type || td->type->kind != IRON_TYPE_INTERFACE) continue;
+    /* Interface tagged union structs (static dispatch) */
+    if (ctx->iface_reg) {
+        for (int i = 0; i < shlen(ctx->iface_reg->map); i++) {
+            Iron_IfaceEntry *entry = &ctx->iface_reg->map[i].value;
+            if (entry->alive_count == 0) continue;
 
-        Iron_InterfaceDecl *iface = td->type->interface.decl;
-        if (!iface) continue;
+            const char *iface_mangled = emit_mangle_name(entry->iface_name, ctx->arena);
+            Iron_StrBuf *sb = &ctx->struct_bodies;
 
-        const char *iface_mangled = emit_mangle_name(iface->name, ctx->arena);
-        Iron_StrBuf *sb = &ctx->struct_bodies;
+            /* Forward declaration */
+            iron_strbuf_appendf(&ctx->forward_decls,
+                                 "typedef struct %s %s;\n", iface_mangled, iface_mangled);
 
-        iron_strbuf_appendf(sb, "typedef struct %s_vtable {\n", iface_mangled);
-        for (int j = 0; j < iface->method_count; j++) {
-            Iron_Node *sig_node = iface->method_sigs[j];
-            if (!sig_node || sig_node->kind != IRON_NODE_FUNC_DECL) continue;
-            Iron_FuncDecl *sig = (Iron_FuncDecl *)sig_node;
-
-            const char *ret_type = "void";
-            if (sig->resolved_return_type) {
-                ret_type = emit_type_to_c(sig->resolved_return_type, ctx);
+            /* Tag enum — canonical alphabetical order */
+            iron_strbuf_appendf(sb, "typedef enum {\n");
+            for (int j = 0; j < entry->impl_count; j++) {
+                Iron_IfaceImpl *impl = &entry->impls[j];
+                if (!impl->is_alive) continue;
+                iron_strbuf_appendf(sb, "    %s_TAG_%s = %d,\n",
+                                     iface_mangled, impl->type_name, impl->tag);
             }
-            iron_strbuf_appendf(sb, "    %s (*%s)(void* self",
-                                ret_type, sig->name);
-            for (int k = 0; k < sig->param_count; k++) {
-                Iron_Param *p = (Iron_Param *)sig->params[k];
-                const char *pt = "void*";
-                if (p->type_ann) {
-                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
-                    pt = annotation_to_c(ta->name, ctx);
-                }
-                iron_strbuf_appendf(sb, ", %s %s", pt, p->name);
+            iron_strbuf_appendf(sb, "} %s_Tag;\n\n", iface_mangled);
+
+            /* Union of concrete types */
+            iron_strbuf_appendf(sb, "typedef union {\n");
+            iron_strbuf_appendf(sb, "    char _dummy;\n");
+            for (int j = 0; j < entry->impl_count; j++) {
+                Iron_IfaceImpl *impl = &entry->impls[j];
+                if (!impl->is_alive) continue;
+                const char *impl_mangled = emit_mangle_name(impl->type_name, ctx->arena);
+                iron_strbuf_appendf(sb, "    %s %s;\n", impl_mangled, impl->type_name);
             }
-            iron_strbuf_appendf(sb, ");\n");
+            iron_strbuf_appendf(sb, "} %s_data_t;\n\n", iface_mangled);
+
+            /* The tagged union struct */
+            iron_strbuf_appendf(sb, "struct %s {\n", iface_mangled);
+            iron_strbuf_appendf(sb, "    %s_Tag tag;\n", iface_mangled);
+            iron_strbuf_appendf(sb, "    %s_data_t data;\n", iface_mangled);
+            iron_strbuf_appendf(sb, "};\n\n");
         }
-        iron_strbuf_appendf(sb, "} %s_vtable;\n", iface_mangled);
-        iron_strbuf_appendf(sb,
-            "typedef struct { void *object; %s_vtable *vtable; } %s_ref;\n",
-            iface_mangled, iface_mangled);
     }
 
     /* Enum definitions */
@@ -4142,7 +4148,8 @@ static void emit_type_decls(EmitCtx *ctx) {
 
 const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             Iron_DiagList *diags,
-                            IronLIR_OptimizeInfo *opt_info) {
+                            IronLIR_OptimizeInfo *opt_info,
+                            Iron_IfaceRegistry *iface_reg) {
     if (!module) return NULL;
     if (diags && diags->error_count > 0) return NULL;
 
@@ -4154,6 +4161,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     ctx.module        = module;
     ctx.next_type_tag = 1;
     ctx.opt_info      = opt_info;
+    ctx.iface_reg     = iface_reg;
 
     ctx.includes        = iron_strbuf_create(512);
     ctx.forward_decls   = iron_strbuf_create(256);
