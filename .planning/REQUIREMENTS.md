@@ -19,12 +19,12 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Full Closure Capture
 
-- [ ] **CAPT-05**: Lambda captures a mutable `var` by reference; mutations inside the lambda are visible outside
-- [ ] **CAPT-06**: Closure returned from a function outlives the creating scope (heap-allocated environment)
-- [ ] **CAPT-07**: Closure stored as an object field retains its captured environment
-- [ ] **CAPT-08**: Lambda inside another lambda captures outer variables (nested closures)
-- [ ] **CAPT-09**: Recursive lambda via `var` self-reference compiles and terminates correctly
-- [ ] **CAPT-10**: Two closures sharing the same mutable variable see each other's mutations
+- [x] **CAPT-05**: Lambda captures a mutable `var` by reference; mutations inside the lambda are visible outside
+- [x] **CAPT-06**: Closure returned from a function outlives the creating scope (heap-allocated environment)
+- [x] **CAPT-07**: Closure stored as an object field retains its captured environment
+- [x] **CAPT-08**: Lambda inside another lambda captures outer variables (nested closures)
+- [x] **CAPT-09**: Recursive lambda via `var` self-reference compiles and terminates correctly
+- [x] **CAPT-10**: Two closures sharing the same mutable variable see each other's mutations
 
 ### Layout Optimizations
 
