@@ -29,7 +29,7 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 ### Layout Optimizations
 
 - [ ] **LAYOUT-01**: Compiler selects SoA layout when a loop accesses only 1-2 fields across many objects; selects AoS when all fields are accessed
-- [ ] **LAYOUT-02**: Fields declared on an implementor but never accessed through interface operations are excluded from collection storage structs
+- [x] **LAYOUT-02**: Fields declared on an implementor but never accessed through interface operations are excluded from collection storage structs
 - [ ] **LAYOUT-03**: Fields with same name, type, and position across all implementors are stored in a single shared array
 - [ ] **LAYOUT-04**: Non-collection interface variables store large variants indirectly when one implementor is significantly larger than others
 - [ ] **LAYOUT-05**: `layout: soa` and `layout: aos` annotations on collections override automatic selection; compiler warning when annotation contradicts analysis
@@ -98,7 +98,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | COLL-10 | Phase 47 | Complete |
 | COLL-11 | Phase 47 | Complete |
 | LAYOUT-01 | Phase 48 | Pending |
-| LAYOUT-02 | Phase 48 | Pending |
+| LAYOUT-02 | Phase 48 | Complete |
 | LAYOUT-03 | Phase 48 | Pending |
 | LAYOUT-04 | Phase 48 | Pending |
 | LAYOUT-05 | Phase 48 | Pending |

@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.1.1-alpha
-milestone_name: Collection Methods, Full Captures & Layout Optimizations
+milestone: v0.0
+milestone_name: milestone
 status: in_progress
-stopped_at: "Completed 47-03-PLAN.md"
-last_updated: "2026-04-07"
-last_activity: 2026-04-07 -- Completed 47-03 method chaining and split collection dispatch
+stopped_at: Completed 48-01-PLAN.md
+last_updated: "2026-04-07T20:50:15.947Z"
+last_activity: 2026-04-07 -- Completed 48-01 dead field elimination
 progress:
-  total_phases: 5
+  total_phases: 11
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 7
+  completed_plans: 4
   percent: 20
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 
 ## Current Position
 
-Phase: 47 of 50 (Collection Methods) -- COMPLETE
-Plan: 3 of 3
-Status: Phase 47 complete, ready for Phase 46
-Last activity: 2026-04-07 -- Completed 47-03 method chaining and split collection dispatch
+Phase: 48 of 50 (Layout Optimizations)
+Plan: 1 of 4
+Status: in_progress
+Last activity: 2026-04-07 -- Completed 48-01 dead field elimination
 
 Progress: [▓▓░░░░░░░░] 20%
 
@@ -44,6 +44,7 @@ Progress: [▓▓░░░░░░░░] 20%
 | 47-collection-methods | 01 | 7min | 2 | 4 |
 | 47-collection-methods | 02 | 20min | 2 | 15 |
 | 47-collection-methods | 03 | 49min | 1 | 19 |
+| Phase 48-layout-optimizations P01 | 24min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,8 @@ Progress: [▓▓░░░░░░░░] 20%
 - [47-03]: Inline split collection dispatch in C emitter (not via function calls)
 - [47-03]: Cross-type map/reduce generics via [U] method-level generic parameter
 - [47-03]: Filter on split collections returns new split collection
+- [Phase 48]: Interprocedural method analysis: scan interface method implementations for self.field accesses to determine used fields in split collections
+- [Phase 48]: Object reconstruction from reduced storage: zero-init + field copy for tagged union dispatch compatibility
 
 ### Pending Todos
 
@@ -78,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-07
-Stopped at: Completed 47-03-PLAN.md (method chaining and split collection dispatch)
+Last session: 2026-04-07T20:50:15.944Z
+Stopped at: Completed 48-01-PLAN.md
 Resume file: None
