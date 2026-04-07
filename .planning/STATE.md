@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.1.1-alpha
 milestone_name: Collection Methods, Full Captures & Layout Optimizations
 status: in_progress
-stopped_at: "Completed 47-01-PLAN.md"
+stopped_at: "Completed 47-02-PLAN.md"
 last_updated: "2026-04-07"
-last_activity: 2026-04-07 -- Completed 47-01 array extension method syntax
+last_activity: 2026-04-07 -- Completed 47-02 collection method runtime implementations
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 7
+  completed_plans: 2
+  percent: 14
 ---
 
 # Project State
@@ -26,22 +26,23 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 ## Current Position
 
 Phase: 47 of 50 (Collection Methods)
-Plan: 1 of 3
+Plan: 2 of 3
 Status: In progress
-Last activity: 2026-04-07 -- Completed 47-01 array extension method syntax
+Last activity: 2026-04-07 -- Completed 47-02 collection method runtime implementations
 
-Progress: [▓░░░░░░░░░] 7%
+Progress: [▓▓░░░░░░░░] 14%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 7min
-- Total execution time: 0.1 hours
+- Total plans completed: 2
+- Average duration: 14min
+- Total execution time: 0.5 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 47-collection-methods | 01 | 7min | 2 | 4 |
+| 47-collection-methods | 02 | 20min | 2 | 15 |
 
 ## Accumulated Context
 
@@ -57,6 +58,9 @@ Progress: [▓░░░░░░░░░] 7%
 
 - [47-01]: __Array sentinel type_name for array extension methods (minimal downstream impact)
 - [47-01]: Helper functions for decl-based type resolution + heuristic fallback (backward compatible)
+- [47-02]: C runtime implementations for collection methods (compiler lacks generic function monomorphization)
+- [47-02]: memcpy-based closure fn pointer casting to avoid -Wcast-function-type-mismatch
+- [47-02]: Skip type checking of array extension method stubs (generic T not resolvable in global scope)
 
 ### Pending Todos
 
@@ -71,5 +75,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-04-07
-Stopped at: Completed 47-01-PLAN.md (array extension method syntax)
+Stopped at: Completed 47-02-PLAN.md (collection method runtime implementations)
 Resume file: None
