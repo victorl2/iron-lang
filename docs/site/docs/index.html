@@ -813,11 +813,10 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 <span class="cm">// for (_sp_i..enemy_count) Iron_enemy_update(enemies[i])</span></pre></div>
 
       <h3>Hardware Optimization</h3>
-      <p>Split loops receive hardware prefetch hints and OpenMP parallel sections automatically:</p>
+      <p>Split loops receive hardware hints automatically:</p>
       <ul style="margin: 0.5rem 0 1rem 1.5rem; color: var(--text-secondary);">
         <li><strong>Prefetch insertion</strong> &mdash; <code>__builtin_prefetch</code> warms the next cache line ahead of iteration</li>
-        <li><strong>OpenMP parallelism</strong> &mdash; independent per-type loops run on separate threads when compiled with <code>-fopenmp</code></li>
-        <li><strong>SIMD-friendly layout</strong> &mdash; per-type contiguous arrays are ideal for auto-vectorization</li>
+        <li><strong>SIMD-friendly layout</strong> &mdash; per-type contiguous arrays are ideal for auto-vectorization by the C backend</li>
       </ul>
 
       <!-- Enums -->
