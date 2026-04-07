@@ -178,6 +178,8 @@ typedef struct {
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
     struct Iron_Symbol *owner_sym;             /* set by resolver: the owning type */
+    bool               is_array_extension;    /* true for func [T].method(...) */
+    const char        *elem_type_name;        /* generic element type param name, e.g. "T" */
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
