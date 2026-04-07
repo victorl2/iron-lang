@@ -1,0 +1,13 @@
+-- coll_empty_array.iron: Edge cases with empty arrays
+func main() {
+  var empty = [1]
+  empty.pop()
+  val mapped = empty.map(func(x: Int) -> Int { return x * 2 })
+  println("{mapped.len()}")
+  val filtered = empty.filter(func(x: Int) -> Bool { return x > 0 })
+  println("{filtered.len()}")
+  val total = empty.sum()
+  println("{total}")
+  val reduced = empty.reduce(42, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{reduced}")
+}

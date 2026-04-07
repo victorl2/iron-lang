@@ -968,7 +968,7 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 44. Hardware Acceleration & Value Optimization | v0.1-alpha | 0/0 | Not started | - |
 | 45. Documentation & Branding | v0.1-alpha | 0/0 | Not started | - |
 | 46. Full Closure Capture | v0.1.1-alpha | 0/0 | Not started | - |
-| 47. Collection Methods | 1/3 | In Progress|  | - |
+| 47. Collection Methods | 2/3 | In Progress |  | - |
 | 48. Layout Optimizations | v0.1.1-alpha | 0/0 | Not started | - |
 | 49. Loop Fusion & Monomorphic Specialization | v0.1.1-alpha | 0/0 | Not started | - |
 | 50. Value Range Compression & Arena Allocation | v0.1.1-alpha | 0/0 | Not started | - |

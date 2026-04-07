@@ -1,0 +1,28 @@
+-- coll_split_map.iron: Collection map on interface-typed split collection
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val shapes = [Circle(5), Square(4), Circle(3)]
+  val areas = shapes.map(func(s: Shape) -> Int { return s.area() })
+  for a in areas {
+    println("{a}")
+  }
+}
