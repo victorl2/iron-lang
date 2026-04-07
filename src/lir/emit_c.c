@@ -5049,10 +5049,11 @@ static void emit_type_decls(EmitCtx *ctx) {
                     int sz = estimate_type_size(impl->decl);
                     if (sz > 2 * smallest_size && sz > 64) {
                         is_indirect = true;
-                        /* Track this variant as indirect */
-                        char ikey[512];
-                        snprintf(ikey, sizeof(ikey), "%s:%s", iface_mangled, impl->type_name);
-                        shput(ctx->indirect_variants, ikey, true);
+                        /* Track this variant as indirect (arena-alloc key for stb_ds) */
+                        char ikey_buf[512];
+                        snprintf(ikey_buf, sizeof(ikey_buf), "%s:%s", iface_mangled, impl->type_name);
+                        const char *ikey_str = iron_arena_strdup(ctx->arena, ikey_buf, strlen(ikey_buf));
+                        shput(ctx->indirect_variants, ikey_str, true);
                     }
                 }
                 if (is_indirect) {
