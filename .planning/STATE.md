@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 ## Current Position
 
 Phase: 48 of 50 (Layout Optimizations)
-Plan: 2 of 4
+Plan: 3 of 4
 Status: in_progress
-Last activity: 2026-04-07 -- Completed 48-02 SoA/AoS layout selection
+Last activity: 2026-04-07 -- Completed 48-03 variant split and layout annotations
 
-Progress: [▓▓░░░░░░░░] 20%
+Progress: [▓▓▓░░░░░░░] 30%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 6
 - Average duration: 25min
-- Total execution time: 1.3 hours
+- Total execution time: 2.5 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -46,6 +46,7 @@ Progress: [▓▓░░░░░░░░] 20%
 | 47-collection-methods | 03 | 49min | 1 | 19 |
 | Phase 48-layout-optimizations P01 | 24min | 2 tasks | 6 files |
 | Phase 48-layout-optimizations P02 | 21min | 2 tasks | 7 files |
+| Phase 48-layout-optimizations P03 | 28min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Progress: [▓▓░░░░░░░░] 20%
 - [Phase 48]: Object reconstruction from reduced storage: zero-init + field copy for tagged union dispatch compatibility
 - [Phase 48]: Common field shared arrays disabled when any implementor uses SoA (per-type vs shared count divergence)
 - [Phase 48]: SoA per-field arrays: <lower>_<field> naming pattern for cache-contiguous field storage
+- [Phase 48]: Layout annotations as comma-separated array type attributes: [T, layout: soa/aos] and [T, unordered]
+- [Phase 48]: Large variant pointer indirection: >2x smallest AND >64 bytes triggers heap allocation in tagged union
+- [Phase 48]: Arena-allocated keys for stb_ds string hash maps to prevent stack-use-after-scope
 
 ### Pending Todos
 
@@ -84,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-07T22:21:52.231Z
-Stopped at: Completed 48-02-PLAN.md
+Last session: 2026-04-07T22:27:00Z
+Stopped at: Completed 48-03-PLAN.md
 Resume file: None
