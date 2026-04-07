@@ -206,6 +206,10 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         ann->func_param_count  = 0;
         ann->func_return       = NULL;
 
+        /* Phase 48: Initialize layout annotation fields */
+        ann->layout_hint       = IRON_LAYOUT_HINT_NONE;
+        ann->is_unordered      = false;
+
         /* element type: either func(...) -> R or a named type */
         if (iron_check(p, IRON_TOK_FUNC)) {
             /* Parse func type as array element: [func(T) -> R] */
@@ -236,6 +240,42 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
                                           strlen(name_tok->value));
         }
 
+        /* Phase 48: Parse optional layout attributes: [T, layout: soa/aos] [T, unordered] */
+        while (iron_match(p, IRON_TOK_COMMA)) {
+            Iron_Token *attr = iron_current(p);
+            if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                if (strcmp(attr->value, "layout") == 0) {
+                    iron_advance(p);  /* consume "layout" */
+                    iron_expect(p, IRON_TOK_COLON);
+                    Iron_Token *val = iron_current(p);
+                    if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                        if (strcmp(val->value, "soa") == 0) {
+                            ann->layout_hint = IRON_LAYOUT_HINT_SOA;
+                            iron_advance(p);
+                        } else if (strcmp(val->value, "aos") == 0) {
+                            ann->layout_hint = IRON_LAYOUT_HINT_AOS;
+                            iron_advance(p);
+                        } else {
+                            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                IRON_ERR_UNEXPECTED_TOKEN,
+                                iron_token_span(p, val),
+                                "expected 'soa' or 'aos' after 'layout:'", NULL);
+                            iron_advance(p);
+                        }
+                    }
+                } else if (strcmp(attr->value, "unordered") == 0) {
+                    ann->is_unordered = true;
+                    iron_advance(p);
+                } else {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                        IRON_ERR_UNEXPECTED_TOKEN,
+                        iron_token_span(p, attr),
+                        "expected 'layout' or 'unordered' in array type attribute", NULL);
+                    iron_advance(p);
+                }
+            }
+        }
+
         /* optional [T; Size] */
         if (iron_match(p, IRON_TOK_SEMICOLON)) {
             ann->array_size = iron_parse_expr(p);
@@ -260,6 +300,8 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         ann->generic_arg_count = 0;
         ann->is_func           = true;
         ann->name              = "func";
+        ann->layout_hint       = IRON_LAYOUT_HINT_NONE;
+        ann->is_unordered      = false;
 
         /* Parse parameter types: ( [TypeAnn, ...] ) */
         ann->func_params      = NULL;
@@ -336,6 +378,10 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     ann->func_params       = NULL;
     ann->func_param_count  = 0;
     ann->func_return       = NULL;
+
+    /* Phase 48: no layout annotations on non-array types */
+    ann->layout_hint       = IRON_LAYOUT_HINT_NONE;
+    ann->is_unordered      = false;
 
     ann->span = iron_span_merge(iron_token_span(p, start),
                                 iron_token_span(p, iron_current(p)));
