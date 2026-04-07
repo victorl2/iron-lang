@@ -462,7 +462,10 @@ static void verify_func(const IronLIR_Func *fn, const IronLIR_Module *module,
                         fn->value_table[ret_id] != NULL) {
                         const IronLIR_Instr *ret_val_instr = fn->value_table[ret_id];
                         if (ret_val_instr->type != NULL &&
-                            !iron_type_equals(ret_val_instr->type, fn->return_type)) {
+                            !iron_type_equals(ret_val_instr->type, fn->return_type) &&
+                            /* Allow concrete object → interface return (static dispatch) */
+                            !(fn->return_type->kind == IRON_TYPE_INTERFACE &&
+                              ret_val_instr->type->kind == IRON_TYPE_OBJECT)) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "return type mismatch in function '%s'", fn->name);
