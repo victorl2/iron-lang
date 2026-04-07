@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.1.1-alpha
 milestone_name: Collection Methods, Full Captures & Layout Optimizations
 status: in_progress
-stopped_at: "Completed 47-02-PLAN.md"
+stopped_at: "Completed 47-03-PLAN.md"
 last_updated: "2026-04-07"
-last_activity: 2026-04-07 -- Completed 47-02 collection method runtime implementations
+last_activity: 2026-04-07 -- Completed 47-03 method chaining and split collection dispatch
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 14
+  completed_plans: 3
+  percent: 20
 ---
 
 # Project State
@@ -25,24 +25,25 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 
 ## Current Position
 
-Phase: 47 of 50 (Collection Methods)
-Plan: 2 of 3
-Status: In progress
-Last activity: 2026-04-07 -- Completed 47-02 collection method runtime implementations
+Phase: 47 of 50 (Collection Methods) -- COMPLETE
+Plan: 3 of 3
+Status: Phase 47 complete, ready for Phase 46
+Last activity: 2026-04-07 -- Completed 47-03 method chaining and split collection dispatch
 
-Progress: [▓▓░░░░░░░░] 14%
+Progress: [▓▓░░░░░░░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 14min
-- Total execution time: 0.5 hours
+- Total plans completed: 3
+- Average duration: 25min
+- Total execution time: 1.3 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 47-collection-methods | 01 | 7min | 2 | 4 |
 | 47-collection-methods | 02 | 20min | 2 | 15 |
+| 47-collection-methods | 03 | 49min | 1 | 19 |
 
 ## Accumulated Context
 
@@ -61,6 +62,9 @@ Progress: [▓▓░░░░░░░░] 14%
 - [47-02]: C runtime implementations for collection methods (compiler lacks generic function monomorphization)
 - [47-02]: memcpy-based closure fn pointer casting to avoid -Wcast-function-type-mismatch
 - [47-02]: Skip type checking of array extension method stubs (generic T not resolvable in global scope)
+- [47-03]: Inline split collection dispatch in C emitter (not via function calls)
+- [47-03]: Cross-type map/reduce generics via [U] method-level generic parameter
+- [47-03]: Filter on split collections returns new split collection
 
 ### Pending Todos
 
@@ -75,5 +79,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-04-07
-Stopped at: Completed 47-02-PLAN.md (collection method runtime implementations)
+Stopped at: Completed 47-03-PLAN.md (method chaining and split collection dispatch)
 Resume file: None
