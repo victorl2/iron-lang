@@ -83,38 +83,38 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CAPT-05 | TBD | Pending |
-| CAPT-06 | TBD | Pending |
-| CAPT-07 | TBD | Pending |
-| CAPT-08 | TBD | Pending |
-| CAPT-09 | TBD | Pending |
-| CAPT-10 | TBD | Pending |
-| COLL-05 | TBD | Pending |
-| COLL-06 | TBD | Pending |
-| COLL-07 | TBD | Pending |
-| COLL-08 | TBD | Pending |
-| COLL-09 | TBD | Pending |
-| COLL-10 | TBD | Pending |
-| COLL-11 | TBD | Pending |
-| LAYOUT-01 | TBD | Pending |
-| LAYOUT-02 | TBD | Pending |
-| LAYOUT-03 | TBD | Pending |
-| LAYOUT-04 | TBD | Pending |
-| LAYOUT-05 | TBD | Pending |
-| FUSE-01 | TBD | Pending |
-| FUSE-02 | TBD | Pending |
-| MONO-01 | TBD | Pending |
-| MONO-02 | TBD | Pending |
-| VRC-01 | TBD | Pending |
-| VRC-02 | TBD | Pending |
-| ARENA-01 | TBD | Pending |
-| ARENA-02 | TBD | Pending |
+| CAPT-05 | Phase 46 | Pending |
+| CAPT-06 | Phase 46 | Pending |
+| CAPT-07 | Phase 46 | Pending |
+| CAPT-08 | Phase 46 | Pending |
+| CAPT-09 | Phase 46 | Pending |
+| CAPT-10 | Phase 46 | Pending |
+| COLL-05 | Phase 47 | Pending |
+| COLL-06 | Phase 47 | Pending |
+| COLL-07 | Phase 47 | Pending |
+| COLL-08 | Phase 47 | Pending |
+| COLL-09 | Phase 47 | Pending |
+| COLL-10 | Phase 47 | Pending |
+| COLL-11 | Phase 47 | Pending |
+| LAYOUT-01 | Phase 48 | Pending |
+| LAYOUT-02 | Phase 48 | Pending |
+| LAYOUT-03 | Phase 48 | Pending |
+| LAYOUT-04 | Phase 48 | Pending |
+| LAYOUT-05 | Phase 48 | Pending |
+| FUSE-01 | Phase 49 | Pending |
+| FUSE-02 | Phase 49 | Pending |
+| MONO-01 | Phase 49 | Pending |
+| MONO-02 | Phase 49 | Pending |
+| VRC-01 | Phase 50 | Pending |
+| VRC-02 | Phase 50 | Pending |
+| ARENA-01 | Phase 50 | Pending |
+| ARENA-02 | Phase 50 | Pending |
 
 **Coverage:**
 - v1 requirements: 26 total
-- Mapped to phases: 0
-- Unmapped: 26
+- Mapped to phases: 26
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-07*
-*Last updated: 2026-04-07 after initial definition*
+*Last updated: 2026-04-07 after roadmap creation (phases 46-50)*
