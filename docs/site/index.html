@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Iron — A Language Forged for Clarity</title>
-  <meta name="description" content="Iron is a compiled, strongly-typed programming language built for clarity, legibility, and performance. Compiles to C, producing native binaries with zero overhead.">
-  <meta property="og:title" content="Iron — A Language Forged for Clarity">
-  <meta property="og:description" content="Compiled to C. Native binaries. Zero overhead. Built for clarity, legibility, and performance.">
+  <title>Iron — A Language Forged for Games</title>
+  <meta name="description" content="Iron is a compiled language forged for games. Write interfaces, get ECS performance. Static dispatch, zero-overhead abstractions, compiles to cache-optimal C.">
+  <meta property="og:title" content="Iron — A Language Forged for Games">
+  <meta property="og:description" content="Write interfaces, get ECS performance. Static dispatch, zero-overhead abstractions, compiles to cache-optimal C.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://ironlang.dev">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
@@ -812,8 +812,8 @@
   <!-- ── Hero ─────────────────────────────────────────── -->
   <section class="hero">
     <div class="hero-content">
-      <h1>A language <span class="highlight">forged</span> for clarity</h1>
-      <p>Iron compiles to C and produces native binaries with zero runtime overhead. Manual memory control, first-class concurrency, and a clean syntax &mdash; code that reads exactly as it runs.</p>
+      <h1>A language <span class="highlight">forged</span> for games</h1>
+      <p>Write interfaces, get ECS performance. Iron compiles to cache-optimal C with static dispatch &mdash; no vtables, no heap indirection. The compiler splits your polymorphic code into data-oriented, SIMD-friendly loops automatically.</p>
       <div class="hero-buttons">
         <a href="/docs/" class="btn btn-primary">Get Started</a>
         <a href="/docs/#full-example" class="btn btn-secondary">See Examples</a>
@@ -829,32 +829,33 @@
           <span class="code-filename">app.iron</span>
         </div>
         <div class="code-body">
-<pre><span class="kw">import</span> raylib
-
-<span class="kw">object</span> <span class="ty">Player</span> {
-  <span class="kw">var</span> pos:   <span class="ty">Vec2</span>
-  <span class="kw">var</span> hp:    <span class="ty">Int</span>
-  <span class="kw">val</span> speed: <span class="ty">Float</span>
-  <span class="kw">val</span> name:  <span class="ty">String</span>
+<pre><span class="cm">-- Write interfaces, the compiler does the rest</span>
+<span class="kw">interface</span> <span class="ty">Entity</span> {
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>)
+  <span class="kw">func</span> <span class="fn">draw</span>()
 }
 
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">update</span>(dt: <span class="ty">Float</span>) {
-  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">RIGHT</span>) { <span class="kw">self</span>.<span class="pr">pos</span>.x += <span class="kw">self</span>.<span class="pr">speed</span> * dt }
-  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">LEFT</span>)  { <span class="kw">self</span>.<span class="pr">pos</span>.x -= <span class="kw">self</span>.<span class="pr">speed</span> * dt }
+<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
+  <span class="kw">var</span> pos: <span class="ty">Vec2</span>, vel: <span class="ty">Vec2</span>
 }
+
+<span class="kw">object</span> <span class="ty">Enemy</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
+  <span class="kw">var</span> pos: <span class="ty">Vec2</span>, hp: <span class="ty">Int</span>
+}
+
+<span class="cm">-- The compiler generates:</span>
+<span class="cm">-- Tagged unions (no vtables)</span>
+<span class="cm">-- Per-type loops (no branch misprediction)</span>
+<span class="cm">-- Cache-optimal memory layout</span>
 
 <span class="kw">func</span> <span class="fn">main</span>() {
-  <span class="kw">val</span> window = <span class="fn">init_window</span>(<span class="nu">800</span>, <span class="nu">600</span>, <span class="st">"My Game"</span>)
-  <span class="kw">defer</span> <span class="fn">close_window</span>(window)
+  <span class="kw">var</span> entities: [<span class="ty">Entity</span>] = []
+  entities.<span class="fn">push</span>(<span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">0</span>,<span class="nu">0</span>), <span class="fn">vec2</span>(<span class="nu">0</span>,<span class="nu">0</span>)))
+  entities.<span class="fn">push</span>(<span class="ty">Enemy</span>(<span class="fn">vec2</span>(<span class="nu">5</span>,<span class="nu">3</span>), <span class="nu">100</span>))
 
-  <span class="kw">var</span> player = <span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">100</span>, <span class="nu">200.0</span>, <span class="st">"Victor"</span>)
-
-  <span class="kw">while</span> <span class="kw">not</span> <span class="fn">window_should_close</span>() {
-    player.<span class="fn">update</span>(<span class="fn">get_frame_time</span>())
-    <span class="kw">draw</span> {
-      <span class="fn">clear</span>(<span class="pr">DARKGRAY</span>)
-      player.<span class="fn">draw</span>()
-    }
+  <span class="kw">for</span> e <span class="kw">in</span> entities {
+    e.<span class="fn">update</span>(<span class="fn">get_frame_time</span>())
+    e.<span class="fn">draw</span>()
   }
 }</pre>
         </div>
@@ -866,13 +867,13 @@
   <section class="pillars">
     <div class="pillars-inner">
       <div class="section-label">Why Iron?</div>
-      <h2 class="section-title">Built for developers who value clarity</h2>
-      <p class="section-subtitle">Iron gives you the performance of C with a modern syntax that stays out of your way.</p>
+      <h2 class="section-title">Write interfaces, get ECS performance</h2>
+      <p class="section-subtitle">Iron gives you the abstraction of interfaces with the performance of hand-written data-oriented code. No vtables. No runtime overhead.</p>
       <div class="pillars-grid">
         <div class="pillar">
           <div class="pillar-icon perf">&#9889;</div>
-          <h3>Performance</h3>
-          <p>Compiles to C and produces native binaries. No garbage collector, no VM, no interpreter overhead. Just raw speed.</p>
+          <h3>Static Dispatch</h3>
+          <p>Interface calls compile to tag-match dispatch &mdash; no vtables, no function pointers. The compiler generates the same code a performance engineer would write by hand.</p>
         </div>
         <div class="pillar">
           <div class="pillar-icon ctrl">&#9881;</div>

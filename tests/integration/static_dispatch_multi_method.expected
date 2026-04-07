@@ -1,0 +1,4 @@
+Car(speed=120, fuel=50) goes 120 with 50 fuel
+Bike(speed=25) goes 25 with 0 fuel
+Car(speed=200, fuel=80) goes 200 with 80 fuel
+done

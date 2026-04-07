@@ -1,0 +1,35 @@
+-- split_collection.iron: Split collection iteration over interface types
+-- Tests Phase 41: per-type homogeneous iteration
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- Create shapes and compute total area using interface dispatch
+  val c1: Shape = Circle(5)
+  val c2: Shape = Circle(3)
+  val s1: Shape = Square(4)
+  val s2: Shape = Square(2)
+
+  val total = c1.area() + c2.area() + s1.area() + s2.area()
+  println("{total}")
+
+  println("done")
+}

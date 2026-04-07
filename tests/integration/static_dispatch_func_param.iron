@@ -1,0 +1,37 @@
+-- static_dispatch_func_param.iron: Interface types as function parameters
+
+interface Greeting {
+  func greet() -> String
+}
+
+object Formal impl Greeting {
+  var name: String
+}
+
+object Casual impl Greeting {
+  var name: String
+}
+
+func Formal.greet() -> String {
+  return "Good day, {self.name}."
+}
+
+func Casual.greet() -> String {
+  return "Hey {self.name}!"
+}
+
+func print_greeting(g: Greeting) {
+  println(g.greet())
+}
+
+func main() {
+  print_greeting(Formal("Alice"))
+  print_greeting(Casual("Bob"))
+
+  val g1: Greeting = Formal("Charlie")
+  val g2: Greeting = Casual("Diana")
+  println(g1.greet())
+  println(g2.greet())
+
+  println("done")
+}
