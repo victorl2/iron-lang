@@ -800,6 +800,26 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
   }
 }</pre></div>
 
+      <h3>Collection Splitting</h3>
+      <p>Interface-typed arrays are automatically split into per-type homogeneous sub-arrays. This delivers ECS-level cache performance from polymorphic code:</p>
+      <div class="code-block"><pre><span class="cm">-- You write this:</span>
+<span class="kw">val</span> entities = [<span class="ty">Player</span>(pos, health), <span class="ty">Enemy</span>(pos, hp)]
+<span class="kw">for</span> e <span class="kw">in</span> entities { e.<span class="fn">update</span>(<span class="nu">0.016</span>) }
+
+<span class="cm">-- Compiler generates per-type loops with prefetch:</span>
+<span class="cm">// Players: tight loop over contiguous Player[]</span>
+<span class="cm">// for (_sp_i..player_count) Iron_player_update(players[i])</span>
+<span class="cm">// Enemies: tight loop over contiguous Enemy[]</span>
+<span class="cm">// for (_sp_i..enemy_count) Iron_enemy_update(enemies[i])</span></pre></div>
+
+      <h3>Hardware Optimization</h3>
+      <p>Split loops receive hardware prefetch hints and OpenMP parallel sections automatically:</p>
+      <ul style="margin: 0.5rem 0 1rem 1.5rem; color: var(--text-secondary);">
+        <li><strong>Prefetch insertion</strong> &mdash; <code>__builtin_prefetch</code> warms the next cache line ahead of iteration</li>
+        <li><strong>OpenMP parallelism</strong> &mdash; independent per-type loops run on separate threads when compiled with <code>-fopenmp</code></li>
+        <li><strong>SIMD-friendly layout</strong> &mdash; per-type contiguous arrays are ideal for auto-vectorization</li>
+      </ul>
+
       <!-- Enums -->
       <h2 id="enums">Enums</h2>
       <p>Simple C-style enums, always accessed with the type prefix. Enum variants can also carry data payloads, making them full algebraic data types.</p>
