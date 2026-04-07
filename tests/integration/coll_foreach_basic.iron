@@ -1,0 +1,11 @@
+-- coll_foreach_basic.iron: Test arr.forEach() iterating with side effects
+-- Uses mutable capture to accumulate values (string interpolation in lambdas
+-- is a known pre-existing issue, so we accumulate and print outside)
+func main() {
+  val arr = [10, 20, 30]
+  var total = 0
+  arr.forEach(func(x: Int) {
+    total = total + x
+  })
+  println("{total}")
+}
