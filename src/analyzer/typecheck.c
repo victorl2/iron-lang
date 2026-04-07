@@ -1737,10 +1737,59 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_ArrayLit *al = (Iron_ArrayLit *)node;
             if (al->size) check_expr(ctx, al->size);
             Iron_Type *elem_type = NULL;
+            Iron_Type **elem_types = NULL; /* track all element types for mixed-type detection */
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr(ctx, al->elements[i]);
                 if (!elem_type && et) elem_type = et;
+                if (et) arrput(elem_types, et);
             }
+            /* Check for mixed-type array: if elements have different object types
+             * that all implement a common interface, infer the interface as elem_type */
+            if (elem_type && elem_type->kind == IRON_TYPE_OBJECT &&
+                arrlen(elem_types) > 1) {
+                bool has_different_types = false;
+                for (int i = 1; i < arrlen(elem_types); i++) {
+                    if (elem_types[i] != elem_type &&
+                        !(elem_types[i]->kind == IRON_TYPE_OBJECT &&
+                          elem_types[i]->object.decl == elem_type->object.decl)) {
+                        has_different_types = true;
+                        break;
+                    }
+                }
+                if (has_different_types) {
+                    /* Find common interface: check first element's implements list */
+                    Iron_ObjectDecl *first_obj = elem_type->object.decl;
+                    if (first_obj) {
+                        for (int ii = 0; ii < first_obj->implements_count; ii++) {
+                            const char *iface_name = first_obj->implements_names[ii];
+                            bool all_implement = true;
+                            for (int ei = 1; ei < arrlen(elem_types); ei++) {
+                                Iron_Type *et2 = elem_types[ei];
+                                if (!et2 || et2->kind != IRON_TYPE_OBJECT || !et2->object.decl) {
+                                    all_implement = false; break;
+                                }
+                                Iron_ObjectDecl *od2 = et2->object.decl;
+                                bool found = false;
+                                for (int ji = 0; ji < od2->implements_count; ji++) {
+                                    if (strcmp(od2->implements_names[ji], iface_name) == 0) {
+                                        found = true; break;
+                                    }
+                                }
+                                if (!found) { all_implement = false; break; }
+                            }
+                            if (all_implement) {
+                                /* Found common interface — use it as elem type */
+                                Iron_Symbol *isym = iron_scope_lookup(ctx->global_scope, iface_name);
+                                if (isym && isym->type && isym->type->kind == IRON_TYPE_INTERFACE) {
+                                    elem_type = isym->type;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            arrfree(elem_types);
             if (!elem_type) elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             result = iron_type_make_array(ctx->arena, elem_type, -1);
             al->resolved_type = result;
