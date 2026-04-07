@@ -873,7 +873,12 @@ Plans:
   3. `arr.forEach(func(x: Int) { print(x) })` iterates all elements with side effects and returns no value; `arr.sum()` returns the numeric total for Int and Float arrays
   4. `arr.map(...).filter(...).sum()` compiles and produces the correct result by chaining method calls left to right
   5. Collection methods invoked on an interface-typed split collection (e.g., `shapes.map(...)`) dispatch the lambda per concrete type across all sub-arrays and produce a correct combined result
-**Plans**: TBD
+**Plans:** 1/3 plans executed
+
+Plans:
+- [ ] 47-01-PLAN.md — Generic array extension method syntax (parser, resolver, type checker)
+- [ ] 47-02-PLAN.md — Collection method compilation + stdlib Iron implementations
+- [ ] 47-03-PLAN.md — Method chaining + split collection dispatch + integration tests
 
 ### Phase 48: Layout Optimizations
 **Goal**: The compiler selects optimal memory layout per collection based on access patterns, eliminates unused fields from storage structs, factors common fields, and handles size-disparate variants efficiently
@@ -963,7 +968,7 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 44. Hardware Acceleration & Value Optimization | v0.1-alpha | 0/0 | Not started | - |
 | 45. Documentation & Branding | v0.1-alpha | 0/0 | Not started | - |
 | 46. Full Closure Capture | v0.1.1-alpha | 0/0 | Not started | - |
-| 47. Collection Methods | v0.1.1-alpha | 0/0 | Not started | - |
+| 47. Collection Methods | 1/3 | In Progress|  | - |
 | 48. Layout Optimizations | v0.1.1-alpha | 0/0 | Not started | - |
 | 49. Loop Fusion & Monomorphic Specialization | v0.1.1-alpha | 0/0 | Not started | - |
 | 50. Value Range Compression & Arena Allocation | v0.1.1-alpha | 0/0 | Not started | - |

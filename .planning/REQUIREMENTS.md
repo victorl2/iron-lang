@@ -9,11 +9,11 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Collection Methods
 
-- [ ] **COLL-05**: `arr.map(func(x: T) -> U { ... })` returns a new array of transformed elements
-- [ ] **COLL-06**: `arr.filter(func(x: T) -> Bool { ... })` returns a new array of matching elements
-- [ ] **COLL-07**: `arr.reduce(init, func(acc: U, x: T) -> U { ... })` returns accumulated value
-- [ ] **COLL-08**: `arr.forEach(func(x: T) { ... })` iterates with side effects, no return value
-- [ ] **COLL-09**: `arr.sum()` returns the numeric total of all elements (Int or Float arrays)
+- [x] **COLL-05**: `arr.map(func(x: T) -> U { ... })` returns a new array of transformed elements
+- [x] **COLL-06**: `arr.filter(func(x: T) -> Bool { ... })` returns a new array of matching elements
+- [x] **COLL-07**: `arr.reduce(init, func(acc: U, x: T) -> U { ... })` returns accumulated value
+- [x] **COLL-08**: `arr.forEach(func(x: T) { ... })` iterates with side effects, no return value
+- [x] **COLL-09**: `arr.sum()` returns the numeric total of all elements (Int or Float arrays)
 - [ ] **COLL-10**: Collection methods chain: `arr.map(...).filter(...).sum()` compiles and produces correct result
 - [ ] **COLL-11**: Collection methods work on interface-typed split collections, dispatching per concrete type
 
@@ -90,11 +90,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAPT-08 | Phase 46 | Pending |
 | CAPT-09 | Phase 46 | Pending |
 | CAPT-10 | Phase 46 | Pending |
-| COLL-05 | Phase 47 | Pending |
-| COLL-06 | Phase 47 | Pending |
-| COLL-07 | Phase 47 | Pending |
-| COLL-08 | Phase 47 | Pending |
-| COLL-09 | Phase 47 | Pending |
+| COLL-05 | Phase 47 | Complete |
+| COLL-06 | Phase 47 | Complete |
+| COLL-07 | Phase 47 | Complete |
+| COLL-08 | Phase 47 | Complete |
+| COLL-09 | Phase 47 | Complete |
 | COLL-10 | Phase 47 | Pending |
 | COLL-11 | Phase 47 | Pending |
 | LAYOUT-01 | Phase 48 | Pending |
