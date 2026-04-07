@@ -2806,6 +2806,15 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
 }
 
 static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
+    /* Array extension method stubs: generic type params (T, U) are not real
+     * types in scope.  Return type resolution for call sites is handled by
+     * resolve_array_ext_method().  Skip full type checking of stubs. */
+    if (md->is_array_extension) {
+        /* For empty-body stubs, nothing to check. For future methods with
+         * real bodies, monomorphization would be needed. */
+        return;
+    }
+
     /* Resolve return type */
     Iron_Type *ret_type = NULL;
     if (md->return_type) {
@@ -3038,6 +3047,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             if (sym) sym->type = func_type;
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+            /* Skip symbol-type resolution for array extension methods: their
+             * generic params (T, U) are not real types in the global scope.
+             * Call-site type resolution is handled by resolve_array_ext_method. */
+            if (md->is_array_extension) continue;
             Iron_Type *ret_type = md->return_type
                 ? resolve_type_annotation(&ctx, md->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
