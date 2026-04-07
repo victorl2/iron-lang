@@ -674,6 +674,16 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             emit_val(sb, vid);
             break;
         }
+        /* Interface alloca load: emit the LOAD result variable (not the alloca),
+         * because the STORE applies wrapping that must be preserved */
+        {
+            IronLIR_Instr *ptr_instr2 = fn->value_table[instr->load.ptr];
+            if (ptr_instr2 && ptr_instr2->type &&
+                ptr_instr2->type->kind == IRON_TYPE_INTERFACE) {
+                emit_val(sb, vid);
+                break;
+            }
+        }
         /* Regular load: inline as the alloca variable directly */
         emit_expr_to_buf(sb, instr->load.ptr, fn, ctx, use_block_id, depth+1);
         break;
@@ -853,7 +863,34 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         iron_strbuf_appendf(sb, "/* %s */ %s(", callee_short, callee_c);
         for (int i = 0; i < instr->call.arg_count; i++) {
             if (i > 0) iron_strbuf_appendf(sb, ", ");
-            emit_expr_to_buf(sb, instr->call.args[i], fn, ctx, use_block_id, depth+1);
+            /* Interface wrapping: if arg is concrete but callee is interface dispatch */
+            IronLIR_ValueId arg_id = instr->call.args[i];
+            Iron_Type *arg_type = (arg_id < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                   fn->value_table[arg_id])
+                                  ? fn->value_table[arg_id]->type : NULL;
+            bool did_wrap = false;
+            if (arg_type && arg_type->kind == IRON_TYPE_OBJECT &&
+                arg_type->object.decl && ctx->iface_reg) {
+                /* Check if callee is an interface dispatch function */
+                for (int ri = 0; ri < (int)shlen(ctx->iface_reg->map); ri++) {
+                    Iron_IfaceEntry *ent = &ctx->iface_reg->map[ri].value;
+                    const char *im = emit_mangle_name(ent->iface_name, ctx->arena);
+                    size_t imlen = strlen(im);
+                    if (callee_c && strncmp(callee_c, im, imlen) == 0 &&
+                        callee_c[imlen] == '_') {
+                        /* This is an interface dispatch call — wrap the arg */
+                        iron_strbuf_appendf(sb, "%s_from_%s(",
+                            im, arg_type->object.decl->name);
+                        emit_expr_to_buf(sb, arg_id, fn, ctx, use_block_id, depth+1);
+                        iron_strbuf_appendf(sb, ")");
+                        did_wrap = true;
+                        break;
+                    }
+                }
+            }
+            if (!did_wrap) {
+                emit_expr_to_buf(sb, arg_id, fn, ctx, use_block_id, depth+1);
+            }
         }
         iron_strbuf_appendf(sb, ")");
         break;
@@ -1345,11 +1382,32 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, sa_val);
             iron_strbuf_appendf(sb, "_len;\n");
         } else {
-            /* Write into alloca variable: ptr = value */
+            /* Check for interface wrapping: concrete type → interface tagged union */
+            Iron_Type *ptr_type = fn->value_table[instr->store.ptr]->type;
+            Iron_Type *val_type = fn->value_table[instr->store.value]->type;
+            bool needs_iface_wrap = false;
+            const char *wrap_iface = NULL;
+            const char *wrap_impl = NULL;
+            if (ptr_type && val_type &&
+                ptr_type->kind == IRON_TYPE_INTERFACE &&
+                val_type->kind == IRON_TYPE_OBJECT &&
+                ptr_type->interface.decl && val_type->object.decl) {
+                wrap_iface = emit_mangle_name(ptr_type->interface.decl->name, ctx->arena);
+                wrap_impl = val_type->object.decl->name;
+                needs_iface_wrap = true;
+            }
+
+            /* Write into alloca variable: ptr = value (or wrapped) */
             emit_indent(sb, ind);
             emit_val(sb, instr->store.ptr);
             iron_strbuf_appendf(sb, " = ");
+            if (needs_iface_wrap) {
+                iron_strbuf_appendf(sb, "%s_from_%s(", wrap_iface, wrap_impl);
+            }
             emit_expr_to_buf(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
+            if (needs_iface_wrap) {
+                iron_strbuf_appendf(sb, ")");
+            }
             iron_strbuf_appendf(sb, ";\n");
         }
         break;
@@ -1984,7 +2042,57 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ")");
                 } else {
-                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    /* Interface wrapping: if arg is concrete object but callee
+                     * is an interface dispatch function, wrap it */
+                    Iron_Type *arg_t2 = (arg_id < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                         fn->value_table[arg_id])
+                                        ? fn->value_table[arg_id]->type : NULL;
+                    bool wrapped = false;
+                    if (arg_t2 && arg_t2->kind == IRON_TYPE_OBJECT &&
+                        arg_t2->object.decl && ctx->iface_reg) {
+                        /* Check if the callee C name matches any interface dispatch function */
+                        const char *callee_resolved = NULL;
+                        {
+                            IronLIR_ValueId fp = instr->call.func_ptr;
+                            if (fp != IRON_LIR_VALUE_INVALID &&
+                                fp < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                fn->value_table[fp] &&
+                                fn->value_table[fp]->kind == IRON_LIR_FUNC_REF) {
+                                callee_resolved = resolve_func_c_name(ctx,
+                                    fn->value_table[fp]->func_ref.func_name);
+                            }
+                        }
+                        if (callee_resolved) {
+                            for (int ri2 = 0; ri2 < (int)shlen(ctx->iface_reg->map); ri2++) {
+                                Iron_IfaceEntry *ent = &ctx->iface_reg->map[ri2].value;
+                                /* Build lowercased prefix: Iron_shape */
+                                size_t nl = strlen(ent->iface_name);
+                                char *lp = (char *)iron_arena_alloc(ctx->arena, 5 + nl + 1, 1);
+                                memcpy(lp, "Iron_", 5);
+                                for (size_t ci2 = 0; ci2 < nl; ci2++) {
+                                    char ch = ent->iface_name[ci2];
+                                    lp[5+ci2] = (ch >= 'A' && ch <= 'Z')
+                                        ? (char)(ch + ('a' - 'A')) : ch;
+                                }
+                                lp[5+nl] = '\0';
+                                size_t lpl = 5 + nl;
+                                if (strncmp(callee_resolved, lp, lpl) == 0 &&
+                                    callee_resolved[lpl] == '_') {
+                                    const char *im2 = emit_mangle_name(ent->iface_name, ctx->arena);
+                                    iron_strbuf_appendf(sb, "%s_from_%s(",
+                                        im2, arg_t2->object.decl->name);
+                                    emit_expr_to_buf(sb, arg_id, fn, ctx,
+                                                     ctx->current_block_id, 0);
+                                    iron_strbuf_appendf(sb, ")");
+                                    wrapped = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!wrapped) {
+                        emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    }
                 }
             }
         }
@@ -3972,6 +4080,26 @@ static void emit_type_decls(EmitCtx *ctx) {
             iron_strbuf_appendf(sb, "    %s_Tag tag;\n", iface_mangled);
             iron_strbuf_appendf(sb, "    %s_data_t data;\n", iface_mangled);
             iron_strbuf_appendf(sb, "};\n\n");
+
+            /* Wrapping constructors: ConcreteType → Interface tagged union */
+            for (int j = 0; j < entry->impl_count; j++) {
+                Iron_IfaceImpl *impl = &entry->impls[j];
+                if (!impl->is_alive) continue;
+                const char *impl_mangled = emit_mangle_name(impl->type_name, ctx->arena);
+
+                /* Prototype: static inline Iron_Shape Iron_Shape_from_Circle(Iron_Circle val) */
+                iron_strbuf_appendf(sb,
+                    "static inline %s %s_from_%s(%s val) {\n"
+                    "    %s result;\n"
+                    "    result.tag = %s_TAG_%s;\n"
+                    "    result.data.%s = val;\n"
+                    "    return result;\n"
+                    "}\n\n",
+                    iface_mangled, iface_mangled, impl->type_name, impl_mangled,
+                    iface_mangled,
+                    iface_mangled, impl->type_name,
+                    impl->type_name);
+            }
         }
     }
 
@@ -4203,6 +4331,130 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     }
     if (ctx.prototypes.len > 0) {
         iron_strbuf_appendf(&ctx.prototypes, "\n");
+    }
+
+    /* ── Phase 3b: Interface dispatch functions ────────────────────────────── */
+    if (ctx.iface_reg) {
+        for (int ri = 0; ri < shlen(ctx.iface_reg->map); ri++) {
+            Iron_IfaceEntry *entry = &ctx.iface_reg->map[ri].value;
+            if (entry->alive_count == 0) continue;
+
+            const char *iface_mangled = emit_mangle_name(entry->iface_name, ctx.arena);
+
+            /* Build lowercased dispatch function name prefix:
+             * Iron_Shape → Iron_shape (matches hir_to_lir method call mangling) */
+            size_t iml = strlen(entry->iface_name);
+            char *iface_lower = (char *)iron_arena_alloc(ctx.arena, 5 + iml + 1, 1);
+            memcpy(iface_lower, "Iron_", 5);
+            for (size_t ci = 0; ci < iml; ci++) {
+                char ch = entry->iface_name[ci];
+                iface_lower[5 + ci] = (ch >= 'A' && ch <= 'Z')
+                    ? (char)(ch + ('a' - 'A')) : ch;
+            }
+            iface_lower[5 + iml] = '\0';
+
+            /* Generate one dispatch function per interface method */
+            for (int mi = 0; mi < entry->iface_decl->method_count; mi++) {
+                Iron_Node *sig_node = entry->iface_decl->method_sigs[mi];
+                if (!sig_node || sig_node->kind != IRON_NODE_FUNC_DECL) continue;
+                Iron_FuncDecl *sig = (Iron_FuncDecl *)sig_node;
+
+                const char *ret_type_c = "void";
+                bool has_return = false;
+                if (sig->resolved_return_type) {
+                    ret_type_c = emit_type_to_c(sig->resolved_return_type, &ctx);
+                    has_return = (sig->resolved_return_type->kind != IRON_TYPE_VOID);
+                } else if (sig->return_type) {
+                    /* Fall back to type annotation for interface method signatures
+                     * where resolved_return_type may not be set */
+                    if (sig->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                        Iron_TypeAnnotation *rta = (Iron_TypeAnnotation *)sig->return_type;
+                        ret_type_c = annotation_to_c(rta->name, &ctx);
+                        has_return = (strcmp(ret_type_c, "void") != 0);
+                    }
+                }
+
+                /* Build parameter list: self + extra params */
+                Iron_StrBuf param_buf = iron_strbuf_create(128);
+                iron_strbuf_appendf(&param_buf, "%s self", iface_mangled);
+                for (int pi = 0; pi < sig->param_count; pi++) {
+                    Iron_Param *p = (Iron_Param *)sig->params[pi];
+                    const char *pt = "void*";
+                    if (p->type_ann) {
+                        Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
+                        pt = annotation_to_c(ta->name, &ctx);
+                    }
+                    iron_strbuf_appendf(&param_buf, ", %s %s", pt, p->name);
+                }
+                const char *params = iron_arena_strdup(ctx.arena,
+                    iron_strbuf_get(&param_buf), param_buf.len);
+                iron_strbuf_free(&param_buf);
+
+                /* Prototype — use lowercased name to match call site mangling */
+                iron_strbuf_appendf(&ctx.prototypes,
+                    "static inline %s %s_%s(%s);\n",
+                    ret_type_c, iface_lower, sig->name, params);
+
+                /* Build argument forwarding string (extra params only) */
+                Iron_StrBuf fwd_buf = iron_strbuf_create(64);
+                for (int pi = 0; pi < sig->param_count; pi++) {
+                    Iron_Param *p = (Iron_Param *)sig->params[pi];
+                    iron_strbuf_appendf(&fwd_buf, ", %s", p->name);
+                }
+                const char *fwd_args = iron_arena_strdup(ctx.arena,
+                    iron_strbuf_get(&fwd_buf), fwd_buf.len);
+                iron_strbuf_free(&fwd_buf);
+
+                /* Implementation — use lowercased name */
+                iron_strbuf_appendf(&ctx.lifted_funcs,
+                    "static inline %s %s_%s(%s) {\n"
+                    "    switch(self.tag) {\n",
+                    ret_type_c, iface_lower, sig->name, params);
+
+                for (int ji = 0; ji < entry->impl_count; ji++) {
+                    Iron_IfaceImpl *impl = &entry->impls[ji];
+                    if (!impl->is_alive) continue;
+                    /* Build lowercased concrete method name: Iron_circle_area */
+                    size_t tnl = strlen(impl->type_name);
+                    char *impl_lower = (char *)iron_arena_alloc(ctx.arena, 5 + tnl + 1, 1);
+                    memcpy(impl_lower, "Iron_", 5);
+                    for (size_t ci = 0; ci < tnl; ci++) {
+                        char ch = impl->type_name[ci];
+                        impl_lower[5 + ci] = (ch >= 'A' && ch <= 'Z')
+                            ? (char)(ch + ('a' - 'A')) : ch;
+                    }
+                    impl_lower[5 + tnl] = '\0';
+                    iron_strbuf_appendf(&ctx.lifted_funcs,
+                        "        case %s_TAG_%s: %s%s_%s(self.data.%s%s); break;\n",
+                        iface_mangled, impl->type_name,
+                        has_return ? "return " : "",
+                        impl_lower, sig->name,
+                        impl->type_name,
+                        fwd_args);
+                }
+
+                {
+                    const char *default_ret = "break;";
+                    if (has_return) {
+                        if (strcmp(ret_type_c, "Iron_String") == 0) {
+                            default_ret = "return iron_string_from_literal(\"\", 0);";
+                        } else if (strcmp(ret_type_c, "bool") == 0) {
+                            default_ret = "return false;";
+                        } else if (strcmp(ret_type_c, "double") == 0 ||
+                                   strcmp(ret_type_c, "float") == 0) {
+                            default_ret = "return 0.0;";
+                        } else {
+                            default_ret = "return 0;";
+                        }
+                    }
+                    iron_strbuf_appendf(&ctx.lifted_funcs,
+                        "        default: %s\n"
+                        "    }\n"
+                        "}\n\n",
+                        default_ret);
+                }
+            }
+        }
     }
 
     /* ── Phase 4: Function bodies ─────────────────────────────────────────── */

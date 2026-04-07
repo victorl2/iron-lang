@@ -1034,6 +1034,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 return coll_call->id;
             } else if (obj_type->kind == IRON_TYPE_ENUM && obj_type->enu.decl) {
                 type_name = obj_type->enu.decl->name;
+            } else if (obj_type->kind == IRON_TYPE_INTERFACE && obj_type->interface.decl) {
+                type_name = obj_type->interface.decl->name;
             }
         }
         /* Detect static method calls: receiver is a type reference, not an instance.
@@ -1444,6 +1446,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             }
             const char *name = iron_hir_var_name(ctx->hir, vid);
             IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, alloca_type, name, span);
+            hmput(ctx->var_alloca_map, vid, alloca_id);
+
+            if (stmt->let.init) {
+                IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_store(ctx->current_func, ctx->current_block,
+                                   alloca_id, init_val, span);
+                }
+            }
+        } else if (type && type->kind == IRON_TYPE_INTERFACE) {
+            /* Interface-typed immutable val: use ALLOCA+STORE to preserve
+             * the interface type for dispatch. Direct binding would lose the
+             * interface type info (the init value has the concrete type). */
+            const char *name = iron_hir_var_name(ctx->hir, vid);
+            IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, name, span);
             hmput(ctx->var_alloca_map, vid, alloca_id);
 
             if (stmt->let.init) {

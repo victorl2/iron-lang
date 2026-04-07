@@ -6,8 +6,10 @@
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
 #include "comptime/comptime.h"
+#include "vendor/stb_ds.h"
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
                                  Iron_DiagList *diags,
@@ -50,6 +52,7 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
 
     /* Step 5c: Dead implementor elimination */
     iron_iface_eliminate_dead(&result.iface_registry, program);
+
 
     /* Step 6: Comptime evaluation — replace IRON_NODE_COMPTIME nodes with literals */
     if (diags->error_count == 0) {

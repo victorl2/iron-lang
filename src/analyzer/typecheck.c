@@ -332,6 +332,19 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
             if (decl_void && init_void) return true;
         }
     }
+    /* Interface assignment: a concrete object type is assignable to an interface
+     * type when the object declares `impl` for that interface. */
+    if (decl_t->kind == IRON_TYPE_INTERFACE && init_t->kind == IRON_TYPE_OBJECT) {
+        Iron_ObjectDecl *obj = init_t->object.decl;
+        Iron_InterfaceDecl *iface = decl_t->interface.decl;
+        if (obj && iface) {
+            for (int i = 0; i < obj->implements_count; i++) {
+                if (strcmp(obj->implements_names[i], iface->name) == 0) {
+                    return true;
+                }
+            }
+        }
+    }
     return false;
 }
 
@@ -1334,6 +1347,30 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                     mc->resolved_type = result;
                     break;  /* skip decl scan — return type already resolved */
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_INTERFACE &&
+                           obj_id->resolved_type->interface.decl) {
+                    /* Interface dispatch: find the method in the interface's
+                     * method signatures and resolve the return type. */
+                    Iron_InterfaceDecl *iface_mc = obj_id->resolved_type->interface.decl;
+                    for (int mi = 0; mi < iface_mc->method_count; mi++) {
+                        Iron_Node *msig = iface_mc->method_sigs[mi];
+                        if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
+                        Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
+                        if (strcmp(fd->name, mc->method) != 0) continue;
+                        if (fd->resolved_return_type) {
+                            result = fd->resolved_return_type;
+                        } else if (fd->return_type &&
+                                   fd->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                            /* Resolve return type from annotation */
+                            Iron_TypeAnnotation *rta = (Iron_TypeAnnotation *)fd->return_type;
+                            Iron_Type *resolved_rt = resolve_type_annotation(ctx, (Iron_Node *)rta);
+                            if (resolved_rt) result = resolved_rt;
+                        }
+                        break;
+                    }
+                    mc->resolved_type = result;
+                    break;
                 } else if (obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_ENUM &&
                            obj_id->resolved_type->enu.decl) {

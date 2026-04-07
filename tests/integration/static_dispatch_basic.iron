@@ -1,0 +1,33 @@
+-- static_dispatch_basic.iron: Tagged union dispatch for interface types
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val shape1: Shape = Circle(10)
+  val a1 = shape1.area()
+  println("{a1}")
+
+  val shape2: Shape = Square(6)
+  val a2 = shape2.area()
+  println("{a2}")
+
+  println("done")
+}
