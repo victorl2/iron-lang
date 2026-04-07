@@ -284,7 +284,7 @@ void test_interface_missing_method(void) {
         "interface Drawable {\n"
         "  func draw() -> void\n"
         "}\n"
-        "object Sprite implements Drawable {\n"
+        "object Sprite impl Drawable {\n"
         "  var x: Int\n"
         "}\n";
     parse_and_resolve(src);
@@ -407,7 +407,7 @@ void test_interface_complete_no_error(void) {
         "interface Drawable {\n"
         "  func draw() -> void\n"
         "}\n"
-        "object Sprite implements Drawable {\n"
+        "object Sprite impl Drawable {\n"
         "  var x: Int\n"
         "}\n"
         "func Sprite.draw() {\n"
@@ -1116,7 +1116,7 @@ void test_generic_constraint_satisfied_no_error(void) {
         "interface Printable {\n"
         "  func to_string() -> String\n"
         "}\n"
-        "object MyObj implements Printable {\n"
+        "object MyObj impl Printable {\n"
         "  var value: Int\n"
         "}\n"
         "func MyObj.to_string() -> String {\n"
@@ -1168,13 +1168,13 @@ void test_generic_constraint_violated_construction(void) {
 
 /* GEN-03 negative: constraint satisfied on construction => no error
  * Uses call-as-construction path: Container(MyObj(1)) where field type T
- * is inferred from the MyObj arg, which implements Printable. */
+ * is inferred from the MyObj arg, which impl Printable. */
 void test_generic_constraint_satisfied_construction(void) {
     parse_and_resolve(
         "interface Printable {\n"
         "  func to_string() -> String\n"
         "}\n"
-        "object MyObj implements Printable {\n"
+        "object MyObj impl Printable {\n"
         "  var value: Int\n"
         "}\n"
         "func MyObj.to_string() -> String {\n"
