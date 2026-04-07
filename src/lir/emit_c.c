@@ -106,11 +106,24 @@ typedef struct {
         IronLIR_ValueId iterable_vid;    /* the split collection vid */
         const char *lower_name;          /* lowercase impl type for array field */
         bool is_reduced;                 /* true = using reduced storage struct */
+        bool is_soa;                     /* Phase 48-02: true = SoA layout for this type */
     } split_loop_ctx;
     bool in_split_loop;
 
     /* Phase 48: map of type names that use reduced storage (type_name -> true) */
     struct { char *key; bool value; } *reduced_storage_types;
+
+    /* Phase 48-02: map of "iface_mangled:type_name" -> true for SoA types */
+    struct { char *key; bool value; } *soa_types;
+
+    /* Phase 48-03: map of "iface:type" -> true for variants stored via pointer indirection */
+    struct { char *key; bool value; } *indirect_variants;
+
+    /* Phase 48-03: map of collection ValueId -> layout override (1=soa, 2=aos) */
+    struct { IronLIR_ValueId key; int value; } *layout_overrides;
+
+    /* Phase 48-03: map of collection ValueId -> true for unordered collections */
+    struct { IronLIR_ValueId key; bool value; } *unordered_collections;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -4522,6 +4535,11 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         /* Phase 48: Check if this type uses reduced storage */
                         bool type_is_reduced = (shgeti(ctx->reduced_storage_types,
                                                        impl2->type_name) >= 0);
+                        /* Phase 48-02: Check if this type uses SoA layout */
+                        char loop_soa_key[768];
+                        snprintf(loop_soa_key, sizeof(loop_soa_key), "%s:%s",
+                            sp_iface, impl2->type_name);
+                        bool type_is_soa = (shgeti(ctx->soa_types, loop_soa_key) >= 0);
 
                         /* Emit per-type for-loop */
                         emit_indent(sb, ctx->indent);
@@ -4530,27 +4548,60 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         iron_strbuf_appendf(sb, "for (int64_t _sp_i = 0; _sp_i < ");
                         emit_val(sb, matched->iterable_vid);
                         iron_strbuf_appendf(sb, ".%s_count; _sp_i++) {\n", lower_name);
-                        /* Prefetch hint — warm next cache line */
+                        if (!type_is_soa) {
+                        /* Prefetch hint — warm next cache line (AoS only) */
                         emit_indent(sb, ctx->indent + 2);
                         iron_strbuf_appendf(sb, "IRON_PREFETCH(&");
                         emit_val(sb, matched->iterable_vid);
                         iron_strbuf_appendf(sb, ".%s_items[_sp_i + 8]);\n", lower_name);
+                        }
 
-                        if (type_is_reduced && impl2->decl) {
-                            /* Phase 48: Reconstruct concrete object from reduced storage.
-                             * Build a full Iron_<Type> on the stack with only used fields
-                             * populated (dead fields are zero-initialized). Then wrap in
-                             * tagged union as before for method dispatch compatibility.
-                             *
-                             * Iron_Circle _tmp_circle = {0};
-                             * _tmp_circle.radius = _v3.circle_items[_sp_i].radius;
-                             * Iron_Shape _v7 = Iron_Shape_from_Circle(_tmp_circle);
-                             */
+                        if (type_is_soa && impl2->decl) {
+                            /* Phase 48-02: Reconstruct from SoA per-type field arrays.
+                             * Each used field has its own array: <lower>_<field>[_sp_i] */
                             const char *im2 = emit_mangle_name(impl2->type_name, ctx->arena);
                             emit_indent(sb, ctx->indent + 2);
                             iron_strbuf_appendf(sb, "%s _tmp_%s = {0};\n", im2, lower_name);
                             Iron_ObjectDecl *od = impl2->decl;
-                            /* Collect which collection vids match this interface */
+                            IronLIR_ValueId *cvids = NULL;
+                            if (ctx->split_collection_ids) {
+                                for (ptrdiff_t si = 0; si < hmlen(ctx->split_collection_ids); si++) {
+                                    if (strcmp(ctx->split_collection_ids[si].value, sp_iface) == 0)
+                                        arrput(cvids, ctx->split_collection_ids[si].key);
+                                }
+                            }
+                            for (int fi = 0; fi < od->field_count; fi++) {
+                                Iron_Field *f = (Iron_Field *)od->fields[fi];
+                                bool any_used = true;
+                                if (arrlen(cvids) > 0) {
+                                    any_used = false;
+                                    for (int ci2 = 0; ci2 < (int)arrlen(cvids); ci2++) {
+                                        if (iron_layout_is_field_used(&ctx->layout,
+                                                cvids[ci2], f->name)) {
+                                            any_used = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!any_used) continue;
+                                emit_indent(sb, ctx->indent + 2);
+                                iron_strbuf_appendf(sb, "_tmp_%s.%s = ", lower_name, f->name);
+                                emit_val(sb, matched->iterable_vid);
+                                iron_strbuf_appendf(sb, ".%s_%s[_sp_i];\n",
+                                    lower_name, f->name);
+                            }
+                            arrfree(cvids);
+                            emit_indent(sb, ctx->indent + 2);
+                            iron_strbuf_appendf(sb, "%s ", sp_iface);
+                            emit_val(sb, matched->get_index_vid);
+                            iron_strbuf_appendf(sb, " = %s_from_%s(_tmp_%s);\n",
+                                sp_iface, impl2->type_name, lower_name);
+                        } else if (type_is_reduced && impl2->decl) {
+                            /* Phase 48: Reconstruct from reduced storage */
+                            const char *im2 = emit_mangle_name(impl2->type_name, ctx->arena);
+                            emit_indent(sb, ctx->indent + 2);
+                            iron_strbuf_appendf(sb, "%s _tmp_%s = {0};\n", im2, lower_name);
+                            Iron_ObjectDecl *od = impl2->decl;
                             IronLIR_ValueId *cvids = NULL;
                             if (ctx->split_collection_ids) {
                                 for (ptrdiff_t si = 0; si < hmlen(ctx->split_collection_ids); si++) {
@@ -4576,7 +4627,6 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                                     lower_name, f->name);
                             }
                             arrfree(cvids);
-                            /* Wrap reconstructed object in tagged union */
                             emit_indent(sb, ctx->indent + 2);
                             iron_strbuf_appendf(sb, "%s ", sp_iface);
                             emit_val(sb, matched->get_index_vid);
@@ -4826,6 +4876,26 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                          "#define IRON_TAG_%s %d\n", mangled, type_tag);
 }
 
+/* ── Phase 48-03: Estimate size of a concrete type (in bytes) for variant split ── */
+
+static int estimate_type_size(Iron_ObjectDecl *od) {
+    if (!od) return 8;
+    int total = 0;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (f->type_ann) {
+            Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+            if (ta->is_array)       total += 24;  /* pointer + count + cap */
+            else if (ta->is_func)   total += 16;  /* Iron_Closure */
+            else if (strcmp(ta->name, "String") == 0) total += 16;  /* Iron_String */
+            else total += 8;  /* Int, Bool, Float, etc. */
+        } else {
+            total += 8;
+        }
+    }
+    return total > 0 ? total : 8;
+}
+
 /* ── Phase 48: Module-level prescan for split collections & layout analysis ── */
 
 static void prescan_split_collections(EmitCtx *ctx) {
@@ -4847,6 +4917,16 @@ static void prescan_split_collections(EmitCtx *ctx) {
                         in2->array_lit.elem_type->interface.decl->name, ctx->arena);
                     hmput(ctx->split_collection_ids, in2->id,
                           iron_arena_strdup(ctx->arena, im, strlen(im)));
+                    /* Phase 48-03: Check for layout annotation override */
+                    if (in2->type && in2->type->kind == IRON_TYPE_ARRAY) {
+                        if (in2->type->array.layout_hint != 0) {
+                            hmput(ctx->layout_overrides, in2->id,
+                                  in2->type->array.layout_hint);
+                        }
+                        if (in2->type->array.is_unordered) {
+                            hmput(ctx->unordered_collections, in2->id, true);
+                        }
+                    }
                 }
             }
         }
@@ -4864,6 +4944,8 @@ static void prescan_split_collections(EmitCtx *ctx) {
         }
         ctx->layout.arena = ctx->arena;
         iron_layout_analyze(&ctx->layout, ctx->module, la_ids, ctx->iface_reg);
+        /* Phase 48-02: SoA/AoS layout selection and common field detection */
+        iron_layout_select(&ctx->layout, ctx->module, la_ids, ctx->iface_reg);
         hmfree(la_ids);
     }
 }
@@ -4942,6 +5024,19 @@ static void emit_type_decls(EmitCtx *ctx) {
             }
             iron_strbuf_appendf(sb, "} %s_Tag;\n\n", iface_mangled);
 
+            /* Phase 48-03: Variant size analysis for large variant indirection.
+             * If the largest variant is >2x the smallest AND >64 bytes, store
+             * it via pointer indirection to avoid union padding waste. */
+            int smallest_size = 999999, largest_size = 0;
+            for (int j = 0; j < entry->impl_count; j++) {
+                Iron_IfaceImpl *impl = &entry->impls[j];
+                if (!impl->is_alive || !impl->decl) continue;
+                int sz = estimate_type_size(impl->decl);
+                if (sz < smallest_size) smallest_size = sz;
+                if (sz > largest_size)  largest_size = sz;
+            }
+            bool has_indirect = (largest_size > 2 * smallest_size && largest_size > 64);
+
             /* Union of concrete types */
             iron_strbuf_appendf(sb, "typedef union {\n");
             iron_strbuf_appendf(sb, "    char _dummy;\n");
@@ -4949,7 +5044,22 @@ static void emit_type_decls(EmitCtx *ctx) {
                 Iron_IfaceImpl *impl = &entry->impls[j];
                 if (!impl->is_alive) continue;
                 const char *impl_mangled = emit_mangle_name(impl->type_name, ctx->arena);
-                iron_strbuf_appendf(sb, "    %s %s;\n", impl_mangled, impl->type_name);
+                bool is_indirect = false;
+                if (has_indirect && impl->decl) {
+                    int sz = estimate_type_size(impl->decl);
+                    if (sz > 2 * smallest_size && sz > 64) {
+                        is_indirect = true;
+                        /* Track this variant as indirect */
+                        char ikey[512];
+                        snprintf(ikey, sizeof(ikey), "%s:%s", iface_mangled, impl->type_name);
+                        shput(ctx->indirect_variants, ikey, true);
+                    }
+                }
+                if (is_indirect) {
+                    iron_strbuf_appendf(sb, "    %s *%s;\n", impl_mangled, impl->type_name);
+                } else {
+                    iron_strbuf_appendf(sb, "    %s %s;\n", impl_mangled, impl->type_name);
+                }
             }
             iron_strbuf_appendf(sb, "} %s_data_t;\n\n", iface_mangled);
 
@@ -4965,18 +5075,40 @@ static void emit_type_decls(EmitCtx *ctx) {
                 if (!impl->is_alive) continue;
                 const char *impl_mangled = emit_mangle_name(impl->type_name, ctx->arena);
 
-                /* Prototype: static inline Iron_Shape Iron_Shape_from_Circle(Iron_Circle val) */
-                iron_strbuf_appendf(sb,
-                    "static inline %s %s_from_%s(%s val) {\n"
-                    "    %s result;\n"
-                    "    result.tag = %s_TAG_%s;\n"
-                    "    result.data.%s = val;\n"
-                    "    return result;\n"
-                    "}\n\n",
-                    iface_mangled, iface_mangled, impl->type_name, impl_mangled,
-                    iface_mangled,
-                    iface_mangled, impl->type_name,
-                    impl->type_name);
+                /* Check if this variant uses pointer indirection */
+                char ikey[512];
+                snprintf(ikey, sizeof(ikey), "%s:%s", iface_mangled, impl->type_name);
+                bool is_indirect = (shgeti(ctx->indirect_variants, ikey) >= 0);
+
+                if (is_indirect) {
+                    /* Large variant: heap-allocate and store pointer */
+                    iron_strbuf_appendf(sb,
+                        "static inline %s %s_from_%s(%s val) {\n"
+                        "    %s result;\n"
+                        "    result.tag = %s_TAG_%s;\n"
+                        "    result.data.%s = (%s *)malloc(sizeof(%s));\n"
+                        "    *result.data.%s = val;\n"
+                        "    return result;\n"
+                        "}\n\n",
+                        iface_mangled, iface_mangled, impl->type_name, impl_mangled,
+                        iface_mangled,
+                        iface_mangled, impl->type_name,
+                        impl->type_name, impl_mangled, impl_mangled,
+                        impl->type_name);
+                } else {
+                    /* Small variant: inline storage (original behavior) */
+                    iron_strbuf_appendf(sb,
+                        "static inline %s %s_from_%s(%s val) {\n"
+                        "    %s result;\n"
+                        "    result.tag = %s_TAG_%s;\n"
+                        "    result.data.%s = val;\n"
+                        "    return result;\n"
+                        "}\n\n",
+                        iface_mangled, iface_mangled, impl->type_name, impl_mangled,
+                        iface_mangled,
+                        iface_mangled, impl->type_name,
+                        impl->type_name);
+                }
             }
 
             /* ── Split Collection struct (Phase 41+48: Collection Splitting + Dead Field Elim)
@@ -5069,8 +5201,40 @@ static void emit_type_decls(EmitCtx *ctx) {
                     }
                 }
 
+                /* Phase 48-02: Check for common fields.
+                 * Common field shared arrays only apply when ALL alive implementors
+                 * use AoS layout.  When any type uses SoA, each type stores its own
+                 * per-field arrays, so common field factoring doesn't help
+                 * (the per-type counts would differ from the shared count). */
+                bool any_soa = false;
+                for (int j = 0; j < entry->impl_count; j++) {
+                    Iron_IfaceImpl *impl_chk = &entry->impls[j];
+                    if (!impl_chk->is_alive) continue;
+                    IronLayoutKind lk_chk = iron_layout_get_kind(&ctx->layout,
+                        iface_mangled, impl_chk->type_name);
+                    if (lk_chk == IRON_LAYOUT_SOA) { any_soa = true; break; }
+                }
+                CommonField *common_fields = NULL;
+                if (!any_soa) {
+                    common_fields = iron_layout_get_common_fields(
+                        &ctx->layout, entry->iface_name);
+                }
+
                 iron_strbuf_appendf(sb, "/* Split collection for %s */\n", iface_mangled);
                 iron_strbuf_appendf(sb, "typedef struct {\n");
+
+                /* Phase 48-02: Common field shared arrays (before per-type arrays) */
+                if (common_fields && arrlen(common_fields) > 0) {
+                    iron_strbuf_appendf(sb, "    /* Common fields shared across all implementors */\n");
+                    for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                        iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
+                            common_fields[cfi].c_type, iface_lower,
+                            common_fields[cfi].name);
+                    }
+                    iron_strbuf_appendf(sb, "    int64_t %s_common_count;\n", iface_lower);
+                    iron_strbuf_appendf(sb, "    int64_t %s_common_cap;\n", iface_lower);
+                }
+
                 /* Per-type sub-arrays */
                 for (int j = 0; j < entry->impl_count; j++) {
                     Iron_IfaceImpl *impl2 = &entry->impls[j];
@@ -5087,20 +5251,114 @@ static void emit_type_decls(EmitCtx *ctx) {
                                 : impl2->type_name[ci3]);
                         lower_name[nl2] = '\0';
                     }
-                    /* Phase 48: Use reduced storage type if available */
-                    ptrdiff_t red_idx = shgeti(ctx->reduced_storage_types, impl2->type_name);
-                    if (red_idx >= 0) {
-                        iron_strbuf_appendf(sb, "    %s_Stor *%s_items;\n", im, lower_name);
-                    } else {
-                        iron_strbuf_appendf(sb, "    %s *%s_items;\n", im, lower_name);
+
+                    /* Phase 48-02: Check SoA layout for this type */
+                    IronLayoutKind lk = iron_layout_get_kind(&ctx->layout,
+                        iface_mangled, impl2->type_name);
+
+                    /* Phase 48-03: Layout annotation override with warning */
+                    for (int ci4 = 0; ci4 < (int)arrlen(iface_collection_vids); ci4++) {
+                        ptrdiff_t ov_idx = hmgeti(ctx->layout_overrides,
+                            iface_collection_vids[ci4]);
+                        if (ov_idx >= 0) {
+                            int override_hint = ctx->layout_overrides[ov_idx].value;
+                            IronLayoutKind override_lk = (override_hint == 1)
+                                ? IRON_LAYOUT_SOA : IRON_LAYOUT_AOS;
+                            if (override_lk != lk) {
+                                fprintf(stderr,
+                                    "warning: 'layout: %s' annotation may reduce performance "
+                                    "-- compiler analysis suggests %s for %s. "
+                                    "Annotation honored.\n",
+                                    override_hint == 1 ? "soa" : "aos",
+                                    lk == IRON_LAYOUT_SOA ? "SoA" : "AoS",
+                                    impl2->type_name);
+                            }
+                            lk = override_lk;
+                            break;
+                        }
                     }
-                    iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
-                    iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
+
+                    if (lk == IRON_LAYOUT_SOA && impl2->decl) {
+                        /* SoA: emit separate per-field arrays */
+                        {
+                            char soa_key_tmp[768];
+                            snprintf(soa_key_tmp, sizeof(soa_key_tmp), "%s:%s",
+                                iface_mangled, impl2->type_name);
+                            /* Arena-allocate key so it survives block scope */
+                            const char *soa_key_str = iron_arena_strdup(ctx->arena,
+                                soa_key_tmp, strlen(soa_key_tmp));
+                            shput(ctx->soa_types, soa_key_str, true);
+                        }
+                        iron_strbuf_appendf(sb, "    /* SoA layout for %s */\n",
+                            impl2->type_name);
+                        Iron_ObjectDecl *od = impl2->decl;
+                        for (int fi = 0; fi < od->field_count; fi++) {
+                            Iron_Field *f = (Iron_Field *)od->fields[fi];
+                            /* Check if this field is used (dead field elimination) */
+                            bool any_used = true;
+                            if (arrlen(iface_collection_vids) > 0) {
+                                any_used = false;
+                                for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                                    if (iron_layout_is_field_used(&ctx->layout,
+                                            iface_collection_vids[ci2], f->name)) {
+                                        any_used = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            /* Skip common fields if they exist (stored in shared arrays) */
+                            bool is_common = false;
+                            if (common_fields) {
+                                for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                                    if (strcmp(common_fields[cfi].name, f->name) == 0 &&
+                                        common_fields[cfi].position == fi) {
+                                        is_common = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!any_used) continue;
+                            if (is_common) continue;
+                            /* Emit field-specific array */
+                            const char *c_type = "int64_t";
+                            if (f->type_ann) {
+                                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                                if (!ta->is_func && !ta->is_nullable && !ta->is_array) {
+                                    c_type = annotation_to_c(ta->name, ctx);
+                                }
+                            }
+                            iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
+                                c_type, lower_name, f->name);
+                        }
+                        iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
+                        iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
+                    } else {
+                        /* AoS: Use reduced storage type if available, otherwise full struct */
+                        ptrdiff_t red_idx = shgeti(ctx->reduced_storage_types, impl2->type_name);
+                        if (red_idx >= 0) {
+                            iron_strbuf_appendf(sb, "    %s_Stor *%s_items;\n", im, lower_name);
+                        } else {
+                            iron_strbuf_appendf(sb, "    %s *%s_items;\n", im, lower_name);
+                        }
+                        iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
+                        iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
+                    }
                 }
-                /* Order index array */
-                iron_strbuf_appendf(sb, "    struct { uint8_t tag; int64_t idx; } *_order;\n");
-                iron_strbuf_appendf(sb, "    int64_t _order_count;\n");
-                iron_strbuf_appendf(sb, "    int64_t _order_cap;\n");
+                /* Phase 48-03: Check if ALL collections of this interface are unordered */
+                bool all_unordered = (arrlen(iface_collection_vids) > 0);
+                for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                    if (hmgeti(ctx->unordered_collections, iface_collection_vids[ci2]) < 0) {
+                        all_unordered = false;
+                        break;
+                    }
+                }
+
+                /* Order index array (skipped for [T, unordered] collections) */
+                if (!all_unordered) {
+                    iron_strbuf_appendf(sb, "    struct { uint8_t tag; int64_t idx; } *_order;\n");
+                    iron_strbuf_appendf(sb, "    int64_t _order_count;\n");
+                    iron_strbuf_appendf(sb, "    int64_t _order_cap;\n");
+                }
                 iron_strbuf_appendf(sb, "    int64_t _total_count;\n");
                 iron_strbuf_appendf(sb, "} Iron_SplitList_%s;\n\n", iface_mangled);
 
@@ -5120,16 +5378,14 @@ static void emit_type_decls(EmitCtx *ctx) {
                                 : impl2->type_name[ci3]);
                         lower_name[nl2] = '\0';
                     }
+
+                    /* Phase 48-02: Check if this type uses SoA layout */
+                    char soa_key[768];
+                    snprintf(soa_key, sizeof(soa_key), "%s:%s",
+                        iface_mangled, impl2->type_name);
+                    bool type_is_soa = (shgeti(ctx->soa_types, soa_key) >= 0);
+
                     ptrdiff_t red_idx = shgeti(ctx->reduced_storage_types, impl2->type_name);
-                    /* Build storage type name: reduced types use Iron_<Type>_Stor */
-                    char stor_type_buf[512];
-                    const char *stor_type;
-                    if (red_idx >= 0) {
-                        snprintf(stor_type_buf, sizeof(stor_type_buf), "%s_Stor", im);
-                        stor_type = stor_type_buf;
-                    } else {
-                        stor_type = im;
-                    }
 
                     /* Push function always accepts FULL struct (caller pushes concrete object) */
                     iron_strbuf_appendf(sb,
@@ -5137,54 +5393,182 @@ static void emit_type_decls(EmitCtx *ctx) {
                         "Iron_SplitList_%s *_sl, %s _val) {\n",
                         iface_mangled, impl2->type_name,
                         iface_mangled, im);
-                    /* Grow type-specific sub-array */
-                    iron_strbuf_appendf(sb,
-                        "    if (_sl->%s_count >= _sl->%s_cap) {\n"
-                        "        _sl->%s_cap = _sl->%s_cap ? _sl->%s_cap * 2 : 8;\n"
-                        "        _sl->%s_items = (%s *)realloc(_sl->%s_items, "
-                        "(size_t)_sl->%s_cap * sizeof(%s));\n"
-                        "    }\n",
-                        lower_name, lower_name,
-                        lower_name, lower_name, lower_name,
-                        lower_name, stor_type, lower_name,
-                        lower_name, stor_type);
 
-                    /* Phase 48: For reduced storage, copy only used fields */
-                    if (red_idx >= 0 && impl2->decl) {
+                    if (type_is_soa && impl2->decl) {
+                        /* Phase 48-02: SoA push -- grow and copy each field array */
                         Iron_ObjectDecl *od = impl2->decl;
+
+                        /* Capacity growth (shared across all field arrays) */
+                        iron_strbuf_appendf(sb,
+                            "    if (_sl->%s_count >= _sl->%s_cap) {\n"
+                            "        _sl->%s_cap = _sl->%s_cap ? _sl->%s_cap * 2 : 8;\n",
+                            lower_name, lower_name,
+                            lower_name, lower_name, lower_name);
+                        /* Realloc each used non-common field array */
                         for (int fi = 0; fi < od->field_count; fi++) {
                             Iron_Field *f = (Iron_Field *)od->fields[fi];
-                            bool any_used = false;
-                            for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
-                                if (iron_layout_is_field_used(&ctx->layout,
-                                        iface_collection_vids[ci2], f->name)) {
-                                    any_used = true;
-                                    break;
+                            bool any_used = true;
+                            if (arrlen(iface_collection_vids) > 0) {
+                                any_used = false;
+                                for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                                    if (iron_layout_is_field_used(&ctx->layout,
+                                            iface_collection_vids[ci2], f->name)) {
+                                        any_used = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            bool is_common = false;
+                            if (common_fields) {
+                                for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                                    if (strcmp(common_fields[cfi].name, f->name) == 0 &&
+                                        common_fields[cfi].position == fi) {
+                                        is_common = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!any_used || is_common) continue;
+                            const char *c_type = "int64_t";
+                            if (f->type_ann) {
+                                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                                if (!ta->is_func && !ta->is_nullable && !ta->is_array) {
+                                    c_type = annotation_to_c(ta->name, ctx);
+                                }
+                            }
+                            iron_strbuf_appendf(sb,
+                                "        _sl->%s_%s = (%s *)realloc(_sl->%s_%s, "
+                                "(size_t)_sl->%s_cap * sizeof(%s));\n",
+                                lower_name, f->name, c_type,
+                                lower_name, f->name,
+                                lower_name, c_type);
+                        }
+                        iron_strbuf_appendf(sb, "    }\n");
+
+                        /* Copy each field to its own array */
+                        for (int fi = 0; fi < od->field_count; fi++) {
+                            Iron_Field *f = (Iron_Field *)od->fields[fi];
+                            bool any_used = true;
+                            if (arrlen(iface_collection_vids) > 0) {
+                                any_used = false;
+                                for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                                    if (iron_layout_is_field_used(&ctx->layout,
+                                            iface_collection_vids[ci2], f->name)) {
+                                        any_used = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            bool is_common = false;
+                            if (common_fields) {
+                                for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                                    if (strcmp(common_fields[cfi].name, f->name) == 0 &&
+                                        common_fields[cfi].position == fi) {
+                                        is_common = true;
+                                        break;
+                                    }
                                 }
                             }
                             if (!any_used) continue;
+                            if (is_common) {
+                                /* Common fields pushed to shared array instead */
+                                iron_strbuf_appendf(sb,
+                                    "    /* common field %s -> shared array */\n",
+                                    f->name);
+                                continue;
+                            }
                             iron_strbuf_appendf(sb,
-                                "    _sl->%s_items[_sl->%s_count].%s = _val.%s;\n",
-                                lower_name, lower_name, f->name, f->name);
+                                "    _sl->%s_%s[_sl->%s_count] = _val.%s;\n",
+                                lower_name, f->name, lower_name, f->name);
+                        }
+
+                        /* Push common fields to shared arrays */
+                        if (common_fields && arrlen(common_fields) > 0) {
+                            iron_strbuf_appendf(sb,
+                                "    if (_sl->%s_common_count >= _sl->%s_common_cap) {\n"
+                                "        _sl->%s_common_cap = _sl->%s_common_cap ? _sl->%s_common_cap * 2 : 8;\n",
+                                iface_lower, iface_lower,
+                                iface_lower, iface_lower, iface_lower);
+                            for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                                iron_strbuf_appendf(sb,
+                                    "        _sl->%s_%s = (%s *)realloc(_sl->%s_%s, "
+                                    "(size_t)_sl->%s_common_cap * sizeof(%s));\n",
+                                    iface_lower, common_fields[cfi].name, common_fields[cfi].c_type,
+                                    iface_lower, common_fields[cfi].name,
+                                    iface_lower, common_fields[cfi].c_type);
+                            }
+                            iron_strbuf_appendf(sb, "    }\n");
+                            for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                                iron_strbuf_appendf(sb,
+                                    "    _sl->%s_%s[_sl->%s_common_count] = _val.%s;\n",
+                                    iface_lower, common_fields[cfi].name,
+                                    iface_lower, common_fields[cfi].name);
+                            }
+                            iron_strbuf_appendf(sb,
+                                "    _sl->%s_common_count++;\n", iface_lower);
                         }
                     } else {
-                        /* Store full element */
+                        /* AoS push (original + reduced storage support) */
+                        /* Build storage type name */
+                        char stor_type_buf[512];
+                        const char *stor_type;
+                        if (red_idx >= 0) {
+                            snprintf(stor_type_buf, sizeof(stor_type_buf), "%s_Stor", im);
+                            stor_type = stor_type_buf;
+                        } else {
+                            stor_type = im;
+                        }
+                        /* Grow type-specific sub-array */
                         iron_strbuf_appendf(sb,
-                            "    _sl->%s_items[_sl->%s_count] = _val;\n",
-                            lower_name, lower_name);
+                            "    if (_sl->%s_count >= _sl->%s_cap) {\n"
+                            "        _sl->%s_cap = _sl->%s_cap ? _sl->%s_cap * 2 : 8;\n"
+                            "        _sl->%s_items = (%s *)realloc(_sl->%s_items, "
+                            "(size_t)_sl->%s_cap * sizeof(%s));\n"
+                            "    }\n",
+                            lower_name, lower_name,
+                            lower_name, lower_name, lower_name,
+                            lower_name, stor_type, lower_name,
+                            lower_name, stor_type);
+
+                        /* Phase 48: For reduced storage, copy only used fields */
+                        if (red_idx >= 0 && impl2->decl) {
+                            Iron_ObjectDecl *od = impl2->decl;
+                            for (int fi = 0; fi < od->field_count; fi++) {
+                                Iron_Field *f = (Iron_Field *)od->fields[fi];
+                                bool any_used = false;
+                                for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                                    if (iron_layout_is_field_used(&ctx->layout,
+                                            iface_collection_vids[ci2], f->name)) {
+                                        any_used = true;
+                                        break;
+                                    }
+                                }
+                                if (!any_used) continue;
+                                iron_strbuf_appendf(sb,
+                                    "    _sl->%s_items[_sl->%s_count].%s = _val.%s;\n",
+                                    lower_name, lower_name, f->name, f->name);
+                            }
+                        } else {
+                            /* Store full element */
+                            iron_strbuf_appendf(sb,
+                                "    _sl->%s_items[_sl->%s_count] = _val;\n",
+                                lower_name, lower_name);
+                        }
                     }
 
-                    /* Grow order index */
-                    iron_strbuf_appendf(sb,
-                        "    if (_sl->_order_count >= _sl->_order_cap) {\n"
-                        "        _sl->_order_cap = _sl->_order_cap ? _sl->_order_cap * 2 : 8;\n"
-                        "        _sl->_order = realloc(_sl->_order, "
-                        "(size_t)_sl->_order_cap * sizeof(*_sl->_order));\n"
-                        "    }\n"
-                        "    _sl->_order[_sl->_order_count].tag = %d;\n"
-                        "    _sl->_order[_sl->_order_count].idx = _sl->%s_count;\n"
-                        "    _sl->_order_count++;\n",
-                        impl2->tag, lower_name);
+                    /* Grow order index (skipped for unordered collections) */
+                    if (!all_unordered) {
+                        iron_strbuf_appendf(sb,
+                            "    if (_sl->_order_count >= _sl->_order_cap) {\n"
+                            "        _sl->_order_cap = _sl->_order_cap ? _sl->_order_cap * 2 : 8;\n"
+                            "        _sl->_order = realloc(_sl->_order, "
+                            "(size_t)_sl->_order_cap * sizeof(*_sl->_order));\n"
+                            "    }\n"
+                            "    _sl->_order[_sl->_order_count].tag = %d;\n"
+                            "    _sl->_order[_sl->_order_count].idx = _sl->%s_count;\n"
+                            "    _sl->_order_count++;\n",
+                            impl2->tag, lower_name);
+                    }
                     /* Increment counts */
                     iron_strbuf_appendf(sb,
                         "    _sl->%s_count++;\n"
@@ -5192,13 +5576,19 @@ static void emit_type_decls(EmitCtx *ctx) {
                         "}\n\n",
                         lower_name);
                 }
-                arrfree(iface_collection_vids);
-
                 /* Free function */
                 iron_strbuf_appendf(sb,
                     "static inline void Iron_SplitList_%s_free("
                     "Iron_SplitList_%s *_sl) {\n",
                     iface_mangled, iface_mangled);
+                /* Free common field shared arrays */
+                if (common_fields && arrlen(common_fields) > 0) {
+                    for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                        iron_strbuf_appendf(sb,
+                            "    free(_sl->%s_%s);\n",
+                            iface_lower, common_fields[cfi].name);
+                    }
+                }
                 for (int j = 0; j < entry->impl_count; j++) {
                     Iron_IfaceImpl *impl2 = &entry->impls[j];
                     if (!impl2->is_alive) continue;
@@ -5213,11 +5603,49 @@ static void emit_type_decls(EmitCtx *ctx) {
                                 : impl2->type_name[ci3]);
                         lower_name[nl2] = '\0';
                     }
-                    iron_strbuf_appendf(sb,
-                        "    free(_sl->%s_items);\n", lower_name);
+                    /* Phase 48-02: SoA types free per-field arrays */
+                    char free_soa_key[768];
+                    snprintf(free_soa_key, sizeof(free_soa_key), "%s:%s",
+                        iface_mangled, impl2->type_name);
+                    if (shgeti(ctx->soa_types, free_soa_key) >= 0 && impl2->decl) {
+                        Iron_ObjectDecl *od = impl2->decl;
+                        for (int fi = 0; fi < od->field_count; fi++) {
+                            Iron_Field *f = (Iron_Field *)od->fields[fi];
+                            bool any_used = true;
+                            if (iface_collection_vids) {
+                                any_used = false;
+                                for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
+                                    if (iron_layout_is_field_used(&ctx->layout,
+                                            iface_collection_vids[ci2], f->name)) {
+                                        any_used = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            bool is_common = false;
+                            if (common_fields) {
+                                for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
+                                    if (strcmp(common_fields[cfi].name, f->name) == 0 &&
+                                        common_fields[cfi].position == fi) {
+                                        is_common = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!any_used || is_common) continue;
+                            iron_strbuf_appendf(sb,
+                                "    free(_sl->%s_%s);\n", lower_name, f->name);
+                        }
+                    } else {
+                        iron_strbuf_appendf(sb,
+                            "    free(_sl->%s_items);\n", lower_name);
+                    }
                 }
-                iron_strbuf_appendf(sb, "    free(_sl->_order);\n");
+                if (!all_unordered) {
+                    iron_strbuf_appendf(sb, "    free(_sl->_order);\n");
+                }
                 iron_strbuf_appendf(sb, "}\n\n");
+                arrfree(iface_collection_vids);
             }
         }
     }
@@ -5556,11 +5984,17 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             ? (char)(ch + ('a' - 'A')) : ch;
                     }
                     impl_lower[5 + tnl] = '\0';
+                    /* Phase 48-03: dereference pointer for indirect (large) variants */
+                    char ikey[512];
+                    snprintf(ikey, sizeof(ikey), "%s:%s", iface_mangled, impl->type_name);
+                    bool is_indirect = (ctx.indirect_variants &&
+                                        shgeti(ctx.indirect_variants, ikey) >= 0);
                     iron_strbuf_appendf(&ctx.lifted_funcs,
-                        "        case %s_TAG_%s: %s%s_%s(self.data.%s%s); break;\n",
+                        "        case %s_TAG_%s: %s%s_%s(%sself.data.%s%s); break;\n",
                         iface_mangled, impl->type_name,
                         has_return ? "return " : "",
                         impl_lower, sig->name,
+                        is_indirect ? "*" : "",
                         impl->type_name,
                         fwd_args);
                 }
@@ -5666,6 +6100,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* Phase 48: Free layout analysis and reduced storage tracking */
     iron_layout_free(&ctx.layout);
     shfree(ctx.reduced_storage_types);
+    shfree(ctx.soa_types);
 
     return result;
 }
