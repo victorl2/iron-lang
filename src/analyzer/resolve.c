@@ -166,6 +166,10 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
     if (node->kind != IRON_NODE_METHOD_DECL) return;
 
     Iron_MethodDecl *md = (Iron_MethodDecl *)node;
+
+    /* Array extension methods (func [T].map(...)) have no owning type in scope */
+    if (md->is_array_extension) return;
+
     Iron_Symbol *owner = iron_scope_lookup(ctx->global_scope, md->type_name);
     if (!owner) {
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
