@@ -1,0 +1,36 @@
+-- layout_annotation_warn.iron: Warning when annotation contradicts analysis
+-- Tests Phase 48: layout: soa annotation honored with warning
+
+interface Pair {
+  func sum() -> Int
+}
+
+object IntPair impl Pair {
+  var a: Int
+  var b: Int
+}
+
+object FloatPair impl Pair {
+  var a: Int
+  var b: Int
+}
+
+func IntPair.sum() -> Int {
+  return self.a + self.b
+}
+
+func FloatPair.sum() -> Int {
+  return self.a + self.b
+}
+
+func main() {
+  -- Force SoA even though loop accesses all fields (a and b = 100%)
+  val pairs: [Pair, layout: soa] = [IntPair(3, 4), FloatPair(5, 6)]
+  var total = 0
+  for p in pairs {
+    total = total + p.sum()
+  }
+  -- (3+4) + (5+6) = 18
+  println("{total}")
+  println("done")
+}

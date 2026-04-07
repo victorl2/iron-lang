@@ -1,0 +1,38 @@
+-- layout_variant_split.iron: Large variant stored via pointer indirection
+-- Tests Phase 48: non-collection interface var with size-disparate variants
+
+interface Shape {
+  func area() -> Int
+}
+
+object TinyDot impl Shape {
+  var x: Int
+}
+
+object HugeRect impl Shape {
+  var x1: Int
+  var y1: Int
+  var x2: Int
+  var y2: Int
+  var color_r: Int
+  var color_g: Int
+  var color_b: Int
+  var color_a: Int
+  var z_index: Int
+}
+
+func TinyDot.area() -> Int {
+  return 0
+}
+
+func HugeRect.area() -> Int {
+  return (self.x2 - self.x1) * (self.y2 - self.y1)
+}
+
+func main() {
+  val s1: Shape = TinyDot(5)
+  val s2: Shape = HugeRect(0, 0, 10, 20, 255, 128, 0, 255, 1)
+  println("{s1.area()}")
+  println("{s2.area()}")
+  println("done")
+}
