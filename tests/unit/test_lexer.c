@@ -59,7 +59,7 @@ void test_all_37_keywords(void) {
         { "func",       IRON_TOK_FUNC       },
         { "heap",       IRON_TOK_HEAP       },
         { "if",         IRON_TOK_IF         },
-        { "implements", IRON_TOK_IMPLEMENTS },
+        { "impl",       IRON_TOK_IMPL       },
         { "import",     IRON_TOK_IMPORT     },
         { "in",         IRON_TOK_IN         },
         { "interface",  IRON_TOK_INTERFACE  },

@@ -1954,10 +1954,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
         }
     }
 
-    /* Optional: implements I1, I2 */
+    /* Optional: impl I1, I2 */
     const char **impl_names = NULL;
     int          impl_count = 0;
-    if (iron_check(p, IRON_TOK_IMPLEMENTS)) {
+    if (iron_check(p, IRON_TOK_IMPL)) {
         iron_advance(p);
         while (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *it = iron_advance(p);

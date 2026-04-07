@@ -129,7 +129,7 @@ void test_parse_object_extends(void) {
 }
 
 void test_parse_object_implements(void) {
-    Iron_Node *prog = parse("object Player implements Drawable, Updatable { }");
+    Iron_Node *prog = parse("object Player impl Drawable, Updatable { }");
     Iron_Node *d    = first_decl(prog);
     TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, d->kind);
     Iron_ObjectDecl *obj = (Iron_ObjectDecl *)d;
