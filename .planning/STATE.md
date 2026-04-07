@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 48-01-PLAN.md
-last_updated: "2026-04-07T20:50:15.947Z"
-last_activity: 2026-04-07 -- Completed 48-01 dead field elimination
+stopped_at: Completed 48-02-PLAN.md
+last_updated: "2026-04-07T22:21:52.233Z"
+last_activity: 2026-04-07 -- Completed 48-02 SoA/AoS layout selection
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 5
   percent: 20
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 ## Current Position
 
 Phase: 48 of 50 (Layout Optimizations)
-Plan: 1 of 4
+Plan: 2 of 4
 Status: in_progress
-Last activity: 2026-04-07 -- Completed 48-01 dead field elimination
+Last activity: 2026-04-07 -- Completed 48-02 SoA/AoS layout selection
 
 Progress: [▓▓░░░░░░░░] 20%
 
@@ -45,6 +45,7 @@ Progress: [▓▓░░░░░░░░] 20%
 | 47-collection-methods | 02 | 20min | 2 | 15 |
 | 47-collection-methods | 03 | 49min | 1 | 19 |
 | Phase 48-layout-optimizations P01 | 24min | 2 tasks | 6 files |
+| Phase 48-layout-optimizations P02 | 21min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,8 @@ Progress: [▓▓░░░░░░░░] 20%
 - [47-03]: Filter on split collections returns new split collection
 - [Phase 48]: Interprocedural method analysis: scan interface method implementations for self.field accesses to determine used fields in split collections
 - [Phase 48]: Object reconstruction from reduced storage: zero-init + field copy for tagged union dispatch compatibility
+- [Phase 48]: Common field shared arrays disabled when any implementor uses SoA (per-type vs shared count divergence)
+- [Phase 48]: SoA per-field arrays: <lower>_<field> naming pattern for cache-contiguous field storage
 
 ### Pending Todos
 
@@ -81,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-07T20:50:15.944Z
-Stopped at: Completed 48-01-PLAN.md
+Last session: 2026-04-07T22:21:52.231Z
+Stopped at: Completed 48-02-PLAN.md
 Resume file: None
