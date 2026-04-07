@@ -4143,22 +4143,6 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         emit_instr(sb, in2, fn, ctx);
                     }
 
-                    /* Phase 44: Emit OpenMP parallel sections for independent type loops */
-                    int alive_type_count = 0;
-                    for (int ji = 0; ji < sp_entry2->impl_count; ji++) {
-                        if (sp_entry2->impls[ji].is_alive) alive_type_count++;
-                    }
-                    if (alive_type_count > 1) {
-                        emit_indent(sb, ctx->indent);
-                        iron_strbuf_appendf(sb, "#ifdef _OPENMP\n");
-                        emit_indent(sb, ctx->indent);
-                        iron_strbuf_appendf(sb, "#pragma omp parallel sections\n");
-                        emit_indent(sb, ctx->indent);
-                        iron_strbuf_appendf(sb, "#endif\n");
-                        emit_indent(sb, ctx->indent);
-                        iron_strbuf_appendf(sb, "{\n");
-                    }
-
                     for (int ji = 0; ji < sp_entry2->impl_count; ji++) {
                         Iron_IfaceImpl *impl2 = &sp_entry2->impls[ji];
                         if (!impl2->is_alive) continue;
@@ -4173,29 +4157,20 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                                     : impl2->type_name[ci3]);
                             lower_name[nl2] = '\0';
                         }
-                        /* Phase 44: OpenMP section per type */
-                        if (alive_type_count > 1) {
-                            emit_indent(sb, ctx->indent + 1);
-                            iron_strbuf_appendf(sb, "#ifdef _OPENMP\n");
-                            emit_indent(sb, ctx->indent + 1);
-                            iron_strbuf_appendf(sb, "#pragma omp section\n");
-                            emit_indent(sb, ctx->indent + 1);
-                            iron_strbuf_appendf(sb, "#endif\n");
-                        }
                         /* Emit per-type for-loop */
-                        emit_indent(sb, ctx->indent + 1);
+                        emit_indent(sb, ctx->indent);
                         iron_strbuf_appendf(sb, "{ /* unordered split: %s */\n", impl2->type_name);
-                        emit_indent(sb, ctx->indent + 2);
+                        emit_indent(sb, ctx->indent + 1);
                         iron_strbuf_appendf(sb, "for (int64_t _sp_i = 0; _sp_i < ");
                         emit_val(sb, matched->iterable_vid);
                         iron_strbuf_appendf(sb, ".%s_count; _sp_i++) {\n", lower_name);
-                        /* Phase 44: Prefetch hint — warm next cache line */
-                        emit_indent(sb, ctx->indent + 3);
+                        /* Prefetch hint — warm next cache line */
+                        emit_indent(sb, ctx->indent + 2);
                         iron_strbuf_appendf(sb, "IRON_PREFETCH(&");
                         emit_val(sb, matched->iterable_vid);
                         iron_strbuf_appendf(sb, ".%s_items[_sp_i + 8]);\n", lower_name);
                         /* Emit element wrapping assignment */
-                        emit_indent(sb, ctx->indent + 3);
+                        emit_indent(sb, ctx->indent + 2);
                         iron_strbuf_appendf(sb, "%s ", sp_iface);
                         emit_val(sb, matched->get_index_vid);
                         iron_strbuf_appendf(sb, " = %s_from_%s(",
@@ -4204,20 +4179,15 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         iron_strbuf_appendf(sb, ".%s_items[_sp_i]);\n", lower_name);
                         /* Emit body instructions (user code) */
                         int saved_indent = ctx->indent;
-                        ctx->indent = saved_indent + 3;
+                        ctx->indent = saved_indent + 2;
                         for (int ii = matched->body_start_ii; ii < body_blk->instr_count; ii++) {
                             IronLIR_Instr *in2 = body_blk->instrs[ii];
                             if (in2->kind == IRON_LIR_JUMP) break;  /* Skip jump to inc */
                             emit_instr(sb, in2, fn, ctx);
                         }
                         ctx->indent = saved_indent;
-                        emit_indent(sb, ctx->indent + 2);
-                        iron_strbuf_appendf(sb, "}\n");
                         emit_indent(sb, ctx->indent + 1);
                         iron_strbuf_appendf(sb, "}\n");
-                    }
-
-                    if (alive_type_count > 1) {
                         emit_indent(sb, ctx->indent);
                         iron_strbuf_appendf(sb, "}\n");
                     }
