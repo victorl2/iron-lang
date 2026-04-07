@@ -1,0 +1,157 @@
+-- layout_bench.iron: Layout optimization benchmark and correctness suite
+-- Exercises dead field elimination, SoA/AoS selection, common fields,
+-- variant split, and layout annotations across varying struct sizes.
+
+-- ========== 2-field structs (SoA threshold: 1/2 = 50% -> AoS) ==========
+
+interface Small2 {
+  func get_a() -> Int
+}
+
+object S2A impl Small2 {
+  var a: Int
+  var b: Int
+}
+
+object S2B impl Small2 {
+  var a: Int
+  var b: Int
+}
+
+func S2A.get_a() -> Int { return self.a }
+func S2B.get_a() -> Int { return self.a }
+
+-- ========== 4-field structs (SoA threshold: 1/4 = 25% < 50% -> SoA) ==========
+
+interface Medium4 {
+  func get_x() -> Int
+}
+
+object M4A impl Medium4 {
+  var x: Int
+  var y: Int
+  var z: Int
+  var w: Int
+}
+
+object M4B impl Medium4 {
+  var x: Int
+  var y: Int
+  var z: Int
+  var w: Int
+}
+
+func M4A.get_x() -> Int { return self.x }
+func M4B.get_x() -> Int { return self.x }
+
+-- ========== 4-field structs, all accessed (4/4 = 100% -> AoS) ==========
+
+interface Full4 {
+  func total() -> Int
+}
+
+object F4A impl Full4 {
+  var a: Int
+  var b: Int
+  var c: Int
+  var d: Int
+}
+
+object F4B impl Full4 {
+  var a: Int
+  var b: Int
+  var c: Int
+  var d: Int
+}
+
+func F4A.total() -> Int { return self.a + self.b + self.c + self.d }
+func F4B.total() -> Int { return self.a + self.b + self.c + self.d }
+
+-- ========== Dead field test: extra fields never accessed ==========
+
+interface HasValue {
+  func value() -> Int
+}
+
+object WithExtra impl HasValue {
+  var num: Int
+  var extra1: Int
+  var extra2: Int
+  var extra3: Int
+}
+
+object WithoutExtra impl HasValue {
+  var num: Int
+}
+
+func WithExtra.value() -> Int { return self.num }
+func WithoutExtra.value() -> Int { return self.num }
+
+-- ========== Common field test: 'id' shared at position 0 ==========
+
+interface Identified {
+  func get_id() -> Int
+}
+
+object TypeA impl Identified {
+  var id: Int
+  var data_a: Int
+}
+
+object TypeB impl Identified {
+  var id: Int
+  var data_b: Int
+}
+
+func TypeA.get_id() -> Int { return self.id }
+func TypeB.get_id() -> Int { return self.id }
+
+func main() {
+  -- Test 1: 2-field, 1 accessed (50% = AoS boundary)
+  val items2 = [S2A(10, 20), S2B(30, 40), S2A(50, 60)]
+  var sum2 = 0
+  for item in items2 {
+    sum2 = sum2 + item.get_a()
+  }
+  println("{sum2}")
+
+  -- Test 2: 4-field, 1 accessed (25% < 50% -> SoA)
+  val items4 = [M4A(1, 2, 3, 4), M4B(5, 6, 7, 8), M4A(9, 10, 11, 12)]
+  var sum4 = 0
+  for item in items4 {
+    sum4 = sum4 + item.get_x()
+  }
+  println("{sum4}")
+
+  -- Test 3: 4-field, all accessed (100% -> AoS)
+  val full4 = [F4A(1, 2, 3, 4), F4B(10, 20, 30, 40)]
+  var sumf = 0
+  for item in full4 {
+    sumf = sumf + item.total()
+  }
+  println("{sumf}")
+
+  -- Test 4: Dead fields (extra1/2/3 never accessed through collection)
+  val vals = [WithExtra(100, 0, 0, 0), WithoutExtra(200), WithExtra(300, 0, 0, 0)]
+  var sumv = 0
+  for v in vals {
+    sumv = sumv + v.value()
+  }
+  println("{sumv}")
+
+  -- Test 5: Common field (id at position 0 shared)
+  val identified = [TypeA(1, 100), TypeB(2, 200), TypeA(3, 300)]
+  var sum_id = 0
+  for item in identified {
+    sum_id = sum_id + item.get_id()
+  }
+  println("{sum_id}")
+
+  -- Test 6: Direct concrete access still works
+  val we = WithExtra(42, 1, 2, 3)
+  println("{we.extra1}")
+  println("{we.extra2}")
+  println("{we.extra3}")
+
+  println("done")
+}
