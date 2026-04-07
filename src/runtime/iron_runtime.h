@@ -371,6 +371,70 @@ typedef struct {
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
 
+/* ── Collection method macros (map, filter, reduce, forEach, sum) ────────────
+ * These macros generate the higher-order collection operations for List[T].
+ * The closures follow Iron's uniform calling convention:
+ *   fn(void *env, arg0, arg1, ...) — env is always the first parameter.
+ */
+#define IRON_LIST_COLL_DECL(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_map(const Iron_List_##suffix *self, Iron_Closure f); \
+    Iron_List_##suffix Iron_List_##suffix##_filter(const Iron_List_##suffix *self, Iron_Closure f); \
+    T                  Iron_List_##suffix##_reduce(const Iron_List_##suffix *self, T init, Iron_Closure f); \
+    void               Iron_List_##suffix##_forEach(const Iron_List_##suffix *self, Iron_Closure f); \
+    T                  Iron_List_##suffix##_sum(const Iron_List_##suffix *self);
+
+/* Implementation uses memcpy for closure fn casts to avoid
+ * -Wcast-function-type-mismatch.  Callers must include <string.h>. */
+#define IRON_LIST_COLL_IMPL(T, suffix, zero_val) \
+    Iron_List_##suffix Iron_List_##suffix##_map(const Iron_List_##suffix *self, Iron_Closure f) { \
+        typedef T (*MapFn)(void *, T); \
+        MapFn map_fn; \
+        memcpy(&map_fn, &f.fn, sizeof(map_fn)); \
+        Iron_List_##suffix result = Iron_List_##suffix##_create(); \
+        for (int64_t i = 0; i < self->count; i++) { \
+            T val = map_fn(f.env, self->items[i]); \
+            Iron_List_##suffix##_push(&result, val); \
+        } \
+        return result; \
+    } \
+    Iron_List_##suffix Iron_List_##suffix##_filter(const Iron_List_##suffix *self, Iron_Closure f) { \
+        typedef bool (*FilterFn)(void *, T); \
+        FilterFn filter_fn; \
+        memcpy(&filter_fn, &f.fn, sizeof(filter_fn)); \
+        Iron_List_##suffix result = Iron_List_##suffix##_create(); \
+        for (int64_t i = 0; i < self->count; i++) { \
+            if (filter_fn(f.env, self->items[i])) { \
+                Iron_List_##suffix##_push(&result, self->items[i]); \
+            } \
+        } \
+        return result; \
+    } \
+    T Iron_List_##suffix##_reduce(const Iron_List_##suffix *self, T init, Iron_Closure f) { \
+        typedef T (*ReduceFn)(void *, T, T); \
+        ReduceFn reduce_fn; \
+        memcpy(&reduce_fn, &f.fn, sizeof(reduce_fn)); \
+        T acc = init; \
+        for (int64_t i = 0; i < self->count; i++) { \
+            acc = reduce_fn(f.env, acc, self->items[i]); \
+        } \
+        return acc; \
+    } \
+    void Iron_List_##suffix##_forEach(const Iron_List_##suffix *self, Iron_Closure f) { \
+        typedef void (*ForEachFn)(void *, T); \
+        ForEachFn each_fn; \
+        memcpy(&each_fn, &f.fn, sizeof(each_fn)); \
+        for (int64_t i = 0; i < self->count; i++) { \
+            each_fn(f.env, self->items[i]); \
+        } \
+    } \
+    T Iron_List_##suffix##_sum(const Iron_List_##suffix *self) { \
+        T total = zero_val; \
+        for (int64_t i = 0; i < self->count; i++) { \
+            total = total + self->items[i]; \
+        } \
+        return total; \
+    }
+
 /* ── Map[K,V] macros ─────────────────────────────────────────────────────────
  * Simple array-based map with linear-scan lookup (O(n), sufficient for v1).
  * eq_fn has signature: bool (*)(const K *a, const K *b)
@@ -579,6 +643,11 @@ IRON_LIST_DECL(double,      double)
 IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)
 IRON_LIST_DECL(Iron_Closure, Iron_Closure)
+
+/* Collection method declarations for common numeric types */
+IRON_LIST_COLL_DECL(int64_t, int64_t)
+IRON_LIST_COLL_DECL(int32_t, int32_t)
+IRON_LIST_COLL_DECL(double,  double)
 
 IRON_MAP_DECL(Iron_String, int64_t,     Iron_String, int64_t)
 IRON_MAP_DECL(Iron_String, Iron_String, Iron_String, Iron_String)
