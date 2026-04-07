@@ -1828,6 +1828,87 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'func' */
 
+    /* Check for array extension method: func [T].method_name(...) */
+    if (iron_check(p, IRON_TOK_LBRACKET)) {
+        iron_advance(p);  /* consume '[' */
+
+        /* Parse element type parameter name (e.g., T) */
+        if (!iron_check_name(p)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected element type parameter in array extension method");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+        Iron_Token *elem_type_tok = iron_advance(p);
+
+        if (!iron_match(p, IRON_TOK_RBRACKET)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected ']' after element type in array extension method");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        if (!iron_match(p, IRON_TOK_DOT)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected '.' after array type in extension method");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        if (!iron_check_name(p)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected method name after '[T].'");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+        Iron_Token *method_tok = iron_advance(p);
+
+        /* Method-level generic params (e.g., [U] in func [T].map[U](...)) */
+        int         generic_count  = 0;
+        Iron_Node **generic_params = NULL;
+        if (iron_check(p, IRON_TOK_LBRACKET)) {
+            generic_params = iron_parse_generic_params(p, &generic_count, p->arena);
+        }
+
+        int param_count = 0;
+        Iron_Node **params = iron_parse_param_list(p, &param_count);
+
+        Iron_Node *ret = NULL;
+        if (iron_match(p, IRON_TOK_ARROW)) {
+            ret = iron_parse_type_annotation(p);
+        }
+
+        Iron_Node *body = iron_parse_block(p);
+
+        Iron_MethodDecl *m      = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+        m->kind                 = IRON_NODE_METHOD_DECL;
+        m->span                 = iron_span_merge(iron_token_span(p, start), body->span);
+        m->type_name            = "__Array";  /* sentinel: marks this as array extension */
+        m->method_name          = iron_arena_strdup(p->arena, method_tok->value,
+                                                     strlen(method_tok->value));
+        m->params               = params;
+        m->param_count          = param_count;
+        m->return_type          = ret;
+        m->body                 = body;
+        m->is_private           = is_private;
+        m->generic_params       = generic_params;
+        m->generic_param_count  = generic_count;
+        m->resolved_return_type = NULL;
+        m->owner_sym            = NULL;
+        m->is_array_extension   = true;
+        m->elem_type_name       = iron_arena_strdup(p->arena, elem_type_tok->value,
+                                                     strlen(elem_type_tok->value));
+        return (Iron_Node *)m;
+    }
+
     /* Check for generic method: Pool[T].method or just name.
      * Accept both identifiers and 'draw' keyword (common method name). */
     if (!iron_check_name(p)) {
@@ -1890,6 +1971,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->generic_param_count  = generic_count;
         m->resolved_return_type = NULL;  /* set by type checker */
         m->owner_sym            = NULL;  /* set by resolver */
+        m->is_array_extension   = false;
+        m->elem_type_name       = NULL;
         return (Iron_Node *)m;
     }
 
