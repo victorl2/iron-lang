@@ -14,8 +14,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **COLL-07**: `arr.reduce(init, func(acc: U, x: T) -> U { ... })` returns accumulated value
 - [x] **COLL-08**: `arr.forEach(func(x: T) { ... })` iterates with side effects, no return value
 - [x] **COLL-09**: `arr.sum()` returns the numeric total of all elements (Int or Float arrays)
-- [ ] **COLL-10**: Collection methods chain: `arr.map(...).filter(...).sum()` compiles and produces correct result
-- [ ] **COLL-11**: Collection methods work on interface-typed split collections, dispatching per concrete type
+- [x] **COLL-10**: Collection methods chain: `arr.map(...).filter(...).sum()` compiles and produces correct result
+- [x] **COLL-11**: Collection methods work on interface-typed split collections, dispatching per concrete type
 
 ### Full Closure Capture
 
@@ -95,8 +95,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | COLL-07 | Phase 47 | Complete |
 | COLL-08 | Phase 47 | Complete |
 | COLL-09 | Phase 47 | Complete |
-| COLL-10 | Phase 47 | Pending |
-| COLL-11 | Phase 47 | Pending |
+| COLL-10 | Phase 47 | Complete |
+| COLL-11 | Phase 47 | Complete |
 | LAYOUT-01 | Phase 48 | Pending |
 | LAYOUT-02 | Phase 48 | Pending |
 | LAYOUT-03 | Phase 48 | Pending |

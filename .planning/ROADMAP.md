@@ -113,7 +113,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations
 
 - [ ] **Phase 46: Full Closure Capture** - Mutable var capture by reference, closures returned from functions, closures as fields, nested and recursive lambdas, shared mutable state
-- [ ] **Phase 47: Collection Methods** - map, filter, reduce, forEach, sum on arrays with lambda arguments, method chaining, and interface-typed split collection dispatch
+- [x] **Phase 47: Collection Methods** - map, filter, reduce, forEach, sum on arrays with lambda arguments, method chaining, and interface-typed split collection dispatch
 - [ ] **Phase 48: Layout Optimizations** - AoS/SoA field-level layout selection, dead field elimination, common field factoring, small/large variant split, layout annotations
 - [ ] **Phase 49: Loop Fusion & Monomorphic Specialization** - Chained collection operations fuse into single pass per type; single-type collections collapse to plain typed arrays
 - [ ] **Phase 50: Value Range Compression & Arena Allocation** - Fields narrowed to smallest sufficient type with widening reads/narrowing writes; per-type arena allocation with geometric growth
@@ -873,12 +873,12 @@ Plans:
   3. `arr.forEach(func(x: Int) { print(x) })` iterates all elements with side effects and returns no value; `arr.sum()` returns the numeric total for Int and Float arrays
   4. `arr.map(...).filter(...).sum()` compiles and produces the correct result by chaining method calls left to right
   5. Collection methods invoked on an interface-typed split collection (e.g., `shapes.map(...)`) dispatch the lambda per concrete type across all sub-arrays and produce a correct combined result
-**Plans:** 1/3 plans executed
+**Plans:** 3/3 plans executed (COMPLETE)
 
 Plans:
-- [ ] 47-01-PLAN.md — Generic array extension method syntax (parser, resolver, type checker)
-- [ ] 47-02-PLAN.md — Collection method compilation + stdlib Iron implementations
-- [ ] 47-03-PLAN.md — Method chaining + split collection dispatch + integration tests
+- [x] 47-01-PLAN.md — Generic array extension method syntax (parser, resolver, type checker)
+- [x] 47-02-PLAN.md — Collection method compilation + stdlib Iron implementations
+- [x] 47-03-PLAN.md — Method chaining + split collection dispatch + integration tests
 
 ### Phase 48: Layout Optimizations
 **Goal**: The compiler selects optimal memory layout per collection based on access patterns, eliminates unused fields from storage structs, factors common fields, and handles size-disparate variants efficiently
@@ -968,7 +968,7 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 44. Hardware Acceleration & Value Optimization | v0.1-alpha | 0/0 | Not started | - |
 | 45. Documentation & Branding | v0.1-alpha | 0/0 | Not started | - |
 | 46. Full Closure Capture | v0.1.1-alpha | 0/0 | Not started | - |
-| 47. Collection Methods | 2/3 | In Progress |  | - |
+| 47. Collection Methods | 3/3 | Complete |  | - |
 | 48. Layout Optimizations | v0.1.1-alpha | 0/0 | Not started | - |
 | 49. Loop Fusion & Monomorphic Specialization | v0.1.1-alpha | 0/0 | Not started | - |
 | 50. Value Range Compression & Arena Allocation | v0.1.1-alpha | 0/0 | Not started | - |
