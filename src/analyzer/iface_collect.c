@@ -99,6 +99,18 @@ static bool inst_check_visit(Iron_Visitor *v, Iron_Node *node) {
             return false;
         }
     }
+    /* Also check CALL expressions — Iron uses Call(FuncRef("TypeName"), args)
+     * for object construction (e.g., Circle(10)) */
+    if (node->kind == IRON_NODE_CALL) {
+        Iron_CallExpr *call = (Iron_CallExpr *)node;
+        if (call->callee && call->callee->kind == IRON_NODE_IDENT) {
+            Iron_Ident *id = (Iron_Ident *)call->callee;
+            if (id->name && strcmp(id->name, ctx->target) == 0) {
+                ctx->found = true;
+                return false;
+            }
+        }
+    }
     return true;
 }
 
