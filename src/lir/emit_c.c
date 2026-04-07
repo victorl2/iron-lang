@@ -677,7 +677,8 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         /* Interface alloca load: emit the LOAD result variable (not the alloca),
          * because the STORE applies wrapping that must be preserved */
         {
-            IronLIR_Instr *ptr_instr2 = fn->value_table[instr->load.ptr];
+            IronLIR_Instr *ptr_instr2 = (instr->load.ptr < (IronLIR_ValueId)arrlen(fn->value_table))
+                                       ? fn->value_table[instr->load.ptr] : NULL;
             if (ptr_instr2 && ptr_instr2->type &&
                 ptr_instr2->type->kind == IRON_TYPE_INTERFACE) {
                 emit_val(sb, vid);
@@ -1383,8 +1384,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, "_len;\n");
         } else {
             /* Check for interface wrapping: concrete type → interface tagged union */
-            Iron_Type *ptr_type = fn->value_table[instr->store.ptr]->type;
-            Iron_Type *val_type = fn->value_table[instr->store.value]->type;
+            Iron_Type *ptr_type = (instr->store.ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                   fn->value_table[instr->store.ptr])
+                                  ? fn->value_table[instr->store.ptr]->type : NULL;
+            Iron_Type *val_type = (instr->store.value < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                   fn->value_table[instr->store.value])
+                                  ? fn->value_table[instr->store.value]->type : NULL;
             bool needs_iface_wrap = false;
             const char *wrap_iface = NULL;
             const char *wrap_impl = NULL;
