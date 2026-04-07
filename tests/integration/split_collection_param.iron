@@ -1,0 +1,33 @@
+-- split_collection_param.iron: Passing interface arrays to functions
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func total_area(s: Shape) -> Int {
+  return s.area()
+}
+
+func main() {
+  val c: Shape = Circle(5)
+  val s: Shape = Square(4)
+  val t = total_area(c) + total_area(s)
+  println("{t}")
+  println("done")
+}

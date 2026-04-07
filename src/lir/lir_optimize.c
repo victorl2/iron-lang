@@ -1928,6 +1928,28 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
                 for (int i = 0; i < in->array_lit.element_count; i++) {
                     hmput(excluded, in->array_lit.elements[i], true);
                 }
+                /* Phase 41: Interface array literals become split collections.
+                 * Exclude the ARRAY_LIT itself from inlining. */
+                if (in->array_lit.elem_type &&
+                    in->array_lit.elem_type->kind == IRON_TYPE_INTERFACE) {
+                    hmput(excluded, in->id, true);
+                }
+            }
+
+            /* Phase 41: GET_INDEX on interface-typed array → split collection lookup
+             * (switch statement, can't be inlined). Exclude the result. */
+            if (in->kind == IRON_LIR_GET_INDEX) {
+                IronLIR_ValueId arr_vid = in->index.array;
+                if (arr_vid != IRON_LIR_VALUE_INVALID &&
+                    arr_vid < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[arr_vid]) {
+                    Iron_Type *arr_t = fn->value_table[arr_vid]->type;
+                    if (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
+                        arr_t->array.elem &&
+                        arr_t->array.elem->kind == IRON_TYPE_INTERFACE) {
+                        hmput(excluded, in->id, true);
+                    }
+                }
             }
 
             /* STORE to interface-typed alloca: exclude LOAD results from the
