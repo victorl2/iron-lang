@@ -1,0 +1,44 @@
+-- split_collection_multi_method.iron: Split collection with multiple interface methods
+
+interface Vehicle {
+  func speed() -> Int
+  func fuel() -> Int
+}
+
+object Car impl Vehicle {
+  var max_speed: Int
+  var tank: Int
+}
+
+object Bike impl Vehicle {
+  var max_speed: Int
+}
+
+func Car.speed() -> Int {
+  return self.max_speed
+}
+
+func Car.fuel() -> Int {
+  return self.tank
+}
+
+func Bike.speed() -> Int {
+  return self.max_speed
+}
+
+func Bike.fuel() -> Int {
+  return 0
+}
+
+func main() {
+  val vehicles = [Car(120, 50), Bike(25), Car(200, 80)]
+  var total_speed = 0
+  var total_fuel = 0
+  for v in vehicles {
+    total_speed = total_speed + v.speed()
+    total_fuel = total_fuel + v.fuel()
+  }
+  println("total_speed={total_speed}")
+  println("total_fuel={total_fuel}")
+  println("done")
+}

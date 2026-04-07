@@ -90,6 +90,11 @@ typedef struct {
 
     /* Interface implementor registry for tagged union dispatch */
     Iron_IfaceRegistry *iface_reg;
+
+    /* Phase 41: Split collection tracking — maps ValueId to interface name.
+     * When a ValueId is in this map, it's a split collection (Iron_SplitList_<Iface>)
+     * instead of a standard array (Iron_List_<Iface>). */
+    struct { IronLIR_ValueId key; const char *value; } *split_collection_ids;
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -728,6 +733,12 @@ static void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* GET_INDEX */
     case IRON_LIR_GET_INDEX: {
+        /* Split collection GET_INDEX can't be inlined (needs switch statement) */
+        if (ctx->split_collection_ids &&
+            hmgeti(ctx->split_collection_ids, instr->index.array) >= 0) {
+            emit_val(sb, vid);
+            break;
+        }
         IronLIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->index.array);
         if (sa_origin != IRON_LIR_VALUE_INVALID) {
             emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
@@ -1421,6 +1432,20 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Field / Index ──────────────────────────────────────────────────── */
 
     case IRON_LIR_GET_FIELD: {
+        /* Phase 41: .count on split collection → ._total_count */
+        if (instr->field.field && strcmp(instr->field.field, "count") == 0 &&
+            ctx->split_collection_ids) {
+            ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, instr->field.object);
+            if (sp_idx >= 0) {
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = ");
+                emit_val(sb, instr->field.object);
+                iron_strbuf_appendf(sb, "._total_count;\n");
+                break;
+            }
+        }
         /* Check if this is a .count access on a stack array (from len() builtin) */
         IronLIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->field.object);
         if (sa_origin != IRON_LIR_VALUE_INVALID &&
@@ -1567,6 +1592,67 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_GET_INDEX: {
+        /* Phase 41: GET_INDEX on split collection → order-based lookup */
+        if (ctx->split_collection_ids) {
+            ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, instr->index.array);
+            if (sp_idx >= 0) {
+                const char *sp_iface = ctx->split_collection_ids[sp_idx].value;
+                /* Look up interface entry for implementor names */
+                Iron_IfaceEntry *sp_entry = NULL;
+                if (ctx->iface_reg) {
+                    for (int ri = 0; ri < (int)shlen(ctx->iface_reg->map); ri++) {
+                        const char *mangled_check = emit_mangle_name(
+                            ctx->iface_reg->map[ri].value.iface_name, ctx->arena);
+                        if (strcmp(mangled_check, sp_iface) == 0) {
+                            sp_entry = &ctx->iface_reg->map[ri].value;
+                            break;
+                        }
+                    }
+                }
+                if (sp_entry) {
+                    /* Emit: switch on order[idx].tag to select from correct sub-array */
+                    emit_indent(sb, ind);
+                    if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", sp_iface);
+                    emit_val(sb, instr->id);
+                    iron_strbuf_appendf(sb, ";\n");
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "switch (");
+                    emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, "._order[");
+                    emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, "].tag) {\n");
+                    for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                        Iron_IfaceImpl *impl2 = &sp_entry->impls[ji];
+                        if (!impl2->is_alive) continue;
+                        char lower_name[256];
+                        {
+                            size_t nl2 = strlen(impl2->type_name);
+                            if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                            for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                                           impl2->type_name[ci3] <= 'Z')
+                                    ? impl2->type_name[ci3] + 32
+                                    : impl2->type_name[ci3]);
+                            lower_name[nl2] = '\0';
+                        }
+                        emit_indent(sb, ind + 1);
+                        iron_strbuf_appendf(sb, "case %d: ", impl2->tag);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, " = %s_from_%s(",
+                            sp_iface, impl2->type_name);
+                        emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                        emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, "._order[");
+                        emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, "].idx]); break;\n");
+                    }
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "}\n");
+                    break;
+                }
+            }
+        }
         /* ARR-02: Check if the source array is stack-represented */
         IronLIR_ValueId sa_origin = get_stack_array_origin(ctx, instr->index.array);
         if (sa_origin != IRON_LIR_VALUE_INVALID) {
@@ -2462,7 +2548,40 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Array literal ──────────────────────────────────────────────────── */
 
     case IRON_LIR_ARRAY_LIT: {
-        if (instr->array_lit.use_stack_repr) {
+        /* Check if this is an interface-typed array (elements need wrapping) */
+        bool is_iface_array = instr->array_lit.elem_type &&
+                              instr->array_lit.elem_type->kind == IRON_TYPE_INTERFACE;
+        const char *iface_mangled = NULL;
+        if (is_iface_array) {
+            iface_mangled = emit_mangle_name(
+                instr->array_lit.elem_type->interface.decl->name, ctx->arena);
+        }
+
+        /* Phase 41: Interface arrays use split collection instead of stack/heap array */
+        if (is_iface_array && ctx->iface_reg) {
+            /* Emit as Iron_SplitList_<Iface> with per-type push calls */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "Iron_SplitList_%s ", iface_mangled);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {0};\n");
+            /* Push each element to the correct type sub-array */
+            for (int i = 0; i < instr->array_lit.element_count; i++) {
+                IronLIR_ValueId eid = instr->array_lit.elements[i];
+                Iron_Type *et = get_value_type(fn, eid);
+                if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(&",
+                        iface_mangled, et->object.decl->name);
+                    emit_val(sb, instr->id);
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_expr_to_buf(sb, eid, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ");\n");
+                }
+            }
+            /* Track this ValueId as a split collection */
+            hmput(ctx->split_collection_ids, instr->id,
+                  iron_arena_strdup(ctx->arena, iface_mangled, strlen(iface_mangled)));
+        } else if (instr->array_lit.use_stack_repr) {
             /* ARR-01: Emit as C stack array for known-size arrays (<= 256 elements).
              * Produces: elem_type _vN[] = {v0, v1, ...};
              *           int64_t _vN_len = count; */
@@ -2497,7 +2616,21 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, "%s_push(&", list_type);
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, ", ");
-                emit_expr_to_buf(sb, instr->array_lit.elements[i], fn, ctx, ctx->current_block_id, 0);
+                /* Wrap concrete elements into tagged union for interface arrays */
+                if (is_iface_array) {
+                    IronLIR_ValueId eid = instr->array_lit.elements[i];
+                    Iron_Type *et = get_value_type(fn, eid);
+                    if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
+                        iron_strbuf_appendf(sb, "%s_from_%s(",
+                            iface_mangled, et->object.decl->name);
+                        emit_expr_to_buf(sb, eid, fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ")");
+                    } else {
+                        emit_expr_to_buf(sb, eid, fn, ctx, ctx->current_block_id, 0);
+                    }
+                } else {
+                    emit_expr_to_buf(sb, instr->array_lit.elements[i], fn, ctx, ctx->current_block_id, 0);
+                }
                 iron_strbuf_appendf(sb, ");\n");
             }
         }
@@ -3359,6 +3492,10 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     hmfree(ctx->param_alias_ids);
     ctx->param_alias_ids = NULL;
 
+    /* Reset per-function split collection tracking */
+    hmfree(ctx->split_collection_ids);
+    ctx->split_collection_ids = NULL;
+
     /* Pre-scan: identify allocas that receive stack arrays via STORE.
      * Build a mapping from STORE(alloca_ptr, stack_array_val) so that
      * the alloca can be emitted as elem_type* instead of Iron_List_T,
@@ -3833,6 +3970,135 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
         hmfree(use_block_min);
     }
 
+    /* ── Phase 41: Pre-scan for interface-typed ARRAY_LITs ────────────────
+     * Populate split_collection_ids before the block emission loop so that
+     * split-eligible for-loops can be detected. */
+    if (ctx->iface_reg) {
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in2 = blk->instrs[ii];
+                if (in2->kind == IRON_LIR_ARRAY_LIT &&
+                    in2->array_lit.elem_type &&
+                    in2->array_lit.elem_type->kind == IRON_TYPE_INTERFACE &&
+                    in2->array_lit.elem_type->interface.decl) {
+                    const char *im = emit_mangle_name(
+                        in2->array_lit.elem_type->interface.decl->name, ctx->arena);
+                    hmput(ctx->split_collection_ids, in2->id,
+                          iron_arena_strdup(ctx->arena, im, strlen(im)));
+                }
+            }
+        }
+    }
+
+    /* ── Phase 41: Detect split-eligible for-loops ─────────────────────────
+     * Scan for for-loop patterns over split collections. For each detected
+     * pattern, mark the blocks (pre, header, body, inc) as replaced by
+     * per-type unordered loops.
+     *
+     * Structure: pre → header → body → inc → (back to header) / exit
+     *   pre: GET_FIELD .count on split collection, JUMP to header
+     *   header: LOAD idx, LOAD count, LT compare, BRANCH body/exit
+     *   body: LOAD idx, GET_INDEX array[idx], STORE loop_var, <user code>, JUMP inc
+     *   inc: LOAD idx, ADD 1, STORE idx, JUMP header
+     */
+    struct { int key; int value; } *split_replaced_blocks = NULL;  /* bi -> 1 */
+    typedef struct {
+        int pre_bi, header_bi, body_bi, inc_bi, exit_bi;
+        IronLIR_ValueId iterable_vid;
+        IronLIR_ValueId get_index_vid;
+        int body_start_ii;  /* first user instruction index in body */
+    } SplitLoopInfo;
+    SplitLoopInfo *split_loops = NULL;
+
+    if (ctx->split_collection_ids && hmlen(ctx->split_collection_ids) > 0) {
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            if (!blk->label || strncmp(blk->label, "for_pre", 7) != 0) continue;
+            /* Found a for_pre block. Check if it references a split collection via GET_FIELD .count */
+            IronLIR_ValueId split_arr_vid = IRON_LIR_VALUE_INVALID;
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in2 = blk->instrs[ii];
+                if (in2->kind == IRON_LIR_GET_FIELD && in2->field.field &&
+                    strcmp(in2->field.field, "count") == 0) {
+                    if (hmgeti(ctx->split_collection_ids, in2->field.object) >= 0) {
+                        split_arr_vid = in2->field.object;
+                        break;
+                    }
+                }
+            }
+            if (split_arr_vid == IRON_LIR_VALUE_INVALID) continue;
+
+            /* Find header block (JUMP target of pre) */
+            IronLIR_Instr *pre_term = blk->instrs[blk->instr_count - 1];
+            if (pre_term->kind != IRON_LIR_JUMP) continue;
+            int header_bi = -1;
+            for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
+                if (fn->blocks[bi2]->id == pre_term->jump.target) { header_bi = bi2; break; }
+            }
+            if (header_bi < 0) continue;
+
+            /* Header should end with BRANCH to body (true) and exit (false) */
+            IronLIR_Block *header = fn->blocks[header_bi];
+            IronLIR_Instr *hdr_term = header->instrs[header->instr_count - 1];
+            if (hdr_term->kind != IRON_LIR_BRANCH) continue;
+            int body_bi2 = -1, exit_bi2 = -1;
+            for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
+                if (fn->blocks[bi2]->id == hdr_term->branch.then_block) body_bi2 = bi2;
+                if (fn->blocks[bi2]->id == hdr_term->branch.else_block) exit_bi2 = bi2;
+            }
+            if (body_bi2 < 0 || exit_bi2 < 0) continue;
+
+            /* Body should have a simple structure: no BRANCH (no if/else inside) */
+            IronLIR_Block *body = fn->blocks[body_bi2];
+            IronLIR_Instr *body_term = body->instrs[body->instr_count - 1];
+            if (body_term->kind != IRON_LIR_JUMP) continue;  /* Must be simple JUMP to inc */
+
+            /* Find inc block (JUMP target of body) */
+            int inc_bi2 = -1;
+            for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
+                if (fn->blocks[bi2]->id == body_term->jump.target) { inc_bi2 = bi2; break; }
+            }
+            if (inc_bi2 < 0) continue;
+
+            /* Find GET_INDEX instruction in body and the first user instruction */
+            IronLIR_ValueId get_index_vid2 = IRON_LIR_VALUE_INVALID;
+            int body_start2 = 0;
+            for (int ii = 0; ii < body->instr_count; ii++) {
+                IronLIR_Instr *in2 = body->instrs[ii];
+                if (in2->kind == IRON_LIR_GET_INDEX &&
+                    in2->index.array == split_arr_vid) {
+                    get_index_vid2 = in2->id;
+                    /* Skip GET_INDEX and the following STORE to loop var */
+                    body_start2 = ii + 1;
+                    if (body_start2 < body->instr_count &&
+                        body->instrs[body_start2]->kind == IRON_LIR_STORE) {
+                        body_start2++;
+                    }
+                    break;
+                }
+                /* Skip LOAD instructions that load the loop index */
+                if (in2->kind == IRON_LIR_LOAD) continue;
+            }
+            if (get_index_vid2 == IRON_LIR_VALUE_INVALID) continue;
+
+            /* Record this loop for replacement */
+            SplitLoopInfo info = {
+                .pre_bi = bi, .header_bi = header_bi,
+                .body_bi = body_bi2, .inc_bi = inc_bi2,
+                .exit_bi = exit_bi2,
+                .iterable_vid = split_arr_vid,
+                .get_index_vid = get_index_vid2,
+                .body_start_ii = body_start2,
+            };
+            arrput(split_loops, info);
+            hmput(split_replaced_blocks, bi, 1);
+            hmput(split_replaced_blocks, header_bi, 1);
+            hmput(split_replaced_blocks, body_bi2, 1);
+            hmput(split_replaced_blocks, inc_bi2, 1);
+        }
+    }
+
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronLIR_Block *block = fn->blocks[bi];
         ctx->current_block_id = block->id;  /* for block-boundary enforcement in emit_expr_to_buf */
@@ -3842,6 +4108,98 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
          * that might resolve elsewhere), but we follow with __builtin_unreachable(). */
         iron_strbuf_appendf(sb, "%s:;\n",
                             make_block_label(block->id, block->label, ctx->arena));
+
+        /* Phase 41: Check if this block is replaced by split iteration */
+        if (hmgeti(split_replaced_blocks, bi) >= 0) {
+            /* Check if this is the pre block of a split loop */
+            SplitLoopInfo *matched = NULL;
+            for (int si = 0; si < (int)arrlen(split_loops); si++) {
+                if (split_loops[si].pre_bi == bi) { matched = &split_loops[si]; break; }
+            }
+            if (matched) {
+                /* Emit per-type unordered loops */
+                const char *sp_iface = ctx->split_collection_ids[
+                    hmgeti(ctx->split_collection_ids, matched->iterable_vid)].value;
+                Iron_IfaceEntry *sp_entry2 = NULL;
+                if (ctx->iface_reg) {
+                    for (int ri = 0; ri < (int)shlen(ctx->iface_reg->map); ri++) {
+                        const char *mc = emit_mangle_name(
+                            ctx->iface_reg->map[ri].value.iface_name, ctx->arena);
+                        if (strcmp(mc, sp_iface) == 0) {
+                            sp_entry2 = &ctx->iface_reg->map[ri].value;
+                            break;
+                        }
+                    }
+                }
+                if (sp_entry2) {
+                    IronLIR_Block *body_blk = fn->blocks[matched->body_bi];
+                    /* Emit any non-GET_INDEX, non-STORE instructions from pre block
+                     * (like initial value assignments) */
+                    for (int ii = 0; ii < fn->blocks[bi]->instr_count; ii++) {
+                        IronLIR_Instr *in2 = fn->blocks[bi]->instrs[ii];
+                        if (in2->kind == IRON_LIR_JUMP) break;
+                        if (in2->kind == IRON_LIR_GET_FIELD &&
+                            in2->field.object == matched->iterable_vid) continue;
+                        emit_instr(sb, in2, fn, ctx);
+                    }
+
+                    for (int ji = 0; ji < sp_entry2->impl_count; ji++) {
+                        Iron_IfaceImpl *impl2 = &sp_entry2->impls[ji];
+                        if (!impl2->is_alive) continue;
+                        char lower_name[256];
+                        {
+                            size_t nl2 = strlen(impl2->type_name);
+                            if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                            for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                                           impl2->type_name[ci3] <= 'Z')
+                                    ? impl2->type_name[ci3] + 32
+                                    : impl2->type_name[ci3]);
+                            lower_name[nl2] = '\0';
+                        }
+                        /* Emit per-type for-loop */
+                        emit_indent(sb, ctx->indent);
+                        iron_strbuf_appendf(sb, "{ /* unordered split: %s */\n", impl2->type_name);
+                        emit_indent(sb, ctx->indent + 1);
+                        iron_strbuf_appendf(sb, "for (int64_t _sp_i = 0; _sp_i < ");
+                        emit_val(sb, matched->iterable_vid);
+                        iron_strbuf_appendf(sb, ".%s_count; _sp_i++) {\n", lower_name);
+                        /* Emit element wrapping assignment */
+                        emit_indent(sb, ctx->indent + 2);
+                        iron_strbuf_appendf(sb, "%s ", sp_iface);
+                        emit_val(sb, matched->get_index_vid);
+                        iron_strbuf_appendf(sb, " = %s_from_%s(",
+                            sp_iface, impl2->type_name);
+                        emit_val(sb, matched->iterable_vid);
+                        iron_strbuf_appendf(sb, ".%s_items[_sp_i]);\n", lower_name);
+                        /* Emit body instructions (user code) */
+                        int saved_indent = ctx->indent;
+                        ctx->indent = saved_indent + 2;
+                        for (int ii = matched->body_start_ii; ii < body_blk->instr_count; ii++) {
+                            IronLIR_Instr *in2 = body_blk->instrs[ii];
+                            if (in2->kind == IRON_LIR_JUMP) break;  /* Skip jump to inc */
+                            emit_instr(sb, in2, fn, ctx);
+                        }
+                        ctx->indent = saved_indent;
+                        emit_indent(sb, ctx->indent + 1);
+                        iron_strbuf_appendf(sb, "}\n");
+                        emit_indent(sb, ctx->indent);
+                        iron_strbuf_appendf(sb, "}\n");
+                    }
+                    /* Jump to exit block */
+                    iron_strbuf_appendf(sb, "    goto %s;\n",
+                        make_block_label(fn->blocks[matched->exit_bi]->id,
+                                          fn->blocks[matched->exit_bi]->label,
+                                          ctx->arena));
+                }
+            }
+            /* For non-pre blocks in split loops (header, body, inc), emit as
+             * unreachable since the per-type loops handle everything */
+            else {
+                iron_strbuf_appendf(sb, "    __builtin_unreachable();\n");
+            }
+            continue;
+        }
 
         bool is_reachable = !blk_reachable || blk_reachable[bi];
         if (!is_reachable || block->instr_count == 0) {
@@ -3855,6 +4213,8 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             }
         }
     }
+    arrfree(split_loops);
+    hmfree(split_replaced_blocks);
 
     if (blk_reachable) free(blk_reachable);
 
@@ -4153,6 +4513,142 @@ static void emit_type_decls(EmitCtx *ctx) {
                     iface_mangled,
                     iface_mangled, impl->type_name,
                     impl->type_name);
+            }
+
+            /* ── Split Collection struct (Phase 41: Collection Splitting) ──────
+             * For each interface, generate a split collection struct with per-type
+             * sub-arrays + order index for ordered iteration.
+             *
+             * typedef struct {
+             *     Iron_Circle *circle_items; int64_t circle_count; int64_t circle_cap;
+             *     Iron_Square *square_items; int64_t square_count; int64_t square_cap;
+             *     struct { uint8_t tag; int64_t idx; } *order;
+             *     int64_t order_count; int64_t order_cap;
+             *     int64_t total_count;
+             * } Iron_SplitList_Iron_Shape;
+             */
+            {
+                /* Build lowercase interface name for C identifiers */
+                char iface_lower[256];
+                {
+                    size_t nl = strlen(entry->iface_name);
+                    if (nl >= sizeof(iface_lower)) nl = sizeof(iface_lower) - 1;
+                    for (size_t ci2 = 0; ci2 < nl; ci2++)
+                        iface_lower[ci2] = (char)((entry->iface_name[ci2] >= 'A' &&
+                                                    entry->iface_name[ci2] <= 'Z')
+                            ? entry->iface_name[ci2] + 32
+                            : entry->iface_name[ci2]);
+                    iface_lower[nl] = '\0';
+                }
+
+                iron_strbuf_appendf(sb, "/* Split collection for %s */\n", iface_mangled);
+                iron_strbuf_appendf(sb, "typedef struct {\n");
+                /* Per-type sub-arrays */
+                for (int j = 0; j < entry->impl_count; j++) {
+                    Iron_IfaceImpl *impl2 = &entry->impls[j];
+                    if (!impl2->is_alive) continue;
+                    const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+                    char lower_name[256];
+                    {
+                        size_t nl2 = strlen(impl2->type_name);
+                        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                                       impl2->type_name[ci3] <= 'Z')
+                                ? impl2->type_name[ci3] + 32
+                                : impl2->type_name[ci3]);
+                        lower_name[nl2] = '\0';
+                    }
+                    iron_strbuf_appendf(sb, "    %s *%s_items;\n", im, lower_name);
+                    iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
+                    iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
+                }
+                /* Order index array */
+                iron_strbuf_appendf(sb, "    struct { uint8_t tag; int64_t idx; } *_order;\n");
+                iron_strbuf_appendf(sb, "    int64_t _order_count;\n");
+                iron_strbuf_appendf(sb, "    int64_t _order_cap;\n");
+                iron_strbuf_appendf(sb, "    int64_t _total_count;\n");
+                iron_strbuf_appendf(sb, "} Iron_SplitList_%s;\n\n", iface_mangled);
+
+                /* Push functions per type */
+                for (int j = 0; j < entry->impl_count; j++) {
+                    Iron_IfaceImpl *impl2 = &entry->impls[j];
+                    if (!impl2->is_alive) continue;
+                    const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+                    char lower_name[256];
+                    {
+                        size_t nl2 = strlen(impl2->type_name);
+                        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                                       impl2->type_name[ci3] <= 'Z')
+                                ? impl2->type_name[ci3] + 32
+                                : impl2->type_name[ci3]);
+                        lower_name[nl2] = '\0';
+                    }
+                    iron_strbuf_appendf(sb,
+                        "static inline void Iron_SplitList_%s_push_%s("
+                        "Iron_SplitList_%s *_sl, %s _val) {\n",
+                        iface_mangled, impl2->type_name,
+                        iface_mangled, im);
+                    /* Grow type-specific sub-array */
+                    iron_strbuf_appendf(sb,
+                        "    if (_sl->%s_count >= _sl->%s_cap) {\n"
+                        "        _sl->%s_cap = _sl->%s_cap ? _sl->%s_cap * 2 : 8;\n"
+                        "        _sl->%s_items = (%s *)realloc(_sl->%s_items, "
+                        "(size_t)_sl->%s_cap * sizeof(%s));\n"
+                        "    }\n",
+                        lower_name, lower_name,
+                        lower_name, lower_name, lower_name,
+                        lower_name, im, lower_name,
+                        lower_name, im);
+                    /* Store element */
+                    iron_strbuf_appendf(sb,
+                        "    _sl->%s_items[_sl->%s_count] = _val;\n",
+                        lower_name, lower_name);
+                    /* Grow order index */
+                    iron_strbuf_appendf(sb,
+                        "    if (_sl->_order_count >= _sl->_order_cap) {\n"
+                        "        _sl->_order_cap = _sl->_order_cap ? _sl->_order_cap * 2 : 8;\n"
+                        "        _sl->_order = realloc(_sl->_order, "
+                        "(size_t)_sl->_order_cap * sizeof(*_sl->_order));\n"
+                        "    }\n"
+                        "    _sl->_order[_sl->_order_count].tag = %d;\n"
+                        "    _sl->_order[_sl->_order_count].idx = _sl->%s_count;\n"
+                        "    _sl->_order_count++;\n",
+                        impl2->tag, lower_name);
+                    /* Increment counts */
+                    iron_strbuf_appendf(sb,
+                        "    _sl->%s_count++;\n"
+                        "    _sl->_total_count++;\n"
+                        "}\n\n",
+                        lower_name);
+                }
+
+                /* Free function */
+                iron_strbuf_appendf(sb,
+                    "static inline void Iron_SplitList_%s_free("
+                    "Iron_SplitList_%s *_sl) {\n",
+                    iface_mangled, iface_mangled);
+                for (int j = 0; j < entry->impl_count; j++) {
+                    Iron_IfaceImpl *impl2 = &entry->impls[j];
+                    if (!impl2->is_alive) continue;
+                    char lower_name[256];
+                    {
+                        size_t nl2 = strlen(impl2->type_name);
+                        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                                       impl2->type_name[ci3] <= 'Z')
+                                ? impl2->type_name[ci3] + 32
+                                : impl2->type_name[ci3]);
+                        lower_name[nl2] = '\0';
+                    }
+                    iron_strbuf_appendf(sb,
+                        "    free(_sl->%s_items);\n", lower_name);
+                }
+                iron_strbuf_appendf(sb, "    free(_sl->_order);\n");
+                iron_strbuf_appendf(sb, "}\n\n");
             }
         }
     }
