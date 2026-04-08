@@ -162,6 +162,7 @@ typedef struct {
     Iron_Node        **generic_params;
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
+    bool               is_fusible;            /* Phase 49: @fusible annotation */
 } Iron_FuncDecl;
 
 typedef struct {
@@ -180,6 +181,7 @@ typedef struct {
     struct Iron_Symbol *owner_sym;             /* set by resolver: the owning type */
     bool               is_array_extension;    /* true for func [T].method(...) */
     const char        *elem_type_name;        /* generic element type param name, e.g. "T" */
+    bool               is_fusible;            /* Phase 49: @fusible annotation */
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */

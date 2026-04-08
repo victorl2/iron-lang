@@ -3,8 +3,13 @@
 -- Actual implementations are provided by the C runtime (iron_collections.c).
 -- Phase 49 (Loop Fusion) will optimize chained calls into single-pass loops.
 
+@fusible
 func [T].map[U](f: func(T) -> U) -> [U] {}
+@fusible
 func [T].filter(f: func(T) -> Bool) -> [T] {}
+@fusible
 func [T].reduce[U](init: U, f: func(U, T) -> U) -> U {}
+@fusible
 func [T].forEach(f: func(T)) {}
+@fusible
 func [T].sum() -> T {}

@@ -1033,6 +1033,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     arrput(coll_args, av);
                 }
                 int coll_argc = (int)arrlen(coll_args);
+                /* Phase 49: fusibility is determined by name matching (Iron_List_*_{map,filter,...})
+                 * in the C emitter, corresponding to @fusible annotations on stdlib declarations. */
                 IronLIR_Instr *coll_fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
                                                                full_name, NULL, span);
                 IronLIR_Instr *coll_call = iron_lir_call(ctx->current_func, ctx->current_block,

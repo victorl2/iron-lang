@@ -2364,6 +2364,37 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
 
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
     switch (iron_peek(p)) {
+        case IRON_TOK_AT: {
+            iron_advance(p);  /* consume '@' */
+            Iron_Token *ann_tok = iron_current(p);
+            bool is_fusible_ann = false;
+            if (iron_check_name(p) && strcmp(ann_tok->value, "fusible") == 0) {
+                is_fusible_ann = true;
+                iron_advance(p);  /* consume 'fusible' */
+                iron_skip_newlines(p);
+            } else {
+                iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, ann_tok),
+                               "expected 'fusible' after '@'");
+                iron_advance(p);
+            }
+            if (iron_check(p, IRON_TOK_FUNC)) {
+                Iron_Node *n = iron_parse_func_or_method(p, is_private);
+                if (is_fusible_ann && n) {
+                    if (n->kind == IRON_NODE_FUNC_DECL) {
+                        ((Iron_FuncDecl *)n)->is_fusible = true;
+                    } else if (n->kind == IRON_NODE_METHOD_DECL) {
+                        ((Iron_MethodDecl *)n)->is_fusible = true;
+                    }
+                }
+                p->in_error_recovery = false;
+                return n;
+            }
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected 'func' after '@fusible'");
+            return iron_make_error(p);
+        }
         case IRON_TOK_EXTERN:    {
             Iron_Node *n = iron_parse_extern_func(p, is_private);
             p->in_error_recovery = false;

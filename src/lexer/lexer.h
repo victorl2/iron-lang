@@ -90,6 +90,7 @@ typedef enum {
     IRON_TOK_SEMICOLON,     /* ; */
 
     /* Special */
+    IRON_TOK_AT,            /* @ */
     IRON_TOK_NEWLINE,
     IRON_TOK_EOF,
     IRON_TOK_ERROR,
