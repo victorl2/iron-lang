@@ -30,6 +30,24 @@
 #include <stdbool.h>
 #include <assert.h>
 
+/* -- Phase 49: Loop fusion chain detection -------------------------------- */
+typedef struct {
+    IronLIR_ValueId call_vid;      /* ValueId of the CALL instruction */
+    const char *method;            /* "map", "filter", "reduce", "forEach", "sum" */
+    IronLIR_ValueId self_arg;      /* ValueId of the collection input */
+    IronLIR_ValueId *lambda_args;  /* stb_ds array of closure argument ValueIds */
+    int lambda_arg_count;
+    IronLIR_ValueId init_arg;      /* reduce init arg (IRON_LIR_VALUE_INVALID if N/A) */
+} FusionChainNode;
+
+typedef struct {
+    FusionChainNode *nodes;        /* stb_ds array, in execution order */
+    int node_count;
+    IronLIR_ValueId source;        /* original collection input to the chain */
+    bool is_split;                 /* true if source is a split collection */
+    const char *sp_iface;          /* interface name if split, NULL otherwise */
+} FusionChain;
+
 /* ── EmitCtx ──────────────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -127,6 +145,11 @@ typedef struct {
 
     /* Phase 49: fusion chain detection */
     bool warn_fusion_break;  /* --warn-fusion-break: emit diagnostic at chain break points */
+    FusionChain *fusion_chains;        /* stb_ds array of detected chains */
+    struct { IronLIR_ValueId key; int value; } *fusion_chain_member;
+        /* maps call_vid -> chain_index; positive = chain idx */
+    struct { IronLIR_ValueId key; int value; } *fusion_chain_position;
+        /* maps call_vid -> position within its chain (0 = first, N-1 = terminal) */
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -1775,6 +1798,26 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Call ───────────────────────────────────────────────────────────── */
 
     case IRON_LIR_CALL: {
+        /* Phase 49: Skip chain-interior fusible calls (fused loop emitted at terminal)
+         * NOTE: Skipping is disabled until Plan 02 implements fused loop emission.
+         * The chain detection data structures are built in the pre-scan above;
+         * Plan 02 will enable this skip and emit fused loops at terminal nodes. */
+        if (ctx->fusion_chain_member) {
+            ptrdiff_t fc_idx = hmgeti(ctx->fusion_chain_member, instr->id);
+            if (fc_idx >= 0) {
+                int chain_idx = ctx->fusion_chain_member[fc_idx].value;
+                ptrdiff_t fp_idx = hmgeti(ctx->fusion_chain_position, instr->id);
+                int pos = (fp_idx >= 0) ? ctx->fusion_chain_position[fp_idx].value : 0;
+                FusionChain *chain = &ctx->fusion_chains[chain_idx];
+                (void)chain_idx; (void)pos; (void)chain;
+                /* TODO(Phase 49-02): uncomment when fused loop emission is ready:
+                if (pos < chain->node_count - 1) {
+                    return;  // Interior node -- skip emission entirely
+                }
+                // Terminal node -- emit fused loop here
+                */
+            }
+        }
         /* Check for __builtin_fill(count, value) -> stack array or Iron_List_T */
         {
             IronLIR_ValueId fptr = instr->call.func_ptr;
@@ -3874,6 +3917,19 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     hmfree(ctx->split_collection_ids);
     ctx->split_collection_ids = NULL;
 
+    /* Reset per-function fusion chain tracking */
+    if (ctx->fusion_chains) {
+        for (int fci = 0; fci < (int)arrlen(ctx->fusion_chains); fci++) {
+            arrfree(ctx->fusion_chains[fci].nodes);
+        }
+        arrfree(ctx->fusion_chains);
+        ctx->fusion_chains = NULL;
+    }
+    hmfree(ctx->fusion_chain_member);
+    ctx->fusion_chain_member = NULL;
+    hmfree(ctx->fusion_chain_position);
+    ctx->fusion_chain_position = NULL;
+
     /* Pre-scan: identify allocas that receive stack arrays via STORE.
      * Build a mapping from STORE(alloca_ptr, stack_array_val) so that
      * the alloca can be emitted as elem_type* instead of Iron_List_T,
@@ -4152,6 +4208,260 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
         }
     }
 
+    /* -- Phase 49: Fusion chain detection pre-scan ----------------------------
+     * Identify sequences of fusible collection method CALLs where each
+     * method's result feeds directly (or through STORE/LOAD) into the next
+     * method's self argument.  Build fusion_chains array and membership map.
+     */
+    {
+        /* Step A: Collect all fusible CALL instructions */
+        typedef struct {
+            IronLIR_ValueId call_vid;
+            const char *method;
+            IronLIR_ValueId self_arg;
+            IronLIR_ValueId *lambda_args;
+            int lambda_arg_count;
+            IronLIR_ValueId init_arg;
+        } FusibleCallInfo;
+        FusibleCallInfo *fusible_calls = NULL;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *block = fn->blocks[bi];
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                IronLIR_Instr *instr = block->instrs[ii];
+                if (instr->kind != IRON_LIR_CALL || instr->call.arg_count < 1) continue;
+
+                IronLIR_ValueId fptr = instr->call.func_ptr;
+                if (fptr == IRON_LIR_VALUE_INVALID ||
+                    fptr >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+                    fn->value_table[fptr] == NULL ||
+                    fn->value_table[fptr]->kind != IRON_LIR_FUNC_REF) continue;
+
+                const char *fname = resolve_func_c_name(ctx, fn->value_table[fptr]->func_ref.func_name);
+                if (!fname || strncmp(fname, "Iron_List_", 10) != 0) continue;
+
+                const char *suffix = strrchr(fname, '_');
+                if (!suffix) continue;
+
+                const char *method = NULL;
+                if (strcmp(suffix, "_map") == 0) method = "map";
+                else if (strcmp(suffix, "_filter") == 0) method = "filter";
+                else if (strcmp(suffix, "_reduce") == 0) method = "reduce";
+                else if (strcmp(suffix, "_forEach") == 0) method = "forEach";
+                else if (strcmp(suffix, "_sum") == 0) method = "sum";
+                if (!method) continue;
+
+                FusibleCallInfo fci;
+                fci.call_vid = instr->id;
+                fci.method = method;
+                fci.self_arg = instr->call.args[0];
+                fci.lambda_args = NULL;
+                fci.lambda_arg_count = 0;
+                fci.init_arg = IRON_LIR_VALUE_INVALID;
+
+                if (strcmp(method, "reduce") == 0 && instr->call.arg_count >= 3) {
+                    fci.init_arg = instr->call.args[1];
+                    for (int ai = 2; ai < instr->call.arg_count; ai++)
+                        arrput(fci.lambda_args, instr->call.args[ai]);
+                    fci.lambda_arg_count = instr->call.arg_count - 2;
+                } else if (strcmp(method, "sum") != 0 && instr->call.arg_count >= 2) {
+                    for (int ai = 1; ai < instr->call.arg_count; ai++)
+                        arrput(fci.lambda_args, instr->call.args[ai]);
+                    fci.lambda_arg_count = instr->call.arg_count - 1;
+                }
+
+                arrput(fusible_calls, fci);
+            }
+        }
+
+        if (arrlen(fusible_calls) > 0) {
+            /* Step B: Build result-to-call reverse map */
+            struct { IronLIR_ValueId key; int value; } *result_to_call = NULL;
+            for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+                hmput(result_to_call, fusible_calls[i].call_vid, i);
+            }
+
+            /* Step C: Propagate through STORE/LOAD chains */
+            struct { IronLIR_ValueId key; IronLIR_ValueId value; } *val_origin = NULL;
+            for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+                hmput(val_origin, fusible_calls[i].call_vid, fusible_calls[i].call_vid);
+            }
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *block = fn->blocks[bi];
+                for (int ii = 0; ii < block->instr_count; ii++) {
+                    IronLIR_Instr *instr = block->instrs[ii];
+                    if (instr->kind == IRON_LIR_STORE) {
+                        ptrdiff_t vi = hmgeti(val_origin, instr->store.value);
+                        if (vi >= 0) hmput(val_origin, instr->store.ptr, val_origin[vi].value);
+                    } else if (instr->kind == IRON_LIR_LOAD) {
+                        ptrdiff_t vi = hmgeti(val_origin, instr->load.ptr);
+                        if (vi >= 0) hmput(val_origin, instr->id, val_origin[vi].value);
+                    }
+                }
+            }
+
+            /* Step D: Build chains by linking calls */
+            /* next[i] = index of the fusible call that consumes call i's result, or -1 */
+            int *next = (int *)calloc((size_t)arrlen(fusible_calls), sizeof(int));
+            int *prev = (int *)calloc((size_t)arrlen(fusible_calls), sizeof(int));
+            for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+                next[i] = -1;
+                prev[i] = -1;
+            }
+            for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+                IronLIR_ValueId sa = fusible_calls[i].self_arg;
+                ptrdiff_t oi = hmgeti(val_origin, sa);
+                if (oi >= 0) {
+                    IronLIR_ValueId origin_vid = val_origin[oi].value;
+                    ptrdiff_t ri = hmgeti(result_to_call, origin_vid);
+                    if (ri >= 0) {
+                        int pred_idx = result_to_call[ri].value;
+                        if (pred_idx != i) {
+                            next[pred_idx] = i;
+                            prev[i] = pred_idx;
+                        }
+                    }
+                }
+            }
+
+            /* Step E: Use-count escape check — break chains at intermediate nodes with use_count > 1 */
+            if (ctx->opt_info && ctx->opt_info->use_counts) {
+                for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+                    if (next[i] < 0) continue; /* terminal or isolated — skip */
+                    IronLIR_ValueId cvid = fusible_calls[i].call_vid;
+                    ptrdiff_t uc_idx = hmgeti(ctx->opt_info->use_counts, cvid);
+                    int uc = (uc_idx >= 0) ? ctx->opt_info->use_counts[uc_idx].value : 0;
+                    if (uc > 1) {
+                        /* Intermediate result escapes — break chain */
+                        int ni = next[i];
+                        prev[ni] = -1;
+                        next[i] = -1;
+                    }
+                    /* Also check STORE'd values: if a STORE writes this call result
+                     * to an alloca that has multiple LOADs, the value escapes. */
+                    for (ptrdiff_t vo = 0; vo < hmlen(val_origin); vo++) {
+                        if (val_origin[vo].value == cvid && val_origin[vo].key != cvid) {
+                            ptrdiff_t st_uc = hmgeti(ctx->opt_info->use_counts, val_origin[vo].key);
+                            if (st_uc >= 0 && ctx->opt_info->use_counts[st_uc].value > 1) {
+                                int ni = next[i];
+                                if (ni >= 0) prev[ni] = -1;
+                                next[i] = -1;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* Walk chains: start from nodes with no predecessor */
+            for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+                if (prev[i] >= 0) continue; /* not a chain start */
+                if (next[i] < 0) continue;  /* isolated node — no chain */
+
+                /* Build chain from i -> next[i] -> ... */
+                FusionChain chain;
+                memset(&chain, 0, sizeof(chain));
+                chain.nodes = NULL;
+                chain.source = fusible_calls[i].self_arg;
+
+                int cur = i;
+                while (cur >= 0) {
+                    FusionChainNode node;
+                    node.call_vid = fusible_calls[cur].call_vid;
+                    node.method = fusible_calls[cur].method;
+                    node.self_arg = fusible_calls[cur].self_arg;
+                    node.lambda_args = fusible_calls[cur].lambda_args;
+                    node.lambda_arg_count = fusible_calls[cur].lambda_arg_count;
+                    node.init_arg = fusible_calls[cur].init_arg;
+                    arrput(chain.nodes, node);
+                    cur = next[cur];
+                }
+                chain.node_count = (int)arrlen(chain.nodes);
+
+                /* Step F: Filter out single-node chains */
+                if (chain.node_count < 2) {
+                    arrfree(chain.nodes);
+                    continue;
+                }
+
+                /* Check if source is a split collection */
+                ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, chain.source);
+                if (sp_idx >= 0) {
+                    chain.is_split = true;
+                    chain.sp_iface = ctx->split_collection_ids[sp_idx].value;
+                } else {
+                    /* Also check through val_origin in case source was stored/loaded */
+                    ptrdiff_t src_oi = hmgeti(val_origin, chain.source);
+                    if (src_oi >= 0) {
+                        sp_idx = hmgeti(ctx->split_collection_ids, val_origin[src_oi].value);
+                        if (sp_idx >= 0) {
+                            chain.is_split = true;
+                            chain.sp_iface = ctx->split_collection_ids[sp_idx].value;
+                        }
+                    }
+                }
+
+                int chain_idx = (int)arrlen(ctx->fusion_chains);
+                arrput(ctx->fusion_chains, chain);
+
+                for (int ni = 0; ni < chain.node_count; ni++) {
+                    hmput(ctx->fusion_chain_member, chain.nodes[ni].call_vid, chain_idx);
+                    hmput(ctx->fusion_chain_position, chain.nodes[ni].call_vid, ni);
+                }
+            }
+
+            /* Step F2: Emit --warn-fusion-break diagnostics */
+            if (ctx->warn_fusion_break) {
+                for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+                    IronLIR_ValueId cvid = fusible_calls[i].call_vid;
+                    /* Check if this call's result goes to a non-fusible consumer */
+                    if (next[i] < 0 && hmgeti(ctx->fusion_chain_member, cvid) < 0) {
+                        /* This fusible call is not in any chain — check if its result
+                         * feeds into another call at all (non-fusible break) */
+                        bool feeds_fusible = false;
+                        for (int j = 0; j < (int)arrlen(fusible_calls); j++) {
+                            if (j == i) continue;
+                            ptrdiff_t oi = hmgeti(val_origin, fusible_calls[j].self_arg);
+                            if (oi >= 0 && val_origin[oi].value == cvid) {
+                                feeds_fusible = true;
+                                break;
+                            }
+                        }
+                        if (!feeds_fusible && next[i] < 0 && prev[i] >= 0) {
+                            /* Was in a chain but got broken — escape */
+                            fprintf(stderr, "note: --warn-fusion-break: fusion chain broken: "
+                                    "intermediate result of .%s() used elsewhere in function %s\n",
+                                    fusible_calls[i].method, fn->name);
+                        }
+                    }
+                    /* Check for use_count > 1 breaks */
+                    if (ctx->opt_info && ctx->opt_info->use_counts) {
+                        ptrdiff_t uc_idx = hmgeti(ctx->opt_info->use_counts, cvid);
+                        int uc = (uc_idx >= 0) ? ctx->opt_info->use_counts[uc_idx].value : 0;
+                        if (uc > 1 && hmgeti(ctx->fusion_chain_member, cvid) < 0) {
+                            fprintf(stderr, "note: --warn-fusion-break: fusion chain broken: "
+                                    "intermediate result of .%s() used elsewhere in function %s\n",
+                                    fusible_calls[i].method, fn->name);
+                        }
+                    }
+                }
+            }
+
+            hmfree(result_to_call);
+            hmfree(val_origin);
+            free(next);
+            free(prev);
+        }
+
+        /* Free lambda_args for candidates not adopted into chains */
+        for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
+            if (hmgeti(ctx->fusion_chain_member, fusible_calls[i].call_vid) < 0) {
+                arrfree(fusible_calls[i].lambda_args);
+            }
+        }
+        arrfree(fusible_calls);
+    }
+
     emit_func_signature(sb, fn, ctx, false);
     iron_strbuf_appendf(sb, " {\n");
 
@@ -4338,6 +4648,18 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     if (!in->type || in->type->kind == IRON_TYPE_VOID) continue;
                     /* Don't hoist stack arrays — they need special initialization. */
                     if (get_stack_array_origin(ctx, in->id) != IRON_LIR_VALUE_INVALID) continue;
+                    /* Phase 49: Don't hoist chain-interior fusible calls (they emit no code)
+                     * NOTE: Disabled until Plan 02 enables chain-interior skip.
+                    if (ctx->fusion_chain_member) {
+                        ptrdiff_t fc_hoist = hmgeti(ctx->fusion_chain_member, in->id);
+                        if (fc_hoist >= 0) {
+                            int ci_h = ctx->fusion_chain_member[fc_hoist].value;
+                            ptrdiff_t fp_h = hmgeti(ctx->fusion_chain_position, in->id);
+                            int pos_h = (fp_h >= 0) ? ctx->fusion_chain_position[fp_h].value : 0;
+                            if (pos_h < ctx->fusion_chains[ci_h].node_count - 1) continue;
+                        }
+                    }
+                    */
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s _v%u;\n",
