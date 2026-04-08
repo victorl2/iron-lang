@@ -1,6 +1,6 @@
-# Requirements: Iron Compiler — Collection Methods, Full Captures & Layout Optimizations
+# Requirements: Iron Compiler — Compiler Hardening & Refactoring
 
-**Defined:** 2026-04-07
+**Defined:** 2026-04-08
 **Core Value:** The programmer writes polymorphic code against interfaces; the compiler emits monomorphic, data-oriented C code with no vtables, no heap indirection, and no pointer chasing.
 
 ## v1 Requirements
@@ -54,8 +54,27 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Memory Investigation
 
-- [ ] **MEM-01**: ironc peak memory consumption during compilation of any integration test stays below 500MB
-- [ ] **MEM-02**: Generated C programs have no memory leaks — all allocated memory is freed or accounted for (verified by AddressSanitizer or valgrind)
+- [x] **MEM-01**: ironc peak memory consumption during compilation of any integration test stays below 500MB
+- [x] **MEM-02**: Generated C programs have no memory leaks — all allocated memory is freed or accounted for (verified by AddressSanitizer or valgrind)
+
+### Emitter Refactoring
+
+- [ ] **EMIT-01**: Split collection emission (struct generation, push functions, free, iteration) extracted into dedicated `emit_split.c` module with clean API
+- [ ] **EMIT-02**: Fusion emission (fused loop generation, chain detection helpers) extracted into dedicated `emit_fusion.c` module
+- [ ] **EMIT-03**: Struct/layout emission (object struct bodies, SoA/AoS arrays, storage structs, type emission) extracted into dedicated `emit_structs.c` module
+- [ ] **EMIT-04**: EmitCtx fields documented, consistently named, and cleaned up via single `emit_ctx_cleanup()` function
+
+### Analysis Improvements
+
+- [ ] **ANAL-01**: Monomorphic detection tracks concrete types across function boundaries — helper functions returning single-type collections trigger collapse at call site
+- [ ] **ANAL-02**: Value range analysis tracks return value ranges through function calls instead of conservative TOP
+- [ ] **ANAL-03**: Value range analysis narrows ranges through conditional branches (if x < 100 produces [min, 99] in true branch)
+
+### Test Hardening
+
+- [ ] **TEST-01**: Edge case test suite covers empty collections, all-filtered-out, single element, zero-field structs, single-implementor interfaces
+- [ ] **TEST-02**: Stress tests validate correctness with 10K+ element collections, 10+ implementors, deeply nested fusion chains
+- [ ] **TEST-03**: Composition tests verify optimization combinations: SoA + fusion, dead field + compression, monomorphic + fusion, arena + SoA
 
 ## v2 Requirements
 
