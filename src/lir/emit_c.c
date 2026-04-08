@@ -5047,6 +5047,213 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         hmfree(coll_types);
     }
 
+    /* ── Phase E (Phase 53): Parameter type collection from call sites ──────
+     * For each function parameter that receives split collections from all
+     * callers, collect the union of concrete types.  If exactly one concrete
+     * type and the specialization heuristic approves, mark the parameter's
+     * collection as monomorphic inside the callee. */
+    if (ctx.split_collection_ids && hmlen(ctx.split_collection_ids) > 0 && ctx.iface_reg) {
+        /* param_types: "func_name:param_idx" -> stb_ds array of type names */
+        struct { char *key; const char **value; } *param_types = NULL;
+        /* call_site_counts: "func_name" -> number of CALL sites found */
+        struct { char *key; int value; } *call_site_counts = NULL;
+
+        /* Scan ALL call instructions across all functions */
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronLIR_Func *fn = module->funcs[fi];
+            if (!fn || fn->is_extern || fn->block_count == 0) continue;
+
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in2 = blk->instrs[ii];
+                    if (in2->kind != IRON_LIR_CALL) continue;
+
+                    /* Resolve callee name */
+                    const char *callee_name = NULL;
+                    if (in2->call.func_decl) {
+                        callee_name = in2->call.func_decl->name;
+                    } else if (in2->call.func_ptr != IRON_LIR_VALUE_INVALID &&
+                               in2->call.func_ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                               fn->value_table[in2->call.func_ptr] &&
+                               fn->value_table[in2->call.func_ptr]->kind == IRON_LIR_FUNC_REF) {
+                        callee_name = fn->value_table[in2->call.func_ptr]->func_ref.func_name;
+                    }
+                    if (!callee_name) continue;
+
+                    /* Count call sites per function */
+                    {
+                        ptrdiff_t cs = shgeti(call_site_counts, callee_name);
+                        int cnt = (cs >= 0) ? call_site_counts[cs].value + 1 : 1;
+                        shput(call_site_counts, callee_name, cnt);
+                    }
+
+                    /* Check each argument for monomorphic collection info */
+                    for (int ai = 0; ai < in2->call.arg_count; ai++) {
+                        IronLIR_ValueId arg_vid = in2->call.args[ai];
+                        /* Check if this argument has known monomorphic type */
+                        ptrdiff_t mc_idx = hmgeti(ctx.monomorphic_collections, arg_vid);
+                        if (mc_idx >= 0) {
+                            /* Argument is a monomorphic collection with a known type */
+                            const char *concrete_type = ctx.monomorphic_collections[mc_idx].value;
+                            char param_key[512];
+                            snprintf(param_key, sizeof(param_key), "%s:%d", callee_name, ai);
+                            ptrdiff_t pt_idx = shgeti(param_types, param_key);
+                            const char **types = (pt_idx >= 0) ? param_types[pt_idx].value : NULL;
+                            bool found = false;
+                            for (int ti = 0; ti < (int)arrlen(types); ti++) {
+                                if (strcmp(types[ti], concrete_type) == 0) { found = true; break; }
+                            }
+                            if (!found) arrput(types, concrete_type);
+                            shput(param_types, param_key, types);
+                        }
+                        /* Also check func_return_types for CALL results used as args */
+                        if (mc_idx < 0) {
+                            /* Check if the arg is a CALL result with known return types */
+                            IronLIR_Instr *arg_instr = NULL;
+                            if (arg_vid < (IronLIR_ValueId)arrlen(fn->value_table))
+                                arg_instr = fn->value_table[arg_vid];
+                            if (arg_instr && arg_instr->kind == IRON_LIR_CALL) {
+                                const char *inner_callee = NULL;
+                                if (arg_instr->call.func_decl)
+                                    inner_callee = arg_instr->call.func_decl->name;
+                                if (inner_callee) {
+                                    ptrdiff_t rt_idx = shgeti(func_return_types, inner_callee);
+                                    if (rt_idx >= 0) {
+                                        char param_key[512];
+                                        snprintf(param_key, sizeof(param_key), "%s:%d", callee_name, ai);
+                                        ptrdiff_t pt_idx = shgeti(param_types, param_key);
+                                        const char **types = (pt_idx >= 0) ? param_types[pt_idx].value : NULL;
+                                        const char **ret_types = func_return_types[rt_idx].value;
+                                        for (int rti = 0; rti < (int)arrlen(ret_types); rti++) {
+                                            bool found = false;
+                                            for (int ti = 0; ti < (int)arrlen(types); ti++) {
+                                                if (strcmp(types[ti], ret_types[rti]) == 0) { found = true; break; }
+                                            }
+                                            if (!found) arrput(types, ret_types[rti]);
+                                        }
+                                        shput(param_types, param_key, types);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Apply specialization heuristic for single-type parameters */
+        for (ptrdiff_t pi = 0; pi < shlen(param_types); pi++) {
+            if (arrlen(param_types[pi].value) != 1) {
+                arrfree(param_types[pi].value);
+                continue;
+            }
+            /* Single concrete type for this parameter position */
+            const char *concrete_type = param_types[pi].value[0];
+            const char *param_key = param_types[pi].key;
+
+            /* Parse "func_name:param_idx" */
+            char func_name_buf[512];
+            int param_idx = 0;
+            {
+                const char *colon = strrchr(param_key, ':');
+                if (!colon) { arrfree(param_types[pi].value); continue; }
+                size_t fnlen = (size_t)(colon - param_key);
+                if (fnlen >= sizeof(func_name_buf)) fnlen = sizeof(func_name_buf) - 1;
+                memcpy(func_name_buf, param_key, fnlen);
+                func_name_buf[fnlen] = '\0';
+                param_idx = atoi(colon + 1);
+            }
+
+            /* Find the callee function in the module */
+            IronLIR_Func *callee_fn = emit_find_ir_func(&ctx, func_name_buf);
+            if (!callee_fn || callee_fn->is_extern || callee_fn->block_count == 0) {
+                arrfree(param_types[pi].value);
+                continue;
+            }
+
+            /* Specialization heuristic: specialize ONLY when ALL conditions met:
+             *   1. Function has <= 50 LIR instructions
+             *   2. There are 1-2 call sites for this function
+             *   3. Function body has at least 1 dispatch-related BRANCH/SWITCH */
+            int total_instrs = 0;
+            int dispatch_branches = 0;
+            for (int bi = 0; bi < callee_fn->block_count; bi++) {
+                total_instrs += callee_fn->blocks[bi]->instr_count;
+                for (int ii = 0; ii < callee_fn->blocks[bi]->instr_count; ii++) {
+                    IronLIR_Instr *in2 = callee_fn->blocks[bi]->instrs[ii];
+                    if (in2->kind == IRON_LIR_SWITCH || in2->kind == IRON_LIR_BRANCH)
+                        dispatch_branches++;
+                }
+            }
+
+            ptrdiff_t cs_idx = shgeti(call_site_counts, func_name_buf);
+            int num_call_sites = (cs_idx >= 0) ? call_site_counts[cs_idx].value : 0;
+
+            bool eligible = (total_instrs <= 50) &&
+                            (num_call_sites >= 1 && num_call_sites <= 2) &&
+                            (dispatch_branches >= 1);
+
+            if (!eligible) {
+                /* Conservative: don't specialize large or multi-caller functions */
+                if (ctx.warn_fusion_break) {
+                    char diag_msg[512];
+                    snprintf(diag_msg, sizeof(diag_msg),
+                        "specialization heuristic rejected %s for %s "
+                        "(instrs=%d, callers=%d, dispatch=%d)",
+                        func_name_buf, concrete_type,
+                        total_instrs, num_call_sites, dispatch_branches);
+                    iron_diag_emit(ctx.diags, ctx.arena, IRON_DIAG_NOTE, 0,
+                        (Iron_Span){NULL,0,0,0,0}, diag_msg, NULL);
+                }
+                arrfree(param_types[pi].value);
+                continue;
+            }
+
+            /* Check specialization_registry to prevent duplicate bodies */
+            if (ctx.specialization_registry) {
+                char spec_key[512];
+                snprintf(spec_key, sizeof(spec_key), "%s:%s", func_name_buf, concrete_type);
+                if (shgeti(ctx.specialization_registry, spec_key) >= 0) {
+                    arrfree(param_types[pi].value);
+                    continue;  /* Already specialized for this type */
+                }
+            }
+
+            /* Mark the callee's parameter collection as monomorphic.
+             * The parameter ValueId in the callee is (param_idx + 1) per convention
+             * (params get IDs 1..N, allocas get N+1..2N). */
+            IronLIR_ValueId param_vid = (IronLIR_ValueId)(param_idx + 1);
+            /* Also check the alloca for this parameter: param_idx alloca is at
+             * id = param_count + param_idx + 1. */
+            IronLIR_ValueId alloca_vid = (IronLIR_ValueId)(callee_fn->param_count + param_idx + 1);
+
+            /* Propagate: mark both the param and its alloca chain */
+            hmput(ctx.monomorphic_collections, param_vid, concrete_type);
+            hmput(ctx.monomorphic_collections, alloca_vid, concrete_type);
+
+            /* Also try to find LOAD from alloca in the callee's entry block */
+            if (callee_fn->block_count > 0) {
+                IronLIR_Block *entry_blk = callee_fn->blocks[0];
+                for (int ii = 0; ii < entry_blk->instr_count; ii++) {
+                    IronLIR_Instr *in2 = entry_blk->instrs[ii];
+                    if (in2->kind == IRON_LIR_LOAD && in2->load.ptr == alloca_vid) {
+                        hmput(ctx.monomorphic_collections, in2->id, concrete_type);
+                    }
+                }
+            }
+
+            arrfree(param_types[pi].value);
+        }
+
+        /* Clean up */
+        for (ptrdiff_t pi = 0; pi < shlen(param_types); pi++) {
+            arrfree(param_types[pi].value);
+        }
+        shfree(param_types);
+        shfree(call_site_counts);
+    }
+
     /* Clean up func_return_types */
     for (ptrdiff_t i = 0; i < shlen(func_return_types); i++) {
         arrfree(func_return_types[i].value);
