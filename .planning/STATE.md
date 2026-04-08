@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-04-08)
 ## Current Position
 
 Phase: 52 of 54 (Emitter Refactoring) -- first phase of v0.1.2-alpha
-Plan: 2 of 3 complete
-Status: Executing
-Last activity: 2026-04-08 -- Completed 52-02 (extract emit_structs)
+Plan: 3 of 3 complete
+Status: Phase Complete
+Last activity: 2026-04-08 -- Completed 52-03 (extract emit_split and emit_fusion)
 
-Progress: [######░░░░] 67%
+Progress: [##########] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
-- Average duration: 19min
-- Total execution time: ~4.5 hours
+- Total plans completed: 16
+- Average duration: 20min
+- Total execution time: ~5.2 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -56,6 +56,7 @@ Progress: [######░░░░] 67%
 | 50-vrc-arena | 03 | 8min | 2 | 4 |
 | 52-emitter-refactoring | 01 | 13min | 2 | 4 |
 | 52-emitter-refactoring | 02 | 36min | 2 | 4 |
+| 52-emitter-refactoring | 03 | 37min | 3 | 7 |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Progress: [######░░░░] 67%
 - [Phase 51]: Memory investigation resolved -- no critical leak found
 - [Phase 52]: emit_ prefix convention for all shared emitter functions; emit_ctx_cleanup for consolidated resource freeing
 - [Phase 52]: Type declaration emission isolated in emit_structs module; estimate_type_size renamed to emit_estimate_type_size
+- [Phase 52]: Split collection emission isolated in emit_split module; fusion emission isolated in emit_fusion module
+- [Phase 52]: emit_expr_to_buf made non-static for cross-module access from emit_fusion.c
 
 ### Roadmap Evolution
 
@@ -84,12 +87,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- emit_c.c is monolithic -- Phase 52 addresses this directly
+- emit_c.c monolithic problem RESOLVED by Phase 52 (4 sub-modules extracted)
 - Value range analysis uses conservative TOP at call boundaries -- Phase 53 addresses this
 - Monomorphic detection is local-only -- Phase 53 extends it interprocedurally
 
 ## Session Continuity
 
-Last session: 2026-04-08T18:44:26Z
-Stopped at: Completed 52-02-PLAN.md
-Resume file: .planning/phases/52-emitter-refactoring/52-02-SUMMARY.md
+Last session: 2026-04-08T19:23:39Z
+Stopped at: Completed 52-03-PLAN.md (Phase 52 complete)
+Resume file: .planning/phases/52-emitter-refactoring/52-03-SUMMARY.md
