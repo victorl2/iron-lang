@@ -7088,10 +7088,26 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* opt_info maps are owned by the caller — do NOT free here */
     hmfree(ctx.param_alias_ids);
 
+    /* Phase 41/48: Free split collection and per-function residual maps */
+    hmfree(ctx.split_collection_ids);
+    shfree(ctx.indirect_variants);
+    hmfree(ctx.layout_overrides);
+    hmfree(ctx.unordered_collections);
+
     /* Phase 48: Free layout analysis and reduced storage tracking */
     iron_layout_free(&ctx.layout);
     shfree(ctx.reduced_storage_types);
     shfree(ctx.soa_types);
+
+    /* Phase 49: Free fusion chain residuals from last function */
+    if (ctx.fusion_chains) {
+        for (int fci = 0; fci < (int)arrlen(ctx.fusion_chains); fci++) {
+            arrfree(ctx.fusion_chains[fci].nodes);
+        }
+        arrfree(ctx.fusion_chains);
+    }
+    hmfree(ctx.fusion_chain_member);
+    hmfree(ctx.fusion_chain_position);
 
     /* Phase 49: Free monomorphic collection tracking and specialization registry */
     hmfree(ctx.monomorphic_collections);
