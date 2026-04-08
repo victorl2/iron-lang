@@ -917,7 +917,11 @@ Plans:
   2. Access sites for compressed fields emit widening reads (cast to original type on load) and narrowing writes (cast to compressed type on store); the program produces identical results to the non-compressed version
   3. Per-type sub-arrays in split collections use arena allocation with geometric growth (capacity doubling); the generated C shows arena-based allocation calls instead of individual malloc per element
   4. Arena free releases all per-type sub-arrays for a split collection in a single operation; no per-element free calls are emitted
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 50-01-PLAN.md — Value range analysis module and compressed field code generation
+- [ ] 50-02-PLAN.md — Arena allocation with pointer registry for split collections
+- [ ] 50-03-PLAN.md — Integration tests for value range compression and arena allocation
 
 
 ## Progress
