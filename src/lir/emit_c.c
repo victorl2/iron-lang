@@ -124,6 +124,9 @@ typedef struct {
 
     /* Phase 48-03: map of collection ValueId -> true for unordered collections */
     struct { IronLIR_ValueId key; bool value; } *unordered_collections;
+
+    /* Phase 49: fusion chain detection */
+    bool warn_fusion_break;  /* --warn-fusion-break: emit diagnostic at chain break points */
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -5825,7 +5828,8 @@ static void emit_type_decls(EmitCtx *ctx) {
 const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             Iron_DiagList *diags,
                             IronLIR_OptimizeInfo *opt_info,
-                            Iron_IfaceRegistry *iface_reg) {
+                            Iron_IfaceRegistry *iface_reg,
+                            bool warn_fusion_break) {
     if (!module) return NULL;
     if (diags && diags->error_count > 0) return NULL;
 
@@ -5838,6 +5842,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     ctx.next_type_tag = 1;
     ctx.opt_info      = opt_info;
     ctx.iface_reg     = iface_reg;
+    ctx.warn_fusion_break = warn_fusion_break;
 
     ctx.includes        = iron_strbuf_create(512);
     ctx.forward_decls   = iron_strbuf_create(256);

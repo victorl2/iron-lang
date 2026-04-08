@@ -13,6 +13,7 @@ typedef struct {
     bool        force_comptime;   /* --force-comptime flag: skip comptime cache */
     bool        dump_ir_passes;   /* --dump-ir-passes: print IR after each opt pass */
     bool        no_optimize;      /* --no-optimize: skip copy-prop/const-fold/DCE */
+    bool        warn_fusion_break; /* --warn-fusion-break: emit diagnostics at fusion chain break points */
 } IronBuildOpts;
 
 /* Build a .iron source file to a native binary.

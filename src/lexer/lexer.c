@@ -146,6 +146,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_ERROR]         = "IRON_TOK_ERROR",
     [IRON_TOK_IDENTIFIER]    = "IRON_TOK_IDENTIFIER",
     [IRON_TOK_WILDCARD]      = "IRON_TOK_WILDCARD",
+    [IRON_TOK_AT]            = "IRON_TOK_AT",
 };
 
 const char *iron_token_kind_str(Iron_TokenKind kind) {
@@ -561,6 +562,9 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                                    start_line, start_col, 1);
         case '?':
             return iron_make_token(l, IRON_TOK_QUESTION, NULL,
+                                   start_line, start_col, 1);
+        case '@':
+            return iron_make_token(l, IRON_TOK_AT, NULL,
                                    start_line, start_col, 1);
         case '(':
             return iron_make_token(l, IRON_TOK_LPAREN, NULL,

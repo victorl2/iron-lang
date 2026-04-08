@@ -926,7 +926,8 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 8. Emit C from IR */
     const char *c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
-                                        &analysis.iface_registry);
+                                        &analysis.iface_registry,
+                                        opts.warn_fusion_break);
 
     iron_lir_module_destroy(ir_module);
     iron_arena_free(&ir_arena);

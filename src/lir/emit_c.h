@@ -10,6 +10,7 @@
  * iface_reg: interface implementor registry for tagged union generation. May be NULL. */
 const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             Iron_DiagList *diags, IronLIR_OptimizeInfo *opt_info,
-                            Iron_IfaceRegistry *iface_reg);
+                            Iron_IfaceRegistry *iface_reg,
+                            bool warn_fusion_break);
 
 #endif /* IRON_LIR_EMIT_C_H */
