@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.0
-milestone_name: milestone
-status: in_progress
-stopped_at: Completed 50-03-PLAN.md
-last_updated: "2026-04-08T11:49:12.607Z"
-last_activity: 2026-04-08 -- Completed 50-03 integration tests for value range compression and arena allocation
+milestone: v0.1.2-alpha
+milestone_name: Compiler Hardening & Refactoring
+status: defining_requirements
+stopped_at: Milestone v0.1.2-alpha started
+last_updated: "2026-04-08T14:00:00.000Z"
+last_activity: 2026-04-08 -- Milestone v0.1.2-alpha started
 progress:
-  total_phases: 11
-  completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-07)
+See: .planning/PROJECT.md (updated 2026-04-08)
 
 **Core value:** The programmer writes polymorphic code against interfaces; the compiler emits monomorphic, data-oriented C code with no vtables, no heap indirection, and no pointer chasing.
-**Current focus:** Phase 46 - Full Closure Capture (ready to plan)
+**Current focus:** Defining requirements for v0.1.2-alpha Compiler Hardening & Refactoring
 
 ## Current Position
 
-Phase: 50 of 50 (Value Range Compression & Arena Allocation)
-Plan: 3 of 3 (completed)
-Status: in_progress
-Last activity: 2026-04-08 -- Completed 50-03 integration tests for value range compression and arena allocation
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-08 -- Milestone v0.1.2-alpha started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
