@@ -92,6 +92,10 @@ Progress: [██████████] 100%
 - [Phase 50]: Union semantics for field ranges across all functions; any TOP path kills compression
 - [Phase 50]: STORE/LOAD tracking via per-alloca range map for variable-based value flow
 - [Phase 50]: Emit tracking helpers as static inline in generated C (not linked from compiler arena.c)
+
+### Roadmap Evolution
+
+- Phase 51 added: Memory Investigation & Leak Audit — user reported ironc consuming 50GB+ memory during compilation
 - [Phase 50]: Inline pointer registry in SplitList (_tracked/count/cap) instead of embedding full Iron_Arena
 - [Phase 50]: 1.5x geometric growth factor for split collection sub-arrays (reduced from 2x)
 - [Phase 50]: VRC integration test requires dead field to trigger Stor struct emission where compression applies
