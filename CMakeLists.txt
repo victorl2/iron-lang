@@ -85,6 +85,7 @@ add_library(iron_compiler STATIC
     src/lir/lir.c
     src/lir/emit_c.c
     src/lir/emit_helpers.c
+    src/lir/emit_structs.c
     src/lir/layout_analysis.c
     src/lir/value_range.c
     src/lir/print.c
