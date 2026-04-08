@@ -1,0 +1,6 @@
+-- fusion_flat_map_filter_reduce.iron: Flat array map+filter+reduce fusion (FUSE-01/02)
+func main() {
+  val arr = [1, 2, 3, 4, 5, 6]
+  val result = arr.map(func(x: Int) -> Int { return x + 10 }).filter(func(x: Int) -> Bool { return x > 13 }).reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{result}")
+}

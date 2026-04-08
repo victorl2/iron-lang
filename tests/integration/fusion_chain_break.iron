@@ -1,0 +1,8 @@
+-- fusion_chain_break.iron: Non-fusible boundary breaks chain into independent sub-chains
+func main() {
+  val arr = [1, 2, 3, 4, 5]
+  val mapped = arr.map(func(x: Int) -> Int { return x * 2 })
+  println("{mapped.sum()}")
+  val filtered = mapped.filter(func(x: Int) -> Bool { return x > 4 })
+  println("{filtered.sum()}")
+}

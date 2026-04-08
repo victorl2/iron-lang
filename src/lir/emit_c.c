@@ -4588,6 +4588,45 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
         }
     }
 
+    /* -- Phase 49: Pre-populate split_collection_ids for ARRAY_LIT instructions
+     * (needed before fusion chain detection so chains on split collections
+     * can be identified as split).  The Phase 41 scan below is a duplicate
+     * but safe — hmput is idempotent for same key. */
+    if (ctx->iface_reg) {
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in2 = blk->instrs[ii];
+                if (in2->kind == IRON_LIR_ARRAY_LIT &&
+                    in2->array_lit.elem_type &&
+                    in2->array_lit.elem_type->kind == IRON_TYPE_INTERFACE &&
+                    in2->array_lit.elem_type->interface.decl) {
+                    const char *im = emit_mangle_name(
+                        in2->array_lit.elem_type->interface.decl->name, ctx->arena);
+                    hmput(ctx->split_collection_ids, in2->id,
+                          iron_arena_strdup(ctx->arena, im, strlen(im)));
+                }
+            }
+        }
+        /* Propagate split_collection_ids through STORE/LOAD chains so that
+         * fusion chain detection can find split sources after val assignment. */
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in2 = blk->instrs[ii];
+                if (in2->kind == IRON_LIR_STORE) {
+                    ptrdiff_t si = hmgeti(ctx->split_collection_ids, in2->store.value);
+                    if (si >= 0) hmput(ctx->split_collection_ids, in2->store.ptr,
+                                       ctx->split_collection_ids[si].value);
+                } else if (in2->kind == IRON_LIR_LOAD) {
+                    ptrdiff_t si = hmgeti(ctx->split_collection_ids, in2->load.ptr);
+                    if (si >= 0) hmput(ctx->split_collection_ids, in2->id,
+                                       ctx->split_collection_ids[si].value);
+                }
+            }
+        }
+    }
+
     /* -- Phase 49: Fusion chain detection pre-scan ----------------------------
      * Identify sequences of fusible collection method CALLs where each
      * method's result feeds directly (or through STORE/LOAD) into the next
