@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: in_progress
-stopped_at: Completed 53-01-PLAN.md
-last_updated: "2026-04-08T21:41:52Z"
-last_activity: 2026-04-08 -- Completed 53-01 (return range propagation + conditional narrowing)
+status: completed
+stopped_at: Completed 53-02-PLAN.md
+last_updated: "2026-04-08T23:22:48.904Z"
+last_activity: 2026-04-08 -- Completed 53-02 (interprocedural monomorphic detection + specialization heuristic)
 progress:
   total_phases: 15
-  completed_phases: 5
-  total_plans: 16
-  completed_plans: 17
+  completed_phases: 6
+  total_plans: 18
+  completed_plans: 18
   percent: 50
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-08)
 ## Current Position
 
 Phase: 53 of 54 (Analysis Improvements) -- second phase of v0.1.2-alpha
-Plan: 1 of 2 complete
-Status: In Progress
-Last activity: 2026-04-08 -- Completed 53-01 (return range propagation + conditional narrowing)
+Plan: 2 of 2 complete
+Status: Phase Complete
+Last activity: 2026-04-08 -- Completed 53-02 (interprocedural monomorphic detection + specialization heuristic)
 
 Progress: [#####-----] 50%
 
@@ -58,6 +58,7 @@ Progress: [#####-----] 50%
 | 52-emitter-refactoring | 02 | 36min | 2 | 4 |
 | 52-emitter-refactoring | 03 | 37min | 3 | 7 |
 | 53-analysis-improvements | 01 | 39min | 2 | 6 |
+| Phase 53 P02 | 52min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,8 @@ Progress: [#####-----] 50%
 - [Phase 53]: func_ref resolution via value_table for CALL-site return range propagation
 - [Phase 53]: Block entry range replace semantics (not intersect) for correct cross-path analysis
 - [Phase 53]: Conditional narrowing shared in both collect_return_ranges and analyze_function_ranges
+- [Phase 53]: emit_type_to_c uses Iron_SplitList_ for interface arrays (fixes return type mismatch)
+- [Phase 53]: Specialization heuristic: <=50 instrs, 1-2 callers, dispatch branches required
 
 ### Roadmap Evolution
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-08T21:41:52Z
-Stopped at: Completed 53-01-PLAN.md
-Resume file: .planning/phases/53-analysis-improvements/53-01-SUMMARY.md
+Last session: 2026-04-08T23:22:48.901Z
+Stopped at: Completed 53-02-PLAN.md
+Resume file: None
