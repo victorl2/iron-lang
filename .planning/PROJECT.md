@@ -12,22 +12,21 @@ The programmer writes polymorphic code against interfaces; the compiler emits mo
 
 Shipped: Core dispatch (tagged unions, tag-based dispatch, dead implementor elimination), collection splitting (per-type sub-arrays, unordered per-type loops, ordered iteration), prefetch insertion, documentation/branding.
 
-## Current Milestone: v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations
+## Previous Milestone: v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations (Shipped)
 
-**Goal:** Complete the static dispatch optimization stack by adding collection methods (map/filter/reduce with lambdas), full closure capture support, and the remaining layout optimizations (SoA/AoS, dead field elimination, loop fusion, monomorphic specialization, value range compression, arena allocation).
+Shipped: Collection methods (map/filter/reduce/forEach/sum with lambdas), full closure capture, SoA/AoS layout selection, dead field elimination, common field factoring, small/large variant split, loop fusion (@fusible annotation, fused chains), monomorphic collection collapse, value range compression, arena allocation with pointer registry, layout annotations.
+
+## Current Milestone: v0.1.2-alpha Compiler Hardening & Refactoring
+
+**Goal:** Harden the compiler by refactoring the monolithic emit_c.c into focused sub-modules, strengthening analysis passes (interprocedural monomorphic detection, improved value range analysis), and closing test coverage gaps with edge case and stress tests.
 
 **Target features:**
-- Collection methods on arrays: `.map()`, `.filter()`, `.reduce()`, `.forEach()`, `.sum()` accepting lambdas
-- Full closure capture: mutable var by reference, closures returned from functions, closures as fields, nested lambdas, recursive lambdas
-- AoS/SoA field-level layout selection based on access pattern analysis
-- Dead field elimination in collection storage structs
-- Common field factoring across implementors
-- Small/large variant split for non-collection interface variables
-- Loop fusion: chained map/filter/reduce fuse into single pass per type
-- Monomorphic collection specialization: single-type collections collapse to plain arrays
-- Value range compression: fields narrowed to smallest sufficient type
-- Arena allocation per type for split collections
-- Layout annotations: `layout: soa`, `layout: aos`, `unordered`
+- Refactor emit_c.c into focused sub-modules (split collection emission, fusion emission, struct generation, layout/SoA emission)
+- Interprocedural monomorphic detection: track concrete types across function boundaries and return values
+- Improved value range analysis: interprocedural call-site return range tracking (currently conservative TOP)
+- Edge case test suite: empty collections, all-filtered-out, single element, deeply nested fusion chains, adversarial type combinations
+- Stress tests: large collections (10K+ elements), many implementors, deeply nested interfaces
+- Regression test hardening: ensure all optimization compositions are tested end-to-end
 
 ## Requirements
 
