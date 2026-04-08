@@ -1,0 +1,6 @@
+-- fusion_flat_filter_sum.iron: Flat array filter+sum fusion (FUSE-01/02)
+func main() {
+  val arr = [10, 20, 30, 40, 50]
+  val result = arr.filter(func(x: Int) -> Bool { return x > 25 }).sum()
+  println("{result}")
+}
