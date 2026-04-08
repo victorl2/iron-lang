@@ -901,7 +901,12 @@ Plans:
   2. The fused loop produces results identical to executing each operation separately for all input types and edge cases (empty arrays, all-filtered-out, single element)
   3. A collection proven by dataflow analysis to hold only one concrete type collapses to a plain typed array with direct field access; no tag dispatch or split collection overhead remains
   4. The specialization registry prevents duplicate emission of the same specialized function body for a given (function, concrete_type) pair
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 49-01-PLAN.md — @fusible annotation pipeline + chain detection + spec doc
+- [ ] 49-02-PLAN.md — Fused loop emission (flat + split) + fusion tests
+- [ ] 49-03-PLAN.md — Monomorphic collapse + specialization registry + tests
 
 ### Phase 50: Value Range Compression & Arena Allocation
 **Goal**: Fields proven to fit in narrower types are stored compressed in collection structs, and per-type sub-arrays use arena allocation for efficient bulk memory management
