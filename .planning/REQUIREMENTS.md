@@ -37,7 +37,7 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 ### Loop Fusion
 
 - [x] **FUSE-01**: `arr.map(...).filter(...).reduce(...)` compiles to a single fused loop per concrete type with no intermediate allocation — the compiler recognizes Iron-bodied stdlib collection methods as fusion targets
-- [ ] **FUSE-02**: Fused loops produce identical results to the non-fused path for all input types — tested with every collection method combination (map+filter, map+reduce, filter+sum, map+filter+reduce, map+filter+sum)
+- [x] **FUSE-02**: Fused loops produce identical results to the non-fused path for all input types — tested with every collection method combination (map+filter, map+reduce, filter+sum, map+filter+reduce, map+filter+sum)
 - [ ] **FUSE-03**: Fusion works on interface-typed split collections — chained operations on `[Shape]` fuse into per-type single-pass loops
 
 ### Monomorphic Specialization
@@ -103,7 +103,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LAYOUT-04 | Phase 48 | Complete |
 | LAYOUT-05 | Phase 48 | Complete |
 | FUSE-01 | Phase 49 | Complete |
-| FUSE-02 | Phase 49 | Pending |
+| FUSE-02 | Phase 49 | Complete |
 | MONO-01 | Phase 49 | Pending |
 | MONO-02 | Phase 49 | Pending |
 | VRC-01 | Phase 50 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 49-01-PLAN.md
-last_updated: "2026-04-08T02:48:16.507Z"
+stopped_at: Completed 49-02-PLAN.md
+last_updated: "2026-04-08T03:17:16.677Z"
 last_activity: 2026-04-07 -- Completed 49-01 fusible annotation pipeline and chain detection
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 30
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 ## Current Position
 
 Phase: 49 of 50 (Loop Fusion & Monomorphic Specialization)
-Plan: 1 of 3
+Plan: 2 of 3
 Status: in_progress
-Last activity: 2026-04-07 -- Completed 49-01 fusible annotation pipeline and chain detection
+Last activity: 2026-04-08 -- Completed 49-02 fused loop emission and integration tests
 
-Progress: [▓▓▓░░░░░░░] 30%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Progress: [▓▓▓░░░░░░░] 30%
 | Phase 48-layout-optimizations P03 | 28min | 2 tasks | 11 files |
 | Phase 48-layout-optimizations P04 | 7min | 1 task | 5 files |
 | Phase 49-loop-fusion-monomorphic-specialization P01 | 21min | 3 tasks | 12 files |
+| Phase 49-loop-fusion-monomorphic-specialization P02 | 25min | 2 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Progress: [▓▓▓░░░░░░░] 30%
 - [Phase 48]: Large variant pointer indirection: >2x smallest AND >64 bytes triggers heap allocation in tagged union
 - [Phase 48]: Arena-allocated keys for stb_ds string hash maps to prevent stack-use-after-scope
 - [Phase 49]: @fusible annotation via IRON_TOK_AT token + identifier check; chain detection pre-scan with STORE/LOAD propagation and escape analysis; chain-interior skip deferred to Plan 02
+- [Phase 49]: Fused loop emission placed before emit_instr as static helper function
+- [Phase 49]: Split collection pre-population with STORE/LOAD propagation moved before chain detection
+- [Phase 49]: Per-node type tracking arrays for correct lambda typedef casting in fused loops
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-08T02:48:16.504Z
-Stopped at: Completed 49-01-PLAN.md
+Last session: 2026-04-08T03:17:16.674Z
+Stopped at: Completed 49-02-PLAN.md
 Resume file: None
