@@ -59,8 +59,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Emitter Refactoring
 
-- [ ] **EMIT-01**: Split collection emission (struct generation, push functions, free, iteration) extracted into dedicated `emit_split.c` module with clean API
-- [ ] **EMIT-02**: Fusion emission (fused loop generation, chain detection helpers) extracted into dedicated `emit_fusion.c` module
+- [x] **EMIT-01**: Split collection emission (struct generation, push functions, free, iteration) extracted into dedicated `emit_split.c` module with clean API
+- [x] **EMIT-02**: Fusion emission (fused loop generation, chain detection helpers) extracted into dedicated `emit_fusion.c` module
 - [x] **EMIT-03**: Struct/layout emission (object struct bodies, SoA/AoS arrays, storage structs, type emission) extracted into dedicated `emit_structs.c` module
 - [x] **EMIT-04**: EmitCtx fields documented, consistently named, and cleaned up via single `emit_ctx_cleanup()` function
 
@@ -136,8 +136,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ARENA-02 | Phase 50 | Complete |
 | MEM-01 | Phase 51 | Complete |
 | MEM-02 | Phase 51 | Complete |
-| EMIT-01 | Phase 52 | Pending |
-| EMIT-02 | Phase 52 | Pending |
+| EMIT-01 | Phase 52 | Complete |
+| EMIT-02 | Phase 52 | Complete |
 | EMIT-03 | Phase 52 | Complete |
 | EMIT-04 | Phase 52 | Complete |
 | ANAL-01 | Phase 53 | Pending |
