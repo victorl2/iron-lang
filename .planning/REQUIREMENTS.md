@@ -52,6 +52,11 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **ARENA-01**: Per-type sub-arrays in split collections use arena allocation with geometric growth (capacity doubling)
 - [x] **ARENA-02**: Arena free releases all per-type sub-arrays in one operation
 
+### Memory Investigation
+
+- [ ] **MEM-01**: ironc peak memory consumption during compilation of any integration test stays below 500MB
+- [ ] **MEM-02**: Generated C programs have no memory leaks — all allocated memory is freed or accounted for (verified by AddressSanitizer or valgrind)
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.

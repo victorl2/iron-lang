@@ -981,3 +981,14 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 48. Layout Optimizations | 4/4 | Complete    | 2026-04-07 | - |
 | 49. Loop Fusion & Monomorphic Specialization | 3/3 | Complete    | 2026-04-08 | - |
 | 50. Value Range Compression & Arena Allocation | 3/3 | Complete    | 2026-04-08 | - |
+
+### Phase 51: Memory Investigation & Leak Audit
+
+**Goal**: Investigate and fix the source of extreme memory consumption (50GB+) observed during ironc compilation — determine whether the leak is in the compiler itself (arena allocations, stb_ds hash maps, generated code buffers) or in the generated C program, and fix it
+**Depends on**: Phase 50
+**Requirements**: MEM-01, MEM-02
+**Success Criteria** (what must be TRUE):
+  1. ironc compiling any integration test program uses less than 500MB of peak memory (measured via `/usr/bin/time -l` or equivalent)
+  2. No memory leak detected by running the generated C program under AddressSanitizer or valgrind — all allocated memory is freed or accounted for
+  3. Root cause identified and documented — whether compiler-side (arena, stb_ds, strbuf growth) or generated-code-side (missing free, unbounded growth)
+**Plans**: TBD
