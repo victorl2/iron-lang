@@ -980,4 +980,4 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 47. Collection Methods | 3/3 | Complete |  | - |
 | 48. Layout Optimizations | 4/4 | Complete    | 2026-04-07 | - |
 | 49. Loop Fusion & Monomorphic Specialization | 3/3 | Complete    | 2026-04-08 | - |
-| 50. Value Range Compression & Arena Allocation | 3/3 | Complete   | 2026-04-08 | - |
+| 50. Value Range Compression & Arena Allocation | 3/3 | Complete    | 2026-04-08 | - |
