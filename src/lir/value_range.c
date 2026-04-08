@@ -101,6 +101,23 @@ static ValueRange lookup_range(VREntry *value_ranges, IronLIR_ValueId vid) {
     return RANGE_TOP;
 }
 
+/* Resolve the callee name from a CALL instruction.
+ * Handles both direct calls (via func_decl) and indirect calls via func_ref. */
+static const char *resolve_call_name(IronLIR_Instr *instr, IronLIR_Func *fn) {
+    if (instr->call.func_decl && instr->call.func_decl->name) {
+        return instr->call.func_decl->name;
+    }
+    /* Try resolving via func_ptr -> FUNC_REF */
+    IronLIR_ValueId fptr = instr->call.func_ptr;
+    if (fptr != IRON_LIR_VALUE_INVALID &&
+        fptr < fn->next_value_id && fn->value_table &&
+        fn->value_table[fptr] &&
+        fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF) {
+        return fn->value_table[fptr]->func_ref.func_name;
+    }
+    return NULL;
+}
+
 /* ── Per-function analysis ──────────────────────────────────────────────── */
 
 /* Track STORE/LOAD for alloca-based variable tracking:
@@ -109,6 +126,157 @@ typedef struct {
     IronLIR_ValueId key;
     ValueRange value;
 } AllocaRange;
+
+/* ── Return range collection (Pass 0) ─────────────────────────────────── */
+
+/* Collect return ranges for all functions in the module.
+ * For each function, compute the union of all RETURN instruction ranges.
+ * For recursive functions, use one-level unrolling: skip RETURN paths
+ * whose value traces back to a CALL to the same function. */
+static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *module) {
+    sh_new_strdup(vra->func_return_ranges);
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn || fn->is_extern || fn->block_count == 0) continue;
+        if (!fn->name) continue;
+
+        /* Compute per-value ranges for this function (same logic as Pass 1) */
+        VREntry *value_ranges = NULL;
+        AllocaRange *alloca_ranges = NULL;
+
+        /* Track which value IDs come from a self-recursive CALL */
+        VREntry *recursive_values = NULL;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *instr = blk->instrs[ii];
+                if (instr->id == IRON_LIR_VALUE_INVALID) continue;
+
+                ValueRange range = RANGE_TOP;
+
+                switch (instr->kind) {
+                case IRON_LIR_CONST_INT:
+                    range = range_const(instr->const_int.value);
+                    break;
+
+                case IRON_LIR_ADD:
+                case IRON_LIR_SUB:
+                case IRON_LIR_MUL: {
+                    ValueRange lhs = lookup_range(value_ranges, instr->binop.left);
+                    ValueRange rhs = lookup_range(value_ranges, instr->binop.right);
+                    if (instr->kind == IRON_LIR_ADD)
+                        range = range_add(lhs, rhs);
+                    else if (instr->kind == IRON_LIR_SUB)
+                        range = range_sub(lhs, rhs);
+                    else
+                        range = range_mul(lhs, rhs);
+                    break;
+                }
+
+                case IRON_LIR_PHI: {
+                    bool first = true;
+                    for (int pi = 0; pi < instr->phi.count; pi++) {
+                        ValueRange incoming = lookup_range(value_ranges,
+                            instr->phi.values[pi]);
+                        if (first) { range = incoming; first = false; }
+                        else { range = range_union(range, incoming); }
+                        if (range.is_top) break;
+                    }
+                    if (first) range = RANGE_TOP;
+                    break;
+                }
+
+                case IRON_LIR_LOAD: {
+                    ptrdiff_t ai = hmgeti(alloca_ranges, instr->load.ptr);
+                    if (ai >= 0) range = alloca_ranges[ai].value;
+                    else range = RANGE_TOP;
+                    break;
+                }
+
+                case IRON_LIR_STORE: {
+                    ValueRange stored = lookup_range(value_ranges, instr->store.value);
+                    ptrdiff_t ai = hmgeti(alloca_ranges, instr->store.ptr);
+                    if (ai >= 0)
+                        alloca_ranges[ai].value = range_union(alloca_ranges[ai].value, stored);
+                    else
+                        hmput(alloca_ranges, instr->store.ptr, stored);
+                    goto collect_next;
+                }
+
+                case IRON_LIR_CALL: {
+                    /* Mark self-recursive call results so we can skip them in RETURNs */
+                    const char *callee = resolve_call_name(instr, fn);
+                    if (callee && strcmp(callee, fn->name) == 0) {
+                        hmput(recursive_values, instr->id, (ValueRange){0});
+                    }
+                    range = RANGE_TOP;
+                    break;
+                }
+
+                default:
+                    range = RANGE_TOP;
+                    break;
+                }
+
+                hmput(value_ranges, instr->id, range);
+                collect_next:;
+            }
+        }
+
+        /* Collect return ranges: union of all non-recursive RETURN values */
+        ValueRange func_range = RANGE_TOP;
+        bool has_return = false;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *instr = blk->instrs[ii];
+                if (instr->kind != IRON_LIR_RETURN) continue;
+                if (instr->ret.is_void) continue;
+
+                IronLIR_ValueId ret_vid = instr->ret.value;
+                if (ret_vid == IRON_LIR_VALUE_INVALID) continue;
+
+                /* One-level unrolling: skip returns that come from self-recursive calls */
+                if (hmgeti(recursive_values, ret_vid) >= 0) continue;
+
+                /* Also check if the return value is a LOAD from an alloca that was
+                 * stored from a recursive call */
+                if (ret_vid < fn->next_value_id && fn->value_table &&
+                    fn->value_table[ret_vid]) {
+                    IronLIR_Instr *ret_instr = fn->value_table[ret_vid];
+                    if (ret_instr->kind == IRON_LIR_LOAD) {
+                        /* Check alloca: if the only store was from a recursive call, skip */
+                        ptrdiff_t ai = hmgeti(alloca_ranges, ret_instr->load.ptr);
+                        if (ai >= 0 && alloca_ranges[ai].value.is_top) {
+                            /* Conservative: alloca has TOP range, might be from recursive call */
+                            /* Don't skip -- just use the TOP range for safety */
+                        }
+                    }
+                }
+
+                ValueRange ret_range = lookup_range(value_ranges, ret_vid);
+
+                if (!has_return) {
+                    func_range = ret_range;
+                    has_return = true;
+                } else {
+                    func_range = range_union(func_range, ret_range);
+                }
+            }
+        }
+
+        if (has_return && !func_range.is_top) {
+            shput(vra->func_return_ranges, fn->name, func_range);
+        }
+
+        hmfree(value_ranges);
+        hmfree(alloca_ranges);
+        hmfree(recursive_values);
+    }
+}
 
 static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
     if (!fn || fn->is_extern || fn->block_count == 0) return;
@@ -187,8 +355,23 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
                 goto next_instr;
             }
 
+            case IRON_LIR_CALL: {
+                /* Look up callee's return range from pre-computed func_return_ranges */
+                const char *callee = resolve_call_name(instr, fn);
+                if (callee && vra->func_return_ranges) {
+                    ptrdiff_t fri = shgeti(vra->func_return_ranges, callee);
+                    if (fri >= 0) {
+                        range = vra->func_return_ranges[fri].value;
+                        break;
+                    }
+                }
+                /* Indirect calls or unknown functions stay TOP */
+                range = RANGE_TOP;
+                break;
+            }
+
             default:
-                /* CALL, DIV, MOD, comparisons, etc. -> TOP (conservative) */
+                /* DIV, MOD, comparisons, etc. -> TOP (conservative) */
                 range = RANGE_TOP;
                 break;
             }
@@ -289,6 +472,9 @@ void iron_vr_analyze(ValueRangeAnalysis *vra,
     /* Initialize the string hash map */
     sh_new_strdup(vra->field_ranges);
 
+    /* Pass 0: Collect function return ranges for interprocedural propagation */
+    collect_return_ranges(vra, module);
+
     /* Scan all functions: accumulate field ranges with union semantics */
     for (int fi = 0; fi < module->func_count; fi++) {
         IronLIR_Func *fn = module->funcs[fi];
@@ -316,4 +502,6 @@ void iron_vr_free(ValueRangeAnalysis *vra) {
     if (!vra) return;
     shfree(vra->field_ranges);
     vra->field_ranges = NULL;
+    shfree(vra->func_return_ranges);
+    vra->func_return_ranges = NULL;
 }

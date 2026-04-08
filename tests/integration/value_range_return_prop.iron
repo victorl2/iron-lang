@@ -1,0 +1,73 @@
+-- value_range_return_prop.iron: Return range propagation (Phase 53)
+-- Tests that function return ranges propagate through CALL to field assignments,
+-- enabling field compression (uint8_t) in collection storage structs.
+--
+-- Leaf functions return known small constants. Their return ranges propagate
+-- to CALL sites in the per-function analysis pass, allowing uint8_t
+-- compression of fields assigned from call results.
+-- The debug_id field is never accessed through the collection, triggering
+-- Stor struct generation (Phase 48), which enables compression (Phase 50).
+
+interface Particle {
+  func describe() -> Int
+}
+
+object Dot impl Particle {
+  var kind: Int
+  var x: Int
+  var y: Int
+  var debug_id: Int
+}
+
+object Pixel impl Particle {
+  var kind: Int
+  var r: Int
+  var g: Int
+  var debug_id: Int
+}
+
+func Dot.describe() -> Int {
+  return self.kind * 1000 + self.x * 100 + self.y
+}
+
+func Pixel.describe() -> Int {
+  return self.kind * 1000 + self.r * 100 + self.g
+}
+
+-- Leaf functions returning known small constants.
+-- Return range propagation: get_kind_dot() -> [1,1], get_x() -> [30,30], etc.
+func get_kind_dot() -> Int { return 1 }
+func get_kind_pixel() -> Int { return 2 }
+func get_x() -> Int { return 30 }
+func get_y() -> Int { return 40 }
+func get_r() -> Int { return 100 }
+func get_g() -> Int { return 200 }
+
+-- Builder functions call leaf functions and construct objects.
+-- Without return range propagation, CALL results are TOP -> no compression.
+-- With propagation, CALL gets [1,1], [30,30], [40,40] -> fields compress.
+func build_dot() -> Dot {
+  return Dot(get_kind_dot(), get_x(), get_y(), 800)
+}
+
+func build_pixel() -> Pixel {
+  return Pixel(get_kind_pixel(), get_r(), get_g(), 900)
+}
+
+func main() {
+  -- Mix direct constants and builder-function results in the same collection.
+  -- Direct constants produce field ranges from CONST_INT.
+  -- Builder-function results produce field ranges via return range propagation.
+  val particles = [
+    Dot(1, 10, 20, 801),
+    build_dot(),
+    Pixel(2, 50, 150, 901),
+    build_pixel()
+  ]
+
+  var total = 0
+  for p in particles {
+    total = total + p.describe()
+  }
+  println("{total}")
+}

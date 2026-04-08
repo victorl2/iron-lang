@@ -29,6 +29,8 @@ typedef struct {
 typedef struct {
     /* Per-field ranges: key = "type_name:field_name" -> ValueRange */
     struct { char *key; ValueRange value; } *field_ranges;
+    /* Per-function return ranges: key = function name -> return range (union of all RETURN values) */
+    struct { char *key; ValueRange value; } *func_return_ranges;
     Iron_Arena *arena;
 } ValueRangeAnalysis;
 
