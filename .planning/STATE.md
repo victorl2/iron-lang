@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 50-01-PLAN.md
-last_updated: "2026-04-08T11:16:20Z"
-last_activity: 2026-04-08 -- Completed 50-01 value range analysis and compressed field types
+stopped_at: Completed 50-02-PLAN.md
+last_updated: "2026-04-08T11:30:49.708Z"
+last_activity: 2026-04-08 -- Completed 50-02 arena allocation with pointer registry for split collections
 progress:
   total_phases: 11
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
-  percent: 93
+  completed_plans: 12
+  percent: 92
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 ## Current Position
 
 Phase: 50 of 50 (Value Range Compression & Arena Allocation)
-Plan: 1 of 3 (completed)
+Plan: 2 of 3 (completed)
 Status: in_progress
-Last activity: 2026-04-08 -- Completed 50-01 value range analysis and compressed field types
+Last activity: 2026-04-08 -- Completed 50-02 arena allocation with pointer registry for split collections
 
-Progress: [█████████░] 93%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [█████████░] 93%
 | Phase 49-loop-fusion-monomorphic-specialization P02 | 25min | 2 tasks | 17 files |
 | Phase 49 P03 | 26min | 2 tasks | 7 files |
 | Phase 50-value-range-compression-arena-allocation P01 | 14min | 2 tasks | 9 files |
+| Phase 50-value-range-compression-arena-allocation P02 | 11min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,9 @@ Progress: [█████████░] 93%
 - [Phase 50]: Conservative TOP for function call return values (no interprocedural call-site analysis)
 - [Phase 50]: Union semantics for field ranges across all functions; any TOP path kills compression
 - [Phase 50]: STORE/LOAD tracking via per-alloca range map for variable-based value flow
+- [Phase 50]: Emit tracking helpers as static inline in generated C (not linked from compiler arena.c)
+- [Phase 50]: Inline pointer registry in SplitList (_tracked/count/cap) instead of embedding full Iron_Arena
+- [Phase 50]: 1.5x geometric growth factor for split collection sub-arrays (reduced from 2x)
 
 ### Pending Todos
 
@@ -102,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-08T11:16:20Z
-Stopped at: Completed 50-01-PLAN.md
-Resume file: .planning/phases/50-value-range-compression-arena-allocation/50-01-SUMMARY.md
+Last session: 2026-04-08T11:30:49.704Z
+Stopped at: Completed 50-02-PLAN.md
+Resume file: None
