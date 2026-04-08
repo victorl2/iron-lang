@@ -134,12 +134,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VRC-02 | Phase 50 | Complete |
 | ARENA-01 | Phase 50 | Complete |
 | ARENA-02 | Phase 50 | Complete |
+| MEM-01 | Phase 51 | Complete |
+| MEM-02 | Phase 51 | Complete |
+| EMIT-01 | Phase 52 | Pending |
+| EMIT-02 | Phase 52 | Pending |
+| EMIT-03 | Phase 52 | Pending |
+| EMIT-04 | Phase 52 | Pending |
+| ANAL-01 | Phase 53 | Pending |
+| ANAL-02 | Phase 53 | Pending |
+| ANAL-03 | Phase 53 | Pending |
+| TEST-01 | Phase 54 | Pending |
+| TEST-02 | Phase 54 | Pending |
+| TEST-03 | Phase 54 | Pending |
 
 **Coverage:**
-- v1 requirements: 26 total
-- Mapped to phases: 26
+- v1 requirements: 38 total
+- Mapped to phases: 38
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-07*
-*Last updated: 2026-04-07 after roadmap creation (phases 46-50)*
+*Last updated: 2026-04-08 after roadmap creation (phases 52-54 for v0.1.2-alpha)*
