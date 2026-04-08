@@ -53,6 +53,17 @@ static ValueRange range_union(ValueRange a, ValueRange b) {
     return (ValueRange){ .min = lo, .max = hi, .is_top = false };
 }
 
+/* Intersect two ranges: max of mins, min of maxes.
+ * Used for AND-chain accumulation at block entry. */
+static ValueRange range_intersect(ValueRange a, ValueRange b) {
+    if (a.is_top) return b;
+    if (b.is_top) return a;
+    int64_t lo = a.min > b.min ? a.min : b.min;
+    int64_t hi = a.max < b.max ? a.max : b.max;
+    if (lo > hi) return RANGE_TOP;  /* empty intersection = unknown */
+    return (ValueRange){ .min = lo, .max = hi, .is_top = false };
+}
+
 static ValueRange range_add(ValueRange a, ValueRange b) {
     if (a.is_top || b.is_top) return RANGE_TOP;
     int64_t lo, hi;
@@ -127,12 +138,239 @@ typedef struct {
     ValueRange value;
 } AllocaRange;
 
+/* ── Conditional narrowing types ───────────────────────────────────────── */
+
+/* Per-block entry range overrides: narrowed ranges from conditional branches.
+ * key = block ID, value = array of per-value narrowed ranges. */
+typedef struct {
+    IronLIR_BlockId key;
+    VREntry *value;  /* stb_ds hashmap of value_id -> narrowed range */
+} BlockRangeEntry;
+
+/* Record a narrowed range for a value at a target block's entry.
+ * If the target already has an entry for this value (AND-chain accumulation),
+ * intersect the ranges rather than replacing. */
+static void record_block_entry_range(BlockRangeEntry **block_entry_ranges,
+                                     IronLIR_BlockId target,
+                                     IronLIR_ValueId vid,
+                                     ValueRange narrowed) {
+    ptrdiff_t bi = hmgeti(*block_entry_ranges, target);
+    if (bi >= 0) {
+        /* Block already has entry ranges -- check for this value */
+        VREntry *entries = (*block_entry_ranges)[bi].value;
+        ptrdiff_t vi = hmgeti(entries, vid);
+        if (vi >= 0) {
+            /* AND-chain: intersect with existing narrowing */
+            entries[vi].value = range_intersect(entries[vi].value, narrowed);
+        } else {
+            hmput(entries, vid, narrowed);
+        }
+        (*block_entry_ranges)[bi].value = entries;
+    } else {
+        VREntry *entries = NULL;
+        hmput(entries, vid, narrowed);
+        hmput(*block_entry_ranges, target, entries);
+    }
+}
+
+/* Apply block entry ranges into the working value_ranges and alloca_ranges.
+ * For values that have narrowed entry ranges, REPLACE their current range.
+ * The intersection for AND-chains is already computed in record_block_entry_range;
+ * here we just apply the final narrowed range for this block. */
+static void apply_block_entry_ranges(BlockRangeEntry *block_entry_ranges,
+                                     IronLIR_BlockId block_id,
+                                     VREntry **value_ranges,
+                                     AllocaRange **alloca_ranges) {
+    ptrdiff_t bi = hmgeti(block_entry_ranges, block_id);
+    if (bi < 0) return;
+
+    VREntry *entries = block_entry_ranges[bi].value;
+    for (int i = 0; i < hmlen(entries); i++) {
+        IronLIR_ValueId vid = entries[i].key;
+        ValueRange narrowed = entries[i].value;
+        if (narrowed.is_top) continue;
+
+        /* Check if this is an alloca (variable) or a direct value */
+        ptrdiff_t ai = hmgeti(*alloca_ranges, vid);
+        if (ai >= 0) {
+            /* Replace alloca range with narrowed value */
+            (*alloca_ranges)[ai].value = narrowed;
+        } else {
+            /* Replace or set the value range */
+            hmput(*value_ranges, vid, narrowed);
+        }
+    }
+}
+
+/* Compute narrowed ranges from a comparison + branch.
+ * Given: `if (var_vid CMP const_val)`, produce narrowed ranges for
+ * the true and false target blocks. */
+static void narrow_from_comparison(IronLIR_InstrKind cmp_kind,
+                                   ValueRange existing,
+                                   int64_t const_val,
+                                   ValueRange *true_range,
+                                   ValueRange *false_range) {
+    if (existing.is_top) {
+        /* Start from full int64 range if unknown */
+        existing.min = INT64_MIN;
+        existing.max = INT64_MAX;
+        existing.is_top = false;
+    }
+
+    switch (cmp_kind) {
+    case IRON_LIR_LT:
+        /* x < C: true -> [min, C-1], false -> [C, max] */
+        *true_range = (ValueRange){ .min = existing.min,
+                                     .max = const_val - 1 < existing.max ? const_val - 1 : existing.max,
+                                     .is_top = false };
+        *false_range = (ValueRange){ .min = const_val > existing.min ? const_val : existing.min,
+                                      .max = existing.max,
+                                      .is_top = false };
+        break;
+    case IRON_LIR_LTE:
+        /* x <= C: true -> [min, C], false -> [C+1, max] */
+        *true_range = (ValueRange){ .min = existing.min,
+                                     .max = const_val < existing.max ? const_val : existing.max,
+                                     .is_top = false };
+        *false_range = (ValueRange){ .min = const_val + 1 > existing.min ? const_val + 1 : existing.min,
+                                      .max = existing.max,
+                                      .is_top = false };
+        break;
+    case IRON_LIR_GT:
+        /* x > C: true -> [C+1, max], false -> [min, C] */
+        *true_range = (ValueRange){ .min = const_val + 1 > existing.min ? const_val + 1 : existing.min,
+                                     .max = existing.max,
+                                     .is_top = false };
+        *false_range = (ValueRange){ .min = existing.min,
+                                      .max = const_val < existing.max ? const_val : existing.max,
+                                      .is_top = false };
+        break;
+    case IRON_LIR_GTE:
+        /* x >= C: true -> [C, max], false -> [min, C-1] */
+        *true_range = (ValueRange){ .min = const_val > existing.min ? const_val : existing.min,
+                                     .max = existing.max,
+                                     .is_top = false };
+        *false_range = (ValueRange){ .min = existing.min,
+                                      .max = const_val - 1 < existing.max ? const_val - 1 : existing.max,
+                                      .is_top = false };
+        break;
+    case IRON_LIR_EQ:
+        /* x == C: true -> [C, C], false -> keep existing */
+        *true_range = range_const(const_val);
+        *false_range = existing;
+        break;
+    case IRON_LIR_NEQ:
+        /* x != C: true -> keep existing, false -> [C, C] */
+        *true_range = existing;
+        *false_range = range_const(const_val);
+        break;
+    default:
+        *true_range = RANGE_TOP;
+        *false_range = RANGE_TOP;
+        break;
+    }
+
+    /* Validate: if min > max after narrowing, result is empty -> TOP */
+    if (!true_range->is_top && true_range->min > true_range->max)
+        *true_range = RANGE_TOP;
+    if (!false_range->is_top && false_range->min > false_range->max)
+        *false_range = RANGE_TOP;
+}
+
 /* ── Return range collection (Pass 0) ─────────────────────────────────── */
 
 /* Collect return ranges for all functions in the module.
  * For each function, compute the union of all RETURN instruction ranges.
  * For recursive functions, use one-level unrolling: skip RETURN paths
  * whose value traces back to a CALL to the same function. */
+/* Analyze a single block's conditional branch terminator and record narrowed
+ * ranges for target blocks.  Shared by collect_return_ranges and
+ * analyze_function_ranges to avoid code duplication. */
+static void detect_branch_narrowing(IronLIR_Block *blk, IronLIR_Func *fn,
+                                    VREntry *value_ranges,
+                                    AllocaRange *alloca_ranges,
+                                    BlockRangeEntry **block_entry_ranges) {
+    if (blk->instr_count == 0) return;
+    IronLIR_Instr *term = blk->instrs[blk->instr_count - 1];
+    if (term->kind != IRON_LIR_BRANCH) return;
+
+    IronLIR_ValueId cond_vid = term->branch.cond;
+    IronLIR_BlockId then_block = term->branch.then_block;
+    IronLIR_BlockId else_block = term->branch.else_block;
+
+    if (cond_vid == IRON_LIR_VALUE_INVALID) return;
+    if (cond_vid >= fn->next_value_id || !fn->value_table) return;
+    IronLIR_Instr *cond_instr = fn->value_table[cond_vid];
+    if (!cond_instr) return;
+
+    /* Check if the condition is a comparison instruction (LT/LTE/GT/GTE/EQ/NEQ) */
+    bool is_cmp = (cond_instr->kind >= IRON_LIR_EQ &&
+                   cond_instr->kind <= IRON_LIR_GTE);
+    if (!is_cmp) return;
+
+    IronLIR_ValueId left_vid = cond_instr->binop.left;
+    IronLIR_ValueId right_vid = cond_instr->binop.right;
+
+    IronLIR_Instr *left_instr = NULL;
+    IronLIR_Instr *right_instr = NULL;
+    if (left_vid < fn->next_value_id && fn->value_table)
+        left_instr = fn->value_table[left_vid];
+    if (right_vid < fn->next_value_id && fn->value_table)
+        right_instr = fn->value_table[right_vid];
+
+    IronLIR_ValueId var_vid = IRON_LIR_VALUE_INVALID;
+    int64_t const_val = 0;
+    IronLIR_InstrKind effective_cmp = cond_instr->kind;
+    bool found_pair = false;
+
+    if (right_instr && right_instr->kind == IRON_LIR_CONST_INT) {
+        var_vid = left_vid;
+        const_val = right_instr->const_int.value;
+        found_pair = true;
+    } else if (left_instr && left_instr->kind == IRON_LIR_CONST_INT) {
+        var_vid = right_vid;
+        const_val = left_instr->const_int.value;
+        /* Flip: LT <-> GT, LTE <-> GTE */
+        switch (cond_instr->kind) {
+        case IRON_LIR_LT:  effective_cmp = IRON_LIR_GT;  break;
+        case IRON_LIR_LTE: effective_cmp = IRON_LIR_GTE; break;
+        case IRON_LIR_GT:  effective_cmp = IRON_LIR_LT;  break;
+        case IRON_LIR_GTE: effective_cmp = IRON_LIR_LTE; break;
+        default: break;
+        }
+        found_pair = true;
+    }
+
+    if (!found_pair || var_vid == IRON_LIR_VALUE_INVALID) return;
+
+    /* Look up the variable's current range */
+    ValueRange existing = lookup_range(value_ranges, var_vid);
+    IronLIR_ValueId narrow_target = var_vid;
+
+    /* If var_vid is a LOAD from an alloca, narrow the alloca instead */
+    if (var_vid < fn->next_value_id && fn->value_table &&
+        fn->value_table[var_vid] &&
+        fn->value_table[var_vid]->kind == IRON_LIR_LOAD) {
+        IronLIR_ValueId alloca_vid = fn->value_table[var_vid]->load.ptr;
+        ptrdiff_t ai = hmgeti(alloca_ranges, alloca_vid);
+        if (ai >= 0) {
+            existing = alloca_ranges[ai].value;
+            narrow_target = alloca_vid;
+        }
+    }
+
+    ValueRange true_range, false_range;
+    narrow_from_comparison(effective_cmp, existing, const_val,
+                           &true_range, &false_range);
+
+    if (!true_range.is_top && then_block != IRON_LIR_BLOCK_INVALID)
+        record_block_entry_range(block_entry_ranges, then_block,
+                                 narrow_target, true_range);
+    if (!false_range.is_top && else_block != IRON_LIR_BLOCK_INVALID)
+        record_block_entry_range(block_entry_ranges, else_block,
+                                 narrow_target, false_range);
+}
+
 static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *module) {
     sh_new_strdup(vra->func_return_ranges);
 
@@ -141,15 +379,21 @@ static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *modul
         if (!fn || fn->is_extern || fn->block_count == 0) continue;
         if (!fn->name) continue;
 
-        /* Compute per-value ranges for this function (same logic as Pass 1) */
+        /* Compute per-value ranges with conditional narrowing */
         VREntry *value_ranges = NULL;
         AllocaRange *alloca_ranges = NULL;
+        BlockRangeEntry *block_entry_ranges = NULL;
 
         /* Track which value IDs come from a self-recursive CALL */
         VREntry *recursive_values = NULL;
 
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
+
+            /* Apply block entry ranges from conditional narrowing */
+            apply_block_entry_ranges(block_entry_ranges, blk->id,
+                                     &value_ranges, &alloca_ranges);
+
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *instr = blk->instrs[ii];
                 if (instr->id == IRON_LIR_VALUE_INVALID) continue;
@@ -223,6 +467,10 @@ static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *modul
                 hmput(value_ranges, instr->id, range);
                 collect_next:;
             }
+
+            /* Detect conditional narrowing at BRANCH terminators */
+            detect_branch_narrowing(blk, fn, value_ranges, alloca_ranges,
+                                    &block_entry_ranges);
         }
 
         /* Collect return ranges: union of all non-recursive RETURN values */
@@ -248,11 +496,9 @@ static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *modul
                     fn->value_table[ret_vid]) {
                     IronLIR_Instr *ret_instr = fn->value_table[ret_vid];
                     if (ret_instr->kind == IRON_LIR_LOAD) {
-                        /* Check alloca: if the only store was from a recursive call, skip */
                         ptrdiff_t ai = hmgeti(alloca_ranges, ret_instr->load.ptr);
                         if (ai >= 0 && alloca_ranges[ai].value.is_top) {
-                            /* Conservative: alloca has TOP range, might be from recursive call */
-                            /* Don't skip -- just use the TOP range for safety */
+                            /* Conservative: TOP range, might be from recursive call */
                         }
                     }
                 }
@@ -275,6 +521,9 @@ static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *modul
         hmfree(value_ranges);
         hmfree(alloca_ranges);
         hmfree(recursive_values);
+        for (int i = 0; i < hmlen(block_entry_ranges); i++)
+            hmfree(block_entry_ranges[i].value);
+        hmfree(block_entry_ranges);
     }
 }
 
@@ -283,10 +532,16 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
 
     VREntry *value_ranges = NULL;     /* per-value ranges (stb_ds hashmap) */
     AllocaRange *alloca_ranges = NULL; /* per-alloca ranges (stb_ds hashmap) */
+    BlockRangeEntry *block_entry_ranges = NULL; /* per-block narrowed ranges */
 
-    /* Pass 1: Compute per-value ranges */
+    /* Pass 1: Compute per-value ranges with conditional narrowing */
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronLIR_Block *blk = fn->blocks[bi];
+
+        /* Apply block entry ranges from conditional narrowing */
+        apply_block_entry_ranges(block_entry_ranges, blk->id,
+                                 &value_ranges, &alloca_ranges);
+
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *instr = blk->instrs[ii];
             if (instr->id == IRON_LIR_VALUE_INVALID) continue;
@@ -379,6 +634,10 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
             hmput(value_ranges, instr->id, range);
             next_instr:;
         }
+
+        /* Detect conditional narrowing at BRANCH terminators */
+        detect_branch_narrowing(blk, fn, value_ranges, alloca_ranges,
+                                &block_entry_ranges);
     }
 
     /* Pass 2: Collect field ranges from SET_FIELD and CONSTRUCT */
@@ -459,6 +718,12 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
 
     hmfree(value_ranges);
     hmfree(alloca_ranges);
+
+    /* Free block entry ranges and their nested VREntry maps */
+    for (int i = 0; i < hmlen(block_entry_ranges); i++) {
+        hmfree(block_entry_ranges[i].value);
+    }
+    hmfree(block_entry_ranges);
 }
 
 /* ── Public API ──────────────────────────────────────────────────────────── */

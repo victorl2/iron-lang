@@ -1,0 +1,70 @@
+-- value_range_conditional.iron: Conditional branch range narrowing (Phase 53)
+-- Tests that conditional comparisons narrow variable ranges in branch targets,
+-- enabling field compression in collection storage structs.
+--
+-- The clamp_value function uses `if x < 0` and `if x > 100` to prove
+-- the return value is in [0, 100], which should compress fields to uint8_t.
+-- This requires both conditional narrowing (Task 2) and return range
+-- propagation (Task 1) working together.
+
+interface Sensor {
+  func reading() -> Int
+}
+
+object Gauge impl Sensor {
+  var level: Int
+  var scale: Int
+  var debug_id: Int
+}
+
+object Meter impl Sensor {
+  var level: Int
+  var offset: Int
+  var debug_id: Int
+}
+
+func Gauge.reading() -> Int {
+  return self.level * self.scale
+}
+
+func Meter.reading() -> Int {
+  return self.level + self.offset
+}
+
+-- Identity function to prevent inlining of callers (has_call = true)
+func identity(x: Int) -> Int {
+  return x
+}
+
+-- Clamps input to [0, 100] range using conditionals.
+-- Calls identity() to prevent inlining into main.
+-- Without conditional narrowing: `return identity(raw)` -> raw has TOP range.
+-- With conditional narrowing: at the final return, raw is proven [0, 99]
+--   because if raw < 0, we returned 0; if raw > 100, we returned 100.
+-- Return range union: [0,0] U [100,100] U [0,99] = [0,100].
+func clamp_value(raw: Int) -> Int {
+  if raw < 0 {
+    return 0
+  }
+  if raw > 100 {
+    return 100
+  }
+  return identity(raw)
+}
+
+func main() {
+  -- Use clamp_value to set fields. With conditional narrowing + return prop,
+  -- clamp_value returns [0, 100] -> level/scale/offset fields compress to uint8_t.
+  val g1 = Gauge(clamp_value(42), clamp_value(2), 800)
+  val g2 = Gauge(clamp_value(85), clamp_value(3), 801)
+  val m1 = Meter(clamp_value(60), clamp_value(10), 900)
+  val m2 = Meter(clamp_value(75), clamp_value(5), 901)
+
+  val sensors = [g1, g2, m1, m2]
+
+  var total = 0
+  for s in sensors {
+    total = total + s.reading()
+  }
+  println("{total}")
+}
