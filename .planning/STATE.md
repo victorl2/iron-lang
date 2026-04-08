@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 53 context gathered
-last_updated: "2026-04-08T20:38:57.082Z"
-last_activity: 2026-04-08 -- Completed 52-03 (extract emit_split and emit_fusion)
+status: in_progress
+stopped_at: Completed 53-01-PLAN.md
+last_updated: "2026-04-08T21:41:52Z"
+last_activity: 2026-04-08 -- Completed 53-01 (return range propagation + conditional narrowing)
 progress:
   total_phases: 15
   completed_phases: 5
   total_plans: 16
-  completed_plans: 16
-  percent: 100
+  completed_plans: 17
+  percent: 50
 ---
 
 # Project State
@@ -25,19 +25,19 @@ See: .planning/PROJECT.md (updated 2026-04-08)
 
 ## Current Position
 
-Phase: 52 of 54 (Emitter Refactoring) -- first phase of v0.1.2-alpha
-Plan: 3 of 3 complete
-Status: Phase Complete
-Last activity: 2026-04-08 -- Completed 52-03 (extract emit_split and emit_fusion)
+Phase: 53 of 54 (Analysis Improvements) -- second phase of v0.1.2-alpha
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-04-08 -- Completed 53-01 (return range propagation + conditional narrowing)
 
-Progress: [##########] 100%
+Progress: [#####-----] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
-- Average duration: 20min
-- Total execution time: ~5.2 hours
+- Total plans completed: 17
+- Average duration: 21min
+- Total execution time: ~5.8 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -57,6 +57,7 @@ Progress: [##########] 100%
 | 52-emitter-refactoring | 01 | 13min | 2 | 4 |
 | 52-emitter-refactoring | 02 | 36min | 2 | 4 |
 | 52-emitter-refactoring | 03 | 37min | 3 | 7 |
+| 53-analysis-improvements | 01 | 39min | 2 | 6 |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Progress: [##########] 100%
 - [Phase 52]: Type declaration emission isolated in emit_structs module; estimate_type_size renamed to emit_estimate_type_size
 - [Phase 52]: Split collection emission isolated in emit_split module; fusion emission isolated in emit_fusion module
 - [Phase 52]: emit_expr_to_buf made non-static for cross-module access from emit_fusion.c
+- [Phase 53]: func_ref resolution via value_table for CALL-site return range propagation
+- [Phase 53]: Block entry range replace semantics (not intersect) for correct cross-path analysis
+- [Phase 53]: Conditional narrowing shared in both collect_return_ranges and analyze_function_ranges
 
 ### Roadmap Evolution
 
@@ -88,11 +92,11 @@ None yet.
 ### Blockers/Concerns
 
 - emit_c.c monolithic problem RESOLVED by Phase 52 (4 sub-modules extracted)
-- Value range analysis uses conservative TOP at call boundaries -- Phase 53 addresses this
+- Value range analysis uses conservative TOP at call boundaries -- RESOLVED by Phase 53 Plan 01
 - Monomorphic detection is local-only -- Phase 53 extends it interprocedurally
 
 ## Session Continuity
 
-Last session: 2026-04-08T20:38:57.078Z
-Stopped at: Phase 53 context gathered
-Resume file: .planning/phases/53-analysis-improvements/53-CONTEXT.md
+Last session: 2026-04-08T21:41:52Z
+Stopped at: Completed 53-01-PLAN.md
+Resume file: .planning/phases/53-analysis-improvements/53-01-SUMMARY.md
