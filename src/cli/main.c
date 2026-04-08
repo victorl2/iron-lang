@@ -41,6 +41,7 @@ static void print_usage(void) {
     fprintf(stderr, "  --dump-ir-passes  Print IR after each optimization pass\n");
     fprintf(stderr, "  --no-optimize     Skip optimization passes (for A/B comparison)\n");
     fprintf(stderr, "  --warn-fusion-break  Show where fusion chains are broken by non-fusible calls\n");
+    fprintf(stderr, "  --report-compression Show which fields were narrowed for value range compression\n");
 }
 
 int main(int argc, char **argv) {
@@ -63,6 +64,7 @@ int main(int argc, char **argv) {
     bool dump_ir_passes = false;
     bool no_optimize = false;
     bool warn_fusion_break = false;
+    bool report_compression = false;
     const char *source_file = NULL;
     const char *output_file = NULL;
     const char **run_args = NULL;
@@ -81,6 +83,8 @@ int main(int argc, char **argv) {
             no_optimize = true;
         } else if (strcmp(argv[i], "--warn-fusion-break") == 0) {
             warn_fusion_break = true;
+        } else if (strcmp(argv[i], "--report-compression") == 0) {
+            report_compression = true;
         } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 output_file = argv[++i];
@@ -113,7 +117,8 @@ int main(int argc, char **argv) {
             .force_comptime = force_comptime,
             .dump_ir_passes = dump_ir_passes,
             .no_optimize    = no_optimize,
-            .warn_fusion_break = warn_fusion_break
+            .warn_fusion_break = warn_fusion_break,
+            .report_compression = report_compression
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -133,7 +138,8 @@ int main(int argc, char **argv) {
             .force_comptime = force_comptime,
             .dump_ir_passes = dump_ir_passes,
             .no_optimize    = no_optimize,
-            .warn_fusion_break = warn_fusion_break
+            .warn_fusion_break = warn_fusion_break,
+            .report_compression = report_compression
         };
         return iron_build(source_file, output_file, opts);
     }
