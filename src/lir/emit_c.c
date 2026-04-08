@@ -16,6 +16,7 @@
 #include "lir/lir.h"
 #include "lir/lir_optimize.h"
 #include "lir/layout_analysis.h"
+#include "lir/value_range.h"
 #include "util/strbuf.h"
 #include "util/arena.h"
 #include "parser/ast.h"
@@ -117,6 +118,10 @@ typedef struct {
 
     /* Phase 48: dead field elimination — field access analysis results */
     LayoutAnalysis layout;
+
+    /* Phase 50: value range compression */
+    ValueRangeAnalysis value_range;
+    bool report_compression;  /* --report-compression: show narrowed fields */
 
     /* Phase 48: split loop direct-access context */
     struct {
@@ -236,8 +241,9 @@ static const char *sanitize_label(const char *label, Iron_Arena *arena) {
 
 /* ── Type-to-C mapping (no Iron_Codegen dependency) ───────────────────────── */
 
-/* Forward declaration for mutual recursion */
+/* Forward declarations for mutual recursion */
 static const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx);
+static const char *annotation_to_c(const char *name, EmitCtx *ctx);
 
 static const char *emit_optional_struct_name(const Iron_Type *inner,
                                               EmitCtx *ctx) {
@@ -5369,8 +5375,23 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                                     }
                                 }
                                 if (!any_used) continue;
+                                /* Phase 50: Widening cast for SoA field read */
+                                const char *narrowed_sw = iron_vr_get_narrowed_type(
+                                    &ctx->value_range, impl2->type_name, f->name);
                                 emit_indent(sb, ctx->indent + 2);
-                                iron_strbuf_appendf(sb, "_tmp_%s.%s = ", lower_name, f->name);
+                                if (narrowed_sw) {
+                                    const char *orig_type = "int64_t";
+                                    if (f->type_ann) {
+                                        Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                                        if (!ta->is_func && !ta->is_nullable && !ta->is_array)
+                                            orig_type = annotation_to_c(ta->name, ctx);
+                                    }
+                                    iron_strbuf_appendf(sb, "_tmp_%s.%s = (%s)",
+                                        lower_name, f->name, orig_type);
+                                } else {
+                                    iron_strbuf_appendf(sb, "_tmp_%s.%s = ",
+                                        lower_name, f->name);
+                                }
                                 emit_val(sb, matched->iterable_vid);
                                 iron_strbuf_appendf(sb, ".%s_%s[_sp_i];\n",
                                     lower_name, f->name);
@@ -5405,8 +5426,23 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                                     }
                                 }
                                 if (!any_used) continue;
+                                /* Phase 50: Widening cast for AoS reduced field read */
+                                const char *narrowed_aw = iron_vr_get_narrowed_type(
+                                    &ctx->value_range, impl2->type_name, f->name);
                                 emit_indent(sb, ctx->indent + 2);
-                                iron_strbuf_appendf(sb, "_tmp_%s.%s = ", lower_name, f->name);
+                                if (narrowed_aw) {
+                                    const char *orig_type = "int64_t";
+                                    if (f->type_ann) {
+                                        Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                                        if (!ta->is_func && !ta->is_nullable && !ta->is_array)
+                                            orig_type = annotation_to_c(ta->name, ctx);
+                                    }
+                                    iron_strbuf_appendf(sb, "_tmp_%s.%s = (%s)",
+                                        lower_name, f->name, orig_type);
+                                } else {
+                                    iron_strbuf_appendf(sb, "_tmp_%s.%s = ",
+                                        lower_name, f->name);
+                                }
                                 emit_val(sb, matched->iterable_vid);
                                 iron_strbuf_appendf(sb, ".%s_items[_sp_i].%s;\n",
                                     lower_name, f->name);
@@ -5733,6 +5769,10 @@ static void prescan_split_collections(EmitCtx *ctx) {
         iron_layout_select(&ctx->layout, ctx->module, la_ids, ctx->iface_reg);
         hmfree(la_ids);
     }
+
+    /* Phase 50: Value range analysis for field compression */
+    ctx->value_range.arena = ctx->arena;
+    iron_vr_analyze(&ctx->value_range, ctx->module, ctx->iface_reg);
 }
 
 static void emit_type_decls(EmitCtx *ctx) {
@@ -5788,6 +5828,37 @@ static void emit_type_decls(EmitCtx *ctx) {
 
     /* Interface tagged union structs (static dispatch) */
     if (ctx->iface_reg) {
+        /* Phase 50: Emit arena-tracked allocation helpers for split collections.
+         * These are static inline functions used by generated push/free functions
+         * to track all sub-array allocations for bulk deallocation.
+         * Emitted whenever interfaces exist since split list structs are always generated. */
+        {
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                "/* Phase 50: Arena-tracked allocation helpers for split collections */\n"
+                "static inline void *_iron_sl_track(void ***tracked_arr, int *count, int *cap, void *ptr) {\n"
+                "    if (!ptr) return NULL;\n"
+                "    if (*count >= *cap) {\n"
+                "        *cap = *cap ? *cap * 2 : 8;\n"
+                "        *tracked_arr = (void **)realloc(*tracked_arr, (size_t)*cap * sizeof(void *));\n"
+                "    }\n"
+                "    (*tracked_arr)[(*count)++] = ptr;\n"
+                "    return ptr;\n"
+                "}\n"
+                "static inline void *_iron_sl_realloc_tracked(void ***tracked_arr, int *count, int *cap, void *old, size_t sz) {\n"
+                "    void *p = realloc(old, sz);\n"
+                "    if (!p) return NULL;\n"
+                "    if (old) {\n"
+                "        for (int i = 0; i < *count; i++) {\n"
+                "            if ((*tracked_arr)[i] == old) { (*tracked_arr)[i] = p; return p; }\n"
+                "        }\n"
+                "    }\n"
+                "    return _iron_sl_track(tracked_arr, count, cap, p);\n"
+                "}\n"
+                "static inline void _iron_sl_free_all(void **tracked, int count) {\n"
+                "    for (int i = 0; i < count; i++) free(tracked[i]);\n"
+                "    free(tracked);\n"
+                "}\n\n");
+        }
         for (int i = 0; i < shlen(ctx->iface_reg->map); i++) {
             Iron_IfaceEntry *entry = &ctx->iface_reg->map[i].value;
             if (entry->alive_count == 0) continue;
@@ -5979,6 +6050,16 @@ static void emit_type_decls(EmitCtx *ctx) {
                                     c_type = annotation_to_c(ta->name, ctx);
                                 }
                             }
+                            /* Phase 50: Value range compression -- use narrower type if proven safe */
+                            const char *narrowed = iron_vr_get_narrowed_type(
+                                &ctx->value_range, impl2->type_name, f->name);
+                            if (narrowed) {
+                                c_type = narrowed;
+                                if (ctx->report_compression) {
+                                    fprintf(stderr, "note: compressed %s.%s to %s\n",
+                                        impl2->type_name, f->name, narrowed);
+                                }
+                            }
                             iron_strbuf_appendf(sb, "    %s %s;\n", c_type, f->name);
                         }
                         iron_strbuf_appendf(sb, "} %s_Stor;\n\n", im);
@@ -6008,6 +6089,11 @@ static void emit_type_decls(EmitCtx *ctx) {
 
                 iron_strbuf_appendf(sb, "/* Split collection for %s */\n", iface_mangled);
                 iron_strbuf_appendf(sb, "typedef struct {\n");
+
+                /* Phase 50: Arena tracking fields for bulk deallocation */
+                iron_strbuf_appendf(sb, "    void **_tracked;\n");
+                iron_strbuf_appendf(sb, "    int _tracked_count;\n");
+                iron_strbuf_appendf(sb, "    int _tracked_cap;\n");
 
                 /* Phase 48-02: Common field shared arrays (before per-type arrays) */
                 if (common_fields && arrlen(common_fields) > 0) {
@@ -6113,6 +6199,10 @@ static void emit_type_decls(EmitCtx *ctx) {
                                     c_type = annotation_to_c(ta->name, ctx);
                                 }
                             }
+                            /* Phase 50: Value range compression for SoA field arrays */
+                            const char *narrowed_soa = iron_vr_get_narrowed_type(
+                                &ctx->value_range, impl2->type_name, f->name);
+                            if (narrowed_soa) c_type = narrowed_soa;
                             iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
                                 c_type, lower_name, f->name);
                         }
@@ -6187,7 +6277,7 @@ static void emit_type_decls(EmitCtx *ctx) {
                         /* Capacity growth (shared across all field arrays) */
                         iron_strbuf_appendf(sb,
                             "    if (_sl->%s_count >= _sl->%s_cap) {\n"
-                            "        _sl->%s_cap = _sl->%s_cap ? _sl->%s_cap * 2 : 8;\n",
+                            "        _sl->%s_cap = _sl->%s_cap ? (int64_t)(_sl->%s_cap * 1.5) : 8;\n",
                             lower_name, lower_name,
                             lower_name, lower_name, lower_name);
                         /* Realloc each used non-common field array */
@@ -6222,9 +6312,14 @@ static void emit_type_decls(EmitCtx *ctx) {
                                     c_type = annotation_to_c(ta->name, ctx);
                                 }
                             }
+                            /* Phase 50: Use narrowed type for realloc sizeof */
+                            const char *narrowed_r = iron_vr_get_narrowed_type(
+                                &ctx->value_range, impl2->type_name, f->name);
+                            if (narrowed_r) c_type = narrowed_r;
                             iron_strbuf_appendf(sb,
-                                "        _sl->%s_%s = (%s *)realloc(_sl->%s_%s, "
-                                "(size_t)_sl->%s_cap * sizeof(%s));\n",
+                                "        _sl->%s_%s = (%s *)_iron_sl_realloc_tracked("
+                                "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
+                                "_sl->%s_%s, (size_t)_sl->%s_cap * sizeof(%s));\n",
                                 lower_name, f->name, c_type,
                                 lower_name, f->name,
                                 lower_name, c_type);
@@ -6263,22 +6358,32 @@ static void emit_type_decls(EmitCtx *ctx) {
                                     f->name);
                                 continue;
                             }
-                            iron_strbuf_appendf(sb,
-                                "    _sl->%s_%s[_sl->%s_count] = _val.%s;\n",
-                                lower_name, f->name, lower_name, f->name);
+                            /* Phase 50: Narrowing cast for SoA field copy */
+                            const char *narrowed_sf = iron_vr_get_narrowed_type(
+                                &ctx->value_range, impl2->type_name, f->name);
+                            if (narrowed_sf) {
+                                iron_strbuf_appendf(sb,
+                                    "    _sl->%s_%s[_sl->%s_count] = (%s)_val.%s;\n",
+                                    lower_name, f->name, lower_name, narrowed_sf, f->name);
+                            } else {
+                                iron_strbuf_appendf(sb,
+                                    "    _sl->%s_%s[_sl->%s_count] = _val.%s;\n",
+                                    lower_name, f->name, lower_name, f->name);
+                            }
                         }
 
                         /* Push common fields to shared arrays */
                         if (common_fields && arrlen(common_fields) > 0) {
                             iron_strbuf_appendf(sb,
                                 "    if (_sl->%s_common_count >= _sl->%s_common_cap) {\n"
-                                "        _sl->%s_common_cap = _sl->%s_common_cap ? _sl->%s_common_cap * 2 : 8;\n",
+                                "        _sl->%s_common_cap = _sl->%s_common_cap ? (int64_t)(_sl->%s_common_cap * 1.5) : 8;\n",
                                 iface_lower, iface_lower,
                                 iface_lower, iface_lower, iface_lower);
                             for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
                                 iron_strbuf_appendf(sb,
-                                    "        _sl->%s_%s = (%s *)realloc(_sl->%s_%s, "
-                                    "(size_t)_sl->%s_common_cap * sizeof(%s));\n",
+                                    "        _sl->%s_%s = (%s *)_iron_sl_realloc_tracked("
+                                    "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
+                                    "_sl->%s_%s, (size_t)_sl->%s_common_cap * sizeof(%s));\n",
                                     iface_lower, common_fields[cfi].name, common_fields[cfi].c_type,
                                     iface_lower, common_fields[cfi].name,
                                     iface_lower, common_fields[cfi].c_type);
@@ -6307,14 +6412,15 @@ static void emit_type_decls(EmitCtx *ctx) {
                         /* Grow type-specific sub-array */
                         iron_strbuf_appendf(sb,
                             "    if (_sl->%s_count >= _sl->%s_cap) {\n"
-                            "        _sl->%s_cap = _sl->%s_cap ? _sl->%s_cap * 2 : 8;\n"
-                            "        _sl->%s_items = (%s *)realloc(_sl->%s_items, "
-                            "(size_t)_sl->%s_cap * sizeof(%s));\n"
+                            "        _sl->%s_cap = _sl->%s_cap ? (int64_t)(_sl->%s_cap * 1.5) : 8;\n"
+                            "        _sl->%s_items = (%s *)_iron_sl_realloc_tracked("
+                            "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
+                            "_sl->%s_items, (size_t)_sl->%s_cap * sizeof(%s));\n"
                             "    }\n",
                             lower_name, lower_name,
                             lower_name, lower_name, lower_name,
-                            lower_name, stor_type, lower_name,
-                            lower_name, stor_type);
+                            lower_name, stor_type,
+                            lower_name, lower_name, stor_type);
 
                         /* Phase 48: For reduced storage, copy only used fields */
                         if (red_idx >= 0 && impl2->decl) {
@@ -6330,9 +6436,18 @@ static void emit_type_decls(EmitCtx *ctx) {
                                     }
                                 }
                                 if (!any_used) continue;
-                                iron_strbuf_appendf(sb,
-                                    "    _sl->%s_items[_sl->%s_count].%s = _val.%s;\n",
-                                    lower_name, lower_name, f->name, f->name);
+                                /* Phase 50: Narrowing cast for AoS reduced field copy */
+                                const char *narrowed_af = iron_vr_get_narrowed_type(
+                                    &ctx->value_range, impl2->type_name, f->name);
+                                if (narrowed_af) {
+                                    iron_strbuf_appendf(sb,
+                                        "    _sl->%s_items[_sl->%s_count].%s = (%s)_val.%s;\n",
+                                        lower_name, lower_name, f->name, narrowed_af, f->name);
+                                } else {
+                                    iron_strbuf_appendf(sb,
+                                        "    _sl->%s_items[_sl->%s_count].%s = _val.%s;\n",
+                                        lower_name, lower_name, f->name, f->name);
+                                }
                             }
                         } else {
                             /* Store full element */
@@ -6346,9 +6461,10 @@ static void emit_type_decls(EmitCtx *ctx) {
                     if (!all_unordered) {
                         iron_strbuf_appendf(sb,
                             "    if (_sl->_order_count >= _sl->_order_cap) {\n"
-                            "        _sl->_order_cap = _sl->_order_cap ? _sl->_order_cap * 2 : 8;\n"
-                            "        _sl->_order = realloc(_sl->_order, "
-                            "(size_t)_sl->_order_cap * sizeof(*_sl->_order));\n"
+                            "        _sl->_order_cap = _sl->_order_cap ? (int64_t)(_sl->_order_cap * 1.5) : 8;\n"
+                            "        _sl->_order = _iron_sl_realloc_tracked("
+                            "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
+                            "_sl->_order, (size_t)_sl->_order_cap * sizeof(*_sl->_order));\n"
                             "    }\n"
                             "    _sl->_order[_sl->_order_count].tag = %d;\n"
                             "    _sl->_order[_sl->_order_count].idx = _sl->%s_count;\n"
@@ -6362,74 +6478,13 @@ static void emit_type_decls(EmitCtx *ctx) {
                         "}\n\n",
                         lower_name);
                 }
-                /* Free function */
+                /* Free function -- Phase 50: single bulk free via tracked pointer registry */
                 iron_strbuf_appendf(sb,
                     "static inline void Iron_SplitList_%s_free("
                     "Iron_SplitList_%s *_sl) {\n",
                     iface_mangled, iface_mangled);
-                /* Free common field shared arrays */
-                if (common_fields && arrlen(common_fields) > 0) {
-                    for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
-                        iron_strbuf_appendf(sb,
-                            "    free(_sl->%s_%s);\n",
-                            iface_lower, common_fields[cfi].name);
-                    }
-                }
-                for (int j = 0; j < entry->impl_count; j++) {
-                    Iron_IfaceImpl *impl2 = &entry->impls[j];
-                    if (!impl2->is_alive) continue;
-                    char lower_name[256];
-                    {
-                        size_t nl2 = strlen(impl2->type_name);
-                        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                        for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
-                                                       impl2->type_name[ci3] <= 'Z')
-                                ? impl2->type_name[ci3] + 32
-                                : impl2->type_name[ci3]);
-                        lower_name[nl2] = '\0';
-                    }
-                    /* Phase 48-02: SoA types free per-field arrays */
-                    char free_soa_key[768];
-                    snprintf(free_soa_key, sizeof(free_soa_key), "%s:%s",
-                        iface_mangled, impl2->type_name);
-                    if (shgeti(ctx->soa_types, free_soa_key) >= 0 && impl2->decl) {
-                        Iron_ObjectDecl *od = impl2->decl;
-                        for (int fi = 0; fi < od->field_count; fi++) {
-                            Iron_Field *f = (Iron_Field *)od->fields[fi];
-                            bool any_used = true;
-                            if (iface_collection_vids) {
-                                any_used = false;
-                                for (int ci2 = 0; ci2 < (int)arrlen(iface_collection_vids); ci2++) {
-                                    if (iron_layout_is_field_used(&ctx->layout,
-                                            iface_collection_vids[ci2], f->name)) {
-                                        any_used = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            bool is_common = false;
-                            if (common_fields) {
-                                for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
-                                    if (strcmp(common_fields[cfi].name, f->name) == 0 &&
-                                        common_fields[cfi].position == fi) {
-                                        is_common = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (!any_used || is_common) continue;
-                            iron_strbuf_appendf(sb,
-                                "    free(_sl->%s_%s);\n", lower_name, f->name);
-                        }
-                    } else {
-                        iron_strbuf_appendf(sb,
-                            "    free(_sl->%s_items);\n", lower_name);
-                    }
-                }
-                if (!all_unordered) {
-                    iron_strbuf_appendf(sb, "    free(_sl->_order);\n");
-                }
+                iron_strbuf_appendf(sb,
+                    "    _iron_sl_free_all(_sl->_tracked, _sl->_tracked_count);\n");
                 iron_strbuf_appendf(sb, "}\n\n");
                 arrfree(iface_collection_vids);
             }
@@ -6611,7 +6666,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             Iron_DiagList *diags,
                             IronLIR_OptimizeInfo *opt_info,
                             Iron_IfaceRegistry *iface_reg,
-                            bool warn_fusion_break) {
+                            bool warn_fusion_break,
+                            bool report_compression) {
     if (!module) return NULL;
     if (diags && diags->error_count > 0) return NULL;
 
@@ -6625,6 +6681,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     ctx.opt_info      = opt_info;
     ctx.iface_reg     = iface_reg;
     ctx.warn_fusion_break = warn_fusion_break;
+    ctx.report_compression = report_compression;
 
     ctx.includes        = iron_strbuf_create(512);
     ctx.forward_decls   = iron_strbuf_create(256);
@@ -7039,6 +7096,9 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* Phase 49: Free monomorphic collection tracking and specialization registry */
     hmfree(ctx.monomorphic_collections);
     shfree(ctx.specialization_registry);
+
+    /* Phase 50: Free value range analysis */
+    iron_vr_free(&ctx.value_range);
 
     return result;
 }
