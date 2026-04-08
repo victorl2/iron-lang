@@ -49,8 +49,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 - [x] **VRC-01**: A field proven by whole-program analysis to fit in a smaller type is stored narrowed in collection structs (e.g., Int that only holds 0-255 stored as uint8_t)
 - [x] **VRC-02**: Compiler inserts widening reads and narrowing writes at access sites for compressed fields
-- [ ] **ARENA-01**: Per-type sub-arrays in split collections use arena allocation with geometric growth (capacity doubling)
-- [ ] **ARENA-02**: Arena free releases all per-type sub-arrays in one operation
+- [x] **ARENA-01**: Per-type sub-arrays in split collections use arena allocation with geometric growth (capacity doubling)
+- [x] **ARENA-02**: Arena free releases all per-type sub-arrays in one operation
 
 ## v2 Requirements
 
@@ -108,8 +108,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MONO-02 | Phase 49 | Complete |
 | VRC-01 | Phase 50 | Complete |
 | VRC-02 | Phase 50 | Complete |
-| ARENA-01 | Phase 50 | Pending |
-| ARENA-02 | Phase 50 | Pending |
+| ARENA-01 | Phase 50 | Complete |
+| ARENA-02 | Phase 50 | Complete |
 
 **Coverage:**
 - v1 requirements: 26 total
