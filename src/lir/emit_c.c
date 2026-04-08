@@ -150,6 +150,16 @@ typedef struct {
         /* maps call_vid -> chain_index; positive = chain idx */
     struct { IronLIR_ValueId key; int value; } *fusion_chain_position;
         /* maps call_vid -> position within its chain (0 = first, N-1 = terminal) */
+
+    /* Phase 49: Monomorphic collection tracking */
+    struct { IronLIR_ValueId key; const char *value; } *monomorphic_collections;
+        /* maps collection ValueId -> sole concrete type name (e.g., "Circle") */
+        /* only populated when a split collection has exactly one type pushed */
+
+    /* Phase 49: Specialization registry */
+    struct { char *key; const char *value; } *specialization_registry;
+        /* maps "func_name:concrete_type" -> emitted C function name */
+        /* prevents duplicate function body emission for same specialization */
 } EmitCtx;
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
@@ -2031,6 +2041,11 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_GET_INDEX: {
+        /* Phase 49: Monomorphic collection — direct items[i] access, no tag dispatch.
+         * Monomorphic collections are removed from split_collection_ids by the
+         * collapse pass, so they fall through to the standard array.items[i] path
+         * below.  The interface type is preserved (Iron_Shape tagged union) to
+         * maintain type compatibility with downstream method dispatch. */
         /* Phase 41: GET_INDEX on split collection → order-based lookup */
         if (ctx->split_collection_ids) {
             ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, instr->index.array);
@@ -3357,6 +3372,15 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iface_mangled = emit_mangle_name(
                 instr->array_lit.elem_type->interface.decl->name, ctx->arena);
         }
+
+        /* Phase 49: Monomorphic collection — emit as standard Iron_List with tagged
+         * union elements instead of Iron_SplitList.  Monomorphic collections are
+         * removed from split_collection_ids by the Phase 49 collapse pass, so the
+         * Phase 41 split check below will NOT match.  The code falls through to the
+         * standard (non-split) Iron_List emission path which wraps each element via
+         * <Iface>_from_<Type>().  This preserves type compatibility with downstream
+         * method dispatch while eliminating split collection overhead (no per-type
+         * sub-arrays, no _order array, no tag dispatch in for-loop iteration). */
 
         /* Phase 41: Interface arrays use split collection instead of stack/heap array */
         if (is_iface_array && ctx->iface_reg) {
@@ -5108,6 +5132,25 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
         }
     }
 
+    /* ── Phase 49: Monomorphic collapse ─────────────────────────────────────
+     * If a split collection has only one concrete type (monomorphic_collections),
+     * remove it from split_collection_ids so it falls through to the plain
+     * typed array emission path. */
+    if (ctx->monomorphic_collections && ctx->split_collection_ids) {
+        IronLIR_ValueId *to_unsplit = NULL;
+        for (ptrdiff_t i = 0; i < hmlen(ctx->split_collection_ids); i++) {
+            IronLIR_ValueId vid = ctx->split_collection_ids[i].key;
+            ptrdiff_t mi = hmgeti(ctx->monomorphic_collections, vid);
+            if (mi >= 0) {
+                arrput(to_unsplit, vid);
+            }
+        }
+        for (int i = 0; i < (int)arrlen(to_unsplit); i++) {
+            hmdel(ctx->split_collection_ids, to_unsplit[i]);
+        }
+        arrfree(to_unsplit);
+    }
+
     /* ── Phase 41: Detect split-eligible for-loops ─────────────────────────
      * Scan for for-loop patterns over split collections. For each detected
      * pattern, mark the blocks (pre, header, body, inc) as replaced by
@@ -6625,6 +6668,143 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* ── Phase 48: Module-level prescan for split collections & layout analysis */
     prescan_split_collections(&ctx);
 
+    /* ── Phase 49: Monomorphic collection detection ─────────────────────────
+     * Whole-program scan: for each interface-typed ARRAY_LIT in split_collection_ids,
+     * determine the set of concrete types pushed to it.  If exactly one concrete type
+     * is found, mark the collection as monomorphic.
+     *
+     * Conservative approach: only detect collections created and fully used within
+     * the same function.  Collections that escape (passed as arguments to other
+     * functions) are NOT considered monomorphic. */
+    if (ctx.split_collection_ids && hmlen(ctx.split_collection_ids) > 0 && ctx.iface_reg) {
+        /* Tracking map: collection ValueId -> set of concrete type names.
+         * We use a simple approach: track (vid, type_name) pairs. */
+        struct { IronLIR_ValueId key; const char **value; } *coll_types = NULL;
+
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronLIR_Func *fn = module->funcs[fi];
+            if (!fn || fn->is_extern || fn->block_count == 0) continue;
+
+            /* Build local propagation map for this function:
+             * maps ValueIds to the original ARRAY_LIT ValueId through STORE/LOAD */
+            struct { IronLIR_ValueId key; IronLIR_ValueId value; } *vid_origin = NULL;
+
+            /* Phase A: Find ARRAY_LIT instructions that are split collections */
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in2 = blk->instrs[ii];
+                    if (in2->kind == IRON_LIR_ARRAY_LIT &&
+                        hmgeti(ctx.split_collection_ids, in2->id) >= 0) {
+                        hmput(vid_origin, in2->id, in2->id);
+
+                        /* Record concrete types from ARRAY_LIT elements */
+                        for (int ei = 0; ei < in2->array_lit.element_count; ei++) {
+                            IronLIR_ValueId eid = in2->array_lit.elements[ei];
+                            Iron_Type *et = get_value_type(fn, eid);
+                            if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
+                                /* Initialize type set for this collection if needed */
+                                ptrdiff_t ct_idx = hmgeti(coll_types, in2->id);
+                                if (ct_idx < 0) {
+                                    const char **types = NULL;
+                                    hmput(coll_types, in2->id, types);
+                                    ct_idx = hmgeti(coll_types, in2->id);
+                                }
+                                /* Add type if not already present */
+                                const char *tname = et->object.decl->name;
+                                bool found = false;
+                                for (int ti = 0; ti < (int)arrlen(coll_types[ct_idx].value); ti++) {
+                                    if (strcmp(coll_types[ct_idx].value[ti], tname) == 0) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) {
+                                    arrput(coll_types[ct_idx].value, tname);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* Phase B: Propagate through STORE/LOAD chains */
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in2 = blk->instrs[ii];
+                    if (in2->kind == IRON_LIR_STORE) {
+                        ptrdiff_t vi = hmgeti(vid_origin, in2->store.value);
+                        if (vi >= 0) hmput(vid_origin, in2->store.ptr, vid_origin[vi].value);
+                    } else if (in2->kind == IRON_LIR_LOAD) {
+                        ptrdiff_t vi = hmgeti(vid_origin, in2->load.ptr);
+                        if (vi >= 0) hmput(vid_origin, in2->id, vid_origin[vi].value);
+                    }
+                }
+            }
+
+            /* Phase C: Check for escaping collections (passed as args to calls).
+             * If a collection escapes, remove it from consideration. */
+            struct { IronLIR_ValueId key; bool value; } *escaped = NULL;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in2 = blk->instrs[ii];
+                    if (in2->kind == IRON_LIR_CALL) {
+                        for (int ai = 0; ai < in2->call.arg_count; ai++) {
+                            ptrdiff_t vi = hmgeti(vid_origin, in2->call.args[ai]);
+                            if (vi >= 0) {
+                                hmput(escaped, vid_origin[vi].value, true);
+                            }
+                        }
+                    }
+                    /* Also check RETURN, SET_FIELD, MAKE_CLOSURE */
+                    if (in2->kind == IRON_LIR_RETURN && !in2->ret.is_void) {
+                        ptrdiff_t vi = hmgeti(vid_origin, in2->ret.value);
+                        if (vi >= 0) hmput(escaped, vid_origin[vi].value, true);
+                    }
+                    if (in2->kind == IRON_LIR_SET_FIELD) {
+                        ptrdiff_t vi = hmgeti(vid_origin, in2->field.value);
+                        if (vi >= 0) hmput(escaped, vid_origin[vi].value, true);
+                    }
+                    if (in2->kind == IRON_LIR_MAKE_CLOSURE) {
+                        for (int ci2 = 0; ci2 < in2->make_closure.capture_count; ci2++) {
+                            ptrdiff_t vi = hmgeti(vid_origin, in2->make_closure.captures[ci2]);
+                            if (vi >= 0) hmput(escaped, vid_origin[vi].value, true);
+                        }
+                    }
+                }
+            }
+
+            /* Remove escaped collections from coll_types */
+            if (escaped) {
+                for (ptrdiff_t i = 0; i < hmlen(escaped); i++) {
+                    ptrdiff_t ct_idx = hmgeti(coll_types, escaped[i].key);
+                    if (ct_idx >= 0) {
+                        arrfree(coll_types[ct_idx].value);
+                        hmdel(coll_types, escaped[i].key);
+                    }
+                }
+                hmfree(escaped);
+            }
+
+            hmfree(vid_origin);
+        }
+
+        /* Phase D: Mark monomorphic collections (exactly 1 concrete type, non-empty) */
+        for (ptrdiff_t i = 0; i < hmlen(coll_types); i++) {
+            if (arrlen(coll_types[i].value) == 1) {
+                hmput(ctx.monomorphic_collections, coll_types[i].key,
+                      coll_types[i].value[0]);
+            }
+            arrfree(coll_types[i].value);
+        }
+        hmfree(coll_types);
+    }
+
+    /* Phase 49: Specialization registry initialization */
+    ctx.specialization_registry = NULL;
+
     /* ── Phase 2: Type declarations (forward decls, structs, enums) ───────── */
     emit_type_decls(&ctx);
 
@@ -6645,6 +6825,15 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
             if (entry->alive_count == 0) continue;
 
             const char *iface_mangled = emit_mangle_name(entry->iface_name, ctx.arena);
+
+            /* Phase 49: Register interface dispatch functions in specialization
+             * registry to prevent duplicate emission of the same (func, type) pair */
+            {
+                char spec_key[512];
+                snprintf(spec_key, sizeof(spec_key), "__dispatch:%s", entry->iface_name);
+                if (shgeti(ctx.specialization_registry, spec_key) >= 0) continue;
+                shput(ctx.specialization_registry, spec_key, iface_mangled);
+            }
 
             /* Build lowercased dispatch function name prefix:
              * Iron_Shape → Iron_shape (matches hir_to_lir method call mangling) */
@@ -6846,6 +7035,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     iron_layout_free(&ctx.layout);
     shfree(ctx.reduced_storage_types);
     shfree(ctx.soa_types);
+
+    /* Phase 49: Free monomorphic collection tracking and specialization registry */
+    hmfree(ctx.monomorphic_collections);
+    shfree(ctx.specialization_registry);
 
     return result;
 }
