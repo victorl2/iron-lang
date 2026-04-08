@@ -42,8 +42,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Monomorphic Specialization
 
-- [ ] **MONO-01**: A collection proven to hold only one concrete type collapses to a plain typed array with direct field access (no tag dispatch)
-- [ ] **MONO-02**: Specialization registry prevents duplicate function bodies for the same (function, concrete_type) pair
+- [x] **MONO-01**: A collection proven to hold only one concrete type collapses to a plain typed array with direct field access (no tag dispatch)
+- [x] **MONO-02**: Specialization registry prevents duplicate function bodies for the same (function, concrete_type) pair
 
 ### Value Range & Arena
 
@@ -104,8 +104,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LAYOUT-05 | Phase 48 | Complete |
 | FUSE-01 | Phase 49 | Complete |
 | FUSE-02 | Phase 49 | Complete |
-| MONO-01 | Phase 49 | Pending |
-| MONO-02 | Phase 49 | Pending |
+| MONO-01 | Phase 49 | Complete |
+| MONO-02 | Phase 49 | Complete |
 | VRC-01 | Phase 50 | Pending |
 | VRC-02 | Phase 50 | Pending |
 | ARENA-01 | Phase 50 | Pending |
