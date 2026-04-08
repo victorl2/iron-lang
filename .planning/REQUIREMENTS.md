@@ -66,7 +66,7 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Analysis Improvements
 
-- [ ] **ANAL-01**: Monomorphic detection tracks concrete types across function boundaries — helper functions returning single-type collections trigger collapse at call site
+- [x] **ANAL-01**: Monomorphic detection tracks concrete types across function boundaries — helper functions returning single-type collections trigger collapse at call site
 - [x] **ANAL-02**: Value range analysis tracks return value ranges through function calls instead of conservative TOP
 - [x] **ANAL-03**: Value range analysis narrows ranges through conditional branches (if x < 100 produces [min, 99] in true branch)
 
@@ -140,7 +140,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EMIT-02 | Phase 52 | Complete |
 | EMIT-03 | Phase 52 | Complete |
 | EMIT-04 | Phase 52 | Complete |
-| ANAL-01 | Phase 53 | Pending |
+| ANAL-01 | Phase 53 | Complete |
 | ANAL-02 | Phase 53 | Complete |
 | ANAL-03 | Phase 53 | Complete |
 | TEST-01 | Phase 54 | Pending |
