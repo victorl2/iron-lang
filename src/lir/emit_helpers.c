@@ -166,10 +166,18 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
 
         case IRON_TYPE_ARRAY: {
             /* Arrays are represented as Iron_List_<elem_c_type> in C.
-             * e.g. [Int] -> Iron_List_int64_t, [Float] -> Iron_List_double */
+             * e.g. [Int] -> Iron_List_int64_t, [Float] -> Iron_List_double
+             * Phase 53: Interface-typed arrays use Iron_SplitList_<Iface> since
+             * they are always emitted as split collections in the emitter.
+             * e.g. [Shape] -> Iron_SplitList_Iron_Shape */
             const char *elem_c = emit_type_to_c(t->array.elem, ctx);
             Iron_StrBuf sb = iron_strbuf_create(64);
-            iron_strbuf_appendf(&sb, "Iron_List_");
+            bool is_iface_elem = t->array.elem &&
+                                 t->array.elem->kind == IRON_TYPE_INTERFACE &&
+                                 t->array.elem->interface.decl &&
+                                 ctx->iface_reg;
+            iron_strbuf_appendf(&sb, "%s",
+                                is_iface_elem ? "Iron_SplitList_" : "Iron_List_");
             for (const char *p = elem_c; *p; p++) {
                 if (*p == ' ' || *p == '*') {
                     iron_strbuf_appendf(&sb, "_");
