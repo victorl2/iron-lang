@@ -1016,7 +1016,12 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
   3. Struct/layout emission (object struct bodies, SoA/AoS arrays, storage structs, type emission) lives in a dedicated `emit_structs.c` file; struct generation logic is no longer interleaved with dispatch or iteration code
   4. All EmitCtx fields are documented with comments explaining their purpose, consistently named (no mixed conventions), and a single `emit_ctx_cleanup()` function releases all resources -- no scattered cleanup code remains
   5. All existing integration tests pass identically after the refactoring -- zero behavioral changes
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 52-01-PLAN.md — Extract emit_helpers.c/h (EmitCtx + shared utilities + emit_ctx_cleanup)
+- [ ] 52-02-PLAN.md — Extract emit_structs.c/h (type declarations + tagged unions)
+- [ ] 52-03-PLAN.md — Extract emit_split.c/h + emit_fusion.c/h (split collections + fused loops)
 
 ### Phase 53: Analysis Improvements
 **Goal**: Monomorphic detection and value range analysis cross function boundaries, enabling optimizations that currently bail out at call sites
