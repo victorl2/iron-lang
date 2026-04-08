@@ -11,6 +11,7 @@
 - v0.0.8-alpha Semantic Analysis Gaps - Phases 32-39 (shipped 2026-04-04)
 - v0.1-alpha Static Interface Dispatch - Phases 40-45 (active)
 - v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations - Phases 46-50 (active)
+- v0.1.2-alpha Compiler Hardening & Refactoring - Phases 52-54 (active)
 
 ## Phases
 
@@ -117,6 +118,12 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 48: Layout Optimizations** - AoS/SoA field-level layout selection, dead field elimination, common field factoring, small/large variant split, layout annotations
 - [ ] **Phase 49: Loop Fusion & Monomorphic Specialization** - Chained collection operations fuse into single pass per type; single-type collections collapse to plain typed arrays
 - [ ] **Phase 50: Value Range Compression & Arena Allocation** - Fields narrowed to smallest sufficient type with widening reads/narrowing writes; per-type arena allocation with geometric growth
+
+### v0.1.2-alpha Compiler Hardening & Refactoring
+
+- [ ] **Phase 52: Emitter Refactoring** - Extract emit_c.c into focused sub-modules: split collection, fusion, struct/layout emission, and EmitCtx cleanup
+- [ ] **Phase 53: Analysis Improvements** - Interprocedural monomorphic detection and value range analysis across function boundaries and conditional branches
+- [ ] **Phase 54: Test Hardening** - Edge case, stress, and optimization composition tests for comprehensive regression coverage
 
 ## Phase Details
 
@@ -927,7 +934,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 -> 48 -> 49 -> 50
+Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 -> 48 -> 49 -> 50 -> 51 -> 52 -> 53 -> 54
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -981,6 +988,10 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 48. Layout Optimizations | 4/4 | Complete    | 2026-04-07 | - |
 | 49. Loop Fusion & Monomorphic Specialization | 3/3 | Complete    | 2026-04-08 | - |
 | 50. Value Range Compression & Arena Allocation | 3/3 | Complete    | 2026-04-08 | - |
+| 51. Memory Investigation & Leak Audit | v0.1.1-alpha | 0/0 | Complete | 2026-04-08 |
+| 52. Emitter Refactoring | v0.1.2-alpha | 0/0 | Not started | - |
+| 53. Analysis Improvements | v0.1.2-alpha | 0/0 | Not started | - |
+| 54. Test Hardening | v0.1.2-alpha | 0/0 | Not started | - |
 
 ### Phase 51: Memory Investigation & Leak Audit
 
@@ -991,4 +1002,40 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
   1. ironc compiling any integration test program uses less than 500MB of peak memory (measured via `/usr/bin/time -l` or equivalent)
   2. No memory leak detected by running the generated C program under AddressSanitizer or valgrind — all allocated memory is freed or accounted for
   3. Root cause identified and documented — whether compiler-side (arena, stb_ds, strbuf growth) or generated-code-side (missing free, unbounded growth)
+**Plans**: TBD
+
+### v0.1.2-alpha Compiler Hardening & Refactoring
+
+### Phase 52: Emitter Refactoring
+**Goal**: The monolithic emit_c.c is decomposed into focused sub-modules with clean APIs, making each emission concern independently readable, testable, and maintainable
+**Depends on**: Phase 51
+**Requirements**: EMIT-01, EMIT-02, EMIT-03, EMIT-04
+**Success Criteria** (what must be TRUE):
+  1. Split collection emission (struct generation, push functions, free, iteration) lives in a dedicated `emit_split.c` file with a public API header; `emit_c.c` calls into it rather than containing that logic inline
+  2. Fusion emission (fused loop generation, chain detection helpers) lives in a dedicated `emit_fusion.c` file; all fusion-related code paths route through this module
+  3. Struct/layout emission (object struct bodies, SoA/AoS arrays, storage structs, type emission) lives in a dedicated `emit_structs.c` file; struct generation logic is no longer interleaved with dispatch or iteration code
+  4. All EmitCtx fields are documented with comments explaining their purpose, consistently named (no mixed conventions), and a single `emit_ctx_cleanup()` function releases all resources -- no scattered cleanup code remains
+  5. All existing integration tests pass identically after the refactoring -- zero behavioral changes
+**Plans**: TBD
+
+### Phase 53: Analysis Improvements
+**Goal**: Monomorphic detection and value range analysis cross function boundaries, enabling optimizations that currently bail out at call sites
+**Depends on**: Phase 52
+**Requirements**: ANAL-01, ANAL-02, ANAL-03
+**Success Criteria** (what must be TRUE):
+  1. A helper function that constructs and returns a single-concrete-type collection triggers monomorphic collapse at the call site -- the caller's collection is optimized as if it were locally constructed
+  2. A function that always returns values in a narrow range (e.g., 0-100) causes value range analysis at the call site to use that range instead of conservative TOP -- the field storing the return value compresses to the appropriate narrowed type
+  3. A conditional branch `if x < 100` narrows the range of `x` to [min, 99] inside the true branch and [100, max] inside the false branch; value range compression uses these narrowed ranges for fields assigned within the branch
+  4. Existing programs that do not cross function boundaries produce identical output -- the interprocedural extensions are additive, not behavior-changing
+**Plans**: TBD
+
+### Phase 54: Test Hardening
+**Goal**: Edge cases, stress conditions, and optimization compositions are systematically tested so regressions cannot hide in untested corners
+**Depends on**: Phase 53
+**Requirements**: TEST-01, TEST-02, TEST-03
+**Success Criteria** (what must be TRUE):
+  1. Edge case tests exist and pass for: empty collections through map/filter/reduce/sum, all-filtered-out producing empty results, single-element collections, zero-field structs in split collections, and single-implementor interfaces collapsing correctly
+  2. Stress tests exist and pass for: collections with 10K+ elements producing correct results, interfaces with 10+ implementors dispatching correctly, and deeply nested fusion chains (5+ chained operations) fusing into single loops
+  3. Composition tests exist and pass for: SoA layout + fusion (fused loop reads from per-field arrays), dead field elimination + value range compression (compressed fields exclude dead ones), monomorphic collapse + fusion (single-type fused loops), and arena allocation + SoA (arena-backed per-field arrays)
+  4. All tests are automated and run as part of the standard `make test` or equivalent CI command -- no manual verification steps
 **Plans**: TBD
