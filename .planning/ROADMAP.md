@@ -1032,7 +1032,11 @@ Plans:
   2. A function that always returns values in a narrow range (e.g., 0-100) causes value range analysis at the call site to use that range instead of conservative TOP -- the field storing the return value compresses to the appropriate narrowed type
   3. A conditional branch `if x < 100` narrows the range of `x` to [min, 99] inside the true branch and [100, max] inside the false branch; value range compression uses these narrowed ranges for fields assigned within the branch
   4. Existing programs that do not cross function boundaries produce identical output -- the interprocedural extensions are additive, not behavior-changing
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 53-01-PLAN.md — Return range propagation and conditional branch narrowing in value_range.c
+- [ ] 53-02-PLAN.md — Interprocedural monomorphic detection with specialization heuristic
 
 ### Phase 54: Test Hardening
 **Goal**: Edge cases, stress conditions, and optimization compositions are systematically tested so regressions cannot hide in untested corners
