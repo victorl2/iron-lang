@@ -15,6 +15,7 @@
 #include "lir/emit_c.h"
 #include "lir/emit_helpers.h"
 #include "lir/emit_structs.h"
+#include "lir/emit_split.h"
 #include "lir/lir.h"
 #include "lir/lir_optimize.h"
 #include "lir/layout_analysis.h"
@@ -5073,64 +5074,6 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     ctx->adt_boxed_allocas = NULL;
 }
 
-/* ── Phase 48: Module-level prescan for split collections & layout analysis ── */
-
-static void prescan_split_collections(EmitCtx *ctx) {
-    if (!ctx->iface_reg) return;
-
-    /* Iterate ALL functions to find interface-typed ARRAY_LITs */
-    for (int fi = 0; fi < ctx->module->func_count; fi++) {
-        IronLIR_Func *fn = ctx->module->funcs[fi];
-        if (!fn || fn->is_extern || fn->block_count == 0) continue;
-        for (int bi = 0; bi < fn->block_count; bi++) {
-            IronLIR_Block *blk = fn->blocks[bi];
-            for (int ii = 0; ii < blk->instr_count; ii++) {
-                IronLIR_Instr *in2 = blk->instrs[ii];
-                if (in2->kind == IRON_LIR_ARRAY_LIT &&
-                    in2->array_lit.elem_type &&
-                    in2->array_lit.elem_type->kind == IRON_TYPE_INTERFACE &&
-                    in2->array_lit.elem_type->interface.decl) {
-                    const char *im = emit_mangle_name(
-                        in2->array_lit.elem_type->interface.decl->name, ctx->arena);
-                    hmput(ctx->split_collection_ids, in2->id,
-                          iron_arena_strdup(ctx->arena, im, strlen(im)));
-                    /* Phase 48-03: Check for layout annotation override */
-                    if (in2->type && in2->type->kind == IRON_TYPE_ARRAY) {
-                        if (in2->type->array.layout_hint != 0) {
-                            hmput(ctx->layout_overrides, in2->id,
-                                  in2->type->array.layout_hint);
-                        }
-                        if (in2->type->array.is_unordered) {
-                            hmput(ctx->unordered_collections, in2->id, true);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /* Run field access analysis on the identified split collections */
-    if (ctx->split_collection_ids && hmlen(ctx->split_collection_ids) > 0) {
-        /* Convert anonymous struct map to Iron_SplitCollectionId for layout analysis */
-        Iron_SplitCollectionId *la_ids = NULL;
-        for (ptrdiff_t i = 0; i < hmlen(ctx->split_collection_ids); i++) {
-            Iron_SplitCollectionId entry;
-            entry.key = ctx->split_collection_ids[i].key;
-            entry.value = ctx->split_collection_ids[i].value;
-            hmputs(la_ids, entry);
-        }
-        ctx->layout.arena = ctx->arena;
-        iron_layout_analyze(&ctx->layout, ctx->module, la_ids, ctx->iface_reg);
-        /* Phase 48-02: SoA/AoS layout selection and common field detection */
-        iron_layout_select(&ctx->layout, ctx->module, la_ids, ctx->iface_reg);
-        hmfree(la_ids);
-    }
-
-    /* Phase 50: Value range analysis for field compression */
-    ctx->value_range.arena = ctx->arena;
-    iron_vr_analyze(&ctx->value_range, ctx->module, ctx->iface_reg);
-}
-
 /* ── Main entry point ─────────────────────────────────────────────────────── */
 
 const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
@@ -5194,7 +5137,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         "#endif\n\n");
 
     /* ── Phase 48: Module-level prescan for split collections & layout analysis */
-    prescan_split_collections(&ctx);
+    emit_prescan_split_collections(&ctx);
 
     /* ── Phase 49: Monomorphic collection detection ─────────────────────────
      * Whole-program scan: for each interface-typed ARRAY_LIT in split_collection_ids,
