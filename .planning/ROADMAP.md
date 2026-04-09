@@ -1164,7 +1164,12 @@ Plans:
   3. Root cause documented — why does the Stor type reference mismatch occur when SoA + fusion combine?
   4. Regression test exercises SoA + fusion + reduce/sum
   5. Adjacent tests: SoA + fusion + dead field, SoA + fusion + compression, SoA + fusion on split with many types
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 57-01-PLAN.md — Atomic core fix (emit_structs.c _from_<Type>_Stor sibling ctor + emit_fusion.c is_soa branch) + primary regression soa_fusion_map_sum.iron
+- [ ] 57-02-PLAN.md — Adjacent regression tests for SC5 corners: soa_fusion_dead_field, soa_fusion_compressed, soa_fusion_many_types (depends on 57-01)
+- [ ] 57-03-PLAN.md — Restore fusion chains in compose_soa_fusion.iron and compose_mega.iron (previously for-loop workarounds; depends on 57-01)
 
 ### Phase 58: Benchmark Stabilization
 
