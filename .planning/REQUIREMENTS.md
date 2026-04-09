@@ -81,8 +81,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **PUSH-01**: `.push()` on interface-typed split collections works without codegen errors — programmatic building of `[Shape]` via push loop compiles and runs correctly
 - [x] **PUSH-02**: Regression test exercises programmatic split collection building via push loop, verifying generated C is correct
 
-- [ ] **EMPTY-LIT-01**: Empty typed array literal `[]` honors its declared annotation — `var shapes: [Shape] = []` and `var ints: [Int] = []` both compile and produce correctly-typed empty collections
-- [ ] **EMPTY-LIT-02**: Regression tests `empty_interface_var_push.iron` and `empty_concrete_var_push.iron` exercise empty-literal-then-push for both interface and concrete element types, plus `empty_literal_call_arg.iron` and `empty_literal_return.iron` cover the call-arg and return-statement contexts
+- [x] **EMPTY-LIT-01**: Empty typed array literal `[]` honors its declared annotation — `var shapes: [Shape] = []` and `var ints: [Int] = []` both compile and produce correctly-typed empty collections
+- [x] **EMPTY-LIT-02**: Regression tests `empty_interface_var_push.iron` and `empty_concrete_var_push.iron` exercise empty-literal-then-push for both interface and concrete element types, plus `empty_literal_call_arg.iron` and `empty_literal_return.iron` cover the call-arg and return-statement contexts
 
 - [ ] **MONO-FIX-01**: Monomorphic-collapsed collections support `.map()`, `.filter()`, and other method chains without codegen errors
 - [ ] **MONO-FIX-02**: Regression test exercises monomorphic collection + full method chain composition
@@ -165,8 +165,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-03 | Phase 54 | Complete |
 | PUSH-01 | Phase 55 | Complete |
 | PUSH-02 | Phase 55 | Complete |
-| EMPTY-LIT-01 | Phase 55.1 | Pending |
-| EMPTY-LIT-02 | Phase 55.1 | Pending |
+| EMPTY-LIT-01 | Phase 55.1 | Complete |
+| EMPTY-LIT-02 | Phase 55.1 | Complete |
 | MONO-FIX-01 | Phase 56 | Pending |
 | MONO-FIX-02 | Phase 56 | Pending |
 | SOA-FIX-01 | Phase 57 | Pending |

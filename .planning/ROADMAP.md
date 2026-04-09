@@ -1134,7 +1134,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 55.1-01-PLAN.md — Add check_expr_with_expected helper + IRON_ERR_EMPTY_LITERAL_NO_TYPE (229) diagnostic; swap 4 callsites (var decl, call arg, return, assign); add 4 regression tests
+- [x] 55.1-01-PLAN.md — Add check_expr_with_expected helper + IRON_ERR_EMPTY_LITERAL_NO_TYPE (229) diagnostic; swap 4 callsites (var decl, call arg, return, assign); add 4 regression tests
 
 ### Phase 56: Monomorphic Method Chain
 
