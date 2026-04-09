@@ -1,6 +1,6 @@
-# Requirements: Iron Compiler — Compiler Hardening & Refactoring
+# Requirements: Iron Compiler — Known Limitations Cleanup
 
-**Defined:** 2026-04-08
+**Defined:** 2026-04-09
 **Core Value:** The programmer writes polymorphic code against interfaces; the compiler emits monomorphic, data-oriented C code with no vtables, no heap indirection, and no pointer chasing.
 
 ## v1 Requirements
@@ -75,6 +75,20 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **TEST-01**: Edge case test suite covers empty collections, all-filtered-out, single element, zero-field structs, single-implementor interfaces
 - [x] **TEST-02**: Stress tests validate correctness with 10K+ element collections, 10+ implementors, deeply nested fusion chains
 - [x] **TEST-03**: Composition tests verify optimization combinations: SoA + fusion, dead field + compression, monomorphic + fusion, arena + SoA
+
+### Known Limitations Cleanup (v0.1.3-alpha)
+
+- [ ] **PUSH-01**: `.push()` on interface-typed split collections works without codegen errors — programmatic building of `[Shape]` via push loop compiles and runs correctly
+- [ ] **PUSH-02**: Regression test exercises programmatic split collection building via push loop, verifying generated C is correct
+
+- [ ] **MONO-FIX-01**: Monomorphic-collapsed collections support `.map()`, `.filter()`, and other method chains without codegen errors
+- [ ] **MONO-FIX-02**: Regression test exercises monomorphic collection + full method chain composition
+
+- [ ] **SOA-FIX-01**: Split collections with SoA layout fuse correctly — Stor type reference mismatch resolved
+- [ ] **SOA-FIX-02**: Regression test exercises SoA + fusion composition without workarounds (the original `compose_soa_fusion.iron` pattern works directly)
+
+- [ ] **BENCH-01**: `binary_tree_diameter` benchmark root cause identified and documented — why is Iron 1.9-2.0x slower than C, and is it inherent or fixable?
+- [ ] **BENCH-02**: Benchmark either stabilized to <1.5x ratio (with fix) or documented as inherent cost with justification (with threshold retained at 2.5x)
 
 ## v2 Requirements
 
