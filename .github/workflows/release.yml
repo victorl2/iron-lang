@@ -108,7 +108,7 @@ jobs:
           cp build/iron build/ironc staging/bin/
           cp src/runtime/*.c src/runtime/*.h staging/lib/runtime/
           cp src/util/stb_ds_impl.c src/util/arena.c src/util/arena.h src/util/strbuf.c src/util/strbuf.h staging/lib/util/
-          cp src/stdlib/*.c src/stdlib/*.iron staging/lib/stdlib/
+          cp src/stdlib/*.c src/stdlib/*.h src/stdlib/*.iron staging/lib/stdlib/
           cp -r src/vendor/* staging/lib/vendor/
           cp LICENSE staging/
           tar -czf "${ARCHIVE}" -C staging .

@@ -332,6 +332,19 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
             if (decl_void && init_void) return true;
         }
     }
+    /* Interface assignment: a concrete object type is assignable to an interface
+     * type when the object declares `impl` for that interface. */
+    if (decl_t->kind == IRON_TYPE_INTERFACE && init_t->kind == IRON_TYPE_OBJECT) {
+        Iron_ObjectDecl *obj = init_t->object.decl;
+        Iron_InterfaceDecl *iface = decl_t->interface.decl;
+        if (obj && iface) {
+            for (int i = 0; i < obj->implements_count; i++) {
+                if (strcmp(obj->implements_names[i], iface->name) == 0) {
+                    return true;
+                }
+            }
+        }
+    }
     return false;
 }
 
@@ -564,6 +577,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                 if (il->value) size = (int)strtol(il->value, NULL, 10);
             }
             base = iron_type_make_array(ctx->arena, base, size);
+            /* Phase 48: propagate layout annotations */
+            base->array.layout_hint  = ann->layout_hint;
+            base->array.is_unordered = ann->is_unordered;
         }
 
         if (ann->is_nullable) {
@@ -747,6 +763,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             if (il->value) size = (int)strtol(il->value, NULL, 10);
         }
         base = iron_type_make_array(ctx->arena, base, size);
+        /* Phase 48: propagate layout annotations */
+        base->array.layout_hint  = ann->layout_hint;
+        base->array.is_unordered = ann->is_unordered;
     }
 
     return base;
@@ -787,6 +806,106 @@ static bool block_always_returns(Iron_Block *block) {
     if (!block || block->stmt_count == 0) return false;
     Iron_Node *last = block->stmts[block->stmt_count - 1];
     return last && last->kind == IRON_NODE_RETURN;
+}
+
+/* ── Array extension method return type resolution ──────────────────────── */
+
+/* Resolve the return type of a method call on an array by searching for a
+ * matching array extension method declaration (func [T].method(...)).
+ * Returns the resolved type, or NULL if no matching extension was found
+ * (caller should fall back to heuristics). */
+static Iron_Type *resolve_array_ext_method(TypeCtx *ctx,
+                                           Iron_MethodCallExpr *mc,
+                                           Iron_Type *arr_type) {
+    if (!ctx->program || !arr_type) return NULL;
+    Iron_Type *elem_type = arr_type->array.elem;
+    const char *method = mc->method;
+
+    for (int m = 0; m < ctx->program->decl_count; m++) {
+        Iron_Node *d = ctx->program->decls[m];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *ext = (Iron_MethodDecl *)d;
+        if (!ext->is_array_extension) continue;
+        if (strcmp(ext->method_name, method) != 0) continue;
+
+        /* Found matching extension method. Resolve return type. */
+
+        /* Type error: sum() on non-numeric arrays */
+        if (strcmp(method, "sum") == 0 && elem_type) {
+            if (elem_type->kind != IRON_TYPE_INT && elem_type->kind != IRON_TYPE_INT32 &&
+                elem_type->kind != IRON_TYPE_FLOAT) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TYPE_MISMATCH, mc->span,
+                               "sum() requires [Int] or [Float] array", NULL);
+            }
+        }
+
+        if (!ext->return_type) {
+            return iron_type_make_primitive(IRON_TYPE_VOID);
+        }
+
+        Iron_TypeAnnotation *ret_ann = (ext->return_type->kind == IRON_NODE_TYPE_ANNOTATION)
+            ? (Iron_TypeAnnotation *)ext->return_type : NULL;
+
+        if (ret_ann && ret_ann->is_array) {
+            /* Return type is [SomeType] */
+            const char *inner = ret_ann->name;
+            if (inner && ext->elem_type_name && strcmp(inner, ext->elem_type_name) == 0) {
+                /* [T] -> same array type as input (filter) */
+                return arr_type;
+            } else {
+                /* [U] -> infer U from lambda return type in first arg (map).
+                 * Re-check arg to get resolved type (idempotent after initial check). */
+                Iron_Type *inferred_u = NULL;
+                if (mc->arg_count > 0) {
+                    Iron_Type *arg0_type = check_expr(ctx, mc->args[0]);
+                    if (arg0_type && arg0_type->kind == IRON_TYPE_FUNC) {
+                        inferred_u = arg0_type->func.return_type;
+                    }
+                }
+                if (inferred_u) {
+                    return iron_type_make_array(ctx->arena, inferred_u, -1);
+                }
+                return arr_type;
+            }
+        } else if (ret_ann && ret_ann->name) {
+            /* Scalar return type */
+            if (ext->elem_type_name && strcmp(ret_ann->name, ext->elem_type_name) == 0) {
+                /* T -> element type (sum) */
+                return elem_type ? elem_type : iron_type_make_primitive(IRON_TYPE_INT);
+            } else {
+                /* U -> infer from init arg (reduce) or lambda return */
+                Iron_Type *inferred_u = NULL;
+                if (mc->arg_count > 0) {
+                    inferred_u = check_expr(ctx, mc->args[0]);
+                }
+                return inferred_u ? inferred_u : iron_type_make_primitive(IRON_TYPE_VOID);
+            }
+        }
+        return iron_type_make_primitive(IRON_TYPE_VOID);
+    }
+    return NULL;  /* no matching extension found */
+}
+
+/* Heuristic fallback for built-in array methods (push, pop, len, etc.)
+ * that don't have explicit extension method declarations yet. */
+static Iron_Type *resolve_array_builtin_method(const char *method,
+                                               Iron_Type *arr_type) {
+    if (strcmp(method, "len") == 0) {
+        return iron_type_make_primitive(IRON_TYPE_INT);
+    } else if (strcmp(method, "push") == 0 || strcmp(method, "set") == 0 ||
+               strcmp(method, "free") == 0 || strcmp(method, "sort") == 0 ||
+               strcmp(method, "reverse") == 0 || strcmp(method, "for_each") == 0) {
+        return iron_type_make_primitive(IRON_TYPE_VOID);
+    } else if (strcmp(method, "get") == 0 || strcmp(method, "pop") == 0 ||
+               strcmp(method, "find") == 0) {
+        return (arr_type->array.elem != NULL)
+                   ? arr_type->array.elem
+                   : iron_type_make_primitive(IRON_TYPE_VOID);
+    } else if (strcmp(method, "any") == 0 || strcmp(method, "all") == 0) {
+        return iron_type_make_primitive(IRON_TYPE_BOOL);
+    }
+    return arr_type;
 }
 
 /* ── Expression type inference ───────────────────────────────────────────── */
@@ -1305,35 +1424,38 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     type_name_mc = "String";
                 } else if (obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_ARRAY) {
-                    /* Collection instance method: resolve return type heuristically.
-                     * We skip the decl scan for arrays because the return type
-                     * depends on the element type. */
+                    /* Collection method: try extension method decls first,
+                     * fall back to built-in heuristics for push/pop/len/etc. */
                     Iron_Type *arr_type = obj_id->resolved_type;
-                    const char *method = mc->method;
-                    if (strcmp(method, "sort") == 0 || strcmp(method, "reverse") == 0 ||
-                        strcmp(method, "for_each") == 0) {
-                        result = iron_type_make_primitive(IRON_TYPE_VOID);
-                    } else if (strcmp(method, "any") == 0 || strcmp(method, "all") == 0) {
-                        result = iron_type_make_primitive(IRON_TYPE_BOOL);
-                    } else if (strcmp(method, "find") == 0 ||
-                               strcmp(method, "get") == 0 ||
-                               strcmp(method, "pop") == 0) {
-                        /* Return the element type */
-                        result = (arr_type->array.elem != NULL)
-                                     ? arr_type->array.elem
-                                     : iron_type_make_primitive(IRON_TYPE_VOID);
-                    } else if (strcmp(method, "len") == 0) {
-                        result = iron_type_make_primitive(IRON_TYPE_INT);
-                    } else if (strcmp(method, "push") == 0 ||
-                               strcmp(method, "set") == 0 ||
-                               strcmp(method, "free") == 0) {
-                        result = iron_type_make_primitive(IRON_TYPE_VOID);
-                    } else {
-                        /* filter, map, slice, unique, reduce, clone: return same array type */
-                        result = arr_type;
-                    }
+                    Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, arr_type);
+                    result = ext_result ? ext_result
+                                        : resolve_array_builtin_method(mc->method, arr_type);
                     mc->resolved_type = result;
                     break;  /* skip decl scan — return type already resolved */
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_INTERFACE &&
+                           obj_id->resolved_type->interface.decl) {
+                    /* Interface dispatch: find the method in the interface's
+                     * method signatures and resolve the return type. */
+                    Iron_InterfaceDecl *iface_mc = obj_id->resolved_type->interface.decl;
+                    for (int mi = 0; mi < iface_mc->method_count; mi++) {
+                        Iron_Node *msig = iface_mc->method_sigs[mi];
+                        if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
+                        Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
+                        if (strcmp(fd->name, mc->method) != 0) continue;
+                        if (fd->resolved_return_type) {
+                            result = fd->resolved_return_type;
+                        } else if (fd->return_type &&
+                                   fd->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                            /* Resolve return type from annotation */
+                            Iron_TypeAnnotation *rta = (Iron_TypeAnnotation *)fd->return_type;
+                            Iron_Type *resolved_rt = resolve_type_annotation(ctx, (Iron_Node *)rta);
+                            if (resolved_rt) result = resolved_rt;
+                        }
+                        break;
+                    }
+                    mc->resolved_type = result;
+                    break;
                 } else if (obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_ENUM &&
                            obj_id->resolved_type->enu.decl) {
@@ -1371,6 +1493,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         }
                     }
                 }
+            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_ARRAY) {
+                /* Non-ident receiver with Array type (e.g. chained method call
+                 * like arr.map(...).filter(...)): resolve via extension methods. */
+                Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, obj_type_mc);
+                result = ext_result ? ext_result
+                                    : resolve_array_builtin_method(mc->method, obj_type_mc);
             }
             mc->resolved_type = result;
             break;
@@ -1700,10 +1828,59 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_ArrayLit *al = (Iron_ArrayLit *)node;
             if (al->size) check_expr(ctx, al->size);
             Iron_Type *elem_type = NULL;
+            Iron_Type **elem_types = NULL; /* track all element types for mixed-type detection */
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr(ctx, al->elements[i]);
                 if (!elem_type && et) elem_type = et;
+                if (et) arrput(elem_types, et);
             }
+            /* Check for mixed-type array: if elements have different object types
+             * that all implement a common interface, infer the interface as elem_type */
+            if (elem_type && elem_type->kind == IRON_TYPE_OBJECT &&
+                arrlen(elem_types) > 1) {
+                bool has_different_types = false;
+                for (int i = 1; i < arrlen(elem_types); i++) {
+                    if (elem_types[i] != elem_type &&
+                        !(elem_types[i]->kind == IRON_TYPE_OBJECT &&
+                          elem_types[i]->object.decl == elem_type->object.decl)) {
+                        has_different_types = true;
+                        break;
+                    }
+                }
+                if (has_different_types) {
+                    /* Find common interface: check first element's implements list */
+                    Iron_ObjectDecl *first_obj = elem_type->object.decl;
+                    if (first_obj) {
+                        for (int ii = 0; ii < first_obj->implements_count; ii++) {
+                            const char *iface_name = first_obj->implements_names[ii];
+                            bool all_implement = true;
+                            for (int ei = 1; ei < arrlen(elem_types); ei++) {
+                                Iron_Type *et2 = elem_types[ei];
+                                if (!et2 || et2->kind != IRON_TYPE_OBJECT || !et2->object.decl) {
+                                    all_implement = false; break;
+                                }
+                                Iron_ObjectDecl *od2 = et2->object.decl;
+                                bool found = false;
+                                for (int ji = 0; ji < od2->implements_count; ji++) {
+                                    if (strcmp(od2->implements_names[ji], iface_name) == 0) {
+                                        found = true; break;
+                                    }
+                                }
+                                if (!found) { all_implement = false; break; }
+                            }
+                            if (all_implement) {
+                                /* Found common interface — use it as elem type */
+                                Iron_Symbol *isym = iron_scope_lookup(ctx->global_scope, iface_name);
+                                if (isym && isym->type && isym->type->kind == IRON_TYPE_INTERFACE) {
+                                    elem_type = isym->type;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            arrfree(elem_types);
             if (!elem_type) elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             result = iron_type_make_array(ctx->arena, elem_type, -1);
             al->resolved_type = result;
@@ -2635,6 +2812,15 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
 }
 
 static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
+    /* Array extension method stubs: generic type params (T, U) are not real
+     * types in scope.  Return type resolution for call sites is handled by
+     * resolve_array_ext_method().  Skip full type checking of stubs. */
+    if (md->is_array_extension) {
+        /* For empty-body stubs, nothing to check. For future methods with
+         * real bodies, monomorphization would be needed. */
+        return;
+    }
+
     /* Resolve return type */
     Iron_Type *ret_type = NULL;
     if (md->return_type) {
@@ -2867,6 +3053,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             if (sym) sym->type = func_type;
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+            /* Skip symbol-type resolution for array extension methods: their
+             * generic params (T, U) are not real types in the global scope.
+             * Call-site type resolution is handled by resolve_array_ext_method. */
+            if (md->is_array_extension) continue;
             Iron_Type *ret_type = md->return_type
                 ? resolve_type_annotation(&ctx, md->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);

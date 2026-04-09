@@ -1019,7 +1019,12 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                         (ptrdiff_t)ptr < arrlen(fn->value_table) &&
                         fn->value_table[ptr] != NULL &&
                         fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
-                        !alloca_is_capture_alias(fn, ptr)) {
+                        !alloca_is_capture_alias(fn, ptr) &&
+                        /* Do not copy-propagate through interface-typed allocas:
+                         * the STORE wraps concrete→interface (tagged union),
+                         * and the LOAD preserves the interface type. */
+                        !(fn->value_table[ptr]->type &&
+                          fn->value_table[ptr]->type->kind == IRON_TYPE_INTERFACE)) {
                         ptrdiff_t idx = hmgeti(store_info, ptr);
                         if (idx < 0) {
                             StoreInfoVal sv;
@@ -1922,6 +1927,51 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
             if (in->kind == IRON_LIR_ARRAY_LIT) {
                 for (int i = 0; i < in->array_lit.element_count; i++) {
                     hmput(excluded, in->array_lit.elements[i], true);
+                }
+                /* Phase 41: Interface array literals become split collections.
+                 * Exclude the ARRAY_LIT itself from inlining. */
+                if (in->array_lit.elem_type &&
+                    in->array_lit.elem_type->kind == IRON_TYPE_INTERFACE) {
+                    hmput(excluded, in->id, true);
+                }
+            }
+
+            /* Phase 41: GET_INDEX on interface-typed array → split collection lookup
+             * (switch statement, can't be inlined). Exclude the result. */
+            if (in->kind == IRON_LIR_GET_INDEX) {
+                IronLIR_ValueId arr_vid = in->index.array;
+                if (arr_vid != IRON_LIR_VALUE_INVALID &&
+                    arr_vid < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[arr_vid]) {
+                    Iron_Type *arr_t = fn->value_table[arr_vid]->type;
+                    if (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
+                        arr_t->array.elem &&
+                        arr_t->array.elem->kind == IRON_TYPE_INTERFACE) {
+                        hmput(excluded, in->id, true);
+                    }
+                }
+            }
+
+            /* STORE to interface-typed alloca: exclude LOAD results from the
+             * same alloca from inlining. Interface wrapping happens at the
+             * STORE site; inlining the LOAD bypasses the wrapping and produces
+             * a concrete type where an interface type is expected. */
+            if (in->kind == IRON_LIR_STORE) {
+                IronLIR_Instr *ptr_instr = fn->value_table[in->store.ptr];
+                if (ptr_instr && ptr_instr->type &&
+                    ptr_instr->type->kind == IRON_TYPE_INTERFACE) {
+                    /* Exclude the stored value to ensure it goes through alloca */
+                    hmput(excluded, in->store.value, true);
+                    hmput(excluded, in->store.ptr, true);
+                }
+            }
+            /* LOAD from interface alloca: the LOAD result must not be inlined
+             * because it carries the interface type. */
+            if (in->kind == IRON_LIR_LOAD) {
+                IronLIR_Instr *ptr_instr = fn->value_table[in->load.ptr];
+                if (ptr_instr && ptr_instr->type &&
+                    ptr_instr->type->kind == IRON_TYPE_INTERFACE) {
+                    hmput(excluded, in->id, true);
                 }
             }
 

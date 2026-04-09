@@ -206,6 +206,10 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         ann->func_param_count  = 0;
         ann->func_return       = NULL;
 
+        /* Phase 48: Initialize layout annotation fields */
+        ann->layout_hint       = IRON_LAYOUT_HINT_NONE;
+        ann->is_unordered      = false;
+
         /* element type: either func(...) -> R or a named type */
         if (iron_check(p, IRON_TOK_FUNC)) {
             /* Parse func type as array element: [func(T) -> R] */
@@ -236,6 +240,42 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
                                           strlen(name_tok->value));
         }
 
+        /* Phase 48: Parse optional layout attributes: [T, layout: soa/aos] [T, unordered] */
+        while (iron_match(p, IRON_TOK_COMMA)) {
+            Iron_Token *attr = iron_current(p);
+            if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                if (strcmp(attr->value, "layout") == 0) {
+                    iron_advance(p);  /* consume "layout" */
+                    iron_expect(p, IRON_TOK_COLON);
+                    Iron_Token *val = iron_current(p);
+                    if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                        if (strcmp(val->value, "soa") == 0) {
+                            ann->layout_hint = IRON_LAYOUT_HINT_SOA;
+                            iron_advance(p);
+                        } else if (strcmp(val->value, "aos") == 0) {
+                            ann->layout_hint = IRON_LAYOUT_HINT_AOS;
+                            iron_advance(p);
+                        } else {
+                            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                IRON_ERR_UNEXPECTED_TOKEN,
+                                iron_token_span(p, val),
+                                "expected 'soa' or 'aos' after 'layout:'", NULL);
+                            iron_advance(p);
+                        }
+                    }
+                } else if (strcmp(attr->value, "unordered") == 0) {
+                    ann->is_unordered = true;
+                    iron_advance(p);
+                } else {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                        IRON_ERR_UNEXPECTED_TOKEN,
+                        iron_token_span(p, attr),
+                        "expected 'layout' or 'unordered' in array type attribute", NULL);
+                    iron_advance(p);
+                }
+            }
+        }
+
         /* optional [T; Size] */
         if (iron_match(p, IRON_TOK_SEMICOLON)) {
             ann->array_size = iron_parse_expr(p);
@@ -260,6 +300,8 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         ann->generic_arg_count = 0;
         ann->is_func           = true;
         ann->name              = "func";
+        ann->layout_hint       = IRON_LAYOUT_HINT_NONE;
+        ann->is_unordered      = false;
 
         /* Parse parameter types: ( [TypeAnn, ...] ) */
         ann->func_params      = NULL;
@@ -336,6 +378,10 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     ann->func_params       = NULL;
     ann->func_param_count  = 0;
     ann->func_return       = NULL;
+
+    /* Phase 48: no layout annotations on non-array types */
+    ann->layout_hint       = IRON_LAYOUT_HINT_NONE;
+    ann->is_unordered      = false;
 
     ann->span = iron_span_merge(iron_token_span(p, start),
                                 iron_token_span(p, iron_current(p)));
@@ -1828,6 +1874,87 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'func' */
 
+    /* Check for array extension method: func [T].method_name(...) */
+    if (iron_check(p, IRON_TOK_LBRACKET)) {
+        iron_advance(p);  /* consume '[' */
+
+        /* Parse element type parameter name (e.g., T) */
+        if (!iron_check_name(p)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected element type parameter in array extension method");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+        Iron_Token *elem_type_tok = iron_advance(p);
+
+        if (!iron_match(p, IRON_TOK_RBRACKET)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected ']' after element type in array extension method");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        if (!iron_match(p, IRON_TOK_DOT)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected '.' after array type in extension method");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        if (!iron_check_name(p)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected method name after '[T].'");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+        Iron_Token *method_tok = iron_advance(p);
+
+        /* Method-level generic params (e.g., [U] in func [T].map[U](...)) */
+        int         generic_count  = 0;
+        Iron_Node **generic_params = NULL;
+        if (iron_check(p, IRON_TOK_LBRACKET)) {
+            generic_params = iron_parse_generic_params(p, &generic_count, p->arena);
+        }
+
+        int param_count = 0;
+        Iron_Node **params = iron_parse_param_list(p, &param_count);
+
+        Iron_Node *ret = NULL;
+        if (iron_match(p, IRON_TOK_ARROW)) {
+            ret = iron_parse_type_annotation(p);
+        }
+
+        Iron_Node *body = iron_parse_block(p);
+
+        Iron_MethodDecl *m      = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+        m->kind                 = IRON_NODE_METHOD_DECL;
+        m->span                 = iron_span_merge(iron_token_span(p, start), body->span);
+        m->type_name            = "__Array";  /* sentinel: marks this as array extension */
+        m->method_name          = iron_arena_strdup(p->arena, method_tok->value,
+                                                     strlen(method_tok->value));
+        m->params               = params;
+        m->param_count          = param_count;
+        m->return_type          = ret;
+        m->body                 = body;
+        m->is_private           = is_private;
+        m->generic_params       = generic_params;
+        m->generic_param_count  = generic_count;
+        m->resolved_return_type = NULL;
+        m->owner_sym            = NULL;
+        m->is_array_extension   = true;
+        m->elem_type_name       = iron_arena_strdup(p->arena, elem_type_tok->value,
+                                                     strlen(elem_type_tok->value));
+        return (Iron_Node *)m;
+    }
+
     /* Check for generic method: Pool[T].method or just name.
      * Accept both identifiers and 'draw' keyword (common method name). */
     if (!iron_check_name(p)) {
@@ -1890,6 +2017,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->generic_param_count  = generic_count;
         m->resolved_return_type = NULL;  /* set by type checker */
         m->owner_sym            = NULL;  /* set by resolver */
+        m->is_array_extension   = false;
+        m->elem_type_name       = NULL;
         return (Iron_Node *)m;
     }
 
@@ -1954,10 +2083,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
         }
     }
 
-    /* Optional: implements I1, I2 */
+    /* Optional: impl I1, I2 */
     const char **impl_names = NULL;
     int          impl_count = 0;
-    if (iron_check(p, IRON_TOK_IMPLEMENTS)) {
+    if (iron_check(p, IRON_TOK_IMPL)) {
         iron_advance(p);
         while (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *it = iron_advance(p);
@@ -2235,6 +2364,37 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
 
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
     switch (iron_peek(p)) {
+        case IRON_TOK_AT: {
+            iron_advance(p);  /* consume '@' */
+            Iron_Token *ann_tok = iron_current(p);
+            bool is_fusible_ann = false;
+            if (iron_check_name(p) && strcmp(ann_tok->value, "fusible") == 0) {
+                is_fusible_ann = true;
+                iron_advance(p);  /* consume 'fusible' */
+                iron_skip_newlines(p);
+            } else {
+                iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, ann_tok),
+                               "expected 'fusible' after '@'");
+                iron_advance(p);
+            }
+            if (iron_check(p, IRON_TOK_FUNC)) {
+                Iron_Node *n = iron_parse_func_or_method(p, is_private);
+                if (is_fusible_ann && n) {
+                    if (n->kind == IRON_NODE_FUNC_DECL) {
+                        ((Iron_FuncDecl *)n)->is_fusible = true;
+                    } else if (n->kind == IRON_NODE_METHOD_DECL) {
+                        ((Iron_MethodDecl *)n)->is_fusible = true;
+                    }
+                }
+                p->in_error_recovery = false;
+                return n;
+            }
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected 'func' after '@fusible'");
+            return iron_make_error(p);
+        }
         case IRON_TOK_EXTERN:    {
             Iron_Node *n = iron_parse_extern_func(p, is_private);
             p->in_error_recovery = false;

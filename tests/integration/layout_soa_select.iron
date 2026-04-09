@@ -1,0 +1,40 @@
+-- layout_soa_select.iron: SoA layout selected for partial-field access
+-- Tests Phase 48: automatic SoA when loop accesses < 50% of fields
+
+interface Entity {
+  func get_x() -> Int
+}
+
+object Particle impl Entity {
+  var x: Int
+  var y: Int
+  var z: Int
+  var mass: Int
+}
+
+object Bullet impl Entity {
+  var x: Int
+  var y: Int
+  var z: Int
+  var speed: Int
+}
+
+func Particle.get_x() -> Int {
+  return self.x
+}
+
+func Bullet.get_x() -> Int {
+  return self.x
+}
+
+func main() {
+  val entities = [Particle(10, 20, 30, 100), Bullet(5, 15, 25, 50), Particle(3, 6, 9, 200)]
+  var sum_x = 0
+  for e in entities {
+    -- Only accesses x (1 of 4 fields = 25% < 50% threshold -> SoA)
+    sum_x = sum_x + e.get_x()
+  }
+  -- 10 + 5 + 3 = 18
+  println("{sum_x}")
+  println("done")
+}

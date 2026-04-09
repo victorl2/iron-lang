@@ -1006,6 +1006,14 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                 elem_suffix = s;
                             }
                             break;
+                        case IRON_TYPE_INTERFACE:
+                            if (elem->interface.decl) {
+                                size_t slen = 5 + strlen(elem->interface.decl->name) + 1;
+                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                snprintf(s, slen, "Iron_%s", elem->interface.decl->name);
+                                elem_suffix = s;
+                            }
+                            break;
                         default: break;
                     }
                 }
@@ -1025,6 +1033,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     arrput(coll_args, av);
                 }
                 int coll_argc = (int)arrlen(coll_args);
+                /* Phase 49: fusibility is determined by name matching (Iron_List_*_{map,filter,...})
+                 * in the C emitter, corresponding to @fusible annotations on stdlib declarations. */
                 IronLIR_Instr *coll_fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
                                                                full_name, NULL, span);
                 IronLIR_Instr *coll_call = iron_lir_call(ctx->current_func, ctx->current_block,
@@ -1034,6 +1044,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 return coll_call->id;
             } else if (obj_type->kind == IRON_TYPE_ENUM && obj_type->enu.decl) {
                 type_name = obj_type->enu.decl->name;
+            } else if (obj_type->kind == IRON_TYPE_INTERFACE && obj_type->interface.decl) {
+                type_name = obj_type->interface.decl->name;
             }
         }
         /* Detect static method calls: receiver is a type reference, not an instance.
@@ -1444,6 +1456,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             }
             const char *name = iron_hir_var_name(ctx->hir, vid);
             IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, alloca_type, name, span);
+            hmput(ctx->var_alloca_map, vid, alloca_id);
+
+            if (stmt->let.init) {
+                IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_store(ctx->current_func, ctx->current_block,
+                                   alloca_id, init_val, span);
+                }
+            }
+        } else if (type && type->kind == IRON_TYPE_INTERFACE) {
+            /* Interface-typed immutable val: use ALLOCA+STORE to preserve
+             * the interface type for dispatch. Direct binding would lose the
+             * interface type info (the init value has the concrete type). */
+            const char *name = iron_hir_var_name(ctx->hir, vid);
+            IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, name, span);
             hmput(ctx->var_alloca_map, vid, alloca_id);
 
             if (stmt->let.init) {

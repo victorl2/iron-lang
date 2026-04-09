@@ -162,6 +162,7 @@ typedef struct {
     Iron_Node        **generic_params;
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
+    bool               is_fusible;            /* Phase 49: @fusible annotation */
 } Iron_FuncDecl;
 
 typedef struct {
@@ -178,6 +179,9 @@ typedef struct {
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
     struct Iron_Symbol *owner_sym;             /* set by resolver: the owning type */
+    bool               is_array_extension;    /* true for func [T].method(...) */
+    const char        *elem_type_name;        /* generic element type param name, e.g. "T" */
+    bool               is_fusible;            /* Phase 49: @fusible annotation */
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -223,7 +227,14 @@ typedef struct {
     Iron_Node   **func_params;      /* array of Iron_TypeAnnotation* for param types */
     int           func_param_count;
     Iron_Node    *func_return;      /* return type annotation, NULL means void */
+    /* Phase 48: layout annotations for array types [T, layout: soa/aos] [T, unordered] */
+    int           layout_hint;      /* 0 = none, 1 = soa, 2 = aos */
+    bool          is_unordered;     /* true if [T, unordered] */
 } Iron_TypeAnnotation;
+
+#define IRON_LAYOUT_HINT_NONE 0
+#define IRON_LAYOUT_HINT_SOA  1
+#define IRON_LAYOUT_HINT_AOS  2
 
 typedef struct {
     Iron_Span     span;

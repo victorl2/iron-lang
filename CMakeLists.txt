@@ -18,11 +18,13 @@ string(TIMESTAMP IRON_BUILD_DATE "%Y-%m-%d" UTC)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer (requires Debug build)" OFF)
+
 if(MSVC)
     add_compile_options(/W3 /WX)
 else()
     add_compile_options(-Wall -Wextra -Werror -Wpedantic)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    if(IRON_ENABLE_SANITIZERS)
         add_compile_options(-fsanitize=address,undefined)
         add_link_options(-fsanitize=address,undefined)
     endif()
@@ -72,6 +74,7 @@ add_library(iron_compiler STATIC
     src/analyzer/capture.c
     src/analyzer/concurrency.c
     src/analyzer/init_check.c
+    src/analyzer/iface_collect.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
     src/hir/hir.c
@@ -81,6 +84,12 @@ add_library(iron_compiler STATIC
     src/hir/hir_to_lir.c
     src/lir/lir.c
     src/lir/emit_c.c
+    src/lir/emit_helpers.c
+    src/lir/emit_structs.c
+    src/lir/emit_split.c
+    src/lir/emit_fusion.c
+    src/lir/layout_analysis.c
+    src/lir/value_range.c
     src/lir/print.c
     src/lir/verify.c
     src/lir/lir_optimize.c

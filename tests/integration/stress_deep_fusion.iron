@@ -1,0 +1,51 @@
+-- stress_deep_fusion.iron: Deep fusion chain stress test (5-6 operations)
+-- Tests that fusion chain detection handles deep chains without O(n^2) blowup.
+-- Exercises map->map->filter->map->reduce (5 ops), split collection 5-op chain,
+-- and map->filter->map->filter->map->reduce (6 ops).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- Test 1: 5-deep chain on flat array
+  -- [1..10] -> map(+10) -> map(*2) -> filter(>25) -> map(-5) -> reduce(0, +)
+  -- [11..20] -> [22..40] -> [26,28,30,32,34,36,38,40] -> [21,23,25,27,29,31,33,35] -> 224
+  val arr1 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  val result1 = arr1.map(func(x: Int) -> Int { return x + 10 }).map(func(x: Int) -> Int { return x * 2 }).filter(func(x: Int) -> Bool { return x > 25 }).map(func(x: Int) -> Int { return x - 5 }).reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{result1}")
+
+  -- Test 2: 5-deep chain on split collection
+  -- shapes = [Circle(5), Square(4), Circle(3), Square(6), Circle(2)]
+  -- .map(area) -> [75,16,27,36,12]
+  -- .filter(>10) -> [75,16,27,36,12] (all pass)
+  -- .map(+1) -> [76,17,28,37,13]
+  -- .filter(<100) -> [76,17,28,37,13] (all pass)
+  -- .sum() -> 171
+  val shapes = [Circle(5), Square(4), Circle(3), Square(6), Circle(2)]
+  val result2 = shapes.map(func(s: Shape) -> Int { return s.area() }).filter(func(a: Int) -> Bool { return a > 10 }).map(func(a: Int) -> Int { return a + 1 }).filter(func(a: Int) -> Bool { return a < 100 }).sum()
+  println("{result2}")
+
+  -- Test 3: 6-deep chain on flat array
+  -- [1..8] -> map(*3) -> filter(>10) -> map(-5) -> filter(>5) -> map(*2) -> reduce(0, +)
+  -- [3,6,9,12,15,18,21,24] -> [12,15,18,21,24] -> [7,10,13,16,19] -> [7,10,13,16,19] -> [14,20,26,32,38] -> 130
+  val arr3 = [1, 2, 3, 4, 5, 6, 7, 8]
+  val result3 = arr3.map(func(x: Int) -> Int { return x * 3 }).filter(func(x: Int) -> Bool { return x > 10 }).map(func(x: Int) -> Int { return x - 5 }).filter(func(x: Int) -> Bool { return x > 5 }).map(func(x: Int) -> Int { return x * 2 }).reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{result3}")
+}

@@ -1,0 +1,34 @@
+-- mono_single_type_collapse.iron: Single-type collection optimization
+-- Tests MONO-01: a collection with only one concrete type produces correct
+-- results, collapsing to a plain typed array when interface-typed.
+-- With type inference, [Circle(5), Circle(3), Circle(7)] resolves as [Circle]
+-- and avoids split collection overhead entirely.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val shapes = [Circle(5), Circle(3), Circle(7)]
+  var total = 0
+  for s in shapes {
+    total = total + s.area()
+  }
+  println("{total}")
+}

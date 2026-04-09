@@ -59,7 +59,7 @@ void test_all_37_keywords(void) {
         { "func",       IRON_TOK_FUNC       },
         { "heap",       IRON_TOK_HEAP       },
         { "if",         IRON_TOK_IF         },
-        { "implements", IRON_TOK_IMPLEMENTS },
+        { "impl",       IRON_TOK_IMPL       },
         { "import",     IRON_TOK_IMPORT     },
         { "in",         IRON_TOK_IN         },
         { "interface",  IRON_TOK_INTERFACE  },
@@ -341,7 +341,7 @@ void test_unterminated_string_error(void) {
 }
 
 void test_invalid_char_error(void) {
-    Iron_Token *toks = lex("@");
+    Iron_Token *toks = lex("$");
     TEST_ASSERT_EQUAL(1, diags.error_count);
     TEST_ASSERT_EQUAL(IRON_ERR_INVALID_CHAR, diags.items[0].code);
     arrfree(toks);
@@ -350,7 +350,7 @@ void test_invalid_char_error(void) {
 void test_three_independent_errors(void) {
     /* Three independent invalid characters, each on its own — lexer must continue
      * and produce exactly 3 diagnostics. */
-    Iron_Token *toks = lex("@ # $");
+    Iron_Token *toks = lex("$ # ~");
     TEST_ASSERT_EQUAL_INT(3, diags.error_count);
     arrfree(toks);
 }

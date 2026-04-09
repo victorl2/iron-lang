@@ -1,0 +1,43 @@
+-- edge_all_filtered_out.iron: All elements filtered out edge case
+-- Tests that filtering out ALL elements produces empty results with correct
+-- identity values for reduce/sum
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- Test 1: split collection filter removes all, then reduce -> 0
+  val shapes = [Circle(1), Square(2), Circle(3)]
+  val result1 = shapes.map(func(s: Shape) -> Int { return s.area() }).filter(func(a: Int) -> Bool { return a > 1000 }).reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{result1}")
+
+  -- Test 2: flat array filter removes all, then sum -> 0
+  val nums = [1, 2, 3]
+  val result2 = nums.filter(func(x: Int) -> Bool { return x > 100 }).sum()
+  println("{result2}")
+
+  -- Test 3: map then filter-all then reduce (fused chain with zero output)
+  val result3 = nums.map(func(x: Int) -> Int { return x + 10 }).filter(func(x: Int) -> Bool { return x > 1000 }).reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{result3}")
+
+  -- Test 4: split collection map + filter-all + sum
+  val result4 = shapes.map(func(s: Shape) -> Int { return s.area() }).filter(func(a: Int) -> Bool { return a > 9999 }).sum()
+  println("{result4}")
+}

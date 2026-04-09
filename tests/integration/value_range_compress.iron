@@ -1,0 +1,55 @@
+-- value_range_compress.iron: Value range compression (Phase 50)
+-- Tests VRC-01: fields proven to hold small ranges stored as narrower types
+-- Tests VRC-02: widening reads and narrowing writes produce correct results
+
+interface Particle {
+  func describe() -> Int
+}
+
+object Dot impl Particle {
+  var kind: Int
+  var x: Int
+  var y: Int
+  var debug_id: Int
+}
+
+object Pixel impl Particle {
+  var kind: Int
+  var r: Int
+  var g: Int
+  var debug_id: Int
+}
+
+func Dot.describe() -> Int {
+  return self.kind * 1000 + self.x * 100 + self.y
+}
+
+func Pixel.describe() -> Int {
+  return self.kind * 1000 + self.r * 100 + self.g
+}
+
+func main() {
+  -- kind fields only hold 1 or 2, x/y hold 10-50, r/g hold 0-255
+  -- debug_id is never accessed through the collection (dead field)
+  -- Remaining fields should be compressible to uint8_t in Stor structs
+  val particles = [
+    Dot(1, 10, 20, 900),
+    Dot(1, 30, 40, 901),
+    Pixel(2, 100, 200, 902),
+    Pixel(2, 50, 150, 903)
+  ]
+
+  var total = 0
+  for p in particles {
+    total = total + p.describe()
+  }
+  println("{total}")
+
+  -- Verify individual values are preserved through compression/widening
+  val dots = [Dot(1, 50, 99, 999)]
+  var check = 0
+  for d in dots {
+    check = check + d.describe()
+  }
+  println("{check}")
+}

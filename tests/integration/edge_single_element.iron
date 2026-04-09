@@ -1,0 +1,55 @@
+-- edge_single_element.iron: Single-element collection edge cases
+-- Tests that single-element collections work correctly through optimization paths
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- Test 1: single-element split collection with for loop
+  -- Circle(5) area = 5*5*3 = 75
+  val shapes = [Circle(5)]
+  var total1 = 0
+  for s in shapes {
+    total1 = total1 + s.area()
+  }
+  println("{total1}")
+
+  -- Test 2: single-element multi-type split collection, map+filter+sum
+  -- Circle(5)=75, Square(1)=1. Filter >10: keeps Circle(5)=75. Sum=75
+  val mixed = [Circle(5), Square(1)]
+  val result2 = mixed.map(func(s: Shape) -> Int { return s.area() }).filter(func(a: Int) -> Bool { return a > 10 }).sum()
+  println("{result2}")
+
+  -- Test 3: two-element multi-type filtered to single element
+  -- Circle(5)=75, Square(2)=4. Filter >50: keeps only 75. Sum=75
+  val mixed2 = [Circle(5), Square(2)]
+  val result3 = mixed2.map(func(s: Shape) -> Int { return s.area() }).filter(func(a: Int) -> Bool { return a > 50 }).sum()
+  println("{result3}")
+
+  -- Test 4: single-element flat array, map+sum
+  val single = [42]
+  val result4 = single.map(func(x: Int) -> Int { return x * 2 }).sum()
+  println("{result4}")
+
+  -- Test 5: single-element reduce with init
+  val single2 = [10]
+  val result5 = single2.reduce(5, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{result5}")
+}

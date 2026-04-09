@@ -29,6 +29,10 @@ Iron_Arena iron_arena_create(size_t capacity) {
     a.base     = chunk ? chunk->data : NULL;
     a.used     = 0;
     a.capacity = chunk ? chunk->capacity : 0;
+    /* Phase 50: Initialize tracked pointer registry */
+    a.tracked_ptrs  = NULL;
+    a.tracked_count = 0;
+    a.tracked_cap   = 0;
     return a;
 }
 
@@ -78,6 +82,15 @@ char *iron_arena_strdup(Iron_Arena *a, const char *src, size_t len) {
 }
 
 void iron_arena_free(Iron_Arena *a) {
+    /* Phase 50: Free all tracked pointers (collection sub-arrays) */
+    for (int i = 0; i < a->tracked_count; i++) {
+        free(a->tracked_ptrs[i]);
+    }
+    free(a->tracked_ptrs);
+    a->tracked_ptrs = NULL;
+    a->tracked_count = 0;
+    a->tracked_cap = 0;
+
     /* Walk from head — new chunks are prepended, so head is newest, last is oldest.
      * The chain is: head -> newer -> ... -> first (oldest).
      * We simply walk and free every chunk in the chain. */
@@ -92,4 +105,31 @@ void iron_arena_free(Iron_Arena *a) {
     a->base     = NULL;
     a->used     = 0;
     a->capacity = 0;
+}
+
+void *iron_arena_track(Iron_Arena *a, void *ptr) {
+    if (!ptr) return NULL;
+    if (a->tracked_count >= a->tracked_cap) {
+        a->tracked_cap = a->tracked_cap ? a->tracked_cap * 2 : 8;
+        a->tracked_ptrs = (void **)realloc(a->tracked_ptrs,
+            (size_t)a->tracked_cap * sizeof(void *));
+    }
+    a->tracked_ptrs[a->tracked_count++] = ptr;
+    return ptr;
+}
+
+void *iron_arena_realloc_tracked(Iron_Arena *a, void *old_ptr, size_t new_size) {
+    void *new_ptr = realloc(old_ptr, new_size);
+    if (!new_ptr) return NULL;
+    if (old_ptr) {
+        /* Update existing tracked entry */
+        for (int i = 0; i < a->tracked_count; i++) {
+            if (a->tracked_ptrs[i] == old_ptr) {
+                a->tracked_ptrs[i] = new_ptr;
+                return new_ptr;
+            }
+        }
+    }
+    /* Not found (or old_ptr was NULL) -- track as new */
+    return iron_arena_track(a, new_ptr);
 }

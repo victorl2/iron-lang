@@ -39,6 +39,12 @@ IRON_LIST_IMPL(bool,        bool)
 IRON_LIST_IMPL(Iron_String, Iron_String)
 IRON_LIST_IMPL(Iron_Closure, Iron_Closure)
 
+/* ── Collection method implementations (map, filter, reduce, forEach, sum) ── */
+
+IRON_LIST_COLL_IMPL(int64_t, int64_t, 0)
+IRON_LIST_COLL_IMPL(int32_t, int32_t, 0)
+IRON_LIST_COLL_IMPL(double,  double,  0.0)
+
 /* ── Map implementations ──────────────────────────────────────────────────── */
 
 IRON_MAP_IMPL(Iron_String, int64_t,     Iron_String, int64_t,     iron_string_eq_ptr)

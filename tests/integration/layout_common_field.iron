@@ -1,0 +1,35 @@
+-- layout_common_field.iron: Common field factoring
+-- Tests Phase 48: fields shared across all implementors in single array
+
+interface Named {
+  func get_id() -> Int
+}
+
+object Cat impl Named {
+  var id: Int
+  var lives: Int
+}
+
+object Dog impl Named {
+  var id: Int
+  var tricks: Int
+}
+
+func Cat.get_id() -> Int {
+  return self.id
+}
+
+func Dog.get_id() -> Int {
+  return self.id
+}
+
+func main() {
+  val pets = [Cat(1, 9), Dog(2, 5), Cat(3, 7)]
+  var total_id = 0
+  for p in pets {
+    total_id = total_id + p.get_id()
+  }
+  -- 1 + 2 + 3 = 6
+  println("{total_id}")
+  println("done")
+}

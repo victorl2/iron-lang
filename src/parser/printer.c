@@ -184,7 +184,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 iron_strbuf_appendf(ctx->sb, " extends %s", n->extends_name);
             }
             if (n->implements_count > 0) {
-                iron_strbuf_appendf(ctx->sb, " implements ");
+                iron_strbuf_appendf(ctx->sb, " impl ");
                 for (int i = 0; i < n->implements_count; i++) {
                     if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
                     iron_strbuf_appendf(ctx->sb, "%s", n->implements_names[i]);

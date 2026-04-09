@@ -1,0 +1,42 @@
+-- mono_specialization_registry.iron: Specialization registry prevents duplicates
+-- Tests MONO-02: two separate single-type collections of the same concrete
+-- type should compile and produce correct results.  The specialization
+-- registry ensures no duplicate function bodies are emitted for the same
+-- (function, concrete_type) pair.
+-- Successful compilation (no duplicate symbol linker errors) validates the
+-- registry.  Output correctness validates the optimization path.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val batch1 = [Circle(2), Circle(3), Circle(4)]
+  var total1 = 0
+  for s in batch1 {
+    total1 = total1 + s.area()
+  }
+  val batch2 = [Circle(5), Circle(6)]
+  var total2 = 0
+  for s in batch2 {
+    total2 = total2 + s.area()
+  }
+  println("{total1}")
+  println("{total2}")
+}

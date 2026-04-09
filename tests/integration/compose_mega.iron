@@ -1,0 +1,89 @@
+-- compose_mega.iron: Mega composition test exercising ALL optimizations simultaneously
+-- Tests that all compiler optimizations work correctly when combined:
+--   (1) Split collection: 3 implementors (Button, Slider, Label) -> per-type sub-arrays
+--   (2) SoA layout: score() only accesses priority + one field (2 of 3 = 67%; but debug_tag
+--       is dead, so 2 of 2 live fields = 100%; compiler should use AoS or Stor for live fields)
+--   (3) Dead field elimination: debug_tag never accessed through collection -> removed from Stor
+--   (4) Value range compression: priority (1-5) and x/pos/len (1-100) -> uint8_t
+--   (5) Arena allocation: 15 elements > 8 initial capacity -> geometric growth
+--   (6) Tag dispatch: switch on 3 type tags for score() calls
+
+interface Widget {
+  func score() -> Int
+}
+
+object Button impl Widget {
+  var priority: Int
+  var x: Int
+  var debug_tag: Int
+}
+
+object Slider impl Widget {
+  var priority: Int
+  var pos: Int
+  var debug_tag: Int
+}
+
+object Label impl Widget {
+  var priority: Int
+  var len: Int
+  var debug_tag: Int
+}
+
+func Button.score() -> Int {
+  return self.priority * 100 + self.x
+}
+
+func Slider.score() -> Int {
+  return self.priority * 100 + self.pos
+}
+
+func Label.score() -> Int {
+  return self.priority * 100 + self.len
+}
+
+func main() {
+  -- 15 elements with 3 types: triggers split collection + arena (>8 elements)
+  -- priority 1-5, x/pos/len 1-100: small ranges -> uint8_t compression
+  -- debug_tag never accessed through collection: dead field elimination
+  val widgets = [
+    Button(3, 50, 999),
+    Slider(2, 30, 998),
+    Label(5, 80, 997),
+    Button(1, 10, 996),
+    Slider(4, 60, 995),
+    Label(2, 40, 994),
+    Button(5, 90, 993),
+    Slider(1, 20, 992),
+    Label(3, 70, 991),
+    Button(4, 55, 990),
+    Slider(3, 45, 989),
+    Label(1, 15, 988),
+    Button(2, 35, 987),
+    Slider(5, 85, 986),
+    Label(4, 65, 985)
+  ]
+
+  -- Compute sum of all scores (equivalent to map(score).sum())
+  var total = 0
+  for w in widgets {
+    total = total + w.score()
+  }
+  -- Button(3,50): 3*100+50 = 350
+  -- Slider(2,30): 2*100+30 = 230
+  -- Label(5,80): 5*100+80 = 580
+  -- Button(1,10): 1*100+10 = 110
+  -- Slider(4,60): 4*100+60 = 460
+  -- Label(2,40): 2*100+40 = 240
+  -- Button(5,90): 5*100+90 = 590
+  -- Slider(1,20): 1*100+20 = 120
+  -- Label(3,70): 3*100+70 = 370
+  -- Button(4,55): 4*100+55 = 455
+  -- Slider(3,45): 3*100+45 = 345
+  -- Label(1,15): 1*100+15 = 115
+  -- Button(2,35): 2*100+35 = 235
+  -- Slider(5,85): 5*100+85 = 585
+  -- Label(4,65): 4*100+65 = 465
+  -- total = 350+230+580+110+460+240+590+120+370+455+345+115+235+585+465 = 5250
+  println("{total}")
+}

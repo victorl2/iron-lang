@@ -4,6 +4,7 @@
 #include "parser/ast.h"
 #include "analyzer/scope.h"
 #include "analyzer/types.h"
+#include "analyzer/iface_collect.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include <stddef.h>
@@ -11,8 +12,9 @@
 
 /* Result of running the full analysis pipeline. */
 typedef struct {
-    Iron_Scope *global_scope;   /* root of scope tree */
-    bool        has_errors;     /* true if any semantic errors occurred */
+    Iron_Scope         *global_scope;   /* root of scope tree */
+    Iron_IfaceRegistry  iface_registry; /* interface implementor map */
+    bool                has_errors;     /* true if any semantic errors occurred */
 } Iron_AnalyzeResult;
 
 /* Run the complete semantic analysis pipeline on the given program:

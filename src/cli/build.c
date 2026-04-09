@@ -784,6 +784,30 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1i. Always prepend list.iron — Collection methods (map, filter, reduce,
+     * forEach, sum) are available on every array variable without an explicit
+     * import statement. */
+    {
+        char *list_path = make_path(base_dir, "stdlib/list.iron");
+        if (list_path) {
+            long list_size = 0;
+            char *list_src = read_file(list_path, &list_size);
+            free(list_path);
+            if (list_src) {
+                size_t combined_len = (size_t)list_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, list_src, (size_t)list_size);
+                    combined[list_size] = '\n';
+                    strcpy(combined + list_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(list_src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();
@@ -901,7 +925,10 @@ int iron_build(const char *source_path, const char *output_path,
                      opts.dump_ir_passes, opts.no_optimize);
 
     /* 8. Emit C from IR */
-    const char *c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info);
+    const char *c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
+                                        &analysis.iface_registry,
+                                        opts.warn_fusion_break,
+                                        opts.report_compression);
 
     iron_lir_module_destroy(ir_module);
     iron_arena_free(&ir_arena);

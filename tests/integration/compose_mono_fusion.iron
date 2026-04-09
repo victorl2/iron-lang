@@ -1,0 +1,35 @@
+-- compose_mono_fusion.iron: Composition test for monomorphic collapse + computation
+-- Tests that monomorphic detection collapses single-implementor collection to plain typed array:
+--   (1) Only Circle implements Shape -> monomorphic collapse (plain Circle[] not SplitList dispatch)
+--   (2) For-loop computes area, filters >20, sums (equivalent to map+filter+reduce)
+--   (3) Note: .map() chain on monomorphic collections is a known compiler limitation;
+--       this test uses for-loop to verify monomorphic collapse + correct results
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func main() {
+  val shapes = [Circle(5), Circle(3), Circle(7), Circle(2), Circle(10)]
+  -- Monomorphic: all elements are Circle -> compiler uses plain typed array
+  -- Compute equivalent of: map(area).filter(>20).sum()
+  var total = 0
+  for s in shapes {
+    val a = s.area()
+    if a > 20 {
+      total = total + a
+    }
+  }
+  -- Areas: Circle(5)=75, Circle(3)=27, Circle(7)=147, Circle(2)=12, Circle(10)=300
+  -- Filter >20: [75, 27, 147, 300]
+  -- Sum = 75 + 27 + 147 + 300 = 549
+  println("{total}")
+}

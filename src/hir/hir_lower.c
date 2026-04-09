@@ -221,6 +221,12 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
                         base = iron_type_make_enum(ctx->module->arena, ed);
                         break;
                     }
+                } else if (decl->kind == IRON_NODE_INTERFACE_DECL) {
+                    Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)decl;
+                    if (strcmp(id->name, ta->name) == 0) {
+                        base = iron_type_make_interface(ctx->module->arena, id);
+                        break;
+                    }
                 }
             }
         }

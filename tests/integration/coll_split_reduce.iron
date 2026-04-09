@@ -1,0 +1,26 @@
+-- coll_split_reduce.iron: Collection reduce on interface-typed split collection
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val shapes = [Circle(5), Square(4), Circle(3)]
+  val total = shapes.reduce(0, func(acc: Int, s: Shape) -> Int { return acc + s.area() })
+  println("{total}")
+}
