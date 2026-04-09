@@ -1112,7 +1112,12 @@ Plans:
   3. Root cause of the original bug documented in commit message (what was broken, why, how fixed)
   4. Regression test `push_interface_collection.iron` exists and exercises the previously-broken path
   5. Adjacent tests: push with multiple interface types, push after other operations, push into an already-populated collection
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 55-01-PLAN.md — Fix .push() on interface split collections (concrete + interface-typed arg dispatch) + main regression + adjacent tests + 100-element stress test
+- [ ] 55-02-PLAN.md — Add .len() and .pop() branches to the interception block + tests
+- [ ] 55-03-PLAN.md — Add .get() and .set() branches (same-type set semantics) + tests
 
 ### Phase 56: Monomorphic Method Chain
 
