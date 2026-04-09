@@ -5,8 +5,12 @@
 -- dispatches .get() via a tag switch over _order[i] to the matching
 -- per-type sub-array and wraps the result via Iron_Shape_from_<Type>.
 --
--- 2-element initial literal with both implementors avoids the Phase 56
--- monomorphic-collapse limitation (single-type narrowing).
+-- Phase 56 Plan 02 audit: the multi-type initial literal is LOAD-BEARING
+-- here, not a mono-collapse workaround — the test asserts that .get(0)
+-- returns Circle(1), .get(1) returns Square(2), and .get(2) returns
+-- Circle(3), which only exercises the split-collection _order tag dispatch
+-- if multiple implementor types coexist. A single-type rewrite would
+-- silently bypass the very dispatch path this test is verifying.
 
 interface Shape {
   func area() -> Int

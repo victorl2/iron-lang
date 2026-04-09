@@ -6,8 +6,12 @@
 --
 -- This test exercises only the supported case: same-type overwrite.
 --
--- 2-element initial literal with both implementors avoids the Phase 56
--- monomorphic-collapse limitation (single-type narrowing).
+-- Phase 56 Plan 02 audit: the multi-type initial literal is LOAD-BEARING
+-- here, not a mono-collapse workaround. The test overwrites slot 0 (Circle)
+-- with Circle(5) AND slot 1 (Square) with Square(10), proving the tag-based
+-- dispatch lands the write in the correct per-type sub-array across two
+-- different implementors. A single-type rewrite would only cover one
+-- sub-array and lose the cross-type coverage.
 
 interface Shape {
   func area() -> Int

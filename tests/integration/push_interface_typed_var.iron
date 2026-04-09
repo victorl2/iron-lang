@@ -6,6 +6,14 @@
 -- Calling a function that returns a Shape prevents the compiler from
 -- narrowing the argument back to a concrete type at the push site,
 -- forcing the tag-switch codepath (Mode b).
+--
+-- Phase 56 Plan 02 audit: the [Circle, Square] initial literal is
+-- LOAD-BEARING, not a mono-collapse workaround. Mode (b) dispatch only
+-- makes sense when the underlying split collection has multiple per-type
+-- sub-arrays to dispatch into — a single-type rewrite would collapse to
+-- mono [Circle] and bypass the interface-typed arg Mode (b) path entirely.
+-- The expected output (3, 48, 9) also depends on split iteration grouping
+-- Circles before Squares.
 
 interface Shape {
   func area() -> Int

@@ -4,6 +4,14 @@
 -- Iron_List_Iron_Shape_len / Iron_List_Iron_Shape_pop calls in generated C.
 -- This test verifies the interception block now dispatches both methods
 -- correctly to _total_count (len) and the _order tag-switch (pop).
+--
+-- Phase 56 Plan 02 audit: the [Circle, Square, Circle] initial literal is
+-- LOAD-BEARING, not a mono-collapse workaround — the test's purpose is
+-- verifying the split-collection .pop() dispatch via the _order tag-switch,
+-- which only engages when multiple implementor types coexist. The last-pop
+-- result (Circle(3).area() == 27) also depends on the last _order entry
+-- pointing into the Circle sub-array; a single-type rewrite would use a
+-- plain array pop path and not exercise the dispatch logic.
 
 interface Shape {
   func area() -> Int

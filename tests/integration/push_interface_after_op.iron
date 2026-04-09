@@ -1,6 +1,14 @@
 -- push_interface_after_op.iron: Push after filter() on an interface collection
 -- Filter returns another split collection. Push onto the filtered result
 -- proves .push() composes with the higher-order collection methods.
+--
+-- Phase 56 Plan 02 audit: the 4-element [Circle, Square, Circle, Square]
+-- initial literal is LOAD-BEARING, not a mono-collapse workaround. The
+-- filter predicate `s.area() > 5` removes one Circle (Circle(1)=3) and one
+-- Square (Square(2)=4), keeping Circle(3)=27 and Square(5)=25; then
+-- Square(10)=100 is pushed. The final sum 152 directly depends on the
+-- filter result containing BOTH implementor types, which only happens with
+-- a genuinely multi-type starting literal.
 
 interface Shape {
   func area() -> Int

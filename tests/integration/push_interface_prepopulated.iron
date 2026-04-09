@@ -1,6 +1,13 @@
 -- push_interface_prepopulated.iron: Push into an already-populated collection
 -- Verifies that existing elements are preserved and new ones are appended
 -- correctly across both per-type sub-arrays.
+--
+-- Phase 56 Plan 02 audit: the 4-element [Circle, Square, Circle, Square]
+-- initial literal + interleaved Circle/Square/Circle pushes are LOAD-BEARING,
+-- not a mono-collapse workaround. The test's purpose is "existing elements
+-- preserved across both per-type sub-arrays" — it only makes sense when
+-- BOTH sub-arrays start non-empty and receive additional elements. A
+-- single-type rewrite would degenerate to a plain Iron_List append test.
 
 interface Shape {
   func area() -> Int

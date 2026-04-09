@@ -5,8 +5,13 @@
 -- via _order). Verifies that pushed elements are visible via .get()
 -- at the correct logical indices in push order.
 --
--- 2-element initial literal with both implementors avoids the Phase 56
--- monomorphic-collapse limitation.
+-- Phase 56 Plan 02 audit: the alternating [Circle, Square] + push Circle +
+-- push Square pattern is LOAD-BEARING, not a mono-collapse workaround. The
+-- test asserts .get(0)..get(3) map to the push-order tuples
+-- (Circle,0), (Square,0), (Circle,1), (Square,1), which only makes sense
+-- when multiple implementor types interleave in _order. A single-type
+-- rewrite would degenerate to a plain index lookup and lose the push-order
+-- vs per-type-slot distinction that is the whole point of this test.
 
 interface Shape {
   func area() -> Int
