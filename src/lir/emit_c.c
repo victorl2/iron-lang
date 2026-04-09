@@ -1526,6 +1526,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         else if (strcmp(suffix, "_forEach") == 0) coll_method = "forEach";
                         else if (strcmp(suffix, "_sum") == 0) coll_method = "sum";
                         else if (strcmp(suffix, "_push") == 0) coll_method = "push";   /* Phase 55: PUSH-01 */
+                        else if (strcmp(suffix, "_len") == 0) coll_method = "len";     /* Phase 55: PUSH-01 (len) */
                     }
                 }
                 if (coll_method) {
@@ -1912,6 +1913,28 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                              * type — defer to generic emission (will produce the legacy bogus
                              * name and fail loudly at C compile time, which is strictly
                              * better than silently miscompiling). */
+                        } else if (strcmp(coll_method, "len") == 0) {
+                            /* Phase 55 / PUSH-01: .len() on interface split collection.
+                             *
+                             * Returns `_total_count` directly. The Iron_SplitList struct
+                             * always emits `_total_count` (see emit_split.c:370), which
+                             * is authoritative for the whole collection (sum across all
+                             * per-type sub-arrays). No per-type fan-out is required.
+                             *
+                             * Without this branch, the call falls through to generic
+                             * direct-call emission and the bogus
+                             * "Iron_List_Iron_<Iface>_len" name leaks into the generated
+                             * C as an undeclared function. */
+                            emit_indent(sb, ind);
+                            if (!is_hoisted) {
+                                iron_strbuf_appendf(sb, "%s ",
+                                    emit_type_to_c(instr->type, ctx));
+                            }
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = ");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._total_count;\n");
+                            break;
                         }
                     }
                 }
