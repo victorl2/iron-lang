@@ -1,0 +1,49 @@
+-- mono_push_wrong_type.iron: Phase 56 Plan 02 negative test (narrowing audit).
+--
+-- `var shapes = [Circle(1)]` narrows to [Circle]. Pushing a Square onto a
+-- [Circle] array must raise a CLEAN Iron type error (IRON_ERR_TYPE_MISMATCH),
+-- NOT a C codegen blowup.
+--
+-- Before Phase 56 Plan 01: the typecheck accepted `.push(Square(2))` silently
+-- (resolve_array_builtin_method returned VOID without validating the arg type)
+-- and the codegen later failed with `use of undeclared identifier
+-- 'Iron_List_Iron_Circle_push'`. The codegen failure acted as an accidental
+-- safety net.
+--
+-- After Phase 56 Plan 01: that codegen error is gone — `Iron_List_Iron_Circle`
+-- is declared — so without a frontend check, this program would silently
+-- miscompile (Square pushed into a Circle-typed slot).
+--
+-- Phase 56 Plan 02 adds arg-type validation in the IRON_NODE_METHOD_CALL
+-- array branch (push_type_compatible helper). This file MUST fail to compile
+-- with a type-mismatch diagnostic mentioning both Circle and Square.
+--
+-- This file is NOT in tests/integration/; the integration runner would treat
+-- a build failure as a test failure. The compiler is invoked directly from
+-- the plan verification step and stderr is grepped for the expected diagnostic.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var shapes = [Circle(1)]
+  shapes.push(Square(2))
+  println("unreachable")
+}

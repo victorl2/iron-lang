@@ -889,6 +889,87 @@ static Iron_Type *resolve_array_ext_method(TypeCtx *ctx,
     return NULL;  /* no matching extension found */
 }
 
+/* Phase 56 Plan 02: Human-readable type name for diagnostics.
+ * iron_type_to_string returns "<object>" / "<interface>" for object and
+ * interface types (no decl name). This helper fetches the decl name directly
+ * so error messages contain "Circle" and "Square" (the named types users
+ * wrote) rather than "<object>". Falls back to iron_type_to_string for other
+ * kinds. */
+static const char *type_display_name(const Iron_Type *t, Iron_Arena *arena) {
+    if (!t) return "unknown";
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name) {
+        return t->object.decl->name;
+    }
+    if (t->kind == IRON_TYPE_INTERFACE && t->interface.decl &&
+        t->interface.decl->name) {
+        return t->interface.decl->name;
+    }
+    const char *s = iron_type_to_string(t, arena);
+    return s ? s : "unknown";
+}
+
+/* Phase 56 Plan 02: Push arg-type compatibility check.
+ * Returns true if `arg_type` can be pushed onto an array whose element type
+ * is `elem_type`. Prevents silent miscompilation where a mono-collapsed
+ * collection (e.g. `var shapes = [Circle(1)]` narrowed to [Circle]) accepts
+ * a heterogeneous push like `shapes.push(Square(2))`: before Plan 01, this
+ * was caught indirectly by a C codegen error on the undeclared
+ * Iron_List_Iron_Circle_push symbol; after Plan 01 the codegen path succeeds,
+ * so the type checker must validate the arg-elem match itself.
+ *
+ * Rules:
+ *   - Permissive on NULL or ERROR types (lets other diagnostics fire first).
+ *   - Primitive kinds must match exactly (Int == Int, not Int == Int32).
+ *   - Object == Object requires identical decl pointers (Circle == Circle).
+ *   - Object arg into Interface elem is allowed iff the object's decl lists
+ *     the interface in implements_names.
+ *   - Interface == Interface requires identical decl pointers.
+ *   - All other combinations (e.g. primitive arg into object elem) reject.
+ */
+static bool push_type_compatible(const Iron_Type *elem_type,
+                                 const Iron_Type *arg_type) {
+    if (!elem_type || !arg_type) return true;
+    if (elem_type->kind == IRON_TYPE_ERROR || arg_type->kind == IRON_TYPE_ERROR) {
+        return true;
+    }
+
+    /* Exact structural match (primitive singletons, func types, arrays, etc.) */
+    if (iron_type_equals(elem_type, arg_type)) return true;
+
+    /* Object == Object: same decl required. iron_type_equals should cover
+     * this, but we double-check in case two Iron_Type values reference the
+     * same decl via different allocations. */
+    if (elem_type->kind == IRON_TYPE_OBJECT && arg_type->kind == IRON_TYPE_OBJECT) {
+        return elem_type->object.decl == arg_type->object.decl;
+    }
+
+    /* Interface elem accepting an object arg: the object's decl must list the
+     * interface in implements_names. */
+    if (elem_type->kind == IRON_TYPE_INTERFACE &&
+        arg_type->kind == IRON_TYPE_OBJECT &&
+        elem_type->interface.decl && arg_type->object.decl) {
+        const char *iface_name = elem_type->interface.decl->name;
+        Iron_ObjectDecl *od = arg_type->object.decl;
+        if (!iface_name) return false;
+        for (int i = 0; i < od->implements_count; i++) {
+            if (od->implements_names[i] &&
+                strcmp(od->implements_names[i], iface_name) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /* Interface elem accepting an interface arg: same decl pointer. */
+    if (elem_type->kind == IRON_TYPE_INTERFACE &&
+        arg_type->kind == IRON_TYPE_INTERFACE) {
+        return elem_type->interface.decl == arg_type->interface.decl;
+    }
+
+    /* Anything else: reject, surface as diagnostic. */
+    return false;
+}
+
 /* Heuristic fallback for built-in array methods (push, pop, len, etc.)
  * that don't have explicit extension method declarations yet. */
 static Iron_Type *resolve_array_builtin_method(const char *method,
@@ -1432,6 +1513,39 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, arr_type);
                     result = ext_result ? ext_result
                                         : resolve_array_builtin_method(mc->method, arr_type);
+
+                    /* Phase 56 Plan 02: Validate .push(arg) against elem type.
+                     * Prevents silent miscompilation for narrowed mono collections
+                     * (e.g. `var shapes = [Circle(1)]; shapes.push(Square(2))`).
+                     * Fires when there's no explicit extension method decl (so we
+                     * fell through to the builtin heuristic) and it's a single-arg
+                     * push. */
+                    if (ext_result == NULL && strcmp(mc->method, "push") == 0 &&
+                        mc->arg_count == 1 && arr_type->array.elem) {
+                        /* check_expr is idempotent — args were already checked at
+                         * line 1407 above, so this just fetches the resolved type. */
+                        Iron_Type *arg_type = check_expr(ctx, mc->args[0]);
+                        if (arg_type &&
+                            !push_type_compatible(arr_type->array.elem, arg_type)) {
+                            /* iron_type_to_string returns "<object>" / "<interface>"
+                             * for object/interface types, so we fetch the decl name
+                             * directly to get Circle / Square / Shape in the message. */
+                            const char *expected_s = type_display_name(
+                                arr_type->array.elem, ctx->arena);
+                            const char *actual_s = type_display_name(
+                                arg_type, ctx->arena);
+                            char msg[512];
+                            snprintf(msg, sizeof(msg),
+                                "cannot push value of type '%s' onto array of "
+                                "element type '%s': the collection narrows to a "
+                                "single concrete type",
+                                actual_s, expected_s);
+                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg,
+                                "to push mixed types, annotate the variable with "
+                                "an interface array type, e.g. `var xs: [Shape] = ...`");
+                        }
+                    }
+
                     mc->resolved_type = result;
                     break;  /* skip decl scan — return type already resolved */
                 } else if (obj_id->resolved_type &&
@@ -1501,6 +1615,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, obj_type_mc);
                 result = ext_result ? ext_result
                                     : resolve_array_builtin_method(mc->method, obj_type_mc);
+
+                /* Phase 56 Plan 02: Mirror push arg validation for chained receivers. */
+                if (ext_result == NULL && strcmp(mc->method, "push") == 0 &&
+                    mc->arg_count == 1 && obj_type_mc->array.elem) {
+                    Iron_Type *arg_type = check_expr(ctx, mc->args[0]);
+                    if (arg_type &&
+                        !push_type_compatible(obj_type_mc->array.elem, arg_type)) {
+                        const char *expected_s = type_display_name(
+                            obj_type_mc->array.elem, ctx->arena);
+                        const char *actual_s = type_display_name(
+                            arg_type, ctx->arena);
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                            "cannot push value of type '%s' onto chained array "
+                            "result of element type '%s'",
+                            actual_s, expected_s);
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg, NULL);
+                    }
+                }
             }
             mc->resolved_type = result;
             break;

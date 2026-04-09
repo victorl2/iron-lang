@@ -1,0 +1,47 @@
+-- mono_push_same_type.iron: narrowed single-element collection + same-type push
+-- Phase 56 Plan 02 positive test.
+--
+-- Before Phase 56 Plan 01: `var shapes = [Circle(1)]` narrows to [Circle],
+-- mono collapse runs, `shapes.push(Circle(2))` hits the undeclared
+-- Iron_List_Iron_Circle_push symbol and fails at the C codegen step.
+--
+-- After Phase 56 Plan 01: emit_structs.c pre-scans ARRAY_LIT elem_types
+-- and emits IRON_LIST_DECL/IMPL for every concrete object element type,
+-- so this test compiles and runs.
+--
+-- Phase 56 Plan 02 also requires the typecheck to accept same-type pushes
+-- (push_type_compatible returns true for Circle == Circle via object.decl
+-- pointer equality). This test verifies the compat check does not over-reject.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- Narrowing: [Circle(1)] infers as [Circle] (concrete, mono).
+  var shapes = [Circle(1)]
+  shapes.push(Circle(2))
+  shapes.push(Circle(3))
+  -- Sum: Circle(1).area=3 + Circle(2).area=12 + Circle(3).area=27 = 42
+  var total = 0
+  for s in shapes {
+    total = total + s.area()
+  }
+  println("{total}")
+}
