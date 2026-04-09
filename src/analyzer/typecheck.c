@@ -1881,7 +1881,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
             arrfree(elem_types);
-            if (!elem_type) elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+            if (!elem_type) {
+                /* Empty literal with no expected-type context: emit a
+                 * targeted diagnostic instead of silently producing
+                 * [<error>] which causes a misleading downstream
+                 * type-mismatch. Callers with an expected type should
+                 * use check_expr_with_expected, which short-circuits
+                 * this path entirely. */
+                if (al->element_count == 0) {
+                    emit_error(ctx, IRON_ERR_EMPTY_LITERAL_NO_TYPE, al->span,
+                               "cannot infer element type of empty array literal; "
+                               "add a type annotation like `var x: [T] = []`",
+                               NULL);
+                }
+                elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+            }
             result = iron_type_make_array(ctx->arena, elem_type, -1);
             al->resolved_type = result;
             break;
@@ -2148,6 +2162,31 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
     if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
     return result;
+}
+
+/* Wrapper around check_expr that threads an expected type into the
+ * empty array literal inference path. For an empty literal `[]` with
+ * an expected `[T]` context, the literal's resolved_type is set to the
+ * expected type directly (bypassing the element-loop that would produce
+ * IRON_TYPE_ERROR because there are no elements to infer from).
+ *
+ * All other cases delegate to plain check_expr. Callers that pass
+ * expected == NULL get identical behavior to check_expr.
+ *
+ * Used by: var decl (vd->init), call arg (ce->args[i]), return (rs->value),
+ * assignment (as->value). Other check_expr callers remain unchanged.
+ */
+static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
+                                            Iron_Type *expected) {
+    if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
+        expected->kind == IRON_TYPE_ARRAY) {
+        Iron_ArrayLit *al = (Iron_ArrayLit *)node;
+        if (al->element_count == 0) {
+            al->resolved_type = expected;
+            return expected;
+        }
+    }
+    return check_expr(ctx, node);
 }
 
 /* ── Statement type checking ─────────────────────────────────────────────── */
