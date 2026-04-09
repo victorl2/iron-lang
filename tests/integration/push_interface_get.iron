@@ -1,0 +1,45 @@
+-- push_interface_get.iron: .get(i) on interface split collections.
+-- Phase 55 Plan 03: extends PUSH-01 to get/set.
+-- Previously .get() produced an undeclared Iron_List_Iron_Shape_get
+-- call in generated C. This test verifies the interception block now
+-- dispatches .get() via a tag switch over _order[i] to the matching
+-- per-type sub-array and wraps the result via Iron_Shape_from_<Type>.
+--
+-- 2-element initial literal with both implementors avoids the Phase 56
+-- monomorphic-collapse limitation (single-type narrowing).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var shapes = [Circle(1), Square(2), Circle(3)]
+
+  -- Read each element by index via .get().
+  var a = shapes.get(0)
+  var b = shapes.get(1)
+  var c = shapes.get(2)
+
+  -- Circle(1).area() = 1*1*3 = 3
+  println("{a.area()}")
+  -- Square(2).area() = 2*2 = 4
+  println("{b.area()}")
+  -- Circle(3).area() = 3*3*3 = 27
+  println("{c.area()}")
+}

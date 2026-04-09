@@ -1,0 +1,50 @@
+-- push_interface_set_same_type.iron: .set(i, v) same-type overwrite on
+-- interface split collections.
+-- Phase 55 Plan 03: .set() same-type writes must land in the per-type
+-- sub-array at the slot recovered via _order[i]. Different-type writes
+-- are a documented known limitation (silent no-op).
+--
+-- This test exercises only the supported case: same-type overwrite.
+--
+-- 2-element initial literal with both implementors avoids the Phase 56
+-- monomorphic-collapse limitation (single-type narrowing).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var shapes = [Circle(1), Square(2), Circle(3)]
+
+  -- Same-type overwrites: slot 0 (Circle) receives Circle(5),
+  -- slot 1 (Square) receives Square(10). Slot 2 stays untouched.
+  shapes.set(0, Circle(5))
+  shapes.set(1, Square(10))
+
+  var a = shapes.get(0)
+  var b = shapes.get(1)
+  var c = shapes.get(2)
+
+  -- Circle(5).area() = 5*5*3 = 75
+  println("{a.area()}")
+  -- Square(10).area() = 10*10 = 100
+  println("{b.area()}")
+  -- Circle(3).area() = 3*3*3 = 27 (unchanged)
+  println("{c.area()}")
+}

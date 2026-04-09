@@ -1,0 +1,50 @@
+-- push_interface_get_after_push.iron: .get(i) reads pushed elements
+-- after a sequence of .push() calls mutates the collection.
+-- Phase 55 Plan 03: exercises the interaction between .push() (which
+-- updates _order and per-type sub-arrays) and .get() (which reads
+-- via _order). Verifies that pushed elements are visible via .get()
+-- at the correct logical indices in push order.
+--
+-- 2-element initial literal with both implementors avoids the Phase 56
+-- monomorphic-collapse limitation.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var shapes = [Circle(1), Square(2)]
+  shapes.push(Circle(3))
+  shapes.push(Square(4))
+
+  -- _order is [(Circle,0), (Square,0), (Circle,1), (Square,1)].
+  -- .get(0) -> Circle(1).area() = 3
+  -- .get(1) -> Square(2).area() = 4
+  -- .get(2) -> Circle(3).area() = 27
+  -- .get(3) -> Square(4).area() = 16
+  var a = shapes.get(0)
+  var b = shapes.get(1)
+  var c = shapes.get(2)
+  var d = shapes.get(3)
+
+  println("{a.area()}")
+  println("{b.area()}")
+  println("{c.area()}")
+  println("{d.area()}")
+}
