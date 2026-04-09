@@ -4971,6 +4971,46 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 }
             }
 
+            /* Phase A.1: Add CALL results from split_collection_ids using func_return_types */
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in2 = blk->instrs[ii];
+                    if (in2->kind != IRON_LIR_CALL) continue;
+                    if (hmgeti(ctx.split_collection_ids, in2->id) < 0) continue;
+                    /* This CALL result is a split collection. Resolve callee name. */
+                    const char *callee_name = NULL;
+                    if (in2->call.func_decl)
+                        callee_name = in2->call.func_decl->name;
+                    else if (in2->call.func_ptr != IRON_LIR_VALUE_INVALID &&
+                             in2->call.func_ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                             fn->value_table[in2->call.func_ptr] &&
+                             fn->value_table[in2->call.func_ptr]->kind == IRON_LIR_FUNC_REF)
+                        callee_name = fn->value_table[in2->call.func_ptr]->func_ref.func_name;
+                    if (!callee_name) continue;
+                    ptrdiff_t rt_idx = shgeti(func_return_types, callee_name);
+                    if (rt_idx < 0) continue;
+                    /* Copy callee's return type set into coll_types for this CALL vid */
+                    hmput(vid_origin, in2->id, in2->id);
+                    const char **ret_types = func_return_types[rt_idx].value;
+                    ptrdiff_t ct_idx = hmgeti(coll_types, in2->id);
+                    if (ct_idx < 0) {
+                        const char **types = NULL;
+                        hmput(coll_types, in2->id, types);
+                        ct_idx = hmgeti(coll_types, in2->id);
+                    }
+                    for (int rti = 0; rti < (int)arrlen(ret_types); rti++) {
+                        bool found = false;
+                        for (int ti = 0; ti < (int)arrlen(coll_types[ct_idx].value); ti++) {
+                            if (strcmp(coll_types[ct_idx].value[ti], ret_types[rti]) == 0) {
+                                found = true; break;
+                            }
+                        }
+                        if (!found) arrput(coll_types[ct_idx].value, ret_types[rti]);
+                    }
+                }
+            }
+
             /* Phase B: Propagate through STORE/LOAD chains */
             for (int bi = 0; bi < fn->block_count; bi++) {
                 IronLIR_Block *blk = fn->blocks[bi];
