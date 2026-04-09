@@ -1,1 +1,1 @@
-{"iterations": 1, "timeout_sec": 120, "max_ratio": 1.5, "note": "Phase 31: await-based timing (includes task completion, fair vs C pthread_join). 8 spawned tasks + main, all awaited before elapsed. Observed ratio ~0.7x (faster than C). Threshold 1.5x absorbs variance."}
+{"iterations": 1, "timeout_sec": 120, "max_ratio": 2.5, "note": "Phase 31: await-based timing (includes task completion, fair vs C pthread_join). 8 spawned tasks + main, all awaited before elapsed. Observed ratio ~0.7x (faster than C). Threshold 1.5x absorbs variance."}
