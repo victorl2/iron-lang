@@ -160,12 +160,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-01 | Phase 54 | Complete |
 | TEST-02 | Phase 54 | Complete |
 | TEST-03 | Phase 54 | Complete |
+| PUSH-01 | Phase 55 | Pending |
+| PUSH-02 | Phase 55 | Pending |
+| MONO-FIX-01 | Phase 56 | Pending |
+| MONO-FIX-02 | Phase 56 | Pending |
+| SOA-FIX-01 | Phase 57 | Pending |
+| SOA-FIX-02 | Phase 57 | Pending |
+| BENCH-01 | Phase 58 | Pending |
+| BENCH-02 | Phase 58 | Pending |
 
 **Coverage:**
-- v1 requirements: 38 total
-- Mapped to phases: 38
+- v1 requirements: 46 total
+- Mapped to phases: 46
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-07*
-*Last updated: 2026-04-08 after roadmap creation (phases 52-54 for v0.1.2-alpha)*
+*Last updated: 2026-04-09 after v0.1.3-alpha roadmap creation (phases 55-58 for known limitations cleanup)*

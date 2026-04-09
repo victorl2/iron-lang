@@ -9,9 +9,10 @@
 - v0.0.6-alpha HIR Pipeline Correctness - Phases 21-23 (shipped 2026-03-31)
 - v0.0.7-alpha Performance Optimization - Phases 24-31 (shipped 2026-04-01)
 - v0.0.8-alpha Semantic Analysis Gaps - Phases 32-39 (shipped 2026-04-04)
-- v0.1-alpha Static Interface Dispatch - Phases 40-45 (active)
-- v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations - Phases 46-50 (active)
-- v0.1.2-alpha Compiler Hardening & Refactoring - Phases 52-54 (active)
+- v0.1-alpha Static Interface Dispatch - Phases 40-45 (shipped 2026-04-07)
+- v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations - Phases 46-50 (shipped 2026-04-08)
+- v0.1.2-alpha Compiler Hardening & Refactoring - Phases 52-54 (shipped 2026-04-09)
+- v0.1.3-alpha Known Limitations Cleanup - Phases 55-58 (active)
 
 ## Phases
 
@@ -1099,3 +1100,55 @@ Plans:
 - [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
 - [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
 - [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+
+### Phase 55: Push on Interface Arrays
+
+**Goal**: Root-cause and fix `.push()` on interface-typed split collections — programmatic building of `[Shape]` via push loop must compile and run correctly
+**Depends on**: Phase 54
+**Requirements**: PUSH-01, PUSH-02
+**Success Criteria** (what must be TRUE):
+  1. `var shapes: [Shape] = []; shapes.push(Circle(5))` compiles without errors
+  2. Push loop building a 100+ element split collection produces correct runtime output
+  3. Root cause of the original bug documented in commit message (what was broken, why, how fixed)
+  4. Regression test `push_interface_collection.iron` exists and exercises the previously-broken path
+  5. Adjacent tests: push with multiple interface types, push after other operations, push into an already-populated collection
+**Plans**: TBD
+
+### Phase 56: Monomorphic Method Chain
+
+**Goal**: Root-cause and fix the monomorphic-collapsed collection + method chain bug (`.map()`, `.filter()` chain failures after mono collapse)
+**Depends on**: Phase 55
+**Requirements**: MONO-FIX-01, MONO-FIX-02
+**Success Criteria** (what must be TRUE):
+  1. Monomorphic-collapsed single-element collections with `.map()` chain compile and run correctly
+  2. Monomorphic single-implementor interfaces with full method chains produce correct results
+  3. Root cause documented — was it the codegen path, type propagation, or dispatch lowering?
+  4. Regression test `mono_method_chain.iron` exists with explicit mono collapse + chain
+  5. Adjacent tests: mono + fusion, mono + multiple methods, mono with different concrete types
+**Plans**: TBD
+
+### Phase 57: SoA + Fusion Composition
+
+**Goal**: Root-cause and fix the SoA layout + fusion Stor type mismatch
+**Depends on**: Phase 56
+**Requirements**: SOA-FIX-01, SOA-FIX-02
+**Success Criteria** (what must be TRUE):
+  1. Split collections with SoA layout annotation fuse correctly with `.map().filter()` chains
+  2. The original `compose_soa_fusion.iron` pattern (previously worked around) runs directly without adaptation
+  3. Root cause documented — why does the Stor type reference mismatch occur when SoA + fusion combine?
+  4. Regression test exercises SoA + fusion + reduce/sum
+  5. Adjacent tests: SoA + fusion + dead field, SoA + fusion + compression, SoA + fusion on split with many types
+**Plans**: TBD
+
+### Phase 58: Benchmark Stabilization
+
+**Goal**: Root-cause `binary_tree_diameter` performance gap and either fix or document it
+**Depends on**: Phase 57
+**Requirements**: BENCH-01, BENCH-02
+**Success Criteria** (what must be TRUE):
+  1. Root cause of the Iron/C performance gap documented with evidence (profiling data, generated C inspection)
+  2. Either: gap closed to <1.5x ratio (threshold lowered back from 2.5x) — OR — gap documented as inherent with specific technical reason and threshold retained
+  3. Benchmark runs 5 times consecutively on same machine with stable results (variance <5% across runs)
+  4. If fix applied: regression benchmark ensures the fix holds across future changes
+**Plans**: TBD
+
