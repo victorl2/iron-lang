@@ -1528,6 +1528,8 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         else if (strcmp(suffix, "_push") == 0) coll_method = "push";   /* Phase 55: PUSH-01 */
                         else if (strcmp(suffix, "_len") == 0) coll_method = "len";     /* Phase 55: PUSH-01 (len) */
                         else if (strcmp(suffix, "_pop") == 0) coll_method = "pop";     /* Phase 55: PUSH-01 (pop) */
+                        else if (strcmp(suffix, "_get") == 0) coll_method = "get";     /* Phase 55: PUSH-01 (get) */
+                        else if (strcmp(suffix, "_set") == 0) coll_method = "set";     /* Phase 55: PUSH-01 (set) */
                     }
                 }
                 if (coll_method) {
@@ -2050,6 +2052,114 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             emit_indent(sb, ind + 1);
                             emit_val(sb, self_arg);
                             iron_strbuf_appendf(sb, "._total_count--;\n");
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "}\n");
+                            break;
+                        } else if (strcmp(coll_method, "get") == 0 && instr->call.arg_count >= 2) {
+                            /* Phase 55 / PUSH-01: .get(i) on interface split collection.
+                             *
+                             * Consult _order[i] to recover the (tag, sub_index) of the
+                             * element at logical index i, dispatch via a tag switch to
+                             * the matching per-type sub-array, read the element, wrap
+                             * it back into the interface tagged union via
+                             * Iron_<Iface>_from_<Type>, and return as the result.
+                             *
+                             * Semantics mirror .pop() except NO count decrement and NO
+                             * _order shrink — this is a pure read.
+                             *
+                             * Scoping (per 55-CONTEXT.md, same as pop):
+                             *   - AoS implementors: full implementation.
+                             *   - SoA implementors: the simple <lower>_items[idx] read
+                             *     does not apply to per-field SoA storage. If ANY alive
+                             *     impl is SoA, emit a defensive fallback (zero-init the
+                             *     result and leave a comment) rather than miscompiling.
+                             *   - Indirect variants: Iron_<Iface>_from_<Type> handles
+                             *     the heap allocation internally, so passing the by-value
+                             *     struct read from <lower>_items is correct regardless
+                             *     of indirection. */
+                            IronLIR_ValueId idx_val = instr->call.args[1];
+                            const char *get_type = emit_type_to_c(instr->type, ctx);
+
+                            /* Check for any SoA implementor — defensive fallback. */
+                            bool any_soa = false;
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                char soa_key_tmp[768];
+                                snprintf(soa_key_tmp, sizeof(soa_key_tmp),
+                                    "%s:%s", sp_iface, impl->type_name);
+                                if (ctx->soa_types &&
+                                    shgeti(ctx->soa_types, soa_key_tmp) >= 0) {
+                                    any_soa = true;
+                                    break;
+                                }
+                            }
+
+                            emit_indent(sb, ind);
+                            if (!is_hoisted) {
+                                iron_strbuf_appendf(sb, "%s ", get_type);
+                            }
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, ";\n");
+
+                            if (any_soa) {
+                                /* SoA fallback: known limitation — get on split
+                                 * collections whose implementors use SoA layout is
+                                 * not yet supported. Zero-init the result. */
+                                emit_indent(sb, ind);
+                                iron_strbuf_appendf(sb, "memset(&");
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ", 0, sizeof(");
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ")); /* SoA get not yet supported */\n");
+                                break;
+                            }
+
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "{\n");
+                            /* Compute index once */
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "int64_t _sp_get_i = ");
+                            emit_expr_to_buf(sb, idx_val, fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ";\n");
+                            /* Tag switch over _order[_sp_get_i].tag */
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "switch (");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order[_sp_get_i].tag) {\n");
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                /* Lowercase type name for sub-array field access */
+                                char lower_name[256];
+                                {
+                                    size_t nl2 = strlen(impl->type_name);
+                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
+                                                                   impl->type_name[ci3] <= 'Z')
+                                            ? impl->type_name[ci3] + 32
+                                            : impl->type_name[ci3]);
+                                    lower_name[nl2] = '\0';
+                                }
+                                emit_indent(sb, ind + 2);
+                                iron_strbuf_appendf(sb, "case %d: ", impl->tag);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, " = %s_from_%s(",
+                                    sp_iface, impl->type_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, "._order[_sp_get_i].idx]); break;\n");
+                            }
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "default: memset(&");
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, ", 0, sizeof(");
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, ")); break;\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
                             emit_indent(sb, ind);
                             iron_strbuf_appendf(sb, "}\n");
                             break;
