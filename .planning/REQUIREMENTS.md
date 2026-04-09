@@ -78,8 +78,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Known Limitations Cleanup (v0.1.3-alpha)
 
-- [ ] **PUSH-01**: `.push()` on interface-typed split collections works without codegen errors — programmatic building of `[Shape]` via push loop compiles and runs correctly
-- [ ] **PUSH-02**: Regression test exercises programmatic split collection building via push loop, verifying generated C is correct
+- [x] **PUSH-01**: `.push()` on interface-typed split collections works without codegen errors — programmatic building of `[Shape]` via push loop compiles and runs correctly
+- [x] **PUSH-02**: Regression test exercises programmatic split collection building via push loop, verifying generated C is correct
 
 - [ ] **MONO-FIX-01**: Monomorphic-collapsed collections support `.map()`, `.filter()`, and other method chains without codegen errors
 - [ ] **MONO-FIX-02**: Regression test exercises monomorphic collection + full method chain composition
@@ -160,8 +160,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TEST-01 | Phase 54 | Complete |
 | TEST-02 | Phase 54 | Complete |
 | TEST-03 | Phase 54 | Complete |
-| PUSH-01 | Phase 55 | Pending |
-| PUSH-02 | Phase 55 | Pending |
+| PUSH-01 | Phase 55 | Complete |
+| PUSH-02 | Phase 55 | Complete |
 | MONO-FIX-01 | Phase 56 | Pending |
 | MONO-FIX-02 | Phase 56 | Pending |
 | SOA-FIX-01 | Phase 57 | Pending |
