@@ -1,10 +1,11 @@
--- mono_specialization_heuristic.iron: Parameter-based specialization heuristic
--- Tests ANAL-01: the specialization heuristic tracks call-site types and
--- applies size/dispatch constraints. This test verifies that the heuristic
--- infrastructure does not break existing monomorphic detection or introduce
--- regressions. Two separate single-type collections are processed, each
--- via a local loop, and the heuristic tracking collects information without
--- altering output.
+-- mono_specialization_heuristic.iron: Specialization heuristic test
+-- Tests ANAL-01: exercises Phase E parameter type collection and the
+-- specialization heuristic's approval/rejection logic.
+-- sumCircleAreas() uses local monomorphic collection (baseline collapse).
+-- sumMixedAreas() calls buildMixed() and iterates the CALL result
+-- (exercises CALL-to-coll_types and Phase E call_site_counts).
+-- bigProcess() has many statements to exceed the 50-instruction
+-- heuristic threshold (tests heuristic rejection for large functions).
 
 interface Shape {
   func area() -> Int
@@ -26,19 +27,62 @@ func Square.area() -> Int {
   return self.side * self.side
 }
 
-func main() {
+func buildMixed() -> [Shape] {
+  return [Circle(5), Square(4), Circle(3)]
+}
+
+func sumCircleAreas() -> Int {
   val circles = [Circle(5), Circle(3), Circle(7)]
-  var total1 = 0
+  var total = 0
   for s in circles {
-    total1 = total1 + s.area()
+    total = total + s.area()
   }
+  return total
+}
 
-  val mixed = [Circle(2), Square(3), Circle(4)]
-  var total2 = 0
-  for s in mixed {
-    total2 = total2 + s.area()
+func sumMixedAreas() -> Int {
+  val shapes = buildMixed()
+  var total = 0
+  for s in shapes {
+    total = total + s.area()
   }
+  return total
+}
 
-  println("{total1}")
-  println("{total2}")
+func bigProcess() -> Int {
+  var a = 1
+  var b = 2
+  var c = 3
+  var d = 4
+  var e = 5
+  a = a + b + c
+  b = b + c + d
+  c = c + d + e
+  d = d + e + a
+  e = e + a + b
+  a = a + b + c
+  b = b + c + d
+  c = c + d + e
+  d = d + e + a
+  e = e + a + b
+  a = a * 2
+  b = b * 2
+  c = c * 2
+  d = d * 2
+  e = e * 2
+  a = a + b + c
+  b = b + c + d
+  c = c + d + e
+  d = d + e + a
+  e = e + a + b
+  return a + b + c + d + e
+}
+
+func main() {
+  val r1 = sumCircleAreas()
+  val r2 = sumMixedAreas()
+  val r3 = bigProcess()
+  println("{r1}")
+  println("{r2}")
+  println("{r3}")
 }
