@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 53-02-PLAN.md
-last_updated: "2026-04-08T23:22:48.904Z"
-last_activity: 2026-04-08 -- Completed 53-02 (interprocedural monomorphic detection + specialization heuristic)
+stopped_at: Completed 53-03-PLAN.md
+last_updated: "2026-04-09T00:13:47Z"
+last_activity: 2026-04-09 -- Completed 53-03 (gap closure: CALL-to-coll_types wiring + test coverage)
 progress:
   total_phases: 15
   completed_phases: 6
   total_plans: 18
-  completed_plans: 18
+  completed_plans: 19
   percent: 50
 ---
 
@@ -26,16 +26,16 @@ See: .planning/PROJECT.md (updated 2026-04-08)
 ## Current Position
 
 Phase: 53 of 54 (Analysis Improvements) -- second phase of v0.1.2-alpha
-Plan: 2 of 2 complete
+Plan: 3 of 3 complete
 Status: Phase Complete
-Last activity: 2026-04-08 -- Completed 53-02 (interprocedural monomorphic detection + specialization heuristic)
+Last activity: 2026-04-09 -- Completed 53-03 (gap closure: CALL-to-coll_types wiring + test coverage)
 
 Progress: [#####-----] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 19
 - Average duration: 21min
 - Total execution time: ~5.8 hours
 
@@ -59,6 +59,7 @@ Progress: [#####-----] 50%
 | 52-emitter-refactoring | 03 | 37min | 3 | 7 |
 | 53-analysis-improvements | 01 | 39min | 2 | 6 |
 | Phase 53 P02 | 52min | 2 tasks | 6 files |
+| 53-analysis-improvements | 03 | 11min | 2 | 4 |
 
 ## Accumulated Context
 
@@ -82,6 +83,7 @@ Progress: [#####-----] 50%
 - [Phase 53]: Conditional narrowing shared in both collect_return_ranges and analyze_function_ranges
 - [Phase 53]: emit_type_to_c uses Iron_SplitList_ for interface arrays (fixes return type mismatch)
 - [Phase 53]: Specialization heuristic: <=50 instrs, 1-2 callers, dispatch branches required
+- [Phase 53]: Phase A.1 wires CALL results to coll_types via func_return_types for interprocedural type propagation
 
 ### Roadmap Evolution
 
@@ -100,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-08T23:22:48.901Z
-Stopped at: Completed 53-02-PLAN.md
+Last session: 2026-04-09T00:13:47Z
+Stopped at: Completed 53-03-PLAN.md
 Resume file: None
