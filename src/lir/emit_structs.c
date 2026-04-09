@@ -79,69 +79,141 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
 }
 
 /* ── Phase 56: Monomorphic list type decl emission ──────────────────────
- * For each concrete object type that appears in ctx->monomorphic_collections
- * (populated by the Phase 49/53 mono detection scan in emit_c.c before
- * emit_type_decls runs), emit the Iron_List_<mangled> struct typedef plus
- * IRON_LIST_DECL and IRON_LIST_IMPL macro expansions into ctx->struct_bodies.
- * Dedups via a file-local stb_ds hash set keyed on the mangled type name.
+ * Emit Iron_List_<mangled> struct typedef plus IRON_LIST_DECL and
+ * IRON_LIST_IMPL macro expansions for every concrete object type that
+ * appears as an array element type somewhere in the module.  Dedups via
+ * a file-local stb_ds hash set keyed on the mangled type name.
  *
- * Fixes the bug where Phase 49 mono collapse removes collections from
- * split_collection_ids, causing generated C to reference symbols such as
- * Iron_List_Iron_Circle, Iron_List_Iron_Circle_push, etc., without those
- * symbols ever being declared.  Only primitive list types are pre-declared
- * in iron_runtime.h:640-645; concrete object types must be emitted by the
- * codegen dynamically — which is exactly what this helper does.
+ * WHY this scan exists: Phase 49 mono collapse (emit_c.c:4797-4814)
+ * removes single-type collections from split_collection_ids and lets them
+ * fall through to the plain-typed-array codegen path (emit_c.c:3066-3096)
+ * which references Iron_List_Iron_<Type> symbols.  Only primitive list
+ * types are pre-declared in iron_runtime.h:640-645 (int64_t, int32_t,
+ * double, bool, Iron_String, Iron_Closure); concrete object types were
+ * never declared, and clang failed with
+ *   "use of undeclared identifier 'Iron_List_Iron_Circle'".
+ *
+ * WHY we scan ARRAY_LIT elem_types directly instead of iterating
+ * ctx->monomorphic_collections: the mono detection scan at
+ * emit_c.c:5378 only runs against collections that were first added to
+ * ctx->split_collection_ids (which requires interface-typed array
+ * literals).  When Iron's type inference gives a literal a concrete
+ * object type directly — e.g. `val circles = [Circle(1), Circle(2)]`
+ * resolves to `[Circle]` (concrete) rather than `[Shape]` (interface) —
+ * the ARRAY_LIT is NEVER added to split_collection_ids and therefore
+ * NEVER added to monomorphic_collections either, yet the plain-typed-
+ * array codegen path still emits `Iron_List_Iron_Circle_create()`.  The
+ * robust fix is to scan the module's ARRAY_LIT instructions directly
+ * and emit a decl for every concrete object element type we find,
+ * regardless of whether mono detection saw it.
  *
  * Must be called at the END of emit_type_decls() so that the Iron_<Type>
- * struct body is already emitted by emit_object_struct_body; IRON_LIST_DECL
- * and IRON_LIST_IMPL require the element struct to be a complete type. */
+ * struct body has already been emitted by emit_object_struct_body;
+ * IRON_LIST_DECL and IRON_LIST_IMPL expand into function prototypes and
+ * bodies that reference Iron_<Type> as a complete type. */
 static void emit_mono_list_decls(EmitCtx *ctx) {
-    if (!ctx->monomorphic_collections) return;
-    if (hmlen(ctx->monomorphic_collections) == 0) return;
+    IronLIR_Module *module = ctx->module;
+    if (!module) return;
 
     /* Dedup set: keyed by mangled concrete type name (e.g. "Iron_Circle").
      * Per-compilation-unit scope — freed at end of function. */
     struct { char *key; bool value; } *emitted_mono_list_types = NULL;
 
-    /* Iterate the monomorphic collections.  The value is the BARE concrete
-     * type name (e.g. "Circle") as stored at emit_c.c:5538 via
-     * coll_types[i].value[0], which originates from et->object.decl->name. */
-    for (ptrdiff_t i = 0; i < hmlen(ctx->monomorphic_collections); i++) {
-        const char *bare_type = ctx->monomorphic_collections[i].value;
-        if (!bare_type) continue;
+    /* Helper lambda via loop body: emit decls for a single concrete type. */
+    /* We iterate all ARRAY_LIT instructions in every function and collect
+     * their elem_type if it's a concrete object type.  The instruction's
+     * elem_type field is set during LIR building and matches what the
+     * codegen uses at emit_c.c:3069 to compute the Iron_List_<suffix> name
+     * via emit_type_to_c(). */
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn || fn->is_extern || fn->block_count == 0) continue;
 
-        /* Mangle "Circle" -> "Iron_Circle" (arena-allocated, stable for the
-         * lifetime of the stb_ds map). */
-        const char *mangled = emit_mangle_name(bare_type, ctx->arena);
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind != IRON_LIR_ARRAY_LIT) continue;
+                Iron_Type *et = in->array_lit.elem_type;
+                if (!et) continue;
+                /* Only concrete object element types need a decl from us.
+                 * Interface-typed arrays go through Iron_SplitList_<Iface>
+                 * which is already emitted by emit_split_collection_for_iface.
+                 * Primitive element types use the pre-declared list types
+                 * in iron_runtime.h:640-645. */
+                if (et->kind != IRON_TYPE_OBJECT) continue;
+                if (!et->object.decl) continue;
 
-        /* Dedup check. */
-        if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
-        shput(emitted_mono_list_types, mangled, true);
+                const char *bare_type = et->object.decl->name;
+                if (!bare_type) continue;
 
-        /* Emit Iron_List_<mangled> struct typedef.  The IRON_LIST_DECL and
-         * IRON_LIST_IMPL macros assume this struct is already declared with
-         * fields { T *items; int64_t count; int64_t capacity; }. */
-        iron_strbuf_appendf(&ctx->struct_bodies,
-            "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
-            "typedef struct Iron_List_%s {\n"
-            "    %s    *items;\n"
-            "    int64_t count;\n"
-            "    int64_t capacity;\n"
-            "} Iron_List_%s;\n",
-            mangled, mangled, mangled, mangled);
+                /* Mangle "Circle" -> "Iron_Circle".  Arena-allocated,
+                 * stable for the lifetime of the stb_ds dedup map. */
+                const char *mangled = emit_mangle_name(bare_type, ctx->arena);
 
-        /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
-        iron_strbuf_appendf(&ctx->struct_bodies,
-            "IRON_LIST_DECL(%s, %s)\n",
-            mangled, mangled);
+                if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
+                shput(emitted_mono_list_types, mangled, true);
 
-        /* Emit IRON_LIST_IMPL(T, suffix) — function bodies (non-static).
-         * Safe at translation-unit level because each mangled name is unique
-         * per compilation unit (Iron compiles to a single .c file per
-         * program). */
-        iron_strbuf_appendf(&ctx->struct_bodies,
-            "IRON_LIST_IMPL(%s, %s)\n\n",
-            mangled, mangled);
+                /* Emit Iron_List_<mangled> struct typedef.  The
+                 * IRON_LIST_DECL and IRON_LIST_IMPL macros assume this
+                 * struct is already declared with fields
+                 *   { T *items; int64_t count; int64_t capacity; }. */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
+                    "typedef struct Iron_List_%s {\n"
+                    "    %s    *items;\n"
+                    "    int64_t count;\n"
+                    "    int64_t capacity;\n"
+                    "} Iron_List_%s;\n",
+                    mangled, mangled, mangled, mangled);
+
+                /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_DECL(%s, %s)\n",
+                    mangled, mangled);
+
+                /* Emit IRON_LIST_IMPL(T, suffix) — non-static function
+                 * bodies.  Safe at translation-unit level because each
+                 * mangled name is unique per compilation unit (Iron
+                 * compiles to a single .c file per program). */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_IMPL(%s, %s)\n\n",
+                    mangled, mangled);
+            }
+        }
+    }
+    /* Also iterate ctx->monomorphic_collections to pick up any concrete
+     * types that arrived via Phase 49/53 mono collapse (interface-typed
+     * ARRAY_LIT that got collapsed to a concrete type at the Phase 49
+     * detection scan).  These may not show up in the ARRAY_LIT scan above
+     * because their elem_type is still IRON_TYPE_INTERFACE. */
+    if (ctx->monomorphic_collections) {
+        for (ptrdiff_t i = 0; i < hmlen(ctx->monomorphic_collections); i++) {
+            const char *bare_type = ctx->monomorphic_collections[i].value;
+            if (!bare_type) continue;
+
+            const char *mangled = emit_mangle_name(bare_type, ctx->arena);
+
+            if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
+            shput(emitted_mono_list_types, mangled, true);
+
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                "/* Phase 56: Iron_List type for mono-collapsed %s (via monomorphic_collections) */\n"
+                "typedef struct Iron_List_%s {\n"
+                "    %s    *items;\n"
+                "    int64_t count;\n"
+                "    int64_t capacity;\n"
+                "} Iron_List_%s;\n",
+                mangled, mangled, mangled, mangled);
+
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                "IRON_LIST_DECL(%s, %s)\n",
+                mangled, mangled);
+
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                "IRON_LIST_IMPL(%s, %s)\n\n",
+                mangled, mangled);
+        }
     }
 
     shfree(emitted_mono_list_types);
