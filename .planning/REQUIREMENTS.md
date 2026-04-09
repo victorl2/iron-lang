@@ -84,8 +84,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **EMPTY-LIT-01**: Empty typed array literal `[]` honors its declared annotation — `var shapes: [Shape] = []` and `var ints: [Int] = []` both compile and produce correctly-typed empty collections
 - [x] **EMPTY-LIT-02**: Regression tests `empty_interface_var_push.iron` and `empty_concrete_var_push.iron` exercise empty-literal-then-push for both interface and concrete element types, plus `empty_literal_call_arg.iron` and `empty_literal_return.iron` cover the call-arg and return-statement contexts
 
-- [ ] **MONO-FIX-01**: Monomorphic-collapsed collections support `.map()`, `.filter()`, and other method chains without codegen errors
-- [ ] **MONO-FIX-02**: Regression test exercises monomorphic collection + full method chain composition
+- [x] **MONO-FIX-01**: Monomorphic-collapsed collections support `.map()`, `.filter()`, and other method chains without codegen errors
+- [x] **MONO-FIX-02**: Regression test exercises monomorphic collection + full method chain composition
 
 - [ ] **SOA-FIX-01**: Split collections with SoA layout fuse correctly — Stor type reference mismatch resolved
 - [ ] **SOA-FIX-02**: Regression test exercises SoA + fusion composition without workarounds (the original `compose_soa_fusion.iron` pattern works directly)
@@ -167,8 +167,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PUSH-02 | Phase 55 | Complete |
 | EMPTY-LIT-01 | Phase 55.1 | Complete |
 | EMPTY-LIT-02 | Phase 55.1 | Complete |
-| MONO-FIX-01 | Phase 56 | Pending |
-| MONO-FIX-02 | Phase 56 | Pending |
+| MONO-FIX-01 | Phase 56 | Complete |
+| MONO-FIX-02 | Phase 56 | Complete |
 | SOA-FIX-01 | Phase 57 | Pending |
 | SOA-FIX-02 | Phase 57 | Pending |
 | BENCH-01 | Phase 58 | Pending |

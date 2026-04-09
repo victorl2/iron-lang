@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 56 context gathered
-last_updated: "2026-04-09T20:06:55.050Z"
-last_activity: 2026-04-09 -- Phase 55.1 Plan 01 complete (empty typed array literal fix)
+stopped_at: Completed 56-01-PLAN.md
+last_updated: "2026-04-09T22:03:08.068Z"
+last_activity: 2026-04-09 -- Phase 56 Plan 01 complete (mono method chain decl emission fix)
 progress:
   total_phases: 20
   completed_phases: 9
-  total_plans: 26
-  completed_plans: 26
-  percent: 100
+  total_plans: 28
+  completed_plans: 27
+  percent: 96
 ---
 
 # Project State
@@ -25,19 +25,19 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 
 ## Current Position
 
-Phase: 55.1-empty-typed-array-literal
-Plan: 01 complete (phase 55.1 complete — EMPTY-LIT-01/02 satisfied)
+Phase: 56-monomorphic-method-chain
+Plan: 01 complete (MONO-FIX-01/02 satisfied — 10 mono_* tests pass)
 Status: Executing v0.1.3-alpha
-Last activity: 2026-04-09 -- Phase 55.1 Plan 01 complete (empty typed array literal fix)
+Last activity: 2026-04-09 -- Phase 56 Plan 01 complete (mono method chain decl emission fix)
 
-Progress: [██████████] 100%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
-- Average duration: 20min
-- Total execution time: ~6.0 hours
+- Total plans completed: 22
+- Average duration: 22min
+- Total execution time: ~6.9 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -67,6 +67,7 @@ Progress: [██████████] 100%
 | Phase 55-push-on-interface-arrays P02 | 10min | 3 tasks | 7 files |
 | Phase 55-push-on-interface-arrays P03 | 18min | 3 tasks | 7 files |
 | Phase 55.1-empty-typed-array-literal P01 | 23min | 3 tasks | 11 files |
+| Phase 56-monomorphic-method-chain P01 | 55min | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,11 @@ Progress: [██████████] 100%
 - [Phase 55.1-empty-typed-array-literal]: check_expr_with_expected helper threads expected types into empty array literal inference at 4 expression contexts; check_expr signature unchanged
 - [Phase 55.1-empty-typed-array-literal]: Error code IRON_ERR_EMPTY_LITERAL_NO_TYPE=229 used (not 220 as in CONTEXT placeholder; 220 was already IRON_ERR_NO_SUCH_METHOD)
 - [Phase 55.1-empty-typed-array-literal]: Call-arg test uses [Int] not [Shape] because passing interface arrays as function parameters hits a pre-existing codegen gap (deferred to future IFACE-PARAM-01 requirement)
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 01 emit_mono_list_decls pre-scan runs at END of emit_type_decls() and scans ARRAY_LIT elem_types directly (not just ctx->monomorphic_collections) because Iron type inference resolves [Circle(1),Circle(2)] to [Circle] concrete -- bypasses split_collection_ids and therefore monomorphic_collections
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 01 emits Iron_List_Iron_<T> struct typedef + IRON_LIST_DECL + IRON_LIST_IMPL for every concrete object element type; dedup via stb_ds set emitted_mono_list_types keyed on mangled name
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 01 tests use fusion chains for .map/.filter/.forEach -- IRON_LIST_COLL_IMPL macros can't work for struct element types (sum uses + operator, map cross-type return unrepresentable). Phase 49 fusion engine inlines the body into a single flat loop and bypasses the runtime COLL methods entirely.
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 01 fusion probe outcome: (a) passes out of the box -- Phase 49 fusion engine already supports plain Iron_List<Concrete> path; no emit_fusion.c extension needed
+- [Phase 56-monomorphic-method-chain]: Standalone non-fusible .map/.filter/.forEach on struct-element lists is a deferred architectural gap (needs either inline emission mirroring split dispatch OR struct-aware COLL_IMPL variants). Workaround: chain with fusible terminal.
 
 ### Roadmap Evolution
 
@@ -128,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-09T20:06:55.045Z
-Stopped at: Phase 56 context gathered
-Resume file: .planning/phases/56-monomorphic-method-chain/56-CONTEXT.md
+Last session: 2026-04-09T22:00:34Z
+Stopped at: Completed 56-01-PLAN.md
+Resume file: None
