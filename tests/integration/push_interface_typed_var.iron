@@ -1,0 +1,46 @@
+-- push_interface_typed_var.iron: Push with interface-typed argument
+-- Exercises Mode (b) of the Phase 55 push branch: when the pushed value
+-- has static interface (tagged-union) type, the emitter generates a
+-- runtime switch over .tag dispatching to the matching per-type push.
+--
+-- Calling a function that returns a Shape prevents the compiler from
+-- narrowing the argument back to a concrete type at the push site,
+-- forcing the tag-switch codepath (Mode b).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func pick_shape(flag: Bool) -> Shape {
+  if flag {
+    return Circle(4)
+  } else {
+    return Square(5)
+  }
+}
+
+func main() {
+  var shapes = [Circle(1), Square(3)]
+  val picked: Shape = pick_shape(true)
+  shapes.push(picked)
+  -- Split iteration groups by type: Circle(1)=3, Circle(4)=48, Square(3)=9
+  for item in shapes {
+    println("{item.area()}")
+  }
+}
