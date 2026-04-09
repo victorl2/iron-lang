@@ -1,0 +1,42 @@
+-- push_interface_len_empty.iron: .len() after popping the last element
+-- Verifies that .len() on an emptied interface split collection returns 0.
+-- Uses the pop-to-empty trick (start with one element, pop it) instead of
+-- an empty literal, since [Shape] = [] requires type-annotated empty literals
+-- which may not be supported on interface types yet.
+--
+-- 2-element initial literal with both implementors avoids the Phase 56
+-- monomorphic-collapse limitation (single-type narrowing to [Circle]).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var shapes = [Circle(5), Square(7)]
+
+  -- Initial len: 2 elements.
+  println("{shapes.len()}")
+
+  -- Pop both elements, leaving the collection empty.
+  var a = shapes.pop()
+  var b = shapes.pop()
+
+  -- After popping all elements, len must be 0.
+  println("{shapes.len()}")
+}
