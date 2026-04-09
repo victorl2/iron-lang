@@ -16,17 +16,20 @@ Shipped: Core dispatch (tagged unions, tag-based dispatch, dead implementor elim
 
 Shipped: Collection methods (map/filter/reduce/forEach/sum with lambdas), full closure capture, SoA/AoS layout selection, dead field elimination, common field factoring, small/large variant split, loop fusion (@fusible annotation, fused chains), monomorphic collection collapse, value range compression, arena allocation with pointer registry, layout annotations.
 
-## Current Milestone: v0.1.2-alpha Compiler Hardening & Refactoring
+## Previous Milestone: v0.1.2-alpha Compiler Hardening & Refactoring (Shipped)
 
-**Goal:** Harden the compiler by refactoring the monolithic emit_c.c into focused sub-modules, strengthening analysis passes (interprocedural monomorphic detection, improved value range analysis), and closing test coverage gaps with edge case and stress tests.
+Shipped: Decomposed emit_c.c into 5 focused sub-modules (emit_helpers, emit_structs, emit_split, emit_fusion, plus core). Interprocedural monomorphic detection across function return values and parameters with heuristic-gated specialization. Value range propagation through function calls and conditional branch narrowing (AND chains). Edge case, stress, and composition test suite (18 new integration tests). Benchmark threshold robustness (1.5x → 2.5x).
+
+## Current Milestone: v0.1.3-alpha Known Limitations Cleanup
+
+**Goal:** Deep-fix the 4 known limitations discovered during v0.1.2-alpha hardening — root-cause each bug, fix the underlying issue, and add regression tests that would have caught them.
 
 **Target features:**
-- Refactor emit_c.c into focused sub-modules (split collection emission, fusion emission, struct generation, layout/SoA emission)
-- Interprocedural monomorphic detection: track concrete types across function boundaries and return values
-- Improved value range analysis: interprocedural call-site return range tracking (currently conservative TOP)
-- Edge case test suite: empty collections, all-filtered-out, single element, deeply nested fusion chains, adversarial type combinations
-- Stress tests: large collections (10K+ elements), many implementors, deeply nested interfaces
-- Regression test hardening: ensure all optimization compositions are tested end-to-end
+- `.push()` on interface-typed arrays works correctly (blocks stress test workarounds and any programmatic collection building)
+- Monomorphic collapse + method chain (`.map()`, `.filter()`) composes correctly without codegen bugs
+- SoA layout + fusion works together — Stor type reference mismatch resolved
+- `binary_tree_diameter` benchmark flakiness root-caused and stabilized (not just threshold-papered-over)
+- Each fix includes a regression test that specifically exercises the previously-broken path
 
 ## Requirements
 

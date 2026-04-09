@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.0
-milestone_name: milestone
-status: completed
-stopped_at: Completed 54-03-PLAN.md (Phase 54 complete)
-last_updated: "2026-04-09T02:30:29.926Z"
-last_activity: "2026-04-09 -- Completed 54-03 (composition tests: SoA+split, dead field+compress, monomorphic, arena+SoA+dead, mega all-optimizations)"
+milestone: v0.1.3-alpha
+milestone_name: Known Limitations Cleanup
+status: defining_requirements
+stopped_at: Milestone v0.1.3-alpha started
+last_updated: "2026-04-09T12:00:00.000Z"
+last_activity: 2026-04-09 -- Milestone v0.1.3-alpha started (fix known limitations from hardening)
 progress:
-  total_phases: 15
-  completed_phases: 7
-  total_plans: 22
-  completed_plans: 22
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-08)
+See: .planning/PROJECT.md (updated 2026-04-09)
 
 **Core value:** The programmer writes polymorphic code against interfaces; the compiler emits monomorphic, data-oriented C code with no vtables, no heap indirection, and no pointer chasing.
-**Current focus:** Phase 52 - Emitter Refactoring (v0.1.2-alpha)
+**Current focus:** Defining requirements for v0.1.3-alpha Known Limitations Cleanup
 
 ## Current Position
 
-Phase: 54 of 54 (Test Hardening) -- third phase of v0.1.2-alpha
-Plan: 3 of 3 complete
-Status: Complete
-Last activity: 2026-04-09 -- Completed 54-03 (composition tests: SoA+split, dead field+compress, monomorphic, arena+SoA+dead, mega all-optimizations)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-09 -- Milestone v0.1.3-alpha started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
