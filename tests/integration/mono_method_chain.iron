@@ -1,0 +1,40 @@
+-- mono_method_chain.iron: ROADMAP Phase 56 SC4 primary regression.
+-- Previously failed with "use of undeclared identifier 'Iron_List_Iron_Circle'"
+-- because Phase 49 mono collapse removes the collection from
+-- split_collection_ids and the plain-typed-array codegen path referenced
+-- Iron_List_Iron_Circle symbols that were never declared (only primitives
+-- are pre-declared in iron_runtime.h:640-645). Phase 56 Plan 01 adds a
+-- pre-scan pass in emit_structs.c that emits IRON_LIST_DECL + IRON_LIST_IMPL
+-- for every concrete object type in ctx->monomorphic_collections.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- All Circles: mono detection sees one concrete type, marks as monomorphic,
+  -- Phase 49 collapse removes from split_collection_ids, codegen uses the
+  -- plain Iron_List_Iron_Circle path (which Phase 56 Plan 01 declares).
+  val circles = [Circle(2), Circle(3), Circle(4)]
+  val doubled = circles.map(func(c: Circle) -> Circle { return Circle(c.radius * 2) })
+  val total = doubled.map(func(c: Circle) -> Int { return c.area() }).sum()
+  -- Circle(4).area = 48, Circle(6).area = 108, Circle(8).area = 192
+  -- Total = 348
+  println("{total}")
+}
