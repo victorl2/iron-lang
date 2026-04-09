@@ -1525,6 +1525,7 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         else if (strcmp(suffix, "_reduce") == 0) coll_method = "reduce";
                         else if (strcmp(suffix, "_forEach") == 0) coll_method = "forEach";
                         else if (strcmp(suffix, "_sum") == 0) coll_method = "sum";
+                        else if (strcmp(suffix, "_push") == 0) coll_method = "push";   /* Phase 55: PUSH-01 */
                     }
                 }
                 if (coll_method) {
@@ -1838,6 +1839,79 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             emit_val(sb, instr->id);
                             iron_strbuf_appendf(sb, " = 0;\n");
                             break;
+                        } else if (strcmp(coll_method, "push") == 0 && instr->call.arg_count >= 2) {
+                            /* Phase 55 / PUSH-01: .push() on interface split collection.
+                             *
+                             * The HIR->LIR lowering uniformly mangles array method calls to
+                             * "Iron_List_<elem>_<method>", producing names like
+                             * "Iron_List_Iron_Shape_push" that do not exist for interface
+                             * arrays (which lower to Iron_SplitList with per-type push
+                             * functions "Iron_SplitList_<Iface>_push_<Type>"). Without this
+                             * branch, the call falls through to generic emission and the
+                             * bogus name leaks into the generated C as an undeclared function.
+                             *
+                             * Two dispatch modes:
+                             *   (a) pushed value has concrete object type -> emit a direct
+                             *       per-type push call. Mirrors the array-literal path at
+                             *       emit_c.c:~2575 and the fusion terminal at emit_fusion.c.
+                             *   (b) pushed value has interface (tagged union) type -> emit a
+                             *       runtime switch over the value's .tag dispatching to the
+                             *       matching per-type push, reading the concrete payload out
+                             *       of the tagged union's data.<TypeName> member. */
+                            IronLIR_ValueId push_val = instr->call.args[1];
+                            Iron_Type *et = emit_get_value_type(fn, push_val);
+                            if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
+                                /* --- Mode (a): concrete object arg --- */
+                                emit_indent(sb, ind);
+                                iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(&",
+                                    sp_iface, et->object.decl->name);
+                                emit_val(sb, self_arg);
+                                iron_strbuf_appendf(sb, ", ");
+                                emit_expr_to_buf(sb, push_val, fn, ctx, ctx->current_block_id, 0);
+                                iron_strbuf_appendf(sb, ");\n");
+                                break;
+                            } else if (et && et->kind == IRON_TYPE_INTERFACE) {
+                                /* --- Mode (b): interface-typed arg, runtime tag dispatch --- */
+                                emit_indent(sb, ind);
+                                iron_strbuf_appendf(sb, "{\n");
+                                emit_indent(sb, ind + 1);
+                                iron_strbuf_appendf(sb, "%s _sp_push_val = ", sp_iface);
+                                emit_expr_to_buf(sb, push_val, fn, ctx, ctx->current_block_id, 0);
+                                iron_strbuf_appendf(sb, ";\n");
+                                emit_indent(sb, ind + 1);
+                                iron_strbuf_appendf(sb, "switch (_sp_push_val.tag) {\n");
+                                for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                    Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                    if (!impl->is_alive) continue;
+                                    /* Honor indirect (pointer-indirected) variants used for
+                                     * large payloads. See emit_structs.c:278-311. */
+                                    char ikey[512];
+                                    snprintf(ikey, sizeof(ikey), "%s:%s",
+                                             sp_iface, impl->type_name);
+                                    bool is_indirect = (ctx->indirect_variants &&
+                                                        shgeti(ctx->indirect_variants, ikey) >= 0);
+                                    emit_indent(sb, ind + 2);
+                                    iron_strbuf_appendf(sb,
+                                        "case %d: Iron_SplitList_%s_push_%s(&",
+                                        impl->tag, sp_iface, impl->type_name);
+                                    emit_val(sb, self_arg);
+                                    iron_strbuf_appendf(sb,
+                                        ", %s_sp_push_val.data.%s); break;\n",
+                                        is_indirect ? "*" : "",
+                                        impl->type_name);
+                                }
+                                emit_indent(sb, ind + 2);
+                                iron_strbuf_appendf(sb, "default: break;\n");
+                                emit_indent(sb, ind + 1);
+                                iron_strbuf_appendf(sb, "}\n");
+                                emit_indent(sb, ind);
+                                iron_strbuf_appendf(sb, "}\n");
+                                break;
+                            }
+                            /* Fall-through: pushed value has neither concrete nor interface
+                             * type — defer to generic emission (will produce the legacy bogus
+                             * name and fail loudly at C compile time, which is strictly
+                             * better than silently miscompiling). */
                         }
                     }
                 }
