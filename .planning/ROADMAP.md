@@ -123,7 +123,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 52: Emitter Refactoring** - Extract emit_c.c into focused sub-modules: split collection, fusion, struct/layout emission, and EmitCtx cleanup
 - [ ] **Phase 53: Analysis Improvements** - Interprocedural monomorphic detection and value range analysis across function boundaries and conditional branches
-- [ ] **Phase 54: Test Hardening** - Edge case, stress, and optimization composition tests for comprehensive regression coverage
+- [x] **Phase 54: Test Hardening** - Edge case, stress, and optimization composition tests for comprehensive regression coverage
 
 ## Phase Details
 
@@ -799,9 +799,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 41: Collection Splitting
 **Goal**: Interface-typed collections are internally represented as per-type homogeneous arrays with correct insertion routing and both ordered and unordered iteration strategies
@@ -815,9 +815,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 42: Memory Layout
 **Goal**: The compiler selects optimal memory layout per (collection, type) pair and eliminates waste from unused fields, shared fields, and oversized non-collection variants
@@ -832,9 +832,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 43: Loop Fusion & Monomorphic Specialization
 **Goal**: Chained collection operations execute in a single pass per type, and collections proven to hold only one concrete type collapse to plain typed arrays
@@ -848,9 +848,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 44: Hardware Acceleration & Value Optimization
 **Goal**: Split collections use efficient memory allocation, hot loops receive hardware prefetch hints, independent per-type loops are parallelized, and fields are stored in the narrowest sufficient type
@@ -865,9 +865,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 45: Documentation & Branding
 **Goal**: The language guide, compiler internals documentation, and website reflect the static interface dispatch capability with clear examples and updated branding
@@ -882,9 +882,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations Phase Details
 
@@ -901,9 +901,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 47: Collection Methods
 **Goal**: Arrays support `.map()`, `.filter()`, `.reduce()`, `.forEach()`, and `.sum()` with method syntax and lambda arguments, including chaining and dispatch across interface-typed split collections
@@ -935,9 +935,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 49: Loop Fusion & Monomorphic Specialization
 **Goal**: Chained collection operations execute in a single fused loop per concrete type with no intermediate allocations, and single-type collections collapse to plain typed arrays
@@ -1045,9 +1045,9 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### v0.1.2-alpha Compiler Hardening & Refactoring
 
@@ -1096,6 +1096,6 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
-- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
-- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
+- [x] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [x] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [x] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
