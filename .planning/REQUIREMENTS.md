@@ -72,8 +72,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 
 ### Test Hardening
 
-- [ ] **TEST-01**: Edge case test suite covers empty collections, all-filtered-out, single element, zero-field structs, single-implementor interfaces
-- [ ] **TEST-02**: Stress tests validate correctness with 10K+ element collections, 10+ implementors, deeply nested fusion chains
+- [x] **TEST-01**: Edge case test suite covers empty collections, all-filtered-out, single element, zero-field structs, single-implementor interfaces
+- [x] **TEST-02**: Stress tests validate correctness with 10K+ element collections, 10+ implementors, deeply nested fusion chains
 - [ ] **TEST-03**: Composition tests verify optimization combinations: SoA + fusion, dead field + compression, monomorphic + fusion, arena + SoA
 
 ## v2 Requirements
@@ -143,8 +143,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANAL-01 | Phase 53 | Complete |
 | ANAL-02 | Phase 53 | Complete |
 | ANAL-03 | Phase 53 | Complete |
-| TEST-01 | Phase 54 | Pending |
-| TEST-02 | Phase 54 | Pending |
+| TEST-01 | Phase 54 | Complete |
+| TEST-02 | Phase 54 | Complete |
 | TEST-03 | Phase 54 | Pending |
 
 **Coverage:**
