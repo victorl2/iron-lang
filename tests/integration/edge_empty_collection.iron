@@ -1,0 +1,29 @@
+-- edge_empty_collection.iron: Empty collection edge cases through fusion paths
+-- Tests that empty collections through map/filter/reduce/sum do not crash
+-- and return correct identity values (0 for sum, init for reduce)
+
+func main() {
+  -- Create empty flat array via pop
+  var empty = [1]
+  empty.pop()
+
+  -- Test 1: map on empty then sum -> 0
+  val mapped = empty.map(func(x: Int) -> Int { return x + 1 })
+  println("{mapped.sum()}")
+
+  -- Test 2: filter on empty then sum -> 0
+  val filtered = empty.filter(func(x: Int) -> Bool { return x > 0 })
+  println("{filtered.sum()}")
+
+  -- Test 3: map+filter+reduce on empty -> init value 0
+  val chained = empty.map(func(x: Int) -> Int { return x * 2 }).filter(func(x: Int) -> Bool { return x > 5 }).reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{chained}")
+
+  -- Test 4: reduce on empty with non-zero init -> returns init
+  val reduced = empty.reduce(99, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{reduced}")
+
+  -- Test 5: sum directly on empty -> 0
+  val total = empty.sum()
+  println("{total}")
+}
