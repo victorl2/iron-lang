@@ -78,6 +78,75 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
     arrput(state->sorted, td);
 }
 
+/* ── Phase 56: Monomorphic list type decl emission ──────────────────────
+ * For each concrete object type that appears in ctx->monomorphic_collections
+ * (populated by the Phase 49/53 mono detection scan in emit_c.c before
+ * emit_type_decls runs), emit the Iron_List_<mangled> struct typedef plus
+ * IRON_LIST_DECL and IRON_LIST_IMPL macro expansions into ctx->struct_bodies.
+ * Dedups via a file-local stb_ds hash set keyed on the mangled type name.
+ *
+ * Fixes the bug where Phase 49 mono collapse removes collections from
+ * split_collection_ids, causing generated C to reference symbols such as
+ * Iron_List_Iron_Circle, Iron_List_Iron_Circle_push, etc., without those
+ * symbols ever being declared.  Only primitive list types are pre-declared
+ * in iron_runtime.h:640-645; concrete object types must be emitted by the
+ * codegen dynamically — which is exactly what this helper does.
+ *
+ * Must be called at the END of emit_type_decls() so that the Iron_<Type>
+ * struct body is already emitted by emit_object_struct_body; IRON_LIST_DECL
+ * and IRON_LIST_IMPL require the element struct to be a complete type. */
+static void emit_mono_list_decls(EmitCtx *ctx) {
+    if (!ctx->monomorphic_collections) return;
+    if (hmlen(ctx->monomorphic_collections) == 0) return;
+
+    /* Dedup set: keyed by mangled concrete type name (e.g. "Iron_Circle").
+     * Per-compilation-unit scope — freed at end of function. */
+    struct { char *key; bool value; } *emitted_mono_list_types = NULL;
+
+    /* Iterate the monomorphic collections.  The value is the BARE concrete
+     * type name (e.g. "Circle") as stored at emit_c.c:5538 via
+     * coll_types[i].value[0], which originates from et->object.decl->name. */
+    for (ptrdiff_t i = 0; i < hmlen(ctx->monomorphic_collections); i++) {
+        const char *bare_type = ctx->monomorphic_collections[i].value;
+        if (!bare_type) continue;
+
+        /* Mangle "Circle" -> "Iron_Circle" (arena-allocated, stable for the
+         * lifetime of the stb_ds map). */
+        const char *mangled = emit_mangle_name(bare_type, ctx->arena);
+
+        /* Dedup check. */
+        if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
+        shput(emitted_mono_list_types, mangled, true);
+
+        /* Emit Iron_List_<mangled> struct typedef.  The IRON_LIST_DECL and
+         * IRON_LIST_IMPL macros assume this struct is already declared with
+         * fields { T *items; int64_t count; int64_t capacity; }. */
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
+            "typedef struct Iron_List_%s {\n"
+            "    %s    *items;\n"
+            "    int64_t count;\n"
+            "    int64_t capacity;\n"
+            "} Iron_List_%s;\n",
+            mangled, mangled, mangled, mangled);
+
+        /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "IRON_LIST_DECL(%s, %s)\n",
+            mangled, mangled);
+
+        /* Emit IRON_LIST_IMPL(T, suffix) — function bodies (non-static).
+         * Safe at translation-unit level because each mangled name is unique
+         * per compilation unit (Iron compiles to a single .c file per
+         * program). */
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "IRON_LIST_IMPL(%s, %s)\n\n",
+            mangled, mangled);
+    }
+
+    shfree(emitted_mono_list_types);
+}
+
 /* Check if any type_decl's object extends the given name */
 static bool ir_has_subtype(IronLIR_Module *module, const char *name) {
     for (int i = 0; i < module->type_decl_count; i++) {
@@ -524,4 +593,12 @@ void emit_type_decls(EmitCtx *ctx) {
             iron_strbuf_appendf(&ctx->enum_defs, "} %s;\n\n", mangled);
         }
     }
+
+    /* ── Phase 56: Mono-collapsed list type decls ──────────────────────────
+     * After all object structs, interface tagged unions, split collection
+     * structs, and enums are emitted, declare Iron_List_Iron_<Type> plus
+     * IRON_LIST_DECL/IRON_LIST_IMPL macro expansions for every concrete
+     * type that Phase 49 mono collapse touched.  Fixes the "use of
+     * undeclared identifier 'Iron_List_Iron_Circle'" codegen error. */
+    emit_mono_list_decls(ctx);
 }
