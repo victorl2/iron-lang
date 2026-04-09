@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 56-01-PLAN.md
-last_updated: "2026-04-09T22:03:08.068Z"
-last_activity: 2026-04-09 -- Phase 56 Plan 01 complete (mono method chain decl emission fix)
+stopped_at: Completed 56-02-PLAN.md
+last_updated: "2026-04-09T22:55:26.779Z"
+last_activity: 2026-04-09 -- Phase 56 Plan 02 complete (narrowing audit + Phase 55 workaround cleanup)
 progress:
   total_phases: 20
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 28
-  completed_plans: 27
-  percent: 96
+  completed_plans: 28
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 56-monomorphic-method-chain
-Plan: 01 complete (MONO-FIX-01/02 satisfied — 10 mono_* tests pass)
+Plan: 02 complete (MONO-FIX-01/02 fully satisfied via Plan 01 + Plan 02 jointly — narrowing audit closes the silent-miscompilation gap)
 Status: Executing v0.1.3-alpha
-Last activity: 2026-04-09 -- Phase 56 Plan 01 complete (mono method chain decl emission fix)
+Last activity: 2026-04-09 -- Phase 56 Plan 02 complete (narrowing audit + Phase 55 workaround cleanup)
 
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [██████████] 96%
 | Phase 55-push-on-interface-arrays P03 | 18min | 3 tasks | 7 files |
 | Phase 55.1-empty-typed-array-literal P01 | 23min | 3 tasks | 11 files |
 | Phase 56-monomorphic-method-chain P01 | 55min | 3 tasks | 21 files |
+| Phase 56-monomorphic-method-chain P02 | 33min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,10 @@ Progress: [██████████] 96%
 - [Phase 56-monomorphic-method-chain]: Phase 56 Plan 01 tests use fusion chains for .map/.filter/.forEach -- IRON_LIST_COLL_IMPL macros can't work for struct element types (sum uses + operator, map cross-type return unrepresentable). Phase 49 fusion engine inlines the body into a single flat loop and bypasses the runtime COLL methods entirely.
 - [Phase 56-monomorphic-method-chain]: Phase 56 Plan 01 fusion probe outcome: (a) passes out of the box -- Phase 49 fusion engine already supports plain Iron_List<Concrete> path; no emit_fusion.c extension needed
 - [Phase 56-monomorphic-method-chain]: Standalone non-fusible .map/.filter/.forEach on struct-element lists is a deferred architectural gap (needs either inline emission mirroring split dispatch OR struct-aware COLL_IMPL variants). Workaround: chain with fusible terminal.
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 02 validates .push(arg) against array elem type via push_type_compatible helper hooked into both IRON_NODE_METHOD_CALL array branches (ident + chained); prevents silent miscompilation on narrowed mono collections that Plan 01 unblocked
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 02 adds type_display_name helper in typecheck.c (local to error emission sites) because iron_type_to_string returns literal '<object>' / '<interface>' placeholders; a global fix for the other 41 call sites is deferred to a future dedicated pass
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 02 introduces tests/compile_fail/ directory for negative tests; files live outside run_tests.sh's scan root and are invoked directly by the plan's verify command
+- [Phase 56-monomorphic-method-chain]: Phase 56 Plan 02 Phase 55 audit tally: 1 rewritten (push_interface_len_empty -> Phase 55.1 empty annotated literal path), 7 annotated as load-bearing multi-type (get/set_same_type/len_pop/get_after_push/after_op/typed_var/prepopulated), 4 protected untouched (collection/multi_type/pop_order/loop_100)
 
 ### Roadmap Evolution
 
@@ -134,6 +139,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-09T22:00:34Z
-Stopped at: Completed 56-01-PLAN.md
+Last session: 2026-04-09T22:55:26.776Z
+Stopped at: Completed 56-02-PLAN.md
 Resume file: None

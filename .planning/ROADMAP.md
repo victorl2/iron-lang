@@ -1150,8 +1150,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 56-01-PLAN.md — Primary fix (IRON_LIST_DECL pre-scan in emit_structs.c) + regression test mono_method_chain.iron + full method parity sweep + chain combinations + fusion probe
-- [ ] 56-02-PLAN.md — Narrowing audit (typecheck.c .push arg validation) + positive/negative tests + Phase 55 workaround cleanup
+- [x] 56-01-PLAN.md — Primary fix (IRON_LIST_DECL pre-scan in emit_structs.c) + regression test mono_method_chain.iron + full method parity sweep + chain combinations + fusion probe
+- [x] 56-02-PLAN.md — Narrowing audit (typecheck.c .push arg validation) + positive/negative tests + Phase 55 workaround cleanup
 
 ### Phase 57: SoA + Fusion Composition
 
