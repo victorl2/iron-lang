@@ -68,6 +68,8 @@ typedef struct {
 /* ── Forward declarations ────────────────────────────────────────────────── */
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node);
+static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
+                                            Iron_Type *expected);
 static void check_stmt(TypeCtx *ctx, Iron_Node *node);
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count);
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
@@ -1334,8 +1336,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             } else {
                 /* Check arg types */
                 for (int i = 0; i < ce->arg_count; i++) {
-                    Iron_Type *arg_type = check_expr(ctx, ce->args[i]);
                     Iron_Type *param_type = callee_type->func.param_types[i];
+                    Iron_Type *arg_type = check_expr_with_expected(ctx, ce->args[i], param_type);
                     if (param_type && arg_type &&
                         param_type->kind != IRON_TYPE_ERROR &&
                         arg_type->kind   != IRON_TYPE_ERROR &&
@@ -2267,7 +2269,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     check_stmt(ctx, vd->init);
                     init_type = iron_type_make_primitive(IRON_TYPE_OBJECT);
                 } else {
-                    init_type = check_expr(ctx, vd->init);
+                    init_type = check_expr_with_expected(ctx, vd->init, decl_type);
                 }
             }
 
@@ -2323,7 +2325,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
 
             Iron_Type *target_type = check_expr(ctx, as->target);
-            Iron_Type *value_type  = check_expr(ctx, as->value);
+            Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
 
             if (is_immutable) {
                 char msg[256];
@@ -2376,7 +2378,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *ret_type = NULL;
 
             if (rs->value) {
-                ret_type = check_expr(ctx, rs->value);
+                ret_type = check_expr_with_expected(ctx, rs->value, ctx->current_return_type);
             } else {
                 ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
             }
