@@ -82,7 +82,7 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **PUSH-02**: Regression test exercises programmatic split collection building via push loop, verifying generated C is correct
 
 - [ ] **EMPTY-LIT-01**: Empty typed array literal `[]` honors its declared annotation — `var shapes: [Shape] = []` and `var ints: [Int] = []` both compile and produce correctly-typed empty collections
-- [ ] **EMPTY-LIT-02**: Regression test `empty_typed_array_push.iron` exercises empty-literal-then-push for both interface and concrete element types
+- [ ] **EMPTY-LIT-02**: Regression tests `empty_interface_var_push.iron` and `empty_concrete_var_push.iron` exercise empty-literal-then-push for both interface and concrete element types, plus `empty_literal_call_arg.iron` and `empty_literal_return.iron` cover the call-arg and return-statement contexts
 
 - [ ] **MONO-FIX-01**: Monomorphic-collapsed collections support `.map()`, `.filter()`, and other method chains without codegen errors
 - [ ] **MONO-FIX-02**: Regression test exercises monomorphic collection + full method chain composition

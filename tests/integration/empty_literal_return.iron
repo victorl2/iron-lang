@@ -1,0 +1,34 @@
+-- empty_literal_return.iron: Empty literal in return statement
+-- Phase 55.1 test — proves check_expr_with_expected threads the enclosing
+-- function's return type into the value check. `return []` in a func
+-- returning [Shape] should resolve the literal to [Shape].
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func make_empty_shapes() -> [Shape] {
+  return []
+}
+
+func main() {
+  var shapes = make_empty_shapes()
+  shapes.push(Circle(2))
+  println("{shapes.len()}")
+}
