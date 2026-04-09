@@ -2163,6 +2163,137 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             emit_indent(sb, ind);
                             iron_strbuf_appendf(sb, "}\n");
                             break;
+                        } else if (strcmp(coll_method, "set") == 0 && instr->call.arg_count >= 3) {
+                            /* Phase 55 / PUSH-01: .set(i, v) on interface split collection.
+                             *
+                             * Semantics (same-type in-place overwrite, per 55-CONTEXT.md
+                             * "Claude's Discretion" on set):
+                             *
+                             *   - If the new value v has a concrete static type T that
+                             *     matches the tag of the slot at _order[i], write in
+                             *     place into the <lower>_items sub-array at the
+                             *     recovered sub-index. Guard the write with a runtime
+                             *     tag check so a mismatch (e.g. slot currently holds a
+                             *     different concrete type) is a silent no-op rather
+                             *     than a stale-cross-type write.
+                             *
+                             *   - KNOWN LIMITATION: different-type writes (the runtime
+                             *     tag check fails) are a silent no-op. Supporting
+                             *     cross-type in-place overwrite would require rebuilding
+                             *     the _order[] array and shuffling per-type sub-arrays,
+                             *     which is non-trivial. Document and defer to a future
+                             *     phase if users request it.
+                             *
+                             *   - KNOWN LIMITATION: interface-typed new values
+                             *     (v has IRON_TYPE_INTERFACE, e.g. the result of a
+                             *     function returning Shape) are a silent no-op with a
+                             *     C comment. Same reasoning — would require per-case
+                             *     tag dispatch on the write side, deferred.
+                             *
+                             * Scoping (per 55-CONTEXT.md, same as pop/get):
+                             *   - AoS implementors: full same-type in-place write.
+                             *   - SoA implementors: no-op with a comment.
+                             *
+                             * The guarded write approach is strictly simpler and safer
+                             * than runtime assertions — users who hit the limitation
+                             * see the collection remain unchanged rather than a crash. */
+                            IronLIR_ValueId idx_val = instr->call.args[1];
+                            IronLIR_ValueId set_val = instr->call.args[2];
+                            Iron_Type *vt = emit_get_value_type(fn, set_val);
+
+                            /* Check for any SoA implementor — defensive fallback. */
+                            bool any_soa = false;
+                            for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                if (!impl->is_alive) continue;
+                                char soa_key_tmp[768];
+                                snprintf(soa_key_tmp, sizeof(soa_key_tmp),
+                                    "%s:%s", sp_iface, impl->type_name);
+                                if (ctx->soa_types &&
+                                    shgeti(ctx->soa_types, soa_key_tmp) >= 0) {
+                                    any_soa = true;
+                                    break;
+                                }
+                            }
+
+                            if (any_soa) {
+                                /* SoA fallback: known limitation. */
+                                emit_indent(sb, ind);
+                                iron_strbuf_appendf(sb,
+                                    "/* Phase 55: .set() on split collection with SoA "
+                                    "implementor — not yet supported, no-op */\n");
+                                break;
+                            }
+
+                            if (vt && vt->kind == IRON_TYPE_OBJECT && vt->object.decl) {
+                                /* Find the tag for this concrete type among alive impls. */
+                                int target_tag = -1;
+                                Iron_IfaceImpl *target_impl = NULL;
+                                for (int ji = 0; ji < sp_entry->impl_count; ji++) {
+                                    Iron_IfaceImpl *impl = &sp_entry->impls[ji];
+                                    if (!impl->is_alive) continue;
+                                    if (strcmp(impl->type_name,
+                                              vt->object.decl->name) == 0) {
+                                        target_tag = impl->tag;
+                                        target_impl = impl;
+                                        break;
+                                    }
+                                }
+                                if (target_tag >= 0 && target_impl != NULL) {
+                                    /* Lowercase type name for sub-array field access */
+                                    char lower_name[256];
+                                    {
+                                        size_t nl2 = strlen(target_impl->type_name);
+                                        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+                                        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+                                            lower_name[ci3] = (char)((target_impl->type_name[ci3] >= 'A' &&
+                                                                       target_impl->type_name[ci3] <= 'Z')
+                                                ? target_impl->type_name[ci3] + 32
+                                                : target_impl->type_name[ci3]);
+                                        lower_name[nl2] = '\0';
+                                    }
+                                    emit_indent(sb, ind);
+                                    iron_strbuf_appendf(sb, "{\n");
+                                    emit_indent(sb, ind + 1);
+                                    iron_strbuf_appendf(sb, "int64_t _sp_set_i = ");
+                                    emit_expr_to_buf(sb, idx_val, fn, ctx, ctx->current_block_id, 0);
+                                    iron_strbuf_appendf(sb, ";\n");
+                                    /* Guarded write: slot's current tag must match the
+                                     * concrete type of the new value. Different-type
+                                     * writes fall through to the else-arm (no-op). */
+                                    emit_indent(sb, ind + 1);
+                                    iron_strbuf_appendf(sb, "if (");
+                                    emit_val(sb, self_arg);
+                                    iron_strbuf_appendf(sb,
+                                        "._order[_sp_set_i].tag == %d) {\n", target_tag);
+                                    emit_indent(sb, ind + 2);
+                                    emit_val(sb, self_arg);
+                                    iron_strbuf_appendf(sb, ".%s_items[", lower_name);
+                                    emit_val(sb, self_arg);
+                                    iron_strbuf_appendf(sb, "._order[_sp_set_i].idx] = ");
+                                    emit_expr_to_buf(sb, set_val, fn, ctx, ctx->current_block_id, 0);
+                                    iron_strbuf_appendf(sb, ";\n");
+                                    emit_indent(sb, ind + 1);
+                                    iron_strbuf_appendf(sb, "}\n");
+                                    /* Different-type set is a no-op: known limitation. */
+                                    emit_indent(sb, ind + 1);
+                                    iron_strbuf_appendf(sb,
+                                        "/* else: different-type .set() is a no-op in "
+                                        "Phase 55 (known limitation) */\n");
+                                    emit_indent(sb, ind);
+                                    iron_strbuf_appendf(sb, "}\n");
+                                    break;
+                                }
+                                /* Concrete type is not an alive implementor of this
+                                 * interface — fall through to the generic no-op comment. */
+                            }
+                            /* Interface-typed new value, or unresolvable type:
+                             * known limitation, silent no-op with C comment. */
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb,
+                                "/* Phase 55: .set() with non-concrete or non-matching "
+                                "type — no-op (known limitation) */\n");
+                            break;
                         }
                     }
                 }
