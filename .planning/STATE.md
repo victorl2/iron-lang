@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-status: Executing v0.1.3-alpha
-stopped_at: Completed 55-01-PLAN.md
-last_updated: "2026-04-09T14:29:27.096Z"
-last_activity: 2026-04-09 -- Milestone v0.1.3-alpha started
+status: executing
+stopped_at: Completed 55-02-PLAN.md
+last_updated: "2026-04-09T14:51:46.691Z"
+last_activity: 2026-04-09 -- Phase 55 Plan 02 complete (PUSH-01 len + pop)
 progress:
   total_phases: 19
   completed_phases: 7
   total_plans: 25
-  completed_plans: 23
-  percent: 0
+  completed_plans: 24
+  percent: 96
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 55-push-on-interface-arrays
-Plan: 01 complete (02 next)
+Plan: 02 complete (03 next)
 Status: Executing v0.1.3-alpha
-Last activity: 2026-04-09 -- Phase 55 Plan 01 complete (PUSH-01 + PUSH-02)
+Last activity: 2026-04-09 -- Phase 55 Plan 02 complete (PUSH-01 len + pop)
 
-Progress: [█████████░] 92%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [█████████░] 92%
 | 54-test-hardening | 02 | 9min | 3 | 94 |
 | 54-test-hardening | 03 | 6min | 2 | 10 |
 | Phase 55-push-on-interface-arrays P01 | 27min | 3 tasks | 13 files |
+| Phase 55-push-on-interface-arrays P02 | 10min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Progress: [█████████░] 92%
 - [Phase 55-push-on-interface-arrays]: Phase 55 Plan 01: Inline _push branch in emit_c.c split-collection interception block, ships both concrete (Mode a) and interface-typed (Mode b) dispatch
 - [Phase 55-push-on-interface-arrays]: Phase 55 Plan 01: Mode b tag-switch uses impl->tag (not loop index) and honors ctx->indirect_variants for pointer-stored large payloads
 - [Phase 55-push-on-interface-arrays]: Phase 55 Plan 01 tests: use 2-element initial literals with both implementors to avoid monomorphic-collapse path (scoped to Phase 56)
+- [Phase 55-push-on-interface-arrays]: Phase 55 Plan 02: _len uses direct _total_count field read (not per-type sum) — authoritative combined-length field, mirrors .count accessor at emit_c.c:1054
+- [Phase 55-push-on-interface-arrays]: Phase 55 Plan 02: _pop reads _order[_total_count-1] for (tag, idx), dispatches via switch over impl->tag, boxes via Iron_<Iface>_from_<Type>, decrements per-type count inside case and _order_count/_total_count after switch
+- [Phase 55-push-on-interface-arrays]: Phase 55 Plan 02: SoA-implementor pop emits defensive zero-init fallback per 55-CONTEXT.md scoping; AoS is fully implemented, SoA pop is documented known limitation
 
 ### Roadmap Evolution
 
@@ -116,6 +120,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-09T14:29:27.093Z
-Stopped at: Completed 55-01-PLAN.md
+Last session: 2026-04-09T14:51:46.688Z
+Stopped at: Completed 55-02-PLAN.md
 Resume file: None
