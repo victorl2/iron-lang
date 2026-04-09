@@ -1,0 +1,57 @@
+-- compose_dead_field_compress.iron: Composition test for dead field elimination + value range compression
+-- Tests that dead field elimination and value range compression coexist:
+--   (1) debug_id is never accessed through the collection -> eliminated from Stor structs
+--   (2) kind (1-2), x/y (10-50), r/g (0-255) are small-range -> compressed to uint8_t
+--   (3) Surviving compressed fields produce correct results after widening reads
+
+interface Particle {
+  func describe() -> Int
+}
+
+object Dot impl Particle {
+  var kind: Int
+  var x: Int
+  var y: Int
+  var debug_id: Int
+}
+
+object Pixel impl Particle {
+  var kind: Int
+  var r: Int
+  var g: Int
+  var debug_id: Int
+}
+
+func Dot.describe() -> Int {
+  return self.kind * 1000 + self.x * 100 + self.y
+}
+
+func Pixel.describe() -> Int {
+  return self.kind * 1000 + self.r * 100 + self.g
+}
+
+func main() {
+  -- kind=1 or 2, x/y hold 10-50, r/g hold 0-255 -> compressible to uint8_t
+  -- debug_id is never accessed through the collection -> dead field eliminated
+  val particles = [
+    Dot(1, 10, 20, 900),
+    Dot(1, 30, 40, 901),
+    Pixel(2, 100, 200, 902),
+    Pixel(2, 50, 150, 903),
+    Dot(1, 25, 35, 904),
+    Pixel(2, 75, 125, 905)
+  ]
+
+  var total = 0
+  for p in particles {
+    total = total + p.describe()
+  }
+  -- Dot(1,10,20): 1*1000 + 10*100 + 20 = 2020
+  -- Dot(1,30,40): 1*1000 + 30*100 + 40 = 4040
+  -- Pixel(2,100,200): 2*1000 + 100*100 + 200 = 12200
+  -- Pixel(2,50,150): 2*1000 + 50*100 + 150 = 7150
+  -- Dot(1,25,35): 1*1000 + 25*100 + 35 = 3535
+  -- Pixel(2,75,125): 2*1000 + 75*100 + 125 = 9625
+  -- total = 2020 + 4040 + 12200 + 7150 + 3535 + 9625 = 38570
+  println("{total}")
+}
