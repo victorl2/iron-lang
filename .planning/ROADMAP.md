@@ -1147,7 +1147,11 @@ Plans:
   3. Root cause documented — was it the codegen path, type propagation, or dispatch lowering?
   4. Regression test `mono_method_chain.iron` exists with explicit mono collapse + chain
   5. Adjacent tests: mono + fusion, mono + multiple methods, mono with different concrete types
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 56-01-PLAN.md — Primary fix (IRON_LIST_DECL pre-scan in emit_structs.c) + regression test mono_method_chain.iron + full method parity sweep + chain combinations + fusion probe
+- [ ] 56-02-PLAN.md — Narrowing audit (typecheck.c .push arg validation) + positive/negative tests + Phase 55 workaround cleanup
 
 ### Phase 57: SoA + Fusion Composition
 
