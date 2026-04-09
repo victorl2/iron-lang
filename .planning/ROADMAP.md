@@ -1127,11 +1127,14 @@ Plans:
 **Requirements**: EMPTY-LIT-01, EMPTY-LIT-02
 **Success Criteria** (what must be TRUE):
   1. `var shapes: [Shape] = []` compiles without errors when the variable has an explicit interface array annotation
-  2. `var shapes: [Shape] = []; shapes.push(Circle(5)); println("{shapes.len()}")` compiles and prints `1`
+  2. `var shapes: [Shape] = []; shapes.push(Circle(5)); shapes.push(Square(3)); println("{shapes.len()}")` compiles and prints `2`
   3. Same works for concrete element types: `var ints: [Int] = []; ints.push(7)` compiles
   4. Root cause documented in commit message — current failure is `E0202: type mismatch expected '[<interface>]', got '[<error>]'`; the empty literal path in `src/analyzer/typecheck.c` does not honor the declared annotation
-  5. Regression test `empty_typed_array_push.iron` covering interface + concrete element types
-**Plans**: TBD
+  5. Regression test `empty_interface_var_push.iron` covering interface element type; companion tests `empty_concrete_var_push.iron`, `empty_literal_call_arg.iron`, `empty_literal_return.iron` for concrete + call-arg + return contexts
+**Plans**: 1 plan
+
+Plans:
+- [ ] 55.1-01-PLAN.md — Add check_expr_with_expected helper + IRON_ERR_EMPTY_LITERAL_NO_TYPE (229) diagnostic; swap 4 callsites (var decl, call arg, return, assign); add 4 regression tests
 
 ### Phase 56: Monomorphic Method Chain
 
