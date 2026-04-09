@@ -796,7 +796,12 @@ Plans:
   3. `let s: Shape = Circle { radius: 5.0 }` compiles to a tagged union value (tag enum + payload union + outer struct); `s.area()` dispatches via match on the tag discriminant, not a vtable lookup; the generated C compiles and produces the correct result
   4. An implementor that is declared but never instantiated anywhere in the program is excluded from the generated tagged union and dispatch switches; the generated C contains no reference to the eliminated type
   5. The vtable struct generation block in `emit_c.c` is removed; no vtable-related C structs, typedefs, or function pointer tables appear in any generated output; all existing tests and benchmarks pass without regression
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 41: Collection Splitting
 **Goal**: Interface-typed collections are internally represented as per-type homogeneous arrays with correct insertion routing and both ordered and unordered iteration strategies
@@ -807,7 +812,12 @@ Plans:
   2. A `for a in animals { a.speak() }` loop where the compiler proves order-independence (no index-dependent logic, no cross-iteration state) emits separate per-type loops without an order index array
   3. A `for a in animals { print(a) }` loop where insertion order is observed emits an order index array and iterates via tag+offset indirection to preserve the original insertion sequence
   4. `var shapes: List<Shape> unordered = [...]` parses the `unordered` annotation and forces unordered split iteration regardless of the compiler's order analysis; the annotation produces no warning when the compiler also selects unordered
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 42: Memory Layout
 **Goal**: The compiler selects optimal memory layout per (collection, type) pair and eliminates waste from unused fields, shared fields, and oversized non-collection variants
@@ -819,7 +829,12 @@ Plans:
   3. Fields with the same name, type, and position across all implementors of an interface are stored in a single shared array rather than duplicated in each per-type sub-array
   4. A non-collection interface variable where one implementor is significantly larger than others stores the large variant indirectly (pointer) while small variants are stored inline; the threshold is determined by the compiler
   5. `var shapes: List<Shape> layout: soa = [...]` forces SoA layout; `layout: aos` forces AoS layout; when the annotation contradicts the compiler's analysis, a warning is emitted explaining why the compiler would have chosen differently
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 43: Loop Fusion & Monomorphic Specialization
 **Goal**: Chained collection operations execute in a single pass per type, and collections proven to hold only one concrete type collapse to plain typed arrays
@@ -830,7 +845,12 @@ Plans:
   2. A function that receives `List<Shape>` where dataflow proves all elements are `Circle` (e.g., constructed locally with only `Circle` insertions) emits a plain `Circle[]` array with direct field access instead of tag-based dispatch; the split collection machinery is bypassed entirely
   3. Monomorphic specialization does not produce duplicate function bodies -- a specialization registry keyed on `(function_name, concrete_type)` prevents re-emission of the same specialized function
   4. All existing tests pass; chained collection operations produce identical results to the non-fused path
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 44: Hardware Acceleration & Value Optimization
 **Goal**: Split collections use efficient memory allocation, hot loops receive hardware prefetch hints, independent per-type loops are parallelized, and fields are stored in the narrowest sufficient type
@@ -842,7 +862,12 @@ Plans:
   3. Per-type loops that are proven independent (no shared mutable state, no cross-type data dependencies) emit `#pragma omp parallel sections` wrapping each type's loop; the generated C compiles correctly both with and without `-fopenmp`
   4. A field proven by whole-program analysis to hold values fitting in a smaller type (e.g., an `Int` that only stores 0-255) is stored as `uint8_t` in collection storage structs; the compiler emits widening reads and narrowing writes at access sites
   5. All existing tests pass; programs compiled without `-fopenmp` ignore the OpenMP pragmas with no warnings or errors
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 45: Documentation & Branding
 **Goal**: The language guide, compiler internals documentation, and website reflect the static interface dispatch capability with clear examples and updated branding
@@ -854,7 +879,12 @@ Plans:
   3. A compiler internals page explains how the compiler constructs tagged unions, splits collections, and selects AoS/SoA layout -- aimed at contributors, not end users
   4. At least two concrete game-dev examples (e.g., particle system, entity component system) demonstrate the "write interfaces, get ECS performance" value proposition with before/after showing the Iron source and the generated C
   5. The site tagline reads "A Language Forged for Games" and the landing page highlights the static dispatch value proposition with concrete before/after code examples
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### v0.1.1-alpha Collection Methods, Full Captures & Layout Optimizations Phase Details
 
@@ -868,7 +898,12 @@ Plans:
   3. An object with a closure-typed field retains the closure's captured environment across method calls; the closure executes correctly when invoked through the field
   4. A lambda nested inside another lambda correctly captures variables from both the immediate enclosing lambda and the outer function scope
   5. A recursive lambda defined via `var f = func(...) { ... f(...) ... }` compiles without infinite recursion at compile time and terminates correctly at runtime; two closures sharing the same mutable variable observe each other's mutations
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 47: Collection Methods
 **Goal**: Arrays support `.map()`, `.filter()`, `.reduce()`, `.forEach()`, and `.sum()` with method syntax and lambda arguments, including chaining and dispatch across interface-typed split collections
@@ -897,7 +932,12 @@ Plans:
   3. Fields with the same name, type, and position across all implementors of an interface are stored in a single shared array rather than duplicated per type sub-array
   4. A non-collection interface variable where one implementor is significantly larger than others stores the large variant via pointer indirection while small variants remain inline
   5. `layout: soa` and `layout: aos` annotations on collections override the automatic selection; when the annotation contradicts the compiler's analysis, a warning is emitted
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### Phase 49: Loop Fusion & Monomorphic Specialization
 **Goal**: Chained collection operations execute in a single fused loop per concrete type with no intermediate allocations, and single-type collections collapse to plain typed arrays
@@ -1002,7 +1042,12 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
   1. ironc compiling any integration test program uses less than 500MB of peak memory (measured via `/usr/bin/time -l` or equivalent)
   2. No memory leak detected by running the generated C program under AddressSanitizer or valgrind — all allocated memory is freed or accounted for
   3. Root cause identified and documented — whether compiler-side (arena, stb_ds, strbuf growth) or generated-code-side (missing free, unbounded growth)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
 
 ### v0.1.2-alpha Compiler Hardening & Refactoring
 
@@ -1048,4 +1093,9 @@ Plans:
   2. Stress tests exist and pass for: collections with 10K+ elements producing correct results, interfaces with 10+ implementors dispatching correctly, and deeply nested fusion chains (5+ chained operations) fusing into single loops
   3. Composition tests exist and pass for: SoA layout + fusion (fused loop reads from per-field arrays), dead field elimination + value range compression (compressed fields exclude dead ones), monomorphic collapse + fusion (single-type fused loops), and arena allocation + SoA (arena-backed per-field arrays)
   4. All tests are automated and run as part of the standard `make test` or equivalent CI command -- no manual verification steps
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Edge case tests (empty collections, all-filtered-out, single element, single implementor)
+- [ ] 54-02-PLAN.md — Stress tests (large collections, many implementors, deep fusion chains)
+- [ ] 54-03-PLAN.md — Composition tests (SoA+fusion, dead field+compression, mono+fusion, arena+SoA+dead, mega)
