@@ -1033,7 +1033,7 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 52. Emitter Refactoring | 3/3 | Complete    | 2026-04-08 | - |
 | 53. Analysis Improvements | 3/3 | Complete    | 2026-04-09 | - |
 | 54. Test Hardening | 2/3 | Complete    | 2026-04-09 | - |
-| 55. Push on Interface Arrays | 3/3 | Complete   | 2026-04-09 | - |
+| 55. Push on Interface Arrays | 3/3 | Complete    | 2026-04-09 | - |
 
 ### Phase 51: Memory Investigation & Leak Audit
 
@@ -1108,7 +1108,7 @@ Plans:
 **Depends on**: Phase 54
 **Requirements**: PUSH-01, PUSH-02
 **Success Criteria** (what must be TRUE):
-  1. `var shapes: [Shape] = []; shapes.push(Circle(5))` compiles without errors
+  1. `var shapes = [Circle(1), Square(2)]; shapes.push(Circle(5))` compiles and runs correctly (non-empty initial literal exercises the push dispatch fix; empty typed literal `var shapes: [Shape] = []` is tracked separately under Phase 55.1 / EMPTY-LIT)
   2. Push loop building a 100+ element split collection produces correct runtime output
   3. Root cause of the original bug documented in commit message (what was broken, why, how fixed)
   4. Regression test `push_interface_collection.iron` exists and exercises the previously-broken path
@@ -1117,8 +1117,21 @@ Plans:
 
 Plans:
 - [x] 55-01-PLAN.md — Fix .push() on interface split collections (concrete + interface-typed arg dispatch) + main regression + adjacent tests + 100-element stress test
-- [ ] 55-02-PLAN.md — Add .len() and .pop() branches to the interception block + tests
-- [ ] 55-03-PLAN.md — Add .get() and .set() branches (same-type set semantics) + tests
+- [x] 55-02-PLAN.md — Add .len() and .pop() branches to the interception block + tests
+- [x] 55-03-PLAN.md — Add .get() and .set() branches (same-type set semantics) + tests
+
+### Phase 55.1: Empty Typed Array Literal
+
+**Goal**: Fix empty typed array literal `[]` type inference so that `var shapes: [Shape] = []` compiles. Surfaced during Phase 55 verification as orthogonal to the push dispatch fix — isolated into its own decimal phase to keep scope clean.
+**Depends on**: Phase 55
+**Requirements**: EMPTY-LIT-01, EMPTY-LIT-02
+**Success Criteria** (what must be TRUE):
+  1. `var shapes: [Shape] = []` compiles without errors when the variable has an explicit interface array annotation
+  2. `var shapes: [Shape] = []; shapes.push(Circle(5)); println("{shapes.len()}")` compiles and prints `1`
+  3. Same works for concrete element types: `var ints: [Int] = []; ints.push(7)` compiles
+  4. Root cause documented in commit message — current failure is `E0202: type mismatch expected '[<interface>]', got '[<error>]'`; the empty literal path in `src/analyzer/typecheck.c` does not honor the declared annotation
+  5. Regression test `empty_typed_array_push.iron` covering interface + concrete element types
+**Plans**: TBD
 
 ### Phase 56: Monomorphic Method Chain
 
