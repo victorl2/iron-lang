@@ -1,1 +1,1 @@
-{"iterations": 100, "timeout_sec": 120, "max_ratio": 2.2, "rationale": "Stable ratio 1.90 (variance 0.0%) across 5 runs; 2.2x = mean*1.15 rounded up; 2026-04-10 audit"}
+{"iterations": 100, "timeout_sec": 120, "max_ratio": 1.5, "rationale": "Phase 59 bitwise operators closed the (mask / pow2) % 2 workaround gap; benchmark rewritten to ((mask >> i) & 1) == 1 making it structurally identical to solution.c. Fresh 5-run measurement 2026-04-10: all runs 1.0x speed (Iron 710-715ms vs C 712-720ms, Iron sometimes faster). Threshold set to project floor 1.5x per audit policy."}

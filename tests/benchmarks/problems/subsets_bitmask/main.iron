@@ -13,13 +13,9 @@ func subsets_bitmask(arr: [Int], n: Int) -> Int {
         var subset_sum = 0
         for i in range(n) {
             -- Check if bit i is set in mask
-            var bit = mask
-            var k = 0
-            while k < i {
-                bit = bit / 2
-                k = k + 1
-            }
-            if bit % 2 == 1 {
+            -- Explicitly parenthesized to document intent and avoid the C
+            -- `a & b == c` gotcha (see tests/integration/bitwise_precedence.iron).
+            if ((mask >> i) & 1) == 1 {
                 subset_sum = subset_sum + arr[i]
             }
         }
