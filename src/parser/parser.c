@@ -15,14 +15,18 @@ typedef enum {
     PREC_NONE       = 0,
     PREC_ASSIGN     = 1,
     PREC_IS         = 2,
-    PREC_OR         = 3,
-    PREC_AND        = 4,
-    PREC_EQUALITY   = 5,
-    PREC_COMPARISON = 6,
-    PREC_TERM       = 7,
-    PREC_FACTOR     = 8,
-    PREC_UNARY      = 9,
-    PREC_CALL       = 10
+    PREC_OR         = 3,   /* logical ||                (unchanged)        */
+    PREC_AND        = 4,   /* logical &&                (unchanged)        */
+    PREC_BIT_OR     = 5,   /* bitwise |                 (Phase 59)         */
+    PREC_BIT_XOR    = 6,   /* bitwise ^                 (Phase 59)         */
+    PREC_BIT_AND    = 7,   /* bitwise &                 (Phase 59)         */
+    PREC_EQUALITY   = 8,   /* == !=                     (renumbered from 5)*/
+    PREC_COMPARISON = 9,   /* < > <= >=                 (renumbered from 6)*/
+    PREC_SHIFT      = 10,  /* << >>                     (Phase 59)         */
+    PREC_TERM       = 11,  /* + -                       (renumbered from 7)*/
+    PREC_FACTOR     = 12,  /* * / %                     (renumbered from 8)*/
+    PREC_UNARY      = 13,  /* unary - ! ~               (renumbered from 9)*/
+    PREC_CALL       = 14   /* . [] ()                   (renumbered from 10)*/
 } Precedence;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -577,12 +581,17 @@ static int iron_infix_prec(Iron_TokenKind k) {
     switch (k) {
         case IRON_TOK_OR:         return PREC_OR;
         case IRON_TOK_AND:        return PREC_AND;
+        case IRON_TOK_PIPE:       return PREC_BIT_OR;
+        case IRON_TOK_CARET:      return PREC_BIT_XOR;
+        case IRON_TOK_AMP:        return PREC_BIT_AND;
         case IRON_TOK_EQUALS:
         case IRON_TOK_NOT_EQUALS: return PREC_EQUALITY;
         case IRON_TOK_LESS:
         case IRON_TOK_GREATER:
         case IRON_TOK_LESS_EQ:
         case IRON_TOK_GREATER_EQ: return PREC_COMPARISON;
+        case IRON_TOK_SHL:
+        case IRON_TOK_SHR:        return PREC_SHIFT;
         case IRON_TOK_PLUS:
         case IRON_TOK_MINUS:      return PREC_TERM;
         case IRON_TOK_STAR:
@@ -679,6 +688,17 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_NOT;
+            n->operand         = operand;
+            return (Iron_Node *)n;
+        }
+        /* Unary bitwise NOT (Phase 59) */
+        case IRON_TOK_TILDE: {
+            iron_advance(p);
+            Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
+            Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
+            n->kind            = IRON_NODE_UNARY;
+            n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
+            n->op              = (Iron_OpKind)IRON_TOK_TILDE;
             n->operand         = operand;
             return (Iron_Node *)n;
         }
@@ -1689,11 +1709,16 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
 
             /* Check for assignment operators */
             Iron_TokenKind op = iron_peek(p);
-            if (op == IRON_TOK_ASSIGN      ||
+            if (op == IRON_TOK_ASSIGN       ||
                 op == IRON_TOK_PLUS_ASSIGN  ||
                 op == IRON_TOK_MINUS_ASSIGN ||
                 op == IRON_TOK_STAR_ASSIGN  ||
-                op == IRON_TOK_SLASH_ASSIGN) {
+                op == IRON_TOK_SLASH_ASSIGN ||
+                op == IRON_TOK_SHL_ASSIGN   ||
+                op == IRON_TOK_SHR_ASSIGN   ||
+                op == IRON_TOK_AMP_ASSIGN   ||
+                op == IRON_TOK_PIPE_ASSIGN  ||
+                op == IRON_TOK_CARET_ASSIGN) {
                 iron_advance(p);
                 iron_skip_newlines(p);
                 Iron_Node *val = iron_parse_expr(p);
