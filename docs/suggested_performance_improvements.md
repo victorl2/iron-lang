@@ -289,6 +289,130 @@ correctness of the spawn/parallel-for semantics, not raw computation efficiency.
 
 ---
 
+## Phase 58 Post-DCE Findings (2026-04-10)
+
+Phase 58's benchmark audit uncovered that 43 benchmarks had been silently compiling
+to empty loops under clang `-O2` dead-store elimination. After the DCE-defeat
+rewrite (Plan 58-03 Precondition B), two benchmarks that had previously reported
+spurious "near-parity" (0.0x) ratios surfaced as legitimate 1.7–1.9x outliers.
+Both have concrete, actionable root causes and are added here as follow-up
+optimization targets.
+
+### 4. `course_schedule` — 1.73x
+
+**Root cause: Unconditional zero-fill of stack-allocated workspace arrays**
+
+Iron's escape analysis correctly stack-allocates the three workspace arrays
+(`state`, `stack`, `stack_type`) via `alloca` — no heap allocation, which is
+excellent. However, the generated C unconditionally zero-fills all 820 elements
+on every call:
+
+```c
+int64_t *_v8 = (int64_t *)alloca(sizeof(int64_t) * _v2);
+for (int64_t _fill_i = 0; _fill_i < _v2; _fill_i++) _v8[_fill_i] = 0LL;
+int64_t *_v13 = (int64_t *)alloca(sizeof(int64_t) * 400LL);
+for (int64_t _fill_i = 0; _fill_i < 400LL; _fill_i++) _v13[_fill_i] = 0LL;
+int64_t *_v18 = (int64_t *)alloca(sizeof(int64_t) * 400LL);
+for (int64_t _fill_i = 0; _fill_i < 400LL; _fill_i++) _v18[_fill_i] = 0LL;
+```
+
+The C reference memsets only `state[20]` (the 80-byte array that actually needs
+zero-init for the DFS state machine). `stack[400]` and `stack_type[400]` are
+write-before-read workspace buffers that don't need zeroing.
+
+Per-call cost:
+- **Iron:** 820 × int64 zero writes = ~6.5 KB of memory traffic
+- **C:** 20 × int64 memset = ~160 bytes
+- **Ratio:** ~40× more memory traffic per call for Iron
+
+Over the 100K-iteration benchmark loop, Iron performs ~82M extra zero writes that
+C does not — matches the observed 1.73× slowdown.
+
+**Classification:** MISSING OPTIMIZATION — fill-elision via definite assignment.
+Iron already has definite-assignment analysis (Phase 36) for scalars. Extending
+it to detect "array allocated and every read-reachable index is write-before-read"
+would let the compiler skip or delay the zero-fill.
+
+**Prototype fix options:**
+1. **Array-aware definite assignment (preferred).** Extend Phase 36's analysis to
+   track per-element write-before-read for array literals and `fill()` calls.
+   When every reachable read is dominated by a write, omit the zero-fill loop.
+   Most impact, fits existing architecture, but nontrivial.
+2. **`fill_uninit(n)` API.** Add a stdlib primitive that returns an uninitialized
+   stack-allocated array. Simple to implement (map to bare `alloca`), but adds
+   unsafe API surface and requires benchmark authors to opt in.
+3. **Loop-invariant fill detection.** Detect `fill(const, 0)` at the top of a
+   function where the array is fully overwritten before any read, and elide the
+   fill. A special case of (1) but cheaper to implement.
+
+**Estimated improvement:** 1.5–1.7× on `course_schedule`. Also benefits any
+benchmark using `fill()` as a workspace allocator.
+
+**Files:** `src/lir/emit_c.c` (fill emission site), `src/hir/definite_assignment.c`
+(extend to arrays).
+
+---
+
+### 5. `subsets_bitmask` — 1.90x
+
+**Root cause: Missing bitwise operators in Iron language**
+
+The C reference uses single-instruction bit manipulation:
+```c
+if ((mask >> i) & 1) {
+    subset_sum += arr[i];
+}
+```
+
+Iron the language has no `>>`, `<<`, `&`, `|`, `^`, or `~` operators. The
+benchmark author was forced to simulate `(mask >> i) & 1` with an O(i) inner
+loop of arithmetic divisions:
+```iron
+var bit = mask
+var k = 0
+while k < i {
+    bit = bit / 2
+    k = k + 1
+}
+if bit % 2 == 1 { ... }
+```
+
+clang folds `x / 2` to `x >> 1` for the divide-by-constant case, but the loop
+itself still runs `i` times per bit check. For `n = 18`, the amortized inner
+bit extraction runs ~9 arithmetic ops instead of C's 1 shift — an ~9× cost
+increase on the bit-extraction inner loop, diluted to the observed 1.9× overall
+ratio once the rest of the benchmark work is accounted for.
+
+**The gap scales with `n`.** At `n = 18`, the ratio is 1.9×. At `n = 24`, it
+would be closer to 3×. At `n = 30`, closer to 5×. The benchmark is pinned to
+`n = 18` only because iteration time at `n = 24` becomes impractical.
+
+**Classification:** LANGUAGE GAP — missing core operators, not a compiler bug.
+
+**Proposed fix:** Add bitwise operators to Iron as a dedicated language phase:
+- Lexer: tokens for `<<`, `>>`, `&`, `|`, `^`, `~`
+- Parser: precedence and associativity (match C: `~` unary, `<<`/`>>` above
+  additive, `&`/`^`/`|` below comparisons)
+- Type checker: restrict to integer operand types
+- HIR/LIR: new binary/unary ops or lower to existing Int arithmetic via intrinsics
+- Emitter: direct C emission (`a << b`, `a & b`, etc.)
+- Docs + examples
+- Rewrite `subsets_bitmask` to use the operators
+
+**Estimated improvement:** ~2–3× on `subsets_bitmask` (eliminates the inner
+divide loop), and opens up other benchmarks (hashing, flags, fixed-point math)
+that are currently awkward to write in Iron.
+
+**Files:** `src/lex/lexer.c`, `src/parse/parser.c`, `src/semantic/type_check.c`,
+`src/hir/hir_lower.c`, `src/lir/emit_c.c`, `tests/integration/bitwise_*`.
+
+**Scope note:** This is the highest-value pure language gap found in any
+benchmark audit to date. Beyond `subsets_bitmask`, many competitive-programming
+benchmarks (bitmask DP, SAT solvers, hash functions) become unnatural to
+express without bitwise operators.
+
+---
+
 ### P6 — Structured Loop Reconstruction (expected 1.5-2x for loop-heavy code)
 
 **Problem:** The C emitter outputs goto-based control flow for all loops
@@ -326,6 +450,10 @@ irreducible control flow.
 8. **P2b — Full Copy-Coalescing Phi Elimination** (High effort, 1.5-3x for complex control flow)
 9. **P7 — Auto-Narrowing Integer Types** (High effort, range analysis, 1.2-1.5x)
 10. **P8 — LLVM Backend** (Very High effort, 2-5x across the board)
+11. **P9 — Bitwise Operators** (Medium effort, language gap, fixes `subsets_bitmask` 1.9x and opens
+    bitmask-DP / hashing / flags / fixed-point-math idioms that are currently unnatural in Iron)
+12. **P10 — Fill Elision via Array Definite Assignment** (Medium-High effort, fixes
+    `course_schedule` 1.73x and benefits any benchmark that uses `fill()` as a stack workspace)
 
 P1+P4+P5+P0+P2+P3 together brought median ratio from 5.7x to 1.0x (82% improvement).
 Only 3 benchmarks remain above 3x, all with non-compiler root causes.
@@ -333,3 +461,12 @@ Only 3 benchmarks remain above 3x, all with non-compiler root causes.
 P6 (Structured Loop Reconstruction) is the highest-impact remaining improvement.
 The goto-based C emission prevents clang from vectorizing and unrolling loops.
 Primary candidates: `three_sum` (1.9x), `num_islands` (1.2x), `topological_sort_kahn` (1.4x).
+
+P9 (Bitwise Operators) is the highest-value pure language gap and the easiest to
+scope. It is a self-contained phase touching lexer/parser/type-check/emitter,
+predictable in size, and unblocks an entire category of benchmarks beyond
+`subsets_bitmask`.
+
+P10 (Fill Elision) is narrower in scope but directly addresses a confirmed 1.73x
+gap on `course_schedule` that is purely a missing optimization (Iron already
+stack-allocates correctly; it just over-zero-fills).
