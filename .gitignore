@@ -1,6 +1,8 @@
 # Build directories
 build*/
 .iron-build/
+.cache/
+Testing/
 
 # Planning (local-only)
 .planning/
@@ -13,6 +15,22 @@ expr_inline_arithmetic
 heap_auto_free
 strength_reduction_loop
 test_*
+/arena_split_collection
+/audit_for_array_of_structs
+/capture_*
+/climb_test*
+/compose_*
+/edge_*
+/fusion_*
+/hir_edge_*
+/layout_*
+/mono_*
+/push_interface_*
+/soa_fusion_*
+/split_collection_*
+/static_dispatch_*
+/stress_*
+/value_range_*
 !tests/
 !tests/**
 
