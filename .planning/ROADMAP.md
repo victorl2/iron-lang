@@ -1176,7 +1176,7 @@ Plans:
 
 ### Phase 58: Benchmark Stabilization
 
-**Goal**: Root-cause `binary_tree_diameter` performance gap and either fix or document it
+**Goal**: Root-cause `binary_tree_diameter` performance gap via ns-timing stabilization and per-benchmark threshold audit; document findings or apply fix
 **Depends on**: Phase 57
 **Requirements**: BENCH-01, BENCH-02
 **Success Criteria** (what must be TRUE):
@@ -1184,5 +1184,11 @@ Plans:
   2. Either: gap closed to <1.5x ratio (threshold lowered back from 2.5x) — OR — gap documented as inherent with specific technical reason and threshold retained
   3. Benchmark runs 5 times consecutively on same machine with stable results (variance <5% across runs)
   4. If fix applied: regression benchmark ensures the fix holds across future changes
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 58-01-PLAN.md — Add Time.now_ns() to Iron stdlib (time.iron + iron_time.h/.c) + regression test + extend run_benchmarks.sh extract_time_ms() to prefer ns line
+- [ ] 58-02-PLAN.md — Rewrite all 139 benchmark main.iron files to use Time.now_ns() and emit 'Total time: X ns' primary line (depends on 58-01)
+- [ ] 58-03-PLAN.md — Create scripts/bench_audit.sh + run 5-round audit + rewrite all 139 config.json with audit-derived max_ratio and rationale + regenerate baselines/latest.json (depends on 58-02)
+- [ ] 58-04-PLAN.md — Write 58-VERIFICATION.md narrative + audit table + SC1-SC4 checklist + conditional generated-C diff + human sign-off checkpoint + mark BENCH-01/BENCH-02 complete in REQUIREMENTS.md (depends on 58-03)
 

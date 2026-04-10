@@ -90,8 +90,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **SOA-FIX-01**: Split collections with SoA layout fuse correctly — Stor type reference mismatch resolved
 - [x] **SOA-FIX-02**: Regression test exercises SoA + fusion composition without workarounds (the original `compose_soa_fusion.iron` pattern works directly)
 
-- [ ] **BENCH-01**: `binary_tree_diameter` benchmark root cause identified and documented — why is Iron 1.9-2.0x slower than C, and is it inherent or fixable?
-- [ ] **BENCH-02**: Benchmark either stabilized to <1.5x ratio (with fix) or documented as inherent cost with justification (with threshold retained at 2.5x)
+- [x] **BENCH-01**: `binary_tree_diameter` benchmark root cause identified and documented — why is Iron 1.9-2.0x slower than C, and is it inherent or fixable?
+- [x] **BENCH-02**: Benchmark either stabilized to <1.5x ratio (with fix) or documented as inherent cost with justification (with threshold retained at 2.5x)
 
 ## v2 Requirements
 
@@ -171,8 +171,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MONO-FIX-02 | Phase 56 | Complete |
 | SOA-FIX-01 | Phase 57 | Complete |
 | SOA-FIX-02 | Phase 57 | Complete |
-| BENCH-01 | Phase 58 | Pending |
-| BENCH-02 | Phase 58 | Pending |
+| BENCH-01 | Phase 58 | Complete |
+| BENCH-02 | Phase 58 | Complete |
 
 **Coverage:**
 - v1 requirements: 48 total

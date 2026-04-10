@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 58 context gathered
-last_updated: "2026-04-10T10:21:39.611Z"
-last_activity: 2026-04-10 -- Phase 57 Plan 03 complete; Phase 57 complete; SOA-FIX-02 + Phase 54 SoA-workaround restoration both closed
+stopped_at: Completed 58-01-PLAN.md
+last_updated: "2026-04-10T11:10:00.000Z"
+last_activity: 2026-04-10 -- Phase 58 Plan 01 complete; Time.now_ns() stdlib API + regression test + ns-aware run_benchmarks.sh extract_time_ms
 progress:
   total_phases: 20
   completed_phases: 11
-  total_plans: 31
-  completed_plans: 31
-  percent: 100
+  total_plans: 35
+  completed_plans: 32
+  percent: 91
 ---
 
 # Project State
@@ -25,19 +25,19 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 
 ## Current Position
 
-Phase: 57-soa-fusion-composition
-Plan: 03 complete (Phase 57 complete; compose_soa_fusion.iron and compose_mega.iron Phase 54 workarounds restored to fused `.map().sum()` form, both `.expected` files unchanged, full suite 318/0)
+Phase: 58-benchmark-stabilization
+Plan: 01 complete (Time.now_ns() stdlib + regression test + run_benchmarks.sh ns-preferred extract_time_ms; full suite 319/0 +1 from 318 baseline)
 Status: Executing v0.1.3-alpha
-Last activity: 2026-04-10 -- Phase 57 Plan 03 complete; Phase 57 complete; SOA-FIX-02 + Phase 54 SoA-workaround restoration both closed
+Last activity: 2026-04-10 -- Phase 58 Plan 01 complete; Time.now_ns() foundation landed, ready for Plan 02 benchmark rewrite
 
-Progress: [██████████] 100%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
+- Total plans completed: 23
 - Average duration: 22min
-- Total execution time: ~6.9 hours
+- Total execution time: ~7.2 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -72,6 +72,7 @@ Progress: [██████████] 100%
 | Phase 57-soa-fusion-composition P01 | 28min | 2 tasks | 4 files |
 | Phase 57-soa-fusion-composition P02 | 12min | 3 tasks | 7 files |
 | Phase 57-soa-fusion-composition P03 | 11min | 2 tasks | 2 files |
+| Phase 58-benchmark-stabilization P01 | 16min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,11 @@ Progress: [██████████] 100%
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 03: compose_mega.iron restored to `widgets.map(func(w: Widget) -> Int { return w.score() }).sum()` fused form exercising split + SoA + dead field + VRC + arena + fusion simultaneously; `.expected` unchanged at `5250\n`; generated C contains all three `Iron_Widget_from_{Button,Label,Slider}_Stor(` calls from the fused loop AND still contains `uint8_t` (Phase 50 VRC remains active)
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 03: `val` accumulator in fused chains is lowered to a compiler temp (e.g. `_v26`) in generated C, so the plan's `grep -q 'sum_x'` acceptance criterion was an over-specification that doesn't match Iron's fusion codegen; real correctness is proved by stdout match + `_fuse_v0` reduction; noted for future plans relying on source binding names surviving lowering
 - [Phase 57-soa-fusion-composition]: Phase 57 complete — SOA-FIX-02 + Phase 54 SoA-workaround restoration both fully closed; ROADMAP SC1–SC5 observably satisfied; 318 passed / 0 failed end-to-end (Plan 02 baseline held with +0 regressions through Plan 03)
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: `Time.now_ns() -> Int` added as sibling stub in src/stdlib/time.iron; `Iron_time_now_ns` C function in iron_time.{h,c} uses `clock_gettime(CLOCK_MONOTONIC, ...)` with `(int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec`, mirroring Iron_time_now_ms exactly (no platform fork, no mach_absolute_time)
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: HIR static-method mangling pathway suffices for new stdlib Time methods — `Time.now_ns` routes to `Iron_time_now_ns` via lowercased-type-name mangling with zero edits to src/hir/hir_to_lir.c or builtin/method registries (end-to-end smoke-confirmed on a standalone .iron file before committing)
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: run_benchmarks.sh takes Option 2 (runner regex extension) not Option 1 (Iron formats %.3f ms) because Iron string interpolation has no float format specifier support; extract_time_ms() prefers `Total time: <integer> ns`, normalizes ns→ms via `awk printf "%.6f"` (6-decimal microsecond precision), and falls back to `Total time: <number> ms` for C reference outputs
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: regression test Assertion 2 and 3 loop bodies mix in runtime `Time.now_ns()` samples inside the accumulator (e.g. `acc = acc + Time.now_ns()`) to defeat C -O2 constant-folding of pure-integer sums; original plan's `acc = acc + i` with a FAIL-path read-back was still folded to delta=0ns. Documented as reusable pattern for future Iron micro-benchmarks.
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: integration suite 319 passed / 0 failed (+1 from 318 baseline); build clean; extract_time_ms smoke tests 4/4 (ns-only, ms-only, both-present-picks-ns, C-reference-ms-compat); Plan 02 (benchmark rewrite) unblocked
 
 ### Roadmap Evolution
 
@@ -152,6 +158,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-10T10:21:39.608Z
-Stopped at: Phase 58 context gathered
-Resume file: .planning/phases/58-benchmark-stabilization/58-CONTEXT.md
+Last session: 2026-04-10T11:06:52Z
+Stopped at: Completed 58-01-PLAN.md
+Resume file: .planning/phases/58-benchmark-stabilization/58-02-PLAN.md
