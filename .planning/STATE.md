@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 57 Plan 01 complete (atomic SoA + fusion core fix)
-last_updated: "2026-04-10T00:49:03.202Z"
-last_activity: 2026-04-09 -- Phase 57 Plan 01 complete (SoA + fusion atomic core fix)
+stopped_at: Completed 57-02-PLAN.md
+last_updated: "2026-04-10T01:07:52.286Z"
+last_activity: 2026-04-10 -- Phase 57 Plan 02 complete (3 adjacent regression tests, SOA-FIX-02 closed)
 progress:
   total_phases: 20
   completed_phases: 10
   total_plans: 31
-  completed_plans: 29
-  percent: 94
+  completed_plans: 30
+  percent: 97
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 57-soa-fusion-composition
-Plan: 01 complete (SOA-FIX-01 atomic core fix landed; reduced_storage_types-triggered Stor sibling ctors + emit_fusion.c branch)
+Plan: 02 complete (SOA-FIX-02 closed; 3 adjacent regression tests landed — dead-field zero-init, VRC widening cast, 4-implementor sibling loop)
 Status: Executing v0.1.3-alpha
-Last activity: 2026-04-09 -- Phase 57 Plan 01 complete (SoA + fusion atomic core fix)
+Last activity: 2026-04-10 -- Phase 57 Plan 02 complete (3 adjacent regression tests, SOA-FIX-02 closed)
 
-Progress: [█████████░] 94%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Progress: [█████████░] 94%
 | Phase 56-monomorphic-method-chain P01 | 55min | 3 tasks | 21 files |
 | Phase 56-monomorphic-method-chain P02 | 33min | 2 tasks | 13 files |
 | Phase 57-soa-fusion-composition P01 | 28min | 2 tasks | 4 files |
+| Phase 57-soa-fusion-composition P02 | 12min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,9 @@ Progress: [█████████░] 94%
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 01: Sibling Iron_<Iface>_from_<Type>_Stor constructors emitted in emit_structs.c after emit_split_collection_for_iface() completes (so reduced_storage_types and Iron_<Type>_Stor typedef are populated); the sibling expands the reduced variant by copying alive fields, widening Phase 50 VRC fields via (int64_t) cast, and zero-initing dead fields
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 01: Trigger broadened from ctx->soa_types to ctx->reduced_storage_types in BOTH emit_structs.c sibling guard AND emit_fusion.c ctor_suffix branch; the reduced storage path is independent of SoA selection (dead-field elim alone triggers it on AoS), so the plan's SoA-only diagnosis was a strict subset of the actual bug
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 01: (void)is_soa; defer marker fully removed from emit_fusion.c; the is_soa local is gone entirely (only the explanatory comment retains the historical name)
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 02: Three-test adjacent regression triad landed — soa_fusion_dead_field (5-field Ledger/Note, 4 dead fields, sum=500), soa_fusion_compressed (Job/Chore with priority in [1..9] forcing Phase 50 VRC uint8_t narrowing + (int64_t) widening cast, sum=26), soa_fusion_many_types (4 implementors Soldier/Archer/Mage/Healer, 4 distinct sibling ctors emitted and called, sum=86)
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 02: All three tests use .map(get_*).sum() fused chain — simplest fusible terminal that engages Phase 49 fusion engine, keeps test focus on Plan 01 sibling ctor path, makes per-test debugging unambiguous since each sum is hand-computed
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 02: Zero deviations from plan — Plan 01's broadened reduced_storage_types trigger (noted as Rule 1 deviation in 57-01-SUMMARY.md) was load-bearing for Plan 02 because all three tests are fusion-only (no for_pre loops) so layout_select never runs and ctx->soa_types would have been empty; reduced_storage_types covered them all on the first build
 
 ### Roadmap Evolution
 
@@ -143,6 +147,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-10T00:49:03.198Z
-Stopped at: Phase 57 Plan 01 complete (atomic SoA + fusion core fix)
+Last session: 2026-04-10T01:07:52.283Z
+Stopped at: Completed 57-02-PLAN.md
 Resume file: None
