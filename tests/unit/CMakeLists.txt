@@ -115,3 +115,9 @@ add_executable(test_tuple_codegen test_tuple_codegen.c)
 target_link_libraries(test_tuple_codegen iron_stdlib iron_runtime unity)
 add_test(NAME test_tuple_codegen COMMAND test_tuple_codegen)
 set_tests_properties(test_tuple_codegen PROPERTIES LABELS "unit")
+
+# ── Phase 59 02: TCP stdlib Unity tests ─────────────────────────────────────
+add_executable(test_stdlib_net_tcp test_stdlib_net_tcp.c)
+target_link_libraries(test_stdlib_net_tcp iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_tcp COMMAND test_stdlib_net_tcp)
+set_tests_properties(test_stdlib_net_tcp PROPERTIES LABELS "unit")
