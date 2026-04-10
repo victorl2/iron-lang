@@ -109,3 +109,9 @@ add_executable(test_stdlib test_stdlib.c)
 target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)
 add_test(NAME test_stdlib COMMAND test_stdlib)
 set_tests_properties(test_stdlib PROPERTIES LABELS "unit")
+
+# ── Phase 59 01d: tuple binary-layout lock ──────────────────────────────────
+add_executable(test_tuple_codegen test_tuple_codegen.c)
+target_link_libraries(test_tuple_codegen iron_stdlib iron_runtime unity)
+add_test(NAME test_tuple_codegen COMMAND test_tuple_codegen)
+set_tests_properties(test_tuple_codegen PROPERTIES LABELS "unit")

@@ -60,6 +60,7 @@ typedef struct {
 
     /* General emission state */
     char        **emitted_optionals;             /* stb_ds string array */
+    char        **emitted_tuples;                /* Phase 59 01d: stb_ds string array of tuple mangled names */
     struct { char *key; bool value; } *mono_registry; /* stb_ds string map */
     int           next_type_tag;                 /* starts at 1 */
     int           indent;
@@ -171,6 +172,11 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx);
 const char *emit_annotation_to_c(const char *name, EmitCtx *ctx);
 const char *emit_optional_struct_name(const Iron_Type *inner, EmitCtx *ctx);
 void emit_ensure_optional(EmitCtx *ctx, const Iron_Type *inner);
+
+/* Phase 59 01d: synthesise a C typedef for a tuple type on demand.
+ * Dedupes via ctx->emitted_tuples. Nested tuples recurse so inner
+ * typedefs land first. No-op for non-tuple input. */
+void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty);
 
 /* ── Emit utilities ──────────────────────────────────────────────────────── */
 

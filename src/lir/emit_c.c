@@ -195,20 +195,80 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, ")");
         break;
-    case IRON_LIR_EQ:
+    case IRON_LIR_EQ: {
+        /* Phase 59 01d: tuple equality — element-wise && of primitive
+         * comparisons or iron_string_equals() for string elements. The
+         * typechecker has already guaranteed matching arity + types. */
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            if (depth > 0) iron_strbuf_appendf(sb, "(");
+            iron_strbuf_appendf(sb, "(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+            if (depth > 0) iron_strbuf_appendf(sb, ")");
+            break;
+        }
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " == ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
         if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
-    case IRON_LIR_NEQ:
+    }
+    case IRON_LIR_NEQ: {
+        /* Phase 59 01d: tuple inequality — !(elementwise ==). */
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            if (depth > 0) iron_strbuf_appendf(sb, "(");
+            iron_strbuf_appendf(sb, "!(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+            if (depth > 0) iron_strbuf_appendf(sb, ")");
+            break;
+        }
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " != ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
         if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
+    }
     case IRON_LIR_LT:
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
@@ -447,6 +507,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 } else {
                     iron_strbuf_appendf(sb, " ");
                 }
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, use_block_id, depth+1);
+            }
+        /* Phase 59 01d: tuple construct — designated init with v0/v1/... */
+        } else if (instr->construct.type &&
+            instr->construct.type->kind == IRON_TYPE_TUPLE) {
+            for (int i = 0; i < instr->construct.field_count; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, ",");
+                iron_strbuf_appendf(sb, " .v%d = ", i);
                 emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, use_block_id, depth+1);
             }
         } else {
@@ -702,27 +770,80 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     /* ── Comparison ─────────────────────────────────────────────────────── */
 
-    case IRON_LIR_EQ:
+    case IRON_LIR_EQ: {
+        /* Phase 59 01d: tuple equality at statement level. */
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, " == ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            iron_strbuf_appendf(sb, "(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+        } else {
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, " == ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        }
         iron_strbuf_appendf(sb, ";\n");
         break;
+    }
 
-    case IRON_LIR_NEQ:
+    case IRON_LIR_NEQ: {
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, " != ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            iron_strbuf_appendf(sb, "!(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+        } else {
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, " != ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        }
         iron_strbuf_appendf(sb, ";\n");
         break;
+    }
 
     case IRON_LIR_LT:
         emit_indent(sb, ind);
@@ -2513,6 +2634,20 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 } else {
                     iron_strbuf_appendf(sb, " ");
                 }
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, ctx->current_block_id, 0);
+            }
+        /* Phase 59 01d: tuple construct — emit C99 designated init
+         * with field names v0, v1, ... matching the typedef produced
+         * by emit_ensure_tuple. */
+        } else if (instr->construct.type &&
+            instr->construct.type->kind == IRON_TYPE_TUPLE) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {");
+            for (int i = 0; i < instr->construct.field_count; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, ",");
+                iron_strbuf_appendf(sb, " .v%d = ", i);
                 emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, ctx->current_block_id, 0);
             }
         } else {
