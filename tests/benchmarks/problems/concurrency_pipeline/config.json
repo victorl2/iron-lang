@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 2.5, "note": "Phase 31: await-based timing (handles captured and awaited per iteration). Sub-ms workload; threshold 1.5x absorbs timer noise."}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "Stable ratio 0.10 (variance 0.0%) across 5 runs; 1.5x floor per project policy; 2026-04-10 audit"}

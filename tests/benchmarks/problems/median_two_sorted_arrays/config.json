@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 15.0, "note": "Both Iron and C use int32_t. Local ~4.2x, Ubuntu CI ~12x. Gap is goto control flow + array length params. Ubuntu clang optimizes C reference more aggressively."}
+{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 4.4, "rationale": "Stable ratio 3.80 (variance 0.0%) across 5 runs; 4.4x = mean*1.15 rounded up; 2026-04-10 audit"}

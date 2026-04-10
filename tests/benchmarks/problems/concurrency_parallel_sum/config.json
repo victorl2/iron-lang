@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 2.5, "note": "Correctness benchmark: 3 iterations of parallel-for sum. Sub-ms timing causes extreme ratio variance (C=0ms, Iron=0-1ms). Threshold 5.0x absorbs sub-ms measurement noise."}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "Observed ratio 0.23 with 65.5% variance across 5 runs; 1.5x floor per project policy; sub-ms C runtime (0.84ms); 2026-04-10 audit"}

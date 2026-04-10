@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 2.5, "note": "Sub-ms timing causes high ratio variance; threshold 5.0x absorbs timer noise"}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "Observed ratio 0.13 with 86.6% variance across 5 runs; 1.5x floor per project policy; sub-ms C runtime (1.63ms); 2026-04-10 audit"}
