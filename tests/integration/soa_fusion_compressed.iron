@@ -1,0 +1,56 @@
+-- soa_fusion_compressed.iron: Phase 57 adjacent regression for SoA + fusion + VRC compression
+-- Covers ROADMAP Phase 57 SC5 "SoA + fusion + compression"
+--
+-- Triggers:
+--   (1) Small-range integer fields (0-99) that Phase 50 VRC narrows to uint8_t in _Stor
+--   (2) Only 1 of 4 fields accessed via get_priority() -> Phase 48 picks SoA
+--   (3) Dead field elimination removes the other 3 fields from _Stor
+--   (4) Fusion: val total = tasks.map(get_priority).sum() -> Phase 49 emits fused per-type loop
+--   (5) Plan 01 sibling helper MUST emit (int64_t)val.priority widening cast because
+--       priority is stored as uint8_t in the _Stor but Iron_<Type>.priority is int64_t
+--
+-- Narrowing note: Phase 50 VRC analyzes the literal values at the call site.
+-- All priority values below are in [1..9], all other fields in [0..50], which
+-- fits cleanly in uint8_t -> VRC narrows them in _Stor.
+
+interface Task {
+  func get_priority() -> Int
+}
+
+object Job impl Task {
+  var priority: Int
+  var owner_id: Int
+  var kind: Int
+  var cost: Int
+}
+
+object Chore impl Task {
+  var priority: Int
+  var room: Int
+  var day: Int
+  var hours: Int
+}
+
+func Job.get_priority() -> Int {
+  return self.priority
+}
+
+func Chore.get_priority() -> Int {
+  return self.priority
+}
+
+func main() {
+  val tasks = [
+    Job(3, 10, 20, 30),
+    Chore(5, 1, 2, 4),
+    Job(7, 40, 50, 12),
+    Chore(2, 8, 6, 3),
+    Job(9, 15, 25, 35)
+  ]
+  -- Job priorities: 3 + 7 + 9 = 19
+  -- Chore priorities: 5 + 2   = 7
+  -- Total:                     26
+  val total = tasks.map(func(t: Task) -> Int { return t.get_priority() }).sum()
+  println("{total}")
+  println("compressed_done")
+}
