@@ -90,8 +90,8 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **SOA-FIX-01**: Split collections with SoA layout fuse correctly — Stor type reference mismatch resolved
 - [x] **SOA-FIX-02**: Regression test exercises SoA + fusion composition without workarounds (the original `compose_soa_fusion.iron` pattern works directly)
 
-- [x] **BENCH-01**: `binary_tree_diameter` benchmark root cause identified and documented — why is Iron 1.9-2.0x slower than C, and is it inherent or fixable?
-- [x] **BENCH-02**: Benchmark either stabilized to <1.5x ratio (with fix) or documented as inherent cost with justification (with threshold retained at 2.5x)
+- [x] **BENCH-01**: `binary_tree_diameter` benchmark root cause identified — the 1.9-2.0x CI figure was ms-integer quantization noise in Iron's Time.now_ms() timing path. Phase 58 added Time.now_ns() for sub-ms-precise measurement and the stabilized 5-run mean ratio is 1.00x (variance 0.0%); see 58-VERIFICATION.md for full audit.
+- [x] **BENCH-02**: Benchmark stabilized to 1.00x ratio after ns-timing rewrite. Threshold set to 1.5x (project policy floor) per 2026-04-10 audit. All 139 benchmark configs carry individual rationale strings replacing Phase 54's blanket 2.5x.
 
 ## v2 Requirements
 
@@ -181,4 +181,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-07*
-*Last updated: 2026-04-09 after v0.1.3-alpha roadmap creation (phases 55-58 for known limitations cleanup)*
+*Last updated: 2026-04-10 after Phase 58 benchmark stabilization complete (BENCH-01, BENCH-02 closed)*
