@@ -1037,6 +1037,7 @@ Phases execute in numeric order: 40 -> 41 -> 42 -> 43 -> 44 -> 45 -> 46 -> 47 ->
 | 55.1. Empty Typed Array Literal | 1/1 | Complete    | 2026-04-09 | - |
 | 56. Monomorphic Method Chain | 2/2 | Complete    | 2026-04-09 | - |
 | 57. SoA + Fusion Composition | 3/3 | Complete    | 2026-04-10 | - |
+| 58. Benchmark Stabilization | 4/4 | Complete    | 2026-04-10 | - |
 
 ### Phase 51: Memory Investigation & Leak Audit
 
@@ -1187,8 +1188,8 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 58-01-PLAN.md — Add Time.now_ns() to Iron stdlib (time.iron + iron_time.h/.c) + regression test + extend run_benchmarks.sh extract_time_ms() to prefer ns line
-- [ ] 58-02-PLAN.md — Rewrite all 139 benchmark main.iron files to use Time.now_ns() and emit 'Total time: X ns' primary line (depends on 58-01)
-- [ ] 58-03-PLAN.md — Create scripts/bench_audit.sh + run 5-round audit + rewrite all 139 config.json with audit-derived max_ratio and rationale + regenerate baselines/latest.json (depends on 58-02)
-- [ ] 58-04-PLAN.md — Write 58-VERIFICATION.md narrative + audit table + SC1-SC4 checklist + conditional generated-C diff + human sign-off checkpoint + mark BENCH-01/BENCH-02 complete in REQUIREMENTS.md (depends on 58-03)
+- [x] 58-01-PLAN.md — Add Time.now_ns() to Iron stdlib (time.iron + iron_time.h/.c) + regression test + extend run_benchmarks.sh extract_time_ms() to prefer ns line
+- [x] 58-02-PLAN.md — Rewrite all 139 benchmark main.iron files to use Time.now_ns() and emit 'Total time: X ns' primary line (depends on 58-01)
+- [x] 58-03-PLAN.md — Create scripts/bench_audit.sh + run 5-round audit + rewrite all 139 config.json with audit-derived max_ratio and rationale + regenerate baselines/latest.json (depends on 58-02)
+- [x] 58-04-PLAN.md — Write 58-VERIFICATION.md narrative + audit table + SC1-SC4 checklist + conditional generated-C diff + human sign-off checkpoint + mark BENCH-01/BENCH-02 complete in REQUIREMENTS.md (depends on 58-03)
 
