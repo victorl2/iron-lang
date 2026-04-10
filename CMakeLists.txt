@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 0.0.5 LANGUAGES C)
+project(iron VERSION 1.0.0 LANGUAGES C)
+
+# Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
+# CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
+# so the suffixed form lives in its own variable and is baked into the binaries
+# as IRON_VERSION_STRING below. Both this line and the project() line above are
+# kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
+set(IRON_VERSION_FULL "1.0.0-alpha")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -141,7 +148,7 @@ endif()
 # Inject the absolute path to src/ so the CLI can find runtime sources at build time
 target_compile_definitions(ironc PRIVATE
     IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
-    IRON_VERSION_STRING="${PROJECT_VERSION}"
+    IRON_VERSION_STRING="${IRON_VERSION_FULL}"
     IRON_GIT_HASH="${IRON_GIT_HASH}"
     IRON_BUILD_DATE="${IRON_BUILD_DATE}"
     IRON_BINARY_NAME="ironc"
@@ -161,7 +168,7 @@ add_executable(iron
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE
-    IRON_VERSION_STRING="${PROJECT_VERSION}"
+    IRON_VERSION_STRING="${IRON_VERSION_FULL}"
     IRON_GIT_HASH="${IRON_GIT_HASH}"
     IRON_BUILD_DATE="${IRON_BUILD_DATE}"
 )
