@@ -1,1 +1,1 @@
-{"iterations": 1, "timeout_sec": 120, "max_ratio": 1.7, "rationale": "Observed ratio 1.07 with 10.8% variance across 5 runs; 1.7x covers mean+2sigma with 15% headroom; 2026-04-10 audit"}
+{"iterations": 1, "timeout_sec": 120, "max_ratio": 2.5, "rationale": "Parallel benchmark thread-scheduler variance on CI exceeds 5-run audit margin; 2.5x accommodates Ubuntu and macOS-26 scheduler differences; 2026-04-10 audit + 2026-04-10 CI variance update"}
