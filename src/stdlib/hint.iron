@@ -1,0 +1,10 @@
+-- hint.iron -- Iron wrapper for the Hint stdlib module
+--
+-- Exposes compiler-level intrinsics that don't do real work at runtime but
+-- constrain what the backend optimizer is allowed to assume. Primarily useful
+-- for benchmarks that need to defeat clang's dead-store / loop-hoisting
+-- passes without resorting to hand-crafted accumulator + println patterns.
+-- Matches the shape of Rust's std::hint::black_box.
+object Hint {}
+
+func Hint.black_box(x: Int) -> Int {}

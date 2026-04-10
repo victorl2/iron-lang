@@ -5267,6 +5267,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     iron_strbuf_appendf(&ctx.includes, "#define IRON_TIMER_STRUCT_DEFINED\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_log.h\"\n");
+    iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_hint.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "\n");
     /* Phase 44: Portable prefetch macro for split collection hot loops */
     iron_strbuf_appendf(&ctx.includes,
