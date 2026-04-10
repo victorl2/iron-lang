@@ -94,6 +94,11 @@ target_link_libraries(test_runtime_elastic_pool iron_runtime unity)
 add_test(NAME test_runtime_elastic_pool COMMAND test_runtime_elastic_pool)
 set_tests_properties(test_runtime_elastic_pool PROPERTIES LABELS "unit")
 
+add_executable(test_runtime_net_init test_runtime_net_init.c)
+target_link_libraries(test_runtime_net_init iron_runtime unity)
+add_test(NAME test_runtime_net_init COMMAND test_runtime_net_init)
+set_tests_properties(test_runtime_net_init PROPERTIES LABELS "unit")
+
 add_executable(test_runtime_collections test_runtime_collections.c)
 target_link_libraries(test_runtime_collections iron_runtime unity)
 add_test(NAME test_runtime_collections COMMAND test_runtime_collections)
