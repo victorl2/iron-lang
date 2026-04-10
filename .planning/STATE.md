@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 58-01-PLAN.md
-last_updated: "2026-04-10T11:10:00.000Z"
-last_activity: 2026-04-10 -- Phase 58 Plan 01 complete; Time.now_ns() stdlib API + regression test + ns-aware run_benchmarks.sh extract_time_ms
+stopped_at: Completed 58-02-PLAN.md
+last_updated: "2026-04-10T11:26:17.298Z"
+last_activity: 2026-04-10 -- Phase 58 Plan 01 complete; Time.now_ns() foundation landed, ready for Plan 02 benchmark rewrite
 progress:
   total_phases: 20
   completed_phases: 11
   total_plans: 35
-  completed_plans: 32
+  completed_plans: 33
   percent: 91
 ---
 
@@ -73,6 +73,7 @@ Progress: [█████████░] 91%
 | Phase 57-soa-fusion-composition P02 | 12min | 3 tasks | 7 files |
 | Phase 57-soa-fusion-composition P03 | 11min | 2 tasks | 2 files |
 | Phase 58-benchmark-stabilization P01 | 16min | 3 tasks | 6 files |
+| Phase 58-benchmark-stabilization P02 | 10 min | 2 tasks | 139 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,9 @@ Progress: [█████████░] 91%
 - [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: run_benchmarks.sh takes Option 2 (runner regex extension) not Option 1 (Iron formats %.3f ms) because Iron string interpolation has no float format specifier support; extract_time_ms() prefers `Total time: <integer> ns`, normalizes ns→ms via `awk printf "%.6f"` (6-decimal microsecond precision), and falls back to `Total time: <number> ms` for C reference outputs
 - [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: regression test Assertion 2 and 3 loop bodies mix in runtime `Time.now_ns()` samples inside the accumulator (e.g. `acc = acc + Time.now_ns()`) to defeat C -O2 constant-folding of pure-integer sums; original plan's `acc = acc + i` with a FAIL-path read-back was still folded to delta=0ns. Documented as reusable pattern for future Iron micro-benchmarks.
 - [Phase 58-benchmark-stabilization]: Phase 58 Plan 01: integration suite 319 passed / 0 failed (+1 from 318 baseline); build clean; extract_time_ms smoke tests 4/4 (ns-only, ms-only, both-present-picks-ns, C-reference-ms-compat); Plan 02 (benchmark rewrite) unblocked
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 02: all 139 benchmark main.iron files rewritten to Time.now_ns() + integer-ms fallback print; binary_tree_diameter smoke-tested via run_benchmarks.sh (1.3x speed, sub-ms precise); full suite 138/139 passed (0 failed, 0 errors, 1 config-skip), zero Iron compile failures, zero correctness failures
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 02: two-pass bulk rewrite -- main regex script handled 133 single-pair benchmarks, targeted secondary script handled 5 dual-pair parallel_* benchmarks (parallel_{compute_intensive,fibonacci,mandelbrot,matrix_multiply,prime_sieve}) that carry both start_seq/elapsed_seq and start_par/elapsed_par pairs plus Sequential/Parallel/Total time label prints; rewrite-parallel.py walks the file linearly and converts every matching declaration and print line
+- [Phase 58-benchmark-stabilization]: Phase 58 Plan 02: 44 benchmarks display 'Iron: 0.00ms' because runner display path rounds sub-5us values to 2 decimals, but ratio calculation uses 6-decimal precision from extract_time_ms ns path -- Plan 03 should widen display format to 3-4 decimals so fast benchmarks no longer visually round to zero; does not affect pass/fail classification
 
 ### Roadmap Evolution
 
@@ -158,6 +162,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-10T11:06:52Z
-Stopped at: Completed 58-01-PLAN.md
-Resume file: .planning/phases/58-benchmark-stabilization/58-02-PLAN.md
+Last session: 2026-04-10T11:26:17.294Z
+Stopped at: Completed 58-02-PLAN.md
+Resume file: None
