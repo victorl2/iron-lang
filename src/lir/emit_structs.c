@@ -497,32 +497,55 @@ void emit_type_decls(EmitCtx *ctx) {
             /* Phase 52-03: Split collection emission (delegated to emit_split) */
             emit_split_collection_for_iface(ctx, iface_mangled, entry);
 
-            /* Phase 57: SoA sibling constructors.
+            /* Phase 57: Reduced-storage sibling constructors.
              *
              * These MUST be emitted after emit_split_collection_for_iface()
-             * because that helper populates ctx->soa_types (with Phase 48 layout
-             * selection AND any Phase 48-03 `layout:` annotation overrides
-             * applied). It also emits the Iron_<Type>_Stor typedefs that these
-             * siblings reference. Both the populated soa_types map and the Stor
-             * typedefs must exist before this loop runs.
+             * because that helper populates BOTH ctx->reduced_storage_types
+             * AND ctx->soa_types, AND emits the Iron_<Type>_Stor typedef that
+             * these siblings reference. All three must exist before this loop
+             * runs.
              *
-             * When Phase 48 selected SoA layout for a (iface, impl) pair, the
-             * split collection's per-type sub-array stores Iron_<Type>_Stor
-             * (reduced variant with surviving fields only, with Phase 50 VRC
-             * narrowed types on compressed fields). The fused per-type loop in
-             * emit_fusion.c must wrap each stor element into an Iron_<Iface>,
-             * so we emit a sibling `_from_<Type>_Stor` constructor that:
-             *   - copies every alive (non-dead-eliminated) field from stor into
-             *     the full Iron_<Type> slot of the tagged union
-             *   - widens VRC-narrowed fields via explicit (int64_t) casts
-             *   - zero-initializes every dead field (safe because dead-field
-             *     elimination already proved they are unread through the
-             *     interface)
+             * The sibling is needed whenever the split collection's per-type
+             * sub-array stores the reduced Iron_<Type>_Stor variant rather than
+             * the full Iron_<Type>. That happens in TWO independent cases:
              *
-             * The sibling is skipped for pointer-indirect variants (no reduced
-             * storage exists on the indirect path) and when this (iface, impl)
-             * pair is not in ctx->soa_types (non-SoA AoS keeps existing
-             * behavior).
+             *   (a) Phase 48 picked SoA layout for this (iface, impl) pair --
+             *       per-field arrays plus a stor view; soa_types is set.
+             *
+             *   (b) Phase 48 dead-field elimination removed at least one field
+             *       even on the AoS path -- emit_split.c emits
+             *       <Type>_Stor *items instead of <Type> *items, and
+             *       reduced_storage_types is set. SoA need not be active for
+             *       this case to trigger.
+             *
+             * Both cases share the same problem: the fused per-type loop in
+             * emit_fusion.c indexes the sub-array and wraps the element into
+             * an Iron_<Iface>, but the existing _from_<Type> constructor takes
+             * the full Iron_<Type>. So we emit a sibling _from_<Type>_Stor:
+             *
+             *   - copies every alive (non-dead-eliminated) field from stor
+             *     into the matching slot of the full Iron_<Type> inside
+             *     u.data.<type>
+             *   - widens any Phase 50 VRC-narrowed alive field via an
+             *     explicit (int64_t) cast on the copy
+             *   - zero-initializes every dead field (safe per Phase 48
+             *     dead-field elimination -- those fields are unread through
+             *     the interface and never observed by user code)
+             *
+             * The sibling is skipped for pointer-indirect variants because
+             * the indirect path stores full structs through malloc; no
+             * Iron_<Type>_Stor exists for them.
+             *
+             * Note: the plan (57-01) framed the trigger as ctx->soa_types,
+             * but the actual storage selection in emit_split.c lines 343-353
+             * uses ctx->reduced_storage_types -- which is a SUPERSET of SoA
+             * (it's also set on AoS+dead-fields). The bug therefore manifests
+             * for AoS+dead-fields fused chains too (e.g. when a fused .map.sum
+             * is the only thing accessing the collection so layout_select sees
+             * no for_pre loop and falls through to AoS, but dead-field elim
+             * still triggers reduced storage). Triggering on
+             * reduced_storage_types fixes both the documented SoA case and
+             * the previously-undocumented AoS+dead-fields case.
              */
             {
                 /* Build iface_collection_vids once for all impls of this iface,
@@ -555,10 +578,17 @@ void emit_type_decls(EmitCtx *ctx) {
                         (shgeti(ctx->indirect_variants, ikey57) >= 0);
                     if (is_indirect57) continue;
 
-                    /* Only emit sibling when SoA is active for this pair. */
-                    bool is_soa57 = (ctx->soa_types &&
-                                     shgeti(ctx->soa_types, ikey57) >= 0);
-                    if (!is_soa57) continue;
+                    /* Emit sibling for any (iface, impl) pair whose per-type
+                     * sub-array stores Iron_<Type>_Stor. That includes both
+                     * SoA-selected pairs (soa_types set) and AoS pairs whose
+                     * dead-field elimination triggered reduced storage
+                     * (reduced_storage_types set). reduced_storage_types is
+                     * a SUPERSET of the soa_types case. */
+                    bool is_reduced57 =
+                        (ctx->reduced_storage_types &&
+                         shgeti(ctx->reduced_storage_types,
+                                impl57->type_name) >= 0);
+                    if (!is_reduced57) continue;
 
                     Iron_ObjectDecl *od57 = impl57->decl;
                     iron_strbuf_appendf(sb,
