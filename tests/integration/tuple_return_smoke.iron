@@ -1,0 +1,25 @@
+-- Phase 59 P01c tuple-return verification smoke test.
+--
+-- KNOWN-FAILING as of 2026-04-10. The Iron frontend does not yet parse or
+-- typecheck tuple return types; `ironc check` on this file hangs without
+-- producing any diagnostic and `ironc build` allocates unboundedly (>3.6 GB
+-- RSS in 2 minutes before being killed). Grep confirms there are zero
+-- occurrences of "tuple" in src/parser, src/analyzer, src/hir, or src/lir.
+--
+-- This file is kept (without a companion .expected so run_integration.sh
+-- emits [SKIP]) as a regression target for the phase that eventually
+-- implements tuple returns. See .planning/phases/59-.../59-01c-SUMMARY.md
+-- for the full gap writeup and the P02+ out-param fallback decision.
+--
+-- Original intent: prove that `val (v, err) = Smoke.pair()` destructures a
+-- C FFI tuple so that Phase 59 P02+ can use `val (sock, err) =
+-- Net.tcp_dial(...)`. Outcome: tuple-return codegen is unimplemented;
+-- P02+ MUST use out-param fallback style.
+
+object Smoke {}
+func Smoke.pair() -> (Int, Iron_Error) {}
+
+func main() {
+    val (v, err) = Smoke.pair()
+    println("${v} ${err.code}")
+}
