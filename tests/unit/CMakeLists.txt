@@ -89,6 +89,11 @@ target_link_libraries(test_runtime_deadline iron_runtime unity)
 add_test(NAME test_runtime_deadline COMMAND test_runtime_deadline)
 set_tests_properties(test_runtime_deadline PROPERTIES LABELS "unit")
 
+add_executable(test_runtime_elastic_pool test_runtime_elastic_pool.c)
+target_link_libraries(test_runtime_elastic_pool iron_runtime unity)
+add_test(NAME test_runtime_elastic_pool COMMAND test_runtime_elastic_pool)
+set_tests_properties(test_runtime_elastic_pool PROPERTIES LABELS "unit")
+
 add_executable(test_runtime_collections test_runtime_collections.c)
 target_link_libraries(test_runtime_collections iron_runtime unity)
 add_test(NAME test_runtime_collections COMMAND test_runtime_collections)
