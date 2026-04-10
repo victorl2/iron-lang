@@ -18,3 +18,11 @@ func String.repeat(n: Int) -> String {}
 func String.pad_left(width: Int, ch: String) -> String {}
 func String.pad_right(width: Int, ch: String) -> String {}
 func String.count(sub: String) -> Int {}
+
+-- Phase 59 P01c: byte-level and reverse-search primitives needed by URL
+-- parsing and generic byte access. All three land in a single coherent
+-- edit; `from_byte` was previously slated for P05 but moved forward per
+-- checker warning #3 so the String primitive trio ships together.
+func String.rindex_of(sub: String) -> Int {}
+func String.byte_at(i: Int) -> Int {}
+func String.from_byte(b: Int) -> String {}

@@ -57,10 +57,14 @@ add_library(iron_runtime STATIC
     src/runtime/iron_builtins.c
     src/runtime/iron_threads.c
     src/runtime/iron_collections.c
+    src/runtime/iron_net_init.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
 if(NOT WIN32)
   target_link_libraries(iron_runtime pthread)
+else()
+  # ws2_32 needed for WSAStartup/WSACleanup/socket() in iron_net_init.c
+  target_link_libraries(iron_runtime ws2_32)
 endif()
 
 # ── iron_compiler static library ───────────────────────────────────────────

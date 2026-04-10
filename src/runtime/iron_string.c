@@ -214,9 +214,27 @@ void iron_runtime_init(int argc, char **argv) {
     }
     IRON_MUTEX_UNLOCK(s_intern_lock);
     iron_threads_init();
+
+    /* Phase 59 P01c: network runtime hooks — WSAStartup (Windows) and
+     * SIGPIPE=SIG_IGN (POSIX). Both hooks are idempotent:
+     *   - Iron_net_wsa_startup_once is refcounted under an internal mutex
+     *   - iron_net_install_sigpipe_ignore is a plain signal() SIG_IGN
+     * so repeated iron_runtime_init calls (unit tests that init per test)
+     * are safe. The return value of Iron_net_wsa_startup_once is ignored
+     * here because a WSAStartup failure is rare and the runtime has no
+     * panic channel — downstream socket APIs will surface IRON_ERR_NET_*
+     * on their first use. */
+    (void)Iron_net_wsa_startup_once();
+    iron_net_install_sigpipe_ignore();
 }
 
 void iron_runtime_shutdown(void) {
+    /* Phase 59 P01c: tear down network runtime hooks BEFORE thread pool
+     * teardown so any elastic-I/O pool worker still holding a socket
+     * doesn't race with WSACleanup. (On POSIX this is a no-op so the
+     * ordering only matters on Windows.) */
+    Iron_net_wsa_cleanup_once();
+
     /* Shut down thread pool before freeing strings */
     iron_threads_shutdown();
 
@@ -506,4 +524,41 @@ Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String c
     Iron_String result = iron_string_from_cstr(buf, total);
     free(buf);
     return result;
+}
+
+/* ── Phase 59 P01c: rindex_of / byte_at / from_byte ─────────────────────── */
+
+/* Rightmost occurrence of `sub` in `self` (byte-level). Returns -1 if not
+ * found or if `sub` is empty. Mirrors the semantics of Iron_string_index_of
+ * but scans from the end of the string. */
+int64_t Iron_string_rindex_of(Iron_String self, Iron_String sub) {
+    const char *s    = iron_string_cstr(&self);
+    const char *d    = iron_string_cstr(&sub);
+    size_t      slen = iron_string_byte_len(&self);
+    size_t      dlen = iron_string_byte_len(&sub);
+    if (dlen == 0 || dlen > slen) return -1;
+    /* Scan right-to-left, returning the first (rightmost) hit. */
+    for (size_t i = slen - dlen + 1; i-- > 0; ) {
+        if (memcmp(s + i, d, dlen) == 0) return (int64_t)i;
+    }
+    return -1;
+}
+
+/* Byte value at index `i` (0..len-1). Returns -1 for out-of-range indices
+ * so callers can branch on the negative result without a separate length
+ * check. */
+int64_t Iron_string_byte_at(Iron_String self, int64_t i) {
+    size_t len = iron_string_byte_len(&self);
+    if (i < 0 || (size_t)i >= len) return -1;
+    const char *s = iron_string_cstr(&self);
+    return (int64_t)(unsigned char)s[i];
+}
+
+/* Build a 1-byte string from the low 8 bits of `b`. Caller is responsible
+ * for any UTF-8 validity concerns — this is a byte constructor, not a
+ * codepoint constructor. */
+Iron_String Iron_string_from_byte(int64_t b) {
+    char buf[1];
+    buf[0] = (char)(b & 0xff);
+    return iron_string_from_cstr(buf, 1);
 }

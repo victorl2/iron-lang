@@ -15,3 +15,19 @@ object Timer {
 func Timer.done(t: Timer) -> Bool {}
 func Timer.update(t: Timer, dt: Float) {}
 func Timer.reset(t: Timer) {}
+
+-- Phase 59 P01c: Duration — ergonomic millisecond-budget value type.
+-- Phase 59 net APIs take `timeout: Int` (milliseconds) directly per the
+-- 2026-04-10 revision note in CONTEXT.md; Duration ships now so future
+-- phases (e.g. HTTP server in Phase 63) can consume it without a second
+-- plan-phase hop. The factories are symmetric with other Iron value
+-- constructors and compose via `to_ms` with any Int-accepting API.
+object Duration {
+  val ms: Int
+}
+
+func Duration.millis(n: Int) -> Duration { return Duration { ms: n } }
+func Duration.seconds(n: Int) -> Duration { return Duration { ms: n * 1000 } }
+func Duration.minutes(n: Int) -> Duration { return Duration { ms: n * 60 * 1000 } }
+func Duration.from_ms(n: Int) -> Duration { return Duration { ms: n } }
+func Duration.to_ms(d: Duration) -> Int { return d.ms }

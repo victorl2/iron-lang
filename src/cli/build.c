@@ -346,6 +346,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **rt_strbuf_out, char **rt_string_out,
                            char **rt_rc_out, char **rt_builtin_out,
                            char **rt_threads_out, char **rt_collect_out,
+                           char **rt_netinit_out,
                            char **sl_math_out, char **sl_io_out,
                            char **sl_time_out, char **sl_log_out,
                            IronBuildOpts opts,
@@ -385,6 +386,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *rt_builtin_out = make_path(base_dir, "runtime/iron_builtins.c");
     *rt_threads_out = make_path(base_dir, "runtime/iron_threads.c");
     *rt_collect_out = make_path(base_dir, "runtime/iron_collections.c");
+    *rt_netinit_out = make_path(base_dir, "runtime/iron_net_init.c");
     *sl_math_out    = make_path(base_dir, "stdlib/iron_math.c");
     *sl_io_out      = make_path(base_dir, "stdlib/iron_io.c");
     *sl_time_out    = make_path(base_dir, "stdlib/iron_time.c");
@@ -392,6 +394,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
+        !*rt_netinit_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out) {
         return 1;
     }
@@ -419,6 +422,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_builtin_out;
     argv_buf[ai++] = *rt_threads_out;
     argv_buf[ai++] = *rt_collect_out;
+    argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -426,6 +430,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
+    /* Phase 59 P01c: iron_net_init.c calls WSAStartup/WSACleanup/socket(), so
+     * user-facing ironc-compiled binaries must link ws2_32.lib. P02 will add
+     * iphlpapi.lib to this same spot once it needs GetAdaptersAddresses. */
+    argv_buf[ai++] = "ws2_32.lib";
     /* Output flag for clang-cl */
     {
         static char out_flag[1024];
@@ -447,6 +455,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_builtin_out;
     argv_buf[ai++] = *rt_threads_out;
     argv_buf[ai++] = *rt_collect_out;
+    argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -489,6 +498,7 @@ static void free_src_list(char *base_dir,
                            char *rt_stb, char *rt_arena, char *rt_strbuf,
                            char *rt_string, char *rt_rc, char *rt_builtin,
                            char *rt_threads, char *rt_collect,
+                           char *rt_netinit,
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *rl_src, char *rl_i_flag) {
     free(base_dir);
@@ -496,6 +506,7 @@ static void free_src_list(char *base_dir,
     free(rt_stb); free(rt_arena); free(rt_strbuf);
     free(rt_string); free(rt_rc); free(rt_builtin);
     free(rt_threads); free(rt_collect);
+    free(rt_netinit);
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(rl_src); free(rl_i_flag);
 }
@@ -508,7 +519,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *src_i_flag = NULL, *vendor_i_flag = NULL, *stdlib_i_flag = NULL;
     char *rt_stb = NULL, *rt_arena = NULL, *rt_strbuf = NULL;
     char *rt_string = NULL, *rt_rc = NULL, *rt_builtin = NULL;
-    char *rt_threads = NULL, *rt_collect = NULL;
+    char *rt_threads = NULL, *rt_collect = NULL, *rt_netinit = NULL;
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *rl_src = NULL, *rl_i_flag = NULL;
 
@@ -521,13 +532,13 @@ static int invoke_clang(const char *c_file, const char *output,
                        &src_i_flag, &vendor_i_flag, &stdlib_i_flag,
                        &rt_stb, &rt_arena, &rt_strbuf,
                        &rt_string, &rt_rc, &rt_builtin,
-                       &rt_threads, &rt_collect,
+                       &rt_threads, &rt_collect, &rt_netinit,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        opts, &rl_src, &rl_i_flag, &base_dir) != 0) {
         free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                       rt_stb, rt_arena, rt_strbuf,
                       rt_string, rt_rc, rt_builtin,
-                      rt_threads, rt_collect,
+                      rt_threads, rt_collect, rt_netinit,
                       sl_math, sl_io, sl_time, sl_log,
                       rl_src, rl_i_flag);
         return 1;
@@ -558,7 +569,7 @@ static int invoke_clang(const char *c_file, const char *output,
     free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
-                  rt_threads, rt_collect,
+                  rt_threads, rt_collect, rt_netinit,
                   sl_math, sl_io, sl_time, sl_log,
                   rl_src, rl_i_flag);
 
@@ -585,7 +596,7 @@ static int invoke_clang(const char *c_file, const char *output,
     free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
-                  rt_threads, rt_collect,
+                  rt_threads, rt_collect, rt_netinit,
                   sl_math, sl_io, sl_time, sl_log,
                   rl_src, rl_i_flag);
 
