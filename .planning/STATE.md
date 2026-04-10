@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 58-02-PLAN.md
-last_updated: "2026-04-10T11:26:17.298Z"
+stopped_at: Completed 58-03-PLAN.md
+last_updated: "2026-04-10T15:28:22.338Z"
 last_activity: 2026-04-10 -- Phase 58 Plan 01 complete; Time.now_ns() foundation landed, ready for Plan 02 benchmark rewrite
 progress:
   total_phases: 20
   completed_phases: 11
   total_plans: 35
-  completed_plans: 33
+  completed_plans: 34
   percent: 91
 ---
 
@@ -74,6 +74,7 @@ Progress: [█████████░] 91%
 | Phase 57-soa-fusion-composition P03 | 11min | 2 tasks | 2 files |
 | Phase 58-benchmark-stabilization P01 | 16min | 3 tasks | 6 files |
 | Phase 58-benchmark-stabilization P02 | 10 min | 2 tasks | 139 files |
+| Phase 58-benchmark-stabilization P03 | 94 | 2 tasks | 282 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,8 @@ Progress: [█████████░] 91%
 - [Phase 58-benchmark-stabilization]: Phase 58 Plan 02: all 139 benchmark main.iron files rewritten to Time.now_ns() + integer-ms fallback print; binary_tree_diameter smoke-tested via run_benchmarks.sh (1.3x speed, sub-ms precise); full suite 138/139 passed (0 failed, 0 errors, 1 config-skip), zero Iron compile failures, zero correctness failures
 - [Phase 58-benchmark-stabilization]: Phase 58 Plan 02: two-pass bulk rewrite -- main regex script handled 133 single-pair benchmarks, targeted secondary script handled 5 dual-pair parallel_* benchmarks (parallel_{compute_intensive,fibonacci,mandelbrot,matrix_multiply,prime_sieve}) that carry both start_seq/elapsed_seq and start_par/elapsed_par pairs plus Sequential/Parallel/Total time label prints; rewrite-parallel.py walks the file linearly and converts every matching declaration and print line
 - [Phase 58-benchmark-stabilization]: Phase 58 Plan 02: 44 benchmarks display 'Iron: 0.00ms' because runner display path rounds sub-5us values to 2 decimals, but ratio calculation uses 6-decimal precision from extract_time_ms ns path -- Plan 03 should widen display format to 3-4 decimals so fast benchmarks no longer visually round to zero; does not affect pass/fail classification
+- [Phase 58-benchmark-stabilization]: Options B+C+D combined: trimmed-mean audit + 10x binary_tree_diameter scale + 42 DCE-defeat rewrites eliminated both measurement problems; binary_tree_diameter confirmed at 1.0x ratio (0% trimmed variance) — CI 1.9-2.0x was quantization noise
+- [Phase 58-benchmark-stabilization]: Phase 54 blanket 2.5x max_ratio fully superseded: 105 benchmarks at 1.5x floor, 34 above with specific justification; per-problem rationale field added to all 139 config.json files citing 2026-04-10 audit
 
 ### Roadmap Evolution
 
@@ -162,6 +165,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-10T11:26:17.294Z
-Stopped at: Completed 58-02-PLAN.md
+Last session: 2026-04-10T15:28:22.335Z
+Stopped at: Completed 58-03-PLAN.md
 Resume file: None
