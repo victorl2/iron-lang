@@ -1,0 +1,13 @@
+-- Negative test: bitwise & on pure Float operands must produce IRON_ERR_BITWISE_NON_INT.
+-- This file MUST fail to compile; the plan's verify step greps stderr for the error message.
+--
+-- Note: Mixed Int/Float operands produce E0222 (numeric conversion) BEFORE the
+-- bitwise check runs, per the Plan 02 classification-ladder ordering decision.
+-- Pure Float/Float is what actually exercises the E0233 diagnostic.
+
+func main() {
+    val x: Float = 3.14
+    val y: Float = 2.5
+    val z = x & y
+    println("{z}")
+}

@@ -1,0 +1,24 @@
+-- Phase 59 Plan 03: the C `a & b == c` gotcha precedence lock-in.
+--
+-- In C, `a & b == c` parses as `a & (b == c)` because == is higher precedence
+-- than & (see C operator precedence table). Iron inherits this precedence ladder
+-- so `a & b == c` also groups as `a & (b == c)`.
+--
+-- Iron's Int-only bitwise typecheck (E0233) then rejects `a & Bool` with a
+-- clean compile error at the `&` site. This compile failure is the ONLY way
+-- to lock the precedence in a runnable test — Iron cannot execute the
+-- gotcha form because the middle expression is Bool, not Int.
+--
+-- If the parser ever regresses and groups as `(a & b) == c` instead, this
+-- file would COMPILE (Int == Int is fine) and the test would mis-pass.
+-- That's why the expected error is specifically "bitwise operator requires
+-- Int operands, got 'Bool'" — the Bool can only appear here if the `b == c`
+-- subexpression was evaluated FIRST, which is exactly the gotcha.
+
+func main() {
+    val a = 6
+    val b = 2
+    val c = 2
+    val r = a & b == c
+    println("{r}")
+}

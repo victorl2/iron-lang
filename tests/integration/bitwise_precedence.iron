@@ -1,0 +1,63 @@
+-- Locks C-compatible precedence for bitwise operators.
+-- Each case is chosen so C semantics and naive/intuitive semantics produce
+-- DIFFERENT results, locking in the ladder.
+--
+-- Note: the canonical C gotcha `a & b == c` (parses as `a & (b == c)`) cannot
+-- be tested here because Iron's Int-only bitwise typecheck rejects `a & Bool`
+-- at compile time. That precedence lock is enforced in
+-- tests/compile_fail/bitwise_precedence_gotcha.iron — the compile failure
+-- itself PROVES the parse grouped right-side-first.
+
+func main() {
+    -- Gotcha 1: a | b & c parses as a | (b & c)
+    -- With a=1, b=6, c=4: (b & c) = 4, a | 4 = 5
+    val a1 = 1
+    val b1 = 6
+    val c1 = 4
+    val r1 = a1 | b1 & c1
+    println("{r1}")  -- 5
+
+    -- Gotcha 2: a << b + c parses as a << (b + c)
+    -- With a=1, b=2, c=1: (b + c) = 3, 1 << 3 = 8
+    val a2 = 1
+    val b2 = 2
+    val c2 = 1
+    val r2 = a2 << b2 + c2
+    println("{r2}")  -- 8
+
+    -- Gotcha 3: ~a & b parses as (~a) & b
+    -- With a=5, b=3: ~5 = -6, (-6) & 3 = 2
+    val a3 = 5
+    val b3 = 3
+    val r3 = ~a3 & b3
+    println("{r3}")  -- 2
+
+    -- Gotcha 4: a + b << c parses as (a + b) << c (shift is LOWER than additive)
+    -- With a=1, b=2, c=3: (1 + 2) << 3 = 24
+    val a4 = 1
+    val b4 = 2
+    val c4 = 3
+    val r4 = a4 + b4 << c4
+    println("{r4}")  -- 24
+
+    -- Gotcha 5: ~a precedence — (~5) * 2 vs ~(5 * 2)
+    -- ~5 = -6, -6 * 2 = -12. ~(5*2) = ~10 = -11. Test locks the unary-above-factor ordering.
+    val r5 = ~5 * 2
+    println("{r5}")  -- -12 (unary ~ binds tighter than *)
+
+    -- Gotcha 6: a ^ b & c parses as a ^ (b & c) (AND is higher than XOR)
+    -- With a=12, b=10, c=6: (b & c) = 2, a ^ 2 = 14
+    val a6 = 12
+    val b6 = 10
+    val c6 = 6
+    val r6 = a6 ^ b6 & c6
+    println("{r6}")  -- 14
+
+    -- Gotcha 7: a & b | c parses as (a & b) | c (AND is higher than OR)
+    -- With a=12, b=10, c=1: (a & b) = 8, 8 | 1 = 9
+    val a7 = 12
+    val b7 = 10
+    val c7 = 1
+    val r7 = a7 & b7 | c7
+    println("{r7}")  -- 9
+}
