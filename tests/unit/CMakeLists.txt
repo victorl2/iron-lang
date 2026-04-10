@@ -121,3 +121,14 @@ add_executable(test_stdlib_net_tcp test_stdlib_net_tcp.c)
 target_link_libraries(test_stdlib_net_tcp iron_stdlib iron_runtime unity)
 add_test(NAME test_stdlib_net_tcp COMMAND test_stdlib_net_tcp)
 set_tests_properties(test_stdlib_net_tcp PROPERTIES LABELS "unit")
+
+# ── Phase 59 03: UDP + IP address stdlib Unity tests ────────────────────────
+add_executable(test_stdlib_net_udp test_stdlib_net_udp.c)
+target_link_libraries(test_stdlib_net_udp iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_udp COMMAND test_stdlib_net_udp)
+set_tests_properties(test_stdlib_net_udp PROPERTIES LABELS "unit")
+
+add_executable(test_stdlib_net_ip test_stdlib_net_ip.c)
+target_link_libraries(test_stdlib_net_ip iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_ip COMMAND test_stdlib_net_ip)
+set_tests_properties(test_stdlib_net_ip PROPERTIES LABELS "unit")
