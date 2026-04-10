@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 
 /* ── Keyword table ───────────────────────────────────────────────────────── */
 
@@ -134,6 +135,17 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_MINUS_ASSIGN]  = "IRON_TOK_MINUS_ASSIGN",
     [IRON_TOK_STAR_ASSIGN]   = "IRON_TOK_STAR_ASSIGN",
     [IRON_TOK_SLASH_ASSIGN]  = "IRON_TOK_SLASH_ASSIGN",
+    [IRON_TOK_SHL]           = "IRON_TOK_SHL",
+    [IRON_TOK_SHR]           = "IRON_TOK_SHR",
+    [IRON_TOK_AMP]           = "IRON_TOK_AMP",
+    [IRON_TOK_PIPE]          = "IRON_TOK_PIPE",
+    [IRON_TOK_CARET]         = "IRON_TOK_CARET",
+    [IRON_TOK_TILDE]         = "IRON_TOK_TILDE",
+    [IRON_TOK_SHL_ASSIGN]    = "IRON_TOK_SHL_ASSIGN",
+    [IRON_TOK_SHR_ASSIGN]    = "IRON_TOK_SHR_ASSIGN",
+    [IRON_TOK_AMP_ASSIGN]    = "IRON_TOK_AMP_ASSIGN",
+    [IRON_TOK_PIPE_ASSIGN]   = "IRON_TOK_PIPE_ASSIGN",
+    [IRON_TOK_CARET_ASSIGN]  = "IRON_TOK_CARET_ASSIGN",
     [IRON_TOK_LPAREN]        = "IRON_TOK_LPAREN",
     [IRON_TOK_RPAREN]        = "IRON_TOK_RPAREN",
     [IRON_TOK_LBRACKET]      = "IRON_TOK_LBRACKET",
@@ -362,6 +374,106 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
     size_t   start_pos  = l->pos;
     int      is_float   = 0;
 
+    /* Hex / binary prefix: 0x, 0X, 0b, 0B. Must run BEFORE the decimal digit
+     * loop AND before the "invalid suffix" check so that `0xFF` is not lexed
+     * as decimal `0` followed by alpha-suffix error. */
+    if (l->pos + 1 < l->src_len && l->src[l->pos] == '0') {
+        char next = l->src[l->pos + 1];
+        if (next == 'x' || next == 'X') {
+            iron_advance_char(l); /* consume '0' */
+            iron_advance_char(l); /* consume 'x' / 'X' */
+            size_t digits_start = l->pos;
+            while (l->pos < l->src_len &&
+                   isxdigit((unsigned char)l->src[l->pos])) {
+                iron_advance_char(l);
+            }
+            if (l->pos == digits_start) {
+                /* "0x" with no hex digits. */
+                Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                                 l->line, l->col);
+                iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_INVALID_NUMBER, span,
+                               "invalid hex literal: no digits after '0x'",
+                               NULL);
+                uint32_t bad_len = (uint32_t)(l->pos - start_pos);
+                return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                                       start_line, start_col, bad_len);
+            }
+            size_t digits_len = l->pos - digits_start;
+            char hexbuf[64];
+            size_t copy_len = digits_len < sizeof(hexbuf) - 1
+                                  ? digits_len
+                                  : sizeof(hexbuf) - 1;
+            memcpy(hexbuf, l->src + digits_start, copy_len);
+            hexbuf[copy_len] = '\0';
+            errno = 0;
+            long long v = strtoll(hexbuf, NULL, 16);
+            if (errno == ERANGE) {
+                Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                                 l->line, l->col);
+                iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_INVALID_NUMBER, span,
+                               "hex literal out of range for int64",
+                               NULL);
+                uint32_t bad_len = (uint32_t)(l->pos - start_pos);
+                return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                                       start_line, start_col, bad_len);
+            }
+            char decbuf[32];
+            snprintf(decbuf, sizeof(decbuf), "%lld", v);
+            const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
+            uint32_t tok_len = (uint32_t)(l->pos - start_pos);
+            return iron_make_token(l, IRON_TOK_INTEGER, value,
+                                   start_line, start_col, tok_len);
+        }
+        if (next == 'b' || next == 'B') {
+            iron_advance_char(l); /* consume '0' */
+            iron_advance_char(l); /* consume 'b' / 'B' */
+            size_t digits_start = l->pos;
+            while (l->pos < l->src_len &&
+                   (l->src[l->pos] == '0' || l->src[l->pos] == '1')) {
+                iron_advance_char(l);
+            }
+            if (l->pos == digits_start) {
+                Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                                 l->line, l->col);
+                iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_INVALID_NUMBER, span,
+                               "invalid binary literal: no digits after '0b'",
+                               NULL);
+                uint32_t bad_len = (uint32_t)(l->pos - start_pos);
+                return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                                       start_line, start_col, bad_len);
+            }
+            size_t digits_len = l->pos - digits_start;
+            char binbuf[128];
+            size_t copy_len = digits_len < sizeof(binbuf) - 1
+                                  ? digits_len
+                                  : sizeof(binbuf) - 1;
+            memcpy(binbuf, l->src + digits_start, copy_len);
+            binbuf[copy_len] = '\0';
+            errno = 0;
+            long long v = strtoll(binbuf, NULL, 2);
+            if (errno == ERANGE) {
+                Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                                 l->line, l->col);
+                iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_INVALID_NUMBER, span,
+                               "binary literal out of range for int64",
+                               NULL);
+                uint32_t bad_len = (uint32_t)(l->pos - start_pos);
+                return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                                       start_line, start_col, bad_len);
+            }
+            char decbuf[32];
+            snprintf(decbuf, sizeof(decbuf), "%lld", v);
+            const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
+            uint32_t tok_len = (uint32_t)(l->pos - start_pos);
+            return iron_make_token(l, IRON_TOK_INTEGER, value,
+                                   start_line, start_col, tok_len);
+        }
+    }
+
     while (l->pos < l->src_len && isdigit((unsigned char)l->src[l->pos])) {
         iron_advance_char(l);
     }
@@ -533,6 +645,16 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 return iron_make_token(l, IRON_TOK_LESS_EQ, NULL,
                                        start_line, start_col, 2);
             }
+            if (iron_peek_char(l) == '<') {
+                iron_advance_char(l); /* consume second '<' */
+                if (iron_peek_char(l) == '=') {
+                    iron_advance_char(l); /* consume '=' */
+                    return iron_make_token(l, IRON_TOK_SHL_ASSIGN, NULL,
+                                           start_line, start_col, 3);
+                }
+                return iron_make_token(l, IRON_TOK_SHL, NULL,
+                                       start_line, start_col, 2);
+            }
             return iron_make_token(l, IRON_TOK_LESS, NULL,
                                    start_line, start_col, 1);
 
@@ -542,7 +664,48 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 return iron_make_token(l, IRON_TOK_GREATER_EQ, NULL,
                                        start_line, start_col, 2);
             }
+            if (iron_peek_char(l) == '>') {
+                iron_advance_char(l); /* consume second '>' */
+                if (iron_peek_char(l) == '=') {
+                    iron_advance_char(l); /* consume '=' */
+                    return iron_make_token(l, IRON_TOK_SHR_ASSIGN, NULL,
+                                           start_line, start_col, 3);
+                }
+                return iron_make_token(l, IRON_TOK_SHR, NULL,
+                                       start_line, start_col, 2);
+            }
             return iron_make_token(l, IRON_TOK_GREATER, NULL,
+                                   start_line, start_col, 1);
+
+        case '&':
+            if (iron_peek_char(l) == '=') {
+                iron_advance_char(l);
+                return iron_make_token(l, IRON_TOK_AMP_ASSIGN, NULL,
+                                       start_line, start_col, 2);
+            }
+            return iron_make_token(l, IRON_TOK_AMP, NULL,
+                                   start_line, start_col, 1);
+
+        case '|':
+            if (iron_peek_char(l) == '=') {
+                iron_advance_char(l);
+                return iron_make_token(l, IRON_TOK_PIPE_ASSIGN, NULL,
+                                       start_line, start_col, 2);
+            }
+            return iron_make_token(l, IRON_TOK_PIPE, NULL,
+                                   start_line, start_col, 1);
+
+        case '^':
+            if (iron_peek_char(l) == '=') {
+                iron_advance_char(l);
+                return iron_make_token(l, IRON_TOK_CARET_ASSIGN, NULL,
+                                       start_line, start_col, 2);
+            }
+            return iron_make_token(l, IRON_TOK_CARET, NULL,
+                                   start_line, start_col, 1);
+
+        case '~':
+            return iron_make_token(l, IRON_TOK_TILDE, NULL,
                                    start_line, start_col, 1);
 
         case '.':

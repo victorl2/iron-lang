@@ -80,6 +80,19 @@ typedef enum {
     IRON_TOK_STAR_ASSIGN,   /* *= */
     IRON_TOK_SLASH_ASSIGN,  /* /= */
 
+    /* Bitwise operators (Phase 59) */
+    IRON_TOK_SHL,           /* <<  */
+    IRON_TOK_SHR,           /* >>  */
+    IRON_TOK_AMP,           /* &   */
+    IRON_TOK_PIPE,          /* |   */
+    IRON_TOK_CARET,         /* ^   */
+    IRON_TOK_TILDE,         /* ~   */
+    IRON_TOK_SHL_ASSIGN,    /* <<= */
+    IRON_TOK_SHR_ASSIGN,    /* >>= */
+    IRON_TOK_AMP_ASSIGN,    /* &=  */
+    IRON_TOK_PIPE_ASSIGN,   /* |=  */
+    IRON_TOK_CARET_ASSIGN,  /* ^=  */
+
     /* Delimiters */
     IRON_TOK_LPAREN,        /* ( */
     IRON_TOK_RPAREN,        /* ) */
