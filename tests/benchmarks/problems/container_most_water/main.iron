@@ -44,7 +44,7 @@ func main() {
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = max_area(bench, 100)
+        result = result + max_area(bench, 90 + (it % 11))
     }
     val elapsed_ns = Time.now_ns() - start_ns
     val elapsed_ms = elapsed_ns / 1000000
@@ -54,4 +54,5 @@ func main() {
     println("Iterations: {iterations}")
     println("Total time: {elapsed_ns} ns")
     println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }
