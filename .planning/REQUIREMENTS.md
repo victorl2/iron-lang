@@ -87,7 +87,7 @@ Requirements for v0.1.1-alpha. Each maps to roadmap phases.
 - [x] **MONO-FIX-01**: Monomorphic-collapsed collections support `.map()`, `.filter()`, and other method chains without codegen errors
 - [x] **MONO-FIX-02**: Regression test exercises monomorphic collection + full method chain composition
 
-- [ ] **SOA-FIX-01**: Split collections with SoA layout fuse correctly — Stor type reference mismatch resolved
+- [x] **SOA-FIX-01**: Split collections with SoA layout fuse correctly — Stor type reference mismatch resolved
 - [ ] **SOA-FIX-02**: Regression test exercises SoA + fusion composition without workarounds (the original `compose_soa_fusion.iron` pattern works directly)
 
 - [ ] **BENCH-01**: `binary_tree_diameter` benchmark root cause identified and documented — why is Iron 1.9-2.0x slower than C, and is it inherent or fixable?
@@ -169,7 +169,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EMPTY-LIT-02 | Phase 55.1 | Complete |
 | MONO-FIX-01 | Phase 56 | Complete |
 | MONO-FIX-02 | Phase 56 | Complete |
-| SOA-FIX-01 | Phase 57 | Pending |
+| SOA-FIX-01 | Phase 57 | Complete |
 | SOA-FIX-02 | Phase 57 | Pending |
 | BENCH-01 | Phase 58 | Pending |
 | BENCH-02 | Phase 58 | Pending |

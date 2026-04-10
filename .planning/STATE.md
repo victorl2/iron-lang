@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 57 context gathered
-last_updated: "2026-04-09T23:31:28.867Z"
-last_activity: 2026-04-09 -- Phase 56 Plan 02 complete (narrowing audit + Phase 55 workaround cleanup)
+stopped_at: Phase 57 Plan 01 complete (atomic SoA + fusion core fix)
+last_updated: "2026-04-10T00:49:03.202Z"
+last_activity: 2026-04-09 -- Phase 57 Plan 01 complete (SoA + fusion atomic core fix)
 progress:
   total_phases: 20
   completed_phases: 10
-  total_plans: 28
-  completed_plans: 28
-  percent: 100
+  total_plans: 31
+  completed_plans: 29
+  percent: 94
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 
 ## Current Position
 
-Phase: 56-monomorphic-method-chain
-Plan: 02 complete (MONO-FIX-01/02 fully satisfied via Plan 01 + Plan 02 jointly — narrowing audit closes the silent-miscompilation gap)
+Phase: 57-soa-fusion-composition
+Plan: 01 complete (SOA-FIX-01 atomic core fix landed; reduced_storage_types-triggered Stor sibling ctors + emit_fusion.c branch)
 Status: Executing v0.1.3-alpha
-Last activity: 2026-04-09 -- Phase 56 Plan 02 complete (narrowing audit + Phase 55 workaround cleanup)
+Last activity: 2026-04-09 -- Phase 57 Plan 01 complete (SoA + fusion atomic core fix)
 
-Progress: [██████████] 100%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [██████████] 100%
 | Phase 55.1-empty-typed-array-literal P01 | 23min | 3 tasks | 11 files |
 | Phase 56-monomorphic-method-chain P01 | 55min | 3 tasks | 21 files |
 | Phase 56-monomorphic-method-chain P02 | 33min | 2 tasks | 13 files |
+| Phase 57-soa-fusion-composition P01 | 28min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,9 @@ Progress: [██████████] 100%
 - [Phase 56-monomorphic-method-chain]: Phase 56 Plan 02 adds type_display_name helper in typecheck.c (local to error emission sites) because iron_type_to_string returns literal '<object>' / '<interface>' placeholders; a global fix for the other 41 call sites is deferred to a future dedicated pass
 - [Phase 56-monomorphic-method-chain]: Phase 56 Plan 02 introduces tests/compile_fail/ directory for negative tests; files live outside run_tests.sh's scan root and are invoked directly by the plan's verify command
 - [Phase 56-monomorphic-method-chain]: Phase 56 Plan 02 Phase 55 audit tally: 1 rewritten (push_interface_len_empty -> Phase 55.1 empty annotated literal path), 7 annotated as load-bearing multi-type (get/set_same_type/len_pop/get_after_push/after_op/typed_var/prepopulated), 4 protected untouched (collection/multi_type/pop_order/loop_100)
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 01: Sibling Iron_<Iface>_from_<Type>_Stor constructors emitted in emit_structs.c after emit_split_collection_for_iface() completes (so reduced_storage_types and Iron_<Type>_Stor typedef are populated); the sibling expands the reduced variant by copying alive fields, widening Phase 50 VRC fields via (int64_t) cast, and zero-initing dead fields
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 01: Trigger broadened from ctx->soa_types to ctx->reduced_storage_types in BOTH emit_structs.c sibling guard AND emit_fusion.c ctor_suffix branch; the reduced storage path is independent of SoA selection (dead-field elim alone triggers it on AoS), so the plan's SoA-only diagnosis was a strict subset of the actual bug
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 01: (void)is_soa; defer marker fully removed from emit_fusion.c; the is_soa local is gone entirely (only the explanatory comment retains the historical name)
 
 ### Roadmap Evolution
 
@@ -139,6 +143,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-09T23:31:28.863Z
-Stopped at: Phase 57 context gathered
-Resume file: .planning/phases/57-soa-fusion-composition/57-CONTEXT.md
+Last session: 2026-04-10T00:49:03.198Z
+Stopped at: Phase 57 Plan 01 complete (atomic SoA + fusion core fix)
+Resume file: None
