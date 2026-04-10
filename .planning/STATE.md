@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 57-02-PLAN.md
-last_updated: "2026-04-10T01:07:52.286Z"
-last_activity: 2026-04-10 -- Phase 57 Plan 02 complete (3 adjacent regression tests, SOA-FIX-02 closed)
+stopped_at: Completed 57-03-PLAN.md
+last_updated: "2026-04-10T01:23:17Z"
+last_activity: 2026-04-10 -- Phase 57 Plan 03 complete (compose_soa_fusion + compose_mega Phase 54 workarounds restored to fused form, Phase 57 complete)
 progress:
   total_phases: 20
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 31
-  completed_plans: 30
+  completed_plans: 31
   percent: 97
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-09)
 ## Current Position
 
 Phase: 57-soa-fusion-composition
-Plan: 02 complete (SOA-FIX-02 closed; 3 adjacent regression tests landed — dead-field zero-init, VRC widening cast, 4-implementor sibling loop)
+Plan: 03 complete (Phase 57 complete; compose_soa_fusion.iron and compose_mega.iron Phase 54 workarounds restored to fused `.map().sum()` form, both `.expected` files unchanged, full suite 318/0)
 Status: Executing v0.1.3-alpha
-Last activity: 2026-04-10 -- Phase 57 Plan 02 complete (3 adjacent regression tests, SOA-FIX-02 closed)
+Last activity: 2026-04-10 -- Phase 57 Plan 03 complete; Phase 57 complete; SOA-FIX-02 + Phase 54 SoA-workaround restoration both closed
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Progress: [██████████] 97%
 | Phase 56-monomorphic-method-chain P02 | 33min | 2 tasks | 13 files |
 | Phase 57-soa-fusion-composition P01 | 28min | 2 tasks | 4 files |
 | Phase 57-soa-fusion-composition P02 | 12min | 3 tasks | 7 files |
+| Phase 57-soa-fusion-composition P03 | 11min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,10 @@ Progress: [██████████] 97%
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 02: Three-test adjacent regression triad landed — soa_fusion_dead_field (5-field Ledger/Note, 4 dead fields, sum=500), soa_fusion_compressed (Job/Chore with priority in [1..9] forcing Phase 50 VRC uint8_t narrowing + (int64_t) widening cast, sum=26), soa_fusion_many_types (4 implementors Soldier/Archer/Mage/Healer, 4 distinct sibling ctors emitted and called, sum=86)
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 02: All three tests use .map(get_*).sum() fused chain — simplest fusible terminal that engages Phase 49 fusion engine, keeps test focus on Plan 01 sibling ctor path, makes per-test debugging unambiguous since each sum is hand-computed
 - [Phase 57-soa-fusion-composition]: Phase 57 Plan 02: Zero deviations from plan — Plan 01's broadened reduced_storage_types trigger (noted as Rule 1 deviation in 57-01-SUMMARY.md) was load-bearing for Plan 02 because all three tests are fusion-only (no for_pre loops) so layout_select never runs and ctx->soa_types would have been empty; reduced_storage_types covered them all on the first build
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 03: compose_soa_fusion.iron restored from for-loop workaround to `entities.map(func(e: Entity) -> Int { return e.get_x() }).sum()` fused form; `.expected` unchanged at `26\nsoa_done\n`; generated C contains `Iron_Entity_from_Bullet_Stor(` and `Iron_Entity_from_Particle_Stor(` calls inside the fused per-type loop
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 03: compose_mega.iron restored to `widgets.map(func(w: Widget) -> Int { return w.score() }).sum()` fused form exercising split + SoA + dead field + VRC + arena + fusion simultaneously; `.expected` unchanged at `5250\n`; generated C contains all three `Iron_Widget_from_{Button,Label,Slider}_Stor(` calls from the fused loop AND still contains `uint8_t` (Phase 50 VRC remains active)
+- [Phase 57-soa-fusion-composition]: Phase 57 Plan 03: `val` accumulator in fused chains is lowered to a compiler temp (e.g. `_v26`) in generated C, so the plan's `grep -q 'sum_x'` acceptance criterion was an over-specification that doesn't match Iron's fusion codegen; real correctness is proved by stdout match + `_fuse_v0` reduction; noted for future plans relying on source binding names surviving lowering
+- [Phase 57-soa-fusion-composition]: Phase 57 complete — SOA-FIX-02 + Phase 54 SoA-workaround restoration both fully closed; ROADMAP SC1–SC5 observably satisfied; 318 passed / 0 failed end-to-end (Plan 02 baseline held with +0 regressions through Plan 03)
 
 ### Roadmap Evolution
 
@@ -147,6 +152,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-10T01:07:52.283Z
-Stopped at: Completed 57-02-PLAN.md
+Last session: 2026-04-10T01:23:17Z
+Stopped at: Completed 57-03-PLAN.md
 Resume file: None
