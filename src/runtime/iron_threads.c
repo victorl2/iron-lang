@@ -19,6 +19,55 @@
   #include <windows.h>
 #else
   #include <unistd.h>
+  #include <time.h>
+  #include <errno.h>
+#endif
+
+/* ── Iron_monotonic_now_ms (INFRA-09 foundation) ─────────────────────────── */
+
+#ifdef _WIN32
+uint64_t Iron_monotonic_now_ms(void) {
+    /* GetTickCount64 is monotonic (never goes backwards, unaffected by
+     * wall-clock adjustments) and returns milliseconds since system boot. */
+    return (uint64_t)GetTickCount64();
+}
+#else
+uint64_t Iron_monotonic_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+#endif
+
+/* ── iron_cond_timedwait_ms — bounded condvar wait ────────────────────────── */
+
+#ifdef _WIN32
+int iron_cond_timedwait_ms(iron_cond_t *cv, iron_mutex_t *lock, int timeout_ms) {
+    if (timeout_ms < 0) timeout_ms = 0;
+    BOOL ok = SleepConditionVariableCS(cv, lock, (DWORD)timeout_ms);
+    if (ok) return IRON_TIMEDWAIT_OK;
+    if (GetLastError() == ERROR_TIMEOUT) return IRON_TIMEDWAIT_EXPIRED;
+    return IRON_TIMEDWAIT_ERROR;
+}
+#else
+int iron_cond_timedwait_ms(iron_cond_t *cv, iron_mutex_t *lock, int timeout_ms) {
+    if (timeout_ms < 0) timeout_ms = 0;
+    /* POSIX pthread_cond_timedwait uses CLOCK_REALTIME by default. This may
+     * jump during NTP slew; Phase 59 accepts the caveat (TLS phase can
+     * upgrade to CLOCK_MONOTONIC via pthread_condattr_setclock). */
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec  += timeout_ms / 1000;
+    ts.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+    if (ts.tv_nsec >= 1000000000L) {
+        ts.tv_sec  += 1;
+        ts.tv_nsec -= 1000000000L;
+    }
+    int rc = pthread_cond_timedwait(cv, lock, &ts);
+    if (rc == 0)          return IRON_TIMEDWAIT_OK;
+    if (rc == ETIMEDOUT)  return IRON_TIMEDWAIT_EXPIRED;
+    return IRON_TIMEDWAIT_ERROR;
+}
 #endif
 
 /* ── Global pool instance ────────────────────────────────────────────────── */
