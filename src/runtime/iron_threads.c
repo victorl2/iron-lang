@@ -333,11 +333,12 @@ void Iron_pool_destroy(Iron_Pool *pool) {
             (size_t)pool->thread_slots_cap * sizeof(iron_thread_t));
         if (snapshot) {
             for (int i = 0; i < pool->thread_slots_cap; i++) {
-                iron_thread_t zero;
-                memset(&zero, 0, sizeof(zero));
-                if (memcmp(&pool->threads[i], &zero, sizeof(zero)) != 0) {
+                /* Empty-slot sentinel is (iron_thread_t)0 — works on all
+                 * three target platforms: HANDLE=NULL (Win32),
+                 * pthread_t=NULL pointer (macOS), pthread_t=0 (Linux glibc). */
+                if (pool->threads[i] != (iron_thread_t)0) {
                     snapshot[snapshot_count++] = pool->threads[i];
-                    memset(&pool->threads[i], 0, sizeof(iron_thread_t));
+                    pool->threads[i] = (iron_thread_t)0;
                 }
             }
         }
@@ -396,10 +397,10 @@ int Iron_pool_leaked_count(const Iron_Pool *p) {
  * Caller must hold pool->lock. Increments pool->thread_count on success. */
 static void pool_spawn_elastic_worker_locked(Iron_Pool *pool) {
     int slot = -1;
-    iron_thread_t zero;
-    memset(&zero, 0, sizeof(zero));
+    /* Empty-slot sentinel: (iron_thread_t)0 on all target platforms
+     * (Win32 HANDLE=NULL, macOS pthread_t=NULL pointer, glibc pthread_t=0). */
     for (int i = 0; i < pool->thread_slots_cap; i++) {
-        if (memcmp(&pool->threads[i], &zero, sizeof(zero)) == 0) {
+        if (pool->threads[i] == (iron_thread_t)0) {
             slot = i;
             break;
         }
@@ -443,15 +444,9 @@ static void *pool_worker_elastic(void *arg) {
         }
 
         if (pool->shutdown && pool->queue_count == 0) {
-            /* Clear our slot so destroy's snapshot doesn't see a stale
-             * thread handle (we're about to return). */
-            iron_thread_t self_check;
-            memset(&self_check, 0, sizeof(self_check));
-            /* We don't know our own slot index cheaply — destroy joins on
-             * snapshot + zero, and it runs with shutdown already set, so
-             * leaving the slot as-is is fine: destroy will snapshot and
-             * join us, then zero the slot. */
-            (void)self_check;
+            /* Shutdown is set: leave our slot as-is. Destroy will snapshot
+             * the live threads, join us, and zero the slot. We don't need
+             * to clear it ourselves here. */
             pool->thread_count--;
             IRON_MUTEX_UNLOCK(pool->lock);
             return NULL;
