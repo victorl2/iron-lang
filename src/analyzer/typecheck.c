@@ -1964,6 +1964,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             if (al->size) check_expr(ctx, al->size);
             Iron_Type *elem_type = NULL;
             Iron_Type **elem_types = NULL; /* track all element types for mixed-type detection */
+            /* [Type; Size] form: resolve element type from the annotation so
+             * the empty-literal E0229 path below does not mis-fire on
+             * sized-array syntax (e.g. `heap [UInt8; 100]`). */
+            if (al->type_ann && al->element_count == 0) {
+                elem_type = resolve_type_annotation(ctx, al->type_ann);
+            }
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr(ctx, al->elements[i]);
                 if (!elem_type && et) elem_type = et;
