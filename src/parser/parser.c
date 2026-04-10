@@ -193,6 +193,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     /* Array type: [T] or [T; N] or [func(T)->R] */
     if (iron_match(p, IRON_TOK_LBRACKET)) {
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = true;
         ann->is_nullable       = false;
@@ -292,6 +293,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         iron_advance(p);  /* consume 'func' */
 
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = false;
         ann->array_size        = NULL;
@@ -344,6 +346,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
 
     Iron_Token *name_tok = iron_advance(p);
     Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+    memset(ann, 0, sizeof(*ann));
     ann->kind              = IRON_NODE_TYPE_ANNOTATION;
     ann->is_array          = false;
     ann->array_size        = NULL;
@@ -499,12 +502,25 @@ static Iron_Node *iron_parse_block(Iron_Parser *p) {
     int stmt_count = 0;
 
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
+        int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
         Iron_Node *s = iron_parse_stmt(p);
         arrput(stmts, s);
         stmt_count++;
         iron_skip_newlines(p);
+        /* No-progress guard: if iron_parse_stmt failed to advance the cursor,
+         * emit one generic diagnostic, skip one token, and continue. This
+         * prevents the 01c-class hang observed on tuple_return_smoke.iron where
+         * a malformed `val (` produced an ErrorNode without consuming the `(`
+         * and the outer loop re-entered iron_parse_stmt forever. */
+        if (p->pos == pos_before) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "unexpected token in block; skipping", NULL);
+            if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
+        }
     }
 
     Iron_Token *end = iron_current(p);
@@ -838,7 +854,11 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     iron_emit_diag(p, IRON_ERR_EXPECTED_EXPR,
                    iron_token_span(p, t),
                    "expected expression");
-    /* Do not advance — let the caller handle recovery */
+    /* 2026-04-10 Phase 59 01d: advance past the offending token so callers
+     * don't spin. Previous comment "let the caller handle recovery" was wrong —
+     * no caller recovers, and the 01c hang on tuple_return_smoke.iron traced
+     * back to this exact no-advance path. */
+    if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
     return iron_make_error(p);
 }
 
@@ -1534,7 +1554,12 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
-                       "expected variable name after 'val'", NULL);
+                       "expected variable name or tuple destructure pattern after 'val'", NULL);
+        /* 2026-04-10 Phase 59 01d: advance past the offending token. Paired
+         * with the no-progress guard in iron_parse_block this is belt-and-
+         * braces, but it also guarantees forward progress even if this path
+         * is reached from an outer caller that doesn't run the guard. */
+        if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
         return iron_make_error(p);
     }
     Iron_Token *name_tok = iron_advance(p);
@@ -1569,6 +1594,10 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     n->type_ann      = type_ann;
     n->init          = init;
     n->declared_type = NULL;  /* set by type checker */
+    /* Phase 59 01d: destructure bindings default off; populated below if we
+     * add a LPAREN branch in Task 2. */
+    n->binding_names = NULL;
+    n->binding_count = 0;
     return (Iron_Node *)n;
 }
 
@@ -2458,6 +2487,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     int decl_count    = 0;
 
     while (!iron_check(p, IRON_TOK_EOF)) {
+        int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_EOF)) break;
 
@@ -2478,6 +2508,17 @@ Iron_Node *iron_parse(Iron_Parser *p) {
         arrput(decls, d);
         decl_count++;
         iron_skip_newlines(p);
+        /* No-progress guard at the top level: if iron_parse_decl failed to
+         * consume any tokens, emit one generic diagnostic and skip one token.
+         * This keeps the parser bounded even when a declaration parser leaves
+         * the cursor stuck. Defense-in-depth for the 01c-class hang. */
+        if (p->pos == pos_before) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "unexpected token at top level; skipping", NULL);
+            if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
+        }
     }
 
     Iron_Program *prog  = ARENA_ALLOC(p->arena, Iron_Program);

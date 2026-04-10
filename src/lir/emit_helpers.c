@@ -194,6 +194,12 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
 
         case IRON_TYPE_GENERIC_PARAM:
             return "void*";
+
+        case IRON_TYPE_TUPLE:
+            /* Phase 59 01d Task 1: placeholder — real tuple struct synthesis
+             * lands in Task 3 (emit_ensure_tuple). For now return the mangled
+             * name so existing callers at least see a stable string. */
+            return t->tuple.mangled_name ? t->tuple.mangled_name : "void";
     }
     return "int"; /* unreachable fallback */
 }

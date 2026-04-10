@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "parser/parser.h"
 #include "parser/ast.h"
+#include "analyzer/types.h"
 #include "lexer/lexer.h"
 #include "util/arena.h"
 #include "diagnostics/diagnostics.h"
@@ -176,6 +177,93 @@ void test_error_span_points_to_correct_line(void) {
     TEST_ASSERT_EQUAL_UINT(3, diags.items[0].span.line);
 }
 
+/* ── Phase 59 01d — Parser safeguard (no hang on malformed val decl) ──── */
+
+/* Regression test for the 01c hang: `val ( something_weird }` must NOT cause
+ * unbounded parser advance. Must emit at least one diagnostic AND return
+ * within a bounded number of parser advances. */
+void test_parser_no_hang_on_malformed_val_decl(void) {
+    /* The exact 01c repro shape: stray `(` after `val` inside a block, with
+     * no closing `)`. Before the safeguard this hung for 20+ seconds and
+     * allocated 3.6 GB RSS. After the safeguard it must terminate in O(N)
+     * tokens with at least one diagnostic. */
+    const char *src = "func main() { val ( something_weird }\n";
+    Iron_Node *prog = parse(src);
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+}
+
+/* Guard against top-level `val (` hangs too. */
+void test_parser_no_hang_on_unsupported_toplevel(void) {
+    /* Stray `(` at top level. */
+    const char *src = "( invalid\n";
+    Iron_Node *prog = parse(src);
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+}
+
+/* ── Phase 59 01d — Iron_Type tuple construction ──────────────────────── */
+
+void test_iron_type_make_tuple_2_elem(void) {
+    iron_types_init(&arena);
+    Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *str_ty = iron_type_make_primitive(IRON_TYPE_STRING);
+    Iron_Type *elems[2] = { int_ty, str_ty };
+    Iron_Type *tup = iron_type_make_tuple(&arena, elems, 2);
+    TEST_ASSERT_NOT_NULL(tup);
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_TUPLE, tup->kind);
+    TEST_ASSERT_EQUAL_INT(2, tup->tuple.elem_count);
+    TEST_ASSERT_NOT_NULL(tup->tuple.mangled_name);
+    /* Must start with Iron_Tuple_ */
+    TEST_ASSERT_EQUAL_STRING_LEN("Iron_Tuple_", tup->tuple.mangled_name, 11);
+}
+
+void test_iron_type_equals_tuple_same(void) {
+    iron_types_init(&arena);
+    Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *elems1[2] = { int_ty, int_ty };
+    Iron_Type *elems2[2] = { int_ty, int_ty };
+    Iron_Type *t1 = iron_type_make_tuple(&arena, elems1, 2);
+    Iron_Type *t2 = iron_type_make_tuple(&arena, elems2, 2);
+    TEST_ASSERT_TRUE(iron_type_equals(t1, t2));
+}
+
+void test_iron_type_equals_tuple_mismatched_arity(void) {
+    iron_types_init(&arena);
+    Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *e2[2] = { int_ty, int_ty };
+    Iron_Type *e3[3] = { int_ty, int_ty, int_ty };
+    Iron_Type *t2 = iron_type_make_tuple(&arena, e2, 2);
+    Iron_Type *t3 = iron_type_make_tuple(&arena, e3, 3);
+    TEST_ASSERT_FALSE(iron_type_equals(t2, t3));
+}
+
+void test_iron_type_equals_tuple_mismatched_elem(void) {
+    iron_types_init(&arena);
+    Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *str_ty = iron_type_make_primitive(IRON_TYPE_STRING);
+    Iron_Type *e_is[2] = { int_ty, str_ty };
+    Iron_Type *e_ii[2] = { int_ty, int_ty };
+    Iron_Type *t_is = iron_type_make_tuple(&arena, e_is, 2);
+    Iron_Type *t_ii = iron_type_make_tuple(&arena, e_ii, 2);
+    TEST_ASSERT_FALSE(iron_type_equals(t_is, t_ii));
+}
+
+void test_iron_type_to_string_tuple(void) {
+    iron_types_init(&arena);
+    Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *str_ty = iron_type_make_primitive(IRON_TYPE_STRING);
+    Iron_Type *elems[2] = { int_ty, str_ty };
+    Iron_Type *tup = iron_type_make_tuple(&arena, elems, 2);
+    const char *s = iron_type_to_string(tup, &arena);
+    TEST_ASSERT_NOT_NULL(s);
+    /* Must contain "(" and "," */
+    TEST_ASSERT_NOT_NULL(strchr(s, '('));
+    TEST_ASSERT_NOT_NULL(strchr(s, ','));
+    TEST_ASSERT_NOT_NULL(strstr(s, "Int"));
+    TEST_ASSERT_NOT_NULL(strstr(s, "String"));
+}
+
 /* ── Main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -188,5 +276,13 @@ int main(void) {
     RUN_TEST(test_error_recovery_continues_parsing);
     RUN_TEST(test_error_node_in_ast);
     RUN_TEST(test_error_span_points_to_correct_line);
+    /* Phase 59 01d */
+    RUN_TEST(test_parser_no_hang_on_malformed_val_decl);
+    RUN_TEST(test_parser_no_hang_on_unsupported_toplevel);
+    RUN_TEST(test_iron_type_make_tuple_2_elem);
+    RUN_TEST(test_iron_type_equals_tuple_same);
+    RUN_TEST(test_iron_type_equals_tuple_mismatched_arity);
+    RUN_TEST(test_iron_type_equals_tuple_mismatched_elem);
+    RUN_TEST(test_iron_type_to_string_tuple);
     return UNITY_END();
 }
