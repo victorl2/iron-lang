@@ -44,3 +44,67 @@ func TcpListener.close(l: TcpListener) {}
 func TcpSocket.read(s: TcpSocket, buf: String, timeout: Int) -> (Int, NetError) {}
 func TcpSocket.write(s: TcpSocket, buf: String, timeout: Int) -> (Int, NetError) {}
 func TcpSocket.close(s: TcpSocket) {}
+
+-- ── Phase 59 P03: UDP + IP address types ──────────────────────────────
+--
+-- UDP socket handle. Layout matches Iron_UdpSocket in iron_net.h.
+object UdpSocket {
+    val fd: Int
+}
+
+-- IPv4 address. The C side stores 4 raw octets in a uint8_t[4]; the Iron
+-- side exposes them as four Int fields for ergonomic pattern access and
+-- because Iron has no fixed-size byte-array type. The compiler lowers
+-- each `val` to a 64-bit field. This is NOT layout-compatible with the
+-- raw Iron_IPv4Addr C struct — the Iron-side wrapper is a wider mirror
+-- of the C payload, and parse/format go through the C helpers by value.
+-- For tuple returns, the IPv4 value flows end-to-end only via the C
+-- Iron_Net_ipv4addr_parse path which is an extern declaration in the
+-- generated C (it returns the C struct directly and the Iron side
+-- accesses the fields through a mirrored object).
+--
+-- For Phase 59 P03, Iron code never constructs IPv4Addr by hand — it
+-- always receives one from parse() or as a sender in UdpRecv. If a
+-- future phase needs literal construction, it can add a helper.
+object IPv4Addr {
+    val a: Int
+    val b: Int
+    val c: Int
+    val d: Int
+}
+
+-- IPv6 address. `bytes` is a 16-octet String (raw bytes). `zone` is the
+-- zone identifier (empty when absent). Stored via String to keep the
+-- wrapper free of Iron array quirks.
+object IPv6Addr {
+    val bytes: String
+    val zone: String
+}
+
+-- Address ADT (the Iron frontend keyword is `enum`, not `variant`;
+-- this is the tagged union that Phase 59 P04 DNS will return as
+-- `[Address]`).
+enum Address {
+    V4(IPv4Addr),
+    V6(IPv6Addr),
+}
+
+-- UDP bind on host:port. A port of 0 asks the OS to assign an ephemeral
+-- port. When host is "::" the socket is dual-stack (IPV6_V6ONLY=0).
+func Net.udp_bind(host: String, port: Int) -> (UdpSocket, NetError) {}
+
+-- Flat UDP sendto helpers. The Iron-side `UdpSocket.sendto(addr: Address,
+-- ...)` stub pattern-matches and dispatches into one of these. Tests and
+-- downstream code that already know the address family can call the flat
+-- helpers directly.
+func Net.udp_sendto_v4(s: UdpSocket, buf: String, addr: IPv4Addr, port: Int, timeout: Int) -> (Int, NetError) {}
+func Net.udp_sendto_v6(s: UdpSocket, buf: String, addr: IPv6Addr, port: Int, timeout: Int) -> (Int, NetError) {}
+
+-- UdpSocket.close — idempotent (safe to call on an already-closed fd).
+func UdpSocket.close(s: UdpSocket) {}
+
+-- ── IP address parse / format ──────────────────────────────────────────
+func IPv4Addr.parse(s: String) -> (IPv4Addr, NetError) {}
+func IPv4Addr.format(a: IPv4Addr) -> String {}
+func IPv6Addr.parse(s: String) -> (IPv6Addr, NetError) {}
+func IPv6Addr.format(a: IPv6Addr) -> String {}

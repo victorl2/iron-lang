@@ -78,7 +78,7 @@ void test_udp_sendto_recvfrom_roundtrip(void) {
     const char *msg_bytes = "hello, world";  /* 12 bytes */
     Iron_String buf = iron_string_from_cstr(msg_bytes, 12);
 
-    Iron_IPv4Addr srv_v4 = {{ 127, 0, 0, 1 }};
+    Iron_IPv4Addr srv_v4 = { 127, 0, 0, 1 };
     Iron_Result_Int_NetError wr = Iron_Net_udp_sendto_v4_result(
         rc.v0, buf, srv_v4, (int64_t)srv_port, 1000);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, wr.v1.code, "sendto should succeed");
@@ -128,7 +128,7 @@ void test_udp_sendto_closed_socket(void) {
 
     /* Synthesize a closed-fd sendto. On POSIX the fd was closed; on Windows
      * the SOCKET handle was closed. Either way, sendto should fail. */
-    Iron_IPv4Addr dst = {{ 127, 0, 0, 1 }};
+    Iron_IPv4Addr dst = { 127, 0, 0, 1 };
     Iron_String buf = iron_string_from_cstr("x", 1);
     Iron_Result_Int_NetError wr = Iron_Net_udp_sendto_v4_result(
         r.v0, buf, dst, 9999, 100);

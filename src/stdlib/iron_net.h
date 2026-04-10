@@ -1,22 +1,32 @@
 #ifndef IRON_NET_H
 #define IRON_NET_H
 
-/* iron_net.h — Phase 59 P02 TCP stdlib surface.
+/* iron_net.h — Phase 59 P02/P03 TCP + UDP + IP stdlib surface.
  *
  * This header is consumed by:
  *   - src/stdlib/iron_net.c (the C implementation)
- *   - tests/unit/test_stdlib_net_tcp.c (the Unity tests)
+ *   - tests/unit/test_stdlib_net_tcp.c (the P02 TCP Unity tests)
+ *   - tests/unit/test_stdlib_net_udp.c (the P03 UDP Unity tests)
+ *   - tests/unit/test_stdlib_net_ip.c  (the P03 IP address Unity tests)
  *
  * It is intentionally NOT included by the Iron codegen output. Generated
- * C files receive extern prototypes for the TCP stub functions through
- * the emit_c.c Phase 3 "is_extern && !extern_c_name" branch, which lands
- * the prototypes in ctx.prototypes AFTER the compiler's own struct body
+ * C files receive extern prototypes for the stub functions through the
+ * emit_c.c Phase 3 "is_extern && !extern_c_name" branch, which lands the
+ * prototypes in ctx.prototypes AFTER the compiler's own struct body
  * emission — avoiding the double-definition conflict that arises when
  * both the header and the compiler declare struct Iron_NetError etc.
  *
  * All blocking operations take an Int millisecond timeout and honour it
  * via Iron_Deadline (P01a) + iron_net_poll (non-blocking socket +
  * poll/WSAPoll). Error codes come from iron_errors.h (P01a).
+ *
+ * Phase 59 P03 addendum: UDP socket primitives (Iron_UdpSocket), typed
+ * IPv4/IPv6 address types, and IP parse/format wrappers. See iron_net.c
+ * for the zone-identifier handling and dual-stack bind policy. The Iron
+ * frontend has no `variant` keyword, so the Iron-side enum lives in
+ * stdlib/net.iron as `enum Address { V4(IPv4Addr), V6(IPv6Addr) }` — the
+ * C side exposes flat v4/v6 sendto helpers that the Iron wrapper
+ * dispatches into via `match`.
  */
 
 #include <stdint.h>
@@ -112,6 +122,147 @@ static inline void Iron_TcpSocket_close(Iron_TcpSocket s) {
 }
 static inline void Iron_TcpListener_close(Iron_TcpListener l) {
     Iron_tcplistener_close(l);
+}
+
+/* ── Phase 59 P03: UDP + IP address types ─────────────────────────────── */
+
+/* UDP socket handle — layout-compatible with Iron `object UdpSocket { val fd: Int }` */
+typedef struct Iron_UdpSocket { int64_t fd; } Iron_UdpSocket;
+
+/* IPv4 address — LAYOUT-COMPATIBLE with compiler-emitted
+ * `struct Iron_IPv4Addr { int64_t a, b, c, d; }`.
+ *
+ * Rationale: the Iron-side `object IPv4Addr { val a, b, c, d: Int }` is
+ * the canonical layout because it flows through Iron functions by value
+ * and through the Iron tuple-return code path. The C side must match
+ * byte-for-byte — same struct, same order, same int64_t fields. The C
+ * wrappers (inet_pton/inet_ntop helpers) convert between the 4 int64
+ * octet-in-low-byte representation and the contiguous uint8_t[4] that
+ * libc expects. */
+typedef struct Iron_IPv4Addr {
+    int64_t a;
+    int64_t b;
+    int64_t c;
+    int64_t d;
+} Iron_IPv4Addr;
+
+/* IPv6 address — LAYOUT-COMPATIBLE with compiler-emitted
+ * `struct Iron_IPv6Addr { Iron_String bytes; Iron_String zone; }`.
+ *
+ * `bytes` is ALWAYS a 16-byte Iron_String payload containing the raw
+ * octets (not a hex/canonical string — real bytes). `zone` is the
+ * optional zone identifier (empty Iron_String when absent). The C
+ * wrappers call iron_string_cstr(&bytes) to get a pointer into the
+ * 16-byte payload for inet_ntop. */
+typedef struct Iron_IPv6Addr {
+    Iron_String bytes;
+    Iron_String zone;
+} Iron_IPv6Addr;
+
+/* ── Result tuples for UDP and IP wrappers ────────────────────────────── */
+typedef struct {
+    Iron_UdpSocket v0;
+    Iron_NetError  v1;
+} Iron_Tuple_UdpSocket_NetError;
+
+typedef struct {
+    Iron_IPv4Addr v0;
+    Iron_NetError v1;
+} Iron_Tuple_IPv4Addr_NetError;
+
+typedef struct {
+    Iron_IPv6Addr v0;
+    Iron_NetError v1;
+} Iron_Tuple_IPv6Addr_NetError;
+
+typedef Iron_Tuple_UdpSocket_NetError Iron_Result_UdpSocket_NetError;
+typedef Iron_Tuple_IPv4Addr_NetError  Iron_Result_IPv4Addr_NetError;
+typedef Iron_Tuple_IPv6Addr_NetError  Iron_Result_IPv6Addr_NetError;
+typedef Iron_Tuple_Int_NetError       Iron_Result_Int_NetError;  /* shared with TCP */
+
+/* ── UDP wrappers ──────────────────────────────────────────────────────── */
+Iron_Result_UdpSocket_NetError Iron_net_udp_bind(Iron_String host, int64_t port);
+
+/* Flat v4 / v6 sendto helpers. The Iron-side `UdpSocket.sendto(addr: Address, ...)`
+ * stub pattern-matches and dispatches into one of these. */
+Iron_Result_Int_NetError Iron_net_udp_sendto_v4(Iron_UdpSocket s,
+                                                 Iron_String    buf,
+                                                 Iron_IPv4Addr  addr,
+                                                 int64_t        port,
+                                                 int64_t        timeout);
+
+Iron_Result_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s,
+                                                 Iron_String    buf,
+                                                 Iron_IPv6Addr  addr,
+                                                 int64_t        port,
+                                                 int64_t        timeout);
+
+/* recvfrom returns a flat struct-by-value descriptor. The Iron-side stub
+ * exposes this as `object UdpRecv { nbytes, family, bytes, zone, port, err }`
+ * so user Iron code can access fields with `r.nbytes` etc. */
+typedef struct {
+    int64_t       nbytes;
+    int64_t       addr_family;  /* 4 = AF_INET, 6 = AF_INET6, 0 on error */
+    Iron_String   addr_bytes;   /* 4 or 16 raw octets */
+    Iron_String   addr_zone;    /* v6 zone or "" */
+    int64_t       port;
+    Iron_NetError err;
+} Iron_UdpRecvResult;
+
+Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
+                                             uint8_t       *buf,
+                                             int64_t        cap,
+                                             int64_t        timeout);
+
+void Iron_udpsocket_close(Iron_UdpSocket s);
+
+/* ── IP address parse/format ───────────────────────────────────────────── */
+/* Names match the hir_to_lir method-call mangling so the generated C
+ * can call them as-is. `Iron_ipv4addr_parse` is the mangled form of
+ * `IPv4Addr.parse` produced by hir_to_lir.c. */
+Iron_Result_IPv4Addr_NetError Iron_ipv4addr_parse(Iron_String s);
+Iron_String                    Iron_ipv4addr_format(Iron_IPv4Addr a);
+Iron_Result_IPv6Addr_NetError Iron_ipv6addr_parse(Iron_String s);
+Iron_String                    Iron_ipv6addr_format(Iron_IPv6Addr a);
+
+/* ── Capital-first aliases for the Unity tests ─────────────────────────── */
+static inline Iron_Result_UdpSocket_NetError
+Iron_Net_udp_bind_result(Iron_String host, int64_t port) {
+    return Iron_net_udp_bind(host, port);
+}
+static inline Iron_Result_Int_NetError
+Iron_Net_udp_sendto_v4_result(Iron_UdpSocket s, Iron_String buf,
+                                Iron_IPv4Addr addr, int64_t port, int64_t timeout) {
+    return Iron_net_udp_sendto_v4(s, buf, addr, port, timeout);
+}
+static inline Iron_Result_Int_NetError
+Iron_Net_udp_sendto_v6_result(Iron_UdpSocket s, Iron_String buf,
+                                Iron_IPv6Addr addr, int64_t port, int64_t timeout) {
+    return Iron_net_udp_sendto_v6(s, buf, addr, port, timeout);
+}
+static inline Iron_UdpRecvResult
+Iron_UdpSocket_recvfrom_result(Iron_UdpSocket s, uint8_t *buf,
+                                 int64_t cap, int64_t timeout) {
+    return Iron_udpsocket_recvfrom(s, buf, cap, timeout);
+}
+static inline void Iron_UdpSocket_close(Iron_UdpSocket s) {
+    Iron_udpsocket_close(s);
+}
+static inline Iron_Result_IPv4Addr_NetError
+Iron_Net_ipv4addr_parse_result(Iron_String s) {
+    return Iron_ipv4addr_parse(s);
+}
+static inline Iron_String
+Iron_Net_ipv4addr_format(Iron_IPv4Addr a) {
+    return Iron_ipv4addr_format(a);
+}
+static inline Iron_Result_IPv6Addr_NetError
+Iron_Net_ipv6addr_parse_result(Iron_String s) {
+    return Iron_ipv6addr_parse(s);
+}
+static inline Iron_String
+Iron_Net_ipv6addr_format(Iron_IPv6Addr a) {
+    return Iron_ipv6addr_format(a);
 }
 
 #endif /* IRON_NET_H */

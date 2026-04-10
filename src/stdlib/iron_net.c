@@ -52,10 +52,12 @@
   #include <netinet/tcp.h>
   #include <arpa/inet.h>
   #include <netdb.h>
+  #include <net/if.h>   /* if_nametoindex / if_indextoname for IPv6 zones */
   #include <unistd.h>
   #include <fcntl.h>
   #include <poll.h>
   #include <errno.h>
+  #include <stdio.h>    /* snprintf for P03 udp_bind port_buf */
   typedef int iron_sock_t;
   #define IRON_INVALID_SOCK (-1)
   #define IRON_NET_LAST_ERR()  errno
@@ -608,4 +610,456 @@ void Iron_tcpsocket_close(Iron_TcpSocket s) {
 void Iron_tcplistener_close(Iron_TcpListener l) {
     if (l.fd < 0) return;
     IRON_NET_CLOSE(l.fd);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Phase 59 P03: UDP + IP address wrappers
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── IPv4 parse/format ─────────────────────────────────────────────────── */
+
+/* Iron_IPv4Addr is layout-compatible with the compiler-emitted
+ * `struct Iron_IPv4Addr { int64_t a, b, c, d; }`. The low byte of each
+ * int64 field holds the actual octet; the upper 7 bytes are zeros.
+ * inet_pton/inet_ntop operate on a contiguous uint8_t[4], so we
+ * marshal in/out explicitly. */
+
+static void ipv4_octets_from_bytes(Iron_IPv4Addr *a, const uint8_t octets[4]) {
+    a->a = (int64_t)octets[0];
+    a->b = (int64_t)octets[1];
+    a->c = (int64_t)octets[2];
+    a->d = (int64_t)octets[3];
+}
+
+static void ipv4_octets_to_bytes(Iron_IPv4Addr a, uint8_t octets[4]) {
+    octets[0] = (uint8_t)(a.a & 0xff);
+    octets[1] = (uint8_t)(a.b & 0xff);
+    octets[2] = (uint8_t)(a.c & 0xff);
+    octets[3] = (uint8_t)(a.d & 0xff);
+}
+
+Iron_Result_IPv4Addr_NetError Iron_ipv4addr_parse(Iron_String s) {
+    Iron_Result_IPv4Addr_NetError out;
+    out.v0.a = 0;
+    out.v0.b = 0;
+    out.v0.c = 0;
+    out.v0.d = 0;
+
+    size_t len = iron_string_byte_len(&s);
+    if (len == 0 || len >= INET_ADDRSTRLEN) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return out;
+    }
+    char tmp[INET_ADDRSTRLEN];
+    memcpy(tmp, iron_string_cstr(&s), len);
+    tmp[len] = '\0';
+
+    uint8_t octets[4];
+    int rc = inet_pton(AF_INET, tmp, octets);
+    if (rc != 1) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return out;
+    }
+    ipv4_octets_from_bytes(&out.v0, octets);
+    out.v1 = iron_net_err_none();
+    return out;
+}
+
+Iron_String Iron_ipv4addr_format(Iron_IPv4Addr a) {
+    uint8_t octets[4];
+    ipv4_octets_to_bytes(a, octets);
+    char buf[INET_ADDRSTRLEN];
+    if (!inet_ntop(AF_INET, octets, buf, sizeof(buf))) {
+        return iron_string_from_literal("", 0);
+    }
+    return iron_string_from_cstr(buf, strlen(buf));
+}
+
+/* ── IPv6 parse/format with zone-identifier support ────────────────────── */
+
+/* RFC 4007 / 6874: addresses may carry a zone identifier after '%'.
+ * URL-embedded forms use '%25' (percent-encoded '%') followed by the zone.
+ * Both `fe80::1%eth0` and `fe80::1%25eth0` must parse to the same zone.
+ *
+ * The Iron-side `object IPv6Addr { val bytes: String; val zone: String }`
+ * stores the 16 raw octets as an Iron_String payload — the C side
+ * creates a fresh Iron_String from the inet_pton output. */
+Iron_Result_IPv6Addr_NetError Iron_ipv6addr_parse(Iron_String s) {
+    Iron_Result_IPv6Addr_NetError out;
+    out.v0.bytes = iron_string_from_literal("", 0);
+    out.v0.zone  = iron_string_from_literal("", 0);
+
+    size_t len = iron_string_byte_len(&s);
+    if (len == 0 || len >= INET6_ADDRSTRLEN + 64) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return out;
+    }
+    const char *cs = iron_string_cstr(&s);
+
+    /* Find the optional zone separator. */
+    const char *percent = (const char *)memchr(cs, '%', len);
+    size_t addr_len = percent ? (size_t)(percent - cs) : len;
+    const char *zone_start = NULL;
+    size_t      zone_len   = 0;
+    if (percent) {
+        zone_start = percent + 1;
+        zone_len   = len - addr_len - 1;
+        /* URL-encoded '%' prefix stripping: if zone begins with "25", the
+         * intent was `%25<zone>` in an originally-URL-encoded string. */
+        if (zone_len >= 2 && zone_start[0] == '2' && zone_start[1] == '5') {
+            zone_start += 2;
+            zone_len   -= 2;
+        }
+    }
+
+    if (addr_len == 0 || addr_len >= INET6_ADDRSTRLEN || zone_len > 63) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return out;
+    }
+
+    char tmp[INET6_ADDRSTRLEN];
+    memcpy(tmp, cs, addr_len);
+    tmp[addr_len] = '\0';
+
+    uint8_t raw_octets[16];
+    int rc = inet_pton(AF_INET6, tmp, raw_octets);
+    if (rc != 1) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return out;
+    }
+
+    out.v0.bytes = iron_string_from_cstr((const char *)raw_octets, 16);
+    if (zone_len > 0) {
+        out.v0.zone = iron_string_from_cstr(zone_start, zone_len);
+    }
+    out.v1 = iron_net_err_none();
+    return out;
+}
+
+Iron_String Iron_ipv6addr_format(Iron_IPv6Addr a) {
+    size_t blen = iron_string_byte_len(&a.bytes);
+    if (blen != 16) {
+        return iron_string_from_literal("", 0);
+    }
+    const uint8_t *octets = (const uint8_t *)iron_string_cstr(&a.bytes);
+
+    /* buf must accommodate the longest canonical form + '%' + zone. */
+    char buf[INET6_ADDRSTRLEN + 1 + 64];
+    if (!inet_ntop(AF_INET6, octets, buf, INET6_ADDRSTRLEN)) {
+        return iron_string_from_literal("", 0);
+    }
+    size_t alen = strlen(buf);
+    size_t zlen = iron_string_byte_len(&a.zone);
+    if (zlen > 0 && zlen < 64 && alen + 1 + zlen + 1 <= sizeof(buf)) {
+        buf[alen] = '%';
+        memcpy(buf + alen + 1, iron_string_cstr(&a.zone), zlen);
+        size_t total = alen + 1 + zlen;
+        buf[total] = '\0';
+        return iron_string_from_cstr(buf, total);
+    }
+    return iron_string_from_cstr(buf, alen);
+}
+
+/* ── UDP bind ─────────────────────────────────────────────────────────── */
+
+Iron_Result_UdpSocket_NetError Iron_net_udp_bind(Iron_String host, int64_t port) {
+    Iron_Result_UdpSocket_NetError out;
+    out.v0.fd = -1;
+    out.v1    = iron_net_err_none();
+
+    const char *host_c = iron_string_cstr(&host);
+    if (!host_c) host_c = "";
+
+    char service[8];
+    port_to_service(port, service, sizeof(service));
+
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags    = AI_PASSIVE | AI_NUMERICSERV;
+
+    struct addrinfo *res = NULL;
+    int gai = getaddrinfo(host_c[0] ? host_c : NULL, service, &hints, &res);
+    if (gai != 0 || !res) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return out;
+    }
+
+    iron_sock_t bound_fd = IRON_INVALID_SOCK;
+    int last_err = 0;
+    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+        iron_sock_t s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (s == IRON_INVALID_SOCK) {
+            last_err = IRON_NET_LAST_ERR();
+            continue;
+        }
+
+        /* UDP dual-stack: when the family is v6, drop V6ONLY so the socket
+         * can receive IPv4 datagrams via v4-mapped addresses. Same policy
+         * as the TCP listener above (INFRA-08). */
+        if (ai->ai_family == AF_INET6) {
+            int v6only = 0;
+            setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
+                       (const char *)&v6only, sizeof(v6only));
+        }
+
+        int one = 1;
+        setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
+                   (const char *)&one, sizeof(one));
+
+        if (bind(s, ai->ai_addr, (socklen_t)ai->ai_addrlen) != 0) {
+            last_err = IRON_NET_LAST_ERR();
+            IRON_NET_CLOSE((int64_t)s);
+            continue;
+        }
+        /* Non-blocking so recvfrom with timeout works. */
+        iron_net_set_nonblocking((int64_t)s);
+
+        bound_fd = s;
+        break;
+    }
+    freeaddrinfo(res);
+
+    if (bound_fd == IRON_INVALID_SOCK) {
+        if (last_err == 0) {
+            out.v1 = iron_net_err_code(IRON_ERR_NET_UNKNOWN);
+        } else {
+#ifdef _WIN32
+            out.v1 = iron_net_err_code(iron_net_translate_wsa(last_err));
+#else
+            out.v1 = iron_net_err_code(iron_net_translate_errno(last_err));
+#endif
+        }
+        return out;
+    }
+
+    out.v0.fd = (int64_t)bound_fd;
+    out.v1    = iron_net_err_none();
+    return out;
+}
+
+void Iron_udpsocket_close(Iron_UdpSocket s) {
+    if (s.fd < 0) return;
+    IRON_NET_CLOSE(s.fd);
+}
+
+/* ── UDP sendto: flat impl shared between v4 and v6 helpers ────────────── */
+
+static Iron_Result_Int_NetError iron_udp_sendto_flat(Iron_UdpSocket s,
+                                                       Iron_String    buf,
+                                                       int            family,
+                                                       const uint8_t *addr_bytes,
+                                                       size_t         addr_len,
+                                                       Iron_String    addr_zone,
+                                                       int64_t        port,
+                                                       int64_t        timeout_ms) {
+    Iron_Result_Int_NetError out;
+    out.v0 = 0;
+    out.v1 = iron_net_err_none();
+
+    Iron_Deadline dl = Iron_deadline_from_timeout_ms(timeout_ms);
+
+    struct sockaddr_storage dst;
+    memset(&dst, 0, sizeof(dst));
+    socklen_t dst_len = 0;
+
+    if (family == 4) {
+        if (addr_len != 4) {
+            out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+            return out;
+        }
+        struct sockaddr_in *sin = (struct sockaddr_in *)&dst;
+        sin->sin_family = AF_INET;
+        sin->sin_port   = htons((uint16_t)port);
+        memcpy(&sin->sin_addr, addr_bytes, 4);
+        dst_len = sizeof(*sin);
+    } else if (family == 6) {
+        if (addr_len != 16) {
+            out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+            return out;
+        }
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&dst;
+        sin6->sin6_family = AF_INET6;
+        sin6->sin6_port   = htons((uint16_t)port);
+        memcpy(&sin6->sin6_addr, addr_bytes, 16);
+#ifndef _WIN32
+        size_t zlen = iron_string_byte_len(&addr_zone);
+        if (zlen > 0 && zlen < IF_NAMESIZE) {
+            char zbuf[IF_NAMESIZE];
+            memcpy(zbuf, iron_string_cstr(&addr_zone), zlen);
+            zbuf[zlen] = '\0';
+            sin6->sin6_scope_id = if_nametoindex(zbuf);
+        }
+#else
+        (void)addr_zone;
+#endif
+        dst_len = sizeof(*sin6);
+    } else {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_AF_NOT_SUPPORTED);
+        return out;
+    }
+
+    size_t      blen  = iron_string_byte_len(&buf);
+    const char *bytes = iron_string_cstr(&buf);
+
+    for (;;) {
+#ifdef _WIN32
+        int n = sendto((SOCKET)s.fd, bytes, (int)blen, 0,
+                       (struct sockaddr *)&dst, dst_len);
+#else
+        ssize_t n = sendto((int)s.fd, bytes, blen, 0,
+                           (struct sockaddr *)&dst, dst_len);
+#endif
+        if (n >= 0) {
+            out.v0 = (int64_t)n;
+            out.v1 = iron_net_err_none();
+            return out;
+        }
+        int e = IRON_NET_LAST_ERR();
+#ifndef _WIN32
+        if (e == EINTR) continue;
+#endif
+        if (e != IRON_NET_EWOULDBLOCK
+#ifndef _WIN32
+            && e != EAGAIN
+#endif
+            ) {
+            out.v1 = iron_net_err_from_last();
+            return out;
+        }
+        int rem = Iron_deadline_remaining_ms(dl);
+        if (rem <= 0) {
+            out.v1 = iron_net_err_timeout();
+            return out;
+        }
+        int rc = iron_net_poll(s.fd, POLLOUT, rem);
+        if (rc == 0) {
+            out.v1 = iron_net_err_timeout();
+            return out;
+        }
+        if (rc < 0) {
+            out.v1 = iron_net_err_from_last();
+            return out;
+        }
+    }
+}
+
+Iron_Result_Int_NetError Iron_net_udp_sendto_v4(Iron_UdpSocket s,
+                                                  Iron_String    buf,
+                                                  Iron_IPv4Addr  addr,
+                                                  int64_t        port,
+                                                  int64_t        timeout) {
+    uint8_t octets[4];
+    ipv4_octets_to_bytes(addr, octets);
+    Iron_String empty_zone = iron_string_from_literal("", 0);
+    return iron_udp_sendto_flat(s, buf, 4, octets, 4, empty_zone,
+                                 port, timeout);
+}
+
+Iron_Result_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s,
+                                                  Iron_String    buf,
+                                                  Iron_IPv6Addr  addr,
+                                                  int64_t        port,
+                                                  int64_t        timeout) {
+    size_t blen = iron_string_byte_len(&addr.bytes);
+    if (blen != 16) {
+        Iron_Result_Int_NetError err_out;
+        err_out.v0 = 0;
+        err_out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return err_out;
+    }
+    const uint8_t *raw = (const uint8_t *)iron_string_cstr(&addr.bytes);
+    return iron_udp_sendto_flat(s, buf, 6, raw, 16, addr.zone,
+                                 port, timeout);
+}
+
+/* ── UDP recvfrom (struct-return ABI) ──────────────────────────────────── */
+
+Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
+                                             uint8_t       *buf,
+                                             int64_t        cap,
+                                             int64_t        timeout) {
+    Iron_UdpRecvResult out;
+    out.nbytes      = 0;
+    out.addr_family = 0;
+    out.addr_bytes  = iron_string_from_literal("", 0);
+    out.addr_zone   = iron_string_from_literal("", 0);
+    out.port        = 0;
+    out.err         = iron_net_err_none();
+
+    if (!buf || cap <= 0) {
+        out.err = iron_net_err_code(IRON_ERR_NET_UNKNOWN);
+        return out;
+    }
+
+    Iron_Deadline dl = Iron_deadline_from_timeout_ms(timeout);
+
+    for (;;) {
+        struct sockaddr_storage src;
+        socklen_t src_len = sizeof(src);
+        memset(&src, 0, sizeof(src));
+
+#ifdef _WIN32
+        int n = recvfrom((SOCKET)s.fd, (char *)buf, (int)cap, 0,
+                         (struct sockaddr *)&src, &src_len);
+#else
+        ssize_t n = recvfrom((int)s.fd, (char *)buf, (size_t)cap, 0,
+                             (struct sockaddr *)&src, &src_len);
+#endif
+        if (n >= 0) {
+            out.nbytes = (int64_t)n;
+            if (src.ss_family == AF_INET) {
+                struct sockaddr_in *sin = (struct sockaddr_in *)&src;
+                out.addr_family = 4;
+                out.addr_bytes  = iron_string_from_cstr(
+                    (const char *)&sin->sin_addr, 4);
+                out.port        = ntohs(sin->sin_port);
+            } else if (src.ss_family == AF_INET6) {
+                struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&src;
+                out.addr_family = 6;
+                out.addr_bytes  = iron_string_from_cstr(
+                    (const char *)&sin6->sin6_addr, 16);
+                out.port        = ntohs(sin6->sin6_port);
+#ifndef _WIN32
+                if (sin6->sin6_scope_id != 0) {
+                    char zbuf[IF_NAMESIZE];
+                    if (if_indextoname(sin6->sin6_scope_id, zbuf)) {
+                        out.addr_zone = iron_string_from_cstr(
+                            zbuf, strlen(zbuf));
+                    }
+                }
+#endif
+            }
+            out.err = iron_net_err_none();
+            return out;
+        }
+
+        int e = IRON_NET_LAST_ERR();
+#ifndef _WIN32
+        if (e == EINTR) continue;
+#endif
+        if (e != IRON_NET_EWOULDBLOCK
+#ifndef _WIN32
+            && e != EAGAIN
+#endif
+            ) {
+            out.err = iron_net_err_from_last();
+            return out;
+        }
+        int rem = Iron_deadline_remaining_ms(dl);
+        if (rem <= 0) {
+            out.err = iron_net_err_timeout();
+            return out;
+        }
+        int rc = iron_net_poll(s.fd, POLLIN, rem);
+        if (rc == 0) {
+            out.err = iron_net_err_timeout();
+            return out;
+        }
+        if (rc < 0) {
+            out.err = iron_net_err_from_last();
+            return out;
+        }
+    }
 }

@@ -35,10 +35,10 @@ void test_ipv4_parse_valid(void) {
     Iron_String s = make_iron_string("192.168.1.1");
     Iron_Result_IPv4Addr_NetError r = Iron_Net_ipv4addr_parse_result(s);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, r.v1.code, "parse 192.168.1.1 should succeed");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(192, r.v0.octets[0], "octet[0]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(168, r.v0.octets[1], "octet[1]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(  1, r.v0.octets[2], "octet[2]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(  1, r.v0.octets[3], "octet[3]");
+    TEST_ASSERT_EQUAL_INT64_MESSAGE(192, r.v0.a, "octet a");
+    TEST_ASSERT_EQUAL_INT64_MESSAGE(168, r.v0.b, "octet b");
+    TEST_ASSERT_EQUAL_INT64_MESSAGE(  1, r.v0.c, "octet c");
+    TEST_ASSERT_EQUAL_INT64_MESSAGE(  1, r.v0.d, "octet d");
 }
 
 /* ── IPv4: parse invalid returns IRON_ERR_NET_BAD_IP ───────────────────── */
@@ -66,12 +66,16 @@ void test_ipv6_parse_valid(void) {
     Iron_String s = make_iron_string("2001:db8::1");
     Iron_Result_IPv6Addr_NetError r = Iron_Net_ipv6addr_parse_result(s);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, r.v1.code, "parse 2001:db8::1 should succeed");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x20, r.v0.octets[0],  "octet[0]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x01, r.v0.octets[1],  "octet[1]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x0d, r.v0.octets[2],  "octet[2]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0xb8, r.v0.octets[3],  "octet[3]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x00, r.v0.octets[14], "octet[14]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x01, r.v0.octets[15], "octet[15]");
+    /* bytes is a 16-byte Iron_String payload. */
+    TEST_ASSERT_EQUAL_INT_MESSAGE(16, (int)iron_string_byte_len(&r.v0.bytes),
+        "IPv6 bytes should be 16 octets");
+    const uint8_t *b = (const uint8_t *)iron_string_cstr(&r.v0.bytes);
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x20, b[0],  "octet[0]");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x01, b[1],  "octet[1]");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x0d, b[2],  "octet[2]");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0xb8, b[3],  "octet[3]");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x00, b[14], "octet[14]");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x01, b[15], "octet[15]");
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, (int)iron_string_byte_len(&r.v0.zone),
         "zone should be empty when no %zone");
 }
@@ -81,9 +85,12 @@ void test_ipv6_parse_with_zone(void) {
     Iron_String s = make_iron_string("fe80::1%eth0");
     Iron_Result_IPv6Addr_NetError r = Iron_Net_ipv6addr_parse_result(s);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, r.v1.code, "parse fe80::1%eth0 should succeed");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0xfe, r.v0.octets[0], "octet[0]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x80, r.v0.octets[1], "octet[1]");
-    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x01, r.v0.octets[15], "octet[15]");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(16, (int)iron_string_byte_len(&r.v0.bytes),
+        "IPv6 bytes should be 16 octets");
+    const uint8_t *b = (const uint8_t *)iron_string_cstr(&r.v0.bytes);
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0xfe, b[0], "octet[0]");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x80, b[1], "octet[1]");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x01, b[15], "octet[15]");
 
     Iron_String expect = make_iron_string("eth0");
     TEST_ASSERT_TRUE_MESSAGE(iron_string_equals(&r.v0.zone, &expect),

@@ -5487,6 +5487,15 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         bool has_tcpsocket_read       = false;
         bool has_tcpsocket_write      = false;
         bool has_tcpsocket_close      = false;
+        /* Phase 59 P03: UDP + IP stub detectors */
+        bool has_net_udp_bind         = false;
+        bool has_net_udp_sendto_v4    = false;
+        bool has_net_udp_sendto_v6    = false;
+        bool has_udpsocket_close      = false;
+        bool has_net_ipv4addr_parse   = false;
+        bool has_net_ipv4addr_format  = false;
+        bool has_net_ipv6addr_parse   = false;
+        bool has_net_ipv6addr_format  = false;
         for (int fi = 0; fi < module->func_count; fi++) {
             IronLIR_Func *fn = module->funcs[fi];
             if (!fn || !fn->is_extern || fn->extern_c_name) continue;
@@ -5499,6 +5508,26 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
             else if (strcmp(mangled, "Iron_tcpsocket_read") == 0)  has_tcpsocket_read = true;
             else if (strcmp(mangled, "Iron_tcpsocket_write") == 0) has_tcpsocket_write = true;
             else if (strcmp(mangled, "Iron_tcpsocket_close") == 0) has_tcpsocket_close = true;
+            /* Phase 59 P03 — method mangling from hir_to_lir:
+             *   Net.udp_bind         → Iron_net_udp_bind
+             *   Net.udp_sendto_v4    → Iron_net_udp_sendto_v4
+             *   Net.udp_sendto_v6    → Iron_net_udp_sendto_v6
+             *   UdpSocket.close      → Iron_udpsocket_close
+             *   IPv4Addr.parse       → Iron_ipv4addr_parse
+             *   IPv4Addr.format      → Iron_ipv4addr_format
+             *   IPv6Addr.parse       → Iron_ipv6addr_parse
+             *   IPv6Addr.format      → Iron_ipv6addr_format
+             * The actual C impls live with "Iron_net_" prefix for the
+             * Net.* static methods and with the lowercased-type prefix
+             * for instance methods. */
+            else if (strcmp(mangled, "Iron_net_udp_bind") == 0)      has_net_udp_bind = true;
+            else if (strcmp(mangled, "Iron_net_udp_sendto_v4") == 0) has_net_udp_sendto_v4 = true;
+            else if (strcmp(mangled, "Iron_net_udp_sendto_v6") == 0) has_net_udp_sendto_v6 = true;
+            else if (strcmp(mangled, "Iron_udpsocket_close") == 0)   has_udpsocket_close = true;
+            else if (strcmp(mangled, "Iron_ipv4addr_parse") == 0)    has_net_ipv4addr_parse = true;
+            else if (strcmp(mangled, "Iron_ipv4addr_format") == 0)   has_net_ipv4addr_format = true;
+            else if (strcmp(mangled, "Iron_ipv6addr_parse") == 0)    has_net_ipv6addr_parse = true;
+            else if (strcmp(mangled, "Iron_ipv6addr_format") == 0)   has_net_ipv6addr_format = true;
         }
         /* If any net stub is referenced, make sure the three well-known
          * result tuple types are defined. The compiler only synthesises a
@@ -5508,11 +5537,16 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
          * reference all three, so we emit whatever is missing up-front
          * and register the mangled name in ctx.emitted_tuples so a
          * subsequent emit_ensure_tuple call is a no-op. */
-        bool need_any = has_net_tcp_dial || has_net_tcp_listen ||
+        bool need_tcp = has_net_tcp_dial || has_net_tcp_listen ||
                         has_tcplistener_accept || has_tcplistener_close ||
                         has_tcpsocket_read || has_tcpsocket_write ||
                         has_tcpsocket_close;
-        if (need_any) {
+        bool need_udp = has_net_udp_bind || has_net_udp_sendto_v4 ||
+                        has_net_udp_sendto_v6 || has_udpsocket_close;
+        bool need_ip  = has_net_ipv4addr_parse || has_net_ipv4addr_format ||
+                        has_net_ipv6addr_parse || has_net_ipv6addr_format;
+        bool need_any = need_tcp || need_udp || need_ip;
+        if (need_tcp) {
             static const char *k_net_tuple_names[] = {
                 "Iron_Tuple_TcpSocket_NetError",
                 "Iron_Tuple_TcpListener_NetError",
@@ -5540,6 +5574,65 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 }
             }
         }
+        /* Phase 59 P03: UDP result tuple typedefs. The (Int, NetError)
+         * tuple is shared with TCP, so it's already emitted above when
+         * need_tcp is true. If the user imports net but only touches UDP,
+         * we still need (Int, NetError) for sendto returns, so emit it
+         * unconditionally whenever need_udp is true. */
+        if (need_udp) {
+            static const char *k_udp_tuple_names[] = {
+                "Iron_Tuple_UdpSocket_NetError",
+                "Iron_Tuple_Int_NetError",
+            };
+            static const char *k_udp_tuple_bodies[] = {
+                "typedef struct { Iron_UdpSocket v0; Iron_NetError v1; } Iron_Tuple_UdpSocket_NetError;\n",
+                "typedef struct { int64_t v0; Iron_NetError v1; } Iron_Tuple_Int_NetError;\n",
+            };
+            for (int ti = 0; ti < 2; ti++) {
+                bool already = false;
+                for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                    if (strcmp(ctx.emitted_tuples[ei], k_udp_tuple_names[ti]) == 0) {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already) {
+                    iron_strbuf_appendf(&ctx.struct_bodies, "%s", k_udp_tuple_bodies[ti]);
+                    arrput(ctx.emitted_tuples,
+                           iron_arena_strdup(ctx.arena,
+                                             k_udp_tuple_names[ti],
+                                             strlen(k_udp_tuple_names[ti])));
+                }
+            }
+        }
+        /* Phase 59 P03: IPv4/IPv6 result tuple typedefs. */
+        if (need_ip) {
+            static const char *k_ip_tuple_names[] = {
+                "Iron_Tuple_IPv4Addr_NetError",
+                "Iron_Tuple_IPv6Addr_NetError",
+            };
+            static const char *k_ip_tuple_bodies[] = {
+                "typedef struct { Iron_IPv4Addr v0; Iron_NetError v1; } Iron_Tuple_IPv4Addr_NetError;\n",
+                "typedef struct { Iron_IPv6Addr v0; Iron_NetError v1; } Iron_Tuple_IPv6Addr_NetError;\n",
+            };
+            for (int ti = 0; ti < 2; ti++) {
+                bool already = false;
+                for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                    if (strcmp(ctx.emitted_tuples[ei], k_ip_tuple_names[ti]) == 0) {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already) {
+                    iron_strbuf_appendf(&ctx.struct_bodies, "%s", k_ip_tuple_bodies[ti]);
+                    arrput(ctx.emitted_tuples,
+                           iron_arena_strdup(ctx.arena,
+                                             k_ip_tuple_names[ti],
+                                             strlen(k_ip_tuple_names[ti])));
+                }
+            }
+        }
+        (void)need_any;
         if (has_net_tcp_dial) {
             iron_strbuf_appendf(&ctx.prototypes,
                 "Iron_Tuple_TcpSocket_NetError Iron_net_tcp_dial(Iron_String host, int64_t port, int64_t timeout);\n");
@@ -5567,6 +5660,56 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         if (has_tcpsocket_close) {
             iron_strbuf_appendf(&ctx.prototypes,
                 "void Iron_tcpsocket_close(Iron_TcpSocket s);\n");
+        }
+        /* Phase 59 P03 extern prototypes. Names map to iron_net.c symbols:
+         *   Iron_net_udp_bind         ← Net.udp_bind
+         *   Iron_net_udp_sendto_v4    ← Net.udp_sendto_v4
+         *   Iron_net_udp_sendto_v6    ← Net.udp_sendto_v6
+         *   Iron_udpsocket_close      ← UdpSocket.close
+         *   Iron_net_ipv4addr_parse   ← IPv4Addr.parse   (routed via Iron_ipv4addr_parse mangled name)
+         *   Iron_net_ipv4addr_format  ← IPv4Addr.format
+         *   Iron_net_ipv6addr_parse   ← IPv6Addr.parse
+         *   Iron_net_ipv6addr_format  ← IPv6Addr.format
+         *
+         * Note on ipv4/ipv6 address method naming: hir_to_lir mangles
+         * `IPv4Addr.parse` to `Iron_ipv4addr_parse` (lowercase-type +
+         * method). But the C impl in iron_net.c uses the
+         * `Iron_net_ipv4addr_parse` name because it's semantically a
+         * "net subsystem" function, not a method on the struct. To
+         * bridge the two, we emit the prototype with the mangled name
+         * the generated C calls (`Iron_ipv4addr_parse`) and rely on
+         * iron_net.c defining that symbol. */
+        if (has_net_udp_bind) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_UdpSocket_NetError Iron_net_udp_bind(Iron_String host, int64_t port);\n");
+        }
+        if (has_net_udp_sendto_v4) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_net_udp_sendto_v4(Iron_UdpSocket s, Iron_String buf, Iron_IPv4Addr addr, int64_t port, int64_t timeout);\n");
+        }
+        if (has_net_udp_sendto_v6) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s, Iron_String buf, Iron_IPv6Addr addr, int64_t port, int64_t timeout);\n");
+        }
+        if (has_udpsocket_close) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "void Iron_udpsocket_close(Iron_UdpSocket s);\n");
+        }
+        if (has_net_ipv4addr_parse) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_IPv4Addr_NetError Iron_ipv4addr_parse(Iron_String s);\n");
+        }
+        if (has_net_ipv4addr_format) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_String Iron_ipv4addr_format(Iron_IPv4Addr a);\n");
+        }
+        if (has_net_ipv6addr_parse) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_IPv6Addr_NetError Iron_ipv6addr_parse(Iron_String s);\n");
+        }
+        if (has_net_ipv6addr_format) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_String Iron_ipv6addr_format(Iron_IPv6Addr a);\n");
         }
     }
 
