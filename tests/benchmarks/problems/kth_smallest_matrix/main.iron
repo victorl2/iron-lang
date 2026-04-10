@@ -107,16 +107,18 @@ func main() {
     println("Bench check k=50: {check}")
 
     val iterations = 500000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = kth_smallest(mat, rows, cols, k)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Kth Smallest in Matrix ===")
     println("Matrix: {rows}x{cols}, k={k}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

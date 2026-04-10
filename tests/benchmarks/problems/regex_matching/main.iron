@@ -65,18 +65,20 @@ func main() {
     val p2 = [13, 9, 19, 101, 9, 19, 101, 19, 101, 9, 16, 101, 9, 100]
 
     val iterations = 1000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for i in range(iterations) {
         result = result + is_match(s1, 12, p1, 21)
         result = result + is_match(s2, 11, p2, 14)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Regular Expression Matching ===")
     println("Patterns: worst-case backtracking scenarios")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
     println("Memory: (see process stats)")
 }

@@ -52,17 +52,19 @@ func main() {
 
   -- Benchmark: parallel-for computes blur per row
   val iterations = 500
-  val start_time = Time.now_ms()
+  val start_time_ns = Time.now_ns()
   for it in range(iterations) {
     for r in 500 parallel {
       var s = compute_blur_row(r, 500, 500)
     }
   }
-  val elapsed = Time.now_ms() - start_time
+  val elapsed_ns = Time.now_ns() - start_time_ns
+  val elapsed_ms = elapsed_ns / 1000000
 
   println("")
   println("=== Benchmark: Parallel Image Blur ===")
   println("Image: 500x500")
   println("Iterations: {iterations}")
-  println("Total time: {elapsed} ms")
+  println("Total time: {elapsed_ns} ns")
+  println("Total time: {elapsed_ms} ms")
 }

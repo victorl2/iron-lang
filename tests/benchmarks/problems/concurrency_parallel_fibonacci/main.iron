@@ -37,14 +37,15 @@ func main() {
     val seq_checksum = seq_sum
 
     -- Parallel section: each iteration calls fib independently (no captures)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
         for i in n parallel {
             val f = fib_for_index(i)
         }
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify: function inlining didn't break parallel calls
     var par_sum = 0
@@ -64,5 +65,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Parallel Fibonacci ===")
     println("N={n}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -19,7 +19,7 @@ func main() {
     val work_size = 5000000
 
     -- Spawn 8 independent tasks (capture handles for fair timing vs pthread_join)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val h0 = spawn("task0") {
         var r = heavy_compute(0, 5000000)
     }
@@ -57,7 +57,8 @@ func main() {
     await h5
     await h6
     await h7
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Sequential verification: recompute all results from main thread
     val r0 = heavy_compute(0, 5000000)
@@ -94,5 +95,6 @@ func main() {
     println("=== Benchmark: Spawn Independent Work ===")
     println("Tasks: 9 (8 spawned + main)")
     println("Work per task: {work_size} iterations")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

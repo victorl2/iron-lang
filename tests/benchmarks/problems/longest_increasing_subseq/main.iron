@@ -34,17 +34,19 @@ func main() {
     println("Test 2: {lis(bench, 50)} (expected 6)")
 
     val iterations = 500000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = lis(bench, 50)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Longest Increasing Subsequence ===")
     println("Array size: 50")
     println("Iterations: {iterations}")
     println("Result: {result}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

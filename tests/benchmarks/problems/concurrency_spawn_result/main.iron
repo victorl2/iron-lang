@@ -33,7 +33,7 @@ func main() {
     val seq_checksum = (s0 + s1 + s2 + s3) % 1000000007
 
     -- Spawn 4 tasks (capture handles and await for fair timing vs C pthread_join)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
         val h0 = spawn("t0") {
@@ -53,7 +53,8 @@ func main() {
         await h2
         await h3
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify: spawns don't corrupt the computation
     val p0 = range_sum(0, chunk)
@@ -73,5 +74,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Spawn Result ===")
     println("Tasks: 4")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

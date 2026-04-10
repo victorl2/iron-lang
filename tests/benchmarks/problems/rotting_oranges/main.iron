@@ -111,18 +111,20 @@ func main() {
     println("Test 4: {rotting_oranges(g4, 2, 3)} (expected 0)")
 
     val iterations = 700000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     var g = fill(100, 0)
     for it in range(iterations) {
         init_grid_10x10(g)
         result = rotting_oranges(g, 10, 10)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Rotting Oranges ===")
     println("Grid: 10x10")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

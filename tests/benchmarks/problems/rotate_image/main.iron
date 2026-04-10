@@ -68,7 +68,7 @@ func main() {
     println("Bench check: {check}")
 
     val iterations = 500000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         for i in range(total) {
@@ -77,11 +77,13 @@ func main() {
         rotate_image(mat, n)
         result = mat[0]
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Rotate Image ===")
     println("Matrix: {n}x{n}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

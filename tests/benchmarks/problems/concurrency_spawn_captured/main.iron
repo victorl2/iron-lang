@@ -32,7 +32,7 @@ func main() {
 
     -- Spawn tasks: each recomputes the seed inside the spawn (no captures)
     -- Handles captured and awaited for fair timing vs C pthread_join
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 100
     for iter in range(iters) {
         val h0 = spawn("s0") {
@@ -51,7 +51,8 @@ func main() {
         await h1
         await h2
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify: same seed, same results
     val p_seed = get_seed()
@@ -71,5 +72,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Spawn Captured ===")
     println("Seed={seed}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

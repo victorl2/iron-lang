@@ -8,7 +8,7 @@ func main() {
   val add_closure = func(x: Int, y: Int) -> Int { return x + y }
 
   val iterations = 1000000
-  val start = Time.now_ms()
+  val start_ns = Time.now_ns()
 
   var sum_direct = 0
   for i in range(iterations) {
@@ -20,11 +20,13 @@ func main() {
     sum_closure += add_closure(i, 1)
   }
 
-  val elapsed = Time.now_ms() - start
+  val elapsed_ns = Time.now_ns() - start_ns
+  val elapsed_ms = elapsed_ns / 1000000
   println("direct: {sum_direct}")
   println("closure: {sum_closure}")
   if sum_direct == sum_closure {
     println("MATCH")
   }
-  println("Total time: {elapsed} ms")
+  println("Total time: {elapsed_ns} ns")
+  println("Total time: {elapsed_ms} ms")
 }

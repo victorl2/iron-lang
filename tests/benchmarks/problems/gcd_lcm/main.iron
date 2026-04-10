@@ -33,7 +33,7 @@ func main() {
 
     -- Benchmark: 1M pairs
     val iterations = 6000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var sum_gcd = 0
     var sum_lcm = 0
     for i in range(iterations) {
@@ -42,7 +42,8 @@ func main() {
         sum_gcd = sum_gcd + gcd(a, b)
         sum_lcm = sum_lcm + lcm(a, b) % 100000
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("Bench gcd sum: {sum_gcd}")
     println("Bench lcm sum mod: {sum_lcm}")
@@ -50,5 +51,6 @@ func main() {
     println("")
     println("=== Benchmark: GCD/LCM ===")
     println("Pairs: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -34,13 +34,14 @@ func main() {
     println("Bench check: {check}")
 
     val iterations = 15000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         val target = (it * 7 + 13) % 600
         result = result + binary_search_insert(arr, n, target)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("Bench result sum: {result}")
 
@@ -48,5 +49,6 @@ func main() {
     println("=== Benchmark: Binary Search Insert ===")
     println("Array size: {n}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

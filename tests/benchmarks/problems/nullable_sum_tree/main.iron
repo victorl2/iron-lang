@@ -74,16 +74,18 @@ func main() {
     println("Test 7 bench(200): {check}")
 
     val iterations = 5000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = bench_optional(200, bench_arr, 50)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Nullable Types ===")
     println("Elements: 200")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

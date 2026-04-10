@@ -78,16 +78,18 @@ func main() {
     println("Test 4: {dfs_checksum(adj4, n, 0)} (expected 8)")
 
     val iterations = 400000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = dfs_checksum(adj2, n, 0)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Graph DFS Traversal ===")
     println("Nodes: {n}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -51,16 +51,18 @@ func main() {
     println("Test 4: {sliding_max(bench, 100, 10)} (expected 8515)")
 
     val iterations = 500000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = sliding_max(bench, 100, 10)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Sliding Window Maximum ===")
     println("Array size: 100, Window: 10")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

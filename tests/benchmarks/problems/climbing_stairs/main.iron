@@ -22,17 +22,19 @@ func main() {
     println("Test 3: {climb_stairs(35)} (expected 14930352)")
 
     val iterations = 250000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = climb_stairs(35)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Climbing Stairs ===")
     println("n=35")
     println("Iterations: {iterations}")
     println("Result: {result}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

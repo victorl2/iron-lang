@@ -79,18 +79,20 @@ func main() {
     }
 
     val iterations = 500000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result: Int32 = Int32(0)
     for i in range(iterations) {
         result = find_median_sorted(a1, Int32(50), a2, Int32(50))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Median of Two Sorted Arrays ===")
     println("Array sizes: 50 + 50 = 100 elements")
     println("Iterations: {iterations}")
     println("Result: {Int(result) / 2}.{(Int(result) % 2) * 5}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
     println("Memory: (see process stats)")
 }
