@@ -245,6 +245,66 @@ void       Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg);
 void       Iron_pool_barrier(Iron_Pool *pool);
 int        Iron_pool_thread_count(const Iron_Pool *pool);
 
+/* ── Elastic pool (Phase 59 P01b) ─────────────────────────────────────────────
+ * Iron_elastic_pool_create returns an Iron_Pool that grows workers on demand
+ * (0..max_threads) and retires idle workers after idle_timeout_ms of no work.
+ * Elastic pools support the same submit/barrier API as fixed-size pools plus
+ * Iron_pool_submit_wait for signalling completion through an Iron_PoolWait.
+ */
+Iron_Pool *Iron_elastic_pool_create(const char *name,
+                                    int max_threads,
+                                    int idle_timeout_ms);
+
+/* Read accessors — expose elastic-mode state without leaking struct layout. */
+bool Iron_pool_is_elastic(const Iron_Pool *p);
+int  Iron_pool_max_threads(const Iron_Pool *p);
+int  Iron_pool_live_thread_count(const Iron_Pool *p);
+int  Iron_pool_leaked_count(const Iron_Pool *p);
+
+/* Bump leaked-worker bookkeeping and logically free the slot so elastic math
+ * allows spawning a replacement on the next submit. See RESEARCH.md Pitfall 13
+ * for the pending-decrement invariant. */
+void Iron_pool_mark_one_leaked(Iron_Pool *pool);
+
+/* Global elastic I/O pool — initialized in iron_threads_init(). Used by
+ * blocking-DNS, blocking-syscall, and other I/O-bound work paths that would
+ * otherwise starve Iron_global_pool's CPU workers. */
+extern Iron_Pool *Iron_io_pool;
+
+/* ── Iron_PoolWait — abandoned-flag completion primitive (Phase 59 P01b) ────
+ * Coordination between a caller that submits I/O work with a deadline and a
+ * worker that may outlive the caller's patience. The caller calls wait_ms;
+ * on timeout it calls set_abandoned and returns an error. The worker calls
+ * worker_finish when its syscall returns — if abandoned, the worker owns the
+ * result and must destroy it; otherwise the result is stored on the wait
+ * struct and the caller is signalled.
+ *
+ * The wait struct is allocated by the caller via Iron_poolwait_create and
+ * always freed by the caller via Iron_poolwait_destroy. The abandoned-flag
+ * variant avoids a refcount at the cost of the caller owning the struct's
+ * lifetime even in the leaked-worker case.
+ */
+typedef struct Iron_PoolWait Iron_PoolWait;
+
+Iron_PoolWait *Iron_poolwait_create(void);
+void           Iron_poolwait_destroy(Iron_PoolWait *w);
+bool           Iron_poolwait_completed(Iron_PoolWait *w);
+/* Block until the worker signals completion, the timeout expires, or an
+ * error occurs. Returns 1 on completed, 0 on timeout, -1 on error. */
+int            Iron_poolwait_wait_ms(Iron_PoolWait *w, int timeout_ms);
+void           Iron_poolwait_set_abandoned(Iron_PoolWait *w);
+void           Iron_poolwait_worker_finish(Iron_PoolWait *w,
+                                           void *result,
+                                           void (*result_destructor)(void*));
+
+/* Submit work to an elastic pool AND bind an Iron_PoolWait the worker will
+ * signal on completion. Intended for elastic pools (I/O paths); calling this
+ * on a fixed-size pool is undefined. */
+void Iron_pool_submit_wait(Iron_Pool *pool,
+                           void (*fn)(void *),
+                           void *arg,
+                           Iron_PoolWait *wait);
+
 /* ── Iron_Handle (future for spawn/await) ────────────────────────────────────
  * Created by spawn; awaited with Iron_handle_wait().
  * Panic in the spawned task is stored and re-raised on wait.
