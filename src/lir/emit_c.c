@@ -252,6 +252,43 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         iron_strbuf_appendf(sb, ")");
         break;
 
+    /* Bitwise binary ops */
+    case IRON_LIR_SHL:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " << ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_LIR_SHR:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " >> ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_LIR_BAND:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " & ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_LIR_BOR:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " | ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_LIR_BXOR:
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, " ^ ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+
     /* Unary ops */
     case IRON_LIR_NEG:
         iron_strbuf_appendf(sb, "(-");
@@ -260,6 +297,11 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         break;
     case IRON_LIR_NOT:
         iron_strbuf_appendf(sb, "(!");
+        emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, use_block_id, depth+1);
+        iron_strbuf_appendf(sb, ")");
+        break;
+    case IRON_LIR_BNOT:
+        iron_strbuf_appendf(sb, "(~");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, ")");
         break;
@@ -792,6 +834,63 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, ";\n");
         break;
 
+    /* ── Bitwise ────────────────────────────────────────────────────────── */
+
+    case IRON_LIR_SHL:
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = ");
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, " << ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+
+    case IRON_LIR_SHR:
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = ");
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, " >> ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+
+    case IRON_LIR_BAND:
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = ");
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, " & ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+
+    case IRON_LIR_BOR:
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = ");
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, " | ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+
+    case IRON_LIR_BXOR:
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = ");
+        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, " ^ ");
+        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+
     /* ── Unary ──────────────────────────────────────────────────────────── */
 
     case IRON_LIR_NEG:
@@ -808,6 +907,15 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = !");
+        emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+
+    case IRON_LIR_BNOT:
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = ~");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
@@ -4672,10 +4780,12 @@ static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 case IRON_LIR_EQ: case IRON_LIR_NEQ: case IRON_LIR_LT:
                 case IRON_LIR_LTE: case IRON_LIR_GT: case IRON_LIR_GTE:
                 case IRON_LIR_AND: case IRON_LIR_OR:
+                case IRON_LIR_SHL: case IRON_LIR_SHR:
+                case IRON_LIR_BAND: case IRON_LIR_BOR: case IRON_LIR_BXOR:
                     TRACK_USE(in->binop.left, bi2);
                     TRACK_USE(in->binop.right, bi2);
                     break;
-                case IRON_LIR_NEG: case IRON_LIR_NOT:
+                case IRON_LIR_NEG: case IRON_LIR_NOT: case IRON_LIR_BNOT:
                     TRACK_USE(in->unop.operand, bi2);
                     break;
                 case IRON_LIR_CALL:

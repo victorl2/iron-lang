@@ -56,12 +56,18 @@ static void collect_operands(const IronLIR_Instr *instr,
     case IRON_LIR_GTE:
     case IRON_LIR_AND:
     case IRON_LIR_OR:
+    case IRON_LIR_SHL:
+    case IRON_LIR_SHR:
+    case IRON_LIR_BAND:
+    case IRON_LIR_BOR:
+    case IRON_LIR_BXOR:
         PUSH(instr->binop.left);
         PUSH(instr->binop.right);
         break;
 
     case IRON_LIR_NEG:
     case IRON_LIR_NOT:
+    case IRON_LIR_BNOT:
         PUSH(instr->unop.operand);
         break;
 
