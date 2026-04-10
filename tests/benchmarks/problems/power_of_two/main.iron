@@ -34,11 +34,11 @@ func main() {
     println("Test 4: {is_power_of_two(0)} (expected 0)")
     println("Test 5: {count_powers_of_two(1000000)} (expected 20)")
 
-    val iterations = 10000000
+    val iterations = 1500000
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = count_powers_of_two(1000)
+        result = result + count_powers_of_two(900 + (it % 200))
     }
     val elapsed_ns = Time.now_ns() - start_ns
     val elapsed_ms = elapsed_ns / 1000000
@@ -49,4 +49,5 @@ func main() {
     println("Iterations: {iterations}")
     println("Total time: {elapsed_ns} ns")
     println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

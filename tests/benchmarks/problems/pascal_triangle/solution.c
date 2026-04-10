@@ -44,13 +44,13 @@ int main(void) {
     printf("Bench check: %lld\n", pascal_row_checksum(n));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000000;
+    int iterations = 12000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = pascal_row_checksum(n);
+        result = result + pascal_row_checksum(25 + (it % 6));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -64,6 +64,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %lld\n", (long long)result);
 
     return 0;
 }

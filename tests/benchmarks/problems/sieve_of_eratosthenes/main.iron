@@ -36,7 +36,7 @@ func main() {
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = sieve(10000)
+        result = result + sieve(9900 + (it % 100))
     }
     val elapsed_ns = Time.now_ns() - start_ns
     val elapsed_ms = elapsed_ns / 1000000
@@ -47,4 +47,5 @@ func main() {
     println("Iterations: {iterations}")
     println("Total time: {elapsed_ns} ns")
     println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

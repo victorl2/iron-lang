@@ -13,10 +13,10 @@ static int64_t reverse_bits(int64_t n) {
     return result;
 }
 
-static int64_t run_reverse_bits_batch(void) {
+static int64_t run_reverse_bits_batch(int64_t seed) {
     int64_t total = 0;
     for (int i = 0; i < 1000000; i++) {
-        total += reverse_bits(i);
+        total += reverse_bits(i + seed);
     }
     return total;
 }
@@ -33,15 +33,15 @@ int main(void) {
     printf("Test 3: %lld (expected 0)\n", reverse_bits(0));
 
     /* Correctness check */
-    printf("Test 4: %lld (expected 2147474564972544)\n", (long long)run_reverse_bits_batch());
+    printf("Test 4: %lld (expected 2147474564972544)\n", (long long)run_reverse_bits_batch(0));
 
     long mem_before = get_memory_kb();
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < 6; it++) {
-        result = run_reverse_bits_batch();
+        result = result + run_reverse_bits_batch(it);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -54,6 +54,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / 1000000);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %lld\n", (long long)result);
 
     return 0;
 }

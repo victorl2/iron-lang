@@ -56,13 +56,13 @@ int main(void) {
     printf("Test 4: %lld\n", bench_result);
 
     long mem_before = get_memory_kb();
-    int iterations = 500000000;
+    int iterations = 15000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = product_except_self(bench, 50, obench);
+        result = result + product_except_self(bench, 40 + (it % 11), obench);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -75,6 +75,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %lld\n", (long long)result);
 
     return 0;
 }

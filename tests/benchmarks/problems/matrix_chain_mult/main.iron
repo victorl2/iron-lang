@@ -37,7 +37,7 @@ func main() {
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = matrix_chain(d3, 10)
+        result = result + matrix_chain(d3, 4 + (it % 7))
     }
     val elapsed_ns = Time.now_ns() - start_ns
     val elapsed_ms = elapsed_ns / 1000000

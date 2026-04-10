@@ -32,9 +32,9 @@ int main(void) {
     int iterations = 200000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = house_robber(bench, 50);
+        result = result + house_robber(bench, 40 + (it % 11));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 

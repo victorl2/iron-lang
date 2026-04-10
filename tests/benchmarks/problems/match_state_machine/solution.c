@@ -77,12 +77,12 @@ int main(void) {
     int64_t check = simulate(200);
     printf("Test 7 simulate(200): %lld\n", (long long)check);
 
-    int iterations = 200000000;
+    int iterations = 2000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = simulate(200);
+        result = result + simulate(190 + (it % 21));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -93,5 +93,6 @@ int main(void) {
     printf("Steps: 200\n");
     printf("Iterations: %d\n", iterations);
     printf("Total time: %.3f ms\n", elapsed_ms);
+    printf("Result: %lld\n", (long long)result);
     return 0;
 }

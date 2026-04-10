@@ -30,9 +30,9 @@ int main(void) {
     int iterations = 500000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = matrix_chain(d3, 10);
+        result = result + matrix_chain(d3, 4 + (it % 7));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 

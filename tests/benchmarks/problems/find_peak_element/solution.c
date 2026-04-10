@@ -41,9 +41,9 @@ int main(void) {
     int iterations = 5000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int i = 0; i < iterations; i++) {
-        result = find_peak(arr1, 100);
+        result = result + find_peak(arr1, 90 + (i % 11));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed_ms = (end.tv_sec - start.tv_sec) * 1000.0
@@ -53,5 +53,6 @@ int main(void) {
     printf("Array size: 100\n");
     printf("Iterations: %d\n", iterations);
     printf("Total time: %.3f ms\n", elapsed_ms);
+    printf("Result: %lld\n", (long long)result);
     return 0;
 }

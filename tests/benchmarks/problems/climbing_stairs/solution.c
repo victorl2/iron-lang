@@ -21,9 +21,9 @@ int main(void) {
     int iterations = 250000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = climb_stairs(35);
+        result = result + climb_stairs(30 + (it % 6));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 

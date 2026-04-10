@@ -53,11 +53,11 @@ func main() {
     val check = task_scheduler(tasks, n, 3)
     println("Bench check: {check}")
 
-    val iterations = 500000000
+    val iterations = 30000000
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = task_scheduler(tasks, n, 3)
+        result = result + task_scheduler(tasks, 40 + (it % 11), 3)
     }
     val elapsed_ns = Time.now_ns() - start_ns
     val elapsed_ms = elapsed_ns / 1000000
@@ -68,4 +68,5 @@ func main() {
     println("Iterations: {iterations}")
     println("Total time: {elapsed_ns} ns")
     println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

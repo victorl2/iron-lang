@@ -41,7 +41,7 @@ func main() {
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = partition_equal_subset(bench, 20)
+        result = result + partition_equal_subset(bench, 10 + (it % 11))
     }
     val elapsed_ns = Time.now_ns() - start_ns
     val elapsed_ms = elapsed_ns / 1000000
