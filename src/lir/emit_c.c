@@ -4946,6 +4946,15 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     iron_strbuf_appendf(&ctx.includes, "#define IRON_TIMER_STRUCT_DEFINED\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_log.h\"\n");
+    /* Phase 59 02: the TCP stdlib surface (Net.*, TcpSocket.*, TcpListener.*)
+     * does NOT need an iron_net.h include here — the extern-stub prototype
+     * path in Phase 3 below emits forward declarations for every empty-body
+     * method stub (including Iron_net_tcp_dial etc.) into ctx.prototypes
+     * which lands AFTER the struct_bodies section. That ordering lets the
+     * prototypes reference compiler-emitted tuple types (Iron_Tuple_*) and
+     * object structs (Iron_NetError/Iron_TcpSocket/Iron_TcpListener) without
+     * double-defining them. iron_net.h stays a normal C header for unit
+     * tests and iron_net.c. */
     iron_strbuf_appendf(&ctx.includes, "\n");
     /* Phase 44: Portable prefetch macro for split collection hot loops */
     iron_strbuf_appendf(&ctx.includes,
@@ -5447,6 +5456,120 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         if (fn->is_extern) continue;
         emit_func_signature(&ctx.prototypes, fn, &ctx, true);
     }
+
+    /* Phase 59 02: emit extern prototypes for the Net/TcpSocket/TcpListener
+     * stub functions so the generated C can call into iron_net.c without
+     * needing the header include (which would conflict with the compiler-
+     * emitted struct definitions for NetError/TcpSocket/TcpListener).
+     *
+     * These prototypes are hand-written rather than re-derived from LIR
+     * because the LIR stub param types are void-placeholders (populated
+     * lazily). They reference tuple type names emit_ensure_tuple produces
+     * for (TcpSocket, NetError) etc., and reach ctx.prototypes which is
+     * concatenated AFTER ctx.struct_bodies in the final output. */
+    {
+        /* Collect the set of stub names we actually need to emit, gated on
+         * the method-name mangling produced by hir_to_lir:
+         *   Net.tcp_dial        → Iron_net_tcp_dial
+         *   Net.tcp_listen      → Iron_net_tcp_listen
+         *   TcpListener.accept  → Iron_tcplistener_accept
+         *   TcpListener.close   → Iron_tcplistener_close
+         *   TcpSocket.read      → Iron_tcpsocket_read
+         *   TcpSocket.write     → Iron_tcpsocket_write
+         *   TcpSocket.close     → Iron_tcpsocket_close
+         * The `has_*` flags below gate emission so test binaries that
+         * never touch net.iron still get byte-for-byte the same output as
+         * before this Phase 59 02 change. */
+        bool has_net_tcp_dial         = false;
+        bool has_net_tcp_listen       = false;
+        bool has_tcplistener_accept   = false;
+        bool has_tcplistener_close    = false;
+        bool has_tcpsocket_read       = false;
+        bool has_tcpsocket_write      = false;
+        bool has_tcpsocket_close      = false;
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronLIR_Func *fn = module->funcs[fi];
+            if (!fn || !fn->is_extern || fn->extern_c_name) continue;
+            const char *mangled = emit_mangle_func_name(fn->name, ctx.arena);
+            if (!mangled) continue;
+            if (strcmp(mangled, "Iron_net_tcp_dial") == 0)         has_net_tcp_dial = true;
+            else if (strcmp(mangled, "Iron_net_tcp_listen") == 0)  has_net_tcp_listen = true;
+            else if (strcmp(mangled, "Iron_tcplistener_accept") == 0) has_tcplistener_accept = true;
+            else if (strcmp(mangled, "Iron_tcplistener_close") == 0)  has_tcplistener_close = true;
+            else if (strcmp(mangled, "Iron_tcpsocket_read") == 0)  has_tcpsocket_read = true;
+            else if (strcmp(mangled, "Iron_tcpsocket_write") == 0) has_tcpsocket_write = true;
+            else if (strcmp(mangled, "Iron_tcpsocket_close") == 0) has_tcpsocket_close = true;
+        }
+        /* If any net stub is referenced, make sure the three well-known
+         * result tuple types are defined. The compiler only synthesises a
+         * tuple typedef on demand (emit_ensure_tuple) from a USED tuple
+         * type; if the user code only uses (TcpListener, NetError) the
+         * (Int, NetError) typedef never lands. The prototypes below
+         * reference all three, so we emit whatever is missing up-front
+         * and register the mangled name in ctx.emitted_tuples so a
+         * subsequent emit_ensure_tuple call is a no-op. */
+        bool need_any = has_net_tcp_dial || has_net_tcp_listen ||
+                        has_tcplistener_accept || has_tcplistener_close ||
+                        has_tcpsocket_read || has_tcpsocket_write ||
+                        has_tcpsocket_close;
+        if (need_any) {
+            static const char *k_net_tuple_names[] = {
+                "Iron_Tuple_TcpSocket_NetError",
+                "Iron_Tuple_TcpListener_NetError",
+                "Iron_Tuple_Int_NetError",
+            };
+            static const char *k_net_tuple_bodies[] = {
+                "typedef struct { Iron_TcpSocket v0; Iron_NetError v1; } Iron_Tuple_TcpSocket_NetError;\n",
+                "typedef struct { Iron_TcpListener v0; Iron_NetError v1; } Iron_Tuple_TcpListener_NetError;\n",
+                "typedef struct { int64_t v0; Iron_NetError v1; } Iron_Tuple_Int_NetError;\n",
+            };
+            for (int ti = 0; ti < 3; ti++) {
+                bool already = false;
+                for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                    if (strcmp(ctx.emitted_tuples[ei], k_net_tuple_names[ti]) == 0) {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already) {
+                    iron_strbuf_appendf(&ctx.struct_bodies, "%s", k_net_tuple_bodies[ti]);
+                    arrput(ctx.emitted_tuples,
+                           iron_arena_strdup(ctx.arena,
+                                             k_net_tuple_names[ti],
+                                             strlen(k_net_tuple_names[ti])));
+                }
+            }
+        }
+        if (has_net_tcp_dial) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_TcpSocket_NetError Iron_net_tcp_dial(Iron_String host, int64_t port, int64_t timeout);\n");
+        }
+        if (has_net_tcp_listen) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_TcpListener_NetError Iron_net_tcp_listen(Iron_String host, int64_t port);\n");
+        }
+        if (has_tcplistener_accept) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_TcpSocket_NetError Iron_tcplistener_accept(Iron_TcpListener l, int64_t timeout);\n");
+        }
+        if (has_tcplistener_close) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "void Iron_tcplistener_close(Iron_TcpListener l);\n");
+        }
+        if (has_tcpsocket_read) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_tcpsocket_read(Iron_TcpSocket s, Iron_String buf, int64_t timeout);\n");
+        }
+        if (has_tcpsocket_write) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_tcpsocket_write(Iron_TcpSocket s, Iron_String buf, int64_t timeout);\n");
+        }
+        if (has_tcpsocket_close) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "void Iron_tcpsocket_close(Iron_TcpSocket s);\n");
+        }
+    }
+
     if (ctx.prototypes.len > 0) {
         iron_strbuf_appendf(&ctx.prototypes, "\n");
     }

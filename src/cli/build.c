@@ -349,6 +349,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **rt_netinit_out,
                            char **sl_math_out, char **sl_io_out,
                            char **sl_time_out, char **sl_log_out,
+                           char **sl_net_out,
                            IronBuildOpts opts,
                            char **rl_src_out, char **rl_i_flag_out,
                            char **base_dir_out) {
@@ -391,11 +392,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *sl_io_out      = make_path(base_dir, "stdlib/iron_io.c");
     *sl_time_out    = make_path(base_dir, "stdlib/iron_time.c");
     *sl_log_out     = make_path(base_dir, "stdlib/iron_log.c");
+    *sl_net_out     = make_path(base_dir, "stdlib/iron_net.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
         !*rt_netinit_out ||
-        !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out) {
+        !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
+        !*sl_net_out) {
         return 1;
     }
 
@@ -427,13 +430,17 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
     argv_buf[ai++] = *sl_log_out;
+    argv_buf[ai++] = *sl_net_out;
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
     /* Phase 59 P01c: iron_net_init.c calls WSAStartup/WSACleanup/socket(), so
-     * user-facing ironc-compiled binaries must link ws2_32.lib. P02 will add
-     * iphlpapi.lib to this same spot once it needs GetAdaptersAddresses. */
+     * user-facing ironc-compiled binaries must link ws2_32.lib. Phase 59 P02
+     * adds iphlpapi.lib — it's reserved for the Phase 59 P03 UDP/DNS path
+     * that will call GetAdaptersAddresses, landing a single link flag tail
+     * once so P03 doesn't need to touch build.c. */
     argv_buf[ai++] = "ws2_32.lib";
+    argv_buf[ai++] = "iphlpapi.lib";
     /* Output flag for clang-cl */
     {
         static char out_flag[1024];
@@ -460,6 +467,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
     argv_buf[ai++] = *sl_log_out;
+    argv_buf[ai++] = *sl_net_out;
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
@@ -500,7 +508,8 @@ static void free_src_list(char *base_dir,
                            char *rt_threads, char *rt_collect,
                            char *rt_netinit,
                            char *sl_math, char *sl_io, char *sl_time,
-                           char *sl_log, char *rl_src, char *rl_i_flag) {
+                           char *sl_log, char *sl_net,
+                           char *rl_src, char *rl_i_flag) {
     free(base_dir);
     free(src_i_flag); free(vendor_i_flag); free(stdlib_i_flag);
     free(rt_stb); free(rt_arena); free(rt_strbuf);
@@ -508,6 +517,7 @@ static void free_src_list(char *base_dir,
     free(rt_threads); free(rt_collect);
     free(rt_netinit);
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
+    free(sl_net);
     free(rl_src); free(rl_i_flag);
 }
 
@@ -521,6 +531,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rt_string = NULL, *rt_rc = NULL, *rt_builtin = NULL;
     char *rt_threads = NULL, *rt_collect = NULL, *rt_netinit = NULL;
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
+    char *sl_net = NULL;
     char *rl_src = NULL, *rl_i_flag = NULL;
 
     const char *argv_buf[128];
@@ -533,13 +544,13 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_stb, &rt_arena, &rt_strbuf,
                        &rt_string, &rt_rc, &rt_builtin,
                        &rt_threads, &rt_collect, &rt_netinit,
-                       &sl_math, &sl_io, &sl_time, &sl_log,
+                       &sl_math, &sl_io, &sl_time, &sl_log, &sl_net,
                        opts, &rl_src, &rl_i_flag, &base_dir) != 0) {
         free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                       rt_stb, rt_arena, rt_strbuf,
                       rt_string, rt_rc, rt_builtin,
                       rt_threads, rt_collect, rt_netinit,
-                      sl_math, sl_io, sl_time, sl_log,
+                      sl_math, sl_io, sl_time, sl_log, sl_net,
                       rl_src, rl_i_flag);
         return 1;
     }
@@ -570,7 +581,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit,
-                  sl_math, sl_io, sl_time, sl_log,
+                  sl_math, sl_io, sl_time, sl_log, sl_net,
                   rl_src, rl_i_flag);
 
     if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
@@ -597,7 +608,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit,
-                  sl_math, sl_io, sl_time, sl_log,
+                  sl_math, sl_io, sl_time, sl_log, sl_net,
                   rl_src, rl_i_flag);
 
     if (status != 0) {
@@ -770,9 +781,31 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1h. Phase 59 02: detect "import net" and prepend net.iron */
+    if (iron_detect_import(source, source_path, "net", &detect_arena)) {
+        char *net_path = make_path(base_dir, "stdlib/net.iron");
+        if (net_path) {
+            long net_size = 0;
+            char *net_src = read_file(net_path, &net_size);
+            free(net_path);
+            if (net_src) {
+                size_t combined_len = (size_t)net_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, net_src, (size_t)net_size);
+                    combined[net_size] = '\n';
+                    strcpy(combined + net_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(net_src);
+            }
+        }
+    }
+
     iron_arena_free(&detect_arena);
 
-    /* 1h. Always prepend string.iron — String methods are available on every
+    /* 1i. Always prepend string.iron — String methods are available on every
      * String variable without an explicit import statement. */
     {
         char *str_path = make_path(base_dir, "stdlib/string.iron");

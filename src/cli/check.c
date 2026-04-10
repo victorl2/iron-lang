@@ -267,6 +267,30 @@ int iron_check(const char *source_path, bool verbose) {
         }
     }
 
+    /* Phase 59 02: detect "import net" and prepend net.iron so `iron check`
+     * sees the Net/TcpSocket/TcpListener/NetError decls that live in stdlib
+     * rather than in user source. */
+    if (iron_detect_import(source, source_path, "net", &detect_arena)) {
+        char *path = check_make_path(base_dir, "stdlib/net.iron");
+        if (path) {
+            long sz = 0;
+            char *src = check_read_stdlib(path, &sz);
+            free(path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(src);
+            }
+        }
+    }
+
     iron_arena_free(&detect_arena);
 
     /* Always prepend string.iron — String methods are available without import */

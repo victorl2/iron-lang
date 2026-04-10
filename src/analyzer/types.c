@@ -354,10 +354,18 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
         }
 
         case IRON_TYPE_OBJECT:
-            /* Return name if available through decl; fallback */
+            /* Phase 59 02: return the concrete object decl name so tuple
+             * mangling in tuple_build_mangled_name produces distinct struct
+             * names for tuples containing different object types. Prior to
+             * this fix both (Foo, Int) and (Bar, Int) mangled to
+             * `Iron_Tuple__object__Int` causing silent C-level name
+             * collisions. */
+            if (t->object.decl && t->object.decl->name) return t->object.decl->name;
             return "<object>";
 
         case IRON_TYPE_INTERFACE:
+            /* Phase 59 02: same rationale as IRON_TYPE_OBJECT above. */
+            if (t->interface.decl && t->interface.decl->name) return t->interface.decl->name;
             return "<interface>";
 
         case IRON_TYPE_ENUM: {

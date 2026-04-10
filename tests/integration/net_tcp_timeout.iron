@@ -1,0 +1,16 @@
+-- net_tcp_timeout.iron — Phase 59 P02 TCP dial-timeout regression.
+--
+-- Dial RFC 5737 TEST-NET-1 (192.0.2.1) with a 500ms budget. The wrapper
+-- must return IRON_ERR_NET_TIMEOUT (1004) via iron_error_from_wsa /
+-- iron_error_from_errno within the single-budget monotonic deadline,
+-- proving that blocking connect does not hang the process.
+import net
+
+func main() {
+    val (sock, err) = Net.tcp_dial("192.0.2.1", 80, 500)
+    if err.code == 1004 {
+        println("dial timeout ok")
+    } else {
+        println("unexpected")
+    }
+}

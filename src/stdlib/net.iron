@@ -1,0 +1,46 @@
+-- stdlib/net.iron -- Iron-side TCP surface for Phase 59 P02.
+--
+-- All timeouts are Int milliseconds (NOT Duration). Per the 2026-04-10
+-- CONTEXT.md revision, Iron does not support function overloading and
+-- adding it is out of scope for the Networking milestone, so the net
+-- stdlib intentionally takes plain Int rather than a Duration value
+-- type. Duration (declared in stdlib/time.iron) is still available for
+-- future phases but is NOT used in net.* signatures.
+--
+-- The empty-body `{}` stubs are recognised by the Iron compiler as
+-- foreign-method stubs: they lower to a direct call to
+--   Iron_<typename_lowercased>_<method> (args...)
+-- at the C level. The implementations live in src/stdlib/iron_net.c.
+--
+-- Tuple returns (sock, err) are legal since Phase 59 P01d shipped full
+-- tuple codegen. The NetError object below pairs with the C
+-- Iron_NetError struct and carries the IRON_ERR_NET_* code from
+-- iron_errors.h.
+
+object NetError {
+    val code: Int
+}
+
+object TcpSocket {
+    val fd: Int
+}
+
+object TcpListener {
+    val fd: Int
+}
+
+object Net {}
+
+-- TCP client / server
+func Net.tcp_dial(host: String, port: Int, timeout: Int) -> (TcpSocket, NetError) {}
+func Net.tcp_listen(host: String, port: Int) -> (TcpListener, NetError) {}
+
+-- Listener accept / close
+func TcpListener.accept(l: TcpListener, timeout: Int) -> (TcpSocket, NetError) {}
+func TcpListener.close(l: TcpListener) {}
+
+-- Socket read / write / close. `buf` is an Iron_String (matches the
+-- iron_io.c binary I/O precedent).
+func TcpSocket.read(s: TcpSocket, buf: String, timeout: Int) -> (Int, NetError) {}
+func TcpSocket.write(s: TcpSocket, buf: String, timeout: Int) -> (Int, NetError) {}
+func TcpSocket.close(s: TcpSocket) {}

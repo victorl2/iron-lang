@@ -114,12 +114,14 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_io.c
     src/stdlib/iron_time.c
     src/stdlib/iron_log.c
+    src/stdlib/iron_net.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
 if(NOT WIN32)
   target_link_libraries(iron_stdlib iron_runtime m)  # -lm for math
 else()
-  target_link_libraries(iron_stdlib iron_runtime)
+  # ws2_32 + iphlpapi for Winsock 2 + GetAdaptersAddresses (future Phase 59 UDP/DNS)
+  target_link_libraries(iron_stdlib iron_runtime ws2_32 iphlpapi)
 endif()
 
 # ── Tests ──────────────────────────────────────────────────────────────────
@@ -147,7 +149,7 @@ target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)
   target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib m pthread)
 else()
-  target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib)
+  target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib ws2_32 iphlpapi)
 endif()
 # Inject the absolute path to src/ so the CLI can find runtime sources at build time
 target_compile_definitions(ironc PRIVATE
