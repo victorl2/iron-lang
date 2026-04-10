@@ -1,0 +1,96 @@
+name: Changelog on Release
+
+# Prepends a new CHANGELOG.md entry built from the release body, and keeps
+# CMakeLists.txt's project(VERSION ...) + IRON_VERSION_FULL in sync with the
+# release tag. If CMake was stale at the tagged commit — meaning the binaries
+# already uploaded to the release have the wrong `iron --version` output —
+# this workflow re-dispatches release.yml against the updated main so fresh
+# binaries are built and uploaded to the same release.
+#
+# The transformation rule that builds the entry from the release body lives
+# in scripts/update_changelog_from_release.py. That script is also how the
+# initial CHANGELOG.md was populated (PR #16), and it is idempotent: re-runs
+# on an already-synced release are a no-op (exit code 2).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to sync (e.g. v1.0.0-alpha)'
+        required: true
+
+concurrency:
+  group: changelog-on-release-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push to main
+  actions: write    # dispatch release.yml when CMake drift is detected
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "error: no release tag in event payload"
+            exit 1
+          fi
+          echo "value=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $TAG"
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          # Use a PAT or keep default GITHUB_TOKEN; default token can push to
+          # protected branches only if branch protection allows it.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync CHANGELOG and CMakeLists
+        id: sync
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Script exits 0 on change, 2 on no-op, 1 on error. Accept both
+          # 0 and 2 as success, fail on anything else.
+          python3 scripts/update_changelog_from_release.py \
+            --tag "${{ steps.tag.outputs.value }}" \
+            --repo "${{ github.repository }}" \
+            || rc=$?
+          rc=${rc:-0}
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+            echo "sync script failed with exit $rc"
+            exit "$rc"
+          fi
+
+      - name: Commit and push
+        if: steps.sync.outputs.any_changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md CMakeLists.txt
+          git commit -m "docs: sync CHANGELOG and version for ${{ steps.tag.outputs.value }}"
+          git push origin HEAD:main
+
+      - name: Re-trigger release build (CMake was stale)
+        if: steps.sync.outputs.cmake_changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "CMakeLists.txt was out of sync with ${{ steps.tag.outputs.value }} — re-dispatching release.yml so the release binaries are rebuilt with the correct version string."
+          gh workflow run release.yml \
+            --ref main \
+            -f tag="${{ steps.tag.outputs.value }}"
+
+      - name: No-op summary
+        if: steps.sync.outputs.any_changed != 'true'
+        run: echo "Everything already in sync for ${{ steps.tag.outputs.value }}. No commit, no rebuild."
