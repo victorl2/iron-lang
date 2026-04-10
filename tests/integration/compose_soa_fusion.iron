@@ -36,11 +36,14 @@ func main() {
   -- Only accesses x (1 of 4 fields = 25% < 50% threshold -> SoA layout)
   -- SoA generates per-field arrays: particle_x, bullet_x
   -- Dead field elimination removes y, z, mass/speed from storage
-  var sum_x = 0
-  for e in entities {
-    sum_x = sum_x + e.get_x()
-  }
-  -- get_x values: [10, 5, 3, 8] (unordered: Bullets then Particles)
+  --
+  -- Phase 57 restoration: this test originally used a for-loop workaround because
+  -- Phase 54 documented an SoA+fusion interaction bug (Iron_*_Stor / Iron_* type
+  -- mismatch in the fused element wrap). Plan 01 of Phase 57 added the sibling
+  -- _from_<Type>_Stor constructors and branched emit_fusion.c on is_soa, so the
+  -- fused form now compiles and runs correctly.
+  val sum_x = entities.map(func(e: Entity) -> Int { return e.get_x() }).sum()
+  -- get_x values: [10, 5, 3, 8]  (fused per-type loops: Particles then Bullets)
   -- sum_x = 10 + 5 + 3 + 8 = 26
   println("{sum_x}")
   println("soa_done")
