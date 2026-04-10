@@ -491,10 +491,133 @@ void emit_type_decls(EmitCtx *ctx) {
                         iface_mangled, impl->type_name,
                         impl->type_name);
                 }
+
             }
 
             /* Phase 52-03: Split collection emission (delegated to emit_split) */
             emit_split_collection_for_iface(ctx, iface_mangled, entry);
+
+            /* Phase 57: SoA sibling constructors.
+             *
+             * These MUST be emitted after emit_split_collection_for_iface()
+             * because that helper populates ctx->soa_types (with Phase 48 layout
+             * selection AND any Phase 48-03 `layout:` annotation overrides
+             * applied). It also emits the Iron_<Type>_Stor typedefs that these
+             * siblings reference. Both the populated soa_types map and the Stor
+             * typedefs must exist before this loop runs.
+             *
+             * When Phase 48 selected SoA layout for a (iface, impl) pair, the
+             * split collection's per-type sub-array stores Iron_<Type>_Stor
+             * (reduced variant with surviving fields only, with Phase 50 VRC
+             * narrowed types on compressed fields). The fused per-type loop in
+             * emit_fusion.c must wrap each stor element into an Iron_<Iface>,
+             * so we emit a sibling `_from_<Type>_Stor` constructor that:
+             *   - copies every alive (non-dead-eliminated) field from stor into
+             *     the full Iron_<Type> slot of the tagged union
+             *   - widens VRC-narrowed fields via explicit (int64_t) casts
+             *   - zero-initializes every dead field (safe because dead-field
+             *     elimination already proved they are unread through the
+             *     interface)
+             *
+             * The sibling is skipped for pointer-indirect variants (no reduced
+             * storage exists on the indirect path) and when this (iface, impl)
+             * pair is not in ctx->soa_types (non-SoA AoS keeps existing
+             * behavior).
+             */
+            {
+                /* Build iface_collection_vids once for all impls of this iface,
+                 * mirroring emit_split.c:125-133. */
+                IronLIR_ValueId *iface_collection_vids57 = NULL; /* stb_ds */
+                if (ctx->split_collection_ids) {
+                    for (ptrdiff_t si = 0;
+                         si < hmlen(ctx->split_collection_ids); si++) {
+                        if (strcmp(ctx->split_collection_ids[si].value,
+                                   iface_mangled) == 0) {
+                            arrput(iface_collection_vids57,
+                                   ctx->split_collection_ids[si].key);
+                        }
+                    }
+                }
+
+                for (int j57 = 0; j57 < entry->impl_count; j57++) {
+                    Iron_IfaceImpl *impl57 = &entry->impls[j57];
+                    if (!impl57->is_alive) continue;
+                    if (!impl57->decl) continue;
+
+                    const char *impl_mangled57 = emit_mangle_name(
+                        impl57->type_name, ctx->arena);
+
+                    /* Skip pointer-indirect variants: no reduced storage exists. */
+                    char ikey57[512];
+                    snprintf(ikey57, sizeof(ikey57), "%s:%s",
+                             iface_mangled, impl57->type_name);
+                    bool is_indirect57 =
+                        (shgeti(ctx->indirect_variants, ikey57) >= 0);
+                    if (is_indirect57) continue;
+
+                    /* Only emit sibling when SoA is active for this pair. */
+                    bool is_soa57 = (ctx->soa_types &&
+                                     shgeti(ctx->soa_types, ikey57) >= 0);
+                    if (!is_soa57) continue;
+
+                    Iron_ObjectDecl *od57 = impl57->decl;
+                    iron_strbuf_appendf(sb,
+                        "static inline %s %s_from_%s_Stor(%s_Stor val) {\n"
+                        "    %s u;\n"
+                        "    u.tag = %s_TAG_%s;\n",
+                        iface_mangled, iface_mangled, impl57->type_name,
+                        impl_mangled57,
+                        iface_mangled,
+                        iface_mangled, impl57->type_name);
+
+                    for (int fi = 0; fi < od57->field_count; fi++) {
+                        Iron_Field *f57 = (Iron_Field *)od57->fields[fi];
+
+                        /* Alive = any collection vid of this iface uses this field */
+                        bool any_used57 = false;
+                        if (arrlen(iface_collection_vids57) > 0) {
+                            for (int ci = 0;
+                                 ci < (int)arrlen(iface_collection_vids57);
+                                 ci++) {
+                                if (iron_layout_is_field_used(&ctx->layout,
+                                        iface_collection_vids57[ci], f57->name)) {
+                                    any_used57 = true;
+                                    break;
+                                }
+                            }
+                        } else {
+                            /* No collections recorded: defensive -- treat as alive */
+                            any_used57 = true;
+                        }
+
+                        if (any_used57) {
+                            /* Phase 50: widen VRC-compressed fields on copy */
+                            const char *narrowed57 = iron_vr_get_narrowed_type(
+                                &ctx->value_range, impl57->type_name, f57->name);
+                            if (narrowed57) {
+                                iron_strbuf_appendf(sb,
+                                    "    u.data.%s.%s = (int64_t)val.%s;\n",
+                                    impl57->type_name, f57->name, f57->name);
+                            } else {
+                                iron_strbuf_appendf(sb,
+                                    "    u.data.%s.%s = val.%s;\n",
+                                    impl57->type_name, f57->name, f57->name);
+                            }
+                        } else {
+                            /* Dead field: zero-init (safe per Phase 48 elimination) */
+                            iron_strbuf_appendf(sb,
+                                "    u.data.%s.%s = 0;\n",
+                                impl57->type_name, f57->name);
+                        }
+                    }
+
+                    iron_strbuf_appendf(sb,
+                        "    return u;\n"
+                        "}\n\n");
+                }
+
+                arrfree(iface_collection_vids57);
+            }
         }
     }
 
