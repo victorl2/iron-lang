@@ -320,6 +320,11 @@ static IronHIR_BinOp ast_op_to_hir_binop(Iron_OpKind op) {
         case IRON_TOK_GREATER_EQ: return IRON_HIR_BINOP_GTE;
         case IRON_TOK_AND:        return IRON_HIR_BINOP_AND;
         case IRON_TOK_OR:         return IRON_HIR_BINOP_OR;
+        case IRON_TOK_SHL:        return IRON_HIR_BINOP_SHL;
+        case IRON_TOK_SHR:        return IRON_HIR_BINOP_SHR;
+        case IRON_TOK_AMP:        return IRON_HIR_BINOP_BAND;
+        case IRON_TOK_PIPE:       return IRON_HIR_BINOP_BOR;
+        case IRON_TOK_CARET:      return IRON_HIR_BINOP_BXOR;
         default:                  return IRON_HIR_BINOP_ADD; /* fallback */
     }
 }
@@ -327,11 +332,16 @@ static IronHIR_BinOp ast_op_to_hir_binop(Iron_OpKind op) {
 /* Map compound-assign token to base binop token */
 static Iron_OpKind compound_assign_base_op(Iron_OpKind op) {
     switch (op) {
-        case IRON_TOK_PLUS_ASSIGN:  return IRON_TOK_PLUS;
-        case IRON_TOK_MINUS_ASSIGN: return IRON_TOK_MINUS;
-        case IRON_TOK_STAR_ASSIGN:  return IRON_TOK_STAR;
-        case IRON_TOK_SLASH_ASSIGN: return IRON_TOK_SLASH;
-        default:                    return IRON_TOK_PLUS;
+        case IRON_TOK_PLUS_ASSIGN:   return IRON_TOK_PLUS;
+        case IRON_TOK_MINUS_ASSIGN:  return IRON_TOK_MINUS;
+        case IRON_TOK_STAR_ASSIGN:   return IRON_TOK_STAR;
+        case IRON_TOK_SLASH_ASSIGN:  return IRON_TOK_SLASH;
+        case IRON_TOK_SHL_ASSIGN:    return IRON_TOK_SHL;
+        case IRON_TOK_SHR_ASSIGN:    return IRON_TOK_SHR;
+        case IRON_TOK_AMP_ASSIGN:    return IRON_TOK_AMP;
+        case IRON_TOK_PIPE_ASSIGN:   return IRON_TOK_PIPE;
+        case IRON_TOK_CARET_ASSIGN:  return IRON_TOK_CARET;
+        default:                     return IRON_TOK_PLUS;
     }
 }
 
@@ -339,7 +349,12 @@ static bool is_compound_assign(Iron_OpKind op) {
     return op == IRON_TOK_PLUS_ASSIGN  ||
            op == IRON_TOK_MINUS_ASSIGN ||
            op == IRON_TOK_STAR_ASSIGN  ||
-           op == IRON_TOK_SLASH_ASSIGN;
+           op == IRON_TOK_SLASH_ASSIGN ||
+           op == IRON_TOK_SHL_ASSIGN   ||
+           op == IRON_TOK_SHR_ASSIGN   ||
+           op == IRON_TOK_AMP_ASSIGN   ||
+           op == IRON_TOK_PIPE_ASSIGN  ||
+           op == IRON_TOK_CARET_ASSIGN;
 }
 
 /* ── ADT pattern binding injection ────────────────────────────────────────── */
@@ -1073,9 +1088,10 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
         IronHIR_UnOp hop;
         switch (un->op) {
-            case IRON_TOK_MINUS: hop = IRON_HIR_UNOP_NEG; break;
-            case IRON_TOK_NOT:   hop = IRON_HIR_UNOP_NOT; break;
-            default:             hop = IRON_HIR_UNOP_NEG; break;
+            case IRON_TOK_MINUS: hop = IRON_HIR_UNOP_NEG;  break;
+            case IRON_TOK_NOT:   hop = IRON_HIR_UNOP_NOT;  break;
+            case IRON_TOK_TILDE: hop = IRON_HIR_UNOP_BNOT; break;
+            default:             hop = IRON_HIR_UNOP_NEG;  break;
         }
         IronHIR_Expr *operand = lower_expr_hir(ctx, un->operand);
         return iron_hir_expr_unop(mod, hop, operand, un->resolved_type, span);

@@ -269,10 +269,15 @@ static bool is_narrow_integer(const Iron_Type *t) {
 }
 
 static bool is_compound_assign_op(Iron_OpKind op) {
-    return op == IRON_TOK_PLUS_ASSIGN ||
+    return op == IRON_TOK_PLUS_ASSIGN  ||
            op == IRON_TOK_MINUS_ASSIGN ||
-           op == IRON_TOK_STAR_ASSIGN ||
-           op == IRON_TOK_SLASH_ASSIGN;
+           op == IRON_TOK_STAR_ASSIGN  ||
+           op == IRON_TOK_SLASH_ASSIGN ||
+           op == IRON_TOK_SHL_ASSIGN   ||
+           op == IRON_TOK_SHR_ASSIGN   ||
+           op == IRON_TOK_AMP_ASSIGN   ||
+           op == IRON_TOK_PIPE_ASSIGN  ||
+           op == IRON_TOK_CARET_ASSIGN;
 }
 
 static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
@@ -1102,6 +1107,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             bool is_arithmetic = (op == IRON_TOK_PLUS || op == IRON_TOK_MINUS ||
                                    op == IRON_TOK_STAR || op == IRON_TOK_SLASH ||
                                    op == IRON_TOK_PERCENT);
+            bool is_bitwise = (op == IRON_TOK_SHL  || op == IRON_TOK_SHR  ||
+                               op == IRON_TOK_AMP  || op == IRON_TOK_PIPE ||
+                               op == IRON_TOK_CARET);
 
             if (lt && rt && lt->kind != IRON_TYPE_ERROR && rt->kind != IRON_TYPE_ERROR) {
                 bool lt_is_int   = (lt->kind == IRON_TYPE_INT);
@@ -1144,6 +1152,24 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     } else {
                         result = lt;
                     }
+                } else if (is_bitwise) {
+                    if (lt->kind != IRON_TYPE_INT) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "bitwise operator requires Int operands, got '%s'",
+                                 iron_type_to_string(lt, ctx->arena));
+                        emit_error(ctx, IRON_ERR_BITWISE_NON_INT, be->span, msg, NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    } else if (rt->kind != IRON_TYPE_INT) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "bitwise operator requires Int operands, got '%s'",
+                                 iron_type_to_string(rt, ctx->arena));
+                        emit_error(ctx, IRON_ERR_BITWISE_NON_INT, be->span, msg, NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    } else {
+                        result = lt;  /* Int */
+                    }
                 } else {
                     result = lt;
                 }
@@ -1170,6 +1196,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                "unary '-' requires numeric operand", NULL);
                 }
                 result = ot ? ot : iron_type_make_primitive(IRON_TYPE_ERROR);
+            } else if (ue->op == IRON_TOK_TILDE) {
+                if (ot && ot->kind != IRON_TYPE_INT && ot->kind != IRON_TYPE_ERROR) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "bitwise operator '~' requires Int operand, got '%s'",
+                             iron_type_to_string(ot, ctx->arena));
+                    emit_error(ctx, IRON_ERR_BITWISE_NON_INT, ue->span, msg, NULL);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                } else {
+                    result = ot ? ot : iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
             } else {
                 result = ot ? ot : iron_type_make_primitive(IRON_TYPE_ERROR);
             }

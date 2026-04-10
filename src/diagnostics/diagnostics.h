@@ -129,6 +129,9 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_COMPTIME_RESTRICTION 231
 #define IRON_ERR_COMPTIME_ERROR       232
 
+/* Bitwise operator errors */
+#define IRON_ERR_BITWISE_NON_INT      233
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301

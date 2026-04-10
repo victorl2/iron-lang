@@ -37,29 +37,35 @@ static void append_type(Iron_StrBuf *sb, const Iron_Type *type, Iron_Arena *tmp)
 /* Return a string label for a BinOp. */
 static const char *binop_str(IronHIR_BinOp op) {
     switch (op) {
-    case IRON_HIR_BINOP_ADD: return "+";
-    case IRON_HIR_BINOP_SUB: return "-";
-    case IRON_HIR_BINOP_MUL: return "*";
-    case IRON_HIR_BINOP_DIV: return "/";
-    case IRON_HIR_BINOP_MOD: return "%";
-    case IRON_HIR_BINOP_EQ:  return "==";
-    case IRON_HIR_BINOP_NEQ: return "!=";
-    case IRON_HIR_BINOP_LT:  return "<";
-    case IRON_HIR_BINOP_LTE: return "<=";
-    case IRON_HIR_BINOP_GT:  return ">";
-    case IRON_HIR_BINOP_GTE: return ">=";
-    case IRON_HIR_BINOP_AND: return "&&";
-    case IRON_HIR_BINOP_OR:  return "||";
-    default:                 return "?";
+    case IRON_HIR_BINOP_ADD:  return "+";
+    case IRON_HIR_BINOP_SUB:  return "-";
+    case IRON_HIR_BINOP_MUL:  return "*";
+    case IRON_HIR_BINOP_DIV:  return "/";
+    case IRON_HIR_BINOP_MOD:  return "%";
+    case IRON_HIR_BINOP_EQ:   return "==";
+    case IRON_HIR_BINOP_NEQ:  return "!=";
+    case IRON_HIR_BINOP_LT:   return "<";
+    case IRON_HIR_BINOP_LTE:  return "<=";
+    case IRON_HIR_BINOP_GT:   return ">";
+    case IRON_HIR_BINOP_GTE:  return ">=";
+    case IRON_HIR_BINOP_AND:  return "&&";
+    case IRON_HIR_BINOP_OR:   return "||";
+    case IRON_HIR_BINOP_SHL:  return "<<";
+    case IRON_HIR_BINOP_SHR:  return ">>";
+    case IRON_HIR_BINOP_BAND: return "&";
+    case IRON_HIR_BINOP_BOR:  return "|";
+    case IRON_HIR_BINOP_BXOR: return "^";
+    default:                  return "?";
     }
 }
 
 /* Return a string label for a UnOp. */
 static const char *unop_str(IronHIR_UnOp op) {
     switch (op) {
-    case IRON_HIR_UNOP_NEG: return "-";
-    case IRON_HIR_UNOP_NOT: return "!";
-    default:                return "?";
+    case IRON_HIR_UNOP_NEG:  return "-";
+    case IRON_HIR_UNOP_NOT:  return "!";
+    case IRON_HIR_UNOP_BNOT: return "~";
+    default:                 return "?";
     }
 }
 
