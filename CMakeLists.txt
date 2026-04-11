@@ -153,6 +153,7 @@ add_subdirectory(tests/manual)
 add_executable(ironc
     src/cli/main.c
     src/cli/build.c
+    src/cli/build_web.c
     src/cli/check.c
     src/cli/fmt.c
     src/cli/test_runner.c
