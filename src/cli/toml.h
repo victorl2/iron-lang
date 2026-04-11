@@ -2,6 +2,7 @@
 #define IRON_CLI_TOML_H
 
 #include <stdbool.h>
+#include "cli/web_config.h"
 
 /* Parsed representation of a single dependency from [dependencies]. */
 typedef struct {
@@ -27,6 +28,8 @@ typedef struct {
     IronDep *deps;       /* heap array of parsed inline-table deps */
     int    dep_count;
     int    dep_capacity;
+    /* [web] section (parsed in toml.c section==3 branch, Plan 02) */
+    IronWebConfig web;
 } IronProject;
 
 /* Parse iron.toml at the given path.
