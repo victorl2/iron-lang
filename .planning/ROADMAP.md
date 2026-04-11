@@ -70,7 +70,11 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   3. User who writes `await` reachable from `Iron_main()` and runs `iron build --target=web` gets a clear analyzer error at build time naming the restriction; same program builds cleanly for `--target=native`.
   4. `src/runtime/iron_rc.c`, `src/runtime/iron_builtins.c`, and `src/runtime/iron_collections.c` compile under emcc with zero modifications to those files and zero warnings.
   5. The 333 existing native integration tests still pass unchanged; neither `src/runtime/iron_string.c` nor `src/runtime/iron_threads.c` appears in the PR #17 forbidden-paths list (pre-commit hook stays silent).
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 03-plan-01-intern-table-hardening-PLAN.md — tsan stress test + thread-safety contract comment for iron_string_intern (WEB-RUNTIME-01)
+- [ ] 03-plan-02-thread-pool-web-hardening-PLAN.md — IRON_WEB_MAX_WORKERS cap + iron_threads_shutdown no-op under __EMSCRIPTEN__ (WEB-RUNTIME-02, WEB-RUNTIME-03)
+- [ ] 03-plan-03-analyzer-target-and-web-await-check-PLAN.md — IronBuildTarget plumbed through iron_analyze + new web_await_check reachability pass + unit test + web.yml paths filter (WEB-RUNTIME-04)
+- [ ] 03-plan-04-portability-probe-ci-PLAN.md — emcc try-compile probe in web.yml + local ctest grep invariant against sysconf/pthread_attr/sigaction (WEB-RUNTIME-07)
 
 ### Phase 4: WASM-Safe Time Shim
 **Goal**: `time.now_ns()` resolves to a monotonic millisecond-precision clock under `--target=web` without any edit to the PR #17 conflict zone (`iron_time.c` itself is safe — PR #17 does not touch it).
@@ -211,7 +215,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 |-------|----------------|--------|-----------|
 | 1. Bootstrap & Guardrails | 1/1 | Complete    | 2026-04-11 |
 | 2. CLI + TOML Scaffold | 6/6 | Complete   | 2026-04-11 |
-| 3. Runtime Audit | 0/TBD | Not started | - |
+| 3. Runtime Audit | 0/4 | Not started | - |
 | 4. WASM-Safe Time Shim | 0/TBD | Not started | - |
 | 5. LIR Main-Loop Split Pass | 0/TBD | Not started | - |
 | 6. emit_web.c Wrapper | 0/TBD | Not started | - |
