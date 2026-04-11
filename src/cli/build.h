@@ -3,6 +3,11 @@
 
 #include <stdbool.h>
 
+typedef enum {
+    IRON_TARGET_NATIVE = 0,   /* Default: native clang build (current behavior). */
+    IRON_TARGET_WEB    = 1    /* --target=web: dispatch to build_web.c. */
+} IronBuildTarget;
+
 typedef struct {
     bool        verbose;
     bool        debug_build;
@@ -15,6 +20,8 @@ typedef struct {
     bool        no_optimize;      /* --no-optimize: skip copy-prop/const-fold/DCE */
     bool        warn_fusion_break; /* --warn-fusion-break: emit diagnostics at fusion chain break points */
     bool        report_compression; /* --report-compression: show which fields were narrowed */
+    IronBuildTarget target;   /* --target=native|web. Default IRON_TARGET_NATIVE. */
+    bool            release;  /* --release flag. Native: clang -O2. Web: Phase 7 consumes for -Oz -flto -sASSERTIONS=0. */
 } IronBuildOpts;
 
 /* Build a .iron source file to a native binary.
