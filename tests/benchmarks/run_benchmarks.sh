@@ -28,6 +28,10 @@ CHECK_REGRESSION=0
 WRITE_JSON=0
 JSON_FILE=""
 COMPARE_MODE=0
+# --only-parallel / --skip-parallel split the suite into two groups so the CI
+# workflow can run them as separate jobs concurrently. A benchmark is considered
+# "parallel" if its directory name starts with parallel_, concurrency_, or spawn_.
+GROUP_FILTER="all"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -56,8 +60,16 @@ while [[ $# -gt 0 ]]; do
             COMPARE_MODE=1
             shift
             ;;
+        --only-parallel)
+            GROUP_FILTER="parallel"
+            shift
+            ;;
+        --skip-parallel)
+            GROUP_FILTER="sequential"
+            shift
+            ;;
         *)
-            echo "Usage: $0 [--problem NAME] [--verbose] [--save-baseline] [--check-regression] [--json FILE] [--compare]"
+            echo "Usage: $0 [--problem NAME] [--verbose] [--save-baseline] [--check-regression] [--json FILE] [--compare] [--only-parallel | --skip-parallel]"
             exit 1
             ;;
     esac
@@ -207,6 +219,29 @@ median() {
     '
 }
 
+# ── Parallel-group membership ──────────────────────────────────────────────
+# A benchmark belongs to the "parallel" group if its directory name starts with
+# parallel_, concurrency_, or spawn_. The CI workflow runs parallel and
+# sequential groups as two concurrent jobs per OS so the thread-heavy
+# benchmarks do not serialize the suite wall-time — and so the sequential
+# benchmarks are not timed on a CPU being hammered by the parallel ones.
+is_parallel_benchmark() {
+    case "$1" in
+        parallel_*|concurrency_*|spawn_*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Returns 0 if the benchmark should be included under the current GROUP_FILTER.
+benchmark_matches_group() {
+    local name="$1"
+    case "$GROUP_FILTER" in
+        all) return 0 ;;
+        parallel) is_parallel_benchmark "$name" ;;
+        sequential) if is_parallel_benchmark "$name"; then return 1; else return 0; fi ;;
+    esac
+}
+
 # ── Verify correctness against expected_output.txt ─────────────────────────
 check_correctness() {
     local actual_output="$1"
@@ -223,6 +258,11 @@ check_correctness() {
 
 # ── Main benchmark loop ──────────────────────────────────────────────────
 echo "=== Iron Benchmark Suite ==="
+case "$GROUP_FILTER" in
+    parallel)   echo "Group: parallel (parallel_*, concurrency_*, spawn_*)" ;;
+    sequential) echo "Group: sequential (excluding parallel_*, concurrency_*, spawn_*)" ;;
+    *)          echo "Group: all" ;;
+esac
 echo ""
 
 total=0
@@ -243,6 +283,11 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
 
     # Apply filter if --problem was specified
     if [ -n "$FILTER_PROBLEM" ] && [ "$problem_name" != "$FILTER_PROBLEM" ]; then
+        continue
+    fi
+
+    # Apply group filter (--only-parallel / --skip-parallel)
+    if ! benchmark_matches_group "$problem_name"; then
         continue
     fi
 
@@ -473,9 +518,13 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
 done
 
 # ── Print results ──────────────────────────────────────────────────────────
-for r in "${results[@]}"; do
-    echo "$r"
-done
+# Guarded to avoid `set -u` expansion errors when the group filter matches no
+# benchmarks (e.g. `--only-parallel --problem <sequential-name>`).
+if [ "${#results[@]}" -gt 0 ]; then
+    for r in "${results[@]}"; do
+        echo "$r"
+    done
+fi
 
 echo ""
 echo "Results: $passed/$total passed ($failed failed, $errors errors, $skipped skipped)"
@@ -541,6 +590,10 @@ if [ $CHECK_REGRESSION -eq 1 ]; then
                 continue
             fi
 
+            if ! benchmark_matches_group "$problem_name"; then
+                continue
+            fi
+
             baseline_ratio=$(jq -r ".problems.\"${problem_name}\".ratio // empty" "$baseline_file" 2>/dev/null)
             if [ -z "$baseline_ratio" ]; then
                 echo "  [NEW] $problem_name: no baseline entry"
@@ -549,12 +602,14 @@ if [ $CHECK_REGRESSION -eq 1 ]; then
 
             # Find current ratio from results
             current_ratio=""
-            for r in "${results[@]}"; do
-                if echo "$r" | grep -q "$problem_name"; then
-                    current_ratio=$(echo "$r" | grep -oE '[0-9]+\.[0-9]+x speed' | grep -oE '[0-9]+\.[0-9]+' | head -1)
-                    break
-                fi
-            done
+            if [ "${#results[@]}" -gt 0 ]; then
+                for r in "${results[@]}"; do
+                    if echo "$r" | grep -q "$problem_name"; then
+                        current_ratio=$(echo "$r" | grep -oE '[0-9]+\.[0-9]+x speed' | grep -oE '[0-9]+\.[0-9]+' | head -1)
+                        break
+                    fi
+                done
+            fi
 
             if [ -z "$current_ratio" ]; then
                 echo "  [SKIP] $problem_name: no current result"

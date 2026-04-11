@@ -16,11 +16,15 @@ on:
 
 jobs:
   benchmark:
+    # Split into two groups per OS so the thread-heavy parallel_/concurrency_/spawn_
+    # benchmarks run concurrently with the sequential ones on a separate runner.
+    # This also prevents the parallel group from polluting sequential timings
+    # by hammering the shared CPU mid-measurement.
+    name: benchmark (${{ matrix.os }}, ${{ matrix.group }})
     strategy:
       matrix:
-        include:
-          - os: ubuntu-24.04
-          - os: macos-26
+        os: [ubuntu-24.04, macos-26]
+        group: [sequential, parallel]
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
@@ -47,8 +51,18 @@ jobs:
           cmake --build build
 
       - name: Run benchmarks
-        run: bash tests/benchmarks/run_benchmarks.sh --verbose
+        run: |
+          if [ "${{ matrix.group }}" = "parallel" ]; then
+            bash tests/benchmarks/run_benchmarks.sh --verbose --only-parallel
+          else
+            bash tests/benchmarks/run_benchmarks.sh --verbose --skip-parallel
+          fi
 
       - name: Check regression (informational)
         continue-on-error: true
-        run: bash tests/benchmarks/run_benchmarks.sh --check-regression
+        run: |
+          if [ "${{ matrix.group }}" = "parallel" ]; then
+            bash tests/benchmarks/run_benchmarks.sh --check-regression --only-parallel
+          else
+            bash tests/benchmarks/run_benchmarks.sh --check-regression --skip-parallel
+          fi
