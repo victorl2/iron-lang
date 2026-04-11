@@ -1,17 +1,27 @@
 -- net_full_roundtrip.iron — Phase 59 P06 end-to-end TCP composition test.
 --
--- Single-process sequential pattern: listen → dial → accept → close.
+-- Single-process sequential pattern:
+--   listen → dial → accept → write → close
+--
 -- On loopback the kernel SYN queue holds the pending TCP connection
 -- between `dial` returning (SYN-ACK complete) and the subsequent
 -- `accept` call, so this sequential form works without spawn and is
 -- deterministic on every supported OS.
 --
--- The full cross-thread dial+accept+read+write roundtrip is covered by
--- the Unity test test_tcp_dial_loopback_roundtrip (tests/unit/
--- test_stdlib_net_tcp.c) and by the P06 cross-platform test
--- test_tcp_localhost_exchange. This Iron-level fixture proves the
--- Net.tcp_listen → Net.tcp_dial → TcpListener.accept composition is
--- reachable end-to-end from Iron source code.
+-- The `write` step exercises the Iron-level `TcpSocket.write` stub and
+-- proves that payloads pushed from Iron source make it through the C
+-- send engine and land in the kernel socket buffer without an errno.
+--
+-- Read coverage from the Iron side is intentionally deferred: the
+-- `TcpSocket.read` C impl writes into `Iron_String` bytes in place and
+-- requires a pre-allocated writable buffer, but Iron currently has no
+-- stdlib primitive for constructing a mutable-byte String of a given
+-- capacity. The full cross-thread dial+accept+read+write roundtrip is
+-- covered at the C level by test_tcp_dial_loopback_roundtrip (Unity,
+-- tests/unit/test_stdlib_net_tcp.c) and by the P06 cross-platform
+-- test_tcp_localhost_exchange. A follow-up phase that adds a
+-- String-with-capacity primitive can extend this fixture with a pure-
+-- Iron read assertion.
 import net
 
 func main() {
@@ -36,6 +46,26 @@ func main() {
     if aerr.code != 0 {
         println("accept failed: {aerr.code}")
         TcpSocket.close(client)
+        TcpListener.close(listener)
+        return
+    }
+
+    -- Exercise the Iron-side write path. "ping" is a 4-byte literal;
+    -- iron_tcpsocket_write reads its bytes via iron_string_cstr and
+    -- pushes them through Iron_net_tcp_send_bytes. On loopback the
+    -- kernel buffer will accept all 4 bytes synchronously.
+    val (nw, werr) = TcpSocket.write(client, "ping", 1000)
+    if werr.code != 0 {
+        println("write failed: {werr.code}")
+        TcpSocket.close(client)
+        TcpSocket.close(server_side)
+        TcpListener.close(listener)
+        return
+    }
+    if nw != 4 {
+        println("short write: {nw}")
+        TcpSocket.close(client)
+        TcpSocket.close(server_side)
         TcpListener.close(listener)
         return
     }
