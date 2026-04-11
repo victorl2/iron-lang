@@ -168,6 +168,12 @@ target_link_libraries(test_toml_web unity)
 add_test(NAME test_toml_web COMMAND test_toml_web)
 set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
 
+# ── Phase 5 plan-03: web_main_loop_split pass test (WEB-EMIT-01..04) ─────────
+add_executable(test_web_main_loop_split test_web_main_loop_split.c)
+target_link_libraries(test_web_main_loop_split iron_compiler unity)
+add_test(NAME test_web_main_loop_split COMMAND test_web_main_loop_split)
+set_tests_properties(test_web_main_loop_split PROPERTIES LABELS "unit")
+
 # ── Phase 3 plan-03: web_await_check pass test (WEB-RUNTIME-04) ──────────────
 add_executable(test_web_await_check test_web_await_check.c)
 target_link_libraries(test_web_await_check iron_compiler unity)
