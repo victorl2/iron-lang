@@ -952,6 +952,14 @@ void iron_threads_init(void) {
 }
 
 void iron_threads_shutdown(void) {
+#ifndef __EMSCRIPTEN__
+    /* WEB-RUNTIME-02: Cannot join workers from the browser main thread.
+     * Iron_pool_destroy calls pthread_join on every live worker, and
+     * pthread_join under Emscripten maps to Atomics.wait, which is
+     * forbidden on the main thread and hard-deadlocks under the default
+     * ALLOW_BLOCKING_ON_MAIN_THREAD=0 setting. The browser reclaims
+     * worker memory at page unload, so leaking here is acceptable on
+     * web; the alternative is a guaranteed crash. */
     if (Iron_io_pool) {
         Iron_pool_destroy(Iron_io_pool);
         Iron_io_pool = NULL;
@@ -960,4 +968,5 @@ void iron_threads_shutdown(void) {
         Iron_pool_destroy(Iron_global_pool);
         Iron_global_pool = NULL;
     }
+#endif
 }
