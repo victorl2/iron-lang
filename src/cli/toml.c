@@ -1,5 +1,6 @@
 #include "cli/toml.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -162,6 +163,50 @@ static char *extract_inline_field(const char *val, const char *field) {
     return NULL;
 }
 
+/* ── Helper: Levenshtein distance for misspelled-section detection ──────── */
+/*
+ * Naive single-row rolling DP.  Input strings are bounded by line length
+ * (< 1024) so a 66-element stack array is sufficient given the 64-char cap.
+ * Returns INT_MAX if either string exceeds 64 characters (unreasonable for
+ * section names).  Characters are compared case-sensitively; TOML section
+ * headers are case-sensitive ([Web] ≠ [web]).
+ */
+static int levenshtein(const char *a, const char *b) {
+    size_t la = strlen(a);
+    size_t lb = strlen(b);
+    if (la > 64 || lb > 64) return INT_MAX;
+
+    /* v0[j] = edit distance between a[0..i-1] and b[0..j-1] */
+    int v0[66];
+    int v1[66];
+
+    /* Initialize: distance from empty string to b[0..j] */
+    for (size_t j = 0; j <= lb; j++) v0[j] = (int)j;
+
+    for (size_t i = 0; i < la; i++) {
+        v1[0] = (int)(i + 1);
+        for (size_t j = 0; j < lb; j++) {
+            int del_cost  = v0[j + 1] + 1;
+            int ins_cost  = v1[j]     + 1;
+            int sub_cost  = v0[j] + (a[i] != b[j] ? 1 : 0);
+            int best = del_cost < ins_cost ? del_cost : ins_cost;
+            v1[j + 1] = best < sub_cost ? best : sub_cost;
+        }
+        /* swap rows */
+        for (size_t j = 0; j <= lb; j++) v0[j] = v1[j];
+    }
+    return v0[lb];
+}
+
+/* ── Known section names (for Levenshtein typo detection) ───────────────── */
+static const char *KNOWN_SECTIONS[] = {
+    "package",
+    "project",
+    "dependencies",
+    "web",
+    NULL
+};
+
 /* ── iron_toml_parse ─────────────────────────────────────────────────────── */
 
 IronProject *iron_toml_parse(const char *path) {
@@ -194,7 +239,7 @@ IronProject *iron_toml_parse(const char *path) {
         /* Skip empty lines */
         if (*s == '\0') continue;
 
-        /* Section header: [package], [project], or [dependencies] */
+        /* Section header: [package], [project], [dependencies], or [web] */
         if (*s == '[') {
             char *end = strchr(s, ']');
             if (end) {
@@ -204,7 +249,24 @@ IronProject *iron_toml_parse(const char *path) {
                     section = 1;
                 } else if (strcmp(sec_name, "dependencies") == 0) {
                     section = 2;
+                } else if (strcmp(sec_name, "web") == 0) {
+                    section = 3;
                 } else {
+                    /* Unknown section: check if it's a typo of a known one (Levenshtein ≤2). */
+                    int best_dist = INT_MAX;
+                    const char *best_match = NULL;
+                    for (int ki = 0; KNOWN_SECTIONS[ki]; ki++) {
+                        int d = levenshtein(sec_name, KNOWN_SECTIONS[ki]);
+                        if (d < best_dist) {
+                            best_dist = d;
+                            best_match = KNOWN_SECTIONS[ki];
+                        }
+                    }
+                    if (best_dist > 0 && best_dist <= 2 && best_match) {
+                        fprintf(stderr, "warning: unknown section [%s] — did you mean [%s]? (ignored)\n",
+                                sec_name, best_match);
+                    }
+                    /* distance > 2 or no match: silently ignore. */
                     section = 0;
                 }
             }
