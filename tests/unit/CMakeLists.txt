@@ -151,3 +151,19 @@ if(WIN32)
 endif()
 add_test(NAME test_stdlib_net_cross_platform COMMAND test_stdlib_net_cross_platform)
 set_tests_properties(test_stdlib_net_cross_platform PROPERTIES LABELS "unit")
+
+# ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────
+# test_toml_web compiles src/cli/toml.c directly because toml.c is not currently
+# part of any static library (it's linked straight into the ironc executable in
+# the root CMakeLists.txt). A future refactor could extract an iron_cli_toml
+# library, but for Phase 2 this direct-compile approach keeps the diff minimal.
+add_executable(test_toml_web
+    test_toml_web.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+)
+target_include_directories(test_toml_web PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_toml_web unity)
+add_test(NAME test_toml_web COMMAND test_toml_web)
+set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
