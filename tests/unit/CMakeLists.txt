@@ -168,6 +168,12 @@ target_link_libraries(test_toml_web unity)
 add_test(NAME test_toml_web COMMAND test_toml_web)
 set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
 
+# ── Phase 3 plan-03: web_await_check pass test (WEB-RUNTIME-04) ──────────────
+add_executable(test_web_await_check test_web_await_check.c)
+target_link_libraries(test_web_await_check iron_compiler unity)
+add_test(NAME test_web_await_check COMMAND test_web_await_check)
+set_tests_properties(test_web_await_check PROPERTIES LABELS "unit")
+
 # ── Phase 3 plan-01: intern table tsan stress test (WEB-RUNTIME-01) ──────────
 # Runs under ThreadSanitizer on Linux only. macOS tsan is flaky and emcc has
 # no tsan. Non-Linux builds still compile+run the test but without tsan
