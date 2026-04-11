@@ -1,0 +1,25 @@
+-- Phase 59 P01d tuple-return smoke test.
+--
+-- This file was the regression marker during 01c (SKIPped because tuple
+-- returns were unimplemented and ironc hung on `val (v, err) = Smoke.pair()`).
+--
+-- 01d delivered full tuple codegen: `(Int, Int)` return types, tuple literals,
+-- val-destructure, and per-element comparison. The fixture has been
+-- simplified from the original `(Int, Iron_Error)` FFI shape to a plain
+-- `(Int, Int)` — `Iron_Error` is a C-runtime type and was never a legal Iron
+-- type annotation in the first place; the Net/UDP/DNS API contracts in
+-- Phase 59 02/03/04/05 use `Int` error codes per the 2026-04-10 CONTEXT.md
+-- revision note.
+--
+-- Expected behaviour: compiles, runs, prints `0 0` for the default
+-- 0-initialized pair the factory returns.
+object Smoke {}
+
+func Smoke.pair() -> (Int, Int) {
+    return (0, 0)
+}
+
+func main() {
+    val (v, code) = Smoke.pair()
+    println("{v} {code}")
+}

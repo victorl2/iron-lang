@@ -144,6 +144,61 @@ Iron_Type *iron_type_make_generic_param(Iron_Arena *a, const char *name, Iron_Ty
     return t;
 }
 
+/* ── Tuple mangling helper ────────────────────────────────────────────────── */
+
+/* Sanitize a component type's C name for use in a mangled struct identifier:
+ * replace non-alphanumeric characters with '_'. Mirrors the sanitization style
+ * used in emit_helpers.c for array list type names. */
+static void tuple_append_mangled_component(char *buf, size_t *pos, size_t cap,
+                                            const char *component) {
+    if (!component) component = "error";
+    for (const char *p = component; *p; p++) {
+        if (*pos + 1 >= cap) break;
+        char c = *p;
+        bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                  (c >= '0' && c <= '9') || c == '_';
+        buf[(*pos)++] = ok ? c : '_';
+    }
+}
+
+/* Build the human-readable mangled name for a tuple type.
+ * Uses iron_type_to_string for each element (so nested tuples get their own
+ * parenthesized string, which is then sanitized to underscores). */
+static const char *tuple_build_mangled_name(Iron_Arena *a, Iron_Type **elems,
+                                              int count) {
+    char buf[1024];
+    size_t pos = 0;
+    const char *prefix = "Iron_Tuple";
+    for (const char *p = prefix; *p && pos < sizeof(buf) - 1; p++)
+        buf[pos++] = *p;
+    for (int i = 0; i < count; i++) {
+        if (pos < sizeof(buf) - 1) buf[pos++] = '_';
+        const char *comp = iron_type_to_string(elems[i], a);
+        tuple_append_mangled_component(buf, &pos, sizeof(buf), comp);
+    }
+    if (pos >= sizeof(buf)) pos = sizeof(buf) - 1;
+    buf[pos] = '\0';
+    return iron_arena_strdup(a, buf, pos);
+}
+
+Iron_Type *iron_type_make_tuple(Iron_Arena *a, Iron_Type **elem_types, int count) {
+    if (count < 2 || !elem_types) return NULL;
+    Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
+    if (!t) return NULL;
+    memset(t, 0, sizeof(*t));
+    t->kind = IRON_TYPE_TUPLE;
+    /* Copy the element pointer array into the arena (caller retains ownership
+     * of their input buffer, matching iron_type_make_func semantics). */
+    Iron_Type **copy = (Iron_Type **)iron_arena_alloc(a,
+        sizeof(Iron_Type *) * (size_t)count, _Alignof(Iron_Type *));
+    if (!copy) return NULL;
+    memcpy(copy, elem_types, sizeof(Iron_Type *) * (size_t)count);
+    t->tuple.elem_types  = copy;
+    t->tuple.elem_count  = count;
+    t->tuple.mangled_name = tuple_build_mangled_name(a, copy, count);
+    return t;
+}
+
 /* ── Structural equality ─────────────────────────────────────────────────── */
 
 bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
@@ -204,6 +259,17 @@ bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
             if (!a->generic_param.name || !b->generic_param.name) return false;
             return strcmp(a->generic_param.name, b->generic_param.name) == 0 &&
                    iron_type_equals(a->generic_param.constraint, b->generic_param.constraint);
+        }
+
+        case IRON_TYPE_TUPLE: {
+            if (a->tuple.elem_count != b->tuple.elem_count) return false;
+            for (int i = 0; i < a->tuple.elem_count; i++) {
+                if (!iron_type_equals(a->tuple.elem_types[i],
+                                      b->tuple.elem_types[i])) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
     return false;
@@ -288,10 +354,18 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
         }
 
         case IRON_TYPE_OBJECT:
-            /* Return name if available through decl; fallback */
+            /* Phase 59 02: return the concrete object decl name so tuple
+             * mangling in tuple_build_mangled_name produces distinct struct
+             * names for tuples containing different object types. Prior to
+             * this fix both (Foo, Int) and (Bar, Int) mangled to
+             * `Iron_Tuple__object__Int` causing silent C-level name
+             * collisions. */
+            if (t->object.decl && t->object.decl->name) return t->object.decl->name;
             return "<object>";
 
         case IRON_TYPE_INTERFACE:
+            /* Phase 59 02: same rationale as IRON_TYPE_OBJECT above. */
+            if (t->interface.decl && t->interface.decl->name) return t->interface.decl->name;
             return "<interface>";
 
         case IRON_TYPE_ENUM: {
@@ -317,6 +391,27 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
 
         case IRON_TYPE_GENERIC_PARAM:
             return t->generic_param.name ? t->generic_param.name : "<T>";
+
+        case IRON_TYPE_TUPLE: {
+            /* Build "(T0, T1, ...)" — recurse into each element. */
+            char buf[1024];
+            int pos = 0;
+            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "(");
+            for (int i = 0; i < t->tuple.elem_count; i++) {
+                if (i > 0)
+                    pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ", ");
+                const char *es = iron_type_to_string(t->tuple.elem_types[i], a);
+                pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s",
+                                es ? es : "<null>");
+                if (pos >= (int)sizeof(buf) - 2) break;
+            }
+            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ")");
+            size_t len = (size_t)pos + 1;
+            char *out = (char *)iron_arena_alloc(a, len, 1);
+            if (!out) return "(...)";
+            memcpy(out, buf, len);
+            return out;
+        }
     }
     return "<unknown>";
 }

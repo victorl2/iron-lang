@@ -20,12 +20,21 @@ jobs:
   build-and-test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest] # disable 'windows-latest' for now, TODO: fix compatibility on Windows
+        # Windows is intentionally excluded from the CI matrix until a
+        # dedicated Windows-compat phase fixes pre-existing issues that are
+        # unrelated to Phase 59 networking:
+        #   - src/util/strbuf.h uses GCC __attribute__((format(...)))
+        #   - src/diagnostics/diagnostics.c includes <unistd.h>
+        #   - src/pkg/* + src/cli/toml.c use POSIX-only strdup/getcwd/strerror
+        #     under MSVC /W3 /WX which promotes C4996 warnings to errors
+        # Phase 59 P01c (iron_net_init.c) + P02..P05 networking/URL code do
+        # build under MSVC after 989ae1b's winsock2 include-order fix, but
+        # the rest of the codebase does not. Re-add `windows-latest` once
+        # that follow-up phase lands.
+        os: [ubuntu-latest, macos-latest]
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
-    # Windows/MSVC has known compat issues (__attribute__, unistd.h, narrowing)
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -34,62 +43,40 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang
+          sudo apt-get install -y cmake ninja-build clang gdb
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake ninja
 
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-
-      - name: Configure (Unix — Debug with ASan/UBSan)
-        if: runner.os != 'Windows'
+      - name: Configure (Debug with ASan/UBSan)
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -G Ninja
 
-      - name: Configure (Windows)
-        if: runner.os == 'Windows'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -G "Visual Studio 17 2022"
-
-      - name: Build (Unix)
-        if: runner.os != 'Windows'
+      - name: Build
         run: cmake --build build
 
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
-        run: cmake --build build --config Debug
-
-      - name: Run tests (Unix)
-        if: runner.os != 'Windows'
+      - name: Run unit tests
         env:
           ASAN_OPTIONS: detect_leaks=0
         run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
 
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
-        run: ctest --test-dir build --output-on-failure --config Debug -j4
-
-      - name: Verify binaries exist (Unix)
-        if: runner.os != 'Windows'
+      - name: Verify binaries exist
         run: |
           test -x build/iron && echo "iron binary OK"
           test -x build/ironc && echo "ironc binary OK"
 
-      - name: Run integration tests (Unix only)
-        if: runner.os != 'Windows'
+      - name: Run integration tests
         env:
           ASAN_OPTIONS: detect_leaks=0
         run: |
           chmod +x tests/integration/run_integration.sh
           tests/integration/run_integration.sh build/ironc
 
-      - name: Verify sanitizers (Unix only)
-        if: runner.os != 'Windows'
+      - name: Verify sanitizers
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1

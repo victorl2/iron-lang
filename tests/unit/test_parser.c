@@ -492,6 +492,100 @@ void test_generic_object(void) {
     TEST_ASSERT_EQUAL(1, obj->field_count);
 }
 
+/* ── Phase 59 01d: tuple types + literals + destructure ───────────────── */
+
+void test_parse_tuple_type_annotation_2_elem(void) {
+    Iron_Node *prog = parse("func f() -> (Int, Int) { return 0 }");
+    Iron_Node *d    = first_decl(prog);
+    TEST_ASSERT_EQUAL(IRON_NODE_FUNC_DECL, d->kind);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+    TEST_ASSERT_NOT_NULL(fd->return_type);
+    Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)fd->return_type;
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, ann->kind);
+    TEST_ASSERT_TRUE(ann->is_tuple);
+    TEST_ASSERT_EQUAL_INT(2, ann->tuple_elem_count);
+}
+
+void test_parse_tuple_type_annotation_3_elem(void) {
+    Iron_Node *prog = parse("func f() -> (Int, String, Bool) { return 0 }");
+    Iron_Node *d    = first_decl(prog);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+    Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)fd->return_type;
+    TEST_ASSERT_TRUE(ann->is_tuple);
+    TEST_ASSERT_EQUAL_INT(3, ann->tuple_elem_count);
+}
+
+void test_parse_tuple_type_annotation_nested(void) {
+    Iron_Node *prog = parse("func f() -> (Int, (String, Bool)) { return 0 }");
+    Iron_Node *d    = first_decl(prog);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+    Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)fd->return_type;
+    TEST_ASSERT_TRUE(ann->is_tuple);
+    TEST_ASSERT_EQUAL_INT(2, ann->tuple_elem_count);
+    Iron_TypeAnnotation *inner =
+        (Iron_TypeAnnotation *)ann->tuple_elems[1];
+    TEST_ASSERT_TRUE(inner->is_tuple);
+    TEST_ASSERT_EQUAL_INT(2, inner->tuple_elem_count);
+}
+
+void test_parse_tuple_literal_2_elem(void) {
+    /* Inside a function body so `val x = (1, 2)` parses as a stmt. */
+    Iron_Node *prog = parse("func main() { val x = (1, 2) }");
+    Iron_Node *d    = first_decl(prog);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+    Iron_Block *body  = (Iron_Block *)fd->body;
+    TEST_ASSERT_GREATER_THAN_INT(0, body->stmt_count);
+    Iron_ValDecl *vd  = (Iron_ValDecl *)body->stmts[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_VAL_DECL, vd->kind);
+    TEST_ASSERT_NOT_NULL(vd->init);
+    TEST_ASSERT_EQUAL(IRON_NODE_ARRAY_LIT, vd->init->kind);
+    Iron_ArrayLit *al = (Iron_ArrayLit *)vd->init;
+    TEST_ASSERT_EQUAL_INT(2, al->element_count);
+    /* tuple sentinel attached via type_ann */
+    TEST_ASSERT_NOT_NULL(al->type_ann);
+    Iron_TypeAnnotation *tag = (Iron_TypeAnnotation *)al->type_ann;
+    TEST_ASSERT_TRUE(tag->is_tuple);
+}
+
+void test_parse_tuple_literal_in_return(void) {
+    Iron_Node *prog = parse("func f() -> (Int, Int) { return (1, 2) }");
+    Iron_Node *d    = first_decl(prog);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+    Iron_Block *body  = (Iron_Block *)fd->body;
+    Iron_ReturnStmt *rs = (Iron_ReturnStmt *)body->stmts[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_RETURN, rs->kind);
+    TEST_ASSERT_NOT_NULL(rs->value);
+    TEST_ASSERT_EQUAL(IRON_NODE_ARRAY_LIT, rs->value->kind);
+    Iron_ArrayLit *al = (Iron_ArrayLit *)rs->value;
+    TEST_ASSERT_NOT_NULL(al->type_ann);
+    TEST_ASSERT_TRUE(((Iron_TypeAnnotation *)al->type_ann)->is_tuple);
+}
+
+void test_parse_tuple_destructure_binding(void) {
+    Iron_Node *prog = parse("func main() { val (a, b) = (1, 2) }");
+    Iron_Node *d    = first_decl(prog);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+    Iron_Block *body  = (Iron_Block *)fd->body;
+    TEST_ASSERT_GREATER_THAN_INT(0, body->stmt_count);
+    Iron_ValDecl *vd  = (Iron_ValDecl *)body->stmts[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_VAL_DECL, vd->kind);
+    TEST_ASSERT_EQUAL_INT(2, vd->binding_count);
+    TEST_ASSERT_NOT_NULL(vd->binding_names[0]);
+    TEST_ASSERT_EQUAL_STRING("a", vd->binding_names[0]);
+    TEST_ASSERT_EQUAL_STRING("b", vd->binding_names[1]);
+}
+
+void test_parse_tuple_destructure_wildcard(void) {
+    Iron_Node *prog = parse("func main() { val (x, _) = (1, 2) }");
+    Iron_Node *d    = first_decl(prog);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+    Iron_Block *body  = (Iron_Block *)fd->body;
+    Iron_ValDecl *vd  = (Iron_ValDecl *)body->stmts[0];
+    TEST_ASSERT_EQUAL_INT(2, vd->binding_count);
+    TEST_ASSERT_EQUAL_STRING("x", vd->binding_names[0]);
+    TEST_ASSERT_NULL(vd->binding_names[1]);  /* wildcard sentinel */
+}
+
 /* ── main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -532,6 +626,15 @@ int main(void) {
     RUN_TEST(test_every_node_has_span);
     RUN_TEST(test_generic_func);
     RUN_TEST(test_generic_object);
+
+    /* Phase 59 01d */
+    RUN_TEST(test_parse_tuple_type_annotation_2_elem);
+    RUN_TEST(test_parse_tuple_type_annotation_3_elem);
+    RUN_TEST(test_parse_tuple_type_annotation_nested);
+    RUN_TEST(test_parse_tuple_literal_2_elem);
+    RUN_TEST(test_parse_tuple_literal_in_return);
+    RUN_TEST(test_parse_tuple_destructure_binding);
+    RUN_TEST(test_parse_tuple_destructure_wildcard);
 
     return UNITY_END();
 }

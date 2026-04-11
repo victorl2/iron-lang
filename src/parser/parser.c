@@ -190,13 +190,59 @@ static void iron_parser_sync_stmt(Iron_Parser *p) {
 
 /* ── Type annotation ─────────────────────────────────────────────────────── */
 
-/* Parse: TypeName[?][GenericArgs] or [TypeName; Size] or [TypeName] or func(T)->R */
+/* Parse: TypeName[?][GenericArgs] or [TypeName; Size] or [TypeName] or func(T)->R
+ *        or (T0, T1, ...) — Phase 59 01d tuple type. */
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
+
+    /* Phase 59 01d: Tuple type (T0, T1, ...) — arity >= 2 enforced. */
+    if (iron_check(p, IRON_TOK_LPAREN)) {
+        Iron_Span start_span = iron_token_span(p, iron_current(p));
+        iron_advance(p);  /* consume ( */
+        iron_skip_newlines(p);
+        Iron_Node **elems = NULL;  /* stb_ds */
+        while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
+            Iron_Node *elem_ty = iron_parse_type_annotation(p);
+            arrput(elems, elem_ty);
+            iron_skip_newlines(p);
+            if (!iron_check(p, IRON_TOK_COMMA)) break;
+            iron_advance(p);  /* consume , */
+            iron_skip_newlines(p);
+        }
+        iron_expect(p, IRON_TOK_RPAREN);
+        int count = (int)arrlen(elems);
+        if (count < 2) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN, start_span,
+                           "tuple types must have arity >= 2; "
+                           "use a plain type for single values", NULL);
+            arrfree(elems);
+            return iron_make_error(p);
+        }
+        /* Transfer the stb_ds element pointer array into the arena so the
+         * AST owns it independently of the stb_ds lifetime. Mirrors the
+         * func_params ownership transfer pattern below. */
+        Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
+            p->arena, sizeof(Iron_Node *) * (size_t)count,
+            _Alignof(Iron_Node *));
+        memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
+        arrfree(elems);
+
+        Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        memset(ann, 0, sizeof(*ann));
+        ann->kind             = IRON_NODE_TYPE_ANNOTATION;
+        ann->span             = iron_span_merge(start_span,
+                                                iron_token_span(p, iron_current(p)));
+        ann->is_tuple         = true;
+        ann->tuple_elems      = arena_elems;
+        ann->tuple_elem_count = count;
+        return (Iron_Node *)ann;
+    }
 
     /* Array type: [T] or [T; N] or [func(T)->R] */
     if (iron_match(p, IRON_TOK_LBRACKET)) {
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = true;
         ann->is_nullable       = false;
@@ -296,6 +342,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         iron_advance(p);  /* consume 'func' */
 
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = false;
         ann->array_size        = NULL;
@@ -348,6 +395,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
 
     Iron_Token *name_tok = iron_advance(p);
     Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+    memset(ann, 0, sizeof(*ann));
     ann->kind              = IRON_NODE_TYPE_ANNOTATION;
     ann->is_array          = false;
     ann->array_size        = NULL;
@@ -503,12 +551,25 @@ static Iron_Node *iron_parse_block(Iron_Parser *p) {
     int stmt_count = 0;
 
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
+        int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
         Iron_Node *s = iron_parse_stmt(p);
         arrput(stmts, s);
         stmt_count++;
         iron_skip_newlines(p);
+        /* No-progress guard: if iron_parse_stmt failed to advance the cursor,
+         * emit one generic diagnostic, skip one token, and continue. This
+         * prevents the 01c-class hang observed on tuple_return_smoke.iron where
+         * a malformed `val (` produced an ErrorNode without consuming the `(`
+         * and the outer loop re-entered iron_parse_stmt forever. */
+        if (p->pos == pos_before) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "unexpected token in block; skipping", NULL);
+            if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
+        }
     }
 
     Iron_Token *end = iron_current(p);
@@ -702,14 +763,79 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             n->operand         = operand;
             return (Iron_Node *)n;
         }
-        /* Grouped expression */
+        /* Grouped expression or tuple literal (Phase 59 01d) */
         case IRON_TOK_LPAREN: {
+            Iron_Span lparen_span = iron_token_span(p, iron_current(p));
             iron_advance(p);
             iron_skip_newlines(p);
-            Iron_Node *inner = iron_parse_expr(p);
+            Iron_Node *first = iron_parse_expr(p);
             iron_skip_newlines(p);
+            if (iron_check(p, IRON_TOK_COMMA)) {
+                /* Tuple literal: (e0, e1, ...) — arity >= 2 enforced. The
+                 * parser lands this as an Iron_ArrayLit with a dedicated
+                 * element type annotation flag (no new node kind) — the
+                 * typechecker discriminates via resolved_type->kind ==
+                 * IRON_TYPE_TUPLE. Research Decision 1 Option B. */
+                Iron_Node **elems = NULL;
+                arrput(elems, first);
+                while (iron_check(p, IRON_TOK_COMMA)) {
+                    iron_advance(p);  /* consume , */
+                    iron_skip_newlines(p);
+                    if (iron_check(p, IRON_TOK_RPAREN)) break;  /* trailing comma */
+                    Iron_Node *e = iron_parse_expr(p);
+                    arrput(elems, e);
+                    iron_skip_newlines(p);
+                }
+                iron_expect(p, IRON_TOK_RPAREN);
+                int count = (int)arrlen(elems);
+                if (count < 2) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN, lparen_span,
+                                   "tuple literals must have arity >= 2", NULL);
+                    arrfree(elems);
+                    return iron_make_error(p);
+                }
+                /* Reuse Iron_ArrayLit as the storage for the tuple literal —
+                 * the type checker detects tuple-ness via context + elem_types.
+                 * The alternative would be a dedicated IRON_NODE_TUPLE_LIT kind
+                 * but that would require touching every AST walker. Mirror the
+                 * existing ArrayLit element-list storage pattern. The tuple flag
+                 * is indicated by is_tuple on the attached type annotation (set
+                 * by the type checker during expected-type propagation) OR by
+                 * resolved_type->kind == IRON_TYPE_TUPLE.
+                 *
+                 * To disambiguate from a regular array literal during lowering,
+                 * we set a sentinel: type_ann points at an Iron_TypeAnnotation
+                 * with is_tuple=true. Downstream consumers check this. */
+                Iron_ArrayLit *al = ARENA_ALLOC(p->arena, Iron_ArrayLit);
+                memset(al, 0, sizeof(*al));
+                al->kind          = IRON_NODE_ARRAY_LIT;
+                al->span          = iron_span_merge(
+                    lparen_span, iron_token_span(p, iron_current(p)));
+                /* Transfer element ownership into arena. */
+                Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
+                    p->arena, sizeof(Iron_Node *) * (size_t)count,
+                    _Alignof(Iron_Node *));
+                memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
+                arrfree(elems);
+                al->elements      = arena_elems;
+                al->element_count = count;
+                /* Tuple sentinel: attach an Iron_TypeAnnotation with
+                 * is_tuple=true. The type checker reads this to know to
+                 * treat the array lit as a tuple. */
+                Iron_TypeAnnotation *tag = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+                memset(tag, 0, sizeof(*tag));
+                tag->kind             = IRON_NODE_TYPE_ANNOTATION;
+                tag->span             = al->span;
+                tag->is_tuple         = true;
+                tag->tuple_elems      = NULL;  /* elements live on al->elements */
+                tag->tuple_elem_count = count;
+                al->type_ann          = (Iron_Node *)tag;
+                return (Iron_Node *)al;
+            }
+            /* Not a tuple — plain parenthesised expression. */
             iron_expect(p, IRON_TOK_RPAREN);
-            return inner;
+            return first;
         }
         /* heap expr */
         case IRON_TOK_HEAP: {
@@ -858,7 +984,11 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     iron_emit_diag(p, IRON_ERR_EXPECTED_EXPR,
                    iron_token_span(p, t),
                    "expected expression");
-    /* Do not advance — let the caller handle recovery */
+    /* 2026-04-10 Phase 59 01d: advance past the offending token so callers
+     * don't spin. Previous comment "let the caller handle recovery" was wrong —
+     * no caller recovers, and the 01c hang on tuple_return_smoke.iron traced
+     * back to this exact no-advance path. */
+    if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
     return iron_make_error(p);
 }
 
@@ -1550,11 +1680,92 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'val' */
 
+    /* Phase 59 01d: tuple destructure form — val (a, b, ...) [: Ty] = expr. */
+    if (iron_check(p, IRON_TOK_LPAREN)) {
+        iron_advance(p);  /* consume ( */
+        iron_skip_newlines(p);
+        const char **names = NULL;  /* stb_ds, NULL entries = wildcard */
+        while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
+            if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                Iron_Token *id = iron_advance(p);
+                arrput(names, iron_arena_strdup(p->arena, id->value,
+                                                 strlen(id->value)));
+            } else if (iron_check(p, IRON_TOK_WILDCARD)) {
+                iron_advance(p);
+                arrput(names, NULL);  /* sentinel for wildcard */
+            } else {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "expected identifier or '_' in tuple destructure binding", NULL);
+                if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
+                break;
+            }
+            iron_skip_newlines(p);
+            if (!iron_check(p, IRON_TOK_COMMA)) break;
+            iron_advance(p);
+            iron_skip_newlines(p);
+        }
+        iron_expect(p, IRON_TOK_RPAREN);
+        int count = (int)arrlen(names);
+        if (count < 2) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, start),
+                           "tuple destructure requires at least 2 binding names", NULL);
+            arrfree(names);
+            return iron_make_error(p);
+        }
+        /* Transfer binding names into arena. */
+        const char **arena_names = (const char **)iron_arena_alloc(
+            p->arena, sizeof(const char *) * (size_t)count,
+            _Alignof(const char *));
+        memcpy(arena_names, names, sizeof(const char *) * (size_t)count);
+        arrfree(names);
+
+        /* Optional type annotation : Ty (for symmetry, though rarely used). */
+        Iron_Node *type_ann = NULL;
+        if (iron_match(p, IRON_TOK_COLON)) {
+            type_ann = iron_parse_type_annotation(p);
+        }
+        /* Required initializer. */
+        Iron_Node *init = NULL;
+        if (iron_match(p, IRON_TOK_ASSIGN)) {
+            init = iron_parse_expr(p);
+        } else {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "destructure binding requires an initializer '= expr'", NULL);
+            if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
+            return iron_make_error(p);
+        }
+
+        Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
+        memset(n, 0, sizeof(*n));
+        n->kind          = IRON_NODE_VAL_DECL;
+        n->span          = iron_span_merge(iron_token_span(p, start),
+                                            init ? init->span
+                                                 : iron_token_span(p, iron_current(p)));
+        n->name          = NULL;
+        n->type_ann      = type_ann;
+        n->init          = init;
+        n->declared_type = NULL;
+        n->binding_names = arena_names;
+        n->binding_count = count;
+        return (Iron_Node *)n;
+    }
+
     if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
-                       "expected variable name after 'val'", NULL);
+                       "expected variable name or tuple destructure pattern after 'val'", NULL);
+        /* 2026-04-10 Phase 59 01d: advance past the offending token. Paired
+         * with the no-progress guard in iron_parse_block this is belt-and-
+         * braces, but it also guarantees forward progress even if this path
+         * is reached from an outer caller that doesn't run the guard. */
+        if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
         return iron_make_error(p);
     }
     Iron_Token *name_tok = iron_advance(p);
@@ -1589,6 +1800,10 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     n->type_ann      = type_ann;
     n->init          = init;
     n->declared_type = NULL;  /* set by type checker */
+    /* Phase 59 01d: destructure bindings default off; populated below if we
+     * add a LPAREN branch in Task 2. */
+    n->binding_names = NULL;
+    n->binding_count = 0;
     return (Iron_Node *)n;
 }
 
@@ -2483,6 +2698,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     int decl_count    = 0;
 
     while (!iron_check(p, IRON_TOK_EOF)) {
+        int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_EOF)) break;
 
@@ -2503,6 +2719,17 @@ Iron_Node *iron_parse(Iron_Parser *p) {
         arrput(decls, d);
         decl_count++;
         iron_skip_newlines(p);
+        /* No-progress guard at the top level: if iron_parse_decl failed to
+         * consume any tokens, emit one generic diagnostic and skip one token.
+         * This keeps the parser bounded even when a declaration parser leaves
+         * the cursor stuck. Defense-in-depth for the 01c-class hang. */
+        if (p->pos == pos_before) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "unexpected token at top level; skipping", NULL);
+            if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
+        }
     }
 
     Iron_Program *prog  = ARENA_ALLOC(p->arena, Iron_Program);

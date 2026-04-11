@@ -340,8 +340,19 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
             /* Resolve init first, then define (prevents self-referencing) */
             if (vd->init) resolve_expr(ctx, vd->init);
-            define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
-                       /*is_mutable=*/false, /*is_private=*/false);
+            /* Phase 59 01d: destructure binding defines multiple symbols. */
+            if (vd->binding_count > 0) {
+                for (int i = 0; i < vd->binding_count; i++) {
+                    if (vd->binding_names[i]) {  /* skip wildcards */
+                        define_sym(ctx, vd->binding_names[i], IRON_SYM_VARIABLE,
+                                   node, vd->span,
+                                   /*is_mutable=*/false, /*is_private=*/false);
+                    }
+                }
+            } else if (vd->name) {
+                define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
+                           /*is_mutable=*/false, /*is_private=*/false);
+            }
             break;
         }
 

@@ -194,6 +194,13 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
 
         case IRON_TYPE_GENERIC_PARAM:
             return "void*";
+
+        case IRON_TYPE_TUPLE:
+            /* Phase 59 01d: ensure the tuple typedef is emitted and return
+             * its mangled struct name. Recurses through emit_ensure_tuple
+             * so nested tuples get their inner typedefs first. */
+            emit_ensure_tuple(ctx, t);
+            return t->tuple.mangled_name ? t->tuple.mangled_name : "void";
     }
     return "int"; /* unreachable fallback */
 }
@@ -212,6 +219,50 @@ void emit_ensure_optional(EmitCtx *ctx, const Iron_Type *inner) {
     iron_strbuf_appendf(&ctx->struct_bodies,
                          "typedef struct { %s value; bool has_value; } %s;\n",
                          c_inner, struct_name);
+}
+
+/* Phase 59 01d: synthesise a C typedef for a tuple on demand.
+ *
+ *   typedef struct { T0 v0; T1 v1; ... Tn vN; } Iron_Tuple_<mangled>;
+ *
+ * Dedupes via ctx->emitted_tuples so the same mangled name is only
+ * emitted once across the whole translation unit. Recurses into
+ * element types so nested tuples (e.g. (Int, (String, Bool))) get
+ * their inner typedefs ensured first. No-op when the type isn't
+ * a tuple. */
+void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty) {
+    if (!tuple_ty || tuple_ty->kind != IRON_TYPE_TUPLE) return;
+    const char *struct_name = tuple_ty->tuple.mangled_name;
+    if (!struct_name) return;
+
+    /* Dedupe */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_tuples); i++) {
+        if (strcmp(ctx->emitted_tuples[i], struct_name) == 0) return;
+    }
+
+    /* Register BEFORE recursing / appending so a recursive tuple that
+     * somehow references itself (not currently possible in the type
+     * system, but cheap defense) breaks via the dedupe check. */
+    arrput(ctx->emitted_tuples,
+           iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name)));
+
+    /* Recurse into nested tuple element types so their typedefs land
+     * in struct_bodies FIRST. Non-tuple element typedefs are ensured
+     * lazily via the emit_type_to_c calls below (which may in turn
+     * trigger emit_ensure_tuple for deeper nesting). */
+    for (int i = 0; i < tuple_ty->tuple.elem_count; i++) {
+        const Iron_Type *elem = tuple_ty->tuple.elem_types[i];
+        if (elem && elem->kind == IRON_TYPE_TUPLE) {
+            emit_ensure_tuple(ctx, elem);
+        }
+    }
+
+    iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct { ");
+    for (int i = 0; i < tuple_ty->tuple.elem_count; i++) {
+        const char *c_elem = emit_type_to_c(tuple_ty->tuple.elem_types[i], ctx);
+        iron_strbuf_appendf(&ctx->struct_bodies, "%s v%d; ", c_elem, i);
+    }
+    iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n", struct_name);
 }
 
 /* Map a type annotation name to a C type string without needing Iron_Codegen */
@@ -380,6 +431,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
 
     /* Free stb_ds maps and arrays */
     arrfree(ctx->emitted_optionals);
+    arrfree(ctx->emitted_tuples);
     shfree(ctx->mono_registry);
     hmfree(ctx->param_alias_ids);
     hmfree(ctx->split_collection_ids);

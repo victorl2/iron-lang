@@ -29,6 +29,12 @@ option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSani
 
 if(MSVC)
     add_compile_options(/W3 /WX)
+    # Silence POSIX-deprecation warnings (C4996) for getenv, strdup, strerror,
+    # strcpy, getcwd, etc. — these are used in cross-platform code in src/pkg/
+    # and src/cli/toml.c and are already bounded-safe at the call site. Without
+    # this define the /WX flag turns C4996 into an error and blocks the MSVC
+    # build. Scoped to MSVC only so clang/gcc strictness is unchanged.
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
     add_compile_options(-Wall -Wextra -Werror -Wpedantic)
     if(IRON_ENABLE_SANITIZERS)
@@ -47,6 +53,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(unity)
 # Enable double-precision float assertions for all Unity test targets
 target_compile_definitions(unity PUBLIC UNITY_INCLUDE_DOUBLE)
+# Unity is a third-party library — don't apply our /W3 /WX strictness to it.
+# On MSVC, Unity's own source emits C4996 (POSIX deprecation) and C5045
+# (Spectre mitigation hints) which our global /WX would promote to errors.
+# Drop the strictness locally for the Unity target only.
+if(MSVC)
+    target_compile_options(unity PRIVATE /W0 /wd4996 /wd5045)
+endif()
 
 # ── iron_runtime static library ────────────────────────────────────────────
 # stb_ds_impl.c lives here so runtime tests can link without iron_compiler.
@@ -57,10 +70,14 @@ add_library(iron_runtime STATIC
     src/runtime/iron_builtins.c
     src/runtime/iron_threads.c
     src/runtime/iron_collections.c
+    src/runtime/iron_net_init.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
 if(NOT WIN32)
   target_link_libraries(iron_runtime pthread)
+else()
+  # ws2_32 needed for WSAStartup/WSACleanup/socket() in iron_net_init.c
+  target_link_libraries(iron_runtime ws2_32)
 endif()
 
 # ── iron_compiler static library ───────────────────────────────────────────
@@ -111,12 +128,14 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_time.c
     src/stdlib/iron_log.c
     src/stdlib/iron_hint.c
+    src/stdlib/iron_net.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
 if(NOT WIN32)
   target_link_libraries(iron_stdlib iron_runtime m)  # -lm for math
 else()
-  target_link_libraries(iron_stdlib iron_runtime)
+  # ws2_32 + iphlpapi for Winsock 2 + GetAdaptersAddresses (future Phase 59 UDP/DNS)
+  target_link_libraries(iron_stdlib iron_runtime ws2_32 iphlpapi)
 endif()
 
 # ── Tests ──────────────────────────────────────────────────────────────────
@@ -144,7 +163,7 @@ target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)
   target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib m pthread)
 else()
-  target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib)
+  target_link_libraries(ironc iron_compiler iron_runtime iron_stdlib ws2_32 iphlpapi)
 endif()
 # Inject the absolute path to src/ so the CLI can find runtime sources at build time
 target_compile_definitions(ironc PRIVATE

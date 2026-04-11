@@ -1230,6 +1230,94 @@ void test_generic_constraint_error_message(void) {
     TEST_ASSERT_TRUE(found_msg);
 }
 
+/* ── Phase 59 01d: tuple types, literals, destructure, equality ───────── */
+
+void test_typecheck_tuple_return_type(void) {
+    parse_and_resolve(
+        "func pair() -> (Int, Int) {\n"
+        "  return (1, 2)\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_RETURN_TYPE));
+}
+
+void test_typecheck_tuple_destructure_arity_ok(void) {
+    parse_and_resolve(
+        "func pair() -> (Int, Int) {\n"
+        "  return (1, 2)\n"
+        "}\n"
+        "func main() {\n"
+        "  val (a, b) = pair()\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+void test_typecheck_tuple_destructure_arity_wrong(void) {
+    parse_and_resolve(
+        "func pair() -> (Int, Int) {\n"
+        "  return (1, 2)\n"
+        "}\n"
+        "func main() {\n"
+        "  val (a, b, c) = pair()\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+void test_typecheck_tuple_destructure_non_tuple_init(void) {
+    parse_and_resolve(
+        "func main() {\n"
+        "  val (a, b) = 42\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+void test_typecheck_tuple_equality_ok(void) {
+    parse_and_resolve(
+        "func main() {\n"
+        "  val a: (Int, Int) = (1, 2)\n"
+        "  val b: (Int, Int) = (1, 2)\n"
+        "  val eq: Bool = a == b\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+void test_typecheck_tuple_equality_mismatched_arity(void) {
+    /* Force arity mismatch via declared types. */
+    parse_and_resolve(
+        "func main() {\n"
+        "  val a: (Int, Int) = (1, 2)\n"
+        "  val b: (Int, Int, Int) = (1, 2, 3)\n"
+        "  val eq = a == b\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+void test_typecheck_tuple_equality_mismatched_element_type(void) {
+    parse_and_resolve(
+        "func main() {\n"
+        "  val a: (Int, Int) = (1, 2)\n"
+        "  val b: (Int, String) = (1, \"two\")\n"
+        "  val eq = a == b\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
+void test_typecheck_nested_tuple(void) {
+    parse_and_resolve(
+        "func coords() -> (Int, (Int, Int)) {\n"
+        "  return (1, (2, 3))\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1311,6 +1399,16 @@ int main(void) {
     RUN_TEST(test_generic_constraint_satisfied_construction);
     RUN_TEST(test_generic_unconstrained_no_error);
     RUN_TEST(test_generic_constraint_error_message);
+
+    /* Phase 59 01d: tuple support */
+    RUN_TEST(test_typecheck_tuple_return_type);
+    RUN_TEST(test_typecheck_tuple_destructure_arity_ok);
+    RUN_TEST(test_typecheck_tuple_destructure_arity_wrong);
+    RUN_TEST(test_typecheck_tuple_destructure_non_tuple_init);
+    RUN_TEST(test_typecheck_tuple_equality_ok);
+    RUN_TEST(test_typecheck_tuple_equality_mismatched_arity);
+    RUN_TEST(test_typecheck_tuple_equality_mismatched_element_type);
+    RUN_TEST(test_typecheck_nested_tuple);
 
     return UNITY_END();
 }

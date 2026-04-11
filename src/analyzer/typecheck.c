@@ -557,6 +557,23 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     const char *name = ann->name;
     Iron_Type *base = NULL;
 
+    /* Phase 59 01d: tuple-type annotation — (T0, T1, ...) */
+    if (ann->is_tuple) {
+        int n = ann->tuple_elem_count;
+        Iron_Type **elem_types = (Iron_Type **)iron_arena_alloc(
+            ctx->arena, sizeof(Iron_Type *) * (size_t)n,
+            _Alignof(Iron_Type *));
+        for (int i = 0; i < n; i++) {
+            elem_types[i] = ann->tuple_elems
+                ? resolve_type_annotation(ctx, ann->tuple_elems[i])
+                : iron_type_make_primitive(IRON_TYPE_ERROR);
+            if (!elem_types[i]) {
+                elem_types[i] = iron_type_make_primitive(IRON_TYPE_ERROR);
+            }
+        }
+        return iron_type_make_tuple(ctx->arena, elem_types, n);
+    }
+
     /* Phase 33: func-type annotation — func(T, U) -> R */
     if (ann->is_func) {
         /* Resolve parameter types */
@@ -1120,6 +1137,30 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 bool rt_is_float = (rt->kind == IRON_TYPE_FLOAT ||
                                     rt->kind == IRON_TYPE_FLOAT32 ||
                                     rt->kind == IRON_TYPE_FLOAT64);
+
+                /* Phase 59 01d: tuple == / != — arity + element-type check.
+                 * Fails the arithmetic path below (lt != rt) but is legal
+                 * for equality. Result is always Bool. */
+                if (is_comparison &&
+                    (op == IRON_TOK_EQUALS || op == IRON_TOK_NOT_EQUALS) &&
+                    lt->kind == IRON_TYPE_TUPLE && rt->kind == IRON_TYPE_TUPLE) {
+                    if (lt->tuple.elem_count != rt->tuple.elem_count) {
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span,
+                                   "tuple equality requires matching arity", NULL);
+                    } else {
+                        for (int i = 0; i < lt->tuple.elem_count; i++) {
+                            if (!iron_type_equals(lt->tuple.elem_types[i],
+                                                   rt->tuple.elem_types[i])) {
+                                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span,
+                                           "tuple equality requires matching element types", NULL);
+                                break;
+                            }
+                        }
+                    }
+                    result = iron_type_make_primitive(IRON_TYPE_BOOL);
+                    be->resolved_type = result;
+                    break;
+                }
 
                 if ((lt_is_int && rt_is_float) || (lt_is_float && rt_is_int)) {
                     emit_error(ctx, IRON_ERR_NUMERIC_CONVERSION, be->span,
@@ -1998,6 +2039,27 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ARRAY_LIT: {
             Iron_ArrayLit *al = (Iron_ArrayLit *)node;
+            /* Phase 59 01d: tuple literal — parser emits these as ARRAY_LIT
+             * with a type_ann sentinel (Iron_TypeAnnotation with is_tuple=true).
+             * Heterogeneous-retained: we preserve every element type in a
+             * fresh IRON_TYPE_TUPLE instead of collapsing to a common type. */
+            if (al->type_ann && al->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
+                Iron_TypeAnnotation *tag = (Iron_TypeAnnotation *)al->type_ann;
+                if (tag->is_tuple) {
+                    int n = al->element_count;
+                    Iron_Type **tup_elems = (Iron_Type **)iron_arena_alloc(
+                        ctx->arena, sizeof(Iron_Type *) * (size_t)n,
+                        _Alignof(Iron_Type *));
+                    for (int i = 0; i < n; i++) {
+                        Iron_Type *et = check_expr(ctx, al->elements[i]);
+                        if (!et) et = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        tup_elems[i] = et;
+                    }
+                    result = iron_type_make_tuple(ctx->arena, tup_elems, n);
+                    al->resolved_type = result;
+                    break;
+                }
+            }
             if (al->size) check_expr(ctx, al->size);
             Iron_Type *elem_type = NULL;
             Iron_Type **elem_types = NULL; /* track all element types for mixed-type detection */
@@ -2383,6 +2445,62 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
+
+            /* Phase 59 01d: tuple destructure — val (a, b, ...) = expr */
+            if (vd->binding_count > 0) {
+                Iron_Type *init_type = vd->init
+                    ? check_expr(ctx, vd->init)
+                    : iron_type_make_primitive(IRON_TYPE_ERROR);
+                if (!init_type || init_type->kind == IRON_TYPE_ERROR) {
+                    /* Bind every target to ERROR so downstream uses don't crash */
+                    Iron_Type *err_ty = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    for (int i = 0; i < vd->binding_count; i++) {
+                        if (vd->binding_names[i]) {
+                            tc_define(ctx, vd->binding_names[i],
+                                      IRON_SYM_VARIABLE, (Iron_Node *)vd,
+                                      vd->span, false, err_ty);
+                        }
+                    }
+                    vd->declared_type = err_ty;
+                    break;
+                }
+                if (init_type->kind != IRON_TYPE_TUPLE) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, vd->span,
+                               "tuple destructure requires a tuple-typed initializer", NULL);
+                    Iron_Type *err_ty = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    for (int i = 0; i < vd->binding_count; i++) {
+                        if (vd->binding_names[i]) {
+                            tc_define(ctx, vd->binding_names[i],
+                                      IRON_SYM_VARIABLE, (Iron_Node *)vd,
+                                      vd->span, false, err_ty);
+                        }
+                    }
+                    vd->declared_type = err_ty;
+                    break;
+                }
+                if (init_type->tuple.elem_count != vd->binding_count) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "tuple destructure expects %d binding(s) but found %d",
+                             init_type->tuple.elem_count, vd->binding_count);
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, vd->span,
+                               iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                               NULL);
+                }
+                /* Bind each name to its element type (skip wildcards). */
+                int defined_count = vd->binding_count < init_type->tuple.elem_count
+                    ? vd->binding_count
+                    : init_type->tuple.elem_count;
+                for (int i = 0; i < defined_count; i++) {
+                    if (!vd->binding_names[i]) continue;  /* wildcard */
+                    tc_define(ctx, vd->binding_names[i], IRON_SYM_VARIABLE,
+                              (Iron_Node *)vd, vd->span, false,
+                              init_type->tuple.elem_types[i]);
+                }
+                vd->declared_type = init_type;
+                break;
+            }
+
             Iron_Type *decl_type = NULL;
 
             if (vd->type_ann) {

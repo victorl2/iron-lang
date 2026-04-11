@@ -84,6 +84,21 @@ target_link_libraries(test_runtime_threads iron_runtime unity)
 add_test(NAME test_runtime_threads COMMAND test_runtime_threads)
 set_tests_properties(test_runtime_threads PROPERTIES LABELS "unit")
 
+add_executable(test_runtime_deadline test_runtime_deadline.c)
+target_link_libraries(test_runtime_deadline iron_runtime unity)
+add_test(NAME test_runtime_deadline COMMAND test_runtime_deadline)
+set_tests_properties(test_runtime_deadline PROPERTIES LABELS "unit")
+
+add_executable(test_runtime_elastic_pool test_runtime_elastic_pool.c)
+target_link_libraries(test_runtime_elastic_pool iron_runtime unity)
+add_test(NAME test_runtime_elastic_pool COMMAND test_runtime_elastic_pool)
+set_tests_properties(test_runtime_elastic_pool PROPERTIES LABELS "unit")
+
+add_executable(test_runtime_net_init test_runtime_net_init.c)
+target_link_libraries(test_runtime_net_init iron_runtime unity)
+add_test(NAME test_runtime_net_init COMMAND test_runtime_net_init)
+set_tests_properties(test_runtime_net_init PROPERTIES LABELS "unit")
+
 add_executable(test_runtime_collections test_runtime_collections.c)
 target_link_libraries(test_runtime_collections iron_runtime unity)
 add_test(NAME test_runtime_collections COMMAND test_runtime_collections)
@@ -94,3 +109,45 @@ add_executable(test_stdlib test_stdlib.c)
 target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)
 add_test(NAME test_stdlib COMMAND test_stdlib)
 set_tests_properties(test_stdlib PROPERTIES LABELS "unit")
+
+# ── Phase 59 01d: tuple binary-layout lock ──────────────────────────────────
+add_executable(test_tuple_codegen test_tuple_codegen.c)
+target_link_libraries(test_tuple_codegen iron_stdlib iron_runtime unity)
+add_test(NAME test_tuple_codegen COMMAND test_tuple_codegen)
+set_tests_properties(test_tuple_codegen PROPERTIES LABELS "unit")
+
+# ── Phase 59 02: TCP stdlib Unity tests ─────────────────────────────────────
+add_executable(test_stdlib_net_tcp test_stdlib_net_tcp.c)
+target_link_libraries(test_stdlib_net_tcp iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_tcp COMMAND test_stdlib_net_tcp)
+set_tests_properties(test_stdlib_net_tcp PROPERTIES LABELS "unit")
+
+# ── Phase 59 03: UDP + IP address stdlib Unity tests ────────────────────────
+add_executable(test_stdlib_net_udp test_stdlib_net_udp.c)
+target_link_libraries(test_stdlib_net_udp iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_udp COMMAND test_stdlib_net_udp)
+set_tests_properties(test_stdlib_net_udp PROPERTIES LABELS "unit")
+
+add_executable(test_stdlib_net_ip test_stdlib_net_ip.c)
+target_link_libraries(test_stdlib_net_ip iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_ip COMMAND test_stdlib_net_ip)
+set_tests_properties(test_stdlib_net_ip PROPERTIES LABELS "unit")
+
+# ── Phase 59 04: DNS stdlib Unity tests ────────────────────────────────────
+add_executable(test_stdlib_net_dns test_stdlib_net_dns.c)
+target_link_libraries(test_stdlib_net_dns iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_dns COMMAND test_stdlib_net_dns)
+set_tests_properties(test_stdlib_net_dns PROPERTIES LABELS "unit")
+
+# ── Phase 59 06: Cross-platform networking battery ─────────────────────────
+# Exercises the full C-level networking surface (TCP loopback + UDP loopback +
+# IPv4/IPv6 parse/format + localhost DNS) in a single binary. Runs identically
+# on ubuntu-latest, macos-latest, and windows-latest so Windows CI can catch
+# regressions across the entire net stack with one test executable.
+add_executable(test_stdlib_net_cross_platform test_stdlib_net_cross_platform.c)
+target_link_libraries(test_stdlib_net_cross_platform iron_stdlib iron_runtime unity)
+if(WIN32)
+    target_link_libraries(test_stdlib_net_cross_platform ws2_32 iphlpapi)
+endif()
+add_test(NAME test_stdlib_net_cross_platform COMMAND test_stdlib_net_cross_platform)
+set_tests_properties(test_stdlib_net_cross_platform PROPERTIES LABELS "unit")

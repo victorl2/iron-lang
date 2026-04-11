@@ -195,20 +195,100 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, ")");
         break;
-    case IRON_LIR_EQ:
+    case IRON_LIR_EQ: {
+        /* Phase 59 01d: tuple equality — element-wise && of primitive
+         * comparisons or iron_string_equals() for string elements. The
+         * typechecker has already guaranteed matching arity + types.
+         * Phase 59 P05: also handle plain `String == String` via
+         * iron_string_equals() rather than the broken pointer-compare
+         * `==` that the previous fall-through emitted. */
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            if (depth > 0) iron_strbuf_appendf(sb, "(");
+            iron_strbuf_appendf(sb, "(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+            if (depth > 0) iron_strbuf_appendf(sb, ")");
+            break;
+        }
+        if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "))");
+            break;
+        }
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " == ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
         if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
-    case IRON_LIR_NEQ:
+    }
+    case IRON_LIR_NEQ: {
+        /* Phase 59 01d: tuple inequality — !(elementwise ==).
+         * Phase 59 P05: handle plain String != String via iron_string_equals. */
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            if (depth > 0) iron_strbuf_appendf(sb, "(");
+            iron_strbuf_appendf(sb, "!(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+            if (depth > 0) iron_strbuf_appendf(sb, ")");
+            break;
+        }
+        if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "(!iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, ")))");
+            break;
+        }
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " != ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
         if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
+    }
     case IRON_LIR_LT:
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
@@ -491,6 +571,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 }
                 emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, use_block_id, depth+1);
             }
+        /* Phase 59 01d: tuple construct — designated init with v0/v1/... */
+        } else if (instr->construct.type &&
+            instr->construct.type->kind == IRON_TYPE_TUPLE) {
+            for (int i = 0; i < instr->construct.field_count; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, ",");
+                iron_strbuf_appendf(sb, " .v%d = ", i);
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, use_block_id, depth+1);
+            }
         } else {
             for (int i = 0; i < instr->construct.field_count; i++) {
                 if (i > 0) iron_strbuf_appendf(sb, ", ");
@@ -744,27 +832,94 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     /* ── Comparison ─────────────────────────────────────────────────────── */
 
-    case IRON_LIR_EQ:
+    case IRON_LIR_EQ: {
+        /* Phase 59 01d: tuple equality at statement level.
+         * Phase 59 P05: also handle plain `String == String` via
+         * iron_string_equals(). */
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, " == ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            iron_strbuf_appendf(sb, "(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+        } else if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "))");
+        } else {
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, " == ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        }
         iron_strbuf_appendf(sb, ";\n");
         break;
+    }
 
-    case IRON_LIR_NEQ:
+    case IRON_LIR_NEQ: {
+        Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, " != ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        if (lty && lty->kind == IRON_TYPE_TUPLE) {
+            iron_strbuf_appendf(sb, "!(");
+            int nc = lty->tuple.elem_count;
+            for (int i = 0; i < nc; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, " && ");
+                const Iron_Type *et = lty->tuple.elem_types[i];
+                bool is_string = et && et->kind == IRON_TYPE_STRING;
+                if (is_string) {
+                    iron_strbuf_appendf(sb, "iron_string_equals(&(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d, &(", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d)", i);
+                } else {
+                    iron_strbuf_appendf(sb, "(");
+                    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d == (", i);
+                    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ").v%d", i);
+                }
+            }
+            iron_strbuf_appendf(sb, ")");
+        } else if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "(!iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ")))");
+        } else {
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, " != ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        }
         iron_strbuf_appendf(sb, ";\n");
         break;
+    }
 
     case IRON_LIR_LT:
         emit_indent(sb, ind);
@@ -3079,6 +3234,20 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
                 emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, ctx->current_block_id, 0);
             }
+        /* Phase 59 01d: tuple construct — emit C99 designated init
+         * with field names v0, v1, ... matching the typedef produced
+         * by emit_ensure_tuple. */
+        } else if (instr->construct.type &&
+            instr->construct.type->kind == IRON_TYPE_TUPLE) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s ", c_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = {");
+            for (int i = 0; i < instr->construct.field_count; i++) {
+                if (i > 0) iron_strbuf_appendf(sb, ",");
+                iron_strbuf_appendf(sb, " .v%d = ", i);
+                emit_expr_to_buf(sb, instr->construct.field_vals[i], fn, ctx, ctx->current_block_id, 0);
+            }
         } else {
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s ", c_type);
@@ -5378,7 +5547,16 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_log.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_hint.h\"\n");
-    iron_strbuf_appendf(&ctx.includes, "\n");
+    /* Phase 59 02: the TCP stdlib surface (Net.*, TcpSocket.*, TcpListener.*)
+     * does NOT need an iron_net.h include here — the extern-stub prototype
+     * path in Phase 3 below emits forward declarations for every empty-body
+     * method stub (including Iron_net_tcp_dial etc.) into ctx.prototypes
+     * which lands AFTER the struct_bodies section. That ordering lets the
+     * prototypes reference compiler-emitted tuple types (Iron_Tuple_*) and
+     * object structs (Iron_NetError/Iron_TcpSocket/Iron_TcpListener) without
+     * double-defining them. iron_net.h stays a normal C header for unit
+     * tests and iron_net.c. */
+
     /* Phase 44: Portable prefetch macro for split collection hot loops */
     iron_strbuf_appendf(&ctx.includes,
         "#ifdef __GNUC__\n"
@@ -5879,6 +6057,341 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         if (fn->is_extern) continue;
         emit_func_signature(&ctx.prototypes, fn, &ctx, true);
     }
+
+    /* Phase 59 02: emit extern prototypes for the Net/TcpSocket/TcpListener
+     * stub functions so the generated C can call into iron_net.c without
+     * needing the header include (which would conflict with the compiler-
+     * emitted struct definitions for NetError/TcpSocket/TcpListener).
+     *
+     * These prototypes are hand-written rather than re-derived from LIR
+     * because the LIR stub param types are void-placeholders (populated
+     * lazily). They reference tuple type names emit_ensure_tuple produces
+     * for (TcpSocket, NetError) etc., and reach ctx.prototypes which is
+     * concatenated AFTER ctx.struct_bodies in the final output. */
+    {
+        /* Collect the set of stub names we actually need to emit, gated on
+         * the method-name mangling produced by hir_to_lir:
+         *   Net.tcp_dial        → Iron_net_tcp_dial
+         *   Net.tcp_listen      → Iron_net_tcp_listen
+         *   TcpListener.accept  → Iron_tcplistener_accept
+         *   TcpListener.close   → Iron_tcplistener_close
+         *   TcpSocket.read      → Iron_tcpsocket_read
+         *   TcpSocket.write     → Iron_tcpsocket_write
+         *   TcpSocket.close     → Iron_tcpsocket_close
+         * The `has_*` flags below gate emission so test binaries that
+         * never touch net.iron still get byte-for-byte the same output as
+         * before this Phase 59 02 change. */
+        bool has_net_tcp_dial         = false;
+        bool has_net_tcp_listen       = false;
+        bool has_tcplistener_accept   = false;
+        bool has_tcplistener_close    = false;
+        bool has_tcpsocket_read       = false;
+        bool has_tcpsocket_write      = false;
+        bool has_tcpsocket_close      = false;
+        /* Phase 59 P03: UDP + IP stub detectors */
+        bool has_net_udp_bind         = false;
+        bool has_net_udp_sendto_v4    = false;
+        bool has_net_udp_sendto_v6    = false;
+        bool has_udpsocket_close      = false;
+        bool has_net_ipv4addr_parse   = false;
+        bool has_net_ipv4addr_format  = false;
+        bool has_net_ipv6addr_parse   = false;
+        bool has_net_ipv6addr_format  = false;
+        /* Phase 59 P04: DNS stub detector */
+        bool has_net_lookup_host      = false;
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronLIR_Func *fn = module->funcs[fi];
+            if (!fn || !fn->is_extern || fn->extern_c_name) continue;
+            const char *mangled = emit_mangle_func_name(fn->name, ctx.arena);
+            if (!mangled) continue;
+            if (strcmp(mangled, "Iron_net_tcp_dial") == 0)         has_net_tcp_dial = true;
+            else if (strcmp(mangled, "Iron_net_tcp_listen") == 0)  has_net_tcp_listen = true;
+            else if (strcmp(mangled, "Iron_tcplistener_accept") == 0) has_tcplistener_accept = true;
+            else if (strcmp(mangled, "Iron_tcplistener_close") == 0)  has_tcplistener_close = true;
+            else if (strcmp(mangled, "Iron_tcpsocket_read") == 0)  has_tcpsocket_read = true;
+            else if (strcmp(mangled, "Iron_tcpsocket_write") == 0) has_tcpsocket_write = true;
+            else if (strcmp(mangled, "Iron_tcpsocket_close") == 0) has_tcpsocket_close = true;
+            /* Phase 59 P03 — method mangling from hir_to_lir:
+             *   Net.udp_bind         → Iron_net_udp_bind
+             *   Net.udp_sendto_v4    → Iron_net_udp_sendto_v4
+             *   Net.udp_sendto_v6    → Iron_net_udp_sendto_v6
+             *   UdpSocket.close      → Iron_udpsocket_close
+             *   IPv4Addr.parse       → Iron_ipv4addr_parse
+             *   IPv4Addr.format      → Iron_ipv4addr_format
+             *   IPv6Addr.parse       → Iron_ipv6addr_parse
+             *   IPv6Addr.format      → Iron_ipv6addr_format
+             * The actual C impls live with "Iron_net_" prefix for the
+             * Net.* static methods and with the lowercased-type prefix
+             * for instance methods. */
+            else if (strcmp(mangled, "Iron_net_udp_bind") == 0)      has_net_udp_bind = true;
+            else if (strcmp(mangled, "Iron_net_udp_sendto_v4") == 0) has_net_udp_sendto_v4 = true;
+            else if (strcmp(mangled, "Iron_net_udp_sendto_v6") == 0) has_net_udp_sendto_v6 = true;
+            else if (strcmp(mangled, "Iron_udpsocket_close") == 0)   has_udpsocket_close = true;
+            else if (strcmp(mangled, "Iron_ipv4addr_parse") == 0)    has_net_ipv4addr_parse = true;
+            else if (strcmp(mangled, "Iron_ipv4addr_format") == 0)   has_net_ipv4addr_format = true;
+            else if (strcmp(mangled, "Iron_ipv6addr_parse") == 0)    has_net_ipv6addr_parse = true;
+            else if (strcmp(mangled, "Iron_ipv6addr_format") == 0)   has_net_ipv6addr_format = true;
+            /* Phase 59 P04: DNS. Net.lookup_host → Iron_net_lookup_host. */
+            else if (strcmp(mangled, "Iron_net_lookup_host") == 0)   has_net_lookup_host = true;
+        }
+        /* If any net stub is referenced, make sure the three well-known
+         * result tuple types are defined. The compiler only synthesises a
+         * tuple typedef on demand (emit_ensure_tuple) from a USED tuple
+         * type; if the user code only uses (TcpListener, NetError) the
+         * (Int, NetError) typedef never lands. The prototypes below
+         * reference all three, so we emit whatever is missing up-front
+         * and register the mangled name in ctx.emitted_tuples so a
+         * subsequent emit_ensure_tuple call is a no-op. */
+        bool need_tcp = has_net_tcp_dial || has_net_tcp_listen ||
+                        has_tcplistener_accept || has_tcplistener_close ||
+                        has_tcpsocket_read || has_tcpsocket_write ||
+                        has_tcpsocket_close;
+        bool need_udp = has_net_udp_bind || has_net_udp_sendto_v4 ||
+                        has_net_udp_sendto_v6 || has_udpsocket_close;
+        bool need_ip  = has_net_ipv4addr_parse || has_net_ipv4addr_format ||
+                        has_net_ipv6addr_parse || has_net_ipv6addr_format;
+        bool need_dns = has_net_lookup_host;
+        bool need_any = need_tcp || need_udp || need_ip || need_dns;
+        if (need_tcp) {
+            static const char *k_net_tuple_names[] = {
+                "Iron_Tuple_TcpSocket_NetError",
+                "Iron_Tuple_TcpListener_NetError",
+                "Iron_Tuple_Int_NetError",
+            };
+            static const char *k_net_tuple_bodies[] = {
+                "typedef struct { Iron_TcpSocket v0; Iron_NetError v1; } Iron_Tuple_TcpSocket_NetError;\n",
+                "typedef struct { Iron_TcpListener v0; Iron_NetError v1; } Iron_Tuple_TcpListener_NetError;\n",
+                "typedef struct { int64_t v0; Iron_NetError v1; } Iron_Tuple_Int_NetError;\n",
+            };
+            for (int ti = 0; ti < 3; ti++) {
+                bool already = false;
+                for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                    if (strcmp(ctx.emitted_tuples[ei], k_net_tuple_names[ti]) == 0) {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already) {
+                    iron_strbuf_appendf(&ctx.struct_bodies, "%s", k_net_tuple_bodies[ti]);
+                    arrput(ctx.emitted_tuples,
+                           iron_arena_strdup(ctx.arena,
+                                             k_net_tuple_names[ti],
+                                             strlen(k_net_tuple_names[ti])));
+                }
+            }
+        }
+        /* Phase 59 P03: UDP result tuple typedefs. The (Int, NetError)
+         * tuple is shared with TCP, so it's already emitted above when
+         * need_tcp is true. If the user imports net but only touches UDP,
+         * we still need (Int, NetError) for sendto returns, so emit it
+         * unconditionally whenever need_udp is true. */
+        if (need_udp) {
+            static const char *k_udp_tuple_names[] = {
+                "Iron_Tuple_UdpSocket_NetError",
+                "Iron_Tuple_Int_NetError",
+            };
+            static const char *k_udp_tuple_bodies[] = {
+                "typedef struct { Iron_UdpSocket v0; Iron_NetError v1; } Iron_Tuple_UdpSocket_NetError;\n",
+                "typedef struct { int64_t v0; Iron_NetError v1; } Iron_Tuple_Int_NetError;\n",
+            };
+            for (int ti = 0; ti < 2; ti++) {
+                bool already = false;
+                for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                    if (strcmp(ctx.emitted_tuples[ei], k_udp_tuple_names[ti]) == 0) {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already) {
+                    iron_strbuf_appendf(&ctx.struct_bodies, "%s", k_udp_tuple_bodies[ti]);
+                    arrput(ctx.emitted_tuples,
+                           iron_arena_strdup(ctx.arena,
+                                             k_udp_tuple_names[ti],
+                                             strlen(k_udp_tuple_names[ti])));
+                }
+            }
+        }
+        /* Phase 59 P04: DNS result tuple + list typedef.
+         *
+         * Net.lookup_host returns (Iron_List_Iron_Address, Iron_NetError).
+         * The Iron compiler emits the `struct Iron_Address` tagged-union
+         * definition whenever net.iron declares `enum Address { V4(IPv4Addr),
+         * V6(IPv6Addr) }`, but it does NOT emit the Iron_List_Iron_Address
+         * struct or IRON_LIST_DECL/IMPL expansions because `[Address]`
+         * only appears as a stub return type (no ARRAY_LIT triggers
+         * emit_mono_list_decls). We emit everything here.
+         *
+         * The list type + IRON_LIST_DECL/IMPL are appended to
+         * ctx.struct_bodies after the enum Address struct has already
+         * been emitted by emit_type_decls (called at line 6052 above). */
+        if (need_dns) {
+            /* Iron_List_Iron_Address struct + DECL + IMPL. Deduped via
+             * ctx.emitted_tuples (reuses that registry as a generic
+             * emitted-symbol dedup). */
+            const char *k_addr_list_name = "Iron_List_Iron_Address";
+            bool list_already = false;
+            for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                if (strcmp(ctx.emitted_tuples[ei], k_addr_list_name) == 0) {
+                    list_already = true;
+                    break;
+                }
+            }
+            if (!list_already) {
+                iron_strbuf_appendf(&ctx.struct_bodies,
+                    "/* Phase 59 P04: Iron_List type for DNS [Address] return */\n"
+                    "typedef struct Iron_List_Iron_Address {\n"
+                    "    Iron_Address *items;\n"
+                    "    int64_t       count;\n"
+                    "    int64_t       capacity;\n"
+                    "} Iron_List_Iron_Address;\n"
+                    "IRON_LIST_DECL(Iron_Address, Iron_Address)\n"
+                    "IRON_LIST_IMPL(Iron_Address, Iron_Address)\n\n");
+                arrput(ctx.emitted_tuples,
+                       iron_arena_strdup(ctx.arena, k_addr_list_name,
+                                         strlen(k_addr_list_name)));
+            }
+            /* Iron_Tuple__Address__NetError — the tuple type name is
+             * produced by tuple_build_mangled_name in analyzer/types.c
+             * via iron_type_to_string on each element followed by
+             * non-identifier-character sanitisation:
+             *   [Address] → "[Address]" → "_Address_"
+             *   NetError  → "NetError"
+             * Final: "Iron_Tuple__Address__NetError" (note the double
+             * underscore between Tuple and Address — one from the tuple
+             * separator, one from the sanitised `[`). */
+            const char *k_addr_tuple_name = "Iron_Tuple__Address__NetError";
+            bool tuple_already = false;
+            for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                if (strcmp(ctx.emitted_tuples[ei], k_addr_tuple_name) == 0) {
+                    tuple_already = true;
+                    break;
+                }
+            }
+            if (!tuple_already) {
+                iron_strbuf_appendf(&ctx.struct_bodies,
+                    "typedef struct { Iron_List_Iron_Address v0; Iron_NetError v1; } Iron_Tuple__Address__NetError;\n");
+                arrput(ctx.emitted_tuples,
+                       iron_arena_strdup(ctx.arena, k_addr_tuple_name,
+                                         strlen(k_addr_tuple_name)));
+            }
+        }
+
+        /* Phase 59 P03: IPv4/IPv6 result tuple typedefs. */
+        if (need_ip) {
+            static const char *k_ip_tuple_names[] = {
+                "Iron_Tuple_IPv4Addr_NetError",
+                "Iron_Tuple_IPv6Addr_NetError",
+            };
+            static const char *k_ip_tuple_bodies[] = {
+                "typedef struct { Iron_IPv4Addr v0; Iron_NetError v1; } Iron_Tuple_IPv4Addr_NetError;\n",
+                "typedef struct { Iron_IPv6Addr v0; Iron_NetError v1; } Iron_Tuple_IPv6Addr_NetError;\n",
+            };
+            for (int ti = 0; ti < 2; ti++) {
+                bool already = false;
+                for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                    if (strcmp(ctx.emitted_tuples[ei], k_ip_tuple_names[ti]) == 0) {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already) {
+                    iron_strbuf_appendf(&ctx.struct_bodies, "%s", k_ip_tuple_bodies[ti]);
+                    arrput(ctx.emitted_tuples,
+                           iron_arena_strdup(ctx.arena,
+                                             k_ip_tuple_names[ti],
+                                             strlen(k_ip_tuple_names[ti])));
+                }
+            }
+        }
+        (void)need_any;
+        if (has_net_tcp_dial) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_TcpSocket_NetError Iron_net_tcp_dial(Iron_String host, int64_t port, int64_t timeout);\n");
+        }
+        if (has_net_tcp_listen) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_TcpListener_NetError Iron_net_tcp_listen(Iron_String host, int64_t port);\n");
+        }
+        if (has_tcplistener_accept) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_TcpSocket_NetError Iron_tcplistener_accept(Iron_TcpListener l, int64_t timeout);\n");
+        }
+        if (has_tcplistener_close) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "void Iron_tcplistener_close(Iron_TcpListener l);\n");
+        }
+        if (has_tcpsocket_read) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_tcpsocket_read(Iron_TcpSocket s, Iron_String buf, int64_t timeout);\n");
+        }
+        if (has_tcpsocket_write) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_tcpsocket_write(Iron_TcpSocket s, Iron_String buf, int64_t timeout);\n");
+        }
+        if (has_tcpsocket_close) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "void Iron_tcpsocket_close(Iron_TcpSocket s);\n");
+        }
+        /* Phase 59 P03 extern prototypes. Names map to iron_net.c symbols:
+         *   Iron_net_udp_bind         ← Net.udp_bind
+         *   Iron_net_udp_sendto_v4    ← Net.udp_sendto_v4
+         *   Iron_net_udp_sendto_v6    ← Net.udp_sendto_v6
+         *   Iron_udpsocket_close      ← UdpSocket.close
+         *   Iron_net_ipv4addr_parse   ← IPv4Addr.parse   (routed via Iron_ipv4addr_parse mangled name)
+         *   Iron_net_ipv4addr_format  ← IPv4Addr.format
+         *   Iron_net_ipv6addr_parse   ← IPv6Addr.parse
+         *   Iron_net_ipv6addr_format  ← IPv6Addr.format
+         *
+         * Note on ipv4/ipv6 address method naming: hir_to_lir mangles
+         * `IPv4Addr.parse` to `Iron_ipv4addr_parse` (lowercase-type +
+         * method). But the C impl in iron_net.c uses the
+         * `Iron_net_ipv4addr_parse` name because it's semantically a
+         * "net subsystem" function, not a method on the struct. To
+         * bridge the two, we emit the prototype with the mangled name
+         * the generated C calls (`Iron_ipv4addr_parse`) and rely on
+         * iron_net.c defining that symbol. */
+        if (has_net_udp_bind) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_UdpSocket_NetError Iron_net_udp_bind(Iron_String host, int64_t port);\n");
+        }
+        if (has_net_udp_sendto_v4) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_net_udp_sendto_v4(Iron_UdpSocket s, Iron_String buf, Iron_IPv4Addr addr, int64_t port, int64_t timeout);\n");
+        }
+        if (has_net_udp_sendto_v6) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s, Iron_String buf, Iron_IPv6Addr addr, int64_t port, int64_t timeout);\n");
+        }
+        if (has_udpsocket_close) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "void Iron_udpsocket_close(Iron_UdpSocket s);\n");
+        }
+        if (has_net_ipv4addr_parse) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_IPv4Addr_NetError Iron_ipv4addr_parse(Iron_String s);\n");
+        }
+        if (has_net_ipv4addr_format) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_String Iron_ipv4addr_format(Iron_IPv4Addr a);\n");
+        }
+        if (has_net_ipv6addr_parse) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple_IPv6Addr_NetError Iron_ipv6addr_parse(Iron_String s);\n");
+        }
+        if (has_net_ipv6addr_format) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_String Iron_ipv6addr_format(Iron_IPv6Addr a);\n");
+        }
+        /* Phase 59 P04: DNS extern prototype. Name matches hir_to_lir
+         * method-call mangling: Net.lookup_host → Iron_net_lookup_host.
+         * Return type uses the sanitised tuple name produced by
+         * tuple_build_mangled_name (see above). */
+        if (has_net_lookup_host) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name, int64_t timeout_ms);\n");
+        }
+    }
+
     if (ctx.prototypes.len > 0) {
         iron_strbuf_appendf(&ctx.prototypes, "\n");
     }

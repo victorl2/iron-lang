@@ -1,0 +1,26 @@
+-- net_ip_parse.iron — Phase 59 P03 IP parse/format integration test.
+--
+-- Exercises the Iron-side IPv4Addr/IPv6Addr parse+format wrappers against
+-- the C stdlib iron_net.c impl. Relies on P01d tuple-return codegen.
+import net
+
+func main() {
+    val (a, err1) = IPv4Addr.parse("10.20.30.40")
+    if err1.code != 0 {
+        println("v4 parse failed")
+        return
+    }
+    println("v4: {IPv4Addr.format(a)}")
+
+    val (b, err2) = IPv6Addr.parse("2001:db8::1")
+    if err2.code != 0 {
+        println("v6 parse failed")
+        return
+    }
+    println("v6: {IPv6Addr.format(b)}")
+
+    val (bad, err3) = IPv4Addr.parse("999.0.0.0")
+    if err3.code == 1008 {
+        println("v4 bad ok")
+    }
+}

@@ -230,6 +230,10 @@ typedef struct {
     /* Phase 48: layout annotations for array types [T, layout: soa/aos] [T, unordered] */
     int           layout_hint;      /* 0 = none, 1 = soa, 2 = aos */
     bool          is_unordered;     /* true if [T, unordered] */
+    /* Phase 59 01d: tuple type annotation — (T0, T1, ...) */
+    bool          is_tuple;
+    Iron_Node   **tuple_elems;      /* array of Iron_TypeAnnotation* for element types */
+    int           tuple_elem_count;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0
@@ -261,10 +265,15 @@ typedef struct {
 typedef struct {
     Iron_Span          span;
     Iron_NodeKind      kind;  /* IRON_NODE_VAL_DECL */
-    const char        *name;
-    Iron_Node         *type_ann;  /* NULL if inferred */
+    const char        *name;       /* single-name path; ignored when binding_count > 0 */
+    Iron_Node         *type_ann;   /* NULL if inferred */
     Iron_Node         *init;
     struct Iron_Type  *declared_type;  /* set by type checker */
+    /* Phase 59 01d: tuple destructure bindings — val (a, b, ...) = init.
+     * binding_count == 0 means the single-name `name` field is authoritative.
+     * NULL entries in binding_names[] mean wildcard (`_`). */
+    const char       **binding_names;
+    int                binding_count;
 } Iron_ValDecl;
 
 typedef struct {

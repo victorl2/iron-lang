@@ -518,41 +518,48 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
                 collect_mono_enums_node(ctx, seen, mc->args[i]);
             break;
         }
+        /* For-control statements, use the REAL struct layouts from parser/ast.h
+         * (reachable transitively via hir_to_lir.h). The original version of
+         * this switch declared local struct typedefs guessing at the layout —
+         * that worked by accident for most but was wrong for Iron_IfStmt,
+         * which has elif_conds/elif_bodies fields between `body` and
+         * `else_body`. The local guess read `else_body` at the elif_conds
+         * offset, then recursed into the stb_ds array pointer as if it were
+         * an Iron_Node* — crashing on any `if/elif/else` chain whenever the
+         * garbage bytes happened to be interpreted as a handled node kind
+         * (latent on macOS arm64, deterministic SIGSEGV on x86_64 Linux). */
         case IRON_NODE_RETURN: {
-            /* Iron_Return has an expr field */
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *expr; } Iron_Return;
-            Iron_Return *ret = (Iron_Return *)node;
-            collect_mono_enums_node(ctx, seen, ret->expr);
+            Iron_ReturnStmt *ret = (Iron_ReturnStmt *)node;
+            collect_mono_enums_node(ctx, seen, ret->value);
             break;
         }
         case IRON_NODE_IF: {
-            /* Iron_If: cond, then_block, else_block */
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *cond; Iron_Node *then_block; Iron_Node *else_block; } Iron_If;
-            Iron_If *iff = (Iron_If *)node;
-            collect_mono_enums_node(ctx, seen, iff->cond);
-            collect_mono_enums_node(ctx, seen, iff->then_block);
-            collect_mono_enums_node(ctx, seen, iff->else_block);
+            Iron_IfStmt *iff = (Iron_IfStmt *)node;
+            collect_mono_enums_node(ctx, seen, iff->condition);
+            collect_mono_enums_node(ctx, seen, iff->body);
+            for (int i = 0; i < iff->elif_count; i++) {
+                collect_mono_enums_node(ctx, seen, iff->elif_conds[i]);
+                collect_mono_enums_node(ctx, seen, iff->elif_bodies[i]);
+            }
+            collect_mono_enums_node(ctx, seen, iff->else_body);
             break;
         }
         case IRON_NODE_WHILE: {
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *cond; Iron_Node *body; } Iron_While;
-            Iron_While *wh = (Iron_While *)node;
-            collect_mono_enums_node(ctx, seen, wh->cond);
+            Iron_WhileStmt *wh = (Iron_WhileStmt *)node;
+            collect_mono_enums_node(ctx, seen, wh->condition);
             collect_mono_enums_node(ctx, seen, wh->body);
             break;
         }
         case IRON_NODE_MATCH: {
-            /* Iron_Match: subject, arms */
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *subject; Iron_Node **arms; int arm_count; } Iron_Match;
-            Iron_Match *mat = (Iron_Match *)node;
+            Iron_MatchStmt *mat = (Iron_MatchStmt *)node;
             collect_mono_enums_node(ctx, seen, mat->subject);
-            for (int i = 0; i < mat->arm_count; i++)
-                collect_mono_enums_node(ctx, seen, mat->arms[i]);
+            for (int i = 0; i < mat->case_count; i++)
+                collect_mono_enums_node(ctx, seen, mat->cases[i]);
+            collect_mono_enums_node(ctx, seen, mat->else_body);
             break;
         }
         case IRON_NODE_ASSIGN: {
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *target; Iron_Node *value; } Iron_Assign;
-            Iron_Assign *asgn = (Iron_Assign *)node;
+            Iron_AssignStmt *asgn = (Iron_AssignStmt *)node;
             collect_mono_enums_node(ctx, seen, asgn->target);
             collect_mono_enums_node(ctx, seen, asgn->value);
             break;
@@ -1024,6 +1031,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                 elem_suffix = s;
                             }
                             break;
+                        case IRON_TYPE_ENUM:
+                            /* Phase 59 P04: DNS returns [Address] where
+                             * Address is an Iron ADT enum. The list
+                             * dispatcher was only handling OBJECT and
+                             * INTERFACE elem types — without this case,
+                             * any .method() call on an enum array
+                             * mis-dispatches to Iron_List_int64_t_*. */
+                            if (elem->enu.decl) {
+                                size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
+                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                snprintf(s, slen, "Iron_%s", elem->enu.decl->name);
+                                elem_suffix = s;
+                            }
+                            break;
                         default: break;
                     }
                 }
@@ -1060,7 +1081,14 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         }
         /* Detect static method calls: receiver is a type reference, not an instance.
          * Static calls like Time.now_ms() have the object as a FUNC_REF or IDENT
-         * referring to the type name itself, with no instance value to pass. */
+         * referring to the type name itself, with no instance value to pass.
+         *
+         * Phase 59 P05: also recognise builtin-type receivers (String, Int,
+         * Float, Bool). For these the type_name was already lowercased (e.g.
+         * "string" for IRON_TYPE_STRING) so a strict strcmp against the IDENT
+         * name "String" fails. Compare case-insensitively for the builtin
+         * path so `String.from_byte(b)` correctly resolves as a static call.
+         */
         if (expr->method_call.object) {
             IronHIR_ExprKind ok = expr->method_call.object->kind;
 
@@ -1069,6 +1097,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 const char *ref_name = expr->method_call.object->func_ref.func_name;
                 if (ref_name && strcmp(ref_name, type_name) == 0) {
                     is_static_call = true;
+                }
+                /* Builtin-type case: type_name is lowercased ("string") but
+                 * the FUNC_REF still carries the source name ("String"). */
+                if (!is_static_call && ref_name) {
+                    size_t i = 0;
+                    bool match = true;
+                    for (; ref_name[i] && type_name[i]; i++) {
+                        char a = ref_name[i];
+                        char b = type_name[i];
+                        if (a >= 'A' && a <= 'Z') a = (char)(a + ('a' - 'A'));
+                        if (b >= 'A' && b <= 'Z') b = (char)(b + ('a' - 'A'));
+                        if (a != b) { match = false; break; }
+                    }
+                    if (match && ref_name[i] == '\0' && type_name[i] == '\0') {
+                        is_static_call = true;
+                    }
                 }
             }
             /* IDENT(TypeName) — alternative representation */
@@ -1094,20 +1138,11 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
-        /* Build args: instance methods pass self as first arg, static methods don't */
-        IronLIR_ValueId *args = NULL;
-        if (!is_static_call) {
-            IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
-            arrput(args, self_val);
-        }
-        for (int i = 0; i < expr->method_call.arg_count; i++) {
-            IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
-            arrput(args, av);
-        }
-        int arg_count = (int)arrlen(args);
-
         /* Build mangled name with lowercase type name to match C convention
-         * (Iron_time_now_ms, not Iron_Time_now_ms) */
+         * (Iron_time_now_ms, not Iron_Time_now_ms). We compute this early so
+         * we can look up the target HIR function and decide whether to
+         * synthesise a zero-init self for a static call into a method whose
+         * body carries an implicit self param (Phase 59 P05). */
         size_t mlen = strlen(type_name) + 1 + strlen(expr->method_call.method) + 1;
         char *mangled = (char *)iron_arena_alloc(ctx->lir_arena, mlen, 1);
         snprintf(mangled, mlen, "%s_%s", type_name, expr->method_call.method);
@@ -1116,6 +1151,56 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
                 mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
         }
+
+        /* Phase 59 P05: a static call (e.g. `Url.parse("...")`) may resolve
+         * to a method declared with a body — hir_lower.c prepends `self` as
+         * the first param for any method whose body is non-empty. Without
+         * extra help, the call would short one argument and the emitted C
+         * would not type-check. Look up the target HIR func by mangled name
+         * and, if its first param is named "self", synthesise a zero-init
+         * receiver value so the ABI matches. Pure-Iron stdlib modules like
+         * stdlib/url.iron rely on this to expose `Url.parse`, `Url.build`,
+         * `Url.percent_encode` etc. without forcing every helper to be a
+         * free function. */
+        bool synth_self = false;
+        Iron_Type *synth_self_type = NULL;
+        if (is_static_call && ctx->hir) {
+            for (int fi = 0; fi < ctx->hir->func_count; fi++) {
+                IronHIR_Func *tf = ctx->hir->funcs[fi];
+                if (!tf || !tf->name) continue;
+                if (strcmp(tf->name, mangled) != 0) continue;
+                if (tf->param_count > 0 && tf->params[0].name &&
+                    strcmp(tf->params[0].name, "self") == 0) {
+                    synth_self = true;
+                    synth_self_type = tf->params[0].type;
+                }
+                break;
+            }
+        }
+
+        /* Build args: instance methods pass self as first arg, static methods
+         * don't — except for the synth_self case above. */
+        IronLIR_ValueId *args = NULL;
+        if (!is_static_call) {
+            IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+            arrput(args, self_val);
+        } else if (synth_self) {
+            /* Emit a zero-init value of the receiver type. We lean on the
+             * alloca + load pattern the rest of the lowerer already uses:
+             * alloca yields a pointer to zero-initialised storage; loading it
+             * produces a value of the expected type. The method body never
+             * touches self, so the contents don't matter. */
+            IronLIR_ValueId self_alloca = emit_alloca_in_entry(ctx, synth_self_type,
+                                                                 "__synth_self", span);
+            IronLIR_Instr *self_load = iron_lir_load(ctx->current_func, ctx->current_block,
+                                                       self_alloca, synth_self_type, span);
+            arrput(args, self_load->id);
+        }
+        for (int i = 0; i < expr->method_call.arg_count; i++) {
+            IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+            arrput(args, av);
+        }
+        int arg_count = (int)arrlen(args);
 
         IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
                                                   mangled, NULL, span);

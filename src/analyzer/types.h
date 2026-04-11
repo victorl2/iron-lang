@@ -50,6 +50,7 @@ typedef enum {
     IRON_TYPE_GENERIC_PARAM, /* generic type parameter */
     IRON_TYPE_VOID,
     IRON_TYPE_NULL,
+    IRON_TYPE_TUPLE,         /* Phase 59 01d: heterogeneous tuple (T0, T1, ...) */
     IRON_TYPE_ERROR          /* sentinel for error recovery */
 } Iron_TypeKind;
 
@@ -109,6 +110,13 @@ typedef struct Iron_Type {
             const char                *name;
             struct Iron_Type          *constraint;  /* NULL if unconstrained */
         } generic_param;
+
+        /* IRON_TYPE_TUPLE — Phase 59 01d */
+        struct {
+            struct Iron_Type         **elem_types;   /* arena-owned array */
+            int                        elem_count;
+            const char                *mangled_name; /* e.g. "Iron_Tuple_int64_t_Iron_Error" */
+        } tuple;
     };
 } Iron_Type;
 
@@ -147,6 +155,12 @@ Iron_Type *iron_type_make_enum(Iron_Arena *a, struct Iron_EnumDecl *decl);
 
 /* Construct a generic type parameter (e.g. T with optional constraint) */
 Iron_Type *iron_type_make_generic_param(Iron_Arena *a, const char *name, Iron_Type *constraint);
+
+/* Phase 59 01d: Construct a tuple type (T0, T1, ..., Tn-1).
+ * `elem_types` is copied into an arena-allocated array of length `count`; caller
+ * retains ownership of the input buffer. `count` must be >= 2 — the parser is
+ * responsible for rejecting 0-tuples and 1-tuples. Returns NULL on failure. */
+Iron_Type *iron_type_make_tuple(Iron_Arena *a, Iron_Type **elem_types, int count);
 
 /* Structural equality — two types are equal iff they have the same structure.
  * Primitive singletons compare by pointer, compound types compare recursively. */

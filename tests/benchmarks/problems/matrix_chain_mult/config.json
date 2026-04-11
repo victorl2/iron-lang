@@ -1,1 +1,1 @@
-{"iterations": 328947, "timeout_sec": 60, "max_ratio": 1.6, "rationale": "Observed ratio 0.77 with 19.9% variance across 5 runs; 1.6x covers mean+2sigma with 15% headroom; 2026-04-10 audit"}
+{"iterations": 328947, "timeout_sec": 60, "max_ratio": 1.9, "rationale": "macOS arm64 observed 0.77 with 19.9% variance; Ubuntu x86_64 observed 1.40 in CI (run 24282224300). 1.9x covers Linux observed + 25% headroom for CI noise; 2026-04-11 raised to cross-platform reality."}

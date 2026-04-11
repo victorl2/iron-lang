@@ -167,6 +167,23 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
 
     Iron_Type *base = NULL;
 
+    /* Phase 59 01d: tuple type annotation — (T0, T1, ...) */
+    if (ta->is_tuple) {
+        int n = ta->tuple_elem_count;
+        Iron_Type **elem_types = (Iron_Type **)iron_arena_alloc(
+            ctx->module->arena, sizeof(Iron_Type *) * (size_t)n,
+            _Alignof(Iron_Type *));
+        for (int i = 0; i < n; i++) {
+            elem_types[i] = ta->tuple_elems
+                ? resolve_type_ann(ctx, ta->tuple_elems[i])
+                : iron_type_make_primitive(IRON_TYPE_ERROR);
+            if (!elem_types[i]) {
+                elem_types[i] = iron_type_make_primitive(IRON_TYPE_ERROR);
+            }
+        }
+        return iron_type_make_tuple(ctx->module->arena, elem_types, n);
+    }
+
     /* Phase 33: func-type annotation — func(T1, T2) -> R */
     if (ta->is_func) {
         Iron_Type **param_types = NULL;
@@ -459,6 +476,74 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_ValDecl *vd = (Iron_ValDecl *)node;
         Iron_Type    *ty = vd->declared_type;
         if (!ty) ty = resolve_type_ann(ctx, vd->type_ann);
+
+        /* Phase 59 01d: destructure binding — desugar into
+         *   let __tuple_tmp_N = init
+         *   let <name_i>      = __tuple_tmp_N.v<i>  (per binding)
+         * Wildcard bindings are skipped. Zero new HIR node kinds. */
+        if (vd->binding_count > 0) {
+            IronHIR_Expr *init_expr = vd->init
+                ? lower_expr_hir(ctx, vd->init)
+                : NULL;
+            /* Resolved tuple type: prefer the declared_type set by the
+             * typechecker (authoritative); fall back to the lowered
+             * expression's type. */
+            Iron_Type *tuple_ty = vd->declared_type
+                ? vd->declared_type
+                : (init_expr ? init_expr->type : NULL);
+            if (!tuple_ty || tuple_ty->kind != IRON_TYPE_TUPLE) {
+                /* Typechecker should have caught this; emit a stub let so
+                 * downstream passes have something to chew on and return. */
+                iron_hir_block_add_stmt(blk,
+                    iron_hir_stmt_let(mod, iron_hir_alloc_var(mod, "__bad_tuple",
+                                                                iron_type_make_primitive(IRON_TYPE_ERROR),
+                                                                false),
+                                      iron_type_make_primitive(IRON_TYPE_ERROR),
+                                      init_expr, false, span));
+                return NULL;
+            }
+
+            /* Create tmp var for the tuple init. */
+            char tmp_name[64];
+            snprintf(tmp_name, sizeof(tmp_name), "__tuple_tmp_%d",
+                     ctx->lift_counter++);
+            IronHIR_VarId tmp_id = iron_hir_alloc_var(mod, tmp_name,
+                                                       tuple_ty, false);
+            iron_hir_block_add_stmt(blk,
+                iron_hir_stmt_let(mod, tmp_id, tuple_ty, init_expr,
+                                  false, span));
+
+            /* Emit one let per binding (skip wildcards). */
+            for (int i = 0; i < vd->binding_count; i++) {
+                const char *binding = vd->binding_names[i];
+                if (!binding) continue;  /* wildcard */
+                Iron_Type *elem_ty = (i < tuple_ty->tuple.elem_count)
+                    ? tuple_ty->tuple.elem_types[i]
+                    : iron_type_make_primitive(IRON_TYPE_ERROR);
+                IronHIR_VarId bind_id = iron_hir_alloc_var(mod, binding,
+                                                            elem_ty, false);
+                declare_var(ctx, binding, bind_id);
+
+                char field_name[12];
+                snprintf(field_name, sizeof(field_name), "v%d", i);
+                const char *fname_arena = (const char *)iron_arena_alloc(
+                    ctx->module->arena, strlen(field_name) + 1, 1);
+                memcpy((char *)fname_arena, field_name, strlen(field_name) + 1);
+
+                IronHIR_Expr *tmp_ref = iron_hir_expr_ident(mod, tmp_id,
+                                                             tmp_name,
+                                                             tuple_ty, span);
+                IronHIR_Expr *elem_expr = iron_hir_expr_field_access(mod,
+                                                                      tmp_ref,
+                                                                      fname_arena,
+                                                                      elem_ty,
+                                                                      span);
+                iron_hir_block_add_stmt(blk,
+                    iron_hir_stmt_let(mod, bind_id, elem_ty, elem_expr,
+                                      false, span));
+            }
+            return NULL;
+        }
 
         if (vd->init && vd->init->kind == IRON_NODE_SPAWN) {
             /* val h = spawn("name") { body } -- spawn handle binding.
@@ -1288,6 +1373,27 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Array literal ───────────────────────────────────────────────────── */
     case IRON_NODE_ARRAY_LIT: {
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;
+
+        /* Phase 59 01d: tuple literal — lower to IRON_HIR_EXPR_CONSTRUCT with
+         * field names "v0", "v1", ... so downstream hir_to_lir emits an
+         * IRON_LIR_CONSTRUCT which emit_c turns into a C99 designated
+         * initializer. Zero new HIR kinds required. */
+        if (al->resolved_type && al->resolved_type->kind == IRON_TYPE_TUPLE) {
+            int n = al->element_count;
+            IronHIR_Expr **tup_vals = NULL;
+            const char **tup_names  = NULL;
+            for (int i = 0; i < n; i++) {
+                IronHIR_Expr *v = lower_expr_hir(ctx, al->elements[i]);
+                arrput(tup_vals, v);
+                /* Field name "v<i>" — max 12 chars for i up to 9 digits. */
+                char *fname = (char *)iron_arena_alloc(ctx->module->arena, 12, 1);
+                snprintf(fname, 12, "v%d", i);
+                arrput(tup_names, fname);
+            }
+            return iron_hir_expr_construct(mod, al->resolved_type,
+                                           tup_names, tup_vals, n, span);
+        }
+
         IronHIR_Expr **elems = NULL;
         for (int i = 0; i < al->element_count; i++) {
             IronHIR_Expr *e = lower_expr_hir(ctx, al->elements[i]);

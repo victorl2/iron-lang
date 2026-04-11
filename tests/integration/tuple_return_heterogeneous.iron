@@ -1,0 +1,8 @@
+func describe() -> (Int, String) {
+    return (42, "hello")
+}
+
+func main() {
+    val (n, s) = describe()
+    println("{s} {n}")
+}
