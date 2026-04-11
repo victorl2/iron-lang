@@ -65,6 +65,8 @@ int main(int argc, char **argv) {
     bool no_optimize = false;
     bool warn_fusion_break = false;
     bool report_compression = false;
+    IronBuildTarget target = IRON_TARGET_NATIVE;
+    bool release = false;
     const char *source_file = NULL;
     const char *output_file = NULL;
     const char **run_args = NULL;
@@ -92,6 +94,32 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "%s: --output requires a path argument\n", IRON_BINARY_NAME);
                 return 1;
             }
+        } else if (strncmp(argv[i], "--target=", 9) == 0) {
+            const char *val = argv[i] + 9;
+            if (strcmp(val, "web") == 0) {
+                target = IRON_TARGET_WEB;
+            } else if (strcmp(val, "native") == 0) {
+                target = IRON_TARGET_NATIVE;
+            } else {
+                fprintf(stderr, "error: unknown target '%s'. valid targets: web, native\n", val);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--target") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: --target requires a value (web or native)\n");
+                return 1;
+            }
+            const char *val = argv[++i];
+            if (strcmp(val, "web") == 0) {
+                target = IRON_TARGET_WEB;
+            } else if (strcmp(val, "native") == 0) {
+                target = IRON_TARGET_NATIVE;
+            } else {
+                fprintf(stderr, "error: unknown target '%s'. valid targets: web, native\n", val);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--release") == 0) {
+            release = true;
         } else if (strcmp(argv[i], "--") == 0) {
             /* Everything after -- is passed to the program (iron run) */
             run_args = (const char **)&argv[i + 1];
@@ -118,7 +146,9 @@ int main(int argc, char **argv) {
             .dump_ir_passes = dump_ir_passes,
             .no_optimize    = no_optimize,
             .warn_fusion_break = warn_fusion_break,
-            .report_compression = report_compression
+            .report_compression = report_compression,
+            .target         = target,
+            .release        = release
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -139,7 +169,9 @@ int main(int argc, char **argv) {
             .dump_ir_passes = dump_ir_passes,
             .no_optimize    = no_optimize,
             .warn_fusion_break = warn_fusion_break,
-            .report_compression = report_compression
+            .report_compression = report_compression,
+            .target         = target,
+            .release        = release
         };
         return iron_build(source_file, output_file, opts);
     }
