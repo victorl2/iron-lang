@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 04-wasm-safe-time-shim plan-01 iron-time-web-shim
-last_updated: "2026-04-11T18:06:15.336Z"
+stopped_at: Completed 04-wasm-safe-time-shim plan-02 ci-probe-and-symbol-gate
+last_updated: "2026-04-11T18:20:37.835Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 03-runtime-audit-web-hardening P04 | 697s | 2 tasks | 2 files |
 | Phase 03-runtime-audit-web-hardening P03 | 23m | 2 tasks | 11 files |
 | Phase 04-wasm-safe-time-shim P01 | 712s | 1 tasks | 1 files |
+| Phase 04-wasm-safe-time-shim P02 | 730s | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 04-wasm-safe-time-shim]: emscripten_sleep absent from iron_time_web.c even in comments — Asyncify-free policy enforced textually
 - [Phase 04-wasm-safe-time-shim]: iron_time_now_ns uses ms-precision-in-ns-units (emscripten_get_now()*1e6); W3C performance.now() cap accepted per Phase 4 SC1
 - [Phase 04-wasm-safe-time-shim]: Timer helpers duplicated verbatim from iron_time.c — iron_time_web.c is a self-contained translation unit
+- [Phase 04-wasm-safe-time-shim]: Probe step renamed to reference WEB-RUNTIME-06 and WEB-RUNTIME-07; iron_time_web.c appended to single probe step (not new step) reusing Phase 3 emsdk setup
+- [Phase 04-wasm-safe-time-shim]: test_iron_time_web_symbols uses sh -c for-loop (one ctest entry for all 9 symbols); test_emsdk_pin_discipline_iron_time_web labeled phase4-invariant
 
 ### Pending Todos
 
@@ -118,6 +121,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T18:06:15.333Z
-Stopped at: Completed 04-wasm-safe-time-shim plan-01 iron-time-web-shim
+Last session: 2026-04-11T18:20:37.832Z
+Stopped at: Completed 04-wasm-safe-time-shim plan-02 ci-probe-and-symbol-gate
 Resume file: None
