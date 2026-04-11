@@ -26,6 +26,7 @@ on:
       - 'src/runtime/iron_runtime.h'
       - 'src/runtime/iron_string.c'
       - 'src/runtime/iron_threads.c'
+      - 'src/stdlib/iron_time_web.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_string_intern_race.c'
       - 'tests/unit/test_toml_web.c'
@@ -56,6 +57,7 @@ on:
       - 'src/runtime/iron_runtime.h'
       - 'src/runtime/iron_string.c'
       - 'src/runtime/iron_threads.c'
+      - 'src/stdlib/iron_time_web.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_string_intern_race.c'
       - 'tests/unit/test_toml_web.c'
@@ -107,15 +109,19 @@ jobs:
           test -s /tmp/hello.wasm || { echo "FAIL: /tmp/hello.wasm missing or empty"; exit 1; }
           echo "OK: hello.js and hello.wasm exist and are non-empty"
 
-      - name: Probe iron_rc/builtins/collections portability under emcc (WEB-RUNTIME-07)
+      - name: Probe runtime + stdlib files portability under emcc (WEB-RUNTIME-07, WEB-RUNTIME-06)
         run: |
           set -e
           echo "WEB-RUNTIME-07: try-compiling three runtime files under emcc --"
           echo "these files must build cleanly with zero modifications."
+          echo "WEB-RUNTIME-06: also try-compiling iron_time_web.c under emcc --"
+          echo "this file provides the web time shim (emscripten_get_now / emscripten_date_now)."
           emcc -c src/runtime/iron_rc.c          -I src -Wall -Werror -o /tmp/iron_rc.o
           emcc -c src/runtime/iron_builtins.c    -I src -Wall -Werror -o /tmp/iron_builtins.o
           emcc -c src/runtime/iron_collections.c -I src -Wall -Werror -o /tmp/iron_collections.o
+          emcc -c src/stdlib/iron_time_web.c     -I src -Wall -Werror -o /tmp/iron_time_web.o
           test -s /tmp/iron_rc.o          || { echo "FAIL: iron_rc.o empty";          exit 1; }
           test -s /tmp/iron_builtins.o    || { echo "FAIL: iron_builtins.o empty";    exit 1; }
           test -s /tmp/iron_collections.o || { echo "FAIL: iron_collections.o empty"; exit 1; }
-          echo "OK: iron_rc.c + iron_builtins.c + iron_collections.c compile clean under emcc"
+          test -s /tmp/iron_time_web.o    || { echo "FAIL: iron_time_web.o empty";    exit 1; }
+          echo "OK: iron_rc.c + iron_builtins.c + iron_collections.c + iron_time_web.c compile clean under emcc"
