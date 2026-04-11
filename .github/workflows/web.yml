@@ -7,12 +7,30 @@ on:
       - '.emsdk-version'
       - '.github/workflows/web.yml'
       - 'scripts/ci-smoke/**'
+      - 'src/cli/build.c'
+      - 'src/cli/build.h'
+      - 'src/cli/build_web.c'
+      - 'src/cli/build_web.h'
+      - 'src/cli/main.c'
+      - 'src/cli/toml.c'
+      - 'src/cli/toml.h'
+      - 'src/cli/web_config.h'
+      - 'tests/unit/test_toml_web.c'
   pull_request:
     branches: [main]
     paths:
       - '.emsdk-version'
       - '.github/workflows/web.yml'
       - 'scripts/ci-smoke/**'
+      - 'src/cli/build.c'
+      - 'src/cli/build.h'
+      - 'src/cli/build_web.c'
+      - 'src/cli/build_web.h'
+      - 'src/cli/main.c'
+      - 'src/cli/toml.c'
+      - 'src/cli/toml.h'
+      - 'src/cli/web_config.h'
+      - 'tests/unit/test_toml_web.c'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -211,6 +211,59 @@ set_tests_properties(test_ironc_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^ironc [0-9]"
 )
 
+# Phase 2 — CLI flag surface smoke tests
+
+add_test(
+    NAME test_ironc_usage_lists_target
+    COMMAND ironc
+)
+set_tests_properties(test_ironc_usage_lists_target PROPERTIES
+    PASS_REGULAR_EXPRESSION "--target=<t>"
+)
+
+add_test(
+    NAME test_ironc_usage_lists_release
+    COMMAND ironc
+)
+set_tests_properties(test_ironc_usage_lists_release PROPERTIES
+    PASS_REGULAR_EXPRESSION "--release"
+)
+
+if(NOT WIN32)
+    add_test(
+        NAME test_ironc_target_unknown
+        COMMAND sh -c "echo 'func main() {}' > /tmp/iron_test_target_unk.iron && OUT=$($<TARGET_FILE:ironc> build --target=bogus /tmp/iron_test_target_unk.iron 2>&1); RC=$?; if [ $RC -eq 0 ]; then echo 'FAIL: ironc should have exited non-zero'; exit 1; fi; echo \"$OUT\" | grep -q 'valid targets: web, native' || { echo 'FAIL: error message missing expected substring:'; echo \"$OUT\"; exit 1; }; echo OK; exit 0"
+    )
+
+    add_test(
+        NAME test_ironc_target_web_smoke
+        # Runs ironc build --target=web on a trivial fixture.
+        # Accepts either outcome: emcc found (banner on stdout) or emcc absent (install one-liner on stderr).
+        # Both prove dispatch reached build_web.c — neither is a parse error.
+        COMMAND sh -c "echo 'func main() {}' > /tmp/iron_test_target_web.iron && $<TARGET_FILE:ironc> build --target=web /tmp/iron_test_target_web.iron 2>&1 | grep -qE 'using emcc|emcc not found in PATH'"
+    )
+endif()
+
+# Phase 2 — emsdk pin-discipline invariants.
+# src/cli/build_web.c and the new Phase 2 headers MUST NOT hard-code the
+# version string "4.0.23" — the version is read from .emsdk-version at runtime.
+
+add_test(
+    NAME test_emsdk_pin_discipline
+    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.c\""
+)
+set_tests_properties(test_emsdk_pin_discipline PROPERTIES
+    LABELS "phase2-invariant"
+)
+
+add_test(
+    NAME test_emsdk_pin_discipline_headers
+    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.h\" \"${CMAKE_SOURCE_DIR}/src/cli/web_config.h\""
+)
+set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
+    LABELS "phase2-invariant"
+)
+
 # iron CLI tests
 add_test(
     NAME test_iron_help
