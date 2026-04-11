@@ -27,8 +27,13 @@ object Duration {
   val ms: Int
 }
 
-func Duration.millis(n: Int) -> Duration { return Duration { ms: n } }
-func Duration.seconds(n: Int) -> Duration { return Duration { ms: n * 1000 } }
-func Duration.minutes(n: Int) -> Duration { return Duration { ms: n * 60 * 1000 } }
-func Duration.from_ms(n: Int) -> Duration { return Duration { ms: n } }
+-- Positional construction: Iron's object literal syntax is positional
+-- (e.g. `NetError(0)`, `Url(scheme, userinfo, ...)`), not the brace-field
+-- `Duration { ms: n }` form that was in the first draft of this file and
+-- which the parser has never supported. Since Duration has a single Int
+-- field, `Duration(n)` cleanly binds `n` to `ms`.
+func Duration.millis(n: Int) -> Duration { return Duration(n) }
+func Duration.seconds(n: Int) -> Duration { return Duration(n * 1000) }
+func Duration.minutes(n: Int) -> Duration { return Duration(n * 60 * 1000) }
+func Duration.from_ms(n: Int) -> Duration { return Duration(n) }
 func Duration.to_ms(d: Duration) -> Int { return d.ms }

@@ -29,6 +29,12 @@ option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSani
 
 if(MSVC)
     add_compile_options(/W3 /WX)
+    # Silence POSIX-deprecation warnings (C4996) for getenv, strdup, strerror,
+    # strcpy, getcwd, etc. — these are used in cross-platform code in src/pkg/
+    # and src/cli/toml.c and are already bounded-safe at the call site. Without
+    # this define the /WX flag turns C4996 into an error and blocks the MSVC
+    # build. Scoped to MSVC only so clang/gcc strictness is unchanged.
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
     add_compile_options(-Wall -Wextra -Werror -Wpedantic)
     if(IRON_ENABLE_SANITIZERS)

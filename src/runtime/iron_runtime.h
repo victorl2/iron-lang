@@ -9,6 +9,18 @@
 
 /* ── Platform atomic abstraction ────────────────────────────────────────── */
 #ifdef _WIN32
+  /* Include winsock2.h BEFORE windows.h to avoid the winsock v1 vs v2
+   * struct-redefinition clash (sockaddr, fd_set, WSAData, etc.). windows.h
+   * by default pulls in winsock.h (v1) when WIN32_LEAN_AND_MEAN is not
+   * defined, and then a later winsock2.h include conflicts. Including
+   * winsock2.h first marks those types as defined; the subsequent
+   * windows.h sees them already declared and skips the winsock.h path.
+   * Required by Phase 59 network code that lives in translation units
+   * which transitively include this header. */
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #include <winsock2.h>
   #include <windows.h>
   typedef volatile LONG iron_atomic_int;
   #define IRON_ATOMIC_INIT(v, val)          ((v) = (val))
