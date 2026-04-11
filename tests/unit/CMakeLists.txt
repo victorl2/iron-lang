@@ -132,3 +132,9 @@ add_executable(test_stdlib_net_ip test_stdlib_net_ip.c)
 target_link_libraries(test_stdlib_net_ip iron_stdlib iron_runtime unity)
 add_test(NAME test_stdlib_net_ip COMMAND test_stdlib_net_ip)
 set_tests_properties(test_stdlib_net_ip PROPERTIES LABELS "unit")
+
+# ── Phase 59 04: DNS stdlib Unity tests ────────────────────────────────────
+add_executable(test_stdlib_net_dns test_stdlib_net_dns.c)
+target_link_libraries(test_stdlib_net_dns iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_net_dns COMMAND test_stdlib_net_dns)
+set_tests_properties(test_stdlib_net_dns PROPERTIES LABELS "unit")
