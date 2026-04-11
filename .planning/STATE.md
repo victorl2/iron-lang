@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 03-runtime-audit-web-hardening plan-04 portability-probe-ci
-last_updated: "2026-04-11T16:58:42.191Z"
+stopped_at: Completed 03-runtime-audit-web-hardening plan-03 analyzer-target-and-web-await-check
+last_updated: "2026-04-11T17:25:10.917Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 03-runtime-audit-web-hardening P02 | 12m | 2 tasks | 1 files |
 | Phase 03-runtime-audit-web-hardening P01 | 718 | 2 tasks | 3 files |
 | Phase 03-runtime-audit-web-hardening P04 | 697s | 2 tasks | 2 files |
+| Phase 03-runtime-audit-web-hardening P03 | 23m | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 03-runtime-audit-web-hardening]: Thread-safety contract comment added to iron_string_intern documenting mutex-covers-full-critical-section and pthread_once memory-ordering
 - [Phase 03-runtime-audit-web-hardening]: emcc probe uses /tmp output paths (-o /tmp/iron_rc.o) not /dev/null so test -s confirms non-empty object files
 - [Phase 03-runtime-audit-web-hardening]: Grep invariant uses sh -c wrapper matching existing test_emsdk_pin_discipline style; labeled unit;web-portability for targeted ctest -L runs
+- [Phase 03-runtime-audit-web-hardening]: Direct #include of cli/build.h in analyzer.h for IronBuildTarget enum — acceptable inversion for single typedef
+- [Phase 03-runtime-audit-web-hardening]: test_web_await_check calls pass directly (not iron_analyze) to avoid handcrafted-AST resolve failures, matching test_concurrency.c pattern
 
 ### Pending Todos
 
@@ -111,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T16:58:42.189Z
-Stopped at: Completed 03-runtime-audit-web-hardening plan-04 portability-probe-ci
+Last session: 2026-04-11T17:25:10.914Z
+Stopped at: Completed 03-runtime-audit-web-hardening plan-03 analyzer-target-and-web-await-check
 Resume file: None
