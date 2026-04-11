@@ -1,16 +1,25 @@
 name: Changelog on Release
 
-# Prepends a new CHANGELOG.md entry built from the release body, and keeps
-# CMakeLists.txt's project(VERSION ...) + IRON_VERSION_FULL in sync with the
-# release tag. If CMake was stale at the tagged commit — meaning the binaries
-# already uploaded to the release have the wrong `iron --version` output —
-# this workflow re-dispatches release.yml against the updated main so fresh
-# binaries are built and uploaded to the same release.
+# Opens a PR that prepends a new CHANGELOG.md entry built from the release
+# body and keeps CMakeLists.txt's project(VERSION ...) + IRON_VERSION_FULL in
+# sync with the release tag. The PR is assigned to @victorl2 for review.
+#
+# This workflow cannot push directly to main — main is protected and requires
+# a PR for every change, and the built-in GITHUB_TOKEN cannot be added as a
+# ruleset bypass actor on user-owned repos. Opening a PR is the only
+# minimum-change path that works.
 #
 # The transformation rule that builds the entry from the release body lives
 # in scripts/update_changelog_from_release.py. That script is also how the
 # initial CHANGELOG.md was populated (PR #16), and it is idempotent: re-runs
 # on an already-synced release are a no-op (exit code 2).
+#
+# NOTE: previous revisions of this workflow also re-dispatched release.yml
+# when CMakeLists.txt drifted from the tag, so the uploaded release binaries
+# got rebuilt with the correct `iron --version` output. That step lived
+# immediately after the direct push to main; in the PR flow the rebuild can
+# only happen *after* the PR merges, which is out of scope for this workflow.
+# The PR body calls out the manual rebuild step when CMake drift is detected.
 
 on:
   release:
@@ -26,8 +35,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write   # push to main
-  actions: write    # dispatch release.yml when CMake drift is detected
+  contents: write         # push the changelog/<tag> feature branch
+  pull-requests: write    # open and assign the sync PR
 
 jobs:
   sync:
@@ -49,8 +58,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          # Use a PAT or keep default GITHUB_TOKEN; default token can push to
-          # protected branches only if branch protection allows it.
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sync CHANGELOG and CMakeLists
@@ -71,26 +78,49 @@ jobs:
             exit "$rc"
           fi
 
-      - name: Commit and push
+      - name: Open pull request
         if: steps.sync.outputs.any_changed == 'true'
-        run: |
-          set -euo pipefail
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md CMakeLists.txt
-          git commit -m "docs: sync CHANGELOG and version for ${{ steps.tag.outputs.value }}"
-          git push origin HEAD:main
-
-      - name: Re-trigger release build (CMake was stale)
-        if: steps.sync.outputs.cmake_changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.value }}
+          CMAKE_CHANGED: ${{ steps.sync.outputs.cmake_changed }}
         run: |
-          echo "CMakeLists.txt was out of sync with ${{ steps.tag.outputs.value }} — re-dispatching release.yml so the release binaries are rebuilt with the correct version string."
-          gh workflow run release.yml \
-            --ref main \
-            -f tag="${{ steps.tag.outputs.value }}"
+          set -euo pipefail
+          BRANCH="changelog/${TAG}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add CHANGELOG.md CMakeLists.txt
+          git commit -m "docs: sync CHANGELOG and version for ${TAG}"
+          git push --force-with-lease origin "$BRANCH"
+
+          # Build the PR body. If CMakeLists.txt drifted from the tag, flag
+          # it loudly so the user remembers to re-dispatch release.yml after
+          # merging (so the release binaries are rebuilt with the correct
+          # iron --version output).
+          NOTE=""
+          if [ "$CMAKE_CHANGED" = "true" ]; then
+              NOTE=$'\n\n> [!IMPORTANT]\n> **CMakeLists.txt drifted from the tag.** The binaries already uploaded to the '"$TAG"' release were built with the wrong version string. After merging this PR, re-dispatch `release.yml` so the release artifacts are rebuilt:\n> \n> ```\n> gh workflow run release.yml --ref main -f tag='"$TAG"'\n> ```'
+          fi
+
+          BODY=$'Automated changelog + version sync for release ['"$TAG"'](https://github.com/'"$GITHUB_REPOSITORY"'/releases/tag/'"$TAG"').\n\nOpened by `changelog-on-release.yml` on release publish. Prepends a new `CHANGELOG.md` entry built from the release body and bumps `CMakeLists.txt` (`project(VERSION ...)` and `IRON_VERSION_FULL`) to match the release tag.'"$NOTE"
+
+          # Re-runs of this workflow for the same tag are safe: the feature
+          # branch is force-pushed above. Skip PR creation if one is already
+          # open for the branch — it'll just pick up the new HEAD.
+          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+              echo "PR #$EXISTING already open for $BRANCH — branch was force-updated, leaving PR in place."
+          else
+              gh pr create \
+                  --base main \
+                  --head "$BRANCH" \
+                  --title "docs: sync CHANGELOG and version for ${TAG}" \
+                  --body "$BODY" \
+                  --assignee victorl2
+          fi
 
       - name: No-op summary
         if: steps.sync.outputs.any_changed != 'true'
-        run: echo "Everything already in sync for ${{ steps.tag.outputs.value }}. No commit, no rebuild."
+        run: echo "Everything already in sync for ${{ steps.tag.outputs.value }}. No PR opened."
