@@ -167,3 +167,20 @@ target_include_directories(test_toml_web PRIVATE
 target_link_libraries(test_toml_web unity)
 add_test(NAME test_toml_web COMMAND test_toml_web)
 set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
+
+# ── Phase 3 plan-01: intern table tsan stress test (WEB-RUNTIME-01) ──────────
+# Runs under ThreadSanitizer on Linux only. macOS tsan is flaky and emcc has
+# no tsan. Non-Linux builds still compile+run the test but without tsan
+# instrumentation, giving at least a smoke-test signal.
+add_executable(test_string_intern_race test_string_intern_race.c)
+target_link_libraries(test_string_intern_race iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_string_intern_race PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_string_intern_race PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_string_intern_race COMMAND test_string_intern_race)
+set_tests_properties(test_string_intern_race PROPERTIES
+    LABELS "unit;tsan"
+    TIMEOUT 30
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
+)
