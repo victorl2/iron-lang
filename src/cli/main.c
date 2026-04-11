@@ -35,6 +35,8 @@ static void print_usage(void) {
     fprintf(stderr, "  test    Discover and run Iron tests\n");
     fprintf(stderr, "\nOptions:\n");
     fprintf(stderr, "  --version         Print version and exit\n");
+    fprintf(stderr, "  --target=<t>      Build target: native (default) or web\n");
+    fprintf(stderr, "  --release         Optimize build (native -O2, web -Oz -flto)\n");
     fprintf(stderr, "  --verbose         Show generated C code\n");
     fprintf(stderr, "  --debug-build     Keep .iron-build/ directory\n");
     fprintf(stderr, "  --force-comptime  Skip comptime evaluation cache\n");
