@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-cli-toml-scaffold plan-04 build-web-stub
-last_updated: "2026-04-11T15:27:32.243Z"
+stopped_at: Completed 02-cli-toml-scaffold plan-05 dispatch-and-wiring
+last_updated: "2026-04-11T15:32:18.251Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 02-cli-toml-scaffold P02 | 126 | 3 tasks | 1 files |
 | Phase 02-cli-toml-scaffold P03 | 2 | 2 tasks | 1 files |
 | Phase 02-cli-toml-scaffold P04 | 8m | 2 tasks | 2 files |
+| Phase 02-cli-toml-scaffold P05 | 2m | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 02-cli-toml-scaffold]: No short form -t for --target — reserved for future use (CONTEXT.md decision)
 - [Phase 02-cli-toml-scaffold]: iron run --target=web parses and stores flags only; emrun shell-out deferred to Phase 7
 - [Phase 02-cli-toml-scaffold]: popen() used for emcc --version capture (simpler than posix_spawnp + pipe for one-shot read)
+- [Phase 02-cli-toml-scaffold]: Interpretation A for -O2: append after -O3 (clang last-wins) rather than conditional — smaller diff, matches CONTEXT.md verbatim
+- [Phase 02-cli-toml-scaffold]: Web dispatch placed as absolute first statement in iron_build() before base_dir resolution — web path fully owns its execution
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T15:27:32.241Z
-Stopped at: Completed 02-cli-toml-scaffold plan-04 build-web-stub
+Last session: 2026-04-11T15:32:18.248Z
+Stopped at: Completed 02-cli-toml-scaffold plan-05 dispatch-and-wiring
 Resume file: None
