@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 03-runtime-audit-web-hardening plan-01 intern-table-hardening
-last_updated: "2026-04-11T16:58:34.003Z"
+stopped_at: Completed 03-runtime-audit-web-hardening plan-04 portability-probe-ci
+last_updated: "2026-04-11T16:58:42.191Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
@@ -94,6 +94,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 03-runtime-audit-web-hardening]: IRON_WEB_MAX_WORKERS=4 kept private to iron_threads.c TU; elastic I/O pool uncapped on web; shutdown no-op via #ifndef __EMSCRIPTEN__ following existing #if defined(_WIN32) pattern
 - [Phase 03-runtime-audit-web-hardening]: tsan-first: tsan stress test PASSED — no DCL upgrade needed for iron_string_intern; single-mutex is race-free
 - [Phase 03-runtime-audit-web-hardening]: Thread-safety contract comment added to iron_string_intern documenting mutex-covers-full-critical-section and pthread_once memory-ordering
+- [Phase 03-runtime-audit-web-hardening]: emcc probe uses /tmp output paths (-o /tmp/iron_rc.o) not /dev/null so test -s confirms non-empty object files
+- [Phase 03-runtime-audit-web-hardening]: Grep invariant uses sh -c wrapper matching existing test_emsdk_pin_discipline style; labeled unit;web-portability for targeted ctest -L runs
 
 ### Pending Todos
 
@@ -109,6 +111,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T16:58:12.791Z
-Stopped at: Completed 03-runtime-audit-web-hardening plan-01 intern-table-hardening
+Last session: 2026-04-11T16:58:42.189Z
+Stopped at: Completed 03-runtime-audit-web-hardening plan-04 portability-probe-ci
 Resume file: None

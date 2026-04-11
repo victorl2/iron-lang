@@ -43,7 +43,7 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 - [ ] **WEB-RUNTIME-04**: Analyzer emits an error if `await` is reachable from `Iron_main()` when `--target=web`
 - [ ] **WEB-RUNTIME-05**: New file `src/stdlib/iron_time_web.c` provides `Iron_time_now()`, `Iron_time_now_ms()`, `Iron_time_now_ns()` via `emscripten_get_now()`
 - [ ] **WEB-RUNTIME-06**: Web build links `iron_time_web.c` instead of `iron_time.c` (no touches to `iron_time.c`)
-- [ ] **WEB-RUNTIME-07**: All existing runtime files (`iron_rc.c`, `iron_builtins.c`, `iron_collections.c`) compile cleanly under emcc with zero modifications
+- [x] **WEB-RUNTIME-07**: All existing runtime files (`iron_rc.c`, `iron_builtins.c`, `iron_collections.c`) compile cleanly under emcc with zero modifications
 
 ### LIR Main-Loop Transform (WEB-EMIT)
 
@@ -215,7 +215,7 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-RUNTIME-04 | Phase 3 — Runtime Audit | Pending |
 | WEB-RUNTIME-05 | Phase 4 — WASM-Safe Time Shim | Pending |
 | WEB-RUNTIME-06 | Phase 4 — WASM-Safe Time Shim | Pending |
-| WEB-RUNTIME-07 | Phase 3 — Runtime Audit | Pending |
+| WEB-RUNTIME-07 | Phase 3 — Runtime Audit | Complete |
 | WEB-EMIT-01 | Phase 5 — LIR Main-Loop Split Pass | Pending |
 | WEB-EMIT-02 | Phase 5 — LIR Main-Loop Split Pass | Pending |
 | WEB-EMIT-03 | Phase 5 — LIR Main-Loop Split Pass | Pending |
