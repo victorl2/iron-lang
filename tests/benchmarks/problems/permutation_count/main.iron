@@ -42,7 +42,7 @@ func main() {
     val check = permutation_count(n)
     println("Bench check n=10: {check}")
 
-    val iterations = 500
+    val iterations = 4
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

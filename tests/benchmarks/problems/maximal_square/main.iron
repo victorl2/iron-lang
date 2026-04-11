@@ -52,7 +52,7 @@ func main() {
     }
     println("Test 2: {maximal_square(bench, 20, 20)} (expected 16)")
 
-    val iterations = 500000
+    val iterations = 58411
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

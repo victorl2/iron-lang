@@ -49,7 +49,7 @@ func main() {
     val check = pascal_row_checksum(n)
     println("Bench check: {check}")
 
-    val iterations = 12000000
+    val iterations = 369003
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

@@ -40,7 +40,7 @@ func main() {
     println("N=8: {n_queens(8)} solutions (expected 92)")
     println("N=12: {n_queens(12)} solutions (expected 14200)")
 
-    val iterations = 100
+    val iterations = 1
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

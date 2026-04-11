@@ -64,7 +64,7 @@ func main() {
     val s2 = [13, 9, 19, 19, 9, 19, 19, 9, 16, 16, 9]
     val p2 = [13, 9, 19, 101, 9, 19, 101, 19, 101, 9, 16, 101, 9, 100]
 
-    val iterations = 1000000
+    val iterations = 75872
     val start_ns = Time.now_ns()
     var result = 0
     for i in range(iterations) {

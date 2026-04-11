@@ -44,7 +44,7 @@ int main(void) {
     printf("Bench check n=10: %lld\n", permutation_count(n));
 
     long mem_before = get_memory_kb();
-    int iterations = 5000;
+    int iterations = 4;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

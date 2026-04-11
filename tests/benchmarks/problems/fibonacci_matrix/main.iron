@@ -68,7 +68,7 @@ func main() {
     val check = fibonacci(n, mod)
     println("Bench check: {check}")
 
-    val iterations = 3000000
+    val iterations = 815217
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

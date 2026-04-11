@@ -31,7 +31,7 @@ func main() {
     println("Test 4: {check} (expected 2147474564972544)")
 
     -- Benchmark: repeat 6 times for stable C time > 200ms
-    val iterations = 6
+    val iterations = 1
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

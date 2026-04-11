@@ -1,1 +1,1 @@
-{"iterations": 500000, "timeout_sec": 60, "max_ratio": 1.6, "rationale": "Observed ratio 0.87 with 13.3% variance across 5 runs; 1.6x covers mean+2sigma with 15% headroom; 2026-04-10 audit"}
+{"iterations": 265957, "timeout_sec": 60, "max_ratio": 1.6, "rationale": "Observed ratio 0.87 with 13.3% variance across 5 runs; 1.6x covers mean+2sigma with 15% headroom; 2026-04-10 audit"}

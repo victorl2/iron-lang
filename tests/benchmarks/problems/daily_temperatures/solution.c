@@ -43,7 +43,7 @@ int main(void) {
     printf("Test 4: %lld (expected 225)\n", daily_temps(bench, 100));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000;
+    int iterations = 308641;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

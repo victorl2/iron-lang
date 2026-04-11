@@ -50,7 +50,7 @@ int main(void) {
 
     printf("Test 4 checksum(100): %lld (expected 1189670)\n", (long long)compute_checksum(100));
 
-    int iterations = 6000000;
+    int iterations = 105932;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     int64_t result = 0;

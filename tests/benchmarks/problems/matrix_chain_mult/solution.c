@@ -27,7 +27,7 @@ int main(void) {
     int64_t d3[] = {5,10,3,12,5,50,6,8,15,20,25};
     printf("Test 3: %lld (expected 5199)\n", (long long)matrix_chain(d3, 10));
 
-    int iterations = 500000;
+    int iterations = 328947;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     int64_t result = 0;

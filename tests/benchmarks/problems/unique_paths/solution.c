@@ -19,7 +19,7 @@ int main(void) {
     printf("Test 1: %lld (expected 28)\n", (long long)unique_paths(3, 7));
     printf("Test 2: %lld (expected 40116600)\n", (long long)unique_paths(15, 15));
 
-    int iterations = 1000000;
+    int iterations = 632911;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

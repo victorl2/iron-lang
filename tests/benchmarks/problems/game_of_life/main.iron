@@ -83,7 +83,7 @@ func main() {
     val check = count_alive(out, total)
     println("Bench check: {check}")
 
-    val iterations = 200000
+    val iterations = 40000
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

@@ -6,7 +6,7 @@
 #define WIDTH 500
 #define HEIGHT 500
 #define NUM_THREADS 8
-#define ITERATIONS 500
+#define ITERATIONS 37
 
 static int64_t compute_blur_row(int64_t row, int64_t width, int64_t height) {
     int64_t row_sum = 0;

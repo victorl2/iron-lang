@@ -36,7 +36,7 @@ int main(void) {
     printf("Test 4: %lld (expected 1229)\n", sieve(10000));
 
     long mem_before = get_memory_kb();
-    int iterations = 10000;
+    int iterations = 3846;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

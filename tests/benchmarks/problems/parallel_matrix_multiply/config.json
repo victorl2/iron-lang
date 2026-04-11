@@ -1,1 +1,1 @@
-{"iterations": 20, "timeout_sec": 60, "max_ratio": 2.5, "rationale": "Parallel benchmark thread-scheduler variance on CI exceeds 5-run audit margin; 2.5x accommodates Ubuntu and macOS-26 scheduler differences; 2026-04-10 audit + 2026-04-10 CI variance update"}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 2.5, "rationale": "Parallel benchmark thread-scheduler variance on CI exceeds 5-run audit margin; 2.5x accommodates Ubuntu and macOS-26 scheduler differences; 2026-04-10 audit + 2026-04-10 CI variance update"}

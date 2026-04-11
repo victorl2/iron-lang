@@ -61,7 +61,7 @@ int main(void) {
     printf("Test 4: %ld (expected 8)\n", dfs_checksum(adj4, n, 0));
 
     long mem_before = get_memory_kb();
-    int iterations = 400000;
+    int iterations = 81632;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

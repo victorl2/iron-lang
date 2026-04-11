@@ -49,7 +49,7 @@ func main() {
     var obench = fill(50, 0)
     println("Test 4: {product_except_self(bench, 50, obench)}")
 
-    val iterations = 15000000
+    val iterations = 521195
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

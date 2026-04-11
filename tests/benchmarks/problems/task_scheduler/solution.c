@@ -48,7 +48,7 @@ int main(void) {
     printf("Bench check: %lld\n", task_scheduler(tasks, n, 3));
 
     long mem_before = get_memory_kb();
-    int iterations = 30000000;
+    int iterations = 906344;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

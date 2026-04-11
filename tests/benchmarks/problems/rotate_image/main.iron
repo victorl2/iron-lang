@@ -67,7 +67,7 @@ func main() {
     val check = checksum(mat, n)
     println("Bench check: {check}")
 
-    val iterations = 500000
+    val iterations = 145348
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

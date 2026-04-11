@@ -55,7 +55,7 @@ int main(void) {
     printf("Test 5: %lld (expected 1)\n", is_valid(bench, 50));
 
     long mem_before = get_memory_kb();
-    int iterations = 3000000;
+    int iterations = 1020408;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

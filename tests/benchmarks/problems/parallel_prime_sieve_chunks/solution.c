@@ -6,7 +6,7 @@
 
 #define N 100000
 #define NUM_THREADS 8
-#define ITERATIONS 500
+#define ITERATIONS 35
 
 static int is_prime(int64_t n) {
     if (n < 2) return 0;

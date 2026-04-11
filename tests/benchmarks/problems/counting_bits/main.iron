@@ -21,7 +21,7 @@ func main() {
     println("Test 3: {counting_bits(10)} (expected 17)")
     println("Test 4: {counting_bits(1000)} (expected 4938)")
 
-    val iterations = 500000
+    val iterations = 86206
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

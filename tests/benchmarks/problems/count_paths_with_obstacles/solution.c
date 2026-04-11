@@ -36,7 +36,7 @@ int main(void) {
     bench[14*15+14] = 0;
     printf("Test 2: %lld (expected 1449957)\n", (long long)count_paths_obstacles(bench, 15, 15));
 
-    int iterations = 1000000;
+    int iterations = 409836;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

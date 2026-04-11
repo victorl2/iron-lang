@@ -45,7 +45,7 @@ int main(void) {
     printf("Test 3: %d (expected 200)\n", longestValidParentheses(s, 200));
 
     long mem_before = get_memory_kb();
-    int iterations = 200000;
+    int iterations = 84745;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

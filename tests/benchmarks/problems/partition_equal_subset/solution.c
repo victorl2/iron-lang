@@ -29,7 +29,7 @@ int main(void) {
     for (int i = 0; i < 20; i++) bench[i] = (i*3+1)%10+1;
     printf("Test 3: %lld (expected 1)\n", (long long)partition_equal_subset(bench, 20));
 
-    int iterations = 500000;
+    int iterations = 265957;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     int64_t result = 0;

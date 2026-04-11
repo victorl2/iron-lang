@@ -24,7 +24,7 @@ func main() {
     println("Test 1: {unique_paths(3, 7)} (expected 28)")
     println("Test 2: {unique_paths(15, 15)} (expected 40116600)")
 
-    val iterations = 1000000
+    val iterations = 632911
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

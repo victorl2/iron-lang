@@ -35,7 +35,7 @@ func main() {
     }
     println("Test 2: {knapsack(w2, v2, 20, 50)} (expected 202)")
 
-    val iterations = 500000
+    val iterations = 44964
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

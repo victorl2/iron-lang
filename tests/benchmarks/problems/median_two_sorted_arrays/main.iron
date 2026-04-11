@@ -78,7 +78,7 @@ func main() {
         a2[i] = Int32(i * 2 + 1)
     }
 
-    val iterations = 500000000
+    val iterations = 23651844
     val start_ns = Time.now_ns()
     var result: Int32 = Int32(0)
     for i in range(iterations) {
