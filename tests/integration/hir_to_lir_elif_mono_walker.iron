@@ -1,0 +1,55 @@
+-- Regression: collect_mono_enums_node misreading Iron_IfStmt layout.
+--
+-- Phase 37-02 introduced hir_to_lir.c :: collect_mono_enums_node, a
+-- recursive AST walker that collects monomorphized enum types. For
+-- the IF/WHILE/MATCH/RETURN/ASSIGN cases it declared local struct
+-- typedefs guessing at the layout instead of including parser/ast.h.
+-- Its `Iron_If` guess was:
+--
+--   typedef struct {
+--     Iron_Span s; Iron_NodeKind k;
+--     Iron_Node *cond; Iron_Node *then_block; Iron_Node *else_block;
+--   } Iron_If;
+--
+-- The real Iron_IfStmt has `elif_conds[]` + `elif_bodies[]` + `elif_count`
+-- fields between `body` and `else_body`, so the guess read
+-- `iff->else_block` at the `elif_conds` offset — an stb_ds array pointer
+-- — then recursed into the stb_ds header as an Iron_Node*. On macOS
+-- arm64 the garbage bytes landed in the switch default case (silent);
+-- on Linux x86_64 Release they landed in a handled Iron_NodeKind value
+-- and the recursion walked off into the heap, SIGSEGV.
+--
+-- Symptom: Benchmark workflow on Ubuntu reported
+--   `find_first_last: Iron compilation failed`
+-- with ironc segfaulting (exit 139) on `ironc build` of any program
+-- containing an `if/elif/else` chain, non-deterministically on which
+-- programs crashed based on heap layout.
+--
+-- This fixture compiles into an if/elif/else chain and must execute
+-- correctly. If a future change to collect_mono_enums_node regresses
+-- the Iron_IfStmt layout assumption, ironc will crash during build,
+-- test_integration will fail, and the regression is immediately
+-- bisectable.
+func classify(n: Int) -> Int {
+    var bucket = -1
+    if n < 0 {
+        bucket = 0
+    } elif n == 0 {
+        bucket = 1
+    } elif n < 10 {
+        bucket = 2
+    } elif n < 100 {
+        bucket = 3
+    } else {
+        bucket = 4
+    }
+    return bucket
+}
+
+func main() {
+    var total = 0
+    for i in range(10) {
+        total = total + classify(i - 5)
+    }
+    println("total: {total}")
+}
