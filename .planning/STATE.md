@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 05-lir-main-loop-split-pass-high-risk plan-01 lir-struct-and-diagnostic-codes
-last_updated: "2026-04-11T19:11:55.775Z"
+stopped_at: Completed 05-lir-main-loop-split-pass-high-risk plan-02 web-main-loop-split-pass
+last_updated: "2026-04-11T19:27:33.699Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 4
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 0
 ---
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 04-wasm-safe-time-shim P01 | 712s | 1 tasks | 1 files |
 | Phase 04-wasm-safe-time-shim P02 | 730s | 2 tasks | 2 files |
 | Phase 05 P01 | 1039s | 2 tasks | 2 files |
+| Phase 05-lir-main-loop-split-pass-high-risk P02 | 722s | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 05]: web_frame_captures kept separate from capture_metadata to avoid corrupting lifted-lambda emission in emit_c.c
 - [Phase 05]: 700 range chosen for Phase 5 web LIR errors; upward from 704 reserved for Phase 6+ web passes
 - [Phase 05]: Single IRON_ERR_WEB_NON_CANONICAL_MAIN_LOOP covers all non-while shapes (for-loops, compound conditions) — avoids HIR-level loop-shape plumbing into LIR
+- [Phase 05-lir-main-loop-split-pass-high-risk]: ws_ helpers copied from lir_optimize.c (not exposed via header) to avoid mutating a heavily-included interface
+- [Phase 05-lir-main-loop-split-pass-high-risk]: Metadata-only pass in Phase 5; LOAD/STORE rewrites deferred to Phase 6 emit_web.c per RESEARCH.md recommendation
 
 ### Pending Todos
 
@@ -125,6 +128,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T19:11:55.772Z
-Stopped at: Completed 05-lir-main-loop-split-pass-high-risk plan-01 lir-struct-and-diagnostic-codes
+Last session: 2026-04-11T19:27:33.696Z
+Stopped at: Completed 05-lir-main-loop-split-pass-high-risk plan-02 web-main-loop-split-pass
 Resume file: None

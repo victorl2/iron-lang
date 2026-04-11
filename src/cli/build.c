@@ -35,6 +35,7 @@
 #include "hir/hir_to_lir.h"
 #include "lir/emit_c.h"
 #include "lir/lir_optimize.h"
+#include "lir/web_main_loop_split.h"
 #include "lir/print.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
@@ -1032,6 +1033,35 @@ int iron_build(const char *source_path, const char *output_path,
     IronLIR_OptimizeInfo optimize_info;
     iron_lir_optimize(ir_module, &optimize_info, &arena,
                      opts.dump_ir_passes, opts.no_optimize);
+
+    /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
+     *
+     * Detects the canonical `while(!WindowShouldClose())` shape on
+     * --target=web and populates fn->web_frame_captures with outer-scope
+     * locals that the loop body reads or writes. On --target=native this
+     * is a zero-cost early return at the pass entry point.
+     *
+     * NOTE: today this code path runs only on the native build — web
+     * builds short-circuit to iron_build_web() at the top of iron_build().
+     * Phase 6 will refactor iron_build_web to reuse this pipeline, at
+     * which point the call below becomes the single source of truth for
+     * both targets. Landing it here now makes the wiring forward-
+     * compatible so Phase 6 only adds its emit-time code, not its own
+     * call site.
+     */
+    iron_lir_web_main_loop_split(ir_module, &arena, &diags, opts.target);
+    if (diags.error_count > 0) {
+        iron_diag_print_all(&diags, source);
+        iron_diaglist_free(&diags);
+        iron_lir_optimize_info_free(&optimize_info);
+        iron_lir_module_destroy(ir_module);
+        iron_arena_free(&ir_arena);
+        iron_hir_module_destroy(hir_module);
+        iron_arena_free(&arena);
+        free(source);
+        free(base_dir);
+        return 1;
+    }
 
     /* 8. Emit C from IR */
     const char *c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
