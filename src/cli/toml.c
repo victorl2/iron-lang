@@ -207,6 +207,71 @@ static const char *KNOWN_SECTIONS[] = {
     NULL
 };
 
+/* ── Helper: parse TOML inline string array into char** + count ─────────── */
+/*
+ * Given a string starting with '[', parses comma-separated quoted strings.
+ * Example: ["a.png", "b.png"]
+ * Fills *out_arr (malloc'd array of strdup'd strings) and *out_count.
+ * Returns 0 on success, non-zero on malformed input (frees partial results).
+ * The helper is kept static; do NOT expose in any header.
+ */
+static int parse_toml_string_array(const char *val, char ***out_arr, int *out_count) {
+    const char *p = val;
+    /* skip leading whitespace and '[' */
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != '[') return 1;
+    p++; /* skip '[' */
+
+    char **arr = NULL;
+    int count  = 0;
+    int cap    = 0;
+
+    while (1) {
+        /* skip whitespace */
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (!*p) goto fail; /* unexpected end */
+        if (*p == ']') break; /* end of array */
+
+        /* expect opening quote */
+        if (*p != '"') goto fail;
+        p++; /* skip '"' */
+        const char *elem_start = p;
+        while (*p && *p != '"') p++;
+        if (*p != '"') goto fail; /* unclosed quote */
+        size_t elem_len = (size_t)(p - elem_start);
+        p++; /* skip closing '"' */
+
+        /* grow array if needed */
+        if (count >= cap) {
+            int new_cap = cap == 0 ? 4 : cap * 2;
+            char **new_arr = (char **)realloc(arr, sizeof(char *) * (size_t)new_cap);
+            if (!new_arr) goto fail;
+            arr = new_arr;
+            cap = new_cap;
+        }
+        char *elem = (char *)malloc(elem_len + 1);
+        if (!elem) goto fail;
+        memcpy(elem, elem_start, elem_len);
+        elem[elem_len] = '\0';
+        arr[count++] = elem;
+
+        /* skip whitespace then optional ',' */
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p == ',') p++;
+    }
+
+    *out_arr   = arr;
+    *out_count = count;
+    return 0;
+
+fail:
+    for (int fi = 0; fi < count; fi++) free(arr[fi]);
+    free(arr);
+    *out_arr   = NULL;
+    *out_count = 0;
+    return 1;
+}
+
 /* ── iron_toml_parse ─────────────────────────────────────────────────────── */
 
 IronProject *iron_toml_parse(const char *path) {
@@ -319,6 +384,69 @@ IronProject *iron_toml_parse(const char *path) {
                 dep->git     = extract_inline_field(val_str, "git");
                 dep->version = extract_inline_field(val_str, "version");
                 proj->dep_count++;
+            }
+        } else if (section == 3) {
+            /* [web] section (Phase 2 — WEB-MANIFEST-01..08) */
+            if (strcmp(key, "title") == 0) {
+                free(proj->web.title);
+                proj->web.title = extract_value(val_str);
+            } else if (strcmp(key, "shell") == 0) {
+                free(proj->web.shell);
+                proj->web.shell = extract_value(val_str);
+            } else if (strcmp(key, "initial_memory") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr, "warning: [web].initial_memory must be a positive integer (got '%s', ignored)\n", val_str);
+                } else {
+                    proj->web.initial_memory = (int)v;
+                }
+            } else if (strcmp(key, "stack_size") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr, "warning: [web].stack_size must be a positive integer (got '%s', ignored)\n", val_str);
+                } else {
+                    proj->web.stack_size = (int)v;
+                }
+            } else if (strcmp(key, "pthread_pool_size") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr, "warning: [web].pthread_pool_size must be a positive integer (got '%s', ignored)\n", val_str);
+                } else {
+                    proj->web.pthread_pool_size = (int)v;
+                }
+            } else if (strcmp(key, "assets") == 0) {
+                /* Free previously-set assets (last-write-wins) */
+                for (int ai = 0; ai < proj->web.asset_count; ai++) free(proj->web.assets[ai]);
+                free(proj->web.assets);
+                proj->web.assets = NULL;
+                proj->web.asset_count = 0;
+                /* Determine array vs scalar form */
+                const char *trimmed = val_str;
+                while (*trimmed && isspace((unsigned char)*trimmed)) trimmed++;
+                if (*trimmed == '[') {
+                    if (parse_toml_string_array(trimmed, &proj->web.assets, &proj->web.asset_count) != 0) {
+                        fprintf(stderr, "warning: [web].assets malformed (ignored)\n");
+                        proj->web.assets = NULL;
+                        proj->web.asset_count = 0;
+                    }
+                } else {
+                    /* Scalar string form — normalize to one-element array */
+                    char *one = extract_value(val_str);
+                    if (one) {
+                        proj->web.assets = (char **)malloc(sizeof(char *));
+                        if (proj->web.assets) {
+                            proj->web.assets[0] = one;
+                            proj->web.asset_count = 1;
+                        } else {
+                            free(one);
+                        }
+                    }
+                }
+            } else {
+                fprintf(stderr, "warning: unknown [web] key '%s' (ignored)\n", key);
             }
         }
     }
