@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Documentation — Iron Language</title>
-  <meta name="description" content="Complete language reference for the Iron programming language. Types, objects, functions, memory management, concurrency, and more.">
+  <meta name="description" content="Complete language reference for the Iron programming language. Types, objects, functions, memory management, concurrency, networking, URLs, and more.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -306,6 +306,14 @@
       margin-bottom: 0.75rem;
     }
 
+    .content h4 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: var(--text);
+    }
+
     .content p {
       margin-bottom: 1rem;
       color: var(--text-secondary);
@@ -568,6 +576,7 @@
       <div class="sidebar-section">
         <h3>Functions</h3>
         <a href="#functions">Functions &amp; Methods</a>
+        <a href="#tuples">Tuple Returns</a>
         <a href="#lambdas">Lambdas</a>
       </div>
       <div class="sidebar-section">
@@ -600,6 +609,8 @@
       <div class="sidebar-section">
         <h3>Reference</h3>
         <a href="#standard-library">Standard Library</a>
+        <a href="#net-module">Networking (net)</a>
+        <a href="#url-module">URL Module</a>
         <a href="#keywords">Keywords</a>
         <a href="#full-example">Full Example</a>
       </div>
@@ -933,16 +944,22 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
   player.<span class="pr">hp</span> += amount   <span class="cm">-- ok, modifies original</span>
 }</pre></div>
 
-      <h3>Multiple Return Values</h3>
-      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">divide</span>(a: <span class="ty">Float</span>, b: <span class="ty">Float</span>) -> <span class="ty">Float</span>, <span class="ty">Err?</span> {
+      <h3 id="tuples">Tuple Returns</h3>
+      <p>Functions can return tuples using parenthesised type lists. Call sites destructure with <code>val (a, b) = f()</code>. Tuples are first-class, can contain any mix of primitives and objects, and are how the stdlib reports <code>(value, error)</code> pairs.</p>
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">divide</span>(a: <span class="ty">Float</span>, b: <span class="ty">Float</span>) -> (<span class="ty">Float</span>, <span class="ty">NetError</span>) {
   <span class="kw">if</span> b == <span class="nu">0.0</span> {
-    <span class="kw">return</span> <span class="nu">0.0</span>, <span class="ty">Err</span>(<span class="st">"division by zero"</span>)
+    <span class="kw">return</span> (<span class="nu">0.0</span>, <span class="ty">NetError</span>(<span class="nu">1</span>))
   }
-  <span class="kw">return</span> a / b, <span class="kw">null</span>
+  <span class="kw">return</span> (a / b, <span class="ty">NetError</span>(<span class="nu">0</span>))
 }
 
-<span class="kw">val</span> result, <span class="kw">val</span> err = <span class="fn">divide</span>(<span class="nu">10.0</span>, <span class="nu">0.0</span>)
-<span class="kw">val</span> result, _ = <span class="fn">divide</span>(<span class="nu">10.0</span>, <span class="nu">3.0</span>)  <span class="cm">-- discard error</span></pre></div>
+<span class="kw">val</span> (result, err) = <span class="fn">divide</span>(<span class="nu">10.0</span>, <span class="nu">0.0</span>)
+<span class="kw">if</span> err.<span class="pr">code</span> != <span class="nu">0</span> { <span class="fn">println</span>(<span class="st">"error {err.code}"</span>) }
+
+<span class="cm">-- mixed heterogeneous tuples work too</span>
+<span class="kw">func</span> <span class="fn">describe</span>() -> (<span class="ty">Int</span>, <span class="ty">String</span>) { <span class="kw">return</span> (<span class="nu">42</span>, <span class="st">"hello"</span>) }
+<span class="kw">val</span> (n, s) = <span class="fn">describe</span>()</pre></div>
+      <p>The codegen lays tuples out as contiguous structs, so calling <code>Net.tcp_dial("host", 80, 2000)</code> returns a <code>(TcpSocket, NetError)</code> pair in a single allocation &mdash; no boxing, no heap traffic on the happy path.</p>
 
       <!-- Lambdas -->
       <h2 id="lambdas">Lambdas</h2>
@@ -1290,6 +1307,101 @@ log.<span class="fn">error</span>(<span class="st">"failed to load texture"</spa
 log.<span class="fn">debug</span>(<span class="st">"player pos: {player.pos}"</span>)
 
 log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></div>
+
+      <h3 id="net-module"><code>net</code> Module</h3>
+      <p>TCP client/server, UDP, DNS, and typed IP addresses. Every fallible call returns a <code>(value, NetError)</code> tuple &mdash; the error is always a concrete value, never an exception. All timeouts are integer milliseconds.</p>
+
+      <h4>TCP Client &amp; Server</h4>
+      <div class="code-block"><pre><span class="kw">import</span> net
+
+<span class="cm">-- dial a TCP peer with a 2-second budget</span>
+<span class="kw">val</span> (sock, err) = <span class="ty">Net</span>.<span class="fn">tcp_dial</span>(<span class="st">"example.com"</span>, <span class="nu">80</span>, <span class="nu">2000</span>)
+<span class="kw">if</span> err.<span class="pr">code</span> != <span class="nu">0</span> {
+  <span class="fn">println</span>(<span class="st">"dial failed: {err.code}"</span>)
+  <span class="kw">return</span>
+}
+<span class="kw">defer</span> <span class="ty">TcpSocket</span>.<span class="fn">close</span>(sock)
+
+<span class="kw">val</span> (nw, werr) = <span class="ty">TcpSocket</span>.<span class="fn">write</span>(sock, <span class="st">"GET / HTTP/1.0\r\n\r\n"</span>, <span class="nu">1000</span>)
+
+<span class="cm">-- listen on all interfaces (dual-stack when host is "::")</span>
+<span class="kw">val</span> (listener, lerr) = <span class="ty">Net</span>.<span class="fn">tcp_listen</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">34503</span>)
+<span class="kw">defer</span> <span class="ty">TcpListener</span>.<span class="fn">close</span>(listener)
+
+<span class="kw">val</span> (peer, aerr) = <span class="ty">TcpListener</span>.<span class="fn">accept</span>(listener, <span class="nu">1000</span>)
+<span class="kw">if</span> aerr.<span class="pr">code</span> == <span class="nu">0</span> {
+  <span class="ty">TcpSocket</span>.<span class="fn">close</span>(peer)
+}</pre></div>
+
+      <h4>UDP</h4>
+      <div class="code-block"><pre><span class="cm">-- bind an ephemeral port (0 asks the OS to pick)</span>
+<span class="kw">val</span> (udp, uerr) = <span class="ty">Net</span>.<span class="fn">udp_bind</span>(<span class="st">"0.0.0.0"</span>, <span class="nu">0</span>)
+<span class="kw">defer</span> <span class="ty">UdpSocket</span>.<span class="fn">close</span>(udp)
+
+<span class="kw">val</span> (dst, _) = <span class="ty">IPv4Addr</span>.<span class="fn">parse</span>(<span class="st">"127.0.0.1"</span>)
+<span class="kw">val</span> (sent, serr) = <span class="ty">Net</span>.<span class="fn">udp_sendto_v4</span>(udp, <span class="st">"ping"</span>, dst, <span class="nu">5353</span>, <span class="nu">1000</span>)</pre></div>
+
+      <h4>IP Addresses</h4>
+      <p>IPv4 and IPv6 addresses are typed values with <code>parse</code> / <code>format</code> helpers. The <code>Address</code> enum is the tagged union DNS lookups return.</p>
+      <div class="code-block"><pre><span class="kw">val</span> (v4, _) = <span class="ty">IPv4Addr</span>.<span class="fn">parse</span>(<span class="st">"10.0.0.1"</span>)
+<span class="fn">println</span>(<span class="ty">IPv4Addr</span>.<span class="fn">format</span>(v4))
+
+<span class="kw">val</span> (v6, _) = <span class="ty">IPv6Addr</span>.<span class="fn">parse</span>(<span class="st">"2001:db8::1"</span>)
+
+<span class="cm">-- Address ADT: Net.lookup_host returns [Address]</span>
+<span class="kw">enum</span> <span class="ty">Address</span> {
+  <span class="pr">V4</span>(<span class="ty">IPv4Addr</span>),
+  <span class="pr">V6</span>(<span class="ty">IPv6Addr</span>),
+}</pre></div>
+
+      <h4>DNS</h4>
+      <p>Asynchronous hostname resolution backed by an elastic thread pool. If a worker hangs on <code>getaddrinfo</code> the caller still returns promptly on its own deadline with <code>IRON_ERR_NET_TIMEOUT</code> &mdash; the pool grows a replacement worker on demand.</p>
+      <div class="code-block"><pre><span class="kw">val</span> (addrs, err) = <span class="ty">Net</span>.<span class="fn">lookup_host</span>(<span class="st">"example.com"</span>, <span class="nu">2000</span>)
+<span class="kw">if</span> err.<span class="pr">code</span> != <span class="nu">0</span> {
+  <span class="fn">println</span>(<span class="st">"lookup failed"</span>)
+  <span class="kw">return</span>
+}
+
+<span class="kw">for</span> a <span class="kw">in</span> addrs {
+  <span class="kw">match</span> a {
+    <span class="ty">Address</span>.<span class="pr">V4</span>(v4) -> <span class="fn">println</span>(<span class="ty">IPv4Addr</span>.<span class="fn">format</span>(v4))
+    <span class="ty">Address</span>.<span class="pr">V6</span>(v6) -> <span class="fn">println</span>(<span class="ty">IPv6Addr</span>.<span class="fn">format</span>(v6))
+  }
+}</pre></div>
+
+      <h3 id="url-module"><code>url</code> Module</h3>
+      <p>RFC 3986 URL parser, builder, resolver, and percent codec &mdash; implemented in pure Iron with no C backing. Fallible calls return <code>(value, UrlError)</code> tuples in the same shape as the <code>net</code> module.</p>
+      <div class="code-block"><pre><span class="kw">import</span> url
+
+<span class="cm">-- parse an absolute URL</span>
+<span class="kw">val</span> (u, e) = <span class="ty">Url</span>.<span class="fn">parse</span>(<span class="st">"https://victor@example.com:8443/docs?q=iron#top"</span>)
+<span class="kw">if</span> e.<span class="pr">code</span> == <span class="nu">0</span> {
+  <span class="fn">println</span>(u.<span class="pr">scheme</span>)     <span class="cm">-- "https"</span>
+  <span class="fn">println</span>(u.<span class="pr">host</span>)       <span class="cm">-- "example.com"</span>
+  <span class="fn">println</span>(u.<span class="pr">port</span>)       <span class="cm">-- 8443</span>
+  <span class="fn">println</span>(u.<span class="pr">path</span>)       <span class="cm">-- "/docs"</span>
+  <span class="fn">println</span>(u.<span class="pr">query</span>)      <span class="cm">-- "q=iron"</span>
+  <span class="fn">println</span>(u.<span class="pr">fragment</span>)   <span class="cm">-- "top"</span>
+}
+
+<span class="cm">-- RFC 3986 §5 reference resolution</span>
+<span class="kw">val</span> (base, _) = <span class="ty">Url</span>.<span class="fn">parse</span>(<span class="st">"https://example.com/a/b/c"</span>)
+<span class="kw">val</span> (abs, _)  = <span class="ty">Url</span>.<span class="fn">resolve</span>(base, <span class="st">"../d"</span>)
+<span class="fn">println</span>(<span class="ty">Url</span>.<span class="fn">build</span>(abs))    <span class="cm">-- "https://example.com/a/d"</span>
+
+<span class="cm">-- fluent builder</span>
+<span class="kw">val</span> s = <span class="ty">Url</span>.<span class="fn">builder</span>()
+  .<span class="fn">set_scheme</span>(<span class="st">"https"</span>)
+  .<span class="fn">set_host</span>(<span class="st">"api.example.com"</span>)
+  .<span class="fn">set_path</span>(<span class="st">"/v1/ping"</span>)
+  .<span class="fn">build</span>()
+
+<span class="cm">-- percent codec</span>
+<span class="kw">val</span> enc = <span class="ty">Url</span>.<span class="fn">percent_encode</span>(<span class="st">"hello world"</span>, <span class="kw">false</span>)
+<span class="kw">val</span> (dec, _) = <span class="ty">Url</span>.<span class="fn">percent_decode</span>(<span class="st">"hello%20world"</span>)
+
+<span class="cm">-- scheme default ports</span>
+<span class="fn">println</span>(<span class="ty">Url</span>.<span class="fn">default_port</span>(<span class="st">"https"</span>))  <span class="cm">-- 443</span></pre></div>
 
       <!-- Comments -->
       <h2 id="comments">Comments</h2>
