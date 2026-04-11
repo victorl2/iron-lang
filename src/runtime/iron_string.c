@@ -158,6 +158,34 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
 
 /* ── Interning ───────────────────────────────────────────────────────────── */
 
+/* Thread-safety contract (WEB-RUNTIME-01):
+ *
+ * The intern table is protected by a single mutex `s_intern_lock` that
+ * covers the entire shgeti/shput critical section. Lock initialization
+ * uses `pthread_once` (POSIX) or `InitOnceExecuteOnce` (Win32), both of
+ * which provide sequentially-consistent happens-before for first-reader
+ * visibility of the mutex.
+ *
+ * Under Emscripten + SharedArrayBuffer + -pthread:
+ *   - Worker threads calling iron_string_intern() block on
+ *     pthread_mutex_lock, which maps to Atomics.wait. This is permitted
+ *     on non-main (Web Worker) threads.
+ *   - The main browser thread calls iron_string_intern() indirectly only
+ *     via iron_runtime_init() at program start, before any worker spawn.
+ *     That lock acquire is uncontested and returns immediately, which is
+ *     safe on the main thread (no actual Atomics.wait suspension).
+ *   - PROXY_TO_PTHREAD is a forbidden emcc flag (WEB-BUILD-07), so
+ *     iron_runtime_init genuinely runs on the browser main thread; the
+ *     uncontested-at-init invariant is enforced by compile-time flag
+ *     policy.
+ *
+ * A double-checked read path using IRON_ATOMIC_LOAD on a snapshot pointer
+ * is NOT required: the single-mutex pattern is race-free. This invariant
+ * is empirically verified by tests/unit/test_string_intern_race.c under
+ * ThreadSanitizer. If that test ever reports a data race, THIS COMMENT
+ * IS WRONG and a DCL upgrade is required — see CONTEXT.md for the
+ * upgrade playbook.
+ */
 Iron_String iron_string_intern(Iron_String s) {
     const char *cstr = iron_string_cstr(&s);
     size_t      blen = iron_string_byte_len(&s);
