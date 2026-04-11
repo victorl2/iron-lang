@@ -684,8 +684,8 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 /* emit_fused_chain moved to emit_fusion.c (Phase 52, Plan 03) */
 
 
-static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
-                        IronLIR_Func *fn, EmitCtx *ctx) {
+void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                IronLIR_Func *fn, EmitCtx *ctx) {
     int ind = ctx->indent;
 
     /* Expression inlining: skip emission of inlineable values — they will be
@@ -4160,8 +4160,8 @@ static bool is_lifted_func(const char *name) {
     return strncmp(name, "__", 2) == 0;
 }
 
-static void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
-                                 EmitCtx *ctx, bool with_newline) {
+void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
+                         EmitCtx *ctx, bool with_newline) {
     const char *ret_c = fn->return_type
                         ? emit_type_to_c(fn->return_type, ctx)
                         : "void";
@@ -4206,7 +4206,7 @@ static void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
     }
 }
 
-static void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
+void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     /* Choose target buffer: lifted functions go to lifted_funcs */
     Iron_StrBuf *sb = is_lifted_func(fn->name)
                       ? &ctx->lifted_funcs

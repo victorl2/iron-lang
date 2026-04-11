@@ -198,4 +198,18 @@ const char *emit_resolve_label(IronLIR_Func *fn, IronLIR_BlockId id, Iron_Arena 
 
 void emit_ctx_cleanup(EmitCtx *ctx);
 
+/* ── Function + instruction emission (shared with emit_web.c, Phase 6) ──
+ *
+ * These three helpers are defined in src/lir/emit_c.c. They were static
+ * until Phase 6 plan 01 promoted them so that src/lir/emit_web.c can
+ * reuse the native emitter's function-body + per-instruction dispatch
+ * path for every non-main-loop function and for the frame-callback
+ * body of the main-loop function. Zero behavioral change in emit_c.c.
+ */
+void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
+                         EmitCtx *ctx, bool with_newline);
+void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn);
+void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                IronLIR_Func *fn, EmitCtx *ctx);
+
 #endif /* IRON_EMIT_HELPERS_H */
