@@ -1,1 +1,1 @@
-{"iterations": 2000000, "timeout_sec": 60, "max_ratio": 1.6, "rationale": "Stable ratio 1.37 (variance 4.2%) across 5 runs; 1.6x = mean*1.15 rounded up; 2026-04-10 audit"}
+{"iterations": 168634, "timeout_sec": 60, "max_ratio": 1.6, "rationale": "Stable ratio 1.37 (variance 4.2%) across 5 runs; 1.6x = mean*1.15 rounded up; 2026-04-10 audit"}

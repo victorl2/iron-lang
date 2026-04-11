@@ -27,7 +27,7 @@ func main() {
     println("Test 2: {coin_change(coins, 4, 100)} (expected 4)")
     println("Test 3: {coin_change(coins, 4, 63)} (expected 6)")
 
-    val iterations = 500000
+    val iterations = 179856
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

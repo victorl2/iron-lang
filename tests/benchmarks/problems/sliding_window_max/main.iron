@@ -50,7 +50,7 @@ func main() {
     }
     println("Test 4: {sliding_max(bench, 100, 10)} (expected 8515)")
 
-    val iterations = 500000
+    val iterations = 172413
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

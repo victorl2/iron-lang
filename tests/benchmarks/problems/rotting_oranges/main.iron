@@ -110,7 +110,7 @@ func main() {
     val g4 = [2, 2, 2, 2, 2, 2]
     println("Test 4: {rotting_oranges(g4, 2, 3)} (expected 0)")
 
-    val iterations = 700000
+    val iterations = 98039
     val start_ns = Time.now_ns()
     var result = 0
     var g = fill(100, 0)

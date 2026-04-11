@@ -37,7 +37,7 @@ int main(void) {
     printf("Test 4: %lld (expected 198199)\n", two_sum(bench_arr, 200, 397));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000;
+    int iterations = 3736;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

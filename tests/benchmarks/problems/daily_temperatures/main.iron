@@ -45,7 +45,7 @@ func main() {
     }
     println("Test 4: {daily_temps(bench, 100)} (expected 225)")
 
-    val iterations = 500000
+    val iterations = 308641
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

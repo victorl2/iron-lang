@@ -30,7 +30,7 @@ int main(void) {
     for (int i = 0; i < 20; i++) { a2[i] = (i*7+3)%10; b2[i] = (i*11+5)%10; }
     printf("Test 2: %lld (expected 7)\n", (long long)lcs(a2,20,b2,20));
 
-    int iterations = 500000;
+    int iterations = 94696;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

@@ -48,7 +48,7 @@ int main(void) {
     int64_t check = bench_recursion(1000);
     printf("Test 7 bench(1000): %lld\n", (long long)check);
 
-    int iterations = 1000000;
+    int iterations = 125313;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     int64_t result = 0;

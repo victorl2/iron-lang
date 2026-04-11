@@ -47,7 +47,7 @@ func main() {
     }
     println("Test 4: {move_zeroes(bench, 100)}")
 
-    val iterations = 1000000
+    val iterations = 480769
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

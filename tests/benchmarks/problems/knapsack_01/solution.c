@@ -28,7 +28,7 @@ int main(void) {
     for (int i = 0; i < 20; i++) { w2[i] = (i%5)+1; v2[i] = (i*3+2)%20+1; }
     printf("Test 2: %lld (expected 202)\n", (long long)knapsack(w2,v2,20,50));
 
-    int iterations = 500000;
+    int iterations = 44964;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

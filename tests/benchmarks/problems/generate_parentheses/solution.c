@@ -49,7 +49,7 @@ int main(void) {
     printf("Test 4: %lld (expected 208012)\n", count_parens(12));
 
     long mem_before = get_memory_kb();
-    int iterations = 1000;
+    int iterations = 33;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

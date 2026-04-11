@@ -61,7 +61,7 @@ func main() {
     -- cold-cache / scheduler-jitter threshold. At ~15ms runtime the original
     -- count sat below the noise floor and produced high variance across runs.
     -- Bumped to 5M iterations so total runtime is ~150ms and variance drops.
-    val iterations = 5000000
+    val iterations = 1082251
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

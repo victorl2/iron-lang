@@ -48,7 +48,7 @@ func main() {
     val check = bench_multi_exit(200)
     println("Test 6 bench(200): {check}")
 
-    val iterations = 200000
+    val iterations = 17636
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

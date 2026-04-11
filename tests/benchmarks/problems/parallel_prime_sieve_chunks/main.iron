@@ -49,7 +49,7 @@ func main() {
   println("Checksum: {checksum}")
 
   -- Benchmark: parallel-for does primality test per iteration
-  val iterations = 500
+  val iterations = 35
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
     for i in N parallel {

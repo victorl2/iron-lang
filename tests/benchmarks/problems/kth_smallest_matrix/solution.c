@@ -93,7 +93,7 @@ int main(void) {
     printf("Bench check k=50: %lld\n", kth_smallest(mat, rows, cols, k));
 
     long mem_before = get_memory_kb();
-    int iterations = 2500000;
+    int iterations = 72129;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

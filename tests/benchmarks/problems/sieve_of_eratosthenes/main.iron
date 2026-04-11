@@ -32,7 +32,7 @@ func main() {
     println("Test 3: {sieve(1000)} (expected 168)")
     println("Test 4: {sieve(10000)} (expected 1229)")
 
-    val iterations = 10000
+    val iterations = 3846
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

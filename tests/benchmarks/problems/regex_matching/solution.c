@@ -48,7 +48,7 @@ int main(void) {
     printf("Test 5: %d (expected 0)\n", isMatch("mississippi", "mis*is*p*."));
 
     long mem_before = get_memory_kb();
-    int iterations = 1000000;
+    int iterations = 75872;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

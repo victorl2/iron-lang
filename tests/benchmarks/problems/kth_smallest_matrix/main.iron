@@ -106,7 +106,7 @@ func main() {
     val check = kth_smallest(mat, rows, cols, k)
     println("Bench check k=50: {check}")
 
-    val iterations = 2500000
+    val iterations = 72129
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

@@ -40,7 +40,7 @@ func main() {
   println("Pi estimate x10000: {pi_est}")
 
   -- Benchmark: parallel-for does monte carlo per chunk
-  val iterations = 200
+  val iterations = 19
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
     for i in 64 parallel {

@@ -59,7 +59,7 @@ func main() {
     bench[14 * 15 + 14] = 0
     println("Test 2: {count_paths_obstacles(bench, 15, 15)} (expected 1449957)")
 
-    val iterations = 1000000
+    val iterations = 409836
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

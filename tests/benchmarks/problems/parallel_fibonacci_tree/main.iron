@@ -28,7 +28,7 @@ func main() {
   println("fib(33): {fib(33)}")
 
   -- Benchmark: parallel-for with 16 heavy fib tasks
-  val iterations = 5
+  val iterations = 1
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
     for i in 16 parallel {

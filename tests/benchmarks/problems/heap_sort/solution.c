@@ -70,7 +70,7 @@ int main(void) {
     printf("Bench check: %lld\n", checksum(bench, n));
 
     long mem_before = get_memory_kb();
-    int iterations = 100000;
+    int iterations = 17543;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

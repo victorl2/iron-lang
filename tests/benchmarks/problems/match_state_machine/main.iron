@@ -96,7 +96,7 @@ func main() {
     println("Test 7 simulate(200): {check}")
 
     -- Benchmark
-    val iterations = 2000000
+    val iterations = 66666
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

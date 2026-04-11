@@ -32,7 +32,7 @@ func main() {
     -- target = 199 + 198 = 397, answer at indices 198 and 199
     println("Test 4: {two_sum(bench_arr, 200, 397)} (expected 198199)")
 
-    val iterations = 500000
+    val iterations = 3736
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

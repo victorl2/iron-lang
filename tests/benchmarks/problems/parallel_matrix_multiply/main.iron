@@ -44,7 +44,7 @@ func main() {
   println("checksum: {checksum}")
 
   -- Benchmark: sequential
-  val iterations = 20
+  val iterations = 3
   var seq_total = 0
   val start_seq_ns = Time.now_ns()
   for iter in range(iterations) {

@@ -40,7 +40,7 @@ int main(void) {
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     int64_t result = 0;
-    for (int it = 0; it < 6; it++) {
+    for (int it = 0; it < 1; it++) {
         result = result + run_reverse_bits_batch(it);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);

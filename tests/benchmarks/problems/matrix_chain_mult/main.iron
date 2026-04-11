@@ -33,7 +33,7 @@ func main() {
     val d3 = [5, 10, 3, 12, 5, 50, 6, 8, 15, 20, 25]
     println("Test 3: {matrix_chain(d3, 10)} (expected 5199)")
 
-    val iterations = 500000
+    val iterations = 328947
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

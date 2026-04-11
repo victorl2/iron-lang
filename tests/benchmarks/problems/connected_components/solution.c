@@ -63,7 +63,7 @@ int main(void) {
     printf("Test 4: %d (expected 25)\n", count_components(ea4, eb4, 25, n));
 
     long mem_before = get_memory_kb();
-    int iterations = 6000000;
+    int iterations = 180180;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

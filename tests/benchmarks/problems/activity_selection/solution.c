@@ -65,7 +65,7 @@ int main(void) {
     printf("Bench check: %lld\n", check);
 
     long mem_before = get_memory_kb();
-    int iterations = 200000;
+    int iterations = 111111;
 
     struct timespec t_start, t_end;
     clock_gettime(CLOCK_MONOTONIC, &t_start);

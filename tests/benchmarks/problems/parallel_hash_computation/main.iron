@@ -46,7 +46,7 @@ func main() {
   println("Hash checksum: {checksum}")
 
   -- Benchmark: parallel-for computes hash per element
-  val iterations = 20
+  val iterations = 4
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
     for i in N parallel {

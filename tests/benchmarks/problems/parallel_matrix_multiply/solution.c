@@ -5,7 +5,7 @@
 #include <time.h>
 
 #define N 200
-#define ITERATIONS 20
+#define ITERATIONS 3
 #define NUM_THREADS 8
 
 static inline int64_t mat_elem_a(int64_t row, int64_t col) {

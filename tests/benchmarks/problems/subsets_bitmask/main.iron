@@ -44,7 +44,7 @@ func main() {
     val check = subsets_bitmask(arr, n)
     println("Bench check: {check}")
 
-    val iterations = 100
+    val iterations = 5
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

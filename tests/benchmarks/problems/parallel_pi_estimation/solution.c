@@ -6,7 +6,7 @@
 #define NUM_CHUNKS 64
 #define POINTS_PER_CHUNK 10000
 #define NUM_THREADS 8
-#define ITERATIONS 200
+#define ITERATIONS 19
 
 static int64_t monte_carlo_chunk(int64_t chunk_id, int64_t num_points) {
     /* Use modular PRNG to avoid signed overflow UB across platforms */

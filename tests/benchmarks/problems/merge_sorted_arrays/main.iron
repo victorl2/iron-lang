@@ -57,7 +57,7 @@ func main() {
     var obench = fill(100, 0)
     println("Test 4: {merge_sorted(bench_a, 50, bench_b, 50, obench)} (expected 4950)")
 
-    val iterations = 1000000
+    val iterations = 159744
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

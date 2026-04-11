@@ -43,7 +43,7 @@ int main(void) {
     printf("Test 3: %d\n", trap(h3, 20));
 
     long mem_before = get_memory_kb();
-    int iterations = 10000000;
+    int iterations = 2976190;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

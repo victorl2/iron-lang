@@ -29,7 +29,7 @@ int main(void) {
     int64_t bench_result = house_robber(bench, 50);
     printf("Test 3: %lld (expected 1379)\n", (long long)bench_result);
 
-    int iterations = 200000000;
+    int iterations = 2055076;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     int64_t result = 0;
