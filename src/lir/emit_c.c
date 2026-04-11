@@ -198,7 +198,10 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
     case IRON_LIR_EQ: {
         /* Phase 59 01d: tuple equality — element-wise && of primitive
          * comparisons or iron_string_equals() for string elements. The
-         * typechecker has already guaranteed matching arity + types. */
+         * typechecker has already guaranteed matching arity + types.
+         * Phase 59 P05: also handle plain `String == String` via
+         * iron_string_equals() rather than the broken pointer-compare
+         * `==` that the previous fall-through emitted. */
         Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         if (lty && lty->kind == IRON_TYPE_TUPLE) {
             if (depth > 0) iron_strbuf_appendf(sb, "(");
@@ -226,6 +229,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             if (depth > 0) iron_strbuf_appendf(sb, ")");
             break;
         }
+        if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "))");
+            break;
+        }
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " == ");
@@ -234,7 +245,8 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         break;
     }
     case IRON_LIR_NEQ: {
-        /* Phase 59 01d: tuple inequality — !(elementwise ==). */
+        /* Phase 59 01d: tuple inequality — !(elementwise ==).
+         * Phase 59 P05: handle plain String != String via iron_string_equals. */
         Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         if (lty && lty->kind == IRON_TYPE_TUPLE) {
             if (depth > 0) iron_strbuf_appendf(sb, "(");
@@ -260,6 +272,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             }
             iron_strbuf_appendf(sb, ")");
             if (depth > 0) iron_strbuf_appendf(sb, ")");
+            break;
+        }
+        if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "(!iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, ")))");
             break;
         }
         if (depth > 0) iron_strbuf_appendf(sb, "(");
@@ -813,7 +833,9 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Comparison ─────────────────────────────────────────────────────── */
 
     case IRON_LIR_EQ: {
-        /* Phase 59 01d: tuple equality at statement level. */
+        /* Phase 59 01d: tuple equality at statement level.
+         * Phase 59 P05: also handle plain `String == String` via
+         * iron_string_equals(). */
         Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
@@ -841,6 +863,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             iron_strbuf_appendf(sb, ")");
+        } else if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "))");
         } else {
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, " == ");
@@ -878,6 +906,12 @@ static void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             iron_strbuf_appendf(sb, ")");
+        } else if (lty && lty->kind == IRON_TYPE_STRING) {
+            iron_strbuf_appendf(sb, "(!iron_string_equals(&(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "), &(");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ")))");
         } else {
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, " != ");

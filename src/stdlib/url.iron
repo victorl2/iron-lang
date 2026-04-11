@@ -1,0 +1,638 @@
+-- stdlib/url.iron -- RFC 3986 URL parser, builder, resolver, percent codec.
+-- Phase 59 P05. Pure Iron per URL-07 — zero C dependencies and zero FFI.
+--
+-- The module is built on top of the P01c String primitives (rindex_of,
+-- byte_at, from_byte) and the P01d tuple-return codegen. Every function is
+-- expressed as a method on `Url` or `Url_Builder` so that callers invoke it
+-- via the `Type.method(args)` syntax that hir_to_lir knows how to mangle.
+--
+-- Error codes come from src/runtime/iron_errors.h (2000..2099 range):
+--   2000 IRON_ERR_URL_EMPTY
+--   2001 IRON_ERR_URL_NO_SCHEME      (reserved — not produced today)
+--   2002 IRON_ERR_URL_BAD_SCHEME     (reserved)
+--   2003 IRON_ERR_URL_BAD_HOST       (reserved)
+--   2004 IRON_ERR_URL_BAD_IPV6
+--   2005 IRON_ERR_URL_BAD_PORT
+--   2006 IRON_ERR_URL_BAD_PATH       (reserved)
+--   2007 IRON_ERR_URL_BAD_PERCENT
+--   2008 IRON_ERR_URL_BAD_UTF8       (reserved)
+--   2009 IRON_ERR_URL_TOO_LONG
+
+-- ── Types ─────────────────────────────────────────────────────────────────
+
+-- The error channel for URL operations. Mirrors the NetError convention
+-- from Phase 59 P02: a single-field object carrying an integer code. A
+-- code of 0 means "no error". Iron has no C-side `Iron_Error`, so this
+-- wrapper is the pure-Iron stand-in.
+object UrlError {
+    val code: Int
+}
+
+-- A parsed URL. All fields are immutable; use `Url_Builder` to construct a
+-- new Url by reassignment. `port = -1` means "scheme default" (see
+-- Url.default_port). `userinfo`, `query`, `fragment` are stored without
+-- their delimiter characters (no leading `@`, `?`, or `#`).
+object Url {
+    val scheme:   String
+    val userinfo: String
+    val host:     String
+    val port:     Int
+    val path:     String
+    val query:    String
+    val fragment: String
+}
+
+-- Builder for ergonomic URL construction. All fields are `val` because
+-- Iron objects are passed by value and mutating `self` inside a method
+-- would not persist on the caller's copy. Every setter instead returns a
+-- fresh Url_Builder with the new field substituted — the chain pattern
+-- `builder().set_scheme("https").set_host("x").build()` still works.
+object Url_Builder {
+    val scheme:   String
+    val userinfo: String
+    val host:     String
+    val port:     Int
+    val path:     String
+    val query:    String
+    val fragment: String
+}
+
+-- ── UrlError helpers ──────────────────────────────────────────────────────
+
+func UrlError.ok() -> UrlError {
+    return UrlError(0)
+}
+
+func UrlError.of(code: Int) -> UrlError {
+    return UrlError(code)
+}
+
+-- ── Url constructors and defaults ─────────────────────────────────────────
+
+func Url.empty() -> Url {
+    return Url("", "", "", -1, "", "", "")
+}
+
+-- RFC 3986 §3.1 default ports for common schemes. Returns -1 for any
+-- scheme that doesn't have a known well-known port.
+func Url.default_port(scheme: String) -> Int {
+    if scheme == "http"  { return 80 }
+    if scheme == "https" { return 443 }
+    if scheme == "ws"    { return 80 }
+    if scheme == "wss"   { return 443 }
+    if scheme == "ftp"   { return 21 }
+    if scheme == "ssh"   { return 22 }
+    if scheme == "sftp"  { return 22 }
+    return -1
+}
+
+-- ── Character classification ──────────────────────────────────────────────
+
+-- RFC 3986 §2.3: unreserved = ALPHA / DIGIT / "-" / "_" / "." / "~"
+func Url.is_unreserved(b: Int) -> Bool {
+    if b >= 65 and b <= 90  { return true }   -- A..Z
+    if b >= 97 and b <= 122 { return true }   -- a..z
+    if b >= 48 and b <= 57  { return true }   -- 0..9
+    if b == 45 { return true }                -- '-'
+    if b == 95 { return true }                -- '_'
+    if b == 46 { return true }                -- '.'
+    if b == 126 { return true }               -- '~'
+    return false
+}
+
+-- RFC 3986 §2.2: sub-delims = "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / ";" / "="
+func Url.is_sub_delim(b: Int) -> Bool {
+    if b == 33 { return true }   -- '!'
+    if b == 36 { return true }   -- '$'
+    if b == 38 { return true }   -- '&'
+    if b == 39 { return true }   -- '\''
+    if b == 40 { return true }   -- '('
+    if b == 41 { return true }   -- ')'
+    if b == 42 { return true }   -- '*'
+    if b == 43 { return true }   -- '+'
+    if b == 44 { return true }   -- ','
+    if b == 59 { return true }   -- ';'
+    if b == 61 { return true }   -- '='
+    return false
+}
+
+-- ASCII digit check — a helper used to validate port strings before
+-- calling .to_int(), since Iron's .to_int() returns 0 for non-numeric
+-- input which collides with the legitimate port 0.
+func Url.is_digit(b: Int) -> Bool {
+    if b >= 48 and b <= 57 { return true }
+    return false
+}
+
+-- Hex digit value (0..15). Returns -1 if the byte is not 0-9/A-F/a-f.
+func Url.hex_digit_value(b: Int) -> Int {
+    if b >= 48 and b <= 57  { return b - 48 }   -- 0..9
+    if b >= 65 and b <= 70  { return b - 55 }   -- A..F
+    if b >= 97 and b <= 102 { return b - 87 }   -- a..f
+    return -1
+}
+
+-- ── Int <-> String helpers (URL-local, pure Iron) ─────────────────────────
+
+-- Pure-Iron int-to-string. Locked to the URL module per checker minor #10
+-- because adding a stdlib-wide Int.to_string is out of scope for Phase 59
+-- and would require runtime C support. Iron has no `+` operator on String,
+-- so every concatenation uses interpolation (`"{a}{b}"`).
+func Url.int_to_string(n: Int) -> String {
+    if n == 0 { return "0" }
+    var x = n
+    var neg = false
+    if x < 0 {
+        neg = true
+        x = -x
+    }
+    var s = ""
+    while x > 0 {
+        val d = x % 10
+        val digit_char = String.from_byte(48 + d)
+        s = "{digit_char}{s}"
+        x = x / 10
+    }
+    if neg {
+        s = "-{s}"
+    }
+    return s
+}
+
+-- Convert a byte 0..255 to the two-character uppercase hex form "00".."FF".
+func Url.byte_to_hex(b: Int) -> String {
+    val hi = b / 16
+    val lo = b % 16
+    var hi_ch = ""
+    var lo_ch = ""
+    if hi < 10 {
+        hi_ch = String.from_byte(48 + hi)
+    } else {
+        hi_ch = String.from_byte(55 + hi)
+    }
+    if lo < 10 {
+        lo_ch = String.from_byte(48 + lo)
+    } else {
+        lo_ch = String.from_byte(55 + lo)
+    }
+    return "{hi_ch}{lo_ch}"
+}
+
+-- Validate that every byte of `s` is an ASCII digit. Returns false for the
+-- empty string.
+func Url.all_digits(s: String) -> Bool {
+    if s.len() == 0 { return false }
+    var i = 0
+    while i < s.len() {
+        if not Url.is_digit(s.byte_at(i)) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+-- ── Percent codec (RFC 3986 §2.1) ─────────────────────────────────────────
+
+-- Encode `s` using percent-encoding. When `reserved_ok` is true, sub-delims
+-- are passed through unchanged; otherwise every non-unreserved byte is
+-- encoded as %XX.
+func Url.percent_encode(s: String, reserved_ok: Bool) -> String {
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val b = s.byte_at(i)
+        if Url.is_unreserved(b) {
+            val ch = String.from_byte(b)
+            out = "{out}{ch}"
+        } else {
+            if reserved_ok and Url.is_sub_delim(b) {
+                val ch2 = String.from_byte(b)
+                out = "{out}{ch2}"
+            } else {
+                val hex = Url.byte_to_hex(b)
+                out = "{out}%{hex}"
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+-- Decode percent-encoded string. Returns (decoded, ok) on success and
+-- ("", err 2007) on any malformed %XX sequence. Note: a trailing '%' with
+-- fewer than two hex chars is also an error.
+func Url.percent_decode(s: String) -> (String, UrlError) {
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val b = s.byte_at(i)
+        if b == 37 {
+            -- '%' — require two more hex digits
+            if i + 2 >= s.len() {
+                return ("", UrlError(2007))
+            }
+            val hi = Url.hex_digit_value(s.byte_at(i + 1))
+            val lo = Url.hex_digit_value(s.byte_at(i + 2))
+            if hi < 0 {
+                return ("", UrlError(2007))
+            }
+            if lo < 0 {
+                return ("", UrlError(2007))
+            }
+            val decoded = String.from_byte(hi * 16 + lo)
+            out = "{out}{decoded}"
+            i = i + 3
+        } else {
+            val ch = String.from_byte(b)
+            out = "{out}{ch}"
+            i = i + 1
+        }
+    }
+    return (out, UrlError(0))
+}
+
+-- ── Parse (RFC 3986 §3) ───────────────────────────────────────────────────
+
+-- Parse a URL string into a Url. Accepts absolute URIs, relative refs,
+-- and authority-less forms. Error cases return a zero Url and a non-zero
+-- UrlError code:
+--   2000 empty input
+--   2004 unclosed IPv6 bracket
+--   2005 port not all digits or out of range
+--   2009 input longer than 8192 bytes (sanity cap)
+func Url.parse(s: String) -> (Url, UrlError) {
+    if s.len() == 0 {
+        return (Url.empty(), UrlError(2000))
+    }
+    if s.len() > 8192 {
+        return (Url.empty(), UrlError(2009))
+    }
+
+    var rest = s
+    var scheme = ""
+    var userinfo = ""
+    var host = ""
+    var port = -1
+    var path = ""
+    var query = ""
+    var fragment = ""
+
+    -- Step 1: optional scheme. The scheme consumes the text up to the
+    -- first ':' only if no '/' '?' '#' occurs before it.
+    val colon = rest.index_of(":")
+    val first_slash = rest.index_of("/")
+    val first_qm = rest.index_of("?")
+    val first_hash = rest.index_of("#")
+    var has_scheme = false
+    if colon >= 0 {
+        has_scheme = true
+        if first_slash >= 0 {
+            if first_slash < colon { has_scheme = false }
+        }
+        if first_qm >= 0 {
+            if first_qm < colon { has_scheme = false }
+        }
+        if first_hash >= 0 {
+            if first_hash < colon { has_scheme = false }
+        }
+    }
+    if has_scheme {
+        scheme = rest.substring(0, colon)
+        rest = rest.substring(colon + 1, rest.len())
+    }
+
+    -- Step 2: optional authority (introduced by "//"). Authority runs
+    -- until the next '/' '?' or '#'.
+    if rest.starts_with("//") {
+        rest = rest.substring(2, rest.len())
+
+        var end_auth = rest.len()
+        val ps = rest.index_of("/")
+        if ps >= 0 {
+            if ps < end_auth { end_auth = ps }
+        }
+        val qs = rest.index_of("?")
+        if qs >= 0 {
+            if qs < end_auth { end_auth = qs }
+        }
+        val hs = rest.index_of("#")
+        if hs >= 0 {
+            if hs < end_auth { end_auth = hs }
+        }
+
+        val auth = rest.substring(0, end_auth)
+        rest = rest.substring(end_auth, rest.len())
+
+        -- userinfo (everything before the rightmost '@' in authority)
+        var host_part = auth
+        val at_sign = auth.rindex_of("@")
+        if at_sign >= 0 {
+            userinfo = auth.substring(0, at_sign)
+            host_part = auth.substring(at_sign + 1, auth.len())
+        }
+
+        -- IPv6 bracketed host vs plain host:port
+        if host_part.starts_with("[") {
+            val rb = host_part.index_of("]")
+            if rb < 0 {
+                return (Url.empty(), UrlError(2004))
+            }
+            host = host_part.substring(1, rb)
+            val after = host_part.substring(rb + 1, host_part.len())
+            if after.starts_with(":") {
+                val port_str = after.substring(1, after.len())
+                if not Url.all_digits(port_str) {
+                    return (Url.empty(), UrlError(2005))
+                }
+                port = port_str.to_int()
+                if port < 0 {
+                    return (Url.empty(), UrlError(2005))
+                }
+                if port > 65535 {
+                    return (Url.empty(), UrlError(2005))
+                }
+            }
+        } else {
+            val lc = host_part.rindex_of(":")
+            if lc >= 0 {
+                host = host_part.substring(0, lc)
+                val port_str = host_part.substring(lc + 1, host_part.len())
+                if not Url.all_digits(port_str) {
+                    return (Url.empty(), UrlError(2005))
+                }
+                port = port_str.to_int()
+                if port < 0 {
+                    return (Url.empty(), UrlError(2005))
+                }
+                if port > 65535 {
+                    return (Url.empty(), UrlError(2005))
+                }
+            } else {
+                host = host_part
+            }
+        }
+    }
+
+    -- Step 3: path / query / fragment.
+    val q2 = rest.index_of("?")
+    val h2 = rest.index_of("#")
+    var path_end = rest.len()
+    if q2 >= 0 {
+        if q2 < path_end { path_end = q2 }
+    }
+    if h2 >= 0 {
+        if h2 < path_end { path_end = h2 }
+    }
+    path = rest.substring(0, path_end)
+
+    val after_path = rest.substring(path_end, rest.len())
+    if after_path.starts_with("?") {
+        val fh = after_path.index_of("#")
+        if fh >= 0 {
+            query = after_path.substring(1, fh)
+            fragment = after_path.substring(fh + 1, after_path.len())
+        } else {
+            query = after_path.substring(1, after_path.len())
+        }
+    } else {
+        if after_path.starts_with("#") {
+            fragment = after_path.substring(1, after_path.len())
+        }
+    }
+
+    val u = Url(scheme, userinfo, host, port, path, query, fragment)
+    return (u, UrlError(0))
+}
+
+-- ── Build ─────────────────────────────────────────────────────────────────
+
+-- Re-serialise a Url into its string form. IPv6 hosts are re-bracketed.
+-- A scheme-less / host-less Url builds to just the path[?query][#fragment]
+-- relative form.
+func Url.build(u: Url) -> String {
+    var out = ""
+    if u.scheme != "" {
+        val sch = u.scheme
+        out = "{out}{sch}:"
+    }
+    if u.host != "" {
+        out = "{out}//"
+        if u.userinfo != "" {
+            val ui = u.userinfo
+            out = "{out}{ui}@"
+        }
+        -- If host looks like an IPv6 literal (contains ':'), re-bracket it.
+        val needs_brackets = u.host.index_of(":") >= 0
+        if needs_brackets {
+            if u.host.starts_with("[") {
+                val h = u.host
+                out = "{out}{h}"
+            } else {
+                val h = u.host
+                out = "{out}[{h}]"
+            }
+        } else {
+            val h = u.host
+            out = "{out}{h}"
+        }
+        if u.port >= 0 {
+            val pstr = Url.int_to_string(u.port)
+            out = "{out}:{pstr}"
+        }
+    }
+    val p = u.path
+    out = "{out}{p}"
+    if u.query != "" {
+        val q = u.query
+        out = "{out}?{q}"
+    }
+    if u.fragment != "" {
+        val f = u.fragment
+        out = "{out}#{f}"
+    }
+    return out
+}
+
+-- ── Builder API ───────────────────────────────────────────────────────────
+
+func Url.builder() -> Url_Builder {
+    return Url_Builder("", "", "", -1, "", "", "")
+}
+
+-- Each setter returns a fresh Url_Builder with the target field replaced.
+-- Iron passes objects by value and `val` fields forbid in-place mutation,
+-- so chain-mutation needs this functional pattern.
+func Url_Builder.set_scheme(v: String) -> Url_Builder {
+    return Url_Builder(v, self.userinfo, self.host, self.port, self.path, self.query, self.fragment)
+}
+
+func Url_Builder.set_userinfo(v: String) -> Url_Builder {
+    return Url_Builder(self.scheme, v, self.host, self.port, self.path, self.query, self.fragment)
+}
+
+func Url_Builder.set_host(v: String) -> Url_Builder {
+    return Url_Builder(self.scheme, self.userinfo, v, self.port, self.path, self.query, self.fragment)
+}
+
+func Url_Builder.set_port(v: Int) -> Url_Builder {
+    return Url_Builder(self.scheme, self.userinfo, self.host, v, self.path, self.query, self.fragment)
+}
+
+func Url_Builder.set_path(v: String) -> Url_Builder {
+    return Url_Builder(self.scheme, self.userinfo, self.host, self.port, v, self.query, self.fragment)
+}
+
+func Url_Builder.set_query(v: String) -> Url_Builder {
+    return Url_Builder(self.scheme, self.userinfo, self.host, self.port, self.path, v, self.fragment)
+}
+
+func Url_Builder.set_fragment(v: String) -> Url_Builder {
+    return Url_Builder(self.scheme, self.userinfo, self.host, self.port, self.path, self.query, v)
+}
+
+func Url_Builder.build() -> String {
+    val u = Url(self.scheme, self.userinfo, self.host, self.port, self.path, self.query, self.fragment)
+    return Url.build(u)
+}
+
+-- ── Resolve (RFC 3986 §5.2, §5.3) ─────────────────────────────────────────
+
+-- RFC 3986 §5.2.4 — Remove Dot Segments.
+func Url.remove_dot_segments(input: String) -> String {
+    var rest = input
+    var out = ""
+    while rest.len() > 0 {
+        if rest.starts_with("../") {
+            rest = rest.substring(3, rest.len())
+        } else {
+            if rest.starts_with("./") {
+                rest = rest.substring(2, rest.len())
+            } else {
+                if rest.starts_with("/./") {
+                    val tail = rest.substring(3, rest.len())
+                    rest = "/{tail}"
+                } else {
+                    if rest == "/." {
+                        rest = "/"
+                    } else {
+                        if rest.starts_with("/../") {
+                            val tail2 = rest.substring(4, rest.len())
+                            rest = "/{tail2}"
+                            val ls = out.rindex_of("/")
+                            if ls >= 0 {
+                                out = out.substring(0, ls)
+                            } else {
+                                out = ""
+                            }
+                        } else {
+                            if rest == "/.." {
+                                rest = "/"
+                                val ls2 = out.rindex_of("/")
+                                if ls2 >= 0 {
+                                    out = out.substring(0, ls2)
+                                } else {
+                                    out = ""
+                                }
+                            } else {
+                                if rest == "." {
+                                    rest = ""
+                                } else {
+                                    if rest == ".." {
+                                        rest = ""
+                                    } else {
+                                        -- Move the first path segment to output.
+                                        -- Segment runs from index 0 up to the next '/' at
+                                        -- index >= 1 (a leading '/' is part of the segment).
+                                        var seg_end = rest.len()
+                                        var j = 1
+                                        while j < rest.len() {
+                                            val c = rest.byte_at(j)
+                                            if c == 47 {
+                                                if seg_end == rest.len() { seg_end = j }
+                                            }
+                                            j = j + 1
+                                        }
+                                        val seg = rest.substring(0, seg_end)
+                                        out = "{out}{seg}"
+                                        rest = rest.substring(seg_end, rest.len())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return out
+}
+
+-- RFC 3986 §5.2.3 — Merge base path with a relative reference path.
+func Url.merge_paths(base: Url, ref_path: String) -> String {
+    if base.host != "" {
+        if base.path == "" {
+            return "/{ref_path}"
+        }
+    }
+    val ls = base.path.rindex_of("/")
+    if ls < 0 {
+        return ref_path
+    }
+    val prefix = base.path.substring(0, ls + 1)
+    return "{prefix}{ref_path}"
+}
+
+-- RFC 3986 §5.3 — Reference Resolution.
+-- Returns a fresh Url whose build() form is the target URI per §5.3 logic.
+func Url.resolve(base: Url, ref: String) -> (Url, UrlError) {
+    val (r, err) = Url.parse(ref)
+    if err.code != 0 {
+        return (Url.empty(), err)
+    }
+
+    var t_scheme = ""
+    var t_userinfo = ""
+    var t_host = ""
+    var t_port = -1
+    var t_path = ""
+    var t_query = ""
+
+    if r.scheme != "" {
+        t_scheme = r.scheme
+        t_userinfo = r.userinfo
+        t_host = r.host
+        t_port = r.port
+        t_path = Url.remove_dot_segments(r.path)
+        t_query = r.query
+    } else {
+        if r.host != "" {
+            t_userinfo = r.userinfo
+            t_host = r.host
+            t_port = r.port
+            t_path = Url.remove_dot_segments(r.path)
+            t_query = r.query
+        } else {
+            if r.path == "" {
+                t_path = base.path
+                if r.query != "" {
+                    t_query = r.query
+                } else {
+                    t_query = base.query
+                }
+            } else {
+                if r.path.starts_with("/") {
+                    t_path = Url.remove_dot_segments(r.path)
+                } else {
+                    t_path = Url.remove_dot_segments(Url.merge_paths(base, r.path))
+                }
+                t_query = r.query
+            }
+            t_userinfo = base.userinfo
+            t_host = base.host
+            t_port = base.port
+        }
+        t_scheme = base.scheme
+    }
+
+    val out = Url(t_scheme, t_userinfo, t_host, t_port, t_path, t_query, r.fragment)
+    return (out, UrlError(0))
+}

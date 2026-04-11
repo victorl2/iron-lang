@@ -831,6 +831,31 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1i. Phase 59 05: detect "import url" and prepend url.iron.
+     * url.iron is pure Iron (per URL-07) — no C module, no link deps.
+     * It depends on String primitives which the unconditional string.iron
+     * prepend below already supplies. */
+    if (iron_detect_import(source, source_path, "url", &detect_arena)) {
+        char *url_path = make_path(base_dir, "stdlib/url.iron");
+        if (url_path) {
+            long url_size = 0;
+            char *url_src = read_file(url_path, &url_size);
+            free(url_path);
+            if (url_src) {
+                size_t combined_len = (size_t)url_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, url_src, (size_t)url_size);
+                    combined[url_size] = '\n';
+                    strcpy(combined + url_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(url_src);
+            }
+        }
+    }
+
     iron_arena_free(&detect_arena);
 
     /* 1i. Always prepend string.iron — String methods are available on every
