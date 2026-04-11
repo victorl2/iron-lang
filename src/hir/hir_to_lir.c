@@ -1024,6 +1024,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                 elem_suffix = s;
                             }
                             break;
+                        case IRON_TYPE_ENUM:
+                            /* Phase 59 P04: DNS returns [Address] where
+                             * Address is an Iron ADT enum. The list
+                             * dispatcher was only handling OBJECT and
+                             * INTERFACE elem types — without this case,
+                             * any .method() call on an enum array
+                             * mis-dispatches to Iron_List_int64_t_*. */
+                            if (elem->enu.decl) {
+                                size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
+                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                snprintf(s, slen, "Iron_%s", elem->enu.decl->name);
+                                elem_suffix = s;
+                            }
+                            break;
                         default: break;
                     }
                 }

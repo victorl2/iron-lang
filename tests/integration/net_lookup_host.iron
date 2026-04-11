@@ -10,7 +10,7 @@ func main() {
         println("lookup failed")
         return
     }
-    if addrs.count() > 0 {
+    if len(addrs) > 0 {
         println("resolved ok")
     } else {
         println("no addresses")

@@ -6097,6 +6097,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         bool has_net_ipv4addr_format  = false;
         bool has_net_ipv6addr_parse   = false;
         bool has_net_ipv6addr_format  = false;
+        /* Phase 59 P04: DNS stub detector */
+        bool has_net_lookup_host      = false;
         for (int fi = 0; fi < module->func_count; fi++) {
             IronLIR_Func *fn = module->funcs[fi];
             if (!fn || !fn->is_extern || fn->extern_c_name) continue;
@@ -6129,6 +6131,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
             else if (strcmp(mangled, "Iron_ipv4addr_format") == 0)   has_net_ipv4addr_format = true;
             else if (strcmp(mangled, "Iron_ipv6addr_parse") == 0)    has_net_ipv6addr_parse = true;
             else if (strcmp(mangled, "Iron_ipv6addr_format") == 0)   has_net_ipv6addr_format = true;
+            /* Phase 59 P04: DNS. Net.lookup_host → Iron_net_lookup_host. */
+            else if (strcmp(mangled, "Iron_net_lookup_host") == 0)   has_net_lookup_host = true;
         }
         /* If any net stub is referenced, make sure the three well-known
          * result tuple types are defined. The compiler only synthesises a
@@ -6146,7 +6150,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         has_net_udp_sendto_v6 || has_udpsocket_close;
         bool need_ip  = has_net_ipv4addr_parse || has_net_ipv4addr_format ||
                         has_net_ipv6addr_parse || has_net_ipv6addr_format;
-        bool need_any = need_tcp || need_udp || need_ip;
+        bool need_dns = has_net_lookup_host;
+        bool need_any = need_tcp || need_udp || need_ip || need_dns;
         if (need_tcp) {
             static const char *k_net_tuple_names[] = {
                 "Iron_Tuple_TcpSocket_NetError",
@@ -6206,6 +6211,71 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 }
             }
         }
+        /* Phase 59 P04: DNS result tuple + list typedef.
+         *
+         * Net.lookup_host returns (Iron_List_Iron_Address, Iron_NetError).
+         * The Iron compiler emits the `struct Iron_Address` tagged-union
+         * definition whenever net.iron declares `enum Address { V4(IPv4Addr),
+         * V6(IPv6Addr) }`, but it does NOT emit the Iron_List_Iron_Address
+         * struct or IRON_LIST_DECL/IMPL expansions because `[Address]`
+         * only appears as a stub return type (no ARRAY_LIT triggers
+         * emit_mono_list_decls). We emit everything here.
+         *
+         * The list type + IRON_LIST_DECL/IMPL are appended to
+         * ctx.struct_bodies after the enum Address struct has already
+         * been emitted by emit_type_decls (called at line 6052 above). */
+        if (need_dns) {
+            /* Iron_List_Iron_Address struct + DECL + IMPL. Deduped via
+             * ctx.emitted_tuples (reuses that registry as a generic
+             * emitted-symbol dedup). */
+            const char *k_addr_list_name = "Iron_List_Iron_Address";
+            bool list_already = false;
+            for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                if (strcmp(ctx.emitted_tuples[ei], k_addr_list_name) == 0) {
+                    list_already = true;
+                    break;
+                }
+            }
+            if (!list_already) {
+                iron_strbuf_appendf(&ctx.struct_bodies,
+                    "/* Phase 59 P04: Iron_List type for DNS [Address] return */\n"
+                    "typedef struct Iron_List_Iron_Address {\n"
+                    "    Iron_Address *items;\n"
+                    "    int64_t       count;\n"
+                    "    int64_t       capacity;\n"
+                    "} Iron_List_Iron_Address;\n"
+                    "IRON_LIST_DECL(Iron_Address, Iron_Address)\n"
+                    "IRON_LIST_IMPL(Iron_Address, Iron_Address)\n\n");
+                arrput(ctx.emitted_tuples,
+                       iron_arena_strdup(ctx.arena, k_addr_list_name,
+                                         strlen(k_addr_list_name)));
+            }
+            /* Iron_Tuple__Address__NetError — the tuple type name is
+             * produced by tuple_build_mangled_name in analyzer/types.c
+             * via iron_type_to_string on each element followed by
+             * non-identifier-character sanitisation:
+             *   [Address] → "[Address]" → "_Address_"
+             *   NetError  → "NetError"
+             * Final: "Iron_Tuple__Address__NetError" (note the double
+             * underscore between Tuple and Address — one from the tuple
+             * separator, one from the sanitised `[`). */
+            const char *k_addr_tuple_name = "Iron_Tuple__Address__NetError";
+            bool tuple_already = false;
+            for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
+                if (strcmp(ctx.emitted_tuples[ei], k_addr_tuple_name) == 0) {
+                    tuple_already = true;
+                    break;
+                }
+            }
+            if (!tuple_already) {
+                iron_strbuf_appendf(&ctx.struct_bodies,
+                    "typedef struct { Iron_List_Iron_Address v0; Iron_NetError v1; } Iron_Tuple__Address__NetError;\n");
+                arrput(ctx.emitted_tuples,
+                       iron_arena_strdup(ctx.arena, k_addr_tuple_name,
+                                         strlen(k_addr_tuple_name)));
+            }
+        }
+
         /* Phase 59 P03: IPv4/IPv6 result tuple typedefs. */
         if (need_ip) {
             static const char *k_ip_tuple_names[] = {
@@ -6311,6 +6381,14 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         if (has_net_ipv6addr_format) {
             iron_strbuf_appendf(&ctx.prototypes,
                 "Iron_String Iron_ipv6addr_format(Iron_IPv6Addr a);\n");
+        }
+        /* Phase 59 P04: DNS extern prototype. Name matches hir_to_lir
+         * method-call mangling: Net.lookup_host → Iron_net_lookup_host.
+         * Return type uses the sanitised tuple name produced by
+         * tuple_build_mangled_name (see above). */
+        if (has_net_lookup_host) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name, int64_t timeout_ms);\n");
         }
     }
 

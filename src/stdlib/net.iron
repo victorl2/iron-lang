@@ -108,3 +108,17 @@ func IPv4Addr.parse(s: String) -> (IPv4Addr, NetError) {}
 func IPv4Addr.format(a: IPv4Addr) -> String {}
 func IPv6Addr.parse(s: String) -> (IPv6Addr, NetError) {}
 func IPv6Addr.format(a: IPv6Addr) -> String {}
+
+-- ── Phase 59 P04: DNS ──────────────────────────────────────────────────
+--
+-- Resolves a hostname to a list of Address values. The resolver runs
+-- asynchronously on Iron_io_pool (an elastic thread pool); on timeout
+-- the worker is marked "leaked" (abandoned-flag variant) so a
+-- replacement thread is spawned on demand and the caller returns
+-- promptly with a typed IRON_ERR_NET_TIMEOUT instead of hanging.
+--
+-- Example:
+--   val (addrs, err) = Net.lookup_host("example.com", 2000)
+--   if err.code != 0 { ... handle error ... }
+--   for a in addrs { match a { ... } }
+func Net.lookup_host(name: String, timeout: Int) -> ([Address], NetError) {}

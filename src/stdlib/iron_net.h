@@ -225,6 +225,91 @@ Iron_String                    Iron_ipv4addr_format(Iron_IPv4Addr a);
 Iron_Result_IPv6Addr_NetError Iron_ipv6addr_parse(Iron_String s);
 Iron_String                    Iron_ipv6addr_format(Iron_IPv6Addr a);
 
+/* ── Phase 59 P04: DNS lookup_host ────────────────────────────────────────
+ *
+ * Iron-side signature:
+ *   func Net.lookup_host(name: String, timeout: Int) -> ([Address], NetError)
+ *
+ * The `Address` type is an Iron ADT: `enum Address { V4(IPv4Addr), V6(IPv6Addr) }`.
+ * The compiler emits:
+ *   typedef enum { Iron_Address_TAG_V4 = 0, Iron_Address_TAG_V6 = 1 } Iron_Address_Tag;
+ *   struct Iron_Address { Iron_Address_Tag tag; Iron_Address_data_t data; };
+ *
+ * Forward-declared here with the IRON_ADDRESS_STRUCT_DEFINED guard. The
+ * Unity tests include this header alongside iron_runtime.h and never see
+ * the compiler-emitted version, so the forward decl + a minimal
+ * tag-payload mirror is sufficient for the tests to inspect .tag. */
+#ifndef IRON_ADDRESS_STRUCT_DEFINED
+#define IRON_ADDRESS_STRUCT_DEFINED
+typedef enum {
+    Iron_Address_TAG_V4 = 0,
+    Iron_Address_TAG_V6 = 1
+} Iron_Address_Tag;
+
+typedef struct { Iron_IPv4Addr _0; } Iron_Address_V4_data;
+typedef struct { Iron_IPv6Addr _0; } Iron_Address_V6_data;
+
+typedef union {
+    char                  _dummy;
+    Iron_Address_V4_data  V4;
+    Iron_Address_V6_data  V6;
+} Iron_Address_data_t;
+
+typedef struct Iron_Address {
+    Iron_Address_Tag    tag;
+    Iron_Address_data_t data;
+} Iron_Address;
+#endif /* IRON_ADDRESS_STRUCT_DEFINED */
+
+/* Iron's [Address] lowers to Iron_List_Iron_Address in C. This type is
+ * layout-compatible with the compiler-emitted IRON_LIST_DECL expansion
+ * (items/count/capacity). The Unity tests construct lists through the
+ * C wrapper and free items via plain `free()` — they never touch the
+ * compiler-emitted list helpers. */
+#ifndef IRON_LIST_IRON_ADDRESS_STRUCT_DEFINED
+#define IRON_LIST_IRON_ADDRESS_STRUCT_DEFINED
+typedef struct Iron_List_Iron_Address {
+    Iron_Address *items;
+    int64_t       count;
+    int64_t       capacity;
+} Iron_List_Iron_Address;
+#endif
+
+/* The tuple type name MUST match what the Iron compiler emits for
+ * `([Address], NetError)` through tuple_build_mangled_name in
+ * analyzer/types.c. The tuple mangling algorithm runs iron_type_to_string
+ * on each element then sanitizes non-identifier characters to `_`:
+ *
+ *   [Address]  →  "[Address]"  →  "_Address_"
+ *   NetError   →  "NetError"
+ *
+ * Final:  Iron_Tuple + _ + _Address_ + _ + NetError
+ *       = Iron_Tuple__Address__NetError
+ *
+ * iron_net.c, emit_c.c, and the Unity tests must all reference this
+ * exact name or the C linker will see two distinct struct types with
+ * compatible layouts but incompatible names. */
+#ifndef IRON_TUPLE_ADDRESS_LIST_NETERROR_DEFINED
+#define IRON_TUPLE_ADDRESS_LIST_NETERROR_DEFINED
+typedef struct {
+    Iron_List_Iron_Address v0;
+    Iron_NetError          v1;
+} Iron_Tuple__Address__NetError;
+#endif
+
+typedef Iron_Tuple__Address__NetError Iron_Result_AddressList_NetError;
+
+/* Iron_net_lookup_host — the C impl invoked from the Iron side via
+ * hir_to_lir method-call mangling (Net.lookup_host → Iron_net_lookup_host).
+ * The capital-first `Iron_Net_lookup_host_result` alias below is the
+ * Unity-test-facing spelling. */
+Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name, int64_t timeout_ms);
+
+static inline Iron_Result_AddressList_NetError
+Iron_Net_lookup_host_result(Iron_String name, int64_t timeout_ms) {
+    return Iron_net_lookup_host(name, timeout_ms);
+}
+
 /* ── Capital-first aliases for the Unity tests ─────────────────────────── */
 static inline Iron_Result_UdpSocket_NetError
 Iron_Net_udp_bind_result(Iron_String host, int64_t port) {

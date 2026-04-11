@@ -1063,3 +1063,266 @@ Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
         }
     }
 }
+
+/* ── Phase 59 P04: DNS lookup_host (Iron_Net_lookup_host_result) ─────────
+ *
+ * Iron source: `val (addrs, err) = Net.lookup_host("example.com", 2000)`
+ * Iron method call `Net.lookup_host` lowers through hir_to_lir to the C
+ * symbol `Iron_net_lookup_host`. The Unity-test-facing spelling is
+ * `Iron_Net_lookup_host_result` (declared as a static-inline alias in
+ * iron_net.h).
+ *
+ * Uses the `abandoned flag` variant of Iron_PoolWait per RESEARCH.md
+ * Pitfall 2 (stuck getaddrinfo) + Pitfall 6 (freeaddrinfo double-free on
+ * timeout race). The caller submits a DNS job on Iron_io_pool, blocks on
+ * Iron_poolwait_wait_ms, and on timeout marks the wait abandoned +
+ * Iron_pool_mark_one_leaked(Iron_io_pool). The stuck worker eventually
+ * returns from getaddrinfo, runs Iron_poolwait_worker_finish which
+ * detects the abandoned flag and destroys the addrinfo result without
+ * touching caller memory.
+ *
+ * Host string lifetime (Pitfall 4): the worker may outlive the caller's
+ * Iron_String on the timeout path, so the name is heap-copied into the
+ * DnsJob before submit. iron_string_from_cstr handles SSO vs heap — for
+ * short hostnames (<24 bytes) the copy lands in the inline SSO slot
+ * with zero heap allocation; longer hostnames go through libc malloc
+ * and are freed on the worker side (see dns_worker_fn comment). */
+
+#include <stdlib.h>  /* calloc, free */
+
+static int iron_net_translate_eai(int eai) {
+#ifdef EAI_NONAME
+    if (eai == EAI_NONAME) return IRON_ERR_NET_BAD_HOST;
+#endif
+#ifdef EAI_NODATA
+    if (eai == EAI_NODATA) return IRON_ERR_NET_BAD_HOST;
+#endif
+#ifdef EAI_AGAIN
+    if (eai == EAI_AGAIN)  return IRON_ERR_NET_DNS_TEMP_FAIL;
+#endif
+#ifdef EAI_FAIL
+    if (eai == EAI_FAIL)   return IRON_ERR_NET_DNS_FAIL;
+#endif
+#ifdef EAI_MEMORY
+    if (eai == EAI_MEMORY) return IRON_ERR_NET_NO_MEMORY;
+#endif
+#ifdef EAI_FAMILY
+    if (eai == EAI_FAMILY) return IRON_ERR_NET_AF_NOT_SUPPORTED;
+#endif
+    if (eai == 0) return 0;
+    return IRON_ERR_NET_DNS_OTHER;
+}
+
+/* DnsJob ownership model:
+ *
+ *   - Caller heap-allocates DnsJob before submit.
+ *   - Caller owns DnsJob end-to-end on the NORMAL path: after wait_ms
+ *     returns 1, the caller reads job->result + job->eai_err, builds
+ *     the list, freeaddrinfo()'s the result, then free()'s the job.
+ *   - Worker owns DnsJob on the ABANDONED path: the worker's
+ *     dns_worker_fn will see w->abandoned in worker_finish, get control
+ *     back, freeaddrinfo(job->result), and free(job) itself.
+ *   - The Iron_PoolWait struct is ALSO caller-owned on the normal path,
+ *     and intentionally LEAKED on the timeout path (the abandoned-flag
+ *     variant mandates this — RESEARCH.md section 2209-2249).
+ *
+ * The wait->result stash from worker_finish(w, result, dtor) is not
+ * read back here because we already have a direct pointer via the job.
+ * The job pointer serves as both the job arg and the readback channel. */
+typedef struct {
+    Iron_String      name_copy;  /* heap/SSO-owned copy; lifetime = job */
+    struct addrinfo *result;     /* worker output (NULL on error) */
+    int              eai_err;    /* worker output: 0 = OK, else getaddrinfo code */
+    Iron_PoolWait   *wait;       /* abandoned-flag coordination */
+} DnsJob;
+
+/* Result destructor: called from Iron_poolwait_worker_finish on the
+ * abandoned branch to free the addrinfo the worker produced and to free
+ * the DnsJob itself. The `result` arg here is the DnsJob pointer (not
+ * the addrinfo), because we pass `job` to worker_finish's 2nd arg. */
+static void dns_abandoned_destructor(void *p) {
+    DnsJob *job = (DnsJob *)p;
+    if (!job) return;
+    if (job->result) freeaddrinfo(job->result);
+    /* Free the wait struct too — caller walked away without destroying
+     * it (that's the whole point of the abandoned-flag variant). */
+    if (job->wait) Iron_poolwait_destroy(job->wait);
+    free(job);
+}
+
+/* Worker body. Runs on an Iron_io_pool thread. After getaddrinfo
+ * returns, calls Iron_poolwait_worker_finish. In the normal path,
+ * worker_finish signals the caller and returns — the caller owns job
+ * and will free it. In the abandoned path, worker_finish runs the
+ * destructor (dns_abandoned_destructor) which frees everything. */
+static void dns_worker_fn(void *arg) {
+    DnsJob *job = (DnsJob *)arg;
+
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    const char *node = iron_string_cstr(&job->name_copy);
+    if (!node) node = "";
+
+    int rc = getaddrinfo(node, NULL, &hints, &job->result);
+    job->eai_err = rc;
+
+    /* Pass `job` as the result so the abandoned-path destructor has
+     * everything it needs to tear down. In the normal path the caller
+     * reads the job fields directly and then frees it. */
+    Iron_poolwait_worker_finish(job->wait, job, dns_abandoned_destructor);
+    /* IMPORTANT: do NOT touch `job` below this line. In the abandoned
+     * branch worker_finish already called dns_abandoned_destructor
+     * which freed job. In the normal branch the caller owns job and
+     * will access it from another thread. */
+}
+
+/* Convert a linked list of addrinfo results into an Iron_List_Iron_Address.
+ * Malloc-backed: items buffer is freed by the caller (Iron runtime or
+ * the Unity test's direct free(r.v0.items)). */
+static Iron_List_Iron_Address build_address_list_from_addrinfo(
+    struct addrinfo *ai)
+{
+    Iron_List_Iron_Address list;
+    list.items    = NULL;
+    list.count    = 0;
+    list.capacity = 0;
+
+    /* First pass: count how many entries we'll keep (AF_INET + AF_INET6). */
+    int64_t n = 0;
+    for (struct addrinfo *p = ai; p; p = p->ai_next) {
+        if (p->ai_family == AF_INET || p->ai_family == AF_INET6) n++;
+    }
+    if (n == 0) return list;
+
+    list.items = (Iron_Address *)calloc((size_t)n, sizeof(Iron_Address));
+    if (!list.items) return list;
+    list.capacity = n;
+
+    for (struct addrinfo *p = ai; p; p = p->ai_next) {
+        Iron_Address addr;
+        memset(&addr, 0, sizeof(addr));
+        if (p->ai_family == AF_INET) {
+            struct sockaddr_in *sin = (struct sockaddr_in *)p->ai_addr;
+            addr.tag = Iron_Address_TAG_V4;
+            uint8_t octets[4];
+            memcpy(octets, &sin->sin_addr, 4);
+            addr.data.V4._0.a = octets[0];
+            addr.data.V4._0.b = octets[1];
+            addr.data.V4._0.c = octets[2];
+            addr.data.V4._0.d = octets[3];
+            list.items[list.count++] = addr;
+        } else if (p->ai_family == AF_INET6) {
+            struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)p->ai_addr;
+            addr.tag = Iron_Address_TAG_V6;
+            addr.data.V6._0.bytes = iron_string_from_cstr(
+                (const char *)&sin6->sin6_addr, 16);
+            addr.data.V6._0.zone  = iron_string_from_cstr("", 0);
+#ifndef _WIN32
+            if (sin6->sin6_scope_id != 0) {
+                char zbuf[IF_NAMESIZE];
+                memset(zbuf, 0, sizeof(zbuf));
+                if (if_indextoname(sin6->sin6_scope_id, zbuf)) {
+                    addr.data.V6._0.zone = iron_string_from_cstr(
+                        zbuf, strlen(zbuf));
+                }
+            }
+#endif
+            list.items[list.count++] = addr;
+        }
+    }
+    return list;
+}
+
+Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
+                                                    int64_t timeout_ms)
+{
+    Iron_Tuple__Address__NetError out;
+    memset(&out, 0, sizeof(out));
+    out.v1 = iron_net_err_none();
+
+    DnsJob *job = (DnsJob *)calloc(1, sizeof(*job));
+    if (!job) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
+        return out;
+    }
+
+    /* Heap-copy the host string (Pitfall 4). iron_string_from_cstr
+     * handles SSO vs heap automatically. */
+    const char *src     = iron_string_cstr(&name);
+    if (!src) src = "";
+    size_t      src_len = iron_string_byte_len(&name);
+    job->name_copy = iron_string_from_cstr(src, src_len);
+
+    job->wait = Iron_poolwait_create();
+    if (!job->wait) {
+        free(job);
+        out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
+        return out;
+    }
+
+    Iron_pool_submit_wait(Iron_io_pool, dns_worker_fn, job, job->wait);
+
+    Iron_Deadline dl = Iron_deadline_from_timeout_ms(timeout_ms);
+    bool completed = false;
+    while (!completed) {
+        int rem = Iron_deadline_remaining_ms(dl);
+        if (rem <= 0) {
+            /* Timeout: abandon the wait + mark the worker leaked so the
+             * elastic pool can spawn a replacement. Once the stuck
+             * worker's getaddrinfo returns, dns_worker_fn calls
+             * Iron_poolwait_worker_finish which sees w->abandoned and
+             * runs dns_abandoned_destructor → freeaddrinfo(job->result),
+             * Iron_poolwait_destroy(job->wait), free(job). The caller
+             * never touches job/wait again. */
+            Iron_poolwait_set_abandoned(job->wait);
+            Iron_pool_mark_one_leaked(Iron_io_pool);
+            out.v1 = iron_net_err_timeout();
+            return out;
+        }
+        int wrc = Iron_poolwait_wait_ms(job->wait, rem);
+        if (wrc == 1) {
+            completed = true;
+        } else if (wrc == 0) {
+            /* Spurious wake or partial timeout — recheck outer deadline. */
+            continue;
+        } else {
+            /* Error path — treat as abandon so the worker cleans up. */
+            Iron_poolwait_set_abandoned(job->wait);
+            Iron_pool_mark_one_leaked(Iron_io_pool);
+            out.v1 = iron_net_err_code(IRON_ERR_NET_UNKNOWN);
+            return out;
+        }
+    }
+
+    /* Normal path: worker completed and signalled. Caller now owns
+     * job->result (addrinfo) and job->eai_err. The DnsJob struct is
+     * still alive because the worker went through the non-abandoned
+     * branch of worker_finish (which just signals and returns without
+     * running the destructor). */
+    int              eai = job->eai_err;
+    struct addrinfo *ai  = job->result;
+
+    if (eai != 0 || ai == NULL) {
+        int code = iron_net_translate_eai(eai);
+        if (code == 0) code = IRON_ERR_NET_DNS_OTHER;
+        if (ai) freeaddrinfo(ai);
+        Iron_poolwait_destroy(job->wait);
+        free(job);
+        out.v1 = iron_net_err_code(code);
+        return out;
+    }
+
+    /* Build the Iron list. Takes ownership of nothing — we freeaddrinfo
+     * below after the copy. */
+    out.v0 = build_address_list_from_addrinfo(ai);
+
+    freeaddrinfo(ai);
+    Iron_poolwait_destroy(job->wait);
+    free(job);
+
+    out.v1 = iron_net_err_none();
+    return out;
+}
