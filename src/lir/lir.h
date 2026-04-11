@@ -374,6 +374,28 @@ struct IronLIR_Func {
     /* Capture metadata for lifted lambda functions (NULL for normal functions) */
     Iron_CaptureEntry *capture_metadata;
     int                capture_count;
+
+    /* Phase 5: WEB-EMIT-02/03 — frame-state captures for the canonical
+     * `while(!WindowShouldClose())` main loop on --target=web.
+     *
+     * Populated by iron_lir_web_main_loop_split() when the canonical shape is
+     * detected in a function containing InitWindow(). Each entry describes
+     * one outer-scope local that the loop body reads or writes, so Phase 6's
+     * emit_web.c can synthesize a heap-allocated frame state struct and
+     * rewrite alloca/load/store accesses through `state->field`.
+     *
+     * CRITICAL: this is a SEPARATE field from `capture_metadata` above.
+     * `capture_metadata` signals "this function is a lifted lambda with an
+     * implicit _e pointer parameter" to emit_c.c; setting it on Iron_main
+     * would corrupt native builds (research: 05-RESEARCH.md trigger 3).
+     * `web_frame_captures` is inert on native and read only by emit_web.c
+     * in Phase 6.
+     *
+     * Both fields are NULL/0 for every function created via
+     * iron_lir_func_create() because of the existing memset at lir.c:122.
+     * Do NOT add an explicit initializer there. */
+    Iron_CaptureEntry *web_frame_captures;
+    int                web_frame_capture_count;
 };
 
 /* ── Module ───────────────────────────────────────────────────────────────── */
