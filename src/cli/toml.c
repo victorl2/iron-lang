@@ -472,5 +472,12 @@ void iron_toml_free(IronProject *proj) {
         free(proj->deps[i].cache_path);
     }
     free(proj->deps);
+    /* [web] section (Phase 2 — WEB-MANIFEST-01) */
+    free(proj->web.title);
+    free(proj->web.shell);
+    for (int wi = 0; wi < proj->web.asset_count; wi++) {
+        free(proj->web.assets[wi]);
+    }
+    free(proj->web.assets);
     free(proj);
 }
