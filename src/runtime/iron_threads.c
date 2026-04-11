@@ -23,6 +23,23 @@
   #include <errno.h>
 #endif
 
+/* Cap global pool worker count under Emscripten (WEB-RUNTIME-03).
+ *
+ * navigator.hardwareConcurrency can report 12-16 on modern hardware,
+ * and each Web Worker carries WASM memory + JS heap overhead on top of
+ * a real OS thread. Firefox's default dom.workers.maxPerDomain is 20,
+ * so spawning cpu_count-1 workers can exhaust the per-origin budget.
+ *
+ * 4 matches the default Iron_global_pool worker count that game
+ * developers expect and covers typical parallel-for workloads without
+ * saturating the browser's per-origin worker pool.
+ *
+ * Kept private to this translation unit (not exported from
+ * iron_runtime.h) because no other compilation unit has a legitimate
+ * reason to know the cap.
+ */
+#define IRON_WEB_MAX_WORKERS 4
+
 /* ── Iron_monotonic_now_ms (INFRA-09 foundation) ─────────────────────────── */
 
 #ifdef _WIN32
@@ -920,6 +937,13 @@ void iron_threads_init(void) {
     int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
 #endif
     int thread_count = (cpu_count > 1) ? (cpu_count - 1) : 1;
+#ifdef __EMSCRIPTEN__
+    /* WEB-RUNTIME-03: Cap worker count on web builds. See
+     * IRON_WEB_MAX_WORKERS define near top of this file for rationale. */
+    if (thread_count > IRON_WEB_MAX_WORKERS) {
+        thread_count = IRON_WEB_MAX_WORKERS;
+    }
+#endif
     Iron_global_pool = Iron_pool_create("global", thread_count);
     /* Elastic I/O pool for blocking syscalls (DNS, TLS handshake, etc.).
      * Spawns on demand up to 64 workers; each worker self-retires after
