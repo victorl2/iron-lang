@@ -381,7 +381,8 @@ int iron_check(const char *source_path, bool verbose) {
                                              NULL  /* source_file_dir */,
                                              NULL  /* source_text */,
                                              0     /* source_len */,
-                                             false /* force_comptime */);
+                                             false /* force_comptime */,
+                                             IRON_TARGET_NATIVE);
 
     /* 6. Print all diagnostics */
     iron_diag_print_all(&diags, source);

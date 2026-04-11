@@ -960,7 +960,8 @@ int iron_build(const char *source_path, const char *output_path,
                                                src_file_dir,
                                                source,
                                                (size_t)src_size,
-                                               opts.force_comptime);
+                                               opts.force_comptime,
+                                               opts.target);
     free(src_path_copy);
 
     if (diags.error_count > 0 || analysis.has_errors) {
