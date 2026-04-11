@@ -48,9 +48,9 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 ### LIR Main-Loop Transform (WEB-EMIT)
 
 - [ ] **WEB-EMIT-01**: New LIR pass `src/lir/web_main_loop_split.c` detects the canonical `while (!WindowShouldClose()) { body }` pattern in any function containing `InitWindow`
-- [ ] **WEB-EMIT-02**: Pass reuses Iron's existing closure-capture machinery (from v1.0.0-alpha collection methods) to lift outer-scope locals into a heap-allocated frame state struct
+- [x] **WEB-EMIT-02**: Pass reuses Iron's existing closure-capture machinery (from v1.0.0-alpha collection methods) to lift outer-scope locals into a heap-allocated frame state struct
 - [ ] **WEB-EMIT-03**: Writes from within the loop body to captured locals persist correctly across frames (capture-by-reference semantics)
-- [ ] **WEB-EMIT-04**: Non-canonical loop shapes (nested, for-loop, do-while, multiple top-level loops) produce a clear error naming the required pattern
+- [x] **WEB-EMIT-04**: Non-canonical loop shapes (nested, for-loop, do-while, multiple top-level loops) produce a clear error naming the required pattern
 - [ ] **WEB-EMIT-05**: New file `src/lir/emit_web.c` emits the web-specific `main()` wrapper using `emit_helpers.h` only (zero touches to `emit_c.c`)
 - [ ] **WEB-EMIT-06**: Emitted C includes `<emscripten/emscripten.h>` at the top when target is web
 - [ ] **WEB-EMIT-07**: `main()` calls `emscripten_set_main_loop_arg(frame_cb, state, 0, 0)` with `simulate_infinite_loop=0`
@@ -217,9 +217,9 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-RUNTIME-06 | Phase 4 — WASM-Safe Time Shim | Complete |
 | WEB-RUNTIME-07 | Phase 3 — Runtime Audit | Complete |
 | WEB-EMIT-01 | Phase 5 — LIR Main-Loop Split Pass | Pending |
-| WEB-EMIT-02 | Phase 5 — LIR Main-Loop Split Pass | Pending |
+| WEB-EMIT-02 | Phase 5 — LIR Main-Loop Split Pass | Complete |
 | WEB-EMIT-03 | Phase 5 — LIR Main-Loop Split Pass | Pending |
-| WEB-EMIT-04 | Phase 5 — LIR Main-Loop Split Pass | Pending |
+| WEB-EMIT-04 | Phase 5 — LIR Main-Loop Split Pass | Complete |
 | WEB-EMIT-05 | Phase 6 — emit_web.c Wrapper | Pending |
 | WEB-EMIT-06 | Phase 6 — emit_web.c Wrapper | Pending |
 | WEB-EMIT-07 | Phase 6 — emit_web.c Wrapper | Pending |
