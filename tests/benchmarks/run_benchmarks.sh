@@ -14,6 +14,12 @@ BASELINES_DIR="$SCRIPT_DIR/baselines"
 IRONC="$REPO_ROOT/build/ironc"
 TMPDIR="${TMPDIR:-/tmp}/iron_bench_$$"
 
+# Number of timing samples per binary. Runs are interleaved [C, Iron, C, Iron, ...]
+# and the median of each side is used to compute the speed ratio. This design
+# absorbs CI scheduler noise that plagues single-sample benchmarks on
+# shared-tenant runners (GitHub-hosted ubuntu/macos).
+SAMPLES=30
+
 # ── Parse arguments ────────────────────────────────────────────────────────
 FILTER_PROBLEM=""
 VERBOSE=0
@@ -185,6 +191,22 @@ extract_time_ms() {
         grep -oE '[0-9]+(\.[0-9]+)?' | head -1
 }
 
+# ── Median of a list of floats (passed as positional args) ────────────────
+# Sorts numerically and returns the middle element, or average of the two
+# middle elements for even-length lists. Used to collapse SAMPLES timing
+# samples into a single robust value before computing the Iron/C ratio.
+median() {
+    printf '%s\n' "$@" | sort -n | awk '
+        { v[NR] = $1 }
+        END {
+            n = NR
+            if (n == 0) { print "0"; exit }
+            if (n % 2 == 1) { printf "%.6f\n", v[(n+1)/2] }
+            else { printf "%.6f\n", (v[n/2] + v[n/2+1]) / 2 }
+        }
+    '
+}
+
 # ── Verify correctness against expected_output.txt ─────────────────────────
 check_correctness() {
     local actual_output="$1"
@@ -285,56 +307,110 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
         fi
     fi
 
-    # ── Step 3: Run C reference with memory tracking ───────────────────
-    c_mem_file="$TMPDIR/c_mem_${problem_name}"
-    if ! run_with_memory "$timeout_sec" "$TMPDIR/c_output" "$c_mem_file" "$c_bin"; then
-        echo "[ERROR] $problem_name: C execution failed or timed out"
-        errors=$((errors + 1))
-        results+=("[ERROR] $problem_name: C execution failed (timeout: ${timeout_sec}s)")
-        continue
-    fi
-    c_output=$(cat "$TMPDIR/c_output")
-    c_mem_kb=$(cat "$c_mem_file" 2>/dev/null || echo "0")
+    # ── Steps 3-5: Interleaved sampling + correctness ──────────────────
+    # Run each binary SAMPLES times, alternating [C, Iron, C, Iron, ...] so
+    # both sides experience the same scheduler/cache conditions at each pair.
+    # Sample 0 also measures peak RSS (via /usr/bin/time) and verifies Iron's
+    # output against expected_output.txt. Subsequent samples are timing-only.
+    c_times=()
+    iron_times=()
+    c_mem_kb=0
+    iron_mem_kb=0
+    sample_status="ok"
 
-    # ── Step 4: Run Iron binary with memory tracking ───────────────────
-    iron_mem_file="$TMPDIR/iron_mem_${problem_name}"
-    if ! run_with_memory "$timeout_sec" "$TMPDIR/iron_output" "$iron_mem_file" "$iron_bin"; then
-        echo "[ERROR] $problem_name: Iron execution failed or timed out"
-        errors=$((errors + 1))
-        results+=("[ERROR] $problem_name: Iron execution failed (timeout: ${timeout_sec}s)")
-        continue
-    fi
-    iron_output=$(cat "$TMPDIR/iron_output")
-    iron_mem_kb=$(cat "$iron_mem_file" 2>/dev/null || echo "0")
-
-    # ── Step 5: Verify correctness ─────────────────────────────────────
-    if [ -f "$expected_file" ]; then
-        if ! check_correctness "$iron_output" "$expected_file"; then
-            echo "[ERROR] $problem_name: Iron output incorrect"
-            if [ $VERBOSE -eq 1 ]; then
-                echo "  Iron output:"
-                echo "$iron_output" | head -5
+    for ((s = 0; s < SAMPLES; s++)); do
+        # ── C sample ──
+        if [ "$s" -eq 0 ]; then
+            c_mem_file="$TMPDIR/c_mem_${problem_name}"
+            if ! run_with_memory "$timeout_sec" "$TMPDIR/c_output" "$c_mem_file" "$c_bin"; then
+                sample_status="c_exec_fail"
+                break
             fi
+            c_mem_kb=$(cat "$c_mem_file" 2>/dev/null || echo "0")
+        else
+            if ! run_with_timeout "$timeout_sec" "$TMPDIR/c_output" "$c_bin"; then
+                sample_status="c_exec_fail"
+                break
+            fi
+        fi
+        c_output=$(cat "$TMPDIR/c_output")
+        c_sample_ms=$(extract_time_ms "$c_output")
+        if [ -z "$c_sample_ms" ]; then
+            sample_status="c_timing_fail"
+            break
+        fi
+        c_times+=("$c_sample_ms")
+
+        # ── Iron sample ──
+        if [ "$s" -eq 0 ]; then
+            iron_mem_file="$TMPDIR/iron_mem_${problem_name}"
+            if ! run_with_memory "$timeout_sec" "$TMPDIR/iron_output" "$iron_mem_file" "$iron_bin"; then
+                sample_status="iron_exec_fail"
+                break
+            fi
+            iron_mem_kb=$(cat "$iron_mem_file" 2>/dev/null || echo "0")
+        else
+            if ! run_with_timeout "$timeout_sec" "$TMPDIR/iron_output" "$iron_bin"; then
+                sample_status="iron_exec_fail"
+                break
+            fi
+        fi
+        iron_output=$(cat "$TMPDIR/iron_output")
+
+        # Correctness check on sample 0 only (output is deterministic).
+        if [ "$s" -eq 0 ] && [ -f "$expected_file" ]; then
+            if ! check_correctness "$iron_output" "$expected_file"; then
+                echo "[ERROR] $problem_name: Iron output incorrect"
+                if [ $VERBOSE -eq 1 ]; then
+                    echo "  Iron output:"
+                    echo "$iron_output" | head -5
+                fi
+                sample_status="correctness_fail"
+                break
+            fi
+        fi
+
+        iron_sample_ms=$(extract_time_ms "$iron_output")
+        if [ -z "$iron_sample_ms" ]; then
+            sample_status="iron_timing_fail"
+            break
+        fi
+        iron_times+=("$iron_sample_ms")
+    done
+
+    case "$sample_status" in
+        c_exec_fail)
+            echo "[ERROR] $problem_name: C execution failed or timed out"
+            errors=$((errors + 1))
+            results+=("[ERROR] $problem_name: C execution failed (timeout: ${timeout_sec}s)")
+            continue
+            ;;
+        iron_exec_fail)
+            echo "[ERROR] $problem_name: Iron execution failed or timed out"
+            errors=$((errors + 1))
+            results+=("[ERROR] $problem_name: Iron execution failed (timeout: ${timeout_sec}s)")
+            continue
+            ;;
+        c_timing_fail|iron_timing_fail)
+            echo "[ERROR] $problem_name: Could not extract timing from output"
+            if [ $VERBOSE -eq 1 ]; then
+                echo "  C output:    $(echo "$c_output" | grep -i 'total time' || echo '(none)')"
+                echo "  Iron output: $(echo "$iron_output" | grep -i 'total time' || echo '(none)')"
+            fi
+            errors=$((errors + 1))
+            results+=("[ERROR] $problem_name: timing extraction failed")
+            continue
+            ;;
+        correctness_fail)
             errors=$((errors + 1))
             results+=("[ERROR] $problem_name: incorrect output")
             continue
-        fi
-    fi
+            ;;
+    esac
 
-    # ── Step 6: Extract timing ─────────────────────────────────────────
-    c_ms=$(extract_time_ms "$c_output")
-    iron_ms=$(extract_time_ms "$iron_output")
-
-    if [ -z "$c_ms" ] || [ -z "$iron_ms" ]; then
-        echo "[ERROR] $problem_name: Could not extract timing from output"
-        if [ $VERBOSE -eq 1 ]; then
-            echo "  C output:    $(echo "$c_output" | grep -i 'total time' || echo '(none)')"
-            echo "  Iron output: $(echo "$iron_output" | grep -i 'total time' || echo '(none)')"
-        fi
-        errors=$((errors + 1))
-        results+=("[ERROR] $problem_name: timing extraction failed")
-        continue
-    fi
+    # ── Step 6: Collapse samples to per-side medians ───────────────────
+    c_ms=$(median "${c_times[@]}")
+    iron_ms=$(median "${iron_times[@]}")
 
     # ── Step 6b: Run and time unoptimized version (compare mode) ────────
     iron_noopt_ms=""
