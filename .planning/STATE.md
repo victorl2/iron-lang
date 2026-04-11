@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-cli-toml-scaffold plan-06 tests-and-ci
-last_updated: "2026-04-11T15:54:48.946Z"
+stopped_at: Completed 03-runtime-audit-web-hardening plan-01 intern-table-hardening
+last_updated: "2026-04-11T16:58:34.003Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 11
+  completed_plans: 10
   percent: 0
 ---
 
@@ -58,6 +58,9 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 02-cli-toml-scaffold P04 | 8m | 2 tasks | 2 files |
 | Phase 02-cli-toml-scaffold P05 | 2m | 3 tasks | 2 files |
 | Phase 02-cli-toml-scaffold P06 | 19m | 3 tasks | 4 files |
+| Phase 03-runtime-audit-web-hardening P02 | 12m | 2 tasks | 1 files |
+| Phase 03-runtime-audit-web-hardening P01 | 718 | 2 tasks | 3 files |
+| Phase 03-runtime-audit-web-hardening P04 | 697s | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -88,6 +91,9 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 02-cli-toml-scaffold]: Web dispatch placed as absolute first statement in iron_build() before base_dir resolution — web path fully owns its execution
 - [Phase 02-cli-toml-scaffold]: Option B direct-compile toml.c into test_toml_web over static lib refactor — defers until second consumer exists
 - [Phase 02-cli-toml-scaffold]: Dual-outcome web smoke test accepts either emcc banner or emcc-not-found — both prove dispatch reached build_web.c
+- [Phase 03-runtime-audit-web-hardening]: IRON_WEB_MAX_WORKERS=4 kept private to iron_threads.c TU; elastic I/O pool uncapped on web; shutdown no-op via #ifndef __EMSCRIPTEN__ following existing #if defined(_WIN32) pattern
+- [Phase 03-runtime-audit-web-hardening]: tsan-first: tsan stress test PASSED — no DCL upgrade needed for iron_string_intern; single-mutex is race-free
+- [Phase 03-runtime-audit-web-hardening]: Thread-safety contract comment added to iron_string_intern documenting mutex-covers-full-critical-section and pthread_once memory-ordering
 
 ### Pending Todos
 
@@ -103,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T15:54:48.944Z
-Stopped at: Completed 02-cli-toml-scaffold plan-06 tests-and-ci
+Last session: 2026-04-11T16:58:12.791Z
+Stopped at: Completed 03-runtime-audit-web-hardening plan-01 intern-table-hardening
 Resume file: None

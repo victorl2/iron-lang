@@ -37,9 +37,9 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 
 ### Runtime Hardening (WEB-RUNTIME)
 
-- [ ] **WEB-RUNTIME-01**: `iron_string_intern()` is race-free under SharedArrayBuffer (double-checked lock fix in `src/runtime/iron_string.c`)
-- [ ] **WEB-RUNTIME-02**: `iron_threads_shutdown()` is a `#ifdef __EMSCRIPTEN__` no-op (cannot block on browser main thread)
-- [ ] **WEB-RUNTIME-03**: On web, thread pool size is capped at 4 regardless of `hardwareConcurrency`
+- [x] **WEB-RUNTIME-01**: `iron_string_intern()` is race-free under SharedArrayBuffer (double-checked lock fix in `src/runtime/iron_string.c`)
+- [x] **WEB-RUNTIME-02**: `iron_threads_shutdown()` is a `#ifdef __EMSCRIPTEN__` no-op (cannot block on browser main thread)
+- [x] **WEB-RUNTIME-03**: On web, thread pool size is capped at 4 regardless of `hardwareConcurrency`
 - [ ] **WEB-RUNTIME-04**: Analyzer emits an error if `await` is reachable from `Iron_main()` when `--target=web`
 - [ ] **WEB-RUNTIME-05**: New file `src/stdlib/iron_time_web.c` provides `Iron_time_now()`, `Iron_time_now_ms()`, `Iron_time_now_ns()` via `emscripten_get_now()`
 - [ ] **WEB-RUNTIME-06**: Web build links `iron_time_web.c` instead of `iron_time.c` (no touches to `iron_time.c`)
@@ -209,9 +209,9 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-MANIFEST-06 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-MANIFEST-07 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-MANIFEST-08 | Phase 2 — CLI + TOML Scaffold | Complete |
-| WEB-RUNTIME-01 | Phase 3 — Runtime Audit | Pending |
-| WEB-RUNTIME-02 | Phase 3 — Runtime Audit | Pending |
-| WEB-RUNTIME-03 | Phase 3 — Runtime Audit | Pending |
+| WEB-RUNTIME-01 | Phase 3 — Runtime Audit | Complete |
+| WEB-RUNTIME-02 | Phase 3 — Runtime Audit | Complete |
+| WEB-RUNTIME-03 | Phase 3 — Runtime Audit | Complete |
 | WEB-RUNTIME-04 | Phase 3 — Runtime Audit | Pending |
 | WEB-RUNTIME-05 | Phase 4 — WASM-Safe Time Shim | Pending |
 | WEB-RUNTIME-06 | Phase 4 — WASM-Safe Time Shim | Pending |
