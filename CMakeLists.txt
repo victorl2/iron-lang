@@ -281,6 +281,41 @@ set_tests_properties(test_runtime_files_portability_grep PROPERTIES
     LABELS "unit;web-portability"
 )
 
+# ── Phase 4 plan-02: WEB-RUNTIME-06 iron_time_web.c symbol gate ─────────────
+# Fails the local build if src/stdlib/iron_time_web.c loses any of the 9
+# public symbols declared in src/stdlib/iron_time.h. Catches accidental
+# rename drift without requiring a local emsdk install. The full emcc
+# try-compile runs in CI (.github/workflows/web.yml probe step), which
+# covers type + syntax drift; this grep covers symbol-presence drift.
+# Labels `unit;web-portability` so `ctest -L web-portability` runs this
+# gate alongside the Phase 3 runtime-files portability grep.
+add_test(
+    NAME test_iron_time_web_symbols
+    COMMAND sh -c "\
+set -e; \
+F=\"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\"; \
+test -f \"$F\" || { echo 'FAIL: iron_time_web.c missing'; exit 1; }; \
+for sym in Iron_time_now Iron_time_now_ms Iron_time_now_ns Iron_time_sleep Iron_time_since Iron_time_Timer Iron_timer_done Iron_timer_update Iron_timer_reset; do \
+  grep -q \"$sym\" \"$F\" || { echo \"FAIL: $sym missing from iron_time_web.c\"; exit 1; }; \
+done; \
+echo 'OK: all 9 iron_time.h symbols present in iron_time_web.c'"
+)
+set_tests_properties(test_iron_time_web_symbols PROPERTIES
+    LABELS "unit;web-portability"
+)
+
+# ── Phase 4 plan-02: pin discipline on iron_time_web.c ──────────────────────
+# Extends the Phase 2 pin-discipline invariant to the new web time shim:
+# the emsdk version string 4.0.23 must live in .emsdk-version only, never
+# in a source file. Same inverted-grep pattern as test_emsdk_pin_discipline.
+add_test(
+    NAME test_emsdk_pin_discipline_iron_time_web
+    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\""
+)
+set_tests_properties(test_emsdk_pin_discipline_iron_time_web PROPERTIES
+    LABELS "phase4-invariant"
+)
+
 # iron CLI tests
 add_test(
     NAME test_iron_help
