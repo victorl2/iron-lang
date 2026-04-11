@@ -84,7 +84,9 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   1. A new file `src/stdlib/iron_time_web.c` exists providing `Iron_time_now()`, `Iron_time_now_ms()`, and `Iron_time_now_ns()` via `emscripten_get_now()`.
   2. A minimal Iron program that calls `time.now_ns()` builds with `--target=web` and links with no undefined symbols; `iron_time.c` is never touched and the pre-commit hook stays silent.
   3. The Pong validation game (Phase 12) observes strictly monotonic `now_ns()` values frame-over-frame for at least 60 consecutive frames.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 04-plan-01-iron-time-web-shim-PLAN.md — Create src/stdlib/iron_time_web.c mirroring iron_time.c body under #ifdef __EMSCRIPTEN__ guard with emscripten_get_now / emscripten_date_now / spin-loop sleep (WEB-RUNTIME-05)
+- [ ] 04-plan-02-ci-probe-and-symbol-gate-PLAN.md — Extend web.yml portability probe with iron_time_web.c emcc try-compile + add test_iron_time_web_symbols and test_emsdk_pin_discipline_iron_time_web ctest gates (WEB-RUNTIME-06)
 
 ### Phase 5: LIR Main-Loop Split Pass (HIGH risk)
 **Goal**: A LIR pass detects the canonical `while(!WindowShouldClose()) { body }` shape in Iron programs and rewrites it into a frame-callback form where captured locals are heap-promoted into a state struct, so an emit-time wrapper can register the callback with `emscripten_set_main_loop_arg`.
