@@ -104,16 +104,19 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - [ ] 05-plan-03-pipeline-wiring-and-tests-PLAN.md — Wire iron_lir_web_main_loop_split into build.c between optimize and emit + Unity test suite with 6 hand-built LIR fixtures + web.yml paths filter extension (Wave 3, depends on plans 01 and 02)
 
 ### Phase 6: emit_web.c Wrapper (MEDIUM risk)
-**Goal**: The LIR-level rewrites from Phase 5 are consumed by a brand-new emitter file that produces web-specific C (including `<emscripten/emscripten.h>`, runtime init, state alloc, `emscripten_set_main_loop_arg(fn, state, 0, 0)`, and cleanup inside the frame-callback shutdown branch) — all using `emit_helpers.h` APIs only, with zero touches to `emit_c.c`.
+**Goal**: The LIR-level rewrites from Phase 5 are consumed by a brand-new emitter file `src/lir/emit_web.c` that produces web-specific C (including `<emscripten/emscripten.h>`, runtime init, frame state alloc, `emscripten_set_main_loop_arg(fn, state, 0, 0)`, and cleanup inside the frame-callback shutdown branch), reusing three `emit_c.c` helpers (`emit_func_signature`, `emit_func_body`, `emit_instr`) via `emit_helpers.h` after a zero-behavior visibility promotion. PR #17 merged 2026-04-10 retired the "zero touches to emit_c.c" conflict-zone rule; the surviving invariant is behavior-identity of non-web emission.
 **Depends on**: Phase 5
 **Requirements**: WEB-EMIT-05, WEB-EMIT-06, WEB-EMIT-07, WEB-EMIT-08, WEB-EMIT-09
-**Risk flag**: MEDIUM — depends on `emit_helpers.h` exposing enough surface; needs a `/gsd:research-phase` spike during planning to audit the header and identify any promotions required before implementation.
+**Risk flag**: MEDIUM — depends on `emit_helpers.h` exposing enough surface; 06-RESEARCH.md confirmed that promoting `emit_func_signature`, `emit_func_body`, and `emit_instr` from `static` to extern is sufficient (≤10 lines of new declarations, zero behavioral change).
 **Success Criteria** (what must be TRUE):
   1. A no-op Iron program built with `--target=web` produces emitted C that contains `#include <emscripten/emscripten.h>` at the top and a `main()` wrapper that allocates a state struct, calls `emscripten_set_main_loop_arg(frame_cb, state, 0, 0)` with `simulate_infinite_loop = 0`, and returns 0.
   2. A web build whose `WindowShouldClose()` becomes true runs `CloseWindow()`, `iron_runtime_shutdown()`, `free(state)`, and `emscripten_cancel_main_loop()` in that order from inside the frame callback's shutdown branch — verified by a memory snapshot showing no leak growth across page reloads.
-  3. `src/cli/build.c` step 12 dispatches to `emit_web_module(...)` when `target == WEB` and to `iron_lir_emit_c(...)` otherwise; a `git diff main -- src/lir/emit_c.c` for this phase shows zero touched lines in that file.
-  4. Code review confirms `src/lir/emit_web.c` imports only from `src/lir/emit_helpers.h` (no `emit_c.c` internals pulled into a fresh header).
-**Plans**: TBD
+  3. `src/cli/build.c` step 12 dispatches to `emit_web_module(...)` when `target == WEB` and to `iron_lir_emit_c(...)` otherwise. `src/lir/emit_web.c` exists as a distinct emitter file (no inlining of web logic into `emit_c.c`) and non-web emission behavior is unchanged: the full native `ctest` suite remains 100% green with no regressions attributable to Phase 6. The original PR #17 conflict-zone rule that forbade any edit to `emit_c.c` is retired — PR #17 merged on 2026-04-10, so the rationale for that invariant no longer applies; Phase 6 plan 01 makes a zero-behavior three-function visibility change (`static` -> extern for `emit_func_signature`, `emit_func_body`, `emit_instr`) to enable clean reuse from `emit_web.c`.
+  4. `src/lir/emit_web.c` consumes `emit_c.c` helpers ONLY through `src/lir/emit_helpers.h` (the shared helper header). It does NOT `#include "lir/emit_c.h"` and does NOT reference any `emit_c.c` symbol whose declaration does not appear in `emit_helpers.h`. The clean-boundary guarantee is enforced at the header level, not at the line-diff level.
+**Plans**: 3 plans
+- [ ] 06-plan-01-emit-c-visibility-and-roadmap-update-PLAN.md — Promote emit_func_signature / emit_func_body / emit_instr from static to extern in src/lir/emit_c.c, declare them in src/lir/emit_helpers.h, and rewrite ROADMAP.md Phase 6 SC3/SC4 to retire the zero-touch invariant (Wave 1, no dependencies)
+- [ ] 06-plan-02-emit-web-module-implementation-PLAN.md — Create src/lir/emit_web.h + src/lir/emit_web.c implementing emit_web_module(): emscripten include, FrameState struct synthesis from fn->web_frame_captures, frame callback with CloseWindow/iron_runtime_shutdown/free/emscripten_cancel_main_loop shutdown branch, main() wrapper calling emscripten_set_main_loop_arg(cb, state, 0, 0); register new .c file in CMakeLists.txt (Wave 2, depends on plan 01)
+- [ ] 06-plan-03-dispatch-build-web-restructure-and-tests-PLAN.md — Wire src/cli/build.c step 12 dispatch (target==WEB -> emit_web_module, else iron_lir_emit_c), remove the Phase 2 stub short-circuit at iron_build() entry while preserving the find_emcc/banner preflight via iron_build_web, add tests/unit/test_emit_web.c with snapshot assertions on the emitted C, extend .github/workflows/web.yml paths filter for the Phase 6 files (Wave 3, depends on plans 01 and 02)
 
 ### Phase 7: build_web.c emcc Orchestration
 **Goal**: A single `emcc` link command is constructed and executed with the full canonical flag set (pthread, memory, GLFW, filesystem, exports, asyncify off) against the emitted C + Iron runtime + vendored raylib amalgamation + stdlib shims, producing output in `dist/web/` across Linux, macOS, and Windows.
@@ -223,7 +226,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 3. Runtime Audit | 3/4 | In Progress|  |
 | 4. WASM-Safe Time Shim | 2/2 | Complete   | 2026-04-11 |
 | 5. LIR Main-Loop Split Pass | 3/3 | Complete   | 2026-04-11 |
-| 6. emit_web.c Wrapper | 0/TBD | Not started | - |
+| 6. emit_web.c Wrapper | 1/3 | In Progress|  |
 | 7. build_web.c emcc Orchestration | 0/TBD | Not started | - |
 | 8. Raylib Web Integration | 0/TBD | Not started | - |
 | 9. Shell + Audio Autoplay | 0/TBD | Not started | - |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 05-lir-main-loop-split-pass-high-risk plan-03 pipeline-wiring-and-tests
-last_updated: "2026-04-11T19:45:15.657Z"
+stopped_at: Completed 06-emit-web-c-wrapper-medium-risk plan-01 emit-c-visibility-and-roadmap-update
+last_updated: "2026-04-11T23:56:29.923Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 19
+  completed_plans: 17
   percent: 0
 ---
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 05 P01 | 1039s | 2 tasks | 2 files |
 | Phase 05-lir-main-loop-split-pass-high-risk P02 | 722s | 3 tasks | 3 files |
 | Phase 05 P03 | 1200 | 4 tasks | 4 files |
+| Phase 06-emit-web-c-wrapper-medium-risk P01 | 681s | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 05-lir-main-loop-split-pass-high-risk]: Metadata-only pass in Phase 5; LOAD/STORE rewrites deferred to Phase 6 emit_web.c per RESEARCH.md recommendation
 - [Phase 05]: build.c call site runs only on native path today — web builds short-circuit to iron_build_web() before LIR pipeline; Phase 6 refactors iron_build_web to reuse this pipeline
 - [Phase 05]: 7-case unit test suite (1 extra: read-only capture is_mutable=false) strengthens WEB-EMIT-03 coverage beyond minimum-6 requirement
+- [Phase 06-emit-web-c-wrapper-medium-risk]: emit_func_signature/body/instr promoted from static to extern in emit_c.c; declared in emit_helpers.h under Phase 6 section — pure visibility change, zero behavioral impact
+- [Phase 06-emit-web-c-wrapper-medium-risk]: ROADMAP.md Phase 6 SC3/SC4 already had correct retired-invariant language pre-populated by planner; Task 2 was a no-op verify
 
 ### Pending Todos
 
@@ -131,6 +134,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T19:45:15.653Z
-Stopped at: Completed 05-lir-main-loop-split-pass-high-risk plan-03 pipeline-wiring-and-tests
+Last session: 2026-04-11T23:56:29.921Z
+Stopped at: Completed 06-emit-web-c-wrapper-medium-risk plan-01 emit-c-visibility-and-roadmap-update
 Resume file: None
