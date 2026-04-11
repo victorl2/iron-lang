@@ -455,6 +455,11 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "clang";
     argv_buf[ai++] = "-std=gnu17";
     argv_buf[ai++] = "-O3";
+    if (opts.release) {
+        /* Phase 2: --release appends -O2 to native builds; clang's last-wins
+         * argv parsing means this overrides the -O3 above. */
+        argv_buf[ai++] = "-O2";
+    }
     argv_buf[ai++] = "-o";
     argv_buf[ai++] = output;
     argv_buf[ai++] = c_file;
