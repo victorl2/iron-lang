@@ -518,41 +518,48 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
                 collect_mono_enums_node(ctx, seen, mc->args[i]);
             break;
         }
+        /* For-control statements, use the REAL struct layouts from parser/ast.h
+         * (reachable transitively via hir_to_lir.h). The original version of
+         * this switch declared local struct typedefs guessing at the layout —
+         * that worked by accident for most but was wrong for Iron_IfStmt,
+         * which has elif_conds/elif_bodies fields between `body` and
+         * `else_body`. The local guess read `else_body` at the elif_conds
+         * offset, then recursed into the stb_ds array pointer as if it were
+         * an Iron_Node* — crashing on any `if/elif/else` chain whenever the
+         * garbage bytes happened to be interpreted as a handled node kind
+         * (latent on macOS arm64, deterministic SIGSEGV on x86_64 Linux). */
         case IRON_NODE_RETURN: {
-            /* Iron_Return has an expr field */
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *expr; } Iron_Return;
-            Iron_Return *ret = (Iron_Return *)node;
-            collect_mono_enums_node(ctx, seen, ret->expr);
+            Iron_ReturnStmt *ret = (Iron_ReturnStmt *)node;
+            collect_mono_enums_node(ctx, seen, ret->value);
             break;
         }
         case IRON_NODE_IF: {
-            /* Iron_If: cond, then_block, else_block */
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *cond; Iron_Node *then_block; Iron_Node *else_block; } Iron_If;
-            Iron_If *iff = (Iron_If *)node;
-            collect_mono_enums_node(ctx, seen, iff->cond);
-            collect_mono_enums_node(ctx, seen, iff->then_block);
-            collect_mono_enums_node(ctx, seen, iff->else_block);
+            Iron_IfStmt *iff = (Iron_IfStmt *)node;
+            collect_mono_enums_node(ctx, seen, iff->condition);
+            collect_mono_enums_node(ctx, seen, iff->body);
+            for (int i = 0; i < iff->elif_count; i++) {
+                collect_mono_enums_node(ctx, seen, iff->elif_conds[i]);
+                collect_mono_enums_node(ctx, seen, iff->elif_bodies[i]);
+            }
+            collect_mono_enums_node(ctx, seen, iff->else_body);
             break;
         }
         case IRON_NODE_WHILE: {
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *cond; Iron_Node *body; } Iron_While;
-            Iron_While *wh = (Iron_While *)node;
-            collect_mono_enums_node(ctx, seen, wh->cond);
+            Iron_WhileStmt *wh = (Iron_WhileStmt *)node;
+            collect_mono_enums_node(ctx, seen, wh->condition);
             collect_mono_enums_node(ctx, seen, wh->body);
             break;
         }
         case IRON_NODE_MATCH: {
-            /* Iron_Match: subject, arms */
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *subject; Iron_Node **arms; int arm_count; } Iron_Match;
-            Iron_Match *mat = (Iron_Match *)node;
+            Iron_MatchStmt *mat = (Iron_MatchStmt *)node;
             collect_mono_enums_node(ctx, seen, mat->subject);
-            for (int i = 0; i < mat->arm_count; i++)
-                collect_mono_enums_node(ctx, seen, mat->arms[i]);
+            for (int i = 0; i < mat->case_count; i++)
+                collect_mono_enums_node(ctx, seen, mat->cases[i]);
+            collect_mono_enums_node(ctx, seen, mat->else_body);
             break;
         }
         case IRON_NODE_ASSIGN: {
-            typedef struct { Iron_Span s; Iron_NodeKind k; Iron_Node *target; Iron_Node *value; } Iron_Assign;
-            Iron_Assign *asgn = (Iron_Assign *)node;
+            Iron_AssignStmt *asgn = (Iron_AssignStmt *)node;
             collect_mono_enums_node(ctx, seen, asgn->target);
             collect_mono_enums_node(ctx, seen, asgn->value);
             break;
