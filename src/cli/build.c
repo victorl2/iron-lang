@@ -40,6 +40,7 @@
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 #include "cli/iron_import_detect.h"
+#include "cli/build_web.h"
 
 #ifndef _WIN32
 extern char **environ;
@@ -639,6 +640,11 @@ static int invoke_clang(const char *c_file, const char *output,
 
 int iron_build(const char *source_path, const char *output_path,
                IronBuildOpts opts) {
+    /* Phase 2: dispatch to web build stub when --target=web */
+    if (opts.target == IRON_TARGET_WEB) {
+        return iron_build_web(source_path, output_path, opts);
+    }
+
     /* Resolve runtime lib/src base directory once for this build */
     char *base_dir = get_iron_lib_dir();
     if (!base_dir) return 1;
