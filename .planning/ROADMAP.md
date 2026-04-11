@@ -98,7 +98,10 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   2. An Iron program with two sequential top-level `while(!WindowShouldClose())` loops in the same function produces a clear compile error naming the canonical shape and suggesting a state machine.
   3. An Iron program using `for !WindowShouldClose()`, a `do-while`, or a nested `while` produces a precise error identifying the unsupported shape and pointing at the canonical alternative.
   4. The same Iron source, when built with `--target=native`, bypasses the split pass entirely and runs unchanged on native (pass is web-target-gated).
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 05-plan-01-lir-struct-and-diagnostic-codes-PLAN.md — Extend IronLIR_Func with web_frame_captures metadata fields + define four IRON_ERR_WEB_* error codes in the 700 range (Wave 1, depends on nothing)
+- [ ] 05-plan-02-web-main-loop-split-pass-PLAN.md — New src/lir/web_main_loop_split.{h,c} with canonical while(!WindowShouldClose()) detector, capture-set computation, four error paths, and CMake registration (Wave 2, depends on plan 01)
+- [ ] 05-plan-03-pipeline-wiring-and-tests-PLAN.md — Wire iron_lir_web_main_loop_split into build.c between optimize and emit + Unity test suite with 6 hand-built LIR fixtures + web.yml paths filter extension (Wave 3, depends on plans 01 and 02)
 
 ### Phase 6: emit_web.c Wrapper (MEDIUM risk)
 **Goal**: The LIR-level rewrites from Phase 5 are consumed by a brand-new emitter file that produces web-specific C (including `<emscripten/emscripten.h>`, runtime init, state alloc, `emscripten_set_main_loop_arg(fn, state, 0, 0)`, and cleanup inside the frame-callback shutdown branch) — all using `emit_helpers.h` APIs only, with zero touches to `emit_c.c`.
@@ -219,7 +222,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 2. CLI + TOML Scaffold | 6/6 | Complete   | 2026-04-11 |
 | 3. Runtime Audit | 3/4 | In Progress|  |
 | 4. WASM-Safe Time Shim | 2/2 | Complete   | 2026-04-11 |
-| 5. LIR Main-Loop Split Pass | 0/TBD | Not started | - |
+| 5. LIR Main-Loop Split Pass | 0/3 | Planned     | - |
 | 6. emit_web.c Wrapper | 0/TBD | Not started | - |
 | 7. build_web.c emcc Orchestration | 0/TBD | Not started | - |
 | 8. Raylib Web Integration | 0/TBD | Not started | - |
