@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-cli-toml-scaffold plan-01 type-foundations
-last_updated: "2026-04-11T15:22:25.879Z"
+stopped_at: Completed 02-cli-toml-scaffold plan-03 cli-flag-parsing
+last_updated: "2026-04-11T15:27:29.617Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 1
   total_plans: 7
-  completed_plans: 2
+  completed_plans: 5
   percent: 0
 ---
 
@@ -53,6 +53,9 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 *Updated after each plan completion*
 | Phase 01-bootstrap-guardrails P01 | 25 | 5 tasks | 5 files |
 | Phase 02-cli-toml-scaffold P01 | 2 | 3 tasks | 3 files |
+| Phase 02-cli-toml-scaffold P02 | 126 | 3 tasks | 1 files |
+| Phase 02-cli-toml-scaffold P03 | 2 | 2 tasks | 1 files |
+| Phase 02-cli-toml-scaffold P04 | 8m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -74,6 +77,11 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 01-bootstrap-guardrails]: WEB-BOOT-03 retargeted from Windows CI to Linux/macOS CI only — Windows support gated on PR #17 landing
 - [Phase 02-cli-toml-scaffold]: IronWebConfig embedded by value on IronProject; zero-init from calloc gives NULL/0 == not-set semantics
 - [Phase 02-cli-toml-scaffold]: int used for numeric web fields matching existing plain-int style in IronProject.dep_count
+- [Phase 02-cli-toml-scaffold]: Levenshtein cap at 64 chars returns INT_MAX; stack arrays v0[66]/v1[66] — no heap, no VLA
+- [Phase 02-cli-toml-scaffold]: parse_toml_string_array kept static/unexported — single consumer in assets branch
+- [Phase 02-cli-toml-scaffold]: No short form -t for --target — reserved for future use (CONTEXT.md decision)
+- [Phase 02-cli-toml-scaffold]: iron run --target=web parses and stores flags only; emrun shell-out deferred to Phase 7
+- [Phase 02-cli-toml-scaffold]: popen() used for emcc --version capture (simpler than posix_spawnp + pipe for one-shot read)
 
 ### Pending Todos
 
@@ -89,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T15:22:25.876Z
-Stopped at: Completed 02-cli-toml-scaffold plan-01 type-foundations
+Last session: 2026-04-11T15:27:21.511Z
+Stopped at: Completed 02-cli-toml-scaffold plan-03 cli-flag-parsing
 Resume file: None

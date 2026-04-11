@@ -210,7 +210,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Bootstrap & Guardrails | 1/1 | Complete    | 2026-04-11 |
-| 2. CLI + TOML Scaffold | 1/6 | In Progress|  |
+| 2. CLI + TOML Scaffold | 4/6 | In Progress|  |
 | 3. Runtime Audit | 0/TBD | Not started | - |
 | 4. WASM-Safe Time Shim | 0/TBD | Not started | - |
 | 5. LIR Main-Loop Split Pass | 0/TBD | Not started | - |

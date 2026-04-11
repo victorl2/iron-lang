@@ -15,25 +15,25 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 ### CLI (WEB-CLI)
 
 - [ ] **WEB-CLI-01**: User can run `iron build --target=web main.iron` and get a bundle in `dist/web/`
-- [ ] **WEB-CLI-02**: User can run `iron build --target=native main.iron` (explicit native target, same as default)
-- [ ] **WEB-CLI-03**: `iron build` with no `--target` defaults to native (backward compatible)
-- [ ] **WEB-CLI-04**: Unknown `--target=` values produce a clear error listing valid values
-- [ ] **WEB-CLI-05**: `iron build --target=web --release` uses optimized flags (`-Oz -flto -sASSERTIONS=0`)
-- [ ] **WEB-CLI-06**: `iron build --target=web` (debug) uses `-O0 -g -sASSERTIONS=1`
-- [ ] **WEB-CLI-07**: `iron run --target=web` builds then shells to `emrun` on the output HTML
+- [x] **WEB-CLI-02**: User can run `iron build --target=native main.iron` (explicit native target, same as default)
+- [x] **WEB-CLI-03**: `iron build` with no `--target` defaults to native (backward compatible)
+- [x] **WEB-CLI-04**: Unknown `--target=` values produce a clear error listing valid values
+- [x] **WEB-CLI-05**: `iron build --target=web --release` uses optimized flags (`-Oz -flto -sASSERTIONS=0`)
+- [x] **WEB-CLI-06**: `iron build --target=web` (debug) uses `-O0 -g -sASSERTIONS=1`
+- [x] **WEB-CLI-07**: `iron run --target=web` builds then shells to `emrun` on the output HTML
 - [ ] **WEB-CLI-08**: Missing `emcc` produces a friendly error with install instructions and the pinned emsdk version
 - [ ] **WEB-CLI-09**: Build log prints `using emcc <version> from <path>` before compilation starts
 
 ### iron.toml `[web]` Section (WEB-MANIFEST)
 
 - [x] **WEB-MANIFEST-01**: `iron.toml` `[web]` section is parsed into a new `IronWebConfig` struct
-- [ ] **WEB-MANIFEST-02**: `[web].assets` accepts a string or array of strings; values are passed as `--preload-file <path>@<path>` identity mappings
-- [ ] **WEB-MANIFEST-03**: `[web].title` substitutes into the HTML shell `<title>` element
-- [ ] **WEB-MANIFEST-04**: `[web].shell` points to a custom HTML template; default is embedded in `src/cli/web_shell_template.h`
-- [ ] **WEB-MANIFEST-05**: `[web].initial_memory` overrides the default `134217728` (128 MB)
-- [ ] **WEB-MANIFEST-06**: `[web].stack_size` overrides the default `1048576` (1 MB)
-- [ ] **WEB-MANIFEST-07**: `[web].pthread_pool_size` overrides the default `4`
-- [ ] **WEB-MANIFEST-08**: Unknown `[web].*` keys produce a warning but do not fail the build
+- [x] **WEB-MANIFEST-02**: `[web].assets` accepts a string or array of strings; values are passed as `--preload-file <path>@<path>` identity mappings
+- [x] **WEB-MANIFEST-03**: `[web].title` substitutes into the HTML shell `<title>` element
+- [x] **WEB-MANIFEST-04**: `[web].shell` points to a custom HTML template; default is embedded in `src/cli/web_shell_template.h`
+- [x] **WEB-MANIFEST-05**: `[web].initial_memory` overrides the default `134217728` (128 MB)
+- [x] **WEB-MANIFEST-06**: `[web].stack_size` overrides the default `1048576` (1 MB)
+- [x] **WEB-MANIFEST-07**: `[web].pthread_pool_size` overrides the default `4`
+- [x] **WEB-MANIFEST-08**: Unknown `[web].*` keys produce a warning but do not fail the build
 
 ### Runtime Hardening (WEB-RUNTIME)
 
@@ -193,22 +193,22 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-BOOT-01 | Phase 1 — Bootstrap & Guardrails | Complete |
 | WEB-BOOT-03 | Phase 1 — Bootstrap & Guardrails | Complete |
 | WEB-CLI-01 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-CLI-02 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-CLI-03 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-CLI-04 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-CLI-05 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-CLI-06 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-CLI-07 | Phase 2 — CLI + TOML Scaffold | Pending |
+| WEB-CLI-02 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-CLI-03 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-CLI-04 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-CLI-05 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-CLI-06 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-CLI-07 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-CLI-08 | Phase 2 — CLI + TOML Scaffold | Pending |
 | WEB-CLI-09 | Phase 2 — CLI + TOML Scaffold | Pending |
 | WEB-MANIFEST-01 | Phase 2 — CLI + TOML Scaffold | Complete |
-| WEB-MANIFEST-02 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-MANIFEST-03 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-MANIFEST-04 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-MANIFEST-05 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-MANIFEST-06 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-MANIFEST-07 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-MANIFEST-08 | Phase 2 — CLI + TOML Scaffold | Pending |
+| WEB-MANIFEST-02 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-MANIFEST-03 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-MANIFEST-04 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-MANIFEST-05 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-MANIFEST-06 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-MANIFEST-07 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-MANIFEST-08 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-RUNTIME-01 | Phase 3 — Runtime Audit | Pending |
 | WEB-RUNTIME-02 | Phase 3 — Runtime Audit | Pending |
 | WEB-RUNTIME-03 | Phase 3 — Runtime Audit | Pending |
