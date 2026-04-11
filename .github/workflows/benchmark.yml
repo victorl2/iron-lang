@@ -40,7 +40,10 @@ jobs:
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake ninja
+        # coreutils provides gtimeout; without it run_with_timeout falls back
+        # to a watchdog subshell that leaks sleep processes on each sample and
+        # exhausts macOS runner process slots during the 30-sample loop.
+        run: brew install cmake ninja coreutils
 
       - name: Build compiler
         run: |
