@@ -1,0 +1,15 @@
+-- empty_concrete_var_push.iron: Empty concrete-typed array literal + push
+-- Phase 55.1 test — proves check_expr_with_expected works uniformly for
+-- primitive element types, not just interface types. Covers Int (via .sum())
+-- and String (via len after a push).
+
+func main() {
+  var ints: [Int] = []
+  ints.push(7)
+  ints.push(42)
+  println("{ints.sum()}")
+
+  var strs: [String] = []
+  strs.push("hi")
+  println("{strs.len()}")
+}

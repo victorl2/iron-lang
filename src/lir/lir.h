@@ -53,9 +53,17 @@ typedef enum {
     IRON_LIR_AND,
     IRON_LIR_OR,
 
+    /* Bitwise binary */
+    IRON_LIR_SHL,   /* int64 <<  */
+    IRON_LIR_SHR,   /* int64 >> (arithmetic) */
+    IRON_LIR_BAND,  /* int64 &   */
+    IRON_LIR_BOR,   /* int64 |   */
+    IRON_LIR_BXOR,  /* int64 ^   */
+
     /* Unary */
     IRON_LIR_NEG,
     IRON_LIR_NOT,
+    IRON_LIR_BNOT,  /* int64 ~   */
 
     /* Memory */
     IRON_LIR_ALLOCA,
@@ -129,9 +137,10 @@ struct IronLIR_Instr {
         /* IRON_LIR_ADD, IRON_LIR_SUB, IRON_LIR_MUL, IRON_LIR_DIV, IRON_LIR_MOD */
         /* IRON_LIR_EQ, IRON_LIR_NEQ, IRON_LIR_LT, IRON_LIR_LTE, IRON_LIR_GT, IRON_LIR_GTE */
         /* IRON_LIR_AND, IRON_LIR_OR */
+        /* IRON_LIR_SHL, IRON_LIR_SHR, IRON_LIR_BAND, IRON_LIR_BOR, IRON_LIR_BXOR */
         struct { IronLIR_ValueId left; IronLIR_ValueId right; } binop;
 
-        /* IRON_LIR_NEG, IRON_LIR_NOT */
+        /* IRON_LIR_NEG, IRON_LIR_NOT, IRON_LIR_BNOT */
         struct { IronLIR_ValueId operand; } unop;
 
         /* IRON_LIR_ALLOCA */

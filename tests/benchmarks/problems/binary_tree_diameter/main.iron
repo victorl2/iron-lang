@@ -57,17 +57,24 @@ func main() {
     val tree7 = [10, 5, 15, 3, 7, 12, 20]
     println("Test 4: {diameter(tree7, 7)} (expected 4)")
 
-    val iterations = 500000
-    val start = Time.now_ms()
+    -- Phase 58 Plan 03 Precondition C: scaled 10x from 500000 to exceed the
+    -- cold-cache / scheduler-jitter threshold. At ~15ms runtime the original
+    -- count sat below the noise floor and produced high variance across runs.
+    -- Bumped to 5M iterations so total runtime is ~150ms and variance drops.
+    val iterations = 5000000
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = diameter(tree_vals, tree_size)
+        result = result + diameter(tree_vals, 25 + (it % 7))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Binary Tree Diameter ===")
     println("Tree size: {tree_size}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

@@ -168,6 +168,43 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
+    /* ── Bitwise binary ops ─────────────────────────────────────────────── */
+
+    case IRON_LIR_SHL:
+        iron_strbuf_appendf(sb, "  %%%u = shl %%%u, %%%u : ",
+                            instr->id, instr->binop.left, instr->binop.right);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_SHR:
+        iron_strbuf_appendf(sb, "  %%%u = shr %%%u, %%%u : ",
+                            instr->id, instr->binop.left, instr->binop.right);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_BAND:
+        iron_strbuf_appendf(sb, "  %%%u = band %%%u, %%%u : ",
+                            instr->id, instr->binop.left, instr->binop.right);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_BOR:
+        iron_strbuf_appendf(sb, "  %%%u = bor %%%u, %%%u : ",
+                            instr->id, instr->binop.left, instr->binop.right);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_BXOR:
+        iron_strbuf_appendf(sb, "  %%%u = bxor %%%u, %%%u : ",
+                            instr->id, instr->binop.left, instr->binop.right);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
     /* ── Unary ops ──────────────────────────────────────────────────────── */
 
     case IRON_LIR_NEG:
@@ -179,6 +216,13 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
 
     case IRON_LIR_NOT:
         iron_strbuf_appendf(sb, "  %%%u = not %%%u : ",
+                            instr->id, instr->unop.operand);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_BNOT:
+        iron_strbuf_appendf(sb, "  %%%u = bnot %%%u : ",
                             instr->id, instr->unop.operand);
         append_type(sb, instr->type, tmp);
         iron_strbuf_appendf(sb, "\n");

@@ -1,0 +1,40 @@
+-- mono_fusion_chain.iron: Fusion probe -- Phase 49 fusion engine + mono
+-- collapse composition.  Uses a 10-element [Circle] collection and a
+-- 3-op chain (.map.filter.reduce) so fusion should emit a single flat
+-- loop over the plain Iron_List_Iron_Circle path.  Without Phase 56 Plan 01
+-- the compile fails; with it, the generated C contains a single
+-- "/* Phase 49: Emit fused loop (flat) */" block iterating _v7.items[].
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3), Circle(4), Circle(5),
+                 Circle(6), Circle(7), Circle(8), Circle(9), Circle(10)]
+  -- Same arithmetic as mono_chain_filter_reduce but with 10 elements:
+  -- areas:        3, 12, 27, 48, 75, 108, 147, 192, 243, 300
+  -- filter(> 50):             75, 108, 147, 192, 243, 300
+  -- reduce(+):                                          1065
+  val result = circles
+    .map(func(c: Circle) -> Int { return c.area() })
+    .filter(func(a: Int) -> Bool { return a > 50 })
+    .reduce(0, func(acc: Int, a: Int) -> Int { return acc + a })
+  println("{result}")
+}

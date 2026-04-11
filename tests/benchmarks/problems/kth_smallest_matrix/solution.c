@@ -93,13 +93,13 @@ int main(void) {
     printf("Bench check k=50: %lld\n", kth_smallest(mat, rows, cols, k));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000000;
+    int iterations = 2500000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = kth_smallest(mat, rows, cols, k);
+        result = result + kth_smallest(mat, rows, cols, 40 + (it % 21));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -113,6 +113,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %lld\n", (long long)result);
 
     return 0;
 }

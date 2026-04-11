@@ -1,0 +1,51 @@
+-- push_interface_len_pop.iron: Combined .len() + .pop() on interface split collections
+-- Phase 55 Plan 02: extends PUSH-01 to len/pop.
+-- Previously .len() and .pop() both produced undeclared
+-- Iron_List_Iron_Shape_len / Iron_List_Iron_Shape_pop calls in generated C.
+-- This test verifies the interception block now dispatches both methods
+-- correctly to _total_count (len) and the _order tag-switch (pop).
+--
+-- Phase 56 Plan 02 audit: the [Circle, Square, Circle] initial literal is
+-- LOAD-BEARING, not a mono-collapse workaround — the test's purpose is
+-- verifying the split-collection .pop() dispatch via the _order tag-switch,
+-- which only engages when multiple implementor types coexist. The last-pop
+-- result (Circle(3).area() == 27) also depends on the last _order entry
+-- pointing into the Circle sub-array; a single-type rewrite would use a
+-- plain array pop path and not exercise the dispatch logic.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- 2-element initial literal with both implementors avoids the Phase 56
+  -- monomorphic-collapse limitation (single-type narrowing).
+  var shapes = [Circle(1), Square(2), Circle(3)]
+
+  -- Initial len: 3 elements in the split collection.
+  println("{shapes.len()}")
+
+  -- Pop the most recently pushed element. Circle(3) was last, its area is
+  -- 3 * 3 * 3 = 27.
+  var last = shapes.pop()
+  println("{last.area()}")
+
+  -- After pop, len is 2.
+  println("{shapes.len()}")
+}

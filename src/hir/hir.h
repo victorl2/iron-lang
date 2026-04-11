@@ -101,14 +101,20 @@ typedef enum {
     IRON_HIR_BINOP_GT,    /* >  */
     IRON_HIR_BINOP_GTE,   /* >= */
     IRON_HIR_BINOP_AND,   /* && */
-    IRON_HIR_BINOP_OR     /* || */
+    IRON_HIR_BINOP_OR,    /* || */
+    IRON_HIR_BINOP_SHL,   /* << */
+    IRON_HIR_BINOP_SHR,   /* >> */
+    IRON_HIR_BINOP_BAND,  /* &  */
+    IRON_HIR_BINOP_BOR,   /* |  */
+    IRON_HIR_BINOP_BXOR   /* ^  */
 } IronHIR_BinOp;
 
 /* ── Unary operator ─────────────────────────────────────────────────────── */
 
 typedef enum {
-    IRON_HIR_UNOP_NEG,  /* -x  */
-    IRON_HIR_UNOP_NOT   /* !x  */
+    IRON_HIR_UNOP_NEG,   /* -x */
+    IRON_HIR_UNOP_NOT,   /* !x */
+    IRON_HIR_UNOP_BNOT   /* ~x */
 } IronHIR_UnOp;
 
 /* ── Helper structs ──────────────────────────────────────────────────────── */

@@ -42,17 +42,19 @@ func main() {
     println("Test 2: {min_path_sum(bench, 20, 20)} (expected 131)")
 
     val iterations = 1500000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = min_path_sum(bench, 20, 20)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Min Path Sum ===")
     println("Grid: 20x20")
     println("Iterations: {iterations}")
     println("Result: {result}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -32,9 +32,9 @@ int main(void) {
     int iterations = 500000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = partition_equal_subset(bench, 20);
+        result = result + partition_equal_subset(bench, 10 + (it % 11));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 

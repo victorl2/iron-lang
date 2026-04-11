@@ -51,9 +51,9 @@ int main(void) {
     int iterations = 1000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = bench_recursion(1000);
+        result = result + bench_recursion(990 + (it % 20));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -64,5 +64,6 @@ int main(void) {
     printf("Depth: 1000\n");
     printf("Iterations: %d\n", iterations);
     printf("Total time: %.3f ms\n", elapsed_ms);
+    printf("Result: %lld\n", (long long)result);
     return 0;
 }

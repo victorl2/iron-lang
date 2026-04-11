@@ -34,14 +34,15 @@ func main() {
     val seq_checksum = matrix_total_checksum()
 
     -- Parallel section: each iteration computes one row independently
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
         for row in rows parallel {
             val cs = matrix_row_checksum(row)
         }
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify: parallel writes didn't corrupt anything
     val par_checksum = matrix_total_checksum()
@@ -57,5 +58,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Parallel Matrix ===")
     println("Matrix=40x40")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -82,16 +82,19 @@ func main() {
 
     -- Benchmark
     val iterations = 10000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = bench_large_array(10000)
+        result = result + bench_large_array(9900 + (it % 100))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Large Array Prefix Sum ===")
     println("Array size: 10000")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

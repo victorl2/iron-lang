@@ -1,0 +1,53 @@
+-- soa_fusion_dead_field.iron: Phase 57 adjacent regression for SoA + fusion + dead field
+-- Covers ROADMAP Phase 57 SC5 "SoA + fusion + dead field"
+--
+-- Triggers:
+--   (1) Implementor with 5 fields (well above the 4-field primary test)
+--   (2) Only 1 field (value) accessed via get_value() -> 1/5 = 20% < 50% threshold -> Phase 48 SoA
+--   (3) Dead field elimination removes label_a, label_b, label_c, label_d from _Stor
+--   (4) Fusion: val total = entries.map(get_value).sum() -> Phase 49 emits fused per-type loop
+--   (5) Plan 01 sibling helper must zero-init 4 dead fields per element
+
+interface Entry {
+  func get_value() -> Int
+}
+
+object Ledger impl Entry {
+  var value: Int
+  var label_a: Int
+  var label_b: Int
+  var label_c: Int
+  var label_d: Int
+}
+
+object Note impl Entry {
+  var value: Int
+  var tag_a: Int
+  var tag_b: Int
+  var tag_c: Int
+  var tag_d: Int
+}
+
+func Ledger.get_value() -> Int {
+  return self.value
+}
+
+func Note.get_value() -> Int {
+  return self.value
+}
+
+func main() {
+  val entries = [
+    Ledger(100, 9001, 9002, 9003, 9004),
+    Note(40, 8001, 8002, 8003, 8004),
+    Ledger(250, 7001, 7002, 7003, 7004),
+    Note(60, 6001, 6002, 6003, 6004),
+    Ledger(50, 5001, 5002, 5003, 5004)
+  ]
+  -- Ledger values: 100 + 250 + 50 = 400
+  -- Note values:   40 + 60       = 100
+  -- Total:                        500
+  val total = entries.map(func(e: Entry) -> Int { return e.get_value() }).sum()
+  println("{total}")
+  println("dead_field_done")
+}

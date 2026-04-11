@@ -84,16 +84,19 @@ func main() {
     println("Bench check: {check}")
 
     val iterations = 5000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = spiral_sum(mat, rows, cols)
+        result = result + spiral_sum(mat, rows, 5 + (it % 6))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Spiral Matrix ===")
     println("Matrix: {rows}x{cols}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

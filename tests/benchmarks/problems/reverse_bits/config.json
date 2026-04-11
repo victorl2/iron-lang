@@ -1,1 +1,1 @@
-{"iterations": 6, "timeout_sec": 60, "max_ratio": 2.5}
+{"iterations": 6, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "Stable ratio 1.00 (variance 0.0%) across 5 runs; 1.5x floor per project policy; 2026-04-10 audit"}

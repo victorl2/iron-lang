@@ -1,0 +1,58 @@
+-- push_interface_loop_100.iron: 100+ element push loop stress test
+-- Satisfies ROADMAP Phase 55 success criterion #2:
+--   "Push loop building a 100+ element split collection produces
+--    correct runtime output"
+-- Exercises per-type sub-array arena growth for both implementors
+-- via alternating Circle/Square pushes in a 100-iteration loop.
+-- Initial literal includes both types to avoid the monomorphic-collapse
+-- path (separate issue scoped to Phase 56).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var shapes = [Circle(0), Square(0)]
+  var i = 1
+  while i < 101 {
+    if i % 2 == 0 {
+      shapes.push(Circle(i))
+    } else {
+      shapes.push(Square(i))
+    }
+    i = i + 1
+  }
+
+  -- Element count: 2 initial + 100 pushed = 102
+  -- Area totals:
+  --   Circle(0)=0, Square(0)=0
+  --   For i in 1..100: if even -> Circle(i).area = 3*i*i
+  --                    if odd  -> Square(i).area = i*i
+  --   Sum of i*i for even i in 1..100 = 171700, times 3 = 515100
+  --   Sum of i*i for odd i in 1..100  = 166650
+  --   Total = 515100 + 166650 = 681750
+  var count = 0
+  var total = 0
+  for s in shapes {
+    count = count + 1
+    total = total + s.area()
+  }
+  println("{count}")
+  println("{total}")
+}

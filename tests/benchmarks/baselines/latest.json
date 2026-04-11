@@ -1,143 +1,972 @@
 {
-  "commit": "61f60f4",
-  "date": "2026-04-01",
+  "commit": "d7f6c19",
+  "date": "2026-04-10",
   "problems": {
-    "activity_selection": {"c_ms": 72.792, "iron_ms": 63, "ratio": 0.9, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "binary_search_insert": {"c_ms": 161.168, "iron_ms": 157, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "binary_tree_diameter": {"c_ms": 16.262, "iron_ms": 15, "ratio": 0.9, "iron_mem_kb": 1552, "c_mem_kb": 1264},
-    "binary_tree_inorder": {"c_ms": 115.298, "iron_ms": 103, "ratio": 0.9, "iron_mem_kb": 1584, "c_mem_kb": 1264},
-    "buy_sell_stock": {"c_ms": 1686.608, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "climbing_stairs": {"c_ms": 85.770, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "coin_change": {"c_ms": 172.787, "iron_ms": 178, "ratio": 1.0, "iron_mem_kb": 1600, "c_mem_kb": 1280},
-    "concurrency_parallel_accumulate": {"c_ms": 0.803, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1424},
-    "concurrency_parallel_conditional": {"c_ms": 0.598, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1424},
-    "concurrency_parallel_fibonacci": {"c_ms": 0.633, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1392},
-    "concurrency_parallel_matrix": {"c_ms": 0.706, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1392},
-    "concurrency_parallel_sum": {"c_ms": 0.545, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1584, "c_mem_kb": 1408},
-    "concurrency_pipeline": {"c_ms": 1.122, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1504, "c_mem_kb": 1328},
-    "concurrency_shared_counter": {"c_ms": 1.303, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1424},
-    "concurrency_spawn_captured": {"c_ms": 29.727, "iron_ms": 6, "ratio": 0.2, "iron_mem_kb": 1616, "c_mem_kb": 1360},
-    "concurrency_spawn_independence": {"c_ms": 0.400, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1584, "c_mem_kb": 1328},
-    "concurrency_spawn_result": {"c_ms": 1.040, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1344},
-    "connected_components": {"c_ms": 667.799, "iron_ms": 338, "ratio": 0.5, "iron_mem_kb": 1536, "c_mem_kb": 1296},
-    "container_most_water": {"c_ms": 2291.747, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1568, "c_mem_kb": 1280},
-    "count_paths_with_obstacles": {"c_ms": 94.963, "iron_ms": 132, "ratio": 1.4, "iron_mem_kb": 1552, "c_mem_kb": 1296},
-    "counting_bits": {"c_ms": 347.250, "iron_ms": 393, "ratio": 1.1, "iron_mem_kb": 1536, "c_mem_kb": 1280},
-    "counting_sort": {"c_ms": 101.227, "iron_ms": 85, "ratio": 0.8, "iron_mem_kb": 1520, "c_mem_kb": 1296},
-    "course_schedule": {"c_ms": 19.816, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "daily_temperatures": {"c_ms": 68.432, "iron_ms": 79, "ratio": 1.2, "iron_mem_kb": 1552, "c_mem_kb": 1296},
-    "decode_ways": {"c_ms": 287.608, "iron_ms": 262, "ratio": 0.9, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "deep_recursion_sum": {"c_ms": 179.895, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1584, "c_mem_kb": 1264},
-    "defer_cleanup_chain": {"c_ms": 350.318, "iron_ms": 221, "ratio": 0.6, "iron_mem_kb": 1520, "c_mem_kb": 1264},
-    "edit_distance": {"c_ms": 352.983, "iron_ms": 220, "ratio": 0.6, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "eval_reverse_polish": {"c_ms": 201.126, "iron_ms": 199, "ratio": 1.0, "iron_mem_kb": 1520, "c_mem_kb": 1264},
-    "fast_power": {"c_ms": 205.980, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1504, "c_mem_kb": 1264},
-    "fibonacci_matrix": {"c_ms": 111.991, "iron_ms": 124, "ratio": 1.1, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "find_first_last": {"c_ms": 121.856, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1568, "c_mem_kb": 1264},
-    "find_peak_element": {"c_ms": 41.573, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "flood_fill": {"c_ms": 222.481, "iron_ms": 133, "ratio": 0.6, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "game_of_life": {"c_ms": 198.231, "iron_ms": 199, "ratio": 1.0, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "gas_station": {"c_ms": 173.601, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "gcd_lcm": {"c_ms": 192.479, "iron_ms": 193, "ratio": 1.0, "iron_mem_kb": 1552, "c_mem_kb": 1264},
-    "generate_parentheses": {"c_ms": 1817.910, "iron_ms": 1837, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1280},
-    "graph_bipartite": {"c_ms": 414.384, "iron_ms": 430, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1296},
-    "graph_dfs_traversal": {"c_ms": 178.032, "iron_ms": 195, "ratio": 1.1, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "hamming_distance": {"c_ms": 216.052, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1264},
-    "heap_sort": {"c_ms": 361.463, "iron_ms": 363, "ratio": 1.0, "iron_mem_kb": 1584, "c_mem_kb": 1296},
-    "house_robber": {"c_ms": 70.976, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "int32_array_sum": {"c_ms": 3, "iron_ms": 8, "ratio": 2.7, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "jump_game": {"c_ms": 202.499, "iron_ms": 200, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "jump_game_ii": {"c_ms": 299.792, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1264},
-    "kmp_pattern_match": {"c_ms": 273.104, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1568, "c_mem_kb": 1296},
-    "knapsack_01": {"c_ms": 422.540, "iron_ms": 451, "ratio": 1.1, "iron_mem_kb": 1584, "c_mem_kb": 1280},
-    "kth_largest": {"c_ms": 260.169, "iron_ms": 255, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1296},
-    "kth_smallest_matrix": {"c_ms": 171.149, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1264},
-    "large_array_prefix_sum": {"c_ms": 233.366, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1632, "c_mem_kb": 1616},
-    "largest_rect_histogram": {"c_ms": 128.421, "iron_ms": 139, "ratio": 1.1, "iron_mem_kb": 1568, "c_mem_kb": 1280},
-    "level_order_traversal": {"c_ms": 181.917, "iron_ms": 165, "ratio": 0.9, "iron_mem_kb": 1584, "c_mem_kb": 1280},
-    "longest_common_subseq": {"c_ms": 506.632, "iron_ms": 87, "ratio": 0.2, "iron_mem_kb": 1536, "c_mem_kb": 1280},
-    "longest_increasing_subseq": {"c_ms": 444.668, "iron_ms": 452, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "longest_palindromic_subseq": {"c_ms": 193.965, "iron_ms": 221, "ratio": 1.1, "iron_mem_kb": 1504, "c_mem_kb": 1280},
-    "longest_palindromic_substr": {"c_ms": 754.099, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "longest_substr_no_repeat": {"c_ms": 48.701, "iron_ms": 35, "ratio": 0.7, "iron_mem_kb": 1520, "c_mem_kb": 1264},
-    "longest_valid_parens": {"c_ms": 136.852, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1504, "c_mem_kb": 1296},
-    "majority_element": {"c_ms": 2012.846, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "match_state_machine": {"c_ms": 71.891, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1504, "c_mem_kb": 1264},
-    "matrix_chain_mult": {"c_ms": 86.616, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "max_depth_binary_tree": {"c_ms": 115.667, "iron_ms": 169, "ratio": 1.5, "iron_mem_kb": 1536, "c_mem_kb": 1280},
-    "max_length_repeated_subarray": {"c_ms": 270.423, "iron_ms": 256, "ratio": 0.9, "iron_mem_kb": 1568, "c_mem_kb": 1280},
-    "max_product_subarray": {"c_ms": 1202.108, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1584, "c_mem_kb": 1264},
-    "maximal_square": {"c_ms": 308.507, "iron_ms": 342, "ratio": 1.1, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "maximum_subarray": {"c_ms": 832.864, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1568, "c_mem_kb": 1264},
-    "median_stream": {"c_ms": 325.825, "iron_ms": 339, "ratio": 1.0, "iron_mem_kb": 1584, "c_mem_kb": 1264},
-    "median_two_sorted_arrays": {"c_ms": 171.264, "iron_ms": 768, "ratio": 4.5, "iron_mem_kb": 1584, "c_mem_kb": 1280},
-    "merge_k_sorted_lists": {"c_ms": 209.144, "iron_ms": 151, "ratio": 0.7, "iron_mem_kb": 1536, "c_mem_kb": 1280},
-    "merge_sort": {"c_ms": 382.435, "iron_ms": 245, "ratio": 0.6, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "merge_sorted_arrays": {"c_ms": 233.866, "iron_ms": 51, "ratio": 0.2, "iron_mem_kb": 1568, "c_mem_kb": 1280},
-    "min_path_sum": {"c_ms": 214.074, "iron_ms": 295, "ratio": 1.4, "iron_mem_kb": 1552, "c_mem_kb": 1296},
-    "min_stack": {"c_ms": 402.740, "iron_ms": 435, "ratio": 1.1, "iron_mem_kb": 1552, "c_mem_kb": 1280},
-    "min_window_substring": {"c_ms": 87.192, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "move_zeroes": {"c_ms": 102.688, "iron_ms": 73, "ratio": 0.7, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "n_queens": {"c_ms": 3769.501, "iron_ms": 3676, "ratio": 1.0, "iron_mem_kb": 1504, "c_mem_kb": 1280},
-    "nested_call_chain": {"c_ms": 576.104, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "next_permutation": {"c_ms": 128.195, "iron_ms": 153, "ratio": 1.2, "iron_mem_kb": 1568, "c_mem_kb": 1264},
-    "num_islands": {"c_ms": 245.910, "iron_ms": 280, "ratio": 1.1, "iron_mem_kb": 1536, "c_mem_kb": 1296},
-    "object_method_dispatch": {"c_ms": 104.141, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1504, "c_mem_kb": 1264},
-    "palindrome_check": {"c_ms": 179.251, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1568, "c_mem_kb": 1280},
-    "parallel_collatz_lengths": {"c_ms": 12.548, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1392},
-    "parallel_compute_intensive": {"c_ms": 337.203, "iron_ms": 302, "ratio": 0.9, "iron_mem_kb": 1568, "c_mem_kb": 1392},
-    "parallel_fibonacci": {"c_ms": 106.738, "iron_ms": 89, "ratio": 0.8, "iron_mem_kb": 1552, "c_mem_kb": 1424},
-    "parallel_fibonacci_tree": {"c_ms": 87.555, "iron_ms": 93, "ratio": 1.1, "iron_mem_kb": 1584, "c_mem_kb": 1536},
-    "parallel_gcd_batch": {"c_ms": 60.696, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1584, "c_mem_kb": 1408},
-    "parallel_hash_computation": {"c_ms": 70.967, "iron_ms": 2, "ratio": 0.0, "iron_mem_kb": 1584, "c_mem_kb": 1440},
-    "parallel_image_blur": {"c_ms": 117.276, "iron_ms": 107, "ratio": 0.9, "iron_mem_kb": 1616, "c_mem_kb": 1456},
-    "parallel_mandelbrot": {"c_ms": 258.296, "iron_ms": 262, "ratio": 1.0, "iron_mem_kb": 1568, "c_mem_kb": 1408},
-    "parallel_matrix_multiply": {"c_ms": 30.168, "iron_ms": 27, "ratio": 0.9, "iron_mem_kb": 1600, "c_mem_kb": 1440},
-    "parallel_nbody_simulation": {"c_ms": 362.442, "iron_ms": 370, "ratio": 1.0, "iron_mem_kb": 1584, "c_mem_kb": 1392},
-    "parallel_pi_estimation": {"c_ms": 190.369, "iron_ms": 13, "ratio": 0.1, "iron_mem_kb": 1584, "c_mem_kb": 1488},
-    "parallel_polynomial_eval": {"c_ms": 32.574, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1408},
-    "parallel_prime_sieve": {"c_ms": 87.269, "iron_ms": 72, "ratio": 0.8, "iron_mem_kb": 1568, "c_mem_kb": 1408},
-    "parallel_prime_sieve_chunks": {"c_ms": 133.684, "iron_ms": 35, "ratio": 0.3, "iron_mem_kb": 1568, "c_mem_kb": 1424},
-    "parallel_ray_trace": {"c_ms": 116.308, "iron_ms": 113, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1392},
-    "parallel_reduce_sum": {"c_ms": 335.918, "iron_ms": 291, "ratio": 0.9, "iron_mem_kb": 1568, "c_mem_kb": 1408},
-    "parallel_sort_merge": {"c_ms": 385.228, "iron_ms": 338, "ratio": 0.9, "iron_mem_kb": 1552, "c_mem_kb": 1408},
-    "parallel_string_search": {"c_ms": 60.253, "iron_ms": 61, "ratio": 1.0, "iron_mem_kb": 1552, "c_mem_kb": 1392},
-    "partition_equal_subset": {"c_ms": 191.184, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1296},
-    "pascal_triangle": {"c_ms": 173.093, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1264},
-    "permutation_count": {"c_ms": 48467.846, "iron_ms": 4865, "ratio": 0.1, "iron_mem_kb": 1616, "c_mem_kb": 1280},
-    "power_of_two": {"c_ms": 14622.854, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1584, "c_mem_kb": 1264},
-    "product_except_self": {"c_ms": 180.315, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "quick_sort": {"c_ms": 212.428, "iron_ms": 220, "ratio": 1.0, "iron_mem_kb": 1520, "c_mem_kb": 1296},
-    "rabin_karp": {"c_ms": 805.059, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "regex_matching": {"c_ms": 634.093, "iron_ms": 488, "ratio": 0.8, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "remove_duplicates_sorted": {"c_ms": 174.874, "iron_ms": 170, "ratio": 1.0, "iron_mem_kb": 1568, "c_mem_kb": 1264},
-    "reverse_bits": {"c_ms": 148.898, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1280},
-    "reverse_nodes_k_group": {"c_ms": 177.784, "iron_ms": 187, "ratio": 1.1, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "rotate_array": {"c_ms": 73.050, "iron_ms": 59, "ratio": 0.8, "iron_mem_kb": 1600, "c_mem_kb": 1264},
-    "rotate_image": {"c_ms": 114.577, "iron_ms": 87, "ratio": 0.8, "iron_mem_kb": 1584, "c_mem_kb": 1296},
-    "rotting_oranges": {"c_ms": 194.990, "iron_ms": 183, "ratio": 0.9, "iron_mem_kb": 1568, "c_mem_kb": 1280},
-    "run_length_encoding": {"c_ms": 313.518, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "search_rotated_array": {"c_ms": 56.416, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1264},
-    "shortest_path_dijkstra": {"c_ms": 207.547, "iron_ms": 198, "ratio": 1.0, "iron_mem_kb": 1536, "c_mem_kb": 1296},
-    "sieve_of_eratosthenes": {"c_ms": 42.682, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1600, "c_mem_kb": 1280},
-    "single_number": {"c_ms": 577.863, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1280},
-    "sliding_window_max": {"c_ms": 116.031, "iron_ms": 99, "ratio": 0.9, "iron_mem_kb": 1488, "c_mem_kb": 1280},
-    "sort_colors": {"c_ms": 174.556, "iron_ms": 84, "ratio": 0.5, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "spawn_independent_work": {"c_ms": 22.559, "iron_ms": 19, "ratio": 0.8, "iron_mem_kb": 1600, "c_mem_kb": 1408},
-    "spawn_pipeline_stages": {"c_ms": 13.117, "iron_ms": 66, "ratio": 5.0, "iron_mem_kb": 9312, "c_mem_kb": 9280},
-    "spiral_matrix": {"c_ms": 236.535, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "sqrt_integer": {"c_ms": 1008.963, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "subsets_bitmask": {"c_ms": 79.007, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1552, "c_mem_kb": 1264},
-    "target_sum": {"c_ms": 183.695, "iron_ms": 217, "ratio": 1.2, "iron_mem_kb": 1520, "c_mem_kb": 1296},
-    "task_scheduler": {"c_ms": 170.481, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1520, "c_mem_kb": 1264},
-    "three_sum": {"c_ms": 328.449, "iron_ms": 628, "ratio": 1.9, "iron_mem_kb": 1536, "c_mem_kb": 1296},
-    "topological_sort_kahn": {"c_ms": 341.427, "iron_ms": 478, "ratio": 1.4, "iron_mem_kb": 1552, "c_mem_kb": 1296},
-    "trapping_rain_water": {"c_ms": 502.676, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1568, "c_mem_kb": 1264},
-    "two_sum": {"c_ms": 4742.255, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1568, "c_mem_kb": 1280},
-    "unique_paths": {"c_ms": 122.572, "iron_ms": 102, "ratio": 0.8, "iron_mem_kb": 1504, "c_mem_kb": 1296},
-    "valid_parentheses": {"c_ms": 137.515, "iron_ms": 118, "ratio": 0.9, "iron_mem_kb": 1520, "c_mem_kb": 1280},
-    "validate_bst": {"c_ms": 241.127, "iron_ms": 229, "ratio": 0.9, "iron_mem_kb": 1504, "c_mem_kb": 1280},
-    "wildcard_matching": {"c_ms": 98.714, "iron_ms": 0, "ratio": 0.0, "iron_mem_kb": 1536, "c_mem_kb": 1264},
-    "word_break": {"c_ms": 180.993, "iron_ms": 208, "ratio": 1.1, "iron_mem_kb": 1552, "c_mem_kb": 1280}
+    "activity_selection": {
+      "c_ms": 118.413,
+      "iron_ms": 88.74,
+      "ratio": 0.7,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "binary_search_insert": {
+      "c_ms": 185.472,
+      "iron_ms": 161.959,
+      "ratio": 0.9,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "binary_tree_diameter": {
+      "c_ms": 178.463,
+      "iron_ms": 183.439,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "binary_tree_inorder": {
+      "c_ms": 128.47,
+      "iron_ms": 129.039,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "buy_sell_stock": {
+      "c_ms": 1587.848,
+      "iron_ms": 1609.033,
+      "ratio": 1.0,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1264
+    },
+    "climbing_stairs": {
+      "c_ms": 2620.941,
+      "iron_ms": 2925.012,
+      "ratio": 1.1,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "closure_call_overhead": {
+      "c_ms": 31,
+      "iron_ms": 32.92,
+      "ratio": 1.1,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "coin_change": {
+      "c_ms": 178.739,
+      "iron_ms": 173.848,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1296
+    },
+    "concurrency_parallel_accumulate": {
+      "c_ms": 0.686,
+      "iron_ms": 0.135,
+      "ratio": 0.2,
+      "iron_mem_kb": 1520,
+      "c_mem_kb": 1424
+    },
+    "concurrency_parallel_conditional": {
+      "c_ms": 2.45,
+      "iron_ms": 0.185,
+      "ratio": 0.1,
+      "iron_mem_kb": 1520,
+      "c_mem_kb": 1392
+    },
+    "concurrency_parallel_fibonacci": {
+      "c_ms": 0.391,
+      "iron_ms": 0.204,
+      "ratio": 0.5,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1408
+    },
+    "concurrency_parallel_matrix": {
+      "c_ms": 1.322,
+      "iron_ms": 0.228,
+      "ratio": 0.2,
+      "iron_mem_kb": 1520,
+      "c_mem_kb": 1408
+    },
+    "concurrency_parallel_sum": {
+      "c_ms": 1.348,
+      "iron_ms": 0.175,
+      "ratio": 0.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1392
+    },
+    "concurrency_pipeline": {
+      "c_ms": 4.77,
+      "iron_ms": 0.103,
+      "ratio": 0.0,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1328
+    },
+    "concurrency_shared_counter": {
+      "c_ms": 4.624,
+      "iron_ms": 0.178,
+      "ratio": 0.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1408
+    },
+    "concurrency_spawn_captured": {
+      "c_ms": 54.477,
+      "iron_ms": 11.518,
+      "ratio": 0.2,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1360
+    },
+    "concurrency_spawn_independence": {
+      "c_ms": 0.406,
+      "iron_ms": 0.634,
+      "ratio": 1.6,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1344
+    },
+    "concurrency_spawn_result": {
+      "c_ms": 1.839,
+      "iron_ms": 0.346,
+      "ratio": 0.2,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1328
+    },
+    "connected_components": {
+      "c_ms": 1091.164,
+      "iron_ms": 350.533,
+      "ratio": 0.3,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "container_most_water": {
+      "c_ms": 2292.516,
+      "iron_ms": 2371.681,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "count_paths_with_obstacles": {
+      "c_ms": 104.23,
+      "iron_ms": 165.97,
+      "ratio": 1.6,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "counting_bits": {
+      "c_ms": 349.578,
+      "iron_ms": 389.632,
+      "ratio": 1.1,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "counting_sort": {
+      "c_ms": 142.069,
+      "iron_ms": 84.718,
+      "ratio": 0.6,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1296
+    },
+    "course_schedule": {
+      "c_ms": 31.139,
+      "iron_ms": 22.151,
+      "ratio": 0.7,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "daily_temperatures": {
+      "c_ms": 105.576,
+      "iron_ms": 102.818,
+      "ratio": 1.0,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1280
+    },
+    "decode_ways": {
+      "c_ms": 270.384,
+      "iron_ms": 303.695,
+      "ratio": 1.1,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "deep_recursion_sum": {
+      "c_ms": 399.353,
+      "iron_ms": 401.599,
+      "ratio": 1.0,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "defer_cleanup_chain": {
+      "c_ms": 342.775,
+      "iron_ms": 227.415,
+      "ratio": 0.7,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1264
+    },
+    "edit_distance": {
+      "c_ms": 367.234,
+      "iron_ms": 240.527,
+      "ratio": 0.7,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1296
+    },
+    "eval_reverse_polish": {
+      "c_ms": 200.187,
+      "iron_ms": 220.23,
+      "ratio": 1.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "fast_power": {
+      "c_ms": 220.95,
+      "iron_ms": 248.666,
+      "ratio": 1.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1264
+    },
+    "fibonacci_matrix": {
+      "c_ms": 126.585,
+      "iron_ms": 144.066,
+      "ratio": 1.1,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1280
+    },
+    "find_first_last": {
+      "c_ms": 147.414,
+      "iron_ms": 160.397,
+      "ratio": 1.1,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "find_peak_element": {
+      "c_ms": 59.207,
+      "iron_ms": 89.435,
+      "ratio": 1.5,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1264
+    },
+    "flood_fill": {
+      "c_ms": 242.448,
+      "iron_ms": 175.219,
+      "ratio": 0.7,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1296
+    },
+    "game_of_life": {
+      "c_ms": 197.351,
+      "iron_ms": 227.237,
+      "ratio": 1.2,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1296
+    },
+    "gas_station": {
+      "c_ms": 176.713,
+      "iron_ms": 168.609,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1264
+    },
+    "gcd_lcm": {
+      "c_ms": 232.574,
+      "iron_ms": 202.419,
+      "ratio": 0.9,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "generate_parentheses": {
+      "c_ms": 1765.806,
+      "iron_ms": 1721.136,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "graph_bipartite": {
+      "c_ms": 424.046,
+      "iron_ms": 442.133,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1296
+    },
+    "graph_dfs_traversal": {
+      "c_ms": 200.891,
+      "iron_ms": 223.648,
+      "ratio": 1.1,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "hamming_distance": {
+      "c_ms": 207.782,
+      "iron_ms": 202.718,
+      "ratio": 1.0,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "heap_sort": {
+      "c_ms": 377.321,
+      "iron_ms": 384.826,
+      "ratio": 1.0,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1296
+    },
+    "house_robber": {
+      "c_ms": 4074.055,
+      "iron_ms": 4972.15,
+      "ratio": 1.2,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "int32_array_sum": {
+      "c_ms": 3,
+      "iron_ms": 7.57,
+      "ratio": 2.5,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1264
+    },
+    "jump_game": {
+      "c_ms": 207.111,
+      "iron_ms": 215.55,
+      "ratio": 1.0,
+      "iron_mem_kb": 1520,
+      "c_mem_kb": 1280
+    },
+    "jump_game_ii": {
+      "c_ms": 311.887,
+      "iron_ms": 341.979,
+      "ratio": 1.1,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "kmp_pattern_match": {
+      "c_ms": 275.154,
+      "iron_ms": 223.741,
+      "ratio": 0.8,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1296
+    },
+    "knapsack_01": {
+      "c_ms": 450.869,
+      "iron_ms": 451.38,
+      "ratio": 1.0,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "kth_largest": {
+      "c_ms": 249.803,
+      "iron_ms": 291.6,
+      "ratio": 1.2,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1296
+    },
+    "kth_smallest_matrix": {
+      "c_ms": 1588.594,
+      "iron_ms": 1802.053,
+      "ratio": 1.1,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "large_array_prefix_sum": {
+      "c_ms": 231.771,
+      "iron_ms": 216.801,
+      "ratio": 0.9,
+      "iron_mem_kb": 1712,
+      "c_mem_kb": 1728
+    },
+    "largest_rect_histogram": {
+      "c_ms": 133.374,
+      "iron_ms": 141.985,
+      "ratio": 1.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "level_order_traversal": {
+      "c_ms": 203.3,
+      "iron_ms": 176.902,
+      "ratio": 0.9,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1264
+    },
+    "longest_common_subseq": {
+      "c_ms": 498.843,
+      "iron_ms": 88.038,
+      "ratio": 0.2,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1280
+    },
+    "longest_increasing_subseq": {
+      "c_ms": 423.749,
+      "iron_ms": 481.572,
+      "ratio": 1.1,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "longest_palindromic_subseq": {
+      "c_ms": 217.163,
+      "iron_ms": 232.668,
+      "ratio": 1.1,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1296
+    },
+    "longest_palindromic_substr": {
+      "c_ms": 677.471,
+      "iron_ms": 653.697,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "longest_substr_no_repeat": {
+      "c_ms": 56.252,
+      "iron_ms": 72.182,
+      "ratio": 1.3,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1264
+    },
+    "longest_valid_parens": {
+      "c_ms": 151.02,
+      "iron_ms": 156.239,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1296
+    },
+    "majority_element": {
+      "c_ms": 1908.457,
+      "iron_ms": 1915.591,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "match_state_machine": {
+      "c_ms": 1164.011,
+      "iron_ms": 1247.888,
+      "ratio": 1.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "matrix_chain_mult": {
+      "c_ms": 71.255,
+      "iron_ms": 40.458,
+      "ratio": 0.6,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1296
+    },
+    "max_depth_binary_tree": {
+      "c_ms": 144.788,
+      "iron_ms": 175.103,
+      "ratio": 1.2,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "max_length_repeated_subarray": {
+      "c_ms": 273.144,
+      "iron_ms": 265.885,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1296
+    },
+    "max_product_subarray": {
+      "c_ms": 1038.258,
+      "iron_ms": 1047.791,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "maximal_square": {
+      "c_ms": 307.244,
+      "iron_ms": 361.399,
+      "ratio": 1.2,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1296
+    },
+    "maximum_subarray": {
+      "c_ms": 821.087,
+      "iron_ms": 800.847,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "median_stream": {
+      "c_ms": 338.597,
+      "iron_ms": 326.398,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1264
+    },
+    "median_two_sorted_arrays": {
+      "c_ms": 197.402,
+      "iron_ms": 751.395,
+      "ratio": 3.8,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "merge_k_sorted_lists": {
+      "c_ms": 203.992,
+      "iron_ms": 139.154,
+      "ratio": 0.7,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1264
+    },
+    "merge_sort": {
+      "c_ms": 389.471,
+      "iron_ms": 269.413,
+      "ratio": 0.7,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "merge_sorted_arrays": {
+      "c_ms": 227.986,
+      "iron_ms": 81.609,
+      "ratio": 0.4,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "min_path_sum": {
+      "c_ms": 208.512,
+      "iron_ms": 326.04,
+      "ratio": 1.6,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "min_stack": {
+      "c_ms": 408.726,
+      "iron_ms": 419.372,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "min_window_substring": {
+      "c_ms": 82.753,
+      "iron_ms": 0.001,
+      "ratio": 0.0,
+      "iron_mem_kb": 1520,
+      "c_mem_kb": 1280
+    },
+    "move_zeroes": {
+      "c_ms": 133.27,
+      "iron_ms": 79.352,
+      "ratio": 0.6,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "n_queens": {
+      "c_ms": 3580.348,
+      "iron_ms": 3450.32,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "nested_call_chain": {
+      "c_ms": 552.513,
+      "iron_ms": 546.606,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1264
+    },
+    "next_permutation": {
+      "c_ms": 115.437,
+      "iron_ms": 163.683,
+      "ratio": 1.4,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "num_islands": {
+      "c_ms": 240.492,
+      "iron_ms": 319.857,
+      "ratio": 1.3,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1296
+    },
+    "object_method_dispatch": {
+      "c_ms": 997.324,
+      "iron_ms": 976.463,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "palindrome_check": {
+      "c_ms": 46.364,
+      "iron_ms": 22.636,
+      "ratio": 0.5,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "parallel_collatz_lengths": {
+      "c_ms": 16.701,
+      "iron_ms": 0.086,
+      "ratio": 0.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1408
+    },
+    "parallel_compute_intensive": {
+      "c_ms": 347.118,
+      "iron_ms": 311.308,
+      "ratio": 0.9,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1408
+    },
+    "parallel_fibonacci": {
+      "c_ms": 107.662,
+      "iron_ms": 99.814,
+      "ratio": 0.9,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1392
+    },
+    "parallel_fibonacci_tree": {
+      "c_ms": 89.63,
+      "iron_ms": 100.594,
+      "ratio": 1.1,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1536
+    },
+    "parallel_gcd_batch": {
+      "c_ms": 53.643,
+      "iron_ms": 0.087,
+      "ratio": 0.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1408
+    },
+    "parallel_hash_computation": {
+      "c_ms": 88.959,
+      "iron_ms": 1.392,
+      "ratio": 0.0,
+      "iron_mem_kb": 1632,
+      "c_mem_kb": 1424
+    },
+    "parallel_image_blur": {
+      "c_ms": 142.151,
+      "iron_ms": 132.18,
+      "ratio": 0.9,
+      "iron_mem_kb": 1616,
+      "c_mem_kb": 1456
+    },
+    "parallel_mandelbrot": {
+      "c_ms": 250.37,
+      "iron_ms": 251.059,
+      "ratio": 1.0,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1392
+    },
+    "parallel_matrix_multiply": {
+      "c_ms": 31.276,
+      "iron_ms": 28.868,
+      "ratio": 0.9,
+      "iron_mem_kb": 1632,
+      "c_mem_kb": 1440
+    },
+    "parallel_nbody_simulation": {
+      "c_ms": 371.161,
+      "iron_ms": 358.684,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1392
+    },
+    "parallel_pi_estimation": {
+      "c_ms": 186.945,
+      "iron_ms": 14.791,
+      "ratio": 0.1,
+      "iron_mem_kb": 1648,
+      "c_mem_kb": 1440
+    },
+    "parallel_polynomial_eval": {
+      "c_ms": 33.359,
+      "iron_ms": 0.065,
+      "ratio": 0.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1408
+    },
+    "parallel_prime_sieve": {
+      "c_ms": 81.209,
+      "iron_ms": 72.809,
+      "ratio": 0.9,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1408
+    },
+    "parallel_prime_sieve_chunks": {
+      "c_ms": 161.128,
+      "iron_ms": 38.278,
+      "ratio": 0.2,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1424
+    },
+    "parallel_ray_trace": {
+      "c_ms": 107.422,
+      "iron_ms": 132.199,
+      "ratio": 1.2,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1392
+    },
+    "parallel_reduce_sum": {
+      "c_ms": 321.954,
+      "iron_ms": 329.651,
+      "ratio": 1.0,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1392
+    },
+    "parallel_sort_merge": {
+      "c_ms": 358.475,
+      "iron_ms": 333.573,
+      "ratio": 0.9,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1408
+    },
+    "parallel_string_search": {
+      "c_ms": 66.993,
+      "iron_ms": 64.458,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1408
+    },
+    "partition_equal_subset": {
+      "c_ms": 81.031,
+      "iron_ms": 98.189,
+      "ratio": 1.2,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1296
+    },
+    "pascal_triangle": {
+      "c_ms": 942.94,
+      "iron_ms": 829.327,
+      "ratio": 0.9,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "permutation_count": {
+      "c_ms": 46017.084,
+      "iron_ms": 4598.541,
+      "ratio": 0.1,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1296
+    },
+    "power_of_two": {
+      "c_ms": 2080.776,
+      "iron_ms": 2088.335,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1264
+    },
+    "product_except_self": {
+      "c_ms": 963.385,
+      "iron_ms": 858.494,
+      "ratio": 0.9,
+      "iron_mem_kb": 1600,
+      "c_mem_kb": 1264
+    },
+    "quick_sort": {
+      "c_ms": 218.842,
+      "iron_ms": 227.73,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "rabin_karp": {
+      "c_ms": 736.647,
+      "iron_ms": 762.959,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1264
+    },
+    "regex_matching": {
+      "c_ms": 584.759,
+      "iron_ms": 504.914,
+      "ratio": 0.9,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1296
+    },
+    "remove_duplicates_sorted": {
+      "c_ms": 203.48,
+      "iron_ms": 197.34,
+      "ratio": 1.0,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1264
+    },
+    "reverse_bits": {
+      "c_ms": 156.615,
+      "iron_ms": 141.553,
+      "ratio": 0.9,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "reverse_nodes_k_group": {
+      "c_ms": 184.744,
+      "iron_ms": 204.74,
+      "ratio": 1.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "rotate_array": {
+      "c_ms": 99.117,
+      "iron_ms": 90.268,
+      "ratio": 0.9,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1264
+    },
+    "rotate_image": {
+      "c_ms": 136.343,
+      "iron_ms": 118.999,
+      "ratio": 0.9,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1296
+    },
+    "rotting_oranges": {
+      "c_ms": 224.288,
+      "iron_ms": 208.656,
+      "ratio": 0.9,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "run_length_encoding": {
+      "c_ms": 339.798,
+      "iron_ms": 361.718,
+      "ratio": 1.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "search_rotated_array": {
+      "c_ms": 86.98,
+      "iron_ms": 124.335,
+      "ratio": 1.4,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "shortest_path_dijkstra": {
+      "c_ms": 213.913,
+      "iron_ms": 231.078,
+      "ratio": 1.1,
+      "iron_mem_kb": 1632,
+      "c_mem_kb": 1296
+    },
+    "sieve_of_eratosthenes": {
+      "c_ms": 103.495,
+      "iron_ms": 54.897,
+      "ratio": 0.5,
+      "iron_mem_kb": 1616,
+      "c_mem_kb": 1280
+    },
+    "single_number": {
+      "c_ms": 565.243,
+      "iron_ms": 561.347,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "sliding_window_max": {
+      "c_ms": 130.551,
+      "iron_ms": 136.229,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "sort_colors": {
+      "c_ms": 175.879,
+      "iron_ms": 114.649,
+      "ratio": 0.7,
+      "iron_mem_kb": 1584,
+      "c_mem_kb": 1280
+    },
+    "spawn_independent_work": {
+      "c_ms": 27.717,
+      "iron_ms": 23.643,
+      "ratio": 0.9,
+      "iron_mem_kb": 1632,
+      "c_mem_kb": 1408
+    },
+    "spawn_pipeline_stages": {
+      "c_ms": 14.897,
+      "iron_ms": 90.725,
+      "ratio": 6.1,
+      "iron_mem_kb": 9296,
+      "c_mem_kb": 9280
+    },
+    "spiral_matrix": {
+      "c_ms": 206.838,
+      "iron_ms": 218.326,
+      "ratio": 1.1,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "sqrt_integer": {
+      "c_ms": 975.047,
+      "iron_ms": 996.533,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1280
+    },
+    "subsets_bitmask": {
+      "c_ms": 750.062,
+      "iron_ms": 1400.376,
+      "ratio": 1.9,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1264
+    },
+    "target_sum": {
+      "c_ms": 186.984,
+      "iron_ms": 220.619,
+      "ratio": 1.2,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1296
+    },
+    "task_scheduler": {
+      "c_ms": 929.65,
+      "iron_ms": 915.509,
+      "ratio": 1.0,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1264
+    },
+    "three_sum": {
+      "c_ms": 328.568,
+      "iron_ms": 605.935,
+      "ratio": 1.8,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "topological_sort_kahn": {
+      "c_ms": 335.562,
+      "iron_ms": 467.565,
+      "ratio": 1.4,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1296
+    },
+    "trapping_rain_water": {
+      "c_ms": 395.982,
+      "iron_ms": 387.086,
+      "ratio": 1.0,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1280
+    },
+    "two_sum": {
+      "c_ms": 4679.308,
+      "iron_ms": 4625.339,
+      "ratio": 1.0,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "unique_paths": {
+      "c_ms": 127.357,
+      "iron_ms": 100.215,
+      "ratio": 0.8,
+      "iron_mem_kb": 1552,
+      "c_mem_kb": 1296
+    },
+    "valid_parentheses": {
+      "c_ms": 159.729,
+      "iron_ms": 125.037,
+      "ratio": 0.8,
+      "iron_mem_kb": 1536,
+      "c_mem_kb": 1296
+    },
+    "validate_bst": {
+      "c_ms": 243.762,
+      "iron_ms": 223.2,
+      "ratio": 0.9,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1264
+    },
+    "wildcard_matching": {
+      "c_ms": 114.776,
+      "iron_ms": 82.247,
+      "ratio": 0.7,
+      "iron_mem_kb": 1568,
+      "c_mem_kb": 1280
+    },
+    "word_break": {
+      "c_ms": 200.219,
+      "iron_ms": 209.039,
+      "ratio": 1.0,
+      "iron_mem_kb": 1520,
+      "c_mem_kb": 1280
+    }
   }
 }

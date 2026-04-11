@@ -110,6 +110,7 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_io.c
     src/stdlib/iron_time.c
     src/stdlib/iron_log.c
+    src/stdlib/iron_hint.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
 if(NOT WIN32)

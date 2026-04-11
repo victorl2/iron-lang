@@ -17,6 +17,14 @@ int64_t Iron_time_now_ms(void) {
     return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
 }
 
+/* ── Monotonic time (nanoseconds) ───────────────────────────────────────── */
+
+int64_t Iron_time_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
+}
+
 /* ── Sleep ───────────────────────────────────────────────────────────────── */
 
 void Iron_time_sleep(int64_t ms) {

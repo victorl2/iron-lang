@@ -1,0 +1,21 @@
+-- Tests << and >> on positive, negative, and zero Int values.
+-- Locks arithmetic (sign-preserving) semantics for >>.
+
+func main() {
+    -- Left shift
+    println("{1 << 0}")
+    println("{1 << 1}")
+    println("{1 << 10}")
+
+    -- Right shift (positive)
+    println("{1024 >> 10}")
+    println("{7 >> 1}")
+
+    -- Arithmetic right shift (negative values) — sign-preserving
+    println("{-8 >> 1}")
+    println("{-1 >> 63}")
+
+    -- Zero
+    println("{0 << 5}")
+    println("{0 >> 5}")
+}

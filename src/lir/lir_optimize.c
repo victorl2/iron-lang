@@ -647,11 +647,13 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     case IRON_LIR_EQ: case IRON_LIR_NEQ: case IRON_LIR_LT:
     case IRON_LIR_LTE: case IRON_LIR_GT: case IRON_LIR_GTE:
     case IRON_LIR_AND: case IRON_LIR_OR:
+    case IRON_LIR_SHL: case IRON_LIR_SHR:
+    case IRON_LIR_BAND: case IRON_LIR_BOR: case IRON_LIR_BXOR:
         REPL(instr->binop.left);
         REPL(instr->binop.right);
         break;
 
-    case IRON_LIR_NEG: case IRON_LIR_NOT:
+    case IRON_LIR_NEG: case IRON_LIR_NOT: case IRON_LIR_BNOT:
         REPL(instr->unop.operand);
         break;
 
@@ -819,12 +821,18 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
     case IRON_LIR_GTE:
     case IRON_LIR_AND:
     case IRON_LIR_OR:
+    case IRON_LIR_SHL:
+    case IRON_LIR_SHR:
+    case IRON_LIR_BAND:
+    case IRON_LIR_BOR:
+    case IRON_LIR_BXOR:
         PUSH(instr->binop.left);
         PUSH(instr->binop.right);
         break;
 
     case IRON_LIR_NEG:
     case IRON_LIR_NOT:
+    case IRON_LIR_BNOT:
         PUSH(instr->unop.operand);
         break;
 
@@ -2934,7 +2942,9 @@ bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
     case IRON_LIR_EQ: case IRON_LIR_NEQ: case IRON_LIR_LT:
     case IRON_LIR_LTE: case IRON_LIR_GT: case IRON_LIR_GTE:
     case IRON_LIR_AND: case IRON_LIR_OR:
-    case IRON_LIR_NEG: case IRON_LIR_NOT:
+    case IRON_LIR_SHL: case IRON_LIR_SHR:
+    case IRON_LIR_BAND: case IRON_LIR_BOR: case IRON_LIR_BXOR:
+    case IRON_LIR_NEG: case IRON_LIR_NOT: case IRON_LIR_BNOT:
     case IRON_LIR_LOAD: case IRON_LIR_CAST:
     case IRON_LIR_GET_FIELD: case IRON_LIR_GET_INDEX:
     case IRON_LIR_CONSTRUCT: case IRON_LIR_ARRAY_LIT:

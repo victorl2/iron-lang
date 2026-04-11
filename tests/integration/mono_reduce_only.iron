@@ -1,0 +1,31 @@
+-- mono_reduce_only.iron: .reduce() on mono-collapsed collection (Phase 56 SC5)
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3), Circle(4)]
+  val max_area = circles.map(func(c: Circle) -> Int { return c.area() }).reduce(0, func(acc: Int, a: Int) -> Int {
+    if a > acc { return a }
+    return acc
+  })
+  -- Max area: Circle(4) = 48
+  println("{max_area}")
+}

@@ -1,0 +1,37 @@
+-- mono_different_concrete_types.iron: Two different mono collections in one
+-- function (Phase 56 SC5 dedup correctness).
+-- Circle-only + Square-only — Phase 56 Plan 01 must emit IRON_LIST_DECL/IMPL
+-- for BOTH Iron_Circle and Iron_Square exactly once each (dedup via stb_ds
+-- hash set emitted_mono_list_types keyed on mangled type name).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3)]
+  val squares = [Square(4), Square(5)]
+  val circle_sum = circles.map(func(c: Circle) -> Int { return c.area() }).sum()
+  val square_sum = squares.map(func(s: Square) -> Int { return s.area() }).sum()
+  -- circles: 3 + 12 + 27 = 42
+  -- squares: 16 + 25 = 41
+  println("{circle_sum}")
+  println("{square_sum}")
+  println("{circle_sum + square_sum}")
+}

@@ -309,14 +309,25 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
                 lower_name[nl2] = '\0';
             }
 
-            /* Check SoA status */
-            bool is_soa = false;
-            if (ctx->soa_types) {
-                char soa_key[512];
-                snprintf(soa_key, sizeof(soa_key), "%s:%s", sp_iface, impl->type_name);
-                if (shgeti(ctx->soa_types, soa_key) >= 0) is_soa = true;
+            /* Phase 57: when the per-type sub-array stores Iron_<Type>_Stor
+             * (reduced variant), we must call the _from_<Type>_Stor sibling
+             * emitted by emit_structs.c Phase 57. The storage shape is
+             * controlled by ctx->reduced_storage_types -- set by
+             * emit_split.c whenever dead-field elimination removed any
+             * field, regardless of AoS vs SoA selection.
+             *
+             * SoA implementors (ctx->soa_types) are a subset of reduced
+             * storage; AoS implementors with at least one dead field are
+             * also reduced. The previous (void)is_soa; defer marker only
+             * caught the SoA subcase, missing AoS+dead-fields fused chains
+             * such as the soa_fusion_map_sum reproduction (which falls
+             * through to AoS because no for_pre loop is visible to
+             * iron_layout_select but reduced storage still triggers). */
+            bool is_reduced = false;
+            if (ctx->reduced_storage_types &&
+                shgeti(ctx->reduced_storage_types, impl->type_name) >= 0) {
+                is_reduced = true;
             }
-            (void)is_soa;  /* SoA-aware access deferred -- use AoS for now */
 
             /* Emit per-type loop */
             emit_indent(sb, ind + 1);
@@ -324,10 +335,14 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
             emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s_count; _fi++) {\n", lower_name);
 
-            /* Construct element: wrap sub-array item in interface tagged union */
+            /* Construct element: wrap sub-array item in interface tagged
+             * union. Phase 57: when reduced storage is in use, call the
+             * sibling _from_<Type>_Stor constructor (emitted by emit_structs.c
+             * Phase 57 path) instead of the AoS _from_<Type>. */
             emit_indent(sb, ind + 2);
-            iron_strbuf_appendf(sb, "%s _fuse_elem = %s_from_%s(",
-                sp_iface, sp_iface, impl->type_name);
+            const char *ctor_suffix = is_reduced ? "_Stor" : "";
+            iron_strbuf_appendf(sb, "%s _fuse_elem = %s_from_%s%s(",
+                sp_iface, sp_iface, impl->type_name, ctor_suffix);
             emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s_items[_fi]);\n", lower_name);
 

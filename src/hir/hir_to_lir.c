@@ -688,19 +688,24 @@ static void lower_type_decls_from_ast(HIR_to_LIR_Ctx *ctx) {
 /* ── HIR BinOp -> LIR InstrKind conversion ───────────────────────────────── */
 static IronLIR_InstrKind hir_binop_to_lir(IronHIR_BinOp op) {
     switch (op) {
-    case IRON_HIR_BINOP_ADD: return IRON_LIR_ADD;
-    case IRON_HIR_BINOP_SUB: return IRON_LIR_SUB;
-    case IRON_HIR_BINOP_MUL: return IRON_LIR_MUL;
-    case IRON_HIR_BINOP_DIV: return IRON_LIR_DIV;
-    case IRON_HIR_BINOP_MOD: return IRON_LIR_MOD;
-    case IRON_HIR_BINOP_EQ:  return IRON_LIR_EQ;
-    case IRON_HIR_BINOP_NEQ: return IRON_LIR_NEQ;
-    case IRON_HIR_BINOP_LT:  return IRON_LIR_LT;
-    case IRON_HIR_BINOP_LTE: return IRON_LIR_LTE;
-    case IRON_HIR_BINOP_GT:  return IRON_LIR_GT;
-    case IRON_HIR_BINOP_GTE: return IRON_LIR_GTE;
-    case IRON_HIR_BINOP_AND: return IRON_LIR_AND;
-    case IRON_HIR_BINOP_OR:  return IRON_LIR_OR;
+    case IRON_HIR_BINOP_ADD:  return IRON_LIR_ADD;
+    case IRON_HIR_BINOP_SUB:  return IRON_LIR_SUB;
+    case IRON_HIR_BINOP_MUL:  return IRON_LIR_MUL;
+    case IRON_HIR_BINOP_DIV:  return IRON_LIR_DIV;
+    case IRON_HIR_BINOP_MOD:  return IRON_LIR_MOD;
+    case IRON_HIR_BINOP_EQ:   return IRON_LIR_EQ;
+    case IRON_HIR_BINOP_NEQ:  return IRON_LIR_NEQ;
+    case IRON_HIR_BINOP_LT:   return IRON_LIR_LT;
+    case IRON_HIR_BINOP_LTE:  return IRON_LIR_LTE;
+    case IRON_HIR_BINOP_GT:   return IRON_LIR_GT;
+    case IRON_HIR_BINOP_GTE:  return IRON_LIR_GTE;
+    case IRON_HIR_BINOP_AND:  return IRON_LIR_AND;
+    case IRON_HIR_BINOP_OR:   return IRON_LIR_OR;
+    case IRON_HIR_BINOP_SHL:  return IRON_LIR_SHL;
+    case IRON_HIR_BINOP_SHR:  return IRON_LIR_SHR;
+    case IRON_HIR_BINOP_BAND: return IRON_LIR_BAND;
+    case IRON_HIR_BINOP_BOR:  return IRON_LIR_BOR;
+    case IRON_HIR_BINOP_BXOR: return IRON_LIR_BXOR;
     default: return IRON_LIR_POISON;
     }
 }
@@ -863,8 +868,13 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     case IRON_HIR_EXPR_UNOP: {
         IronLIR_ValueId operand = lower_expr(ctx, expr->unop.operand);
         if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
-        IronLIR_InstrKind kind = (expr->unop.op == IRON_HIR_UNOP_NEG)
-            ? IRON_LIR_NEG : IRON_LIR_NOT;
+        IronLIR_InstrKind kind;
+        switch (expr->unop.op) {
+        case IRON_HIR_UNOP_NEG:  kind = IRON_LIR_NEG;  break;
+        case IRON_HIR_UNOP_NOT:  kind = IRON_LIR_NOT;  break;
+        case IRON_HIR_UNOP_BNOT: kind = IRON_LIR_BNOT; break;
+        default:                 kind = IRON_LIR_POISON; break;
+        }
         return iron_lir_unop(ctx->current_func, ctx->current_block,
                               kind, operand, type, span)->id;
     }

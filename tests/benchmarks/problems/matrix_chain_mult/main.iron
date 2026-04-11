@@ -34,17 +34,19 @@ func main() {
     println("Test 3: {matrix_chain(d3, 10)} (expected 5199)")
 
     val iterations = 500000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = matrix_chain(d3, 10)
+        result = result + matrix_chain(d3, 4 + (it % 7))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Matrix Chain Multiplication ===")
     println("Matrices: 10")
     println("Iterations: {iterations}")
     println("Result: {result}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

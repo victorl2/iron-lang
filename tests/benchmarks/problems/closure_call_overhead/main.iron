@@ -1,30 +1,38 @@
 import time
 
-func add_direct(x: Int, y: Int) -> Int {
-  return x + y
+-- Deliberately more expensive than add to defeat clang vectorization of the
+-- outer sum-reduction. The call overhead (what this benchmark measures) is
+-- still the dominant cost relative to this cheap body.
+func mix_direct(x: Int, y: Int) -> Int {
+  return (x * 31 + y * 17) % 10007
 }
 
 func main() {
-  val add_closure = func(x: Int, y: Int) -> Int { return x + y }
+  val mix_closure = func(x: Int, y: Int) -> Int { return (x * 31 + y * 17) % 10007 }
 
-  val iterations = 1000000
-  val start = Time.now_ms()
+  val iterations = 10000000
+  -- Runtime-sampled seed so clang cannot fold the summation at compile time.
+  val seed_raw = Time.now_ns()
+  val seed = (seed_raw % 7) + 1
+
+  val start_ns = Time.now_ns()
 
   var sum_direct = 0
   for i in range(iterations) {
-    sum_direct += add_direct(i, 1)
+    sum_direct += mix_direct(i, seed)
   }
 
   var sum_closure = 0
   for i in range(iterations) {
-    sum_closure += add_closure(i, 1)
+    sum_closure += mix_closure(i, seed)
   }
 
-  val elapsed = Time.now_ms() - start
-  println("direct: {sum_direct}")
-  println("closure: {sum_closure}")
+  val elapsed_ns = Time.now_ns() - start_ns
+  val elapsed_ms = elapsed_ns / 1000000
   if sum_direct == sum_closure {
     println("MATCH")
   }
-  println("Total time: {elapsed} ms")
+  println("Total time: {elapsed_ns} ns")
+  println("Total time: {elapsed_ms} ms")
+  println("Sum: {sum_direct}")
 }

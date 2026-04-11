@@ -15,10 +15,10 @@ static int hamming(int64_t a, int64_t b) {
     return count;
 }
 
-static int64_t run_hamming_batch(void) {
+static int64_t run_hamming_batch(int64_t seed) {
     int64_t total = 0;
     for (int i = 0; i < 1000000; i++) {
-        int64_t a = (i * 31 + 17) % 100000;
+        int64_t a = (i * 31 + 17 + seed) % 100000;
         int64_t b = (i * 37 + 23) % 100000;
         total += hamming(a, b);
     }
@@ -37,15 +37,15 @@ int main(void) {
     printf("Test 3: %d (expected 0)\n", hamming(0, 0));
 
     /* Correctness check */
-    printf("Test 4: %lld (expected 8217960)\n", (long long)run_hamming_batch());
+    printf("Test 4: %lld (expected 8217960)\n", (long long)run_hamming_batch(0));
 
     long mem_before = get_memory_kb();
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int64_t result = 0;
+    int64_t result = 0;
     for (int it = 0; it < 10; it++) {
-        result = run_hamming_batch();
+        result = result + run_hamming_batch(it);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -58,6 +58,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / 1000000);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %lld\n", (long long)result);
 
     return 0;
 }

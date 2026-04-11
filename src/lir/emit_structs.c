@@ -78,6 +78,147 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
     arrput(state->sorted, td);
 }
 
+/* ── Phase 56: Monomorphic list type decl emission ──────────────────────
+ * Emit Iron_List_<mangled> struct typedef plus IRON_LIST_DECL and
+ * IRON_LIST_IMPL macro expansions for every concrete object type that
+ * appears as an array element type somewhere in the module.  Dedups via
+ * a file-local stb_ds hash set keyed on the mangled type name.
+ *
+ * WHY this scan exists: Phase 49 mono collapse (emit_c.c:4797-4814)
+ * removes single-type collections from split_collection_ids and lets them
+ * fall through to the plain-typed-array codegen path (emit_c.c:3066-3096)
+ * which references Iron_List_Iron_<Type> symbols.  Only primitive list
+ * types are pre-declared in iron_runtime.h:640-645 (int64_t, int32_t,
+ * double, bool, Iron_String, Iron_Closure); concrete object types were
+ * never declared, and clang failed with
+ *   "use of undeclared identifier 'Iron_List_Iron_Circle'".
+ *
+ * WHY we scan ARRAY_LIT elem_types directly instead of iterating
+ * ctx->monomorphic_collections: the mono detection scan at
+ * emit_c.c:5378 only runs against collections that were first added to
+ * ctx->split_collection_ids (which requires interface-typed array
+ * literals).  When Iron's type inference gives a literal a concrete
+ * object type directly — e.g. `val circles = [Circle(1), Circle(2)]`
+ * resolves to `[Circle]` (concrete) rather than `[Shape]` (interface) —
+ * the ARRAY_LIT is NEVER added to split_collection_ids and therefore
+ * NEVER added to monomorphic_collections either, yet the plain-typed-
+ * array codegen path still emits `Iron_List_Iron_Circle_create()`.  The
+ * robust fix is to scan the module's ARRAY_LIT instructions directly
+ * and emit a decl for every concrete object element type we find,
+ * regardless of whether mono detection saw it.
+ *
+ * Must be called at the END of emit_type_decls() so that the Iron_<Type>
+ * struct body has already been emitted by emit_object_struct_body;
+ * IRON_LIST_DECL and IRON_LIST_IMPL expand into function prototypes and
+ * bodies that reference Iron_<Type> as a complete type. */
+static void emit_mono_list_decls(EmitCtx *ctx) {
+    IronLIR_Module *module = ctx->module;
+    if (!module) return;
+
+    /* Dedup set: keyed by mangled concrete type name (e.g. "Iron_Circle").
+     * Per-compilation-unit scope — freed at end of function. */
+    struct { char *key; bool value; } *emitted_mono_list_types = NULL;
+
+    /* Helper lambda via loop body: emit decls for a single concrete type. */
+    /* We iterate all ARRAY_LIT instructions in every function and collect
+     * their elem_type if it's a concrete object type.  The instruction's
+     * elem_type field is set during LIR building and matches what the
+     * codegen uses at emit_c.c:3069 to compute the Iron_List_<suffix> name
+     * via emit_type_to_c(). */
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn || fn->is_extern || fn->block_count == 0) continue;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind != IRON_LIR_ARRAY_LIT) continue;
+                Iron_Type *et = in->array_lit.elem_type;
+                if (!et) continue;
+                /* Only concrete object element types need a decl from us.
+                 * Interface-typed arrays go through Iron_SplitList_<Iface>
+                 * which is already emitted by emit_split_collection_for_iface.
+                 * Primitive element types use the pre-declared list types
+                 * in iron_runtime.h:640-645. */
+                if (et->kind != IRON_TYPE_OBJECT) continue;
+                if (!et->object.decl) continue;
+
+                const char *bare_type = et->object.decl->name;
+                if (!bare_type) continue;
+
+                /* Mangle "Circle" -> "Iron_Circle".  Arena-allocated,
+                 * stable for the lifetime of the stb_ds dedup map. */
+                const char *mangled = emit_mangle_name(bare_type, ctx->arena);
+
+                if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
+                shput(emitted_mono_list_types, mangled, true);
+
+                /* Emit Iron_List_<mangled> struct typedef.  The
+                 * IRON_LIST_DECL and IRON_LIST_IMPL macros assume this
+                 * struct is already declared with fields
+                 *   { T *items; int64_t count; int64_t capacity; }. */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
+                    "typedef struct Iron_List_%s {\n"
+                    "    %s    *items;\n"
+                    "    int64_t count;\n"
+                    "    int64_t capacity;\n"
+                    "} Iron_List_%s;\n",
+                    mangled, mangled, mangled, mangled);
+
+                /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_DECL(%s, %s)\n",
+                    mangled, mangled);
+
+                /* Emit IRON_LIST_IMPL(T, suffix) — non-static function
+                 * bodies.  Safe at translation-unit level because each
+                 * mangled name is unique per compilation unit (Iron
+                 * compiles to a single .c file per program). */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_IMPL(%s, %s)\n\n",
+                    mangled, mangled);
+            }
+        }
+    }
+    /* Also iterate ctx->monomorphic_collections to pick up any concrete
+     * types that arrived via Phase 49/53 mono collapse (interface-typed
+     * ARRAY_LIT that got collapsed to a concrete type at the Phase 49
+     * detection scan).  These may not show up in the ARRAY_LIT scan above
+     * because their elem_type is still IRON_TYPE_INTERFACE. */
+    if (ctx->monomorphic_collections) {
+        for (ptrdiff_t i = 0; i < hmlen(ctx->monomorphic_collections); i++) {
+            const char *bare_type = ctx->monomorphic_collections[i].value;
+            if (!bare_type) continue;
+
+            const char *mangled = emit_mangle_name(bare_type, ctx->arena);
+
+            if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
+            shput(emitted_mono_list_types, mangled, true);
+
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                "/* Phase 56: Iron_List type for mono-collapsed %s (via monomorphic_collections) */\n"
+                "typedef struct Iron_List_%s {\n"
+                "    %s    *items;\n"
+                "    int64_t count;\n"
+                "    int64_t capacity;\n"
+                "} Iron_List_%s;\n",
+                mangled, mangled, mangled, mangled);
+
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                "IRON_LIST_DECL(%s, %s)\n",
+                mangled, mangled);
+
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                "IRON_LIST_IMPL(%s, %s)\n\n",
+                mangled, mangled);
+        }
+    }
+
+    shfree(emitted_mono_list_types);
+}
+
 /* Check if any type_decl's object extends the given name */
 static bool ir_has_subtype(IronLIR_Module *module, const char *name) {
     for (int i = 0; i < module->type_decl_count; i++) {
@@ -350,10 +491,163 @@ void emit_type_decls(EmitCtx *ctx) {
                         iface_mangled, impl->type_name,
                         impl->type_name);
                 }
+
             }
 
             /* Phase 52-03: Split collection emission (delegated to emit_split) */
             emit_split_collection_for_iface(ctx, iface_mangled, entry);
+
+            /* Phase 57: Reduced-storage sibling constructors.
+             *
+             * These MUST be emitted after emit_split_collection_for_iface()
+             * because that helper populates BOTH ctx->reduced_storage_types
+             * AND ctx->soa_types, AND emits the Iron_<Type>_Stor typedef that
+             * these siblings reference. All three must exist before this loop
+             * runs.
+             *
+             * The sibling is needed whenever the split collection's per-type
+             * sub-array stores the reduced Iron_<Type>_Stor variant rather than
+             * the full Iron_<Type>. That happens in TWO independent cases:
+             *
+             *   (a) Phase 48 picked SoA layout for this (iface, impl) pair --
+             *       per-field arrays plus a stor view; soa_types is set.
+             *
+             *   (b) Phase 48 dead-field elimination removed at least one field
+             *       even on the AoS path -- emit_split.c emits
+             *       <Type>_Stor *items instead of <Type> *items, and
+             *       reduced_storage_types is set. SoA need not be active for
+             *       this case to trigger.
+             *
+             * Both cases share the same problem: the fused per-type loop in
+             * emit_fusion.c indexes the sub-array and wraps the element into
+             * an Iron_<Iface>, but the existing _from_<Type> constructor takes
+             * the full Iron_<Type>. So we emit a sibling _from_<Type>_Stor:
+             *
+             *   - copies every alive (non-dead-eliminated) field from stor
+             *     into the matching slot of the full Iron_<Type> inside
+             *     u.data.<type>
+             *   - widens any Phase 50 VRC-narrowed alive field via an
+             *     explicit (int64_t) cast on the copy
+             *   - zero-initializes every dead field (safe per Phase 48
+             *     dead-field elimination -- those fields are unread through
+             *     the interface and never observed by user code)
+             *
+             * The sibling is skipped for pointer-indirect variants because
+             * the indirect path stores full structs through malloc; no
+             * Iron_<Type>_Stor exists for them.
+             *
+             * Note: the plan (57-01) framed the trigger as ctx->soa_types,
+             * but the actual storage selection in emit_split.c lines 343-353
+             * uses ctx->reduced_storage_types -- which is a SUPERSET of SoA
+             * (it's also set on AoS+dead-fields). The bug therefore manifests
+             * for AoS+dead-fields fused chains too (e.g. when a fused .map.sum
+             * is the only thing accessing the collection so layout_select sees
+             * no for_pre loop and falls through to AoS, but dead-field elim
+             * still triggers reduced storage). Triggering on
+             * reduced_storage_types fixes both the documented SoA case and
+             * the previously-undocumented AoS+dead-fields case.
+             */
+            {
+                /* Build iface_collection_vids once for all impls of this iface,
+                 * mirroring emit_split.c:125-133. */
+                IronLIR_ValueId *iface_collection_vids57 = NULL; /* stb_ds */
+                if (ctx->split_collection_ids) {
+                    for (ptrdiff_t si = 0;
+                         si < hmlen(ctx->split_collection_ids); si++) {
+                        if (strcmp(ctx->split_collection_ids[si].value,
+                                   iface_mangled) == 0) {
+                            arrput(iface_collection_vids57,
+                                   ctx->split_collection_ids[si].key);
+                        }
+                    }
+                }
+
+                for (int j57 = 0; j57 < entry->impl_count; j57++) {
+                    Iron_IfaceImpl *impl57 = &entry->impls[j57];
+                    if (!impl57->is_alive) continue;
+                    if (!impl57->decl) continue;
+
+                    const char *impl_mangled57 = emit_mangle_name(
+                        impl57->type_name, ctx->arena);
+
+                    /* Skip pointer-indirect variants: no reduced storage exists. */
+                    char ikey57[512];
+                    snprintf(ikey57, sizeof(ikey57), "%s:%s",
+                             iface_mangled, impl57->type_name);
+                    bool is_indirect57 =
+                        (shgeti(ctx->indirect_variants, ikey57) >= 0);
+                    if (is_indirect57) continue;
+
+                    /* Emit sibling for any (iface, impl) pair whose per-type
+                     * sub-array stores Iron_<Type>_Stor. That includes both
+                     * SoA-selected pairs (soa_types set) and AoS pairs whose
+                     * dead-field elimination triggered reduced storage
+                     * (reduced_storage_types set). reduced_storage_types is
+                     * a SUPERSET of the soa_types case. */
+                    bool is_reduced57 =
+                        (ctx->reduced_storage_types &&
+                         shgeti(ctx->reduced_storage_types,
+                                impl57->type_name) >= 0);
+                    if (!is_reduced57) continue;
+
+                    Iron_ObjectDecl *od57 = impl57->decl;
+                    iron_strbuf_appendf(sb,
+                        "static inline %s %s_from_%s_Stor(%s_Stor val) {\n"
+                        "    %s u;\n"
+                        "    u.tag = %s_TAG_%s;\n",
+                        iface_mangled, iface_mangled, impl57->type_name,
+                        impl_mangled57,
+                        iface_mangled,
+                        iface_mangled, impl57->type_name);
+
+                    for (int fi = 0; fi < od57->field_count; fi++) {
+                        Iron_Field *f57 = (Iron_Field *)od57->fields[fi];
+
+                        /* Alive = any collection vid of this iface uses this field */
+                        bool any_used57 = false;
+                        if (arrlen(iface_collection_vids57) > 0) {
+                            for (int ci = 0;
+                                 ci < (int)arrlen(iface_collection_vids57);
+                                 ci++) {
+                                if (iron_layout_is_field_used(&ctx->layout,
+                                        iface_collection_vids57[ci], f57->name)) {
+                                    any_used57 = true;
+                                    break;
+                                }
+                            }
+                        } else {
+                            /* No collections recorded: defensive -- treat as alive */
+                            any_used57 = true;
+                        }
+
+                        if (any_used57) {
+                            /* Phase 50: widen VRC-compressed fields on copy */
+                            const char *narrowed57 = iron_vr_get_narrowed_type(
+                                &ctx->value_range, impl57->type_name, f57->name);
+                            if (narrowed57) {
+                                iron_strbuf_appendf(sb,
+                                    "    u.data.%s.%s = (int64_t)val.%s;\n",
+                                    impl57->type_name, f57->name, f57->name);
+                            } else {
+                                iron_strbuf_appendf(sb,
+                                    "    u.data.%s.%s = val.%s;\n",
+                                    impl57->type_name, f57->name, f57->name);
+                            }
+                        } else {
+                            /* Dead field: zero-init (safe per Phase 48 elimination) */
+                            iron_strbuf_appendf(sb,
+                                "    u.data.%s.%s = 0;\n",
+                                impl57->type_name, f57->name);
+                        }
+                    }
+
+                    iron_strbuf_appendf(sb,
+                        "    return u;\n"
+                        "}\n\n");
+                }
+
+                arrfree(iface_collection_vids57);
+            }
         }
     }
 
@@ -524,4 +818,12 @@ void emit_type_decls(EmitCtx *ctx) {
             iron_strbuf_appendf(&ctx->enum_defs, "} %s;\n\n", mangled);
         }
     }
+
+    /* ── Phase 56: Mono-collapsed list type decls ──────────────────────────
+     * After all object structs, interface tagged unions, split collection
+     * structs, and enums are emitted, declare Iron_List_Iron_<Type> plus
+     * IRON_LIST_DECL/IRON_LIST_IMPL macro expansions for every concrete
+     * type that Phase 49 mono collapse touched.  Fixes the "use of
+     * undeclared identifier 'Iron_List_Iron_Circle'" codegen error. */
+    emit_mono_list_decls(ctx);
 }

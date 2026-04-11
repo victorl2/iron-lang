@@ -163,10 +163,24 @@ read_config() {
     fi
 }
 
-# ── Extract "Total time: X ms" from output ────────────────────────────────
+# ── Extract "Total time: X" (ns preferred, ms fallback) ──────────────────
+# Phase 58: Iron benchmarks print BOTH a ns line and an ms line; C benchmarks
+# print only a decimal ms line. This helper prefers the ns line when present
+# (sub-ms precision, eliminates integer-ms quantization) and normalizes the
+# result to float ms internally so the rest of the runner compares apples
+# to apples against C's "%.3f ms" output.
 extract_time_ms() {
     local output="$1"
-    # Match "Total time: <number> ms" — Iron prints integer, C prints float
+    # 1) First preference: "Total time: <integer> ns" line (Iron Phase 58+)
+    local ns_val
+    ns_val=$(echo "$output" | grep -oE 'Total time: [0-9]+ ns' | \
+        grep -oE '[0-9]+' | head -1)
+    if [ -n "$ns_val" ]; then
+        # Normalize ns -> ms with 6-decimal precision (microsecond granularity)
+        awk "BEGIN { printf \"%.6f\", $ns_val / 1000000.0 }"
+        return 0
+    fi
+    # 2) Fallback: "Total time: <number> ms" line (C reference, pre-Phase-58 Iron)
     echo "$output" | grep -oE 'Total time: [0-9]+(\.[0-9]+)? ms' | \
         grep -oE '[0-9]+(\.[0-9]+)?' | head -1
 }
