@@ -93,35 +93,52 @@ jobs:
       # fixed. Linux-only.
       - name: Debug find_first_last segfault (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
-          set -x
+          # Intentionally disable -e so the ironc segfault doesn't abort the
+          # whole step before we get to the gdb backtrace.
+          set +e
           ulimit -c unlimited
           cmake -S . -B build-release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang \
             -G Ninja
           cmake --build build-release
+          BIN="$GITHUB_WORKSPACE/build-release/ironc"
+          SRC="$GITHUB_WORKSPACE/tests/benchmarks/problems/find_first_last/main.iron"
           mkdir -p /tmp/ffl_debug && cd /tmp/ffl_debug
-          echo "=== First: plain ironc run to confirm segfault ==="
-          "$GITHUB_WORKSPACE/build-release/ironc" build \
-            "$GITHUB_WORKSPACE/tests/benchmarks/problems/find_first_last/main.iron" \
-            2> /tmp/ffl_stderr.log ; echo "exit=$?"
-          echo "=== stderr captured (may be empty if crash was mid-phase): ==="
-          cat /tmp/ffl_stderr.log || true
-          echo "=== Second: gdb batch run to get a stack trace ==="
+
+          echo "=== [1] plain ironc run (capture stderr before crash) ==="
+          "$BIN" build "$SRC" 2> /tmp/ffl_stderr.log
+          echo "exit=$?"
+          echo "--- stderr captured: ---"
+          cat /tmp/ffl_stderr.log || echo "(no stderr)"
+
+          echo "=== [2] gdb batch run for stack trace ==="
+          # gdb returns non-zero on inferior crash, that's fine.
           gdb --batch \
               --ex "set pagination off" \
+              --ex "set confirm off" \
               --ex "handle SIGSEGV stop nopass" \
-              --ex "run build $GITHUB_WORKSPACE/tests/benchmarks/problems/find_first_last/main.iron" \
+              --ex "run build $SRC" \
               --ex "bt full" \
               --ex "info registers" \
+              --ex "info shared" \
               --ex "quit" \
-              "$GITHUB_WORKSPACE/build-release/ironc" 2>&1 | tail -200
-          echo "=== Third: 10 fresh runs to check flake rate ==="
+              --args "$BIN" build "$SRC" 2>&1 | tail -300
+
+          echo "=== [3] 10 fresh runs (flake check) ==="
+          flakes=0
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            rm -rf /tmp/ffl_run_$i && mkdir /tmp/ffl_run_$i && cd /tmp/ffl_run_$i
-            "$GITHUB_WORKSPACE/build-release/ironc" build \
-              "$GITHUB_WORKSPACE/tests/benchmarks/problems/find_first_last/main.iron" \
-              > /dev/null 2>&1
-            echo "run $i: exit=$?"
+            rm -rf /tmp/ffl_run_$i
+            mkdir /tmp/ffl_run_$i
+            (cd /tmp/ffl_run_$i && "$BIN" build "$SRC" > /dev/null 2>&1)
+            rc=$?
+            echo "run $i: exit=$rc"
+            if [ $rc -ne 0 ]; then flakes=$((flakes+1)); fi
           done
+          echo "=== $flakes / 10 runs crashed ==="
+
+          # Exit 0 so the rest of the workflow (and the run) reports success;
+          # we'll read the backtrace from the log above.
+          exit 0
