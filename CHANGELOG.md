@@ -3,6 +3,151 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v1.2.0-alpha — Networking Foundation, URL Module & Tuple Returns (2026-04-11)
+
+### Summary
+
+Iron v1.2.0-alpha lands the first-class networking stack: TCP client/server,
+UDP, DNS on an elastic thread pool with stuck-worker abandonment, IPv4/IPv6
+typed addresses, and a pure-Iron URL module with parse/build/resolve/percent
+encoding. The compiler also picks up end-to-end tuple-return codegen, a
+parser no-progress guard, and several dispatch fixes that surfaced while
+building the stdlib.
+
+Phase 59 (27 requirements: INFRA-04..10, NET-01..13, URL-01..07).
+
+### What's New — Networking Stdlib
+
+#### TCP
+- `Net.tcp_dial(host, port, timeout_ms) -> (TcpSocket, NetError)`
+- `Net.tcp_listen(host, port) -> (TcpListener, NetError)`
+- `TcpListener.accept(l, timeout_ms) -> (TcpSocket, NetError)`
+- `TcpSocket.{read, write, close}`
+- Non-blocking sockets with poll/WSAPoll and monotonic deadline enforcement
+- `IPV6_V6ONLY=0` override for dual-stack `"::"` listeners
+
+#### UDP + IP Addresses
+- `Net.udp_bind`, `Net.udp_sendto_v4`, `Net.udp_sendto_v6`, `UdpSocket.close`
+- `IPv4Addr` / `IPv6Addr` with `parse` and `format` helpers
+- `enum Address { V4(IPv4Addr), V6(IPv6Addr) }` ADT for typed host resolution
+
+#### DNS
+- `Net.lookup_host(name, timeout_ms) -> ([Address], NetError)`
+- Runs `getaddrinfo` on an elastic `Iron_io_pool` (default 64-thread ceiling)
+- **Abandoned-flag stuck-worker pattern**: if a worker hangs on `getaddrinfo`,
+  the caller returns `IRON_ERR_NET_TIMEOUT` on its own deadline and the pool
+  grows a replacement worker on demand.
+
+#### URL Module (pure Iron)
+- `Url.parse`, `Url.build`, `Url.resolve` (RFC 3986 §5.4), `Url.percent_encode`,
+  `Url.percent_decode`
+- IPv6 bracketed-host parsing
+- Default-port lookup for known schemes
+- Zero C backing — demonstrates that Iron's stdlib can host nontrivial
+  string work natively now that the String primitives are in place.
+
+### Runtime Primitives
+
+- `Iron_Deadline` — monotonic-clock budget value type with `iron_monotonic_now_ms`
+  and `iron_cond_timedwait_ms` for portable timed condition waits.
+- Elastic `Iron_Pool` — pools can grow on demand up to a ceiling, recycle idle
+  workers after a configurable timeout, and survive leaked worker slots.
+- `Iron_PoolWait` — abandoned-flag coordination primitive with both a
+  non-blocking `Iron_poolwait_completed` read and a blocking
+  `Iron_poolwait_wait_ms(w, timeout_ms)` helper.
+- `iron_runtime_init` net hooks: refcounted `WSAStartup`/`WSACleanup` on
+  Windows, SIGPIPE ignore on POSIX.
+- Three new String primitives (`rindex_of`, `byte_at`, `from_byte`) consumed
+  by the URL module and available to any Iron code that needs byte-level
+  string handling.
+
+### Compiler Improvements
+
+#### Tuple-return codegen (Phase 59 P01d)
+End-to-end tuple support through the entire compiler pipeline — parser,
+resolver, typechecker, HIR lowering, LIR emission, C emission. `val (sock, err) =
+Net.tcp_dial(host, port, 5000)` is now legal Iron. Includes 7 integration
+fixtures and a binary-layout `_Static_assert` locking the in-memory shape
+of `(String, Iron_Error)` tuples against `Iron_Result_String_Error` so the
+runtime ABI never drifts.
+
+#### Parser no-progress guard (Phase 59 P01d)
+A malformed `val (` used to cause the parser to spin in an infinite error-
+recovery loop, eventually OOMing at ~3.6 GB RSS after ~20 seconds. Fixed by
+a cursor-position snapshot around each statement and declaration — if the
+parser fails to advance, it emits one diagnostic, skips one token, and
+continues. `ironc check` on the same malformed input now exits in under two
+seconds with a clean diagnostic.
+
+#### `Type.method(...)` static dispatch (Phase 59 P05)
+Methods declared with a body on an `object` — e.g. `func Url.is_unreserved(b: Int) -> Bool { ... }` — now resolve correctly at call sites that use the
+`Type.method(args)` static-looking form. Previously the compiler prepended
+an implicit `self` parameter at decl time but the call site didn't pass one,
+producing malformed C. Fix: call-site synth-self bridge in `hir_to_lir.c`
+that allocates a zero-init receiver via `alloca` + `load` when calling into
+a body-method via static syntax.
+
+#### `collect_mono_enums_node` AST layout bug fix
+Pre-existing latent UB in the HIR-to-LIR mono-enum walker (commit 9e259435,
+Phase 37-02) used local struct typedefs guessing the layout of `Iron_IfStmt`,
+`Iron_WhileStmt`, `Iron_MatchStmt`, `Iron_ReturnStmt`, `Iron_AssignStmt`.
+The `Iron_If` guess was missing `elif_conds[]`/`elif_bodies[]`, so the
+walker read the `else_body` field at the `elif_conds` offset — an stb_ds
+array pointer — and recursed into it as if it were an `Iron_Node*`. Benign
+on macOS arm64; deterministic SIGSEGV on Linux x86_64 when compiling any
+program with an `if/elif/else` chain. Fixed by using the real structs
+from `parser/ast.h` with an integration regression test.
+
+#### Other
+- **Tuple mangling with object elements**: tuples with user-object fields
+  now mangle to `Iron_Tuple_TypeA_TypeB` instead of colliding on
+  `Iron_Tuple__object__...`.
+- **Top-level `String == String`**: non-tuple string equality correctly
+  routes through `iron_string_equals` in both EQ and NEQ paths now.
+- **Builtin-type receiver case folding**: `String.from_byte(b)` resolves as
+  a static call despite the receiver casing mismatch.
+- **`Duration { ms: n }` brace-init removed**: `stdlib/time.iron` now uses
+  positional `Duration(n)` construction, clearing four pre-existing
+  integration failures (`smoke_test`, `test_time`, `time_additions`,
+  `time_now_ns`).
+
+### Benchmark Suite (PR #18)
+
+Median-of-30 sampling with per-benchmark iteration tuning, parallel vs.
+sequential split across runners, and per-problem `max_ratio` thresholds.
+Four thresholds bumped in this release (`find_first_last`,
+`merge_k_sorted_lists`, `matrix_chain_mult`, `sieve_of_eratosthenes`) to
+reflect the observed Linux x86_64 runner variance — GitHub Actions Ubuntu
+runners are consistently 1.5-2.4x slower than macOS arm64 on those four,
+and the old 1.5x floor was macOS-calibrated.
+
+### CI
+
+- Ubuntu (Debug + ASan/UBSan) and macOS (Debug) both green end-to-end.
+- Release binaries shipped for linux-x86_64, macos-arm64, macos-x86_64.
+- **Windows is temporarily out of the CI matrix**. Phase 59's own
+  networking code (iron_net_init.c, iron_net.c, test_stdlib_net_*) does
+  build under MSVC, but pre-existing non-Phase-59 code in src/util,
+  src/diagnostics, src/pkg, src/cli has GCC-only idioms
+  (`__attribute__((format(...)))`, `<unistd.h>`, `strdup`/`getcwd`/
+  `strerror` under `/WX`). A dedicated Windows-compat milestone will
+  re-enable the matrix entry.
+
+### Known Limitations
+
+- `TcpSocket.read` from pure Iron needs a `String.with_capacity(N)`
+  primitive to construct a mutable byte buffer. Cross-thread read/write
+  coverage lives in the C Unity test `test_tcp_dial_loopback_roundtrip`
+  until that primitive lands.
+- Windows CI is informational until the compat milestone.
+
+### Thanks
+
+Sub-plans: 59-01a / 01b / 01c / 01d, 59-02, 59-03, 59-04, 59-05, 59-06.
+27 requirements resolved. 345/345 integration fixtures passing on Unix,
+26/26 unit suites including 22 new Unity net tests. PR #17 (review
+history), #18 (benchmark tuning), #20 (changelog workflow).
+
 ## v1.0.0-alpha — Static Interface Dispatch, Layout Optimizations & Compiler Hardening (2026-04-09)
 
 ### Summary
