@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 3.0, "note": "Phase 31: await-based timing. Sub-ms workload makes ratio unstable on CI runners."}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "Observed ratio 0.13 with 43.3% variance across 5 runs; 1.5x floor per project policy; 2026-04-10 audit"}

@@ -104,16 +104,19 @@ func main() {
     println("Test 4: {can_finish(adj4, n)} (expected 0)")
 
     val iterations = 100000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = can_finish(adj3, n)
+        result = result + can_finish(adj3, 15 + (it % 6))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Course Schedule ===")
     println("Nodes: {n}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

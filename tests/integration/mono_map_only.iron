@@ -1,0 +1,35 @@
+-- mono_map_only.iron: .map() on mono-collapsed collection (Phase 56 SC1).
+-- Exercises the .map() path via a fused `.map(f).sum()` chain -- Phase 49's
+-- fusion engine detects the two-node chain and emits a single flat loop
+-- over the plain Iron_List_Iron_Circle path.  Without Phase 56 Plan 01's
+-- emit_mono_list_decls pre-scan, this test would fail to compile with
+-- "use of undeclared identifier 'Iron_List_Iron_Circle'".
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3)]
+  -- .map returns Iron_List of doubled radii, .sum folds them.
+  -- Without Phase 56's decl emission, Iron_List_Iron_Circle is undeclared.
+  -- Expected: 2*1 + 2*2 + 2*3 = 12
+  val doubled_sum = circles.map(func(c: Circle) -> Int { return c.radius * 2 }).sum()
+  println("{doubled_sum}")
+}

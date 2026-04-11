@@ -53,17 +53,20 @@ func main() {
     println("Test 4 checksum(100): {compute_checksum(100)} (expected 1189670)")
 
     -- Benchmark
-    val iterations = 300000000
-    val start = Time.now_ms()
+    val iterations = 6000000
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = compute_checksum(100)
+        result = result + compute_checksum(95 + (it % 11))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Object Method Dispatch ===")
     println("Points per call: 100")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

@@ -41,18 +41,20 @@ func main() {
 
   -- Benchmark: parallel-for does monte carlo per chunk
   val iterations = 200
-  val start_time = Time.now_ms()
+  val start_time_ns = Time.now_ns()
   for it in range(iterations) {
     for i in 64 parallel {
       var r = monte_carlo_chunk(i, 10000)
     }
   }
-  val elapsed = Time.now_ms() - start_time
+  val elapsed_ns = Time.now_ns() - start_time_ns
+  val elapsed_ms = elapsed_ns / 1000000
 
   println("")
   println("=== Benchmark: Parallel Pi Estimation ===")
   println("Chunks: 64")
   println("Points per chunk: 10000")
   println("Iterations: {iterations}")
-  println("Total time: {elapsed} ms")
+  println("Total time: {elapsed_ns} ns")
+  println("Total time: {elapsed_ms} ms")
 }

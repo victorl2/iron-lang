@@ -27,7 +27,7 @@ func main() {
 
     -- Spawn 4 independent tasks with different seeds
     -- Handles captured and awaited for fair timing vs C pthread_join
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
         val h0 = spawn("i0") {
@@ -47,7 +47,8 @@ func main() {
         await h2
         await h3
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify: spawns with different seeds produce correct independent results
     val b0 = hash_seed(7, n)
@@ -67,5 +68,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Spawn Independence ===")
     println("Spawns: 4")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

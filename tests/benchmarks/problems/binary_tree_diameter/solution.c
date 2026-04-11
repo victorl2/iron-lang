@@ -42,13 +42,15 @@ int main(void) {
     printf("Test 4: %d (expected 4)\n", diameter(tree7, 7));
 
     long mem_before = get_memory_kb();
-    int iterations = 500000;
+    /* Phase 58 Plan 03 Precondition C: scaled 10x from 500000 to exceed the
+     * cold-cache / scheduler-jitter threshold. Matches main.iron. */
+    int iterations = 5000000;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int result = 0;
+    int result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = diameter(tree_vals, tree_size);
+        result = result + diameter(tree_vals, 25 + (it % 7));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -62,6 +64,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %d\n", result);
 
     return 0;
 }

@@ -1,14 +1,15 @@
 import time
 
 -- Counting Bits: count 1-bits for every number 0..n using DP
--- bits[i] = bits[i / 2] + (i % 2). Returns sum of all bit counts.
+-- bits[i] = bits[i >> 1] + (i & 1). Returns sum of all bit counts.
+-- Uses Phase 59 bitwise operators to match solution.c exactly.
 
 func counting_bits(n: Int) -> Int {
     var bits = fill(n + 1, 0)
     var total = 0
     for i in range(n) {
         val idx = i + 1
-        bits[idx] = bits[idx / 2] + (idx % 2)
+        bits[idx] = bits[idx >> 1] + (idx & 1)
         total = total + bits[idx]
     }
     return total
@@ -21,16 +22,18 @@ func main() {
     println("Test 4: {counting_bits(1000)} (expected 4938)")
 
     val iterations = 500000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         result = counting_bits(1000)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Counting Bits ===")
     println("n=1000")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

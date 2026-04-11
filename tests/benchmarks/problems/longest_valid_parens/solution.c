@@ -49,9 +49,9 @@ int main(void) {
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    volatile int result = 0;
+    int result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = longestValidParentheses(s, 200);
+        result = result + longestValidParentheses(s, 190 + (it % 11));
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -65,6 +65,7 @@ int main(void) {
     printf("Total time: %.3f ms\n", elapsed_ms);
     printf("Avg per call: %.6f ms\n", elapsed_ms / iterations);
     printf("Memory (peak RSS): %ld KB\n", mem_after > mem_before ? mem_after : mem_before);
+    printf("Result: %d\n", result);
 
     return 0;
 }

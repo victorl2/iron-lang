@@ -1,0 +1,39 @@
+-- mono_chain_filter_reduce.iron: .map().filter().reduce() chain on mono collection.
+-- Exercises the 3-op chain with intermediate collection typing and terminal
+-- accumulator.  Combined with Phase 49's fusion engine this becomes a single
+-- flat loop over Iron_List_Iron_Circle.  Without Phase 56 Plan 01's decl
+-- emission, the chain fails to compile with "use of undeclared identifier
+-- 'Iron_List_Iron_Circle'".
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3), Circle(4), Circle(5)]
+  -- map: radius -> area, filter: area > 20, reduce: sum
+  -- Circle(1).area=3, Circle(2).area=12, Circle(3).area=27, Circle(4).area=48, Circle(5).area=75
+  -- After filter(> 20): 27, 48, 75
+  -- Reduce(0, +): 150
+  val result = circles
+    .map(func(c: Circle) -> Int { return c.area() })
+    .filter(func(a: Int) -> Bool { return a > 20 })
+    .reduce(0, func(acc: Int, a: Int) -> Int { return acc + a })
+  println("{result}")
+}

@@ -29,18 +29,20 @@ func main() {
 
   -- Benchmark: parallel-for with 16 heavy fib tasks
   val iterations = 5
-  val start_time = Time.now_ms()
+  val start_time_ns = Time.now_ns()
   for it in range(iterations) {
     for i in 16 parallel {
       val idx = i - (i / 4) * 4
       var r = fib(30 + idx)
     }
   }
-  val elapsed = Time.now_ms() - start_time
+  val elapsed_ns = Time.now_ns() - start_time_ns
+  val elapsed_ms = elapsed_ns / 1000000
 
   println("")
   println("=== Benchmark: Parallel Fibonacci Tree ===")
   println("Tasks: 16")
   println("Iterations: {iterations}")
-  println("Total time: {elapsed} ms")
+  println("Total time: {elapsed_ns} ns")
+  println("Total time: {elapsed_ms} ms")
 }

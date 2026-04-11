@@ -27,14 +27,15 @@ func main() {
     val seq_checksum = seq_total % 1000000007
 
     -- Parallel section: each iteration computes a row independently (no captures)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
         for r in rows parallel {
             val rs = row_sum_50(r)
         }
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify determinism
     var par_total = 0
@@ -54,5 +55,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Parallel Sum ===")
     println("Grid=50x50")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -55,7 +55,7 @@ func main() {
     val seq_checksum = pipeline_checksum(n)
 
     -- Spawn pipeline stages (3-stage pipeline, handles captured and awaited for fair timing)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
         val h0 = spawn("stage1") {
@@ -71,7 +71,8 @@ func main() {
         await h1
         await h2
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify: spawns don't corrupt the pipeline computation
     val par_checksum = pipeline_checksum(n)
@@ -87,5 +88,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Pipeline ===")
     println("Stages: 3")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

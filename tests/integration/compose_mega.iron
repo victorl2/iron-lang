@@ -64,11 +64,13 @@ func main() {
     Label(4, 65, 985)
   ]
 
-  -- Compute sum of all scores (equivalent to map(score).sum())
-  var total = 0
-  for w in widgets {
-    total = total + w.score()
-  }
+  -- Compute sum of all scores via fused .map().sum() chain.
+  --
+  -- Phase 57 restoration: this test originally used a for-loop workaround because
+  -- Phase 54 documented an SoA+fusion interaction bug (compose_mega exercised the
+  -- mega composition including SoA, so the fusion chain had to be stripped). Phase
+  -- 57 Plan 01 fixed the underlying Stor mismatch; this restores the fused chain.
+  val total = widgets.map(func(w: Widget) -> Int { return w.score() }).sum()
   -- Button(3,50): 3*100+50 = 350
   -- Slider(2,30): 2*100+30 = 230
   -- Label(5,80): 5*100+80 = 580

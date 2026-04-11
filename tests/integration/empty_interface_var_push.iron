@@ -1,0 +1,32 @@
+-- empty_interface_var_push.iron: EMPTY-LIT-02 regression
+-- Phase 55.1 primary test — the Phase 55 SC1 unblocker pattern.
+-- Previously failed with E0202: type mismatch expected '[Shape]', got '[<error>]'
+-- because the empty ARRAY_LIT case in typecheck.c did not honor the declared
+-- annotation. Fix threads the annotation via check_expr_with_expected helper.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var shapes: [Shape] = []
+  shapes.push(Circle(5))
+  shapes.push(Square(3))
+  println("{shapes.len()}")
+}

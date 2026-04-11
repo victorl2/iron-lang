@@ -1,0 +1,27 @@
+-- Tests all 5 compound-assign bitwise operators.
+-- Uses non-literal RHS expressions (e.g. `y + 1`, `y`) to force the parser
+-- to actually run the assignment-value subexpression path — catching any
+-- mis-parse of `x <<= y + 1` as `x <<= y + 1` vs `(x <<= y) + 1`.
+
+func main() {
+    var x = 1
+    val y = 2
+
+    x <<= y + 1    -- x = 1 << 3 = 8
+    println("{x}")
+
+    x >>= y        -- x = 8 >> 2 = 2
+    println("{x}")
+
+    x = 12
+    x &= y + 8     -- x = 12 & 10 = 8
+    println("{x}")
+
+    x = 4
+    x |= y + 1     -- x = 4 | 3 = 7
+    println("{x}")
+
+    x = 15
+    x ^= y + 7     -- x = 15 ^ 9 = 6
+    println("{x}")
+}

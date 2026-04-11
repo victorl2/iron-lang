@@ -1,0 +1,36 @@
+-- mono_len_pop_get_set.iron: .len, .pop, .get, .set on mono-collapsed collection
+-- (Phase 56 SC5 adjacent test: multiple methods on a single collection).
+-- Does NOT exercise .push — that is the narrowing case covered by Plan 02.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  var circles = [Circle(1), Circle(2), Circle(3), Circle(4)]
+  println("{circles.len()}")                -- 4
+  var first = circles.get(0)
+  println("{first.radius}")                 -- 1
+  circles.set(0, Circle(99))
+  var first_updated = circles.get(0)
+  println("{first_updated.radius}")         -- 99
+  val popped = circles.pop()
+  println("{popped.radius}")                -- 4
+  println("{circles.len()}")                -- 3
+}

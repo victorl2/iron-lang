@@ -75,7 +75,7 @@ func main() {
     println("Bench check: {check}")
 
     val iterations = 200000
-    val start_time = Time.now_ms()
+    val start_time_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         -- Reset arrays each iteration
@@ -85,11 +85,13 @@ func main() {
         }
         result = activity_selection(bench_starts, bench_ends, n)
     }
-    val elapsed = Time.now_ms() - start_time
+    val elapsed_ns = Time.now_ns() - start_time_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Activity Selection ===")
     println("Intervals: {n}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -13,13 +13,9 @@ func subsets_bitmask(arr: [Int], n: Int) -> Int {
         var subset_sum = 0
         for i in range(n) {
             -- Check if bit i is set in mask
-            var bit = mask
-            var k = 0
-            while k < i {
-                bit = bit / 2
-                k = k + 1
-            }
-            if bit % 2 == 1 {
+            -- Explicitly parenthesized to document intent and avoid the C
+            -- `a & b == c` gotcha (see tests/integration/bitwise_precedence.iron).
+            if ((mask >> i) & 1) == 1 {
                 subset_sum = subset_sum + arr[i]
             }
         }
@@ -49,16 +45,19 @@ func main() {
     println("Bench check: {check}")
 
     val iterations = 100
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = subsets_bitmask(arr, n)
+        result = result + subsets_bitmask(arr, 16 + (it % 3))
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Subsets Bitmask ===")
     println("Set size: {n}")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

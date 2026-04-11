@@ -39,11 +39,12 @@ func main() {
     val n = 500000
 
     -- Parallel computation (exercises the parallel-for dispatch)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     for i in n parallel {
         var len = collatz_length(i + 1)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Sequential verification: compute total sum
     var total_sum = 0
@@ -73,5 +74,6 @@ func main() {
     println("")
     println("=== Benchmark: Parallel Collatz Lengths ===")
     println("N: {n}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

@@ -114,6 +114,7 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_io.c
     src/stdlib/iron_time.c
     src/stdlib/iron_log.c
+    src/stdlib/iron_hint.c
     src/stdlib/iron_net.c
 )
 target_include_directories(iron_stdlib PUBLIC src)

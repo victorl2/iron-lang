@@ -28,14 +28,15 @@ func main() {
 
     -- Parallel section: each iteration computes hash_iter(i) independently
     -- (no shared mutable state in loop body)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
         for i in n parallel {
             val h = hash_iter(i)
         }
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Recompute to verify determinism: must match sequential checksum
     var par_sum = 0
@@ -55,5 +56,6 @@ func main() {
     println("")
     println("=== Benchmark: Concurrency Shared Counter ===")
     println("N={n}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

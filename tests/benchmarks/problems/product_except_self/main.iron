@@ -49,16 +49,19 @@ func main() {
     var obench = fill(50, 0)
     println("Test 4: {product_except_self(bench, 50, obench)}")
 
-    val iterations = 500000000
-    val start = Time.now_ms()
+    val iterations = 15000000
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        result = product_except_self(bench, 50, obench)
+        result = result + product_except_self(bench, 40 + (it % 11), obench)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Product Except Self ===")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
+    println("Result: {result}")
 }

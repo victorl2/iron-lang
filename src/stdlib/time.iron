@@ -3,6 +3,7 @@ object Time {}
 
 func Time.now() -> Float {}
 func Time.now_ms() -> Int {}
+func Time.now_ns() -> Int {}
 func Time.sleep(ms: Int) {}
 func Time.since(start: Float) -> Float {}
 func Time.Timer(duration: Float) -> Timer {}

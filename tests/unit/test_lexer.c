@@ -349,8 +349,10 @@ void test_invalid_char_error(void) {
 
 void test_three_independent_errors(void) {
     /* Three independent invalid characters, each on its own — lexer must continue
-     * and produce exactly 3 diagnostics. */
-    Iron_Token *toks = lex("$ # ~");
+     * and produce exactly 3 diagnostics. Note: `~` became a valid bitwise-NOT
+     * token in Phase 59, so this test uses a backtick instead as the third
+     * invalid character. */
+    Iron_Token *toks = lex("$ # `");
     TEST_ASSERT_EQUAL_INT(3, diags.error_count);
     arrfree(toks);
 }

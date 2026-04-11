@@ -1,0 +1,40 @@
+-- mono_forEach_only.iron: .forEach() on mono-collapsed collection (Phase 56 SC5).
+-- Uses .map(id).forEach(accumulate) so the forEach terminal lives inside a
+-- fusion chain -- Phase 49's fusion engine emits a single flat loop over
+-- Iron_List_Iron_Circle.  Without Phase 56 Plan 01's decl emission this
+-- fails to compile (Iron_List_Iron_Circle undeclared).
+--
+-- Note: string interpolation inside closures is a known pre-existing issue
+-- (see coll_foreach_basic.iron), so this test accumulates into a var and
+-- prints after the forEach returns.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(10), Circle(20), Circle(30)]
+  var total = 0
+  circles
+    .map(func(c: Circle) -> Int { return c.radius })
+    .forEach(func(r: Int) {
+      total = total + r
+    })
+  println("{total}")
+}

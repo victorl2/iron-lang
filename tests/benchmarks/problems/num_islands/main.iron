@@ -128,18 +128,20 @@ func main() {
     println("Test 3: {num_islands(grid3, 3, 3)} (expected 5)")
 
     val iterations = 400000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     var g = fill(400, 0)
     for it in range(iterations) {
         init_grid(g)
         result = num_islands(g, 20, 20)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Num Islands ===")
     println("Grid: 20x20")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

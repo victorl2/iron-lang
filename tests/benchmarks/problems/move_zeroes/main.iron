@@ -48,7 +48,7 @@ func main() {
     println("Test 4: {move_zeroes(bench, 100)}")
 
     val iterations = 1000000
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
         var tmp = fill(100, 0)
@@ -57,10 +57,12 @@ func main() {
         }
         result = move_zeroes(tmp, 100)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     println("")
     println("=== Benchmark: Move Zeroes ===")
     println("Iterations: {iterations}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

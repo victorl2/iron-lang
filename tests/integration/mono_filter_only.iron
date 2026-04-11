@@ -1,0 +1,36 @@
+-- mono_filter_only.iron: .filter() on mono-collapsed collection (Phase 56 SC5).
+-- Uses .map(id).filter(pred).reduce(0, +) so the filter node lives inside
+-- a fusion chain -- Phase 49's fusion engine emits one flat loop over the
+-- Iron_List_Iron_Circle path.  Without Phase 56 Plan 01's decl emission
+-- this fails to compile (Iron_List_Iron_Circle undeclared).
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3), Circle(4)]
+  -- map identity, then filter radius >= 3, then sum radii.
+  -- Filter keeps Circle(3), Circle(4). Sum: 3 + 4 = 7
+  val big_sum = circles
+    .map(func(c: Circle) -> Int { return c.radius })
+    .filter(func(r: Int) -> Bool { return r >= 3 })
+    .reduce(0, func(acc: Int, r: Int) -> Int { return acc + r })
+  println("{big_sum}")
+}

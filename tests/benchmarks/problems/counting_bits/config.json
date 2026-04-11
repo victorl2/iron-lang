@@ -1,1 +1,1 @@
-{"iterations": 500000, "timeout_sec": 60, "max_ratio": 1.8}
+{"iterations": 500000, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "DP recurrence bits[i>>1] + (i&1) using Phase 59 bitwise operators matches solution.c exactly. Stable ratio 1.1x at project floor 1.5x; 2026-04-10 audit."}

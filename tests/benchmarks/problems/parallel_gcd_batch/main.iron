@@ -31,11 +31,12 @@ func main() {
     val n = 10000000
 
     -- Parallel computation (exercises parallel-for dispatch)
-    val start = Time.now_ms()
+    val start_ns = Time.now_ns()
     for i in n parallel {
         var g = gcd_for_index(i)
     }
-    val elapsed = Time.now_ms() - start
+    val elapsed_ns = Time.now_ns() - start_ns
+    val elapsed_ms = elapsed_ns / 1000000
 
     -- Sequential verification: compute total sum
     var total_sum = 0
@@ -60,5 +61,6 @@ func main() {
     println("")
     println("=== Benchmark: Parallel GCD Batch ===")
     println("N: {n}")
-    println("Total time: {elapsed} ms")
+    println("Total time: {elapsed_ns} ns")
+    println("Total time: {elapsed_ms} ms")
 }

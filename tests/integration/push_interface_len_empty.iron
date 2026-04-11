@@ -1,0 +1,49 @@
+-- push_interface_len_empty.iron: .len() on an emptied interface split collection
+-- Verifies that .len() on an interface split collection that has been emptied
+-- (or started empty) returns 0.
+--
+-- Phase 56 Plan 02 rewrite: previously used a 2-element [Circle, Square]
+-- literal + pop-both workaround because (a) Phase 55.1 didn't support empty
+-- typed-literal annotations yet, and (b) a single-element [Circle(X)] would
+-- narrow to mono [Circle] and hit the Phase 56 Plan 01 codegen gap. Both
+-- workarounds are now obsolete: Phase 55.1 added [Shape] = [] support and
+-- Phase 56 Plan 01 fixed mono-collapse codegen. Rewrite uses the cleaner
+-- empty-annotated literal path and still exercises .len() on an empty split
+-- collection, with a push-then-pop round trip for good measure.
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  -- Start with an empty split collection (Phase 55.1 annotation-aware literal).
+  var shapes: [Shape] = []
+
+  -- Push two elements so .len() reports 2.
+  shapes.push(Circle(5))
+  shapes.push(Square(7))
+  println("{shapes.len()}")
+
+  -- Pop both elements, leaving the collection empty again.
+  var a = shapes.pop()
+  var b = shapes.pop()
+
+  -- After popping all elements, len must be 0.
+  println("{shapes.len()}")
+}

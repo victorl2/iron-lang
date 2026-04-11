@@ -1,0 +1,79 @@
+-- soa_fusion_many_types.iron: Phase 57 adjacent regression for SoA + fusion with 3+ types
+-- Covers ROADMAP Phase 57 SC5 "SoA + fusion on split with many types"
+--
+-- Triggers:
+--   (1) Split collection with FOUR implementors of interface Unit (Soldier, Archer, Mage, Healer)
+--   (2) Each implementor has 4 fields; only get_power() accesses 1 field -> 25% < 50% -> SoA all round
+--   (3) Dead field elimination on each _Stor struct
+--   (4) Fusion: val total = army.map(get_power).sum() -> fused per-type loop runs 4 times
+--   (5) Plan 01 sibling emission loop must produce 4 distinct _from_<Type>_Stor helpers
+--       and the fused loop must call each one in its per-type block
+
+interface Unit {
+  func get_power() -> Int
+}
+
+object Soldier impl Unit {
+  var power: Int
+  var armor: Int
+  var pos_x: Int
+  var pos_y: Int
+}
+
+object Archer impl Unit {
+  var power: Int
+  var range: Int
+  var pos_x: Int
+  var pos_y: Int
+}
+
+object Mage impl Unit {
+  var power: Int
+  var mana: Int
+  var pos_x: Int
+  var pos_y: Int
+}
+
+object Healer impl Unit {
+  var power: Int
+  var heal: Int
+  var pos_x: Int
+  var pos_y: Int
+}
+
+func Soldier.get_power() -> Int {
+  return self.power
+}
+
+func Archer.get_power() -> Int {
+  return self.power
+}
+
+func Mage.get_power() -> Int {
+  return self.power
+}
+
+func Healer.get_power() -> Int {
+  return self.power
+}
+
+func main() {
+  val army = [
+    Soldier(10, 50, 1, 1),
+    Archer(8, 30, 2, 2),
+    Mage(15, 100, 3, 3),
+    Healer(5, 40, 4, 4),
+    Soldier(12, 55, 5, 5),
+    Archer(9, 32, 6, 6),
+    Mage(20, 110, 7, 7),
+    Healer(7, 42, 8, 8)
+  ]
+  -- Soldiers: 10 + 12 = 22
+  -- Archers:  8  + 9  = 17
+  -- Mages:    15 + 20 = 35
+  -- Healers:  5  + 7  = 12
+  -- Total:              86
+  val total = army.map(func(u: Unit) -> Int { return u.get_power() }).sum()
+  println("{total}")
+  println("many_types_done")
+}

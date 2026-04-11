@@ -122,11 +122,15 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_UNREACHABLE_ARM      226
 #define IRON_ERR_BINDING_SHADOWS      227
 #define IRON_ERR_UNKNOWN_VARIANT      228
+#define IRON_ERR_EMPTY_LITERAL_NO_TYPE 229
 
 /* Comptime errors */
 #define IRON_ERR_COMPTIME_STEP_LIMIT  230
 #define IRON_ERR_COMPTIME_RESTRICTION 231
 #define IRON_ERR_COMPTIME_ERROR       232
+
+/* Bitwise operator errors */
+#define IRON_ERR_BITWISE_NON_INT      233
 
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300

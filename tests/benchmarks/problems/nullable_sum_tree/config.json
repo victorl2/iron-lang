@@ -1,1 +1,1 @@
-{"iterations": 500000, "timeout_sec": 60, "max_ratio": 2.5, "skip": true, "skip_reason": "Pre-existing codegen bug: undeclared identifier in generated C. Predates Phase 24."}
+{"iterations": 500000, "timeout_sec": 60, "max_ratio": 2.5, "skip": true, "skip_reason": "Pre-existing codegen bug: undeclared identifier in generated C. Predates Phase 24.", "rationale": "Skipped in suite: Pre-existing codegen bug: undeclared identifier in generated C. Predates Phase 24. (2026-04-10 audit, no ratio measured)"}

@@ -1,1 +1,1 @@
-{"iterations": 3, "timeout_sec": 60, "max_ratio": 6.0, "note": "Phase 31: await-based timing. Sub-ms workload makes ratio unstable on CI runners — 6x threshold absorbs noise."}
+{"iterations": 3, "timeout_sec": 60, "max_ratio": 2.4, "rationale": "Observed ratio 1.13 with 39.8% variance across 5 runs; 2.4x covers mean+2sigma with 15% headroom; sub-ms C runtime (0.34ms); 2026-04-10 audit"}

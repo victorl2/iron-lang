@@ -1,0 +1,28 @@
+-- mono_sum_only.iron: .sum() over mapped mono collection (Phase 56 SC5)
+
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func Circle.area() -> Int {
+  return self.radius * self.radius * 3
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3)]
+  val total = circles.map(func(c: Circle) -> Int { return c.area() }).sum()
+  -- 3 + 12 + 27 = 42
+  println("{total}")
+}
