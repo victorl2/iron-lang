@@ -20,6 +20,10 @@ on:
       - 'src/cli/toml.c'
       - 'src/cli/toml.h'
       - 'src/cli/web_config.h'
+      - 'src/diagnostics/diagnostics.h'
+      - 'src/lir/lir.h'
+      - 'src/lir/web_main_loop_split.c'
+      - 'src/lir/web_main_loop_split.h'
       - 'src/runtime/iron_builtins.c'
       - 'src/runtime/iron_collections.c'
       - 'src/runtime/iron_rc.c'
@@ -31,6 +35,7 @@ on:
       - 'tests/unit/test_string_intern_race.c'
       - 'tests/unit/test_toml_web.c'
       - 'tests/unit/test_web_await_check.c'
+      - 'tests/unit/test_web_main_loop_split.c'
       - 'CMakeLists.txt'
   pull_request:
     branches: [main]
@@ -51,6 +56,10 @@ on:
       - 'src/cli/toml.c'
       - 'src/cli/toml.h'
       - 'src/cli/web_config.h'
+      - 'src/diagnostics/diagnostics.h'
+      - 'src/lir/lir.h'
+      - 'src/lir/web_main_loop_split.c'
+      - 'src/lir/web_main_loop_split.h'
       - 'src/runtime/iron_builtins.c'
       - 'src/runtime/iron_collections.c'
       - 'src/runtime/iron_rc.c'
@@ -62,6 +71,7 @@ on:
       - 'tests/unit/test_string_intern_race.c'
       - 'tests/unit/test_toml_web.c'
       - 'tests/unit/test_web_await_check.c'
+      - 'tests/unit/test_web_main_loop_split.c'
       - 'CMakeLists.txt'
 
 concurrency:
