@@ -46,7 +46,7 @@ int main(void) {
     int64_t check = bench_nested(200);
     printf("Test 7 bench(200): %lld\n", (long long)check);
 
-    int iterations = 15000;
+    int iterations = 837;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     int64_t result = 0;

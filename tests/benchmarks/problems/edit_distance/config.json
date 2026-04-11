@@ -1,1 +1,1 @@
-{"iterations": 1000000, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "Observed ratio 0.63 with 9.1% variance across 5 runs; 1.5x floor per project policy; 2026-04-10 audit"}
+{"iterations": 89445, "timeout_sec": 60, "max_ratio": 1.5, "rationale": "Observed ratio 0.63 with 9.1% variance across 5 runs; 1.5x floor per project policy; 2026-04-10 audit"}

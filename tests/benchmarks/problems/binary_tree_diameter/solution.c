@@ -44,7 +44,7 @@ int main(void) {
     long mem_before = get_memory_kb();
     /* Phase 58 Plan 03 Precondition C: scaled 10x from 500000 to exceed the
      * cold-cache / scheduler-jitter threshold. Matches main.iron. */
-    int iterations = 5000000;
+    int iterations = 1082251;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

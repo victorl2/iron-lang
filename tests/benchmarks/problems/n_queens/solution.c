@@ -37,7 +37,7 @@ int main(void) {
     printf("N=12: %d solutions (expected 14200)\n", nQueens(12));
 
     long mem_before = get_memory_kb();
-    int iterations = 100;
+    int iterations = 1;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

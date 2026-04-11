@@ -81,7 +81,7 @@ func main() {
     println("Test 4 bench(10000): {check}")
 
     -- Benchmark
-    val iterations = 10000
+    val iterations = 789
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

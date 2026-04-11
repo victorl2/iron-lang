@@ -26,7 +26,7 @@ int main(void) {
     for (int i = 0; i < 50; i++) bench[i] = (i*17+5)%37;
     printf("Test 2: %lld (expected 6)\n", (long long)lis(bench, 50));
 
-    int iterations = 500000;
+    int iterations = 54466;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

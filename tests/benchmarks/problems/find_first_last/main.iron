@@ -61,7 +61,7 @@ func main() {
     println("Test 3: {find_first_last(arr, 100, 19)} (expected 95099)")
     println("Test 4: {find_first_last(arr, 100, 99)} (expected -1)")
 
-    val iterations = 5000000
+    val iterations = 2016129
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

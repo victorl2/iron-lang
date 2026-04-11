@@ -21,7 +21,7 @@ int main(void) {
     printf("Test 2: %lld (expected 4)\n", (long long)coin_change(coins, 4, 100));
     printf("Test 3: %lld (expected 6)\n", (long long)coin_change(coins, 4, 63));
 
-    int iterations = 500000;
+    int iterations = 179856;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

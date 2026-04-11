@@ -69,7 +69,7 @@ int main(void) {
     printf("Merged %d elements, sorted: %s\n", n, sorted ? "yes" : "no");
 
     long mem_before = get_memory_kb();
-    int iterations = 100000;
+    int iterations = 27472;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

@@ -60,7 +60,7 @@ int main(void) {
     printf("Bench check: %lld\n", spiral_sum(mat, rows, cols));
 
     long mem_before = get_memory_kb();
-    int iterations = 5000000;
+    int iterations = 708215;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

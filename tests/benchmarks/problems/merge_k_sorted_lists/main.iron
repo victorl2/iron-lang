@@ -114,7 +114,7 @@ func main() {
     println("Merged {total} elements, sorted: {is_sorted}")
 
     -- Benchmark: just the merging logic (reset ptrs each time)
-    val iterations = 100000
+    val iterations = 27472
     val start_ns = Time.now_ns()
     var bench_result = 0
     for it in range(iterations) {

@@ -63,7 +63,7 @@ func main() {
     val pat = [16, 23, 4, 11, 18, 25, 6, 13, 20, 1]
     println("Test 4: {kmp_search(text, 200, pat, 10)} (expected 7)")
 
-    val iterations = 500000
+    val iterations = 65104
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

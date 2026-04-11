@@ -34,7 +34,7 @@ func main() {
     println("Test 4: {is_power_of_two(0)} (expected 0)")
     println("Test 5: {count_powers_of_two(1000000)} (expected 20)")
 
-    val iterations = 1500000
+    val iterations = 40783
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

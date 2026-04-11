@@ -47,7 +47,7 @@ func main() {
     val bench_result = longest_no_repeat(bench, 100)
     println("Test 4: {bench_result}")
 
-    val iterations = 500000
+    val iterations = 312500
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

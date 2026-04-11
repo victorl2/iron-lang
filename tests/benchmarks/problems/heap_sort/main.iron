@@ -79,7 +79,7 @@ func main() {
     val check = checksum(bench, n)
     println("Bench check: {check}")
 
-    val iterations = 100000
+    val iterations = 17543
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

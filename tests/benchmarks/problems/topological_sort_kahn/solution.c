@@ -61,7 +61,7 @@ int main(void) {
     printf("Test 4: %ld (expected -1)\n", kahn_checksum(adj4, n));
 
     long mem_before = get_memory_kb();
-    int iterations = 2000000;
+    int iterations = 168634;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

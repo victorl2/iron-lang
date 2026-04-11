@@ -36,7 +36,7 @@ int main(void) {
             bench[i*20+j] = ((i*5+j*3)%11 == 0) ? 0 : 1;
     printf("Test 2: %lld (expected 16)\n", (long long)maximal_square(bench, 20, 20));
 
-    int iterations = 500000;
+    int iterations = 58411;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

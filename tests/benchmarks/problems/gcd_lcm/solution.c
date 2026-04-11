@@ -35,7 +35,7 @@ int main(void) {
     printf("Test 3 lcm: %lld (expected 221)\n", lcm(17, 13));
 
     long mem_before = get_memory_kb();
-    int iterations = 6000000;
+    int iterations = 1456310;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

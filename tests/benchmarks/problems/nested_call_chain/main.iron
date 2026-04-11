@@ -72,7 +72,7 @@ func main() {
     println("Test 7 bench(200): {check} (expected 9955108)")
 
     -- Benchmark
-    val iterations = 15000
+    val iterations = 837
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

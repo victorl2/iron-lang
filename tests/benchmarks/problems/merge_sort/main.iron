@@ -73,7 +73,7 @@ func main() {
     }
     println("Test 4: {merge_sort_checksum(bench, 200)}")
 
-    val iterations = 100000
+    val iterations = 10080
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

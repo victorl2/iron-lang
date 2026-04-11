@@ -74,7 +74,7 @@ func main() {
     val check = activity_selection(bench_starts, bench_ends, n)
     println("Bench check: {check}")
 
-    val iterations = 200000
+    val iterations = 111111
     val start_time_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

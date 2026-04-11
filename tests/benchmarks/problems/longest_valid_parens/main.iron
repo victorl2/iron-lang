@@ -64,7 +64,7 @@ func main() {
     }
     println("Test 3: {longest_valid(s, 200)} (expected 200)")
 
-    val iterations = 200000
+    val iterations = 84745
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

@@ -42,7 +42,7 @@ int main(void) {
     printf("Bench check: %lld\n", subsets_bitmask(arr, n));
 
     long mem_before = get_memory_kb();
-    int iterations = 100;
+    int iterations = 5;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

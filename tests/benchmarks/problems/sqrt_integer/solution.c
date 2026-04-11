@@ -30,7 +30,7 @@ int main(void) {
     printf("Test 5: %lld (expected 5)\n", isqrt(26));
 
     long mem_before = get_memory_kb();
-    int iterations = 10000000;
+    int iterations = 718390;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);

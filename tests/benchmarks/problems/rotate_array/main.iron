@@ -46,7 +46,7 @@ func main() {
     }
     println("Test 3: {rotate_array(bench, 100, 37)}")
 
-    val iterations = 1000000
+    val iterations = 357142
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

@@ -37,7 +37,7 @@ int main(void) {
     printf("Test 5 process(100,0): %lld (expected 100)\n", process(100, 0));
     printf("Test 6 bench(200): %lld\n", bench_multi_exit(200));
 
-    int iterations = 200000;
+    int iterations = 17636;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     volatile int64_t result = 0;

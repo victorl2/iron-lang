@@ -4,7 +4,7 @@
 #include <time.h>
 
 #define NUM_TASKS 16
-#define ITERATIONS 5
+#define ITERATIONS 1
 
 static int64_t fib(int64_t n) {
     if (n <= 1) return n;

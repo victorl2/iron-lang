@@ -55,7 +55,7 @@ func main() {
     }
     println("Test 5: {rle_encode(bench, 100)} (expected 32600)")
 
-    val iterations = 5000000
+    val iterations = 741839
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {

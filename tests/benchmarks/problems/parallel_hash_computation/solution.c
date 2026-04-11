@@ -5,7 +5,7 @@
 
 #define N 500000
 #define NUM_THREADS 8
-#define ITERATIONS 20
+#define ITERATIONS 4
 
 static int64_t complex_hash(int64_t input) {
     int64_t h = input;

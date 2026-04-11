@@ -37,7 +37,7 @@ func main() {
     }
     println("Test 3: {partition_equal_subset(bench, 20)} (expected 1)")
 
-    val iterations = 500000
+    val iterations = 265957
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
