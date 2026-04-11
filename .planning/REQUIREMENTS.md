@@ -14,15 +14,15 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 
 ### CLI (WEB-CLI)
 
-- [ ] **WEB-CLI-01**: User can run `iron build --target=web main.iron` and get a bundle in `dist/web/`
+- [x] **WEB-CLI-01**: User can run `iron build --target=web main.iron` and get a bundle in `dist/web/`
 - [x] **WEB-CLI-02**: User can run `iron build --target=native main.iron` (explicit native target, same as default)
 - [x] **WEB-CLI-03**: `iron build` with no `--target` defaults to native (backward compatible)
 - [x] **WEB-CLI-04**: Unknown `--target=` values produce a clear error listing valid values
 - [x] **WEB-CLI-05**: `iron build --target=web --release` uses optimized flags (`-Oz -flto -sASSERTIONS=0`)
 - [x] **WEB-CLI-06**: `iron build --target=web` (debug) uses `-O0 -g -sASSERTIONS=1`
 - [x] **WEB-CLI-07**: `iron run --target=web` builds then shells to `emrun` on the output HTML
-- [ ] **WEB-CLI-08**: Missing `emcc` produces a friendly error with install instructions and the pinned emsdk version
-- [ ] **WEB-CLI-09**: Build log prints `using emcc <version> from <path>` before compilation starts
+- [x] **WEB-CLI-08**: Missing `emcc` produces a friendly error with install instructions and the pinned emsdk version
+- [x] **WEB-CLI-09**: Build log prints `using emcc <version> from <path>` before compilation starts
 
 ### iron.toml `[web]` Section (WEB-MANIFEST)
 
@@ -192,15 +192,15 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 |-------------|-------|--------|
 | WEB-BOOT-01 | Phase 1 — Bootstrap & Guardrails | Complete |
 | WEB-BOOT-03 | Phase 1 — Bootstrap & Guardrails | Complete |
-| WEB-CLI-01 | Phase 2 — CLI + TOML Scaffold | Pending |
+| WEB-CLI-01 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-CLI-02 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-CLI-03 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-CLI-04 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-CLI-05 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-CLI-06 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-CLI-07 | Phase 2 — CLI + TOML Scaffold | Complete |
-| WEB-CLI-08 | Phase 2 — CLI + TOML Scaffold | Pending |
-| WEB-CLI-09 | Phase 2 — CLI + TOML Scaffold | Pending |
+| WEB-CLI-08 | Phase 2 — CLI + TOML Scaffold | Complete |
+| WEB-CLI-09 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-MANIFEST-01 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-MANIFEST-02 | Phase 2 — CLI + TOML Scaffold | Complete |
 | WEB-MANIFEST-03 | Phase 2 — CLI + TOML Scaffold | Complete |
