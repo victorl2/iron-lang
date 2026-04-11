@@ -118,6 +118,7 @@ add_library(iron_compiler STATIC
     src/lir/print.c
     src/lir/verify.c
     src/lir/lir_optimize.c
+    src/lir/web_main_loop_split.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 target_link_libraries(iron_compiler iron_runtime)
