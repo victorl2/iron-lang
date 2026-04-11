@@ -1,0 +1,60 @@
+name: Web CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.emsdk-version'
+      - '.github/workflows/web.yml'
+      - 'scripts/ci-smoke/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.emsdk-version'
+      - '.github/workflows/web.yml'
+      - 'scripts/ci-smoke/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emsdk-smoke:
+    name: emsdk smoke test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read pinned emsdk version
+        id: emsdk_version
+        run: echo "version=$(cat .emsdk-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install emsdk ${{ steps.emsdk_version.outputs.version }}
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ steps.emsdk_version.outputs.version }}
+          actions-cache-folder: emsdk-cache
+
+      - name: Verify emcc version matches pin
+        run: |
+          PINNED=$(cat .emsdk-version)
+          echo "Pinned version: $PINNED"
+          emcc --version
+          emcc --version | grep -F "$PINNED" || { echo "FAIL: emcc version does not match $PINNED"; exit 1; }
+          echo "OK: emcc --version contains $PINNED"
+
+      - name: Compile hello.c via emcc
+        run: emcc scripts/ci-smoke/hello.c -o /tmp/hello.js
+
+      - name: Assert smoke test artifacts exist and are non-empty
+        run: |
+          test -s /tmp/hello.js   || { echo "FAIL: /tmp/hello.js missing or empty"; exit 1; }
+          test -s /tmp/hello.wasm || { echo "FAIL: /tmp/hello.wasm missing or empty"; exit 1; }
+          echo "OK: hello.js and hello.wasm exist and are non-empty"
