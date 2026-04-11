@@ -1,0 +1,31 @@
+-- net_dualstack.iron — Phase 59 P06 Iron-source dual-stack listen path.
+--
+-- This integration test is NOT the authoritative v4-to-v6 dual-stack
+-- coverage. The authoritative SC4 test is P02's Unity test
+-- test_tcp_dualstack_v4_to_v6 (tests/unit/test_stdlib_net_tcp.c), which
+-- spawns a POSIX thread to dial v4 while the main thread accepts on a
+-- v6 listener, verifies the peer address is ::ffff:127.0.0.1, and
+-- exchanges bytes.
+--
+-- This Iron-level fixture just exercises the Iron-source dual-stack
+-- listen path ("::" → AF_INET6 + IPV6_V6ONLY=0) and confirms the
+-- listener is non-blocking by asserting a short-timeout accept fires
+-- IRON_ERR_NET_TIMEOUT (1004) promptly. If the listen path were broken
+-- (wrong family, bind failure, V6ONLY=1 breaking dual-stack setup)
+-- this fixture would surface it immediately in Iron source.
+import net
+
+func main() {
+    val (listener, lerr) = Net.tcp_listen("::", 34502)
+    if lerr.code != 0 {
+        println("listen failed: {lerr.code}")
+        return
+    }
+    val (sock, aerr) = TcpListener.accept(listener, 50)
+    if aerr.code == 1004 {
+        println("dualstack listener ok")
+    } else {
+        println("unexpected: {aerr.code}")
+    }
+    TcpListener.close(listener)
+}

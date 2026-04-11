@@ -138,3 +138,16 @@ add_executable(test_stdlib_net_dns test_stdlib_net_dns.c)
 target_link_libraries(test_stdlib_net_dns iron_stdlib iron_runtime unity)
 add_test(NAME test_stdlib_net_dns COMMAND test_stdlib_net_dns)
 set_tests_properties(test_stdlib_net_dns PROPERTIES LABELS "unit")
+
+# ── Phase 59 06: Cross-platform networking battery ─────────────────────────
+# Exercises the full C-level networking surface (TCP loopback + UDP loopback +
+# IPv4/IPv6 parse/format + localhost DNS) in a single binary. Runs identically
+# on ubuntu-latest, macos-latest, and windows-latest so Windows CI can catch
+# regressions across the entire net stack with one test executable.
+add_executable(test_stdlib_net_cross_platform test_stdlib_net_cross_platform.c)
+target_link_libraries(test_stdlib_net_cross_platform iron_stdlib iron_runtime unity)
+if(WIN32)
+    target_link_libraries(test_stdlib_net_cross_platform ws2_32 iphlpapi)
+endif()
+add_test(NAME test_stdlib_net_cross_platform COMMAND test_stdlib_net_cross_platform)
+set_tests_properties(test_stdlib_net_cross_platform PROPERTIES LABELS "unit")
