@@ -15,7 +15,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - Decimal phases (e.g. 5.1): Reserved for urgent insertions post-planning.
 
 - [x] **Phase 1: Bootstrap & Guardrails** - Pin emsdk to 4.0.23 via `.emsdk-version`, scaffold Linux/macOS web CI with `emcc hello.c` smoke test (no hook, no Windows CI) (completed 2026-04-11)
-- [ ] **Phase 2: CLI + TOML Scaffold** - `--target=web|native` flag and `[web]` section parsed into `IronWebConfig`
+- [x] **Phase 2: CLI + TOML Scaffold** - `--target=web|native` flag and `[web]` section parsed into `IronWebConfig` (completed 2026-04-11)
 - [ ] **Phase 3: Runtime Audit (Web Hardening)** - Intern race fix, `iron_threads_shutdown` no-op, pool cap, `await`-on-main error
 - [ ] **Phase 4: WASM-Safe Time Shim** - New `iron_time_web.c` providing `now_ns` via `emscripten_get_now()`
 - [ ] **Phase 5: LIR Main-Loop Split Pass (HIGH risk)** - Detect `while(!WindowShouldClose())`, lift captured locals into a frame state struct
@@ -210,7 +210,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Bootstrap & Guardrails | 1/1 | Complete    | 2026-04-11 |
-| 2. CLI + TOML Scaffold | 5/6 | In Progress|  |
+| 2. CLI + TOML Scaffold | 6/6 | Complete   | 2026-04-11 |
 | 3. Runtime Audit | 0/TBD | Not started | - |
 | 4. WASM-Safe Time Shim | 0/TBD | Not started | - |
 | 5. LIR Main-Loop Split Pass | 0/TBD | Not started | - |
