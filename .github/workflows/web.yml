@@ -16,6 +16,9 @@ on:
       - 'src/cli/toml.h'
       - 'src/cli/web_config.h'
       - 'tests/unit/test_toml_web.c'
+      - 'src/runtime/iron_rc.c'
+      - 'src/runtime/iron_builtins.c'
+      - 'src/runtime/iron_collections.c'
   pull_request:
     branches: [main]
     paths:
@@ -31,6 +34,9 @@ on:
       - 'src/cli/toml.h'
       - 'src/cli/web_config.h'
       - 'tests/unit/test_toml_web.c'
+      - 'src/runtime/iron_rc.c'
+      - 'src/runtime/iron_builtins.c'
+      - 'src/runtime/iron_collections.c'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -76,3 +82,16 @@ jobs:
           test -s /tmp/hello.js   || { echo "FAIL: /tmp/hello.js missing or empty"; exit 1; }
           test -s /tmp/hello.wasm || { echo "FAIL: /tmp/hello.wasm missing or empty"; exit 1; }
           echo "OK: hello.js and hello.wasm exist and are non-empty"
+
+      - name: Probe iron_rc/builtins/collections portability under emcc (WEB-RUNTIME-07)
+        run: |
+          set -e
+          echo "WEB-RUNTIME-07: try-compiling three runtime files under emcc --"
+          echo "these files must build cleanly with zero modifications."
+          emcc -c src/runtime/iron_rc.c          -I src -Wall -Werror -o /tmp/iron_rc.o
+          emcc -c src/runtime/iron_builtins.c    -I src -Wall -Werror -o /tmp/iron_builtins.o
+          emcc -c src/runtime/iron_collections.c -I src -Wall -Werror -o /tmp/iron_collections.o
+          test -s /tmp/iron_rc.o          || { echo "FAIL: iron_rc.o empty";          exit 1; }
+          test -s /tmp/iron_builtins.o    || { echo "FAIL: iron_builtins.o empty";    exit 1; }
+          test -s /tmp/iron_collections.o || { echo "FAIL: iron_collections.o empty"; exit 1; }
+          echo "OK: iron_rc.c + iron_builtins.c + iron_collections.c compile clean under emcc"
