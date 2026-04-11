@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 05-lir-main-loop-split-pass-high-risk plan-02 web-main-loop-split-pass
-last_updated: "2026-04-11T19:27:33.699Z"
+stopped_at: Completed 05-lir-main-loop-split-pass-high-risk plan-03 pipeline-wiring-and-tests
+last_updated: "2026-04-11T19:45:15.657Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 0
 ---
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 04-wasm-safe-time-shim P02 | 730s | 2 tasks | 2 files |
 | Phase 05 P01 | 1039s | 2 tasks | 2 files |
 | Phase 05-lir-main-loop-split-pass-high-risk P02 | 722s | 3 tasks | 3 files |
+| Phase 05 P03 | 1200 | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 05]: Single IRON_ERR_WEB_NON_CANONICAL_MAIN_LOOP covers all non-while shapes (for-loops, compound conditions) — avoids HIR-level loop-shape plumbing into LIR
 - [Phase 05-lir-main-loop-split-pass-high-risk]: ws_ helpers copied from lir_optimize.c (not exposed via header) to avoid mutating a heavily-included interface
 - [Phase 05-lir-main-loop-split-pass-high-risk]: Metadata-only pass in Phase 5; LOAD/STORE rewrites deferred to Phase 6 emit_web.c per RESEARCH.md recommendation
+- [Phase 05]: build.c call site runs only on native path today — web builds short-circuit to iron_build_web() before LIR pipeline; Phase 6 refactors iron_build_web to reuse this pipeline
+- [Phase 05]: 7-case unit test suite (1 extra: read-only capture is_mutable=false) strengthens WEB-EMIT-03 coverage beyond minimum-6 requirement
 
 ### Pending Todos
 
@@ -128,6 +131,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T19:27:33.696Z
-Stopped at: Completed 05-lir-main-loop-split-pass-high-risk plan-02 web-main-loop-split-pass
+Last session: 2026-04-11T19:45:15.653Z
+Stopped at: Completed 05-lir-main-loop-split-pass-high-risk plan-03 pipeline-wiring-and-tests
 Resume file: None

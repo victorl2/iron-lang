@@ -18,7 +18,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - [x] **Phase 2: CLI + TOML Scaffold** - `--target=web|native` flag and `[web]` section parsed into `IronWebConfig` (completed 2026-04-11)
 - [ ] **Phase 3: Runtime Audit (Web Hardening)** - Intern race fix, `iron_threads_shutdown` no-op, pool cap, `await`-on-main error
 - [x] **Phase 4: WASM-Safe Time Shim** - New `iron_time_web.c` providing `now_ns` via `emscripten_get_now()` (completed 2026-04-11)
-- [ ] **Phase 5: LIR Main-Loop Split Pass (HIGH risk)** - Detect `while(!WindowShouldClose())`, lift captured locals into a frame state struct
+- [x] **Phase 5: LIR Main-Loop Split Pass (HIGH risk)** - Detect `while(!WindowShouldClose())`, lift captured locals into a frame state struct (completed 2026-04-11)
 - [ ] **Phase 6: emit_web.c Wrapper (MEDIUM risk)** - Emit web `main()` wiring `emscripten_set_main_loop_arg`, dispatch from build.c step 12
 - [ ] **Phase 7: build_web.c emcc Orchestration** - Construct argv, find emcc, mkdir_p, forbidden-flag guard, Windows support
 - [ ] **Phase 8: Raylib Web Integration (Amalgamation)** - Compile `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB` through emcc
@@ -222,7 +222,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 2. CLI + TOML Scaffold | 6/6 | Complete   | 2026-04-11 |
 | 3. Runtime Audit | 3/4 | In Progress|  |
 | 4. WASM-Safe Time Shim | 2/2 | Complete   | 2026-04-11 |
-| 5. LIR Main-Loop Split Pass | 2/3 | In Progress|  |
+| 5. LIR Main-Loop Split Pass | 3/3 | Complete   | 2026-04-11 |
 | 6. emit_web.c Wrapper | 0/TBD | Not started | - |
 | 7. build_web.c emcc Orchestration | 0/TBD | Not started | - |
 | 8. Raylib Web Integration | 0/TBD | Not started | - |
