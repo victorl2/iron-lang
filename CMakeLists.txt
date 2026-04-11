@@ -53,6 +53,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(unity)
 # Enable double-precision float assertions for all Unity test targets
 target_compile_definitions(unity PUBLIC UNITY_INCLUDE_DOUBLE)
+# Unity is a third-party library — don't apply our /W3 /WX strictness to it.
+# On MSVC, Unity's own source emits C4996 (POSIX deprecation) and C5045
+# (Spectre mitigation hints) which our global /WX would promote to errors.
+# Drop the strictness locally for the Unity target only.
+if(MSVC)
+    target_compile_options(unity PRIVATE /W0 /wd4996 /wd5045)
+endif()
 
 # ── iron_runtime static library ────────────────────────────────────────────
 # stb_ds_impl.c lives here so runtime tests can link without iron_compiler.

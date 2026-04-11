@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>  /* malloc/free — required on Windows because
+                      * WIN32_LEAN_AND_MEAN strips transitive includes */
 
 #include "runtime/iron_errors.h"
 
