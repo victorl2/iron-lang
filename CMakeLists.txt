@@ -318,6 +318,38 @@ set_tests_properties(test_emsdk_pin_discipline_iron_time_web PROPERTIES
     LABELS "phase4-invariant"
 )
 
+# ── Phase 7 plan-04: integration test + fixture + pin discipline ─────────────
+#
+# test_cli_parse_web validates the Phase 2 CLI parse path (--target=web,
+# --target=native, unknown target, default target). Named in Phase 7 success
+# criterion 7. Linux/macOS only — the #ifdef _WIN32 #error guard in
+# test_cli_parse.c enforces this at compile time.
+
+if(NOT WIN32)
+    add_executable(test_cli_parse_web
+        tests/integration/web/test_cli_parse.c
+    )
+    add_test(
+        NAME test_cli_parse_web
+        COMMAND test_cli_parse_web
+    )
+    set_tests_properties(test_cli_parse_web PROPERTIES
+        LABELS "integration;phase7"
+        ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>"
+    )
+    # Ensure ironc is built before test_cli_parse_web runs
+    add_dependencies(test_cli_parse_web ironc)
+
+    # Phase 7 pin discipline: new fixture + test files must not hardcode 4.0.23
+    add_test(
+        NAME test_emsdk_pin_discipline_phase7
+        COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/tests/integration/web/hello.iron\" \"${CMAKE_SOURCE_DIR}/tests/integration/web/test_cli_parse.c\""
+    )
+    set_tests_properties(test_emsdk_pin_discipline_phase7 PROPERTIES
+        LABELS "phase7-invariant"
+    )
+endif()
+
 # iron CLI tests
 add_test(
     NAME test_iron_help
