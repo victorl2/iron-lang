@@ -21,7 +21,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - [x] **Phase 5: LIR Main-Loop Split Pass (HIGH risk)** - Detect `while(!WindowShouldClose())`, lift captured locals into a frame state struct (completed 2026-04-11)
 - [x] **Phase 6: emit_web.c Wrapper (MEDIUM risk)** - Emit web `main()` wiring `emscripten_set_main_loop_arg`, dispatch from build.c step 12 (completed 2026-04-12)
 - [x] **Phase 7: build_web.c emcc Orchestration** - Construct argv, find emcc, mkdir_p, forbidden-flag guard, Windows deferred (completed 2026-04-11)
-- [ ] **Phase 8: Raylib Web Integration (Amalgamation)** - Compile `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB` through emcc
+- [x] **Phase 8: Raylib Web Integration (Amalgamation)** - Compile `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB` through emcc (completed 2026-04-11)
 - [ ] **Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)** - COOP/COEP preflight, audio resume listener, webglcontextlost handler
 - [ ] **Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)** - `--preload-file` mapping + analyzer error for top-level `LoadTexture`
 - [ ] **Phase 11: dist/web/ Output Layout** - Predictable `index.{html,js,wasm,data}` drop-to-itch.io output folder
@@ -144,8 +144,8 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   2. Running `emrun --no_browser --port 8080 dist/web/index.html` and opening the URL in Chrome, Firefox, or Safari shows a blank canvas with the expected clear color — the raylib runtime has reached `EndDrawing` without crashing.
   3. The build invokes emcc against `src/vendor/raylib/raylib.c` (the amalgamation driver that `#include`s `platforms/rcore_web.c` under `PLATFORM_WEB`) — not raylib's Makefile, not a separate `.a` artifact.
 **Plans**: 2 plans
-- [ ] 08-plan-01-build-web-raylib-amalgamation-link-PLAN.md — Extend iron_build_web_link in src/cli/build_web.c with a gated block appending src/vendor/raylib/raylib.c + -DPLATFORM_WEB -DGRAPHICS_API_OPENGL_ES2 -Isrc/vendor/raylib when opts.use_raylib is true (WEB-BUILD-05)
-- [ ] 08-plan-02-raylib-fixture-and-ci-smoke-PLAN.md — Add tests/integration/web/hello_raylib.iron + .github/workflows/web.yml Phase 8 end-to-end smoke step + paths filter additions + ROADMAP/REQUIREMENTS marking complete
+- [x] 08-plan-01-build-web-raylib-amalgamation-link-PLAN.md — Extend iron_build_web_link in src/cli/build_web.c with a gated block appending src/vendor/raylib/raylib.c + -DPLATFORM_WEB -DGRAPHICS_API_OPENGL_ES2 -Isrc/vendor/raylib when opts.use_raylib is true (WEB-BUILD-05)
+- [x] 08-plan-02-raylib-fixture-and-ci-smoke-PLAN.md — Add tests/integration/web/hello_raylib.iron + .github/workflows/web.yml Phase 8 end-to-end smoke step + paths filter additions + ROADMAP/REQUIREMENTS marking complete
 
 ### Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)
 **Goal**: The default HTML shell protects users from the #1 deployment pitfall (COOP/COEP misconfiguration silently disabling SharedArrayBuffer) and from the #2 game-audio pitfall (suspended `AudioContext` on first frame), while remaining fully overrideable via `[web].shell`.
@@ -234,7 +234,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 5. LIR Main-Loop Split Pass | 3/3 | Complete   | 2026-04-11 |
 | 6. emit_web.c Wrapper | 3/3 | Complete   | 2026-04-12 |
 | 7. build_web.c emcc Orchestration | 3/4 | In Progress|  |
-| 8. Raylib Web Integration | 1/2 | In Progress|  |
+| 8. Raylib Web Integration | 2/2 | Complete   | 2026-04-11 |
 | 9. Shell + Audio Autoplay | 0/TBD | Not started | - |
 | 10. Asset Preload + Guard | 0/TBD | Not started | - |
 | 11. dist/web/ Output Layout | 0/TBD | Not started | - |
