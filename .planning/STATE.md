@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: milestone
 status: planning
 stopped_at: Completed 10-plan-03-top-level-loader-check-PLAN.md
-last_updated: "2026-04-12T03:07:13.500Z"
+last_updated: "2026-04-12T03:07:17.788Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
@@ -150,6 +150,7 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 09-shell-template-audio-autoplay-unlock]: use_temp_shell flag guards unlink — never unlink user-supplied cfg->shell
 - [Phase 10-asset-preload-top-level-loader-guard]: Use dirname() via libgen.h for toml_dir computation; toml_dir on IronProject not IronWebConfig; sentinel . for bare-filename inputs
 - [Phase 10]: Add const char *toml_dir as 4th parameter to iron_build_web_link; parse iron.toml in build.c step 13 to thread it through; preload_mappings[16] tracks heap strings for cleanup on every return path
+- [Phase 10]: iron_web_top_level_loader_check pass is vacuous for current Iron v1.1.0-alpha (no module-level executable statements); implemented as infrastructure for future module-level expressions
 
 ### Pending Todos
 
