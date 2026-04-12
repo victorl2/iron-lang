@@ -229,6 +229,75 @@ void test_web_free_no_leak_on_full_section(void) {
     iron_toml_free(proj);
 }
 
+/* Test 9: toml_dir is populated with the containing directory after parse.
+ * Uses write_fixture which writes to /tmp, so toml_dir must contain "/tmp"
+ * and must NOT contain the filename "iron_test_toml_web_". */
+void test_toml_dir_is_populated(void) {
+    const char *fixture =
+        "[package]\n"
+        "name = \"x\"\n"
+        "version = \"0.1.0\"\n";
+
+    const char *path = write_fixture(fixture);
+    IronProject *proj = iron_toml_parse(path);
+    TEST_ASSERT_NOT_NULL(proj);
+
+    /* toml_dir must be non-NULL on success. */
+    TEST_ASSERT_NOT_NULL(proj->toml_dir);
+
+    /* Must point into /tmp (macOS resolves /tmp -> /private/tmp; accept both). */
+    TEST_ASSERT_TRUE(strstr(proj->toml_dir, "/tmp") != NULL);
+
+    /* Must NOT contain the filename — it's the directory, not the full path. */
+    TEST_ASSERT_TRUE(strstr(proj->toml_dir, "iron_test_toml_web_") == NULL);
+
+    iron_toml_free(proj);
+}
+
+/* Test 10: toml_dir is "." when path has no directory component.
+ * Achieves this by chdir'ing to /tmp, writing a file there, and passing the
+ * basename alone so dirname() returns ".". */
+void test_toml_dir_relative_path(void) {
+    /* Write a minimal iron.toml directly in /tmp under a predictable name. */
+    const char *bare_name = "iron_test_toml_bare_XXXXXX";
+    char tmp_path[128];
+    snprintf(tmp_path, sizeof(tmp_path), "/tmp/%s", bare_name);
+    /* Use mkstemp to create the file first. */
+    snprintf(tmp_path, sizeof(tmp_path), "/tmp/iron_test_bare_XXXXXX");
+    int fd = mkstemp(tmp_path);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(-1, fd, "mkstemp failed for bare test");
+    const char *contents = "[package]\nname = \"bare\"\nversion = \"0.1.0\"\n";
+    ssize_t written = write(fd, contents, strlen(contents));
+    (void)written;
+    close(fd);
+
+    /* Get the basename portion of tmp_path (everything after last '/'). */
+    const char *slash = strrchr(tmp_path, '/');
+    const char *filename = slash ? slash + 1 : tmp_path;
+
+    /* chdir to /tmp so we can pass a bare filename with no slash. */
+    char saved_cwd[1024];
+    char *cwd_result = getcwd(saved_cwd, sizeof(saved_cwd));
+    (void)cwd_result;
+    int chdir_rc = chdir("/tmp");
+    (void)chdir_rc;
+
+    IronProject *proj = iron_toml_parse(filename);
+
+    /* Restore cwd before any assertion so tearDown sees the right state. */
+    int restore_rc = chdir(saved_cwd);
+    (void)restore_rc;
+    unlink(tmp_path);
+
+    TEST_ASSERT_NOT_NULL(proj);
+    TEST_ASSERT_NOT_NULL(proj->toml_dir);
+
+    /* dirname of a bare filename with no slash must return ".". */
+    TEST_ASSERT_EQUAL_STRING(".", proj->toml_dir);
+
+    iron_toml_free(proj);
+}
+
 /* ── Main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -241,5 +310,7 @@ int main(void) {
     RUN_TEST(test_web_misspelled_section_silent_on_parse);
     RUN_TEST(test_web_totally_unrelated_section_silent);
     RUN_TEST(test_web_free_no_leak_on_full_section);
+    RUN_TEST(test_toml_dir_is_populated);
+    RUN_TEST(test_toml_dir_relative_path);
     return UNITY_END();
 }
