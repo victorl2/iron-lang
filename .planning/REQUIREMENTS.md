@@ -55,7 +55,7 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 - [x] **WEB-EMIT-06**: Emitted C includes `<emscripten/emscripten.h>` at the top when target is web
 - [x] **WEB-EMIT-07**: `main()` calls `emscripten_set_main_loop_arg(frame_cb, state, 0, 0)` with `simulate_infinite_loop=0`
 - [x] **WEB-EMIT-08**: Cleanup code (`CloseWindow()`, `iron_runtime_shutdown()`, `free(state)`) runs inside the frame callback's shutdown branch before `emscripten_cancel_main_loop()`
-- [ ] **WEB-EMIT-09**: `src/cli/build.c` step 12 dispatches to `emit_web_module()` when `target == WEB`, `iron_lir_emit_c()` otherwise
+- [x] **WEB-EMIT-09**: `src/cli/build.c` step 12 dispatches to `emit_web_module()` when `target == WEB`, `iron_lir_emit_c()` otherwise
 
 ### Build Orchestration (WEB-BUILD)
 
@@ -224,7 +224,7 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-EMIT-06 | Phase 6 — emit_web.c Wrapper | Complete |
 | WEB-EMIT-07 | Phase 6 — emit_web.c Wrapper | Complete |
 | WEB-EMIT-08 | Phase 6 — emit_web.c Wrapper | Complete |
-| WEB-EMIT-09 | Phase 6 — emit_web.c Wrapper | Pending |
+| WEB-EMIT-09 | Phase 6 — emit_web.c Wrapper | Complete |
 | WEB-BUILD-01 | Phase 7 — build_web.c emcc Orchestration | Pending |
 | WEB-BUILD-02 | Phase 7 — build_web.c emcc Orchestration | Pending |
 | WEB-BUILD-03 | Phase 7 — build_web.c emcc Orchestration | Pending |

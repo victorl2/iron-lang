@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 06-emit-web-c-wrapper-medium-risk plan-02 emit-web-module-implementation
-last_updated: "2026-04-12T00:10:56.790Z"
+stopped_at: Completed 06-emit-web-c-wrapper-medium-risk plan-03 dispatch-build-web-restructure-and-tests
+last_updated: "2026-04-12T00:32:04.114Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 19
-  completed_plans: 18
+  completed_plans: 19
   percent: 0
 ---
 
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 05 P03 | 1200 | 4 tasks | 4 files |
 | Phase 06-emit-web-c-wrapper-medium-risk P01 | 681s | 2 tasks | 2 files |
 | Phase 06-emit-web-c-wrapper-medium-risk P02 | 606 | 2 tasks | 3 files |
+| Phase 06-emit-web-c-wrapper-medium-risk PP03 | 1018s | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 06-emit-web-c-wrapper-medium-risk]: emit_func_signature/body/instr promoted from static to extern in emit_c.c; declared in emit_helpers.h under Phase 6 section — pure visibility change, zero behavioral impact
 - [Phase 06-emit-web-c-wrapper-medium-risk]: ROADMAP.md Phase 6 SC3/SC4 already had correct retired-invariant language pre-populated by planner; Task 2 was a no-op verify
 - [Phase 06-emit-web-c-wrapper-medium-risk]: emit_web.c uses _e=state local alias for emit_instr lambda-capture path compatibility; header BRANCH terminator suppressed and replaced by synthetic shutdown branch; no emit_c.c touches
+- [Phase 06-emit-web-c-wrapper-medium-risk]: Option (a) chosen for build_web.c restructuring: iron_build_web kept as preflight (not renamed); iron_build() calls it before pipeline, falls through on 0 return
+- [Phase 06-emit-web-c-wrapper-medium-risk]: IRON_SOURCE_DIR compile definition added to test_emit_web CMake target to enable emit_web.c boundary invariant test
 
 ### Pending Todos
 
@@ -136,6 +139,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T00:10:56.787Z
-Stopped at: Completed 06-emit-web-c-wrapper-medium-risk plan-02 emit-web-module-implementation
+Last session: 2026-04-12T00:32:04.111Z
+Stopped at: Completed 06-emit-web-c-wrapper-medium-risk plan-03 dispatch-build-web-restructure-and-tests
 Resume file: None
