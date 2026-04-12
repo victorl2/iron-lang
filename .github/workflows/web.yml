@@ -37,6 +37,7 @@ on:
       - 'src/stdlib/iron_time_web.c'
       - 'tests/integration/web/hello.iron'
       - 'tests/integration/web/hello_raylib.iron'
+      - 'tests/integration/web/hello_raylib_assets/**'
       - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
@@ -44,6 +45,9 @@ on:
       - 'tests/unit/test_toml_web.c'
       - 'tests/unit/test_web_await_check.c'
       - 'tests/unit/test_web_main_loop_split.c'
+      - 'src/analyzer/web_top_level_loader_check.c'
+      - 'src/analyzer/web_top_level_loader_check.h'
+      - 'tests/unit/test_web_top_level_loader_check.c'
       - 'src/stdlib/raylib.iron'
       - 'src/vendor/raylib/raylib.c'
       - 'src/cli/web_shell_template.h'
@@ -84,6 +88,7 @@ on:
       - 'src/stdlib/iron_time_web.c'
       - 'tests/integration/web/hello.iron'
       - 'tests/integration/web/hello_raylib.iron'
+      - 'tests/integration/web/hello_raylib_assets/**'
       - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
@@ -91,6 +96,9 @@ on:
       - 'tests/unit/test_toml_web.c'
       - 'tests/unit/test_web_await_check.c'
       - 'tests/unit/test_web_main_loop_split.c'
+      - 'src/analyzer/web_top_level_loader_check.c'
+      - 'src/analyzer/web_top_level_loader_check.h'
+      - 'tests/unit/test_web_top_level_loader_check.c'
       - 'src/stdlib/raylib.iron'
       - 'src/vendor/raylib/raylib.c'
       - 'src/cli/web_shell_template.h'
@@ -234,3 +242,42 @@ jobs:
           echo "OK: {{{ SCRIPT }}} correctly replaced by emcc glue loader"
 
           echo "Phase 9 shell-patch assertions: ALL PASSED"
+
+      - name: End-to-end smoke — asset preload (Phase 10, WEB-ASSET-01/02/04/05)
+        run: |
+          set -e
+          echo "Phase 10 end-to-end: iron build --target=web tests/integration/web/hello_raylib_assets/hello_raylib_assets.iron"
+          echo "Expected: argv contains '--preload-file' flag, dist/web/index.html exists"
+
+          # Clear any stale output directory from previous steps
+          rm -rf dist/web
+
+          # Run ironc with --verbose so the full emcc argv is printed to stderr.
+          # Capture both streams to a log file we can grep.
+          ./build/ironc build --target=web --verbose \
+            tests/integration/web/hello_raylib_assets/hello_raylib_assets.iron \
+            > /tmp/phase10_build.log 2>&1 \
+            || { echo "FAIL: ironc build exited non-zero — see log below:"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert the canonical output artifacts exist
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; cat /tmp/phase10_build.log; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty";   cat /tmp/phase10_build.log; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert --preload-file appeared in the emitted emcc argv (via --verbose)
+          grep -qE '\-\-preload-file' /tmp/phase10_build.log \
+            && echo "OK: --preload-file present in emcc argv" \
+            || { echo "FAIL: --preload-file missing from emcc argv — cfg->assets not wired"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert the specific asset mapping format appears (abs path ending in /assets, mounted at /assets)
+          grep -qE 'assets@/assets' /tmp/phase10_build.log \
+            && echo "OK: assets@/assets mount mapping present" \
+            || { echo "FAIL: assets@/assets mapping missing"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert the missing-dir warning path is NOT taken (directory exists via .gitkeep)
+          if grep -q "warning: \[web\].assets" /tmp/phase10_build.log; then
+            echo "FAIL: missing-dir warning fired despite assets/ existing"; cat /tmp/phase10_build.log; exit 1
+          fi
+          echo "OK: no spurious missing-dir warning"
+
+          echo "Phase 10 asset preload smoke: ALL PASSED"
