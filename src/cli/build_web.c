@@ -684,7 +684,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *    Layout:
      *      [0]     emcc
      *      [1..12] canonical flags (12 entries from IRON_WEB_CANONICAL_FLAGS)
-     *      [13..15] release OR debug flag set (3 entries each)
+     *      [13..15] release flag set (3 entries) OR [13..16] debug flag set (4 entries, includes -gsource-map)
      *      [16]    --shell-file  (Phase 9 Plan 02)
      *      [17]    <shell_path>  (cfg->shell or temp file)
      *      [18]    -o
@@ -712,7 +712,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         argv[n++] = IRON_WEB_CANONICAL_FLAGS[i];
     }
 
-    /* Release/debug flag set (WEB-CLI-05/06 from Phase 2) */
+    /* Release/debug flag set (WEB-CLI-05/06 from Phase 2; WEB-OUT-04 from Phase 11) */
     if (opts.release) {
         argv[n++] = "-Oz";
         argv[n++] = "-flto";
@@ -721,6 +721,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         argv[n++] = "-O0";
         argv[n++] = "-g";
         argv[n++] = "-sASSERTIONS=1";
+        argv[n++] = "-gsource-map";  /* WEB-OUT-04: emit index.wasm.map for DevTools sourcemap support */
     }
 
     /* Shell file (WEB-SHELL-05/06, Phase 9 Plan 02).
