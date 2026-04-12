@@ -22,7 +22,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - [x] **Phase 6: emit_web.c Wrapper (MEDIUM risk)** - Emit web `main()` wiring `emscripten_set_main_loop_arg`, dispatch from build.c step 12 (completed 2026-04-12)
 - [x] **Phase 7: build_web.c emcc Orchestration** - Construct argv, find emcc, mkdir_p, forbidden-flag guard, Windows deferred (completed 2026-04-11)
 - [x] **Phase 8: Raylib Web Integration (Amalgamation)** - Compile `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB` through emcc (completed 2026-04-11)
-- [ ] **Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)** - COOP/COEP preflight, audio resume listener, webglcontextlost handler
+- [x] **Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)** - COOP/COEP preflight, audio resume listener, webglcontextlost handler (completed 2026-04-12)
 - [ ] **Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)** - `--preload-file` mapping + analyzer error for top-level `LoadTexture`
 - [ ] **Phase 11: dist/web/ Output Layout** - Predictable `index.{html,js,wasm,data}` drop-to-itch.io output folder
 - [ ] **Phase 12: Pong Reference Game + Validation** - End-to-end Pong proof exercising render, input, audio, captures
@@ -160,7 +160,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   5. The build does NOT compile miniaudio with `MA_ENABLE_AUDIO_WORKLETS`.
 **Plans**: 2 plans
 - [x] 09-plan-01-web-shell-template-header-PLAN.md — New src/cli/web_shell_template.h header embedding the default shell HTML as a C string literal derived from minshell.html with COOP/COEP preflight + audio unlock + webglcontextlost + canvas + {{{ SCRIPT }}} patches (WEB-SHELL-01/02/03/04/05/07)
-- [ ] 09-plan-02-build-web-shell-file-wiring-and-ci-smoke-PLAN.md — Wire iron_build_web_link to materialize the default shell via mkstemp + validate custom [web].shell contains {{{ SCRIPT }}} + emit --shell-file argv + extend web.yml CI grep assertions + mark Phase 9 complete (WEB-SHELL-06)
+- [x] 09-plan-02-build-web-shell-file-wiring-and-ci-smoke-PLAN.md — Wire iron_build_web_link to materialize the default shell via mkstemp + validate custom [web].shell contains {{{ SCRIPT }}} + emit --shell-file argv + extend web.yml CI grep assertions + mark Phase 9 complete (WEB-SHELL-06)
 
 ### Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)
 **Goal**: Iron games can declare their `assets/` directory once in `iron.toml` and use the same `LoadTexture("assets/foo.png")` code on native and web, while a compile-time analyzer error prevents the race between `--preload-file` MEMFS mounting and static initializers.

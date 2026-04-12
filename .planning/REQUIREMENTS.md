@@ -83,7 +83,7 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 - [x] **WEB-SHELL-03**: Shell includes a `<canvas id="canvas">` element (required by `rcore_web.c`)
 - [x] **WEB-SHELL-04**: Shell includes a preflight `<script>` that checks `self.crossOriginIsolated` on load and shows a loud visible error if false (pthread build cannot run without it)
 - [x] **WEB-SHELL-05**: Shell preserves the `{{{ SCRIPT }}}` substitution slot that emcc fills with its glue loader
-- [ ] **WEB-SHELL-06**: Custom `[web].shell` templates are validated to contain `{{{ SCRIPT }}}` at build time
+- [x] **WEB-SHELL-06**: Custom `[web].shell` templates are validated to contain `{{{ SCRIPT }}}` at build time
 - [x] **WEB-SHELL-07**: Shell handles `webglcontextlost` by showing a reload prompt
 
 ### Audio Autoplay Unlock (WEB-AUDIO)
@@ -243,7 +243,7 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-SHELL-03 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-01) |
 | WEB-SHELL-04 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-01) |
 | WEB-SHELL-05 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-01) |
-| WEB-SHELL-06 | Phase 9 — Shell Template + Audio Unlock | Pending |
+| WEB-SHELL-06 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-02) |
 | WEB-SHELL-07 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-01) |
 | WEB-AUDIO-01 | Phase 9 — Shell Template + Audio Unlock | Pending |
 | WEB-AUDIO-02 | Phase 9 — Shell Template + Audio Unlock | Pending |
