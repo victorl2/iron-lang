@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 07-build-web-c-emcc-orchestration plan-03 dispatch-and-emrun
-last_updated: "2026-04-12T01:31:15.374Z"
+stopped_at: Completed 07-build-web-c-emcc-orchestration plan-04 tests-ci-fixture-roadmap
+last_updated: "2026-04-12T01:46:39.124Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
@@ -73,6 +73,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 07-build-web-c-emcc-orchestration P01 | 509s | 1 tasks | 2 files |
 | Phase 07-build-web-c-emcc-orchestration P02 | 12m | 1 tasks | 1 files |
 | Phase 07-build-web-c-emcc-orchestration P03 | 668 | 1 tasks | 1 files |
+| Phase 07-build-web-c-emcc-orchestration P04 | 600 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 07-build-web-c-emcc-orchestration]: cfg=NULL passed to iron_build_web_link: Phase 7 hardcodes canonical flags; [web] config overrides deferred to Phase 11
 - [Phase 07-build-web-c-emcc-orchestration]: posix_spawnp for emrun (PATH-resolved) vs posix_spawn for native binary (explicit path) — deliberate distinction
 - [Phase 07-build-web-c-emcc-orchestration]: return 0 on emrun ENOENT: build artifacts exist; iron run is best-effort affordance, not a build requirement
+- [Phase 07-build-web-c-emcc-orchestration]: Phase 7 end-to-end smoke uses Debug build type in CI (faster than Release; size budget deferred to Phase 13)
+- [Phase 07-build-web-c-emcc-orchestration]: Windows support for build_web.c deferred — find_emcc() does not probe emcc.bat/emcc.cmd; mirrors Phase 1 Linux/macOS-only CI decision
 
 ### Pending Todos
 
@@ -147,6 +150,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T01:31:10.778Z
-Stopped at: Completed 07-build-web-c-emcc-orchestration plan-03 dispatch-and-emrun
+Last session: 2026-04-12T01:46:39.121Z
+Stopped at: Completed 07-build-web-c-emcc-orchestration plan-04 tests-ci-fixture-roadmap
 Resume file: None
