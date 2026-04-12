@@ -620,7 +620,6 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *      src/runtime/iron_net_init.c    (networking runtime — Phase 14)
      *      src/stdlib/iron_net.c          (networking stdlib — Phase 14)
      *      src/stdlib/iron_time.c         (native time shim — replaced by iron_time_web.c)
-     *      src/vendor/raylib/raylib.c     (Phase 8)
      *
      *    lib_dir comes from get_iron_lib_dir() in build.c, resolving to either
      *    ../lib/ (installed layout) or IRON_SOURCE_DIR (dev builds).
@@ -655,10 +654,70 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         snprintf(abs_paths[i], need, "%s/%s", iron_src_dir, rel_paths[i]);
     }
 
+    /* Raylib sources — compiled as separate translation units, not amalgamated.
+     *
+     * When use_raylib is set, each raylib source is passed to emcc as its own
+     * .c argument. emcc compiles each as an independent TU, so a
+     * `#define FOO_IMPLEMENTATION` at the top of one source never leaks into
+     * another. Crucially this matches what build.c already does for NATIVE
+     * raylib builds (see invoke_clang's pre-compile loop at build.c:636-700),
+     * which was designed specifically to avoid the bug where rlgl.h's
+     * implementation block — which sits OUTSIDE its #ifndef RLGL_H header
+     * guard — gets re-emitted when a second raylib source re-includes the
+     * header in the same TU.
+     *
+     * The old approach used src/vendor/raylib/raylib.c as an amalgamation
+     * driver (`#include "rcore.c"`, `#include "rshapes.c"`, ...) into one TU.
+     * That worked only after adding `#undef RLGL_IMPLEMENTATION` between the
+     * includes, and would have broken again the moment a raylib bump or new
+     * amalgamated source re-included any other single-header library. The
+     * per-source pattern is structurally immune to the entire bug class.
+     *
+     * rglfw is excluded: PLATFORM_WEB routes rcore.c through rcore_web.c
+     * (raylib's web backend, included transitively via platform dispatch),
+     * not through rcore_desktop_glfw.c.
+     */
+#define IRON_WEB_RAYLIB_SRC_COUNT 7
+    const char *rl_rel_paths[IRON_WEB_RAYLIB_SRC_COUNT] = {
+        "vendor/raylib/rcore.c",
+        "vendor/raylib/rshapes.c",
+        "vendor/raylib/rtextures.c",
+        "vendor/raylib/rtext.c",
+        "vendor/raylib/rmodels.c",
+        "vendor/raylib/raudio.c",
+        "vendor/raylib/utils.c",
+    };
+    char *rl_abs_paths[IRON_WEB_RAYLIB_SRC_COUNT] = {0};
+    char *rl_i_flag = NULL;
+    if (opts.use_raylib) {
+        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) {
+            size_t need = strlen(iron_src_dir) + 1 + strlen(rl_rel_paths[i]) + 1;
+            rl_abs_paths[i] = (char *)malloc(need);
+            if (!rl_abs_paths[i]) {
+                for (int j = 0; j < i; j++) free(rl_abs_paths[j]);
+                for (int j = 0; j < IRON_WEB_SRC_COUNT; j++) free(abs_paths[j]);
+                free(emcc_path);
+                return 1;
+            }
+            snprintf(rl_abs_paths[i], need, "%s/%s", iron_src_dir, rl_rel_paths[i]);
+        }
+        size_t rl_i_len = strlen("-I") + strlen(iron_src_dir) + strlen("/vendor/raylib") + 1;
+        rl_i_flag = (char *)malloc(rl_i_len);
+        if (!rl_i_flag) {
+            for (int j = 0; j < IRON_WEB_RAYLIB_SRC_COUNT; j++) free(rl_abs_paths[j]);
+            for (int j = 0; j < IRON_WEB_SRC_COUNT; j++) free(abs_paths[j]);
+            free(emcc_path);
+            return 1;
+        }
+        snprintf(rl_i_flag, rl_i_len, "-I%s/vendor/raylib", iron_src_dir);
+    }
+
     /* Build the -I flags (src dir for header resolution). */
     size_t src_i_len = strlen("-I") + strlen(iron_src_dir) + 1;
     char *src_i_flag = (char *)malloc(src_i_len);
     if (!src_i_flag) {
+        free(rl_i_flag);
+        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) free(rl_abs_paths[i]);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
         free(emcc_path);
         return 1;
@@ -669,6 +728,8 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     char *stdlib_i_flag = (char *)malloc(stdlib_i_len);
     if (!stdlib_i_flag) {
         free(src_i_flag);
+        free(rl_i_flag);
+        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) free(rl_abs_paths[i]);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
         free(emcc_path);
         return 1;
@@ -678,7 +739,9 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     size_t vendor_i_len = strlen("-I") + strlen(iron_src_dir) + strlen("/vendor") + 1;
     char *vendor_i_flag = (char *)malloc(vendor_i_len);
     if (!vendor_i_flag) {
-        free(src_i_flag); free(stdlib_i_flag); free(vendor_i_flag);
+        free(src_i_flag); free(stdlib_i_flag);
+        free(rl_i_flag);
+        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) free(rl_abs_paths[i]);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
         free(emcc_path);
         return 1;
@@ -700,20 +763,20 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *      [17]    <shell_path>  (cfg->shell or temp file)
      *      [18]    -o
      *      [19]    dist/web/index.html
-     *      [20]    -I<iron_src_dir>
-     *      [21]    -I<iron_src_dir>/stdlib
-     *      [22]    c_file_path (emitted C from emit_web_module)
-     *      [23..35] 13 source files (util + runtime + stdlib shims)
-     *      [36..39] raylib entries (gated on opts.use_raylib, Phase 8)
-     *      [40]    NULL terminator
+     *      [20..22] -I include paths (src, stdlib, vendor)
+     *      [23]    c_file_path (emitted C from emit_web_module)
+     *      [24..36] 13 Iron runtime/stdlib source files
+     *      [37..46] raylib entries when opts.use_raylib: 7 raylib .c files +
+     *                -DPLATFORM_WEB + -DGRAPHICS_API_OPENGL_ES2 +
+     *                -I<lib>/vendor/raylib (10 slots)
+     *      [47..62] up to 16 --preload-file pairs (8 assets × 2 slots)
+     *      [63]    NULL terminator
      *
-     *    High-water mark: 40 (Phase 9 raylib case); Phase 10 adds up to 16
-     *    more slots for --preload-file pairs (8 asset entries x 2 each).
-     *    Budget: 64 - 40 - 16 = 8 spare slots.
-     *    Allocate 64 slots — safe margin for future phases.
+     *    High-water mark with every feature on: 63 slots used, ~17 free.
+     *    Allocate 80 slots — safe margin for future phases.
      */
-    const int max_argv = 64;
-    const char *argv[64];
+    const int max_argv = 80;
+    const char *argv[80];
     int n = 0;
 
     argv[n++] = emcc_path;
@@ -759,35 +822,49 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         argv[n++] = abs_paths[i];
     }
 
-    /* Phase 8: Raylib amalgamation (WEB-BUILD-05).
+    /* Raylib sources + flags (WEB-BUILD-05, Phase 8 — rewritten to drop the
+     * amalgamation driver after it caused a cascade of masked CI failures).
      *
      * When the user's program imports raylib (or iron.toml sets raylib = true),
-     * build.c sets opts.use_raylib = true and we append the amalgamation driver
-     * src/vendor/raylib/raylib.c as a source file plus three flags:
+     * build.c sets opts.use_raylib = true and we append each raylib source
+     * file as an individual .c argument to emcc, plus three flags:
      *   -DPLATFORM_WEB              routes rcore.c through platforms/rcore_web.c
      *                               (raylib's web backend, verified at
      *                               src/vendor/raylib/rcore.c lines 545-546)
      *   -DGRAPHICS_API_OPENGL_ES2   selects the GLES2 rlgl backend, which is
      *                               what emcc + WebGL2 expects
-     *   -Isrc/vendor/raylib         header search path for raylib's internal
+     *   -I<lib>/vendor/raylib       header search path for raylib's internal
      *                               #include "raylib.h" / "rcamera.h" / etc.
      *
-     * The third raylib-required flag from the Phase 8 goal — -sUSE_GLFW=3 —
-     * already lives in IRON_WEB_CANONICAL_FLAGS since Phase 7. We do NOT
-     * touch it here.
+     * The fourth raylib-required flag — -sUSE_GLFW=3 — already lives in
+     * IRON_WEB_CANONICAL_FLAGS since Phase 7. We do NOT touch it here.
      *
-     * Amalgamation discipline: ONLY raylib.c is referenced. rcore.c, rglfw.c,
-     * rshapes.c, rtext.c, rtextures.c, rmodels.c, raudio.c, and utils.c are
-     * pulled in transitively by raylib.c via #include — do NOT add them
-     * directly.
+     * Why NOT an amalgamation: the old src/vendor/raylib/raylib.c included
+     * each raylib source via `#include "rcore.c"` etc. into one TU. That
+     * was broken by rlgl.h's implementation block sitting OUTSIDE its
+     * `#ifndef RLGL_H` header guard — the second re-include of rlgl.h in
+     * the same TU re-emitted every rlgl symbol. Native builds already
+     * side-step this bug by pre-compiling each raylib source as its own .o
+     * (see build.c:636-700). This path now does the same: emcc receives
+     * each .c as a separate input and compiles each in its own TU, so
+     * `#define FOO_IMPLEMENTATION` in one source never leaks into another.
+     * Structurally immune to the whole bug class, including future raylib
+     * bumps that might introduce new cross-file re-includes.
      *
-     * String-literal entries — no malloc, no free.
+     * rglfw is excluded: PLATFORM_WEB routes rcore.c through rcore_web.c
+     * via raylib's platform dispatch, not through rcore_desktop_glfw.c.
+     *
+     * The 7 raylib source paths are heap-allocated above via rl_abs_paths;
+     * rl_i_flag is the heap-allocated -I flag. Both are freed on every
+     * exit path.
      */
     if (opts.use_raylib) {
-        argv[n++] = "src/vendor/raylib/raylib.c";
+        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) {
+            argv[n++] = rl_abs_paths[i];
+        }
         argv[n++] = "-DPLATFORM_WEB";
         argv[n++] = "-DGRAPHICS_API_OPENGL_ES2";
-        argv[n++] = "-Isrc/vendor/raylib";
+        argv[n++] = rl_i_flag;
     }
 
     /* WEB-ASSET-01/02/04/05: preload [web].assets directories via --preload-file.
@@ -884,6 +961,8 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
             for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
             free(stdlib_i_flag); free(vendor_i_flag);
             free(src_i_flag);
+            free(rl_i_flag);
+            for (int j = 0; j < IRON_WEB_RAYLIB_SRC_COUNT; j++) free(rl_abs_paths[j]);
             for (int j = 0; j < IRON_WEB_SRC_COUNT; j++) free(abs_paths[j]);
             free(emcc_path);
             return 1;
@@ -900,6 +979,8 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
         free(stdlib_i_flag); free(vendor_i_flag);
         free(src_i_flag);
+        free(rl_i_flag);
+        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) free(rl_abs_paths[i]);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
         free(emcc_path);
         return 1;
@@ -912,6 +993,8 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
         free(stdlib_i_flag); free(vendor_i_flag);
         free(src_i_flag);
+        free(rl_i_flag);
+        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) free(rl_abs_paths[i]);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
         free(emcc_path);
         return 1;
@@ -925,6 +1008,8 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
     free(stdlib_i_flag); free(vendor_i_flag);
     free(src_i_flag);
+    free(rl_i_flag);
+    for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) free(rl_abs_paths[i]);
     for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
     free(emcc_path);
 
