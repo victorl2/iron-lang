@@ -12,6 +12,19 @@
  */
 
 #include "rcore.c"
+
+/* rcore.c #defines RLGL_IMPLEMENTATION before including rlgl.h, which emits
+ * the full ~4400-line implementation block. rlgl.h's header guard (#ifndef
+ * RLGL_H) only wraps the *declarations*; the `#if defined(RLGL_IMPLEMENTATION)`
+ * block sits outside the guard. So when rshapes.c / rtextures.c / rtext.c /
+ * rmodels.c re-include rlgl.h in this same translation unit, the declarations
+ * are correctly skipped — but the implementation block re-emits, producing
+ * "redefinition of 'rlglData'" and hundreds more errors.
+ *
+ * Undef RLGL_IMPLEMENTATION here so subsequent re-includes pick up only the
+ * declarations from the header guard, not the implementation. */
+#undef RLGL_IMPLEMENTATION
+
 #include "rshapes.c"
 #include "rtextures.c"
 #include "rtext.c"
