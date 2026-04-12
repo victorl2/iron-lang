@@ -1283,7 +1283,9 @@ int iron_build(const char *source_path, const char *output_path,
                 web_toml_dir = web_proj->toml_dir;
             }
         }
-        ret = iron_build_web_link(c_file_path, opts, web_cfg, web_toml_dir);
+        char *web_lib_dir = get_iron_lib_dir();
+        ret = iron_build_web_link(c_file_path, opts, web_cfg, web_toml_dir, web_lib_dir);
+        free(web_lib_dir);
         if (web_proj) iron_toml_free(web_proj);
     } else {
         ret = invoke_clang(c_file_path, binary_name, "src", opts);

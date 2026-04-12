@@ -441,7 +441,8 @@ static const char *is_forbidden_flag(const char *flag) {
 }
 
 int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
-                        IronWebConfig *cfg, const char *toml_dir) {
+                        IronWebConfig *cfg, const char *toml_dir,
+                        const char *lib_dir) {
     if (!c_file_path) {
         fprintf(stderr, "error: iron_build_web_link: c_file_path is NULL\n");
         return 1;
@@ -621,10 +622,10 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *      src/stdlib/iron_time.c         (native time shim — replaced by iron_time_web.c)
      *      src/vendor/raylib/raylib.c     (Phase 8)
      *
-     *    CWD-relative "src" matches invoke_clang(c_file, binary, "src", opts) in build.c.
-     *    If iron build is run from the repo root (CI case), this is stable.
+     *    lib_dir comes from get_iron_lib_dir() in build.c, resolving to either
+     *    ../lib/ (installed layout) or IRON_SOURCE_DIR (dev builds).
      */
-    const char *iron_src_dir = "src";
+    const char *iron_src_dir = lib_dir ? lib_dir : "src";
 
 #define IRON_WEB_SRC_COUNT 13
     const char *rel_paths[IRON_WEB_SRC_COUNT] = {

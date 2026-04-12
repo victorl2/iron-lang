@@ -58,6 +58,7 @@ int iron_build_web(const char *source_path, const char *output_path,
  * non-zero on failure.
  */
 int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
-                        IronWebConfig *cfg, const char *toml_dir);
+                        IronWebConfig *cfg, const char *toml_dir,
+                        const char *lib_dir);
 
 #endif /* IRON_CLI_BUILD_WEB_H */
