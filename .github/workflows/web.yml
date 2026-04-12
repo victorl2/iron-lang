@@ -36,6 +36,7 @@ on:
       - 'src/runtime/iron_threads.c'
       - 'src/stdlib/iron_time_web.c'
       - 'tests/integration/web/hello.iron'
+      - 'tests/integration/web/hello_raylib.iron'
       - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
@@ -43,6 +44,8 @@ on:
       - 'tests/unit/test_toml_web.c'
       - 'tests/unit/test_web_await_check.c'
       - 'tests/unit/test_web_main_loop_split.c'
+      - 'src/stdlib/raylib.iron'
+      - 'src/vendor/raylib/raylib.c'
       - 'CMakeLists.txt'
   pull_request:
     branches: [main]
@@ -79,6 +82,7 @@ on:
       - 'src/runtime/iron_threads.c'
       - 'src/stdlib/iron_time_web.c'
       - 'tests/integration/web/hello.iron'
+      - 'tests/integration/web/hello_raylib.iron'
       - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
@@ -86,6 +90,8 @@ on:
       - 'tests/unit/test_toml_web.c'
       - 'tests/unit/test_web_await_check.c'
       - 'tests/unit/test_web_main_loop_split.c'
+      - 'src/stdlib/raylib.iron'
+      - 'src/vendor/raylib/raylib.c'
       - 'CMakeLists.txt'
 
 concurrency:
@@ -173,3 +179,21 @@ jobs:
           test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
           test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
           echo "OK: Phase 7 end-to-end — dist/web/index.{html,js,wasm} all present and non-empty"
+
+      - name: End-to-end smoke — raylib (Phase 8, WEB-BUILD-05)
+        run: |
+          set -e
+          echo "Phase 8 end-to-end: iron build --target=web tests/integration/web/hello_raylib.iron"
+          echo "Expected: dist/web/index.html, dist/web/index.js, dist/web/index.wasm"
+
+          # Clear any stale output directory from the Phase 7 run above
+          rm -rf dist/web
+
+          # Run the real emcc link with raylib amalgamation via ironc
+          ./build/ironc build --target=web tests/integration/web/hello_raylib.iron
+
+          # Assert the three output artifacts exist and are non-empty
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
+          echo "OK: Phase 8 end-to-end — dist/web/index.{html,js,wasm} all present and non-empty (raylib)"
