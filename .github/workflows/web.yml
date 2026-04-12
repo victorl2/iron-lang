@@ -38,6 +38,7 @@ on:
       - 'tests/integration/web/hello.iron'
       - 'tests/integration/web/hello_raylib.iron'
       - 'tests/integration/web/hello_raylib_assets/**'
+      - 'examples/pong/**'
       - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
@@ -89,6 +90,7 @@ on:
       - 'tests/integration/web/hello.iron'
       - 'tests/integration/web/hello_raylib.iron'
       - 'tests/integration/web/hello_raylib_assets/**'
+      - 'examples/pong/**'
       - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
@@ -302,3 +304,26 @@ jobs:
           echo "OK: no spurious missing-dir warning"
 
           echo "Phase 10 asset preload smoke: ALL PASSED"
+
+      - name: End-to-end smoke — Pong reference game (Phase 12, WEB-VALIDATE-01/04/05)
+        run: |
+          set -e
+          echo "Phase 12 end-to-end: iron build --target=web examples/pong/pong.iron"
+          echo "Expected: Pong compiles, main-loop split fires, dist/web/index.html produced"
+
+          # Clear stale output
+          rm -rf dist/web
+
+          ./build/ironc build --target=web --verbose \
+            examples/pong/pong.iron \
+            > /tmp/phase12_build.log 2>&1 \
+            || { echo "FAIL: ironc build exited non-zero — see log:"; cat /tmp/phase12_build.log; exit 1; }
+
+          test -s dist/web/index.html || { echo "FAIL: index.html missing"; cat /tmp/phase12_build.log; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: index.js missing";   cat /tmp/phase12_build.log; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: index.wasm missing"; cat /tmp/phase12_build.log; exit 1; }
+
+          # Pong has an assets/ dir (WEB-VALIDATE-03) so index.data should exist
+          test -s dist/web/index.data || { echo "FAIL: index.data missing (asset preload expected)"; cat /tmp/phase12_build.log; exit 1; }
+
+          echo "Phase 12 Pong smoke: ALL PASSED"
