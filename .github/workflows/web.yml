@@ -35,6 +35,8 @@ on:
       - 'src/runtime/iron_string.c'
       - 'src/runtime/iron_threads.c'
       - 'src/stdlib/iron_time_web.c'
+      - 'tests/integration/web/hello.iron'
+      - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
       - 'tests/unit/test_string_intern_race.c'
@@ -76,6 +78,8 @@ on:
       - 'src/runtime/iron_string.c'
       - 'src/runtime/iron_threads.c'
       - 'src/stdlib/iron_time_web.c'
+      - 'tests/integration/web/hello.iron'
+      - 'tests/integration/web/test_cli_parse.c'
       - 'tests/unit/CMakeLists.txt'
       - 'tests/unit/test_emit_web.c'
       - 'tests/unit/test_string_intern_race.c'
@@ -145,3 +149,27 @@ jobs:
           test -s /tmp/iron_collections.o || { echo "FAIL: iron_collections.o empty"; exit 1; }
           test -s /tmp/iron_time_web.o    || { echo "FAIL: iron_time_web.o empty";    exit 1; }
           echo "OK: iron_rc.c + iron_builtins.c + iron_collections.c + iron_time_web.c compile clean under emcc"
+
+      - name: Configure + build ironc (Phase 7 end-to-end smoke)
+        run: |
+          set -e
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build --target ironc --parallel
+
+      - name: End-to-end smoke — iron build --target=web (Phase 7, WEB-BUILD-01..08)
+        run: |
+          set -e
+          echo "Phase 7 end-to-end: iron build --target=web tests/integration/web/hello.iron"
+          echo "Expected: dist/web/index.html, dist/web/index.js, dist/web/index.wasm"
+
+          # Clear any stale output directory from a previous run
+          rm -rf dist/web
+
+          # Run the real emcc link via ironc
+          ./build/ironc build --target=web tests/integration/web/hello.iron
+
+          # Assert the three output artifacts exist and are non-empty
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
+          echo "OK: Phase 7 end-to-end — dist/web/index.{html,js,wasm} all present and non-empty"

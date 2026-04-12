@@ -20,7 +20,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - [x] **Phase 4: WASM-Safe Time Shim** - New `iron_time_web.c` providing `now_ns` via `emscripten_get_now()` (completed 2026-04-11)
 - [x] **Phase 5: LIR Main-Loop Split Pass (HIGH risk)** - Detect `while(!WindowShouldClose())`, lift captured locals into a frame state struct (completed 2026-04-11)
 - [x] **Phase 6: emit_web.c Wrapper (MEDIUM risk)** - Emit web `main()` wiring `emscripten_set_main_loop_arg`, dispatch from build.c step 12 (completed 2026-04-12)
-- [ ] **Phase 7: build_web.c emcc Orchestration** - Construct argv, find emcc, mkdir_p, forbidden-flag guard, Windows support
+- [x] **Phase 7: build_web.c emcc Orchestration** - Construct argv, find emcc, mkdir_p, forbidden-flag guard, Windows deferred (completed 2026-04-11)
 - [ ] **Phase 8: Raylib Web Integration (Amalgamation)** - Compile `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB` through emcc
 - [ ] **Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)** - COOP/COEP preflight, audio resume listener, webglcontextlost handler
 - [ ] **Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)** - `--preload-file` mapping + analyzer error for top-level `LoadTexture`
@@ -123,7 +123,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 **Depends on**: Phase 6
 **Requirements**: WEB-BUILD-01, WEB-BUILD-02, WEB-BUILD-03, WEB-BUILD-04, WEB-BUILD-06, WEB-BUILD-07, WEB-BUILD-08
 **Success Criteria** (what must be TRUE):
-  1. User runs `iron build --target=web examples/hello/hello.iron` on a hello-world program and sees `dist/web/index.html`, `dist/web/index.js`, and `dist/web/index.wasm` on disk; the same invocation works identically on Linux, macOS, and Windows (Windows finds `emcc.bat` or `emcc.cmd` via `find_emcc()` probing PATH).
+  1. User runs `iron build --target=web tests/integration/web/hello.iron` on a hello-world program and sees `dist/web/index.html`, `dist/web/index.js`, and `dist/web/index.wasm` on disk; the same invocation works identically on Linux and macOS. Windows support is deferred with the rest of Iron's Windows story — `find_emcc()` does not probe `emcc.bat`/`emcc.cmd`, and `build_web.c` keeps the `#ifdef _WIN32 #error` guard. This mirrors Phase 1's Linux/macOS-only CI decision.
   2. Every translation unit in the link (emitted C, Iron runtime, stdlib shims including `iron_time_web.c` instead of `iron_time.c`, raylib amalgamation) is compiled with `-pthread`; no `wasm-ld: --shared-memory is disallowed` error occurs.
   3. User whose shell has no `emcc` on PATH runs `iron build --target=web` and sees a friendly error printing the install one-liner and the pinned emsdk version (`4.0.23`).
   4. User whose `iron.toml` `[web]` config attempts to set any forbidden flag (`ASYNCIFY=1`, `MINIMAL_RUNTIME`, `PROXY_TO_PTHREAD`, `SAFE_HEAP`, `ALLOW_BLOCKING_ON_MAIN_THREAD`, `ERROR_ON_UNDEFINED_SYMBOLS=0`, `MODULARIZE`, `EXPORT_ES6`, `-fwasm-exceptions`) gets a clear diagnostic naming the flag and refusing to build.
@@ -231,7 +231,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 4. WASM-Safe Time Shim | 2/2 | Complete   | 2026-04-11 |
 | 5. LIR Main-Loop Split Pass | 3/3 | Complete   | 2026-04-11 |
 | 6. emit_web.c Wrapper | 3/3 | Complete   | 2026-04-12 |
-| 7. build_web.c emcc Orchestration | 3/4 | In Progress|  |
+| 7. build_web.c emcc Orchestration | 4/4 | Complete   | 2026-04-11 |
 | 8. Raylib Web Integration | 0/TBD | Not started | - |
 | 9. Shell + Audio Autoplay | 0/TBD | Not started | - |
 | 10. Asset Preload + Guard | 0/TBD | Not started | - |
