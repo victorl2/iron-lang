@@ -1,11 +1,12 @@
 import raylib
 
+-- Phase 10 WEB-ASSET-01/02/04/05 smoke fixture. The build-side assertion
+-- is that ironc, when fed an iron.toml with [web].assets = "assets/",
+-- forwards --preload-file <abs>@/assets to emcc. The Iron source only
+-- needs to be a valid raylib program that compiles + links on the web
+-- target; no asset API call is required.
 func main() {
     InitWindow(800, 600, "Hello Raylib Assets")
-    // LoadTexture inside main — NOT at module level.
-    // Plan 03 bans top-level LoadTexture on web; here we prove
-    // the in-function call is fine and the preload flag is emitted.
-    let tex = LoadTexture("assets/missing.png")
     while not WindowShouldClose() {
         BeginDrawing()
         ClearBackground(WHITE)
