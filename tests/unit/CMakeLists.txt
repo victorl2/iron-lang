@@ -174,6 +174,15 @@ target_link_libraries(test_web_main_loop_split iron_compiler unity)
 add_test(NAME test_web_main_loop_split COMMAND test_web_main_loop_split)
 set_tests_properties(test_web_main_loop_split PROPERTIES LABELS "unit")
 
+# ── Phase 6 plan-03: emit_web_module snapshot test (WEB-EMIT-05..08) ─────────
+add_executable(test_emit_web test_emit_web.c)
+target_link_libraries(test_emit_web iron_compiler unity)
+target_compile_definitions(test_emit_web PRIVATE
+    IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
+)
+add_test(NAME test_emit_web COMMAND test_emit_web)
+set_tests_properties(test_emit_web PROPERTIES LABELS "unit")
+
 # ── Phase 3 plan-03: web_await_check pass test (WEB-RUNTIME-04) ──────────────
 add_executable(test_web_await_check test_web_await_check.c)
 target_link_libraries(test_web_await_check iron_compiler unity)
