@@ -191,3 +191,184 @@ Scope: `src/runtime/`, `src/stdlib/`, `src/cli/`, `src/diagnostics/`, `src/pkg/`
 **Runtime + Stdlib subtotal:** 9H, 7M, 14L = 30 findings
 
 ---
+
+## Infrastructure Findings (cli, diagnostics, pkg, util)
+
+**Total lines audited (infrastructure):** 4,710 lines across 16 files
+
+**Note:** `src/cli/toml.c` is EXCLUDED from audit per REQUIREMENTS.md Out of Scope ("Vendored code with its own upstream; out of scope for correctness audit").
+
+### 1. Blind Casts (AUDIT-01) -- Infrastructure
+
+| # | File:Line | Severity | Description | Suggested Fix | Regression Fixture |
+|---|-----------|----------|-------------|---------------|-------------------|
+| 12 | build.c:72-73 | L | `#define basename(p) win_basename(p)` -- macro replaces standard basename with Win32-safe version; pointer types match | None needed | test_blind_cast_build_basename |
+| 13 | resolver.c:42-43 | L | `(char **)realloc(s->items, ...)` in StringSet -- standard realloc cast pattern | None needed | test_blind_cast_resolver_strvec |
+| 14 | lockfile.c:59-61 | L | `(const IronLockEntry *)a` / `b` in qsort comparator -- safe, matching qsort signature | None needed | test_blind_cast_lockfile_qsort |
+| 15 | test_runner.c:68 | L | `*(const char **)a` / `b` in qsort comparator for string sort | None needed | test_blind_cast_testrunner_qsort |
+
+**Infrastructure subtotal:** 0H, 0M, 4L = 4 findings
+
+### 2. Enum Switch Exhaustiveness (AUDIT-02) -- Infrastructure
+
+| # | File:Line | Severity | Description | Suggested Fix | Regression Fixture |
+|---|-----------|----------|-------------|---------------|-------------------|
+| 7 | main.c:105-168 | L | CLI command dispatch uses chained `if (strcmp(cmd, ...))` -- not a switch; all known commands handled with "unknown command" fallback at line 167 | None needed (correct) | test_enum_switch_cli_dispatch |
+| 8 | diagnostics.c:63-67 | L | `switch (level)` in iron_diag_emit -- handles ERROR and WARNING with `default: break` for NOTE; all 3 Iron_DiagLevel values are handled | None needed (correct) | test_enum_switch_diag_level |
+
+**Infrastructure subtotal:** 0H, 0M, 2L = 2 findings
+
+### 3. Null Safety (AUDIT-03) -- Infrastructure
+
+| # | File:Line | Severity | Description | Suggested Fix | Regression Fixture |
+|---|-----------|----------|-------------|---------------|-------------------|
+| 25 | arena.c:12-13 | M | `arena_new_chunk` malloc: returns NULL; callers (iron_arena_create at line 24) do not check result -- a.head could be NULL, causing iron_arena_alloc to return NULL | Add NULL check in iron_arena_create and return error arena | test_null_safety_arena_create_oom |
+| 26 | arena.c:114-115 | M | `iron_arena_track` realloc of tracked_ptrs: **NULL return not checked** -- if realloc fails, tracked_ptrs becomes NULL and `a->tracked_ptrs[a->tracked_count++] = ptr` dereferences NULL | Check realloc return | test_null_safety_arena_track_oom |
+| 27 | strbuf.c:13-15 | L | strbuf_grow realloc fails: returns silently -- subsequent append checks `sb->data == NULL` and returns, so data loss is silent but no crash | Document silent-fail behavior | test_null_safety_strbuf_grow_oom |
+| 28 | strbuf.c:23-24 | L | iron_strbuf_create initial malloc fails: sb.data=NULL -- all append functions check for NULL, so no crash | Document | test_null_safety_strbuf_create_oom |
+| 29 | build.c:153-154 | L | read_file malloc: checked, returns NULL on OOM -- correct | None needed | test_null_safety_build_read_file |
+| 30 | build.c:170-171 | L | derive_output_name strdup: unchecked but NULL is handled downstream | Document | test_null_safety_build_derive_name |
+| 31 | check.c:46-49 | L | check_read_file malloc: checked, returns NULL on OOM -- correct | None needed | test_null_safety_check_read |
+| 32 | check.c:163-164 | L | iron_arena_create in iron_check: if arena_new_chunk returns NULL, head is NULL -- iron_arena_alloc returns NULL, causing lex failures | Add NULL check after iron_arena_create | test_null_safety_check_arena |
+| 33 | test_runner.c:46-48 | M | strvec_push realloc: checked, returns silently on fail -- strvec_push silently drops the item; tests could be silently skipped | Abort or log error | test_null_safety_testrunner_strvec |
+| 34 | resolver.c:42-43 | M | StringSet realloc: **NULL return not checked** -- if realloc fails, s->items becomes NULL, next access crashes | Check realloc return | test_null_safety_resolver_set_oom |
+| 35 | resolver.c:86-88 | M | resolved_add realloc: checked, returns silently on fail -- resolved dep silently dropped | Log warning | test_null_safety_resolver_add_oom |
+| 36 | fetcher.c:81 | L | json_extract pattern buffer: snprintf with fixed 256-byte buffer; field names > ~250 chars are truncated | Use dynamic buffer for very long field names | test_null_safety_fetcher_json |
+| 37 | lockfile.c:90-93 | L | lockfile_read calloc: checked, returns -1 on fail -- correct | None needed | test_null_safety_lockfile_read |
+| 38 | pkg_build.c:56 | M | getcwd returns NULL: checked and returns NULL -- correct | None needed | test_null_safety_pkgbuild_getcwd |
+| 39 | diagnostics.c:55-57 | L | iron_arena_strdup: returns NULL if arena_alloc fails; d.message could be NULL, causing fprintf to receive NULL pointer | Add NULL fallback for message | test_null_safety_diag_message_null |
+
+**Infrastructure subtotal:** 0H, 6M, 9L = 15 findings
+
+### 4. Arena Lifetimes (AUDIT-04) -- Infrastructure
+
+| # | File:Line | Severity | Description | Suggested Fix | Regression Fixture |
+|---|-----------|----------|-------------|---------------|-------------------|
+| 7 | arena.c:39-72 | L | iron_arena_alloc allocates from head chunk; new chunks are prepended; all chunks freed in iron_arena_free -- no individual free, no use-after-free risk; correct by design | None needed | test_arena_alloc_lifetime |
+| 8 | arena.c:84-108 | L | iron_arena_free walks chunk chain and frees all; also frees tracked pointers -- correct; no dangling pointers if caller stops using arena after free | None needed | test_arena_free_all |
+| 9 | arena.c:110-119 | M | iron_arena_track: tracked pointers are freed in iron_arena_free via `free(a->tracked_ptrs[i])` -- if a tracked pointer is also reachable via arena data (e.g., a struct field in arena pointing to a tracked malloc), the arena data becomes dangling after iron_arena_free frees the tracked pointer first | Document: tracked ptrs must not alias arena-internal data | test_arena_track_alias |
+| 10 | arena.c:121-135 | L | iron_arena_realloc_tracked: linear scan to find old_ptr in tracked list -- O(n) but acceptable for typical tracked counts (<100) | None needed | test_arena_realloc_tracked |
+| 11 | check.c:163,319 | L | detect_arena created and freed in iron_check -- scoped lifetime, correct | None needed | test_arena_check_detect |
+| 12 | check.c:344 | L | arena created in iron_check, freed at line 402 -- scoped lifetime, correct | None needed | test_arena_check_main |
+
+**Infrastructure subtotal:** 0H, 1M, 5L = 6 findings
+
+### 5. Integer Safety (AUDIT-05) -- Infrastructure
+
+| # | File:Line | Severity | Description | Suggested Fix | Regression Fixture |
+|---|-----------|----------|-------------|---------------|-------------------|
+| 15 | arena.c:48 | L | `(chunk->used + align - 1) & ~(align - 1)` -- align must be power of 2; no validation | Add assert(align is power of 2) | test_int_safety_arena_align |
+| 16 | arena.c:8-10 | L | `while (cap < min_capacity) cap *= 2` in arena_new_chunk -- unbounded doubling could overflow size_t for very large allocations | Add overflow check | test_int_safety_arena_cap_overflow |
+| 17 | strbuf.c:9-11 | L | `while (new_cap < needed) new_cap *= 2` in strbuf_grow -- same doubling pattern, same overflow risk | Add overflow check | test_int_safety_strbuf_cap_overflow |
+| 18 | resolver.c:41-42 | L | `s->capacity *= 2` in string_set_add -- int overflow if capacity > INT_MAX/2 | Add overflow check | test_int_safety_resolver_cap |
+| 19 | test_runner.c:45 | L | `v->capacity * 2` in strvec_push -- same pattern | Add overflow check | test_int_safety_testrunner_cap |
+| 20 | fetcher.c:33 | L | `if (len >= sizeof(tmp)) return -1` in iron_mkdirp -- 2048-byte path buffer; paths > 2048 are rejected | Document or use dynamic buffer | test_int_safety_fetcher_mkdirp |
+| 21 | check.c:362 | L | `(int)arrlen(tokens)` -- arrlen returns ptrdiff_t; if token count > INT_MAX, truncation | Use ptrdiff_t or size_t | test_int_safety_check_token_count |
+
+**Infrastructure subtotal:** 0H, 0M, 7L = 7 findings
+
+### 6. Allocation Error Handling (AUDIT-06) -- Infrastructure
+
+| # | File:Line | Severity | Description | Suggested Fix | Regression Fixture |
+|---|-----------|----------|-------------|---------------|-------------------|
+| 33 | arena.c:12-13 | M | arena_new_chunk malloc: returns NULL; **iron_arena_create does not check** and sets a.head=NULL | Check return in iron_arena_create, set capacity=0 if NULL | test_alloc_arena_chunk_oom |
+| 34 | arena.c:53-54 | L | iron_arena_alloc new chunk malloc: returns NULL -- iron_arena_alloc returns NULL, handled by callers | None needed | test_alloc_arena_alloc_oom |
+| 35 | arena.c:114 | M | iron_arena_track realloc: **NULL return not checked** -- NULL deref on next tracked_ptrs access | Check return | test_alloc_arena_track_oom |
+| 36 | strbuf.c:13-15 | L | strbuf_grow realloc: checked, returns silently -- append functions check NULL, safe | None needed | test_alloc_strbuf_grow_oom |
+| 37 | strbuf.c:23 | L | iron_strbuf_create malloc: if NULL, sb.data=NULL; all appends check and return | None needed | test_alloc_strbuf_create_oom |
+| 38 | check.c:125 | L | check_make_path malloc: returns NULL, caller checks | None needed | test_alloc_check_make_path |
+| 39 | check.c:174 | M | Combined source malloc in import prepend: if malloc fails, free(rl_src) still runs but `source` pointer unchanged -- silent import skip | Log warning when malloc fails | test_alloc_check_import_oom |
+| 40 | build.c:153 | L | read_file malloc: checked, returns NULL | None needed | test_alloc_build_read |
+| 41 | build.c:231 | L | write_temp_c malloc: checked, returns NULL | None needed | test_alloc_build_temp |
+| 42 | test_runner.c:46-48 | L | strvec_push realloc: checked, returns silently on fail | Log warning | test_alloc_testrunner_push |
+| 43 | resolver.c:42-43 | M | StringSet realloc: **NULL not checked** | Check return | test_alloc_resolver_set_oom |
+| 44 | resolver.c:45 | L | strdup in string_set_add: unchecked; if fails, NULL stored in items, strcmp will crash | Check strdup return | test_alloc_resolver_strdup |
+| 45 | resolver.c:94-98 | M | resolved_add strdup calls: 5 unchecked strdup results -- any NULL will crash strcmp later | Check all strdup returns | test_alloc_resolver_resolved_add |
+| 46 | lockfile.c:51-52 | L | lock_extract_value malloc: checked, returns NULL | None needed | test_alloc_lockfile_extract |
+| 47 | fetcher.c:32 | L | iron_mkdirp uses stack buffer -- no allocation; mkdir errors ignored (acceptable for mkdirp) | None needed | test_alloc_fetcher_mkdirp |
+| 48 | pkg_build.c:64 | L | strdup in get_project_dir: unchecked | Check return | test_alloc_pkgbuild_strdup |
+
+**Infrastructure subtotal:** 0H, 5M, 11L = 16 findings
+
+### 7. Cross-Platform (AUDIT-08) -- Infrastructure
+
+| # | File:Line | Severity | Description | Suggested Fix | Regression Fixture |
+|---|-----------|----------|-------------|---------------|-------------------|
+| 31 | diagnostics.c:7 | H | `#include <unistd.h>` unconditionally -- **not available on Windows** (isatty/STDERR_FILENO) | Gate with `#ifdef _WIN32` using `<io.h>` / `_isatty(_fileno(stderr))` | test_xplat_diag_unistd |
+| 32 | diagnostics.c:74 | H | `isatty(STDERR_FILENO)` in use_color() -- **POSIX-only** | Same as above | test_xplat_diag_isatty |
+| 33 | test_runner.c:7 | H | `#include <unistd.h>` unconditionally -- **not available on Windows** | Gate with `#ifdef _WIN32` | test_xplat_testrunner_unistd |
+| 34 | test_runner.c:8 | H | `#include <dirent.h>` unconditionally -- **not available on Windows** | Add Win32 FindFirstFile path | test_xplat_testrunner_dirent |
+| 35 | test_runner.c:9 | H | `#include <sys/wait.h>` unconditionally -- **not available on Windows** | Gate; use WaitForSingleObject | test_xplat_testrunner_wait |
+| 36 | test_runner.c:12 | H | `#include <spawn.h>` unconditionally -- **not available on Windows** | Gate; use CreateProcess | test_xplat_testrunner_spawn |
+| 37 | test_runner.c:27 | H | `isatty(STDOUT_FILENO)` -- **POSIX-only** | Gate with `_isatty(_fileno(stdout))` | test_xplat_testrunner_isatty |
+| 38 | test_runner.c:76 | H | `posix_spawn` / `waitpid` / `WIFEXITED` -- **POSIX-only** | Add Win32 CreateProcess + WaitForSingleObject path | test_xplat_testrunner_posix_spawn |
+| 39 | build.c:7 | L | `#include <sys/stat.h>` -- available on both platforms via MSVC | None needed | test_xplat_build_stat |
+| 40 | build.c:10-18 | L | Conditional includes: Win32 gets `<windows.h>`, `<process.h>`, `<direct.h>`; POSIX gets `<unistd.h>`, `<spawn.h>`, `<sys/wait.h>`, `<libgen.h>` -- correctly gated | None needed | test_xplat_build_includes |
+| 41 | build.c:49-74 | L | Win32 basename/dirname compatibility shims -- correctly implemented | None needed | test_xplat_build_basename_shim |
+| 42 | build.c:80-102 | L | resolve_self_dir: __APPLE__ / __linux__ / _WIN32 paths -- correctly gated | None needed | test_xplat_build_resolve_self |
+| 43 | check.c:8-15 | L | Conditional includes: Win32 gets `<windows.h>`, POSIX gets `<unistd.h>`, __APPLE__ gets `<mach-o/dyld.h>` -- correctly gated | None needed | test_xplat_check_includes |
+| 44 | check.c:63-84 | L | resolve_self_dir: same 3-platform pattern as build.c -- correctly gated | None needed | test_xplat_check_resolve_self |
+| 45 | strbuf.h:22-23 | M | `__attribute__((format(printf, 2, 3)))` -- GCC/Clang-only; MSVC ignores unknown attributes but some older MSVC versions may warn | Gate with `#if defined(__GNUC__) || defined(__clang__)` | test_xplat_strbuf_format_attr |
+| 46 | color.h:8-12 | L | `#ifdef _WIN32` / `#include <unistd.h>` in else -- correctly gated | None needed | test_xplat_color_includes |
+| 47 | color.h:27-35 | L | iron_color_init: Win32 uses GetStdHandle + SetConsoleMode(ENABLE_VIRTUAL_TERMINAL_PROCESSING); POSIX uses isatty -- correctly gated | None needed | test_xplat_color_init |
+| 48 | fetcher.c:16-22 | L | Conditional includes: Win32 gets `<windows.h>`, `<direct.h>`; POSIX gets `<unistd.h>`, `<dirent.h>` -- correctly gated | None needed | test_xplat_fetcher_includes |
+| 49 | fetcher.c:40-53 | L | iron_mkdirp: `_mkdir` (Win32) vs `mkdir(tmp, 0755)` (POSIX) -- correctly gated | None needed | test_xplat_fetcher_mkdirp |
+| 50 | pkg_build.c:15-22 | L | Conditional includes for pkg_build -- correctly gated | None needed | test_xplat_pkgbuild_includes |
+| 51 | pkg_build.c:33-46 | L | get_time_sec: QueryPerformanceCounter (Win32) vs clock_gettime (POSIX) -- correctly gated | None needed | test_xplat_pkgbuild_time |
+| 52 | init.c:21-26 | L | Conditional includes for init -- correctly gated | None needed | test_xplat_init_includes |
+| 53 | main.c (pkg):18-29 | L | Conditional includes for pkg main -- correctly gated | None needed | test_xplat_pkg_main_includes |
+| 54 | main.c (pkg):52-70 | L | resolve_self_path: 3-platform resolution -- correctly gated | None needed | test_xplat_pkg_resolve_self |
+
+**Infrastructure subtotal:** 8H, 1M, 15L = 24 findings
+
+---
+
+## Summary -- Runtime + Stdlib + Infrastructure
+
+| Dimension | High | Medium | Low | Total |
+|-----------|------|--------|-----|-------|
+| Blind Casts (AUDIT-01) | 0 | 1 | 14 | 15 |
+| Enum Switch (AUDIT-02) | 0 | 2 | 6 | 8 |
+| Null Safety (AUDIT-03) | 2 | 14 | 23 | 39 |
+| Arena Lifetimes (AUDIT-04) | 0 | 5 | 7 | 12 |
+| Integer Safety (AUDIT-05) | 0 | 6 | 15 | 21 |
+| Allocation Error Handling (AUDIT-06) | 2 | 21 | 25 | 48 |
+| Cross-Platform (AUDIT-08) | 17 | 8 | 29 | 54 |
+| **Total** | **21** | **57** | **119** | **197** |
+
+### AUDIT-07 Subtotals (Runtime + Stdlib only)
+
+| Dimension | High | Medium | Low | Total |
+|-----------|------|--------|-----|-------|
+| Blind Casts (AUDIT-01) | 0 | 1 | 10 | 11 |
+| Enum Switch (AUDIT-02) | 0 | 2 | 4 | 6 |
+| Null Safety (AUDIT-03) | 2 | 8 | 14 | 24 |
+| Arena Lifetimes (AUDIT-04) | 0 | 4 | 2 | 6 |
+| Integer Safety (AUDIT-05) | 0 | 6 | 8 | 14 |
+| Allocation Error Handling (AUDIT-06) | 2 | 16 | 14 | 32 |
+| Cross-Platform (AUDIT-08) | 9 | 7 | 14 | 30 |
+| **Total** | **13** | **44** | **66** | **123** |
+
+### Infrastructure Subtotals (CLI + Diagnostics + Pkg + Util only)
+
+| Dimension | High | Medium | Low | Total |
+|-----------|------|--------|-----|-------|
+| Blind Casts (AUDIT-01) | 0 | 0 | 4 | 4 |
+| Enum Switch (AUDIT-02) | 0 | 0 | 2 | 2 |
+| Null Safety (AUDIT-03) | 0 | 6 | 9 | 15 |
+| Arena Lifetimes (AUDIT-04) | 0 | 1 | 5 | 6 |
+| Integer Safety (AUDIT-05) | 0 | 0 | 7 | 7 |
+| Allocation Error Handling (AUDIT-06) | 0 | 5 | 11 | 16 |
+| Cross-Platform (AUDIT-08) | 8 | 1 | 15 | 24 |
+| **Total** | **8** | **13** | **53** | **74** |
+
+---
+
+### Top Priority Fixes
+
+1. **IRON_LIST_IMPL / IRON_MAP_IMPL unchecked realloc** (H, AUDIT-03/06): _push and _put can NULL-deref on OOM. These are the most exercised runtime paths.
+2. **iron_io.c missing Windows support** (H, AUDIT-08): dirent.h, mkdir() are POSIX-only; breaks `iron build` on Windows.
+3. **iron_log.c missing Windows support** (H, AUDIT-08): unistd.h, localtime_r, isatty are POSIX-only.
+4. **iron_time.c missing Windows support** (H, AUDIT-08): clock_gettime, nanosleep are POSIX-only.
+5. **test_runner.c entirely POSIX-only** (H, AUDIT-08): 8 separate POSIX-only APIs with no Win32 paths.
+6. **diagnostics.c missing Windows isatty** (H, AUDIT-08): unistd.h, STDERR_FILENO are POSIX-only.
