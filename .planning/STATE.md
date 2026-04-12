@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 07-build-web-c-emcc-orchestration plan-04 tests-ci-fixture-roadmap
-last_updated: "2026-04-12T01:48:08.286Z"
+stopped_at: Completed 08-raylib-web-integration-amalgamation plan-01 build-web-raylib-amalgamation-link
+last_updated: "2026-04-12T02:11:27.950Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 7
-  total_plans: 23
-  completed_plans: 23
+  total_plans: 25
+  completed_plans: 24
   percent: 0
 ---
 
@@ -74,6 +74,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 07-build-web-c-emcc-orchestration P02 | 12m | 1 tasks | 1 files |
 | Phase 07-build-web-c-emcc-orchestration P03 | 668 | 1 tasks | 1 files |
 | Phase 07-build-web-c-emcc-orchestration P04 | 600 | 2 tasks | 5 files |
+| Phase 08-raylib-web-integration-amalgamation P01 | 31540024s | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,8 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 07-build-web-c-emcc-orchestration]: return 0 on emrun ENOENT: build artifacts exist; iron run is best-effort affordance, not a build requirement
 - [Phase 07-build-web-c-emcc-orchestration]: Phase 7 end-to-end smoke uses Debug build type in CI (faster than Release; size budget deferred to Phase 13)
 - [Phase 07-build-web-c-emcc-orchestration]: Windows support for build_web.c deferred — find_emcc() does not probe emcc.bat/emcc.cmd; mirrors Phase 1 Linux/macOS-only CI decision
+- [Phase 08-raylib-web-integration-amalgamation]: Single-token -Isrc/vendor/raylib form and string literals for all 4 new argv entries — no malloc/free, simpler cleanup paths
+- [Phase 08-raylib-web-integration-amalgamation]: No -I src/vendor/raylib/external/glfw/include added — -sUSE_GLFW=3 already in IRON_WEB_CANONICAL_FLAGS provides GLFW/glfw3.h via emcc sysroot
 
 ### Pending Todos
 
@@ -150,6 +153,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T01:46:39.121Z
-Stopped at: Completed 07-build-web-c-emcc-orchestration plan-04 tests-ci-fixture-roadmap
+Last session: 2026-04-12T02:11:27.946Z
+Stopped at: Completed 08-raylib-web-integration-amalgamation plan-01 build-web-raylib-amalgamation-link
 Resume file: None
