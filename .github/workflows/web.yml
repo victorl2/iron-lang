@@ -176,19 +176,40 @@ jobs:
         run: |
           set -e
           echo "Phase 7 end-to-end: iron build --target=web tests/integration/web/hello.iron"
-          echo "Expected: dist/web/index.html, dist/web/index.js, dist/web/index.wasm"
+          echo "Expected: dist/web/index.html, dist/web/index.js, dist/web/index.wasm, dist/web/index.wasm.map"
 
           # Clear any stale output directory from a previous run
           rm -rf dist/web
 
-          # Run the real emcc link via ironc
+          # Run the real emcc link via ironc (debug build — no --release flag)
           ./build/ironc build --target=web tests/integration/web/hello.iron
 
-          # Assert the three output artifacts exist and are non-empty
+          # Assert the three canonical output artifacts exist and are non-empty
           test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
           test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
           test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
-          echo "OK: Phase 7 end-to-end — dist/web/index.{html,js,wasm} all present and non-empty"
+          # Assert the sourcemap is present for debug builds (WEB-OUT-04)
+          test -s dist/web/index.wasm.map || { echo "FAIL: dist/web/index.wasm.map missing or empty — debug build should emit sourcemap via -gsource-map"; exit 1; }
+          echo "OK: Phase 7 end-to-end — dist/web/index.{html,js,wasm,wasm.map} all present and non-empty"
+
+      - name: End-to-end smoke — iron build --target=web --release (Phase 11, WEB-OUT-04 release absence)
+        run: |
+          set -e
+          echo "Phase 11 WEB-OUT-04: release build must NOT emit index.wasm.map"
+
+          # Clear any stale output directory from the debug run above
+          rm -rf dist/web
+
+          # Run the real emcc link in release mode — -gsource-map is NOT added for release
+          ./build/ironc build --target=web --release tests/integration/web/hello.iron
+
+          # Assert the three canonical artifacts are present
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
+          # Assert the sourcemap is ABSENT for release builds (WEB-OUT-04)
+          test ! -f dist/web/index.wasm.map || { echo "FAIL: dist/web/index.wasm.map present in release build — should be absent"; exit 1; }
+          echo "OK: Phase 11 WEB-OUT-04 — release build has no index.wasm.map"
 
       - name: End-to-end smoke — raylib (Phase 8, WEB-BUILD-05)
         run: |
