@@ -21,7 +21,7 @@ Comprehensive correctness audit across compiler + runtime + stdlib C code. Outpu
 - [x] **AUDIT-04**: Arena lifetime audit — any cross-arena pointer storage (a long-lived arena holding a pointer from a short-lived arena, or a value stored by reference into stb_ds arrays that outlive the source arena) is documented with file:line and an ownership-transfer recommendation
 - [x] **AUDIT-05**: Integer safety audit — `size_t` / `int` / `int64_t` mixing in size calculations, stb_ds `arrlen` casts, array indexing in hot paths, shift counts, signed-vs-unsigned comparisons; all flagged with severity
 - [x] **AUDIT-06**: System-call and allocation error handling audit — every `malloc`/`calloc`/`realloc`/`strdup`, every libc/POSIX I/O syscall, every `pthread_*`/`iron_mutex_*`, every `posix_spawn`/`CreateProcess`/`fork`/`exec` — return value check status documented with user-visible consequences of failure
-- [ ] **AUDIT-07**: Runtime + stdlib C code audit — same six dimensions applied to `src/runtime/*.c` (`iron_string.c`, `iron_threads.c`, `iron_net_init.c`, `iron_collections.c`, `iron_builtins.c`, `iron_rc.c`) and `src/stdlib/*.c` (`iron_net.c`, `iron_math.c`, `iron_io.c`, `iron_time.c`, `iron_log.c`, `iron_hint.c`)
+- [x] **AUDIT-07**: Runtime + stdlib C code audit — same six dimensions applied to `src/runtime/*.c` (`iron_string.c`, `iron_threads.c`, `iron_net_init.c`, `iron_collections.c`, `iron_builtins.c`, `iron_rc.c`) and `src/stdlib/*.c` (`iron_net.c`, `iron_math.c`, `iron_io.c`, `iron_time.c`, `iron_log.c`, `iron_hint.c`)
 - [x] **AUDIT-08**: Cross-platform correctness scan — flag all code that assumes 64-bit pointers, little-endian byte order, POSIX-only headers, GCC-only attributes, specific struct padding rules, or ASLR-insensitive heap layouts; logged to `.planning/research/CROSS-PLATFORM-DEBT.md` for a future Windows-compat milestone (only trivial fixes apply here)
 - [ ] **AUDIT-09**: `CORRECTNESS-AUDIT.md` produced with one table per audit dimension, each row containing `file:line`, severity, description, suggested fix, target regression fixture name; the top-20 high-severity issues flagged as "must-fix in this milestone"
 
@@ -120,7 +120,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUDIT-04 | Phase 65 | Complete |
 | AUDIT-05 | Phase 65 | Complete |
 | AUDIT-06 | Phase 65 | Complete |
-| AUDIT-07 | Phase 65 | Pending |
+| AUDIT-07 | Phase 65 | Complete |
 | AUDIT-08 | Phase 65 | Complete |
 | AUDIT-09 | Phase 65 | Pending |
 | PROT-01 | Phase 66 | Pending |

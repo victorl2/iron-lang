@@ -4,14 +4,14 @@ milestone: v0.0
 milestone_name: milestone
 current_plan: —
 status: planning
-stopped_at: Completed 65-04-PLAN.md
-last_updated: "2026-04-12T15:02:44.291Z"
+stopped_at: Completed 65-05-PLAN.md
+last_updated: "2026-04-12T15:12:34.573Z"
 last_activity: 2026-04-12 — Roadmap created with 6 phases (65-70), 35 requirements mapped
 progress:
   total_phases: 32
   completed_phases: 10
   total_plans: 43
-  completed_plans: 39
+  completed_plans: 40
   percent: 0
 ---
 
@@ -86,6 +86,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 65-correctness-audit P02 | 12min | 2 tasks | 1 files |
 | Phase 65-correctness-audit PP03 | 7min | 2 tasks | 1 files |
 | Phase 65-correctness-audit P04 | 7min | 2 tasks | 1 files |
+| Phase 65-correctness-audit PP05 | 8min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -192,6 +193,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 65-correctness-audit]: emit_c.c emit_instr main switch is fully exhaustive over all 44 IronLIR_OpKind values
 - [Phase 65-correctness-audit]: 2 unique H-severity: generated HEAP_ALLOC and RC_ALLOC malloc without NULL check in emitted C code
 - [Phase 65-correctness-audit]: LIR audit totals: 4H, 42M, 84L = 130 findings across 15,818 lines in 11 files
+- [Phase 65-correctness-audit]: Runtime+stdlib audit: 123 findings (13H, 44M, 66L); top H: unchecked realloc in IRON_LIST/MAP _push/_put macros
+- [Phase 65-correctness-audit]: Infrastructure audit: 74 findings (8H, 13M, 53L); all 8H are cross-platform POSIX-only APIs (test_runner.c, diagnostics.c, iron_io.c, iron_log.c, iron_time.c)
 
 ### Roadmap Evolution
 
@@ -213,6 +216,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T15:02:44.288Z
-Stopped at: Completed 65-04-PLAN.md
+Last session: 2026-04-12T15:12:27.936Z
+Stopped at: Completed 65-05-PLAN.md
 Resume file: None
