@@ -131,6 +131,14 @@ All casts in ast.c are guarded by switch-case labels. No unguarded casts.
 
 **Parser blind cast total: 5 unguarded (all L severity)**. All unguarded casts are in array-iteration contexts where the array was populated exclusively with the expected type at construction time.
 
+### Lexer: lexer.c, lexer.h
+
+| File:Line | Cast Expression | Guard Present | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------|---------------|----------|---------------|-------------------|
+| lexer.c:N/A | No node-type casts in lexer | -- | -- | -- | -- |
+
+No blind casts found in `src/lexer/`. The lexer does not operate on AST node types; it produces tokens which are plain structs, not tagged unions requiring kind-checked casts.
+
 ---
 
 ## Enum Switch Exhaustiveness (AUDIT-02)
@@ -158,6 +166,16 @@ All casts in ast.c are guarded by switch-case labels. No unguarded casts.
 | printer.c:158 | `node->kind` in print_node | Iron_NodeKind | None -- all IRON_NODE_COUNT values handled | No default | -- | OK -- exhaustive | -- |
 
 **Parser enum switch total: 1 gap (M severity)** -- printer.c:28 `op_str` silently returns "?" for all Phase 59 bitwise operators.
+
+### Lexer: lexer.c
+
+| File:Line | Switch Subject | Enum Type | Missing Values | Default Handling | Severity | Suggested Fix | Regression Fixture |
+|-----------|---------------|-----------|----------------|------------------|----------|---------------|-------------------|
+| lexer.c:551 | `c` (char) in `iron_lex_punctuation` | char dispatch (not Iron enum) | All non-punctuation chars | `default:` emits IRON_ERR_INVALID_CHAR diagnostic + returns ERROR token | -- | OK -- intentional | -- |
+| lexer.c:73-162 | `kw_kind_names[IRON_TOK_COUNT]` designated initializer | Iron_TokenKind | None -- all IRON_TOK_COUNT values have an entry | No switch (array lookup) | -- | OK -- exhaustive | -- |
+| lexer.c:164-168 | `kind < 0 \|\| kind >= IRON_TOK_COUNT` in `iron_token_kind_str` | Iron_TokenKind | Boundary check present | Returns "IRON_TOK_UNKNOWN" for out-of-range | -- | OK | -- |
+
+No issues found in lexer.c. The lexer does not switch over `Iron_TokenKind` for dispatch -- it uses character-level switching for lexing and a sorted table for keyword lookup.
 
 ---
 
@@ -214,6 +232,26 @@ All casts in ast.c are guarded by switch-case labels. No unguarded casts.
 
 **Parser null safety total: 15 unguarded (12 M, 3 L)**. The M-severity findings are predominantly missing null checks on ARENA_ALLOC return values -- the arena allocator returns NULL on OOM, and every call site dereferences the result immediately.
 
+### Lexer: lexer.c
+
+| File:Line | Dereference Expression | Null Source | Guard Present | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------------|-------------|---------------|----------|---------------|-------------------|
+| lexer.c:176 | `l.src_len = src ? strlen(src) : 0` | `src` function parameter | Yes -- ternary null check | -- | OK | -- |
+| lexer.c:189 | `l->src[l->pos]` in `iron_peek_char` | src buffer | Yes -- bounds check `l->pos >= l->src_len` at line 189 | -- | OK | -- |
+| lexer.c:194 | `l->src[l->pos + 1]` in `iron_peek_next` | src buffer | Yes -- bounds check `l->pos + 1 >= l->src_len` at line 194 | -- | OK | -- |
+| lexer.c:199 | `l->src[l->pos++]` in `iron_advance_char` | src buffer | Yes -- bounds check at line 199 | -- | OK | -- |
+| lexer.c:252 | `iron_arena_alloc(l->arena, buf_cap, 1)` return -> `buf` | Arena alloc | Partially -- checked at line 253 (`if (!buf) buf_cap = 0`) but then re-allocated at line 265 | L | Redundant first allocation; only the second matters | -- |
+| lexer.c:265-266 | `iron_arena_alloc(l->arena, 4096, 1)` return -> `buf` | Arena alloc | Yes -- checked at line 266 (`if (!buf)`) with error return | -- | OK | -- |
+| lexer.c:363 | `iron_arena_strdup(l->arena, buf, buf_len)` | Arena strdup can return NULL | No -- result stored into `value` and returned in token without null check | M | Add null check; return error token on NULL | null_lexer_strdup.iron |
+| lexer.c:424 | `iron_arena_strdup(l->arena, decbuf, strlen(decbuf))` | Arena strdup for hex value | No null check | M | Add null check | null_lexer_hex_strdup.iron |
+| lexer.c:470 | `iron_arena_strdup(l->arena, decbuf, strlen(decbuf))` | Arena strdup for binary value | No null check | M | Same | -- |
+| lexer.c:510 | `iron_arena_strdup(l->arena, l->src + start_pos, tok_len)` | Arena strdup for decimal value | No null check | M | Same | null_lexer_num_strdup.iron |
+| lexer.c:532 | `iron_arena_strdup(l->arena, l->src + start_pos, tok_len)` | Arena strdup for identifier | No null check | M | Same | null_lexer_ident_strdup.iron |
+| lexer.c:632 | `iron_arena_strdup(l->arena, msg, strlen(msg))` | Arena strdup for error message | No null check | L | Unlikely to matter (diagnostic message) | -- |
+| lexer.c:762 | `iron_arena_strdup(l->arena, msg, strlen(msg))` | Arena strdup for error message | No null check | L | Same | -- |
+
+**Lexer null safety total: 7 unguarded (5 M, 2 L)**. The M-severity findings are unchecked `iron_arena_strdup` return values in token-producing paths. If strdup returns NULL, tokens will have NULL `value` fields which downstream consumers dereference.
+
 ---
 
 ## Arena Lifetimes (AUDIT-04)
@@ -259,6 +297,15 @@ Note: Throughout parser.c, `arrput`/`arrfree` (stb_ds) is used extensively for t
 
 **Parser arena lifetime total: 17 cross-arena findings (all M severity)**. The dominant pattern is stb_ds heap-managed arrays being stored into arena-allocated AST nodes. When the arena is freed, the stb_ds arrays become leaks (the stb_ds header is never `arrfree`'d). Conversely, if stb_ds arrays are freed while the AST is live, the AST has dangling pointers. This is a pervasive design choice rather than an isolated bug -- the parser relies on the arena and stb_ds arrays having the same practical lifetime.
 
+### Lexer: lexer.c
+
+| File:Line | Arena Source | Destination | Cross-Arena? | Severity | Suggested Fix | Regression Fixture |
+|-----------|-------------|-------------|--------------|----------|---------------|-------------------|
+| lexer.c:252-265 | `l->arena` | `buf` string buffer -- used locally, copied to arena at line 363 via `iron_arena_strdup` | No -- temporary allocation within same arena; slightly wasteful (4KB upfront) but lifetime-safe | L | Could use stack/malloc for temp buffer to avoid wasting arena space | arena_lexer_string_buf.iron |
+| lexer.c:777 | stb_ds `tokens` array | Returned to caller | No -- caller responsibility to `arrfree(tokens)` | -- | OK -- documented in header | -- |
+
+No cross-arena pointer storage issues found in lexer. The lexer allocates token values into the arena and returns a stb_ds token array to the caller. The caller (parser) reads from the stb_ds array but does not store stb_ds array pointers into arena-allocated structures -- the token array has independent lifetime.
+
 ### Parser: printer.c
 
 | File:Line | Arena Source | Destination | Cross-Arena? | Severity | Suggested Fix | Regression Fixture |
@@ -299,6 +346,20 @@ Note: Throughout parser.c, `arrput`/`arrfree` (stb_ds) is used extensively for t
 | printer.c:N/A | No integer safety issues found in printer.c | -- | -- | -- | -- |
 
 **Parser integer safety total: 6 findings (1 M, 5 L)**. The M-severity finding is `atoi` usage for enum variant explicit values without overflow detection.
+
+### Lexer: lexer.c
+
+| File:Line | Expression | Issue | Severity | Suggested Fix | Regression Fixture |
+|-----------|-----------|-------|----------|---------------|-------------------|
+| lexer.c:164 | `kind < 0` in `iron_token_kind_str` | Same pattern as ast.c:60 -- enum comparison with 0, technically valid but may warn | L | Use `(unsigned)kind >= IRON_TOK_COUNT` | int_token_kind_sign.c |
+| lexer.c:237 | `size_t start_pos = l->pos` mixed with `uint32_t start_line/start_col` | `size_t` for position, `uint32_t` for line/col -- file >4GB would overflow `uint32_t` position arithmetic in `tok_len = (uint32_t)(l->pos - start_pos)` | L | Acceptable for practical source file sizes | -- |
+| lexer.c:403-404 | `hexbuf[64]` with `copy_len = digits_len < sizeof(hexbuf)-1` | Hex literal truncated at 63 hex digits (252 bits) -- but `strtoll` range-checks afterwards | L | Acceptable -- strtoll catches overflow | -- |
+| lexer.c:449-450 | `binbuf[128]` with same truncation pattern | Binary literal truncated at 127 binary digits | L | Acceptable | -- |
+| lexer.c:410-421 | `strtoll(hexbuf, NULL, 16)` with ERANGE check | Properly range-checked | -- | OK | -- |
+| lexer.c:455-467 | `strtoll(binbuf, NULL, 2)` with ERANGE check | Properly range-checked | -- | OK | -- |
+| lexer.c:278 | `PUSH_CHAR macro: if (buf_len < buf_max - 1)` | String content silently truncated at 4095 bytes | M | Emit diagnostic when string exceeds buffer, or use dynamic resizing | int_lexer_string_truncation.iron |
+
+**Lexer integer safety total: 5 findings (1 M, 4 L)**. The M-severity finding is silent truncation of string literal content at 4095 bytes (the PUSH_CHAR macro drops characters beyond `buf_max - 1` without any diagnostic).
 
 ---
 
@@ -397,6 +458,22 @@ All ARENA_ALLOC calls in parser.c (approximately 80+) use the `ARENA_ALLOC` macr
 
 **Parser allocation error handling total: ~70 unchecked ARENA_ALLOC calls (all M), ~40 unchecked iron_arena_strdup calls (all M), 2 checked malloc calls, 1 checked arena_alloc. Systemic: the parser assumes arena allocation never fails.**
 
+### Lexer: lexer.c
+
+| File:Line | Allocation Call | Return Checked? | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------|-----------------|----------|---------------|-------------------|
+| lexer.c:252 | `iron_arena_alloc(l->arena, buf_cap, 1)` -- initial string buffer | Partially -- checked but then overridden at line 265 | L | Remove redundant first allocation | alloc_lexer_redundant.iron |
+| lexer.c:265 | `iron_arena_alloc(l->arena, 4096, 1)` -- string buffer | Yes -- checked at line 266; returns error token on NULL | -- | OK | -- |
+| lexer.c:363 | `iron_arena_strdup(l->arena, buf, buf_len)` -- final string value | No | M | Add null check; return error token | alloc_lexer_strdup.iron |
+| lexer.c:424 | `iron_arena_strdup(l->arena, decbuf, strlen(decbuf))` -- hex value | No | M | Add null check | -- |
+| lexer.c:470 | `iron_arena_strdup(l->arena, decbuf, strlen(decbuf))` -- binary value | No | M | Add null check | -- |
+| lexer.c:510 | `iron_arena_strdup(l->arena, l->src + start_pos, tok_len)` -- decimal/float value | No | M | Add null check | -- |
+| lexer.c:532 | `iron_arena_strdup(l->arena, l->src + start_pos, tok_len)` -- identifier text | No | M | Add null check | alloc_lexer_ident.iron |
+| lexer.c:632 | `iron_arena_strdup(l->arena, msg, strlen(msg))` -- error msg | No | L | Non-critical (diagnostic string) | -- |
+| lexer.c:762 | `iron_arena_strdup(l->arena, msg, strlen(msg))` -- error msg | No | L | Non-critical (diagnostic string) | -- |
+
+**Lexer allocation error handling total: 5 unchecked iron_arena_strdup in token-producing paths (all M), 2 unchecked iron_arena_strdup in diagnostic paths (L), 1 checked arena_alloc. Same systemic pattern as parser: arena strdup assumed to never fail.**
+
 ---
 
 ## Cross-Platform (AUDIT-08)
@@ -441,3 +518,38 @@ All ARENA_ALLOC calls in parser.c (approximately 80+) use the `ARENA_ALLOC` macr
 | printer.h:7 | `#include <stdio.h>` for FILE* | Standard C89 header -- portable | -- | OK | -- |
 
 **Parser cross-platform total: 3 findings (all L severity)**. The `_Alignof` usage is C11-only; MSVC in C mode requires `__alignof` instead. The project likely already compiles in C11 mode given other C11 usage, but the finding is documented for completeness.
+
+### Lexer: lexer.c, lexer.h
+
+| File:Line | Pattern | Issue | Severity | Suggested Fix | Regression Fixture |
+|-----------|---------|-------|----------|---------------|-------------------|
+| lexer.c:7 | `#include <ctype.h>` | Standard C89 header -- portable | -- | OK | -- |
+| lexer.c:8 | `#include <errno.h>` | Standard C89 header -- portable | -- | OK | -- |
+| lexer.c:387 | `isxdigit((unsigned char)...)` | Correct cast to unsigned char for ctype macros | -- | OK | -- |
+| lexer.c:477 | `isdigit((unsigned char)...)` | Correct cast to unsigned char | -- | OK | -- |
+| lexer.c:494 | `isalpha((unsigned char)...)` | Correct cast to unsigned char | -- | OK | -- |
+
+No cross-platform issues found in lexer. All ctype macro calls correctly cast to `unsigned char`. No POSIX-only headers, no GCC builtins, no platform-specific code paths.
+
+---
+
+## Summary -- Parser + Lexer
+
+| Dimension | High | Medium | Low | Total |
+|-----------|------|--------|-----|-------|
+| Blind Casts (AUDIT-01) | 0 | 0 | 5 | 5 |
+| Enum Switch Exhaustiveness (AUDIT-02) | 0 | 1 | 0 | 1 |
+| Null Safety (AUDIT-03) | 0 | 17 | 5 | 22 |
+| Arena Lifetimes (AUDIT-04) | 0 | 17 | 1 | 18 |
+| Integer Safety (AUDIT-05) | 0 | 2 | 9 | 11 |
+| Allocation Error Handling (AUDIT-06) | 0 | 117 | 5 | 122 |
+| Cross-Platform (AUDIT-08) | 0 | 0 | 3 | 3 |
+| **Total** | **0** | **154** | **28** | **182** |
+
+### Key Systemic Patterns
+
+1. **Unchecked ARENA_ALLOC / iron_arena_strdup**: 117 M-severity findings across parser.c and lexer.c. The entire parser+lexer assumes arena allocation never fails. A single `iron_arena_alloc_or_abort()` wrapper would eliminate this class.
+
+2. **stb_ds arrays stored into arena nodes**: 17 M-severity findings in parser.c. Arrays built with `arrput` (heap-managed by stb_ds) are stored directly into arena-allocated AST nodes without transfer. This is a deliberate design tradeoff -- transferring all arrays to arena would fix the lifetime mismatch but requires touching ~15 call sites.
+
+3. **No High-severity findings**: All issues are Medium (correctness risk under abnormal conditions like OOM) or Low (theoretical / unlikely). The parser and lexer are well-structured with consistent guard patterns for normal operation.
