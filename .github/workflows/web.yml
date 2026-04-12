@@ -171,7 +171,7 @@ jobs:
       - name: Configure + build ironc (Phase 7 end-to-end smoke)
         run: |
           set -e
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang
           cmake --build build --target ironc --parallel
 
       - name: End-to-end smoke — iron build --target=web (Phase 7, WEB-BUILD-01..08)

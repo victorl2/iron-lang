@@ -674,6 +674,16 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     }
     snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", iron_src_dir);
 
+    size_t vendor_i_len = strlen("-I") + strlen(iron_src_dir) + strlen("/vendor") + 1;
+    char *vendor_i_flag = (char *)malloc(vendor_i_len);
+    if (!vendor_i_flag) {
+        free(src_i_flag); free(stdlib_i_flag); free(vendor_i_flag);
+        for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
+        free(emcc_path);
+        return 1;
+    }
+    snprintf(vendor_i_flag, vendor_i_len, "-I%s/vendor", iron_src_dir);
+
     /* WEB-ASSET-01/02/04/05: per-asset preload mapping strings.
      * Heap-allocated; freed on every return path below. */
     char *preload_mappings[16] = {0};
@@ -738,6 +748,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     /* Include paths */
     argv[n++] = src_i_flag;
     argv[n++] = stdlib_i_flag;
+    argv[n++] = vendor_i_flag;
 
     /* Emitted C file from emit_web_module + write_temp_c */
     argv[n++] = c_file_path;
@@ -862,7 +873,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
                     hit);
             if (use_temp_shell) unlink(shell_path_buf);
             for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
-            free(stdlib_i_flag);
+            free(stdlib_i_flag); free(vendor_i_flag);
             free(src_i_flag);
             for (int j = 0; j < IRON_WEB_SRC_COUNT; j++) free(abs_paths[j]);
             free(emcc_path);
@@ -878,7 +889,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         fprintf(stderr, "error: failed to spawn emcc: %s\n", strerror(spawn_rc));
         if (use_temp_shell) unlink(shell_path_buf);
         for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
-        free(stdlib_i_flag);
+        free(stdlib_i_flag); free(vendor_i_flag);
         free(src_i_flag);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
         free(emcc_path);
@@ -890,7 +901,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         fprintf(stderr, "error: waitpid on emcc failed: %s\n", strerror(errno));
         if (use_temp_shell) unlink(shell_path_buf);
         for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
-        free(stdlib_i_flag);
+        free(stdlib_i_flag); free(vendor_i_flag);
         free(src_i_flag);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
         free(emcc_path);
@@ -903,7 +914,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      * no /tmp/iron_web_shell_*.html stragglers are left behind. */
     if (use_temp_shell) unlink(shell_path_buf);
     for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
-    free(stdlib_i_flag);
+    free(stdlib_i_flag); free(vendor_i_flag);
     free(src_i_flag);
     for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
     free(emcc_path);
