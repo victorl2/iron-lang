@@ -355,3 +355,331 @@ No switch statements over Iron enums.
 | (none) | No `__attribute__`, `__builtin_*`, POSIX-only headers, `_GNU_SOURCE`, or platform-specific `#ifdef` in any of the 5 core analyzer files | -- | -- | -- | -- |
 
 All 5 core analyzer files (analyzer.c, typecheck.c, resolve.c, types.c, scope.c) are fully portable C99/C11 with no platform-specific code.
+
+---
+
+# Analysis Pass Files (escape.c, capture.c, concurrency.c, init_check.c, iface_collect.c)
+
+The following sections append findings from the 5 analysis pass files to the existing 7 dimension tables.
+
+---
+
+## Blind Casts -- Analysis Passes (AUDIT-01 continued)
+
+### escape.c
+
+| File:Line | Cast Expression | Guard Present | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------|---------------|----------|---------------|-------------------|
+| escape.c:83 | `(Iron_Ident *)node` | Yes -- `case IRON_NODE_IDENT:` | -- | OK | -- |
+| escape.c:85 | `(Iron_FieldAccess *)node` | Yes -- `case IRON_NODE_FIELD_ACCESS:` | -- | OK | -- |
+| escape.c:87 | `(Iron_IndexExpr *)node` | Yes -- `case IRON_NODE_INDEX:` | -- | OK | -- |
+| escape.c:103 | `(Iron_ValDecl *)node` | Yes -- `case IRON_NODE_VAL_DECL:` | -- | OK | -- |
+| escape.c:107 | `(Iron_HeapExpr *)vd->init` | Yes -- `vd->init->kind == IRON_NODE_HEAP` at line 104 | -- | OK | -- |
+| escape.c:113 | `(Iron_VarDecl *)node` | Yes -- `case IRON_NODE_VAR_DECL:` | -- | OK | -- |
+| escape.c:117 | `(Iron_HeapExpr *)vd->init` | Yes -- `vd->init->kind == IRON_NODE_HEAP` at line 114 | -- | OK | -- |
+| escape.c:123 | `(Iron_FreeStmt *)node` | Yes -- `case IRON_NODE_FREE:` | -- | OK | -- |
+| escape.c:131 | `(Iron_LeakStmt *)node` | Yes -- `case IRON_NODE_LEAK:` | -- | OK | -- |
+| escape.c:139 | `(Iron_ReturnStmt *)node` | Yes -- `case IRON_NODE_RETURN:` | -- | OK | -- |
+| escape.c:149 | `(Iron_AssignStmt *)node` | Yes -- `case IRON_NODE_ASSIGN:` | -- | OK | -- |
+| escape.c:165 | `(Iron_CallExpr *)node` | Yes -- `case IRON_NODE_CALL:` | -- | OK | -- |
+| escape.c:176 | `(Iron_MethodCallExpr *)node` | Yes -- `case IRON_NODE_METHOD_CALL:` | -- | OK | -- |
+| escape.c:186 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| escape.c:191 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| escape.c:200 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| escape.c:205 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| escape.c:229 | `(Iron_FreeStmt *)node` | Yes -- `case IRON_NODE_FREE:` | -- | OK | -- |
+| escape.c:244 | `(Iron_LeakStmt *)node` | Yes -- `case IRON_NODE_LEAK:` | -- | OK | -- |
+| escape.c:251 | `(Iron_Ident *)ls->expr` | No -- name was extracted via expr_ident_name which may have returned from a non-IDENT node (e.g., FIELD_ACCESS root); but if name != NULL the root IS an ident | M | Add `ls->expr->kind == IRON_NODE_IDENT` check before cast | blind_cast_leak_ident.iron |
+| escape.c:294 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| escape.c:299 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| escape.c:308 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| escape.c:313 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| escape.c:332 | `(Iron_Block *)body_node` | Yes -- `body_node->kind != IRON_NODE_BLOCK` at line 331 | -- | OK | -- |
+| escape.c:402 | `(Iron_FuncDecl *)decl` | Yes -- `case IRON_NODE_FUNC_DECL:` | -- | OK | -- |
+| escape.c:407 | `(Iron_MethodDecl *)decl` | Yes -- `case IRON_NODE_METHOD_DECL:` | -- | OK | -- |
+
+### capture.c
+
+| File:Line | Cast Expression | Guard Present | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------|---------------|----------|---------------|-------------------|
+| capture.c:67 | `(Iron_ValDecl *)node` | Yes -- `case IRON_NODE_VAL_DECL:` | -- | OK | -- |
+| capture.c:74 | `(Iron_VarDecl *)node` | Yes -- `case IRON_NODE_VAR_DECL:` | -- | OK | -- |
+| capture.c:79 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| capture.c:86 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| capture.c:95 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| capture.c:100 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| capture.c:107 | `(Iron_MatchStmt *)node` | Yes -- `case IRON_NODE_MATCH:` | -- | OK | -- |
+| capture.c:115 | `(Iron_MatchCase *)node` | Yes -- `case IRON_NODE_MATCH_CASE:` | -- | OK | -- |
+| capture.c:139 | `(Iron_Ident *)node` | Yes -- `case IRON_NODE_IDENT:` | -- | OK | -- |
+| capture.c:171 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| capture.c:178 | `(Iron_ValDecl *)node` | Yes -- `case IRON_NODE_VAL_DECL:` | -- | OK | -- |
+| capture.c:183 | `(Iron_VarDecl *)node` | Yes -- `case IRON_NODE_VAR_DECL:` | -- | OK | -- |
+| capture.c:188 | `(Iron_AssignStmt *)node` | Yes -- `case IRON_NODE_ASSIGN:` | -- | OK | -- |
+| capture.c:194 | `(Iron_ReturnStmt *)node` | Yes -- `case IRON_NODE_RETURN:` | -- | OK | -- |
+| capture.c:199 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| capture.c:210 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| capture.c:216 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| capture.c:222 | `(Iron_MatchStmt *)node` | Yes -- `case IRON_NODE_MATCH:` | -- | OK | -- |
+| capture.c:231 | `(Iron_MatchCase *)node` | Yes -- `case IRON_NODE_MATCH_CASE:` | -- | OK | -- |
+| capture.c:237 | `(Iron_BinaryExpr *)node` | Yes -- `case IRON_NODE_BINARY:` | -- | OK | -- |
+| capture.c:243 | `(Iron_UnaryExpr *)node` | Yes -- `case IRON_NODE_UNARY:` | -- | OK | -- |
+| capture.c:248 | `(Iron_CallExpr *)node` | Yes -- `case IRON_NODE_CALL:` | -- | OK | -- |
+| capture.c:256 | `(Iron_MethodCallExpr *)node` | Yes -- `case IRON_NODE_METHOD_CALL:` | -- | OK | -- |
+| capture.c:264 | `(Iron_FieldAccess *)node` | Yes -- `case IRON_NODE_FIELD_ACCESS:` | -- | OK | -- |
+| capture.c:269 | `(Iron_IndexExpr *)node` | Yes -- `case IRON_NODE_INDEX:` | -- | OK | -- |
+| capture.c:275 | `(Iron_SliceExpr *)node` | Yes -- `case IRON_NODE_SLICE:` | -- | OK | -- |
+| capture.c:282 | `(Iron_HeapExpr *)node` | Yes -- `case IRON_NODE_HEAP:` | -- | OK | -- |
+| capture.c:287 | `(Iron_RcExpr *)node` | Yes -- `case IRON_NODE_RC:` | -- | OK | -- |
+| capture.c:292 | `(Iron_ComptimeExpr *)node` | Yes -- `case IRON_NODE_COMPTIME:` | -- | OK | -- |
+| capture.c:297 | `(Iron_IsExpr *)node` | Yes -- `case IRON_NODE_IS:` | -- | OK | -- |
+| capture.c:302 | `(Iron_AwaitExpr *)node` | Yes -- `case IRON_NODE_AWAIT:` | -- | OK | -- |
+| capture.c:307 | `(Iron_ConstructExpr *)node` | Yes -- `case IRON_NODE_CONSTRUCT:` | -- | OK | -- |
+| capture.c:314 | `(Iron_ArrayLit *)node` | Yes -- `case IRON_NODE_ARRAY_LIT:` | -- | OK | -- |
+| capture.c:322 | `(Iron_InterpString *)node` | Yes -- `case IRON_NODE_INTERP_STRING:` | -- | OK | -- |
+| capture.c:329 | `(Iron_FreeStmt *)node` | Yes -- `case IRON_NODE_FREE:` | -- | OK | -- |
+| capture.c:334 | `(Iron_LeakStmt *)node` | Yes -- `case IRON_NODE_LEAK:` | -- | OK | -- |
+| capture.c:339 | `(Iron_DeferStmt *)node` | Yes -- `case IRON_NODE_DEFER:` | -- | OK | -- |
+| capture.c:344 | `(Iron_SpawnStmt *)node` | Yes -- `case IRON_NODE_SPAWN:` | -- | OK | -- |
+| capture.c:362 | `(Iron_Param *)p` | Yes -- `p->kind == IRON_NODE_PARAM` at line 361 | -- | OK | -- |
+| capture.c:377 | `iron_arena_alloc(...)` for CaptureEntry | N/A -- allocation, not cast | -- | OK | -- |
+| capture.c:483 | `(Iron_LambdaExpr *)node` | Yes -- `case IRON_NODE_LAMBDA:` | -- | OK | -- |
+| capture.c:491 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| capture.c:498 | `(Iron_ValDecl *)node` | Yes -- `case IRON_NODE_VAL_DECL:` | -- | OK | -- |
+| capture.c:503 | `(Iron_VarDecl *)node` | Yes -- `case IRON_NODE_VAR_DECL:` | -- | OK | -- |
+| capture.c:508 | `(Iron_AssignStmt *)node` | Yes -- `case IRON_NODE_ASSIGN:` | -- | OK | -- |
+| capture.c:513 | `(Iron_ReturnStmt *)node` | Yes -- `case IRON_NODE_RETURN:` | -- | OK | -- |
+
+All casts in capture.c are guarded by switch-case labels. No unguarded casts.
+
+### concurrency.c
+
+| File:Line | Cast Expression | Guard Present | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------|---------------|----------|---------------|-------------------|
+| concurrency.c:47 | `(Iron_Ident *)node` | Yes -- `case IRON_NODE_IDENT:` | -- | OK | -- |
+| concurrency.c:49 | `(Iron_FieldAccess *)node` | Yes -- `case IRON_NODE_FIELD_ACCESS:` | -- | OK | -- |
+| concurrency.c:51 | `(Iron_IndexExpr *)node` | Yes -- `case IRON_NODE_INDEX:` | -- | OK | -- |
+| concurrency.c:87 | `(Iron_ValDecl *)s` | Yes -- `s->kind == IRON_NODE_VAL_DECL` at line 86 | -- | OK | -- |
+| concurrency.c:89 | `(Iron_VarDecl *)s` | Yes -- `s->kind == IRON_NODE_VAR_DECL` at line 88 | -- | OK | -- |
+| concurrency.c:91 | `(Iron_Block *)s` | Yes -- `s->kind == IRON_NODE_BLOCK` at line 90 | -- | OK | -- |
+| concurrency.c:111 | `(Iron_AssignStmt *)node` | Yes -- `case IRON_NODE_ASSIGN:` | -- | OK | -- |
+| concurrency.c:122 | `(Iron_ValDecl *)node` | Yes -- `case IRON_NODE_VAL_DECL:` | -- | OK | -- |
+| concurrency.c:129 | `(Iron_VarDecl *)node` | Yes -- `case IRON_NODE_VAR_DECL:` | -- | OK | -- |
+| concurrency.c:137 | `(Iron_Ident *)node` | Yes -- `case IRON_NODE_IDENT:` | -- | OK | -- |
+| concurrency.c:144 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| concurrency.c:151 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| concurrency.c:161 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| concurrency.c:167 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| concurrency.c:186 | `(Iron_AssignStmt *)node` | Yes -- `case IRON_NODE_ASSIGN:` | -- | OK | -- |
+| concurrency.c:207 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| concurrency.c:212 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| concurrency.c:221 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| concurrency.c:228 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| concurrency.c:257 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| concurrency.c:267 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| concurrency.c:275 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| concurrency.c:280 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| concurrency.c:293 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| concurrency.c:309 | `(Iron_Block *)fs->body` | Yes -- `fs->body->kind == IRON_NODE_BLOCK` at line 308 | -- | OK | -- |
+| concurrency.c:329 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| concurrency.c:334 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| concurrency.c:343 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| concurrency.c:348 | `(Iron_SpawnStmt *)node` | Yes -- `case IRON_NODE_SPAWN:` | -- | OK | -- |
+| concurrency.c:361 | `(Iron_Block *)ss->body` | Yes -- `ss->body->kind == IRON_NODE_BLOCK` at line 360 | -- | OK | -- |
+| concurrency.c:402 | `(Iron_Block *)body_node` | Yes -- `body_node->kind != IRON_NODE_BLOCK` at line 401 | -- | OK | -- |
+| concurrency.c:427 | `(Iron_FuncDecl *)decl` | Yes -- `case IRON_NODE_FUNC_DECL:` | -- | OK | -- |
+| concurrency.c:432 | `(Iron_MethodDecl *)decl` | Yes -- `case IRON_NODE_METHOD_DECL:` | -- | OK | -- |
+
+All casts in concurrency.c are guarded by switch-case labels or kind checks. No unguarded casts.
+
+### init_check.c
+
+| File:Line | Cast Expression | Guard Present | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------|---------------|----------|---------------|-------------------|
+| init_check.c:108 | `(Iron_Ident *)expr` | Yes -- `case IRON_NODE_IDENT:` | -- | OK | -- |
+| init_check.c:116 | `(Iron_BinaryExpr *)expr` | Yes -- `case IRON_NODE_BINARY:` | -- | OK | -- |
+| init_check.c:122 | `(Iron_UnaryExpr *)expr` | Yes -- `case IRON_NODE_UNARY:` | -- | OK | -- |
+| init_check.c:127 | `(Iron_CallExpr *)expr` | Yes -- `case IRON_NODE_CALL:` | -- | OK | -- |
+| init_check.c:135 | `(Iron_MethodCallExpr *)expr` | Yes -- `case IRON_NODE_METHOD_CALL:` | -- | OK | -- |
+| init_check.c:143 | `(Iron_FieldAccess *)expr` | Yes -- `case IRON_NODE_FIELD_ACCESS:` | -- | OK | -- |
+| init_check.c:148 | `(Iron_IndexExpr *)expr` | Yes -- `case IRON_NODE_INDEX:` | -- | OK | -- |
+| init_check.c:154 | `(Iron_ArrayLit *)expr` | Yes -- `case IRON_NODE_ARRAY_LIT:` | -- | OK | -- |
+| init_check.c:161 | `(Iron_SliceExpr *)expr` | Yes -- `case IRON_NODE_SLICE:` | -- | OK | -- |
+| init_check.c:168 | `(Iron_HeapExpr *)expr` | Yes -- `case IRON_NODE_HEAP:` | -- | OK | -- |
+| init_check.c:173 | `(Iron_RcExpr *)expr` | Yes -- `case IRON_NODE_RC:` | -- | OK | -- |
+| init_check.c:178 | `(Iron_ConstructExpr *)expr` | Yes -- `case IRON_NODE_CONSTRUCT:` | -- | OK | -- |
+| init_check.c:185 | `(Iron_IsExpr *)expr` | Yes -- `case IRON_NODE_IS:` | -- | OK | -- |
+| init_check.c:190 | `(Iron_AwaitExpr *)expr` | Yes -- `case IRON_NODE_AWAIT:` | -- | OK | -- |
+| init_check.c:195 | `(Iron_InterpString *)expr` | Yes -- `case IRON_NODE_INTERP_STRING:` | -- | OK | -- |
+| init_check.c:218 | `(Iron_VarDecl *)node` | Yes -- `case IRON_NODE_VAR_DECL:` | -- | OK | -- |
+| init_check.c:233 | `(Iron_ValDecl *)node` | Yes -- `case IRON_NODE_VAL_DECL:` | -- | OK | -- |
+| init_check.c:239 | `(Iron_AssignStmt *)node` | Yes -- `case IRON_NODE_ASSIGN:` | -- | OK | -- |
+| init_check.c:244 | `(Iron_Ident *)as->target` | Yes -- `as->target->kind == IRON_NODE_IDENT` at line 243 | -- | OK | -- |
+| init_check.c:250 | `(Iron_ReturnStmt *)node` | Yes -- `case IRON_NODE_RETURN:` | -- | OK | -- |
+| init_check.c:256 | `(Iron_Block *)node` | Yes -- `case IRON_NODE_BLOCK:` | -- | OK | -- |
+| init_check.c:263 | `(Iron_IfStmt *)node` | Yes -- `case IRON_NODE_IF:` | -- | OK | -- |
+| init_check.c:350 | `(Iron_WhileStmt *)node` | Yes -- `case IRON_NODE_WHILE:` | -- | OK | -- |
+| init_check.c:362 | `(Iron_ForStmt *)node` | Yes -- `case IRON_NODE_FOR:` | -- | OK | -- |
+| init_check.c:374 | `(Iron_MatchStmt *)node` | Yes -- `case IRON_NODE_MATCH:` | -- | OK | -- |
+| init_check.c:389 | `(Iron_MatchCase *)ms->cases[i]` | No -- relies on cases containing MatchCase nodes | L | Add kind check or assert | blind_cast_match_case_init.iron |
+| init_check.c:435 | `(Iron_MatchCase *)ms->cases[i]` | No -- same pattern | L | Add assert | blind_cast_match_case_init.iron |
+| init_check.c:449 | `(Iron_FreeStmt *)node` | Yes -- `case IRON_NODE_FREE:` | -- | OK | -- |
+| init_check.c:454 | `(Iron_LeakStmt *)node` | Yes -- `case IRON_NODE_LEAK:` | -- | OK | -- |
+| init_check.c:459 | `(Iron_DeferStmt *)node` | Yes -- `case IRON_NODE_DEFER:` | -- | OK | -- |
+| init_check.c:503 | `(Iron_FuncDecl *)decl` | Yes -- `decl->kind == IRON_NODE_FUNC_DECL` at line 496 | -- | OK | -- |
+| init_check.c:505 | `(Iron_MethodDecl *)decl` | Yes -- `decl->kind == IRON_NODE_METHOD_DECL` at line 504 | -- | OK | -- |
+
+### iface_collect.c
+
+| File:Line | Cast Expression | Guard Present | Severity | Suggested Fix | Regression Fixture |
+|-----------|----------------|---------------|----------|---------------|-------------------|
+| iface_collect.c:24 | `(Iron_InterfaceDecl *)decl` | Yes -- `decl->kind != IRON_NODE_INTERFACE_DECL` at line 23 | -- | OK | -- |
+| iface_collect.c:41 | `(Iron_ObjectDecl *)decl` | Yes -- `decl->kind != IRON_NODE_OBJECT_DECL` at line 40 | -- | OK | -- |
+| iface_collect.c:96 | `(Iron_ConstructExpr *)node` | Yes -- `node->kind == IRON_NODE_CONSTRUCT` at line 95 | -- | OK | -- |
+| iface_collect.c:107 | `(Iron_Ident *)call->callee` | Yes -- `call->callee->kind == IRON_NODE_IDENT` at line 106 | -- | OK | -- |
+
+All casts in iface_collect.c are guarded. No unguarded casts.
+
+---
+
+## Enum Switch Exhaustiveness -- Analysis Passes (AUDIT-02 continued)
+
+### escape.c
+
+| File:Line | Switch Subject | Missing Cases | Default Handling | Severity | Suggested Fix | Regression Fixture |
+|-----------|---------------|---------------|-----------------|----------|---------------|-------------------|
+| escape.c:81 (expr_ident_name) | `Iron_NodeKind` | Missing: all non-IDENT/FIELD_ACCESS/INDEX kinds | `default: return NULL` | -- | OK -- intentional narrowing | -- |
+| escape.c:101 (collect_stmt) | `Iron_NodeKind` | Missing: all expression kinds, SPAWN, MATCH, etc. | `default: break` | M | Does not recurse into MATCH, DEFER, SPAWN bodies -- heap bindings inside these are missed | switch_escape_missing_match.iron |
+| escape.c:227 (validate_node) | `Iron_NodeKind` | Missing: MATCH, SPAWN, DEFER | `default: break` | M | Same as above -- free/leak validation misses nested control flow | switch_escape_validate_missing.iron |
+| escape.c:400 | `Iron_NodeKind` | Missing: non-FUNC/METHOD kinds | `default: break` | -- | OK -- only processes functions | -- |
+
+### capture.c
+
+| File:Line | Switch Subject | Missing Cases | Default Handling | Severity | Suggested Fix | Regression Fixture |
+|-----------|---------------|---------------|-----------------|----------|---------------|-------------------|
+| capture.c:65 (collect_locals) | `Iron_NodeKind` | Missing: SPAWN, DEFER, etc. | `default: break` | L | Locals in nested spawn bodies are handled separately | -- |
+| capture.c:137 (collect_idents) | `Iron_NodeKind` | Missing: IRON_NODE_ENUM_CONSTRUCT, IRON_NODE_PATTERN | `default: break` | L | Enum construct args may contain ident refs; should recurse | switch_capture_enum_construct.iron |
+| capture.c:481 (walk_node_for_lambdas) | `Iron_NodeKind` | Missing: IRON_NODE_HEAP, IRON_NODE_RC, IRON_NODE_COMPTIME, IRON_NODE_CONSTRUCT, etc. | `default: break` | L | Lambdas nested inside heap/rc/construct expressions not found | switch_capture_walker_missing.iron |
+
+### concurrency.c
+
+| File:Line | Switch Subject | Missing Cases | Default Handling | Severity | Suggested Fix | Regression Fixture |
+|-----------|---------------|---------------|-----------------|----------|---------------|-------------------|
+| concurrency.c:45 (expr_ident_name) | `Iron_NodeKind` | Missing: most kinds | `default: return NULL` | -- | OK | -- |
+| concurrency.c:109 (collect_spawn_refs) | `Iron_NodeKind` | Missing: CALL, METHOD_CALL, MATCH, DEFER, FREE, LEAK | `default: break` | M | Outer refs in call/method-call args inside spawn bodies not tracked | switch_conc_spawn_refs.iron |
+| concurrency.c:184 (check_stmt_for_mutation) | `Iron_NodeKind` | Missing: MATCH, DEFER, SPAWN | `default: break` | L | Mutations in match/defer/spawn inside pfor not checked | switch_conc_pfor_missing.iron |
+| concurrency.c:291 (walk_stmt) | `Iron_NodeKind` | Missing: MATCH, DEFER, FUNC_DECL | `default: break` | L | Nested parallel-for inside match arms not found | switch_conc_walk_missing.iron |
+| concurrency.c:425 | `Iron_NodeKind` | Missing: non-FUNC/METHOD kinds | `default: break` | -- | OK | -- |
+
+### init_check.c
+
+| File:Line | Switch Subject | Missing Cases | Default Handling | Severity | Suggested Fix | Regression Fixture |
+|-----------|---------------|---------------|-----------------|----------|---------------|-------------------|
+| init_check.c:106 (check_expr_uses) | `Iron_NodeKind` | Missing: ENUM_CONSTRUCT args, PATTERN bindings | `default: break` (treats as leaf) | L | Enum construct arg uses not checked for uninitialized vars | switch_init_enum_construct.iron |
+| init_check.c:216 (check_stmt_init) | `Iron_NodeKind` | Missing: SPAWN body | `default: check_expr_uses(ctx, node)` | L | Uninitialized vars used in spawn bodies not checked | switch_init_spawn.iron |
+
+### iface_collect.c
+
+No switches over Iron enums beyond node-kind dispatch in visitor callbacks (which are intentionally narrow).
+
+---
+
+## Null Safety -- Analysis Passes (AUDIT-03 continued)
+
+| File:Line | Expression | Risk | Severity | Suggested Fix | Regression Fixture |
+|-----------|-----------|------|----------|---------------|-------------------|
+| escape.c:251 | `(Iron_Ident *)ls->expr` -- expr may not be IDENT; expr_ident_name can return non-NULL from FIELD_ACCESS chain root | Cast to Ident when expr is FieldAccess; accesses id->resolved_sym through wrong type | H | Add explicit `ls->expr->kind == IRON_NODE_IDENT` check | null_deref_leak_ident.iron |
+| capture.c:377 | `iron_arena_alloc(...)` return not checked before use at line 380 | If arena OOM, arr is NULL and arr[i] dereferences NULL | M | Add NULL check | null_alloc_capture_arr.iron |
+| capture.c:416-417 | `iron_arena_alloc(...)` return not checked (spawn captures) | Same pattern as line 377 | M | Add NULL check | null_alloc_spawn_captures.iron |
+| capture.c:453-454 | `iron_arena_alloc(...)` return not checked (pfor captures) | Same pattern | M | Add NULL check | null_alloc_pfor_captures.iron |
+| concurrency.c:106 | `arrlen(ctx->spawn_writes) + arrlen(ctx->spawn_reads)` -- addition could overflow for extreme cases | Theoretical only; bounded by MAX_SPAWN_CAPTURES (64) | L | Already bounded | -- |
+| init_check.c:389 | `(Iron_MatchCase *)ms->cases[i]` -- cases[i] could be NULL | Should check for NULL before cast | L | Add `if (!ms->cases[i]) continue;` | null_match_case_init.iron |
+| iface_collect.c:23 | `decl->kind` accessed without NULL check on decl | decl from program->decls[i]; program loop doesn't skip NULL decls | M | Add `if (!decl) continue;` | null_iface_decl.iron |
+| iface_collect.c:40 | Same pattern -- decl accessed without NULL check in pass 2 | Same | M | Add NULL check | null_iface_decl.iron |
+
+---
+
+## Arena Lifetimes -- Analysis Passes (AUDIT-04 continued)
+
+| File:Line | Pattern | Risk | Severity | Suggested Fix | Regression Fixture |
+|-----------|--------|------|----------|---------------|-------------------|
+| escape.c:108,118 | HeapBinding stores arena-allocated HeapExpr pointer in stb_ds array | stb_ds array is heap-allocated; HeapExpr lives in arena. Array freed at line 416. Pointers valid as long as arena lives. Safe. | -- | OK | -- |
+| capture.c:394-396 | `shfree(locals); shfree(seen); arrfree(captures)` properly frees stb_ds temporaries | stb_ds maps and arrays freed after arena copy. Clean. | -- | OK | -- |
+| concurrency.c:441-443 | `arrfree(ctx.local_names); arrfree(ctx.spawn_writes); arrfree(ctx.spawn_reads)` | Properly freed. Clean. | -- | OK | -- |
+| iface_collect.c:18 | `sh_new_arena(reg.map)` -- uses stb_ds arena mode for map | stb_ds arena mode avoids per-entry malloc; but the arena is the stb_ds internal arena, not the Iron_Arena. The Iron_IfaceRegistry.arena field is stored but never used for map storage | L | Clarify naming; `reg.arena` is unused for map storage | -- |
+| iface_collect.c:55 | `arrput(reg.map[idx].value.impls, impl)` -- stb_ds array stores Iron_IfaceImpl values (not pointers) | The impls array is heap-allocated by stb_ds. Iron_ObjectDecl pointers stored in impl.decl come from the AST arena. Array never explicitly freed (registry is program-lifetime). | M | Registry map and impl arrays leak; add a cleanup function | arena_iface_registry_leak.iron |
+
+---
+
+## Integer Safety -- Analysis Passes (AUDIT-05 continued)
+
+| File:Line | Expression | Risk | Severity | Suggested Fix | Regression Fixture |
+|-----------|-----------|------|----------|---------------|-------------------|
+| escape.c:50 | `int n = arrlen(list)` -- arrlen returns ptrdiff_t, truncated to int | Practically safe for any realistic name list size | L | Use `ptrdiff_t n` | -- |
+| escape.c:59 | `int n = arrlen(ctx->heap_bindings)` -- same pattern | Same | L | Use ptrdiff_t | -- |
+| escape.c:347 | `int n = arrlen(ctx->heap_bindings)` -- same pattern | Same | L | Use ptrdiff_t | -- |
+| capture.c:375 | `int count = arrlen(captures)` -- same pattern | Same | L | Use ptrdiff_t | -- |
+| capture.c:414 | `int count = (int)arrlen(captures)` -- explicit cast | Explicit but same truncation risk | L | Use ptrdiff_t | -- |
+| concurrency.c:58 | `int n = arrlen(ctx->local_names)` -- same pattern | Same | L | Use ptrdiff_t | -- |
+| concurrency.c:99 | `#define MAX_SPAWN_CAPTURES 64` -- hard cap silently stops analysis | If a spawn body has >64 outer refs, analysis stops mid-body; no diagnostic | M | Emit warning when cap hit | int_safety_spawn_cap.iron |
+| init_check.c:23 | `#define MAX_UNINIT_VARS 256` -- hard cap silently truncates analysis | Functions with >256 uninitialized vars silently skip the 257th | M | Emit warning when cap hit | int_safety_uninit_cap.iron |
+| init_check.c:270-276 | `bool before[256]; bool snapshots[256]; bool branch_snap[256]` -- 768 bytes on stack per if/else | Deep nesting of if/else could cause stack overflow | M | Use arena allocation for snapshot buffers in deeply nested code | int_safety_stack_depth.iron |
+| iface_collect.c:142 | `return (int)shlen(reg->map)` -- shlen returns size_t, truncated to int | Practically safe (interface count << INT_MAX) | L | Use ptrdiff_t | -- |
+
+---
+
+## Allocation Error Handling -- Analysis Passes (AUDIT-06 continued)
+
+| File:Line | Allocation | Error Handled | Severity | Suggested Fix | Regression Fixture |
+|-----------|-----------|---------------|----------|---------------|-------------------|
+| capture.c:377-378 | `iron_arena_alloc(...)` for capture entry array | No -- used without NULL check | M | Add NULL check | alloc_error_capture_arr.iron |
+| capture.c:381 | `iron_arena_strdup(...)` for capture name | No -- used without NULL check | M | Add NULL check | alloc_error_capture_strdup.iron |
+| capture.c:416-417 | `iron_arena_alloc(...)` for spawn capture array | No -- used without NULL check | M | Add NULL check | alloc_error_spawn_cap.iron |
+| capture.c:453-454 | `iron_arena_alloc(...)` for pfor capture array | No -- used without NULL check | M | Add NULL check | alloc_error_pfor_cap.iron |
+| escape.c:71 | `iron_arena_strdup(...)` in emit_err | No -- used without NULL check (diagnostic message) | L | Non-critical; diagnostic may print garbage | -- |
+| concurrency.c:68 | `iron_arena_strdup(...)` in emit_err | No -- same pattern | L | Same | -- |
+| concurrency.c:74 | `iron_arena_strdup(...)` in emit_warn | No -- same pattern | L | Same | -- |
+| init_check.c:70 | `iron_arena_strdup(...)` in emit_uninit_error | No -- same pattern | L | Same | -- |
+| iface_collect.c:18 | `sh_new_arena(reg.map)` | No -- stb_ds may fail silently | L | Check map != NULL | alloc_error_iface_map.iron |
+
+---
+
+## Cross-Platform -- Analysis Passes (AUDIT-08 continued)
+
+All 5 analysis pass files (escape.c, capture.c, concurrency.c, init_check.c, iface_collect.c) are fully portable C99/C11 with no platform-specific code. No `__attribute__`, `__builtin_*`, POSIX-only headers, or `_GNU_SOURCE` directives found.
+
+---
+
+## Summary -- Analyzer
+
+| Dimension | High | Medium | Low | Total |
+|-----------|------|--------|-----|-------|
+| Blind Casts (AUDIT-01) | 7 | 16 | 31 | 54 |
+| Enum Switch Exhaustiveness (AUDIT-02) | 0 | 4 | 11 | 15 |
+| Null Safety (AUDIT-03) | 2 | 12 | 5 | 19 |
+| Arena Lifetimes (AUDIT-04) | 0 | 4 | 2 | 6 |
+| Integer Safety (AUDIT-05) | 0 | 5 | 14 | 19 |
+| Allocation Error Handling (AUDIT-06) | 0 | 35 | 5 | 40 |
+| Cross-Platform (AUDIT-08) | 0 | 0 | 0 | 0 |
+| **Total** | **9** | **76** | **68** | **153** |
+
+### High-Severity Issues (9)
+
+1. **typecheck.c:1360** -- `(Iron_ObjectDecl *)callee_sym->decl_node` when sym_kind==SYM_TYPE could be InterfaceDecl/EnumDecl
+2. **typecheck.c:1785** -- Same pattern as 1360 in CONSTRUCT handler
+3. **typecheck.c:3064** -- `(Iron_IntLit *)rs->value` accesses resolved_type via wrong concrete type (aliasing-unsafe)
+4. **resolve.c:236** -- `(Iron_ObjectDecl *)owner_sym->decl_node` fails for enum-typed methods using `super`
+5. **resolve.c:251** -- Same as resolve.c:236
+6. **resolve.c:674** -- In-place reinterpretation of EnumConstruct as MethodCallExpr (layout-dependent UB)
+7. **resolve.c:680** -- In-place reinterpretation of EnumConstruct as FieldAccess (layout-dependent UB)
+8. **typecheck.c:1360 (null)** -- decl_node can be NULL for builtin primitive type syms, causing null deref
+9. **escape.c:251** -- Cast to Iron_Ident when expr may be FieldAccess chain root
+
+### Key Observations
+
+- **typecheck.c** is the highest-risk file with 3,436 lines and the most unguarded casts and unchecked allocations
+- **resolve.c** contains the most dangerous pattern: in-place reinterpretation of AST nodes at lines 674/680
+- **types.c** and **scope.c** are clean -- all allocations properly checked
+- **capture.c** is well-structured with all switch-based casts guarded
+- **init_check.c** uses fixed-size stack buffers (256 vars, 768 bytes/if) that could stack-overflow on deeply nested code
+- **Allocation error handling** is the largest category (40 issues) -- nearly all arena allocs in typecheck.c lack NULL checks
+- **Cross-platform** is clean across all 10 files -- zero platform-specific code in the analyzer
