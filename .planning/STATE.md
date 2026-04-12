@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
 current_plan: —
-status: planning
-stopped_at: Completed 65-05-PLAN.md
-last_updated: "2026-04-12T15:12:34.573Z"
-last_activity: 2026-04-12 — Roadmap created with 6 phases (65-70), 35 requirements mapped
+status: phase-complete
+stopped_at: Completed 65-06-PLAN.md
+last_updated: "2026-04-12T15:21:20Z"
+last_activity: 2026-04-12 — Phase 65 complete (6/6 plans); CORRECTNESS-AUDIT.md and CROSS-PLATFORM-DEBT.md produced
 progress:
   total_phases: 32
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 43
-  completed_plans: 40
-  percent: 0
+  completed_plans: 41
+  percent: 95
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 65 of 70 (Correctness Audit) — not started
+Phase: 65 of 70 (Correctness Audit) — complete (6/6 plans)
 Current Plan: —
-Status: Ready to plan Phase 65
-Last activity: 2026-04-12 — Roadmap created with 6 phases (65-70), 35 requirements mapped
+Status: Phase 65 complete; ready for Phase 66
+Last activity: 2026-04-12 — Phase 65 complete; CORRECTNESS-AUDIT.md (955 findings, top-20 must-fix) and CROSS-PLATFORM-DEBT.md (41 findings) produced
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████████░] 95%
 
 ## Performance Metrics
 
@@ -87,6 +87,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 65-correctness-audit PP03 | 7min | 2 tasks | 1 files |
 | Phase 65-correctness-audit P04 | 7min | 2 tasks | 1 files |
 | Phase 65-correctness-audit PP05 | 8min | 2 tasks | 1 files |
+| Phase 65-correctness-audit P06 | 7min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 65-correctness-audit]: LIR audit totals: 4H, 42M, 84L = 130 findings across 15,818 lines in 11 files
 - [Phase 65-correctness-audit]: Runtime+stdlib audit: 123 findings (13H, 44M, 66L); top H: unchecked realloc in IRON_LIST/MAP _push/_put macros
 - [Phase 65-correctness-audit]: Infrastructure audit: 74 findings (8H, 13M, 53L); all 8H are cross-platform POSIX-only APIs (test_runner.c, diagnostics.c, iron_io.c, iron_log.c, iron_time.c)
+- [Phase 65-correctness-audit]: Consolidated audit: 955 findings (18H, 619M, 318L) across 6 dimensions; cross-platform separated into CROSS-PLATFORM-DEBT.md (41 findings)
+- [Phase 65-correctness-audit]: Top-20 must-fix ranked by blast radius; IRON_LIST _push and IRON_MAP _put ranked #1-2 (most exercised runtime paths)
 
 ### Roadmap Evolution
 
@@ -216,6 +219,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T15:12:27.936Z
-Stopped at: Completed 65-05-PLAN.md
+Last session: 2026-04-12T15:21:20Z
+Stopped at: Completed 65-06-PLAN.md (Phase 65 complete)
 Resume file: None
