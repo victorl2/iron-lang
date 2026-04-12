@@ -1061,7 +1061,7 @@ Phases execute in numeric order: 59 -> 65 -> 66 -> 67 -> 68 -> 69 -> 70 (60-64 p
 | 62. [paused] HTTP/1.1 Parser + Client | v0.2.0-alpha | 0/0 | Paused | - |
 | 63. [paused] HTTP Server | v0.2.0-alpha | 0/0 | Paused | - |
 | 64. [paused] WebSocket Client | v0.2.0-alpha | 0/0 | Paused | - |
-| 65. Correctness Audit | 2/6 | In Progress|  | - |
+| 65. Correctness Audit | 3/6 | In Progress|  | - |
 | 66. Structural Protections + Linux Release CI | v0.1.4-alpha | 0/0 | Not started | - |
 | 67. Correctness Fixes + Crash Canaries | v0.1.4-alpha | 0/0 | Not started | - |
 | 68. Fuzzing Infrastructure | v0.1.4-alpha | 0/0 | Not started | - |

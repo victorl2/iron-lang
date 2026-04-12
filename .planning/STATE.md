@@ -4,14 +4,14 @@ milestone: v0.0
 milestone_name: milestone
 current_plan: —
 status: planning
-stopped_at: Completed 65-02-PLAN.md
-last_updated: "2026-04-12T14:45:02.815Z"
+stopped_at: Completed 65-03-PLAN.md
+last_updated: "2026-04-12T14:53:58.812Z"
 last_activity: 2026-04-12 — Roadmap created with 6 phases (65-70), 35 requirements mapped
 progress:
   total_phases: 32
   completed_phases: 10
   total_plans: 43
-  completed_plans: 37
+  completed_plans: 38
   percent: 0
 ---
 
@@ -84,6 +84,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 59-net-foundation-windows-ci-url P06 | 21min | 1 tasks | 7 files |
 | Phase 65-correctness-audit P01 | 7min | 2 tasks | 1 files |
 | Phase 65-correctness-audit P02 | 12min | 2 tasks | 1 files |
+| Phase 65-correctness-audit PP03 | 7min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -184,6 +185,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 65-correctness-audit]: stb_ds-to-arena pointer storage classified as M (design tradeoff), allocation errors counted per call-site for accurate remediation scope
 - [Phase 65-correctness-audit]: typecheck.c:1360/1785 SYM_TYPE->ObjectDecl blind casts classified H because InterfaceDecl/EnumDecl decl_node silently misinterprets memory
 - [Phase 65-correctness-audit]: resolve.c:674/680 in-place node reinterpretation classified H -- layout-dependent UB; allocation error handling is largest category (40 M-severity issues)
+- [Phase 65-correctness-audit]: Iron_ExprNode common layout assumption in hir_lower.c:109 classified H -- locally-defined struct bypasses real type definitions
+- [Phase 65-correctness-audit]: comptime.c sys/stat.h and mkdir() classified H for cross-platform -- POSIX-only APIs break Windows
+- [Phase 65-correctness-audit]: collect_mono_enums_node switch incomplete (8 missing node kinds) classified M -- silently misses monomorphized enums
 
 ### Roadmap Evolution
 
@@ -205,6 +209,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T14:45:02.811Z
-Stopped at: Completed 65-02-PLAN.md
+Last session: 2026-04-12T14:53:58.809Z
+Stopped at: Completed 65-03-PLAN.md
 Resume file: None
