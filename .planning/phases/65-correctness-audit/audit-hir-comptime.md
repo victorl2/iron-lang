@@ -328,3 +328,188 @@ No current local struct typedef shadows found: **0 H-severity** for this specifi
 **Summary for AUDIT-08**: Only 1 GCC/Clang-specific attribute found. No POSIX-specific code, no platform-specific headers, no #ifdef guards needed. The HIR layer is highly portable.
 
 ---
+
+## Comptime Audit (src/comptime/)
+
+Files audited:
+- comptime.c (1253 lines) -- tree-walking AST interpreter + cache + AST replacement walker
+- comptime.h (103 lines) -- comptime value types, context, public API
+
+### 1. Blind Casts (AUDIT-01) -- Comptime
+
+#### comptime.c -- Expression Evaluator Casts
+
+| # | File | Line | Cast Expression | Guard | Severity | Suggested Fix |
+|---|------|------|-----------------|-------|----------|---------------|
+| 120 | comptime.c | 315 | `(Iron_IntLit *)node` | `node->kind == IRON_NODE_INT_LIT` | M | Guarded by switch |
+| 121 | comptime.c | 324 | `(Iron_FloatLit *)node` | `node->kind == IRON_NODE_FLOAT_LIT` | M | Guarded |
+| 122 | comptime.c | 333 | `(Iron_BoolLit *)node` | `node->kind == IRON_NODE_BOOL_LIT` | M | Guarded |
+| 123 | comptime.c | 338 | `(Iron_StringLit *)node` | `node->kind == IRON_NODE_STRING_LIT` | M | Guarded |
+| 124 | comptime.c | 350 | `(Iron_Ident *)node` | `node->kind == IRON_NODE_IDENT` | M | Guarded |
+| 125 | comptime.c | 362 | `(Iron_BinaryExpr *)node` | `node->kind == IRON_NODE_BINARY` | M | Guarded |
+| 126 | comptime.c | 468 | `(Iron_UnaryExpr *)node` | `node->kind == IRON_NODE_UNARY` | M | Guarded |
+| 127 | comptime.c | 491 | `(Iron_CallExpr *)node` | `node->kind == IRON_NODE_CALL` | M | Guarded |
+| 128 | comptime.c | 499 | `(Iron_Ident *)call->callee` | `call->callee->kind == IRON_NODE_IDENT` | M | Guarded by if-check |
+| 129 | comptime.c | 564 | `(Iron_FuncDecl *)sym->decl_node` | `sym->sym_kind == IRON_SYM_FUNCTION` | M | Guarded; extra `fn->kind` check at line 565 |
+| 130 | comptime.c | 600 | `(Iron_Param *)fn->params[i]` | Implicit | M | No runtime guard |
+| 131 | comptime.c | 635 | `(Iron_ArrayLit *)node` | `node->kind == IRON_NODE_ARRAY_LIT` | M | Guarded |
+| 132 | comptime.c | 652 | `(Iron_ConstructExpr *)node` | `node->kind == IRON_NODE_CONSTRUCT` | M | Guarded |
+| 133 | comptime.c | 668 | `(Iron_ObjectDecl *)sym->decl_node` | `sym->decl_node->kind == IRON_NODE_OBJECT_DECL` | M | Guarded |
+| 134 | comptime.c | 670 | `(Iron_Field *)od->fields[i]` | Implicit; bounded by `i < od->field_count` | M | No kind guard |
+| 135 | comptime.c | 702 | `(Iron_ComptimeExpr *)node` | `node->kind == IRON_NODE_COMPTIME` | M | Guarded |
+
+#### comptime.c -- Statement Evaluator Casts
+
+| # | File | Line | Cast Expression | Guard | Severity | Suggested Fix |
+|---|------|------|-----------------|-------|----------|---------------|
+| 136 | comptime.c | 727 | `(Iron_Block *)node` | `node->kind == IRON_NODE_BLOCK` | M | Guarded |
+| 137 | comptime.c | 735 | `(Iron_ValDecl *)node` | `node->kind == IRON_NODE_VAL_DECL` | M | Guarded |
+| 138 | comptime.c | 746 | `(Iron_VarDecl *)node` | `node->kind == IRON_NODE_VAR_DECL` | M | Guarded |
+| 139 | comptime.c | 757 | `(Iron_AssignStmt *)node` | `node->kind == IRON_NODE_ASSIGN` | M | Guarded |
+| 140 | comptime.c | 761 | `(Iron_Ident *)as->target` | `as->target->kind == IRON_NODE_IDENT` | M | Guarded |
+| 141 | comptime.c | 777 | `(Iron_ReturnStmt *)node` | `node->kind == IRON_NODE_RETURN` | M | Guarded |
+| 142 | comptime.c | 788 | `(Iron_IfStmt *)node` | `node->kind == IRON_NODE_IF` | M | Guarded |
+| 143 | comptime.c | 820 | `(Iron_WhileStmt *)node` | `node->kind == IRON_NODE_WHILE` | M | Guarded |
+| 144 | comptime.c | 842 | `(Iron_ForStmt *)node` | `node->kind == IRON_NODE_FOR` | M | Guarded |
+
+#### comptime.c -- AST Replacement Walker Casts
+
+| # | File | Line | Cast Expression | Guard | Severity | Suggested Fix |
+|---|------|------|-----------------|-------|----------|---------------|
+| 145 | comptime.c | 990 | `(Iron_ComptimeExpr *)node` | `node->kind == IRON_NODE_COMPTIME` | M | Guarded |
+| 146 | comptime.c | 1034 | `(Iron_Program *)node` | `node->kind == IRON_NODE_PROGRAM` | M | Guarded |
+| 147 | comptime.c | 1039 | `(Iron_FuncDecl *)node` | `node->kind == IRON_NODE_FUNC_DECL` | M | Guarded |
+| 148 | comptime.c | 1044 | `(Iron_MethodDecl *)node` | `node->kind == IRON_NODE_METHOD_DECL` | M | Guarded |
+| 149 | comptime.c | 1049 | `(Iron_Block *)node` | `node->kind == IRON_NODE_BLOCK` | M | Guarded |
+| 150 | comptime.c | 1054 | `(Iron_ValDecl *)node` | `node->kind == IRON_NODE_VAL_DECL` | M | Guarded |
+| 151 | comptime.c | 1059 | `(Iron_VarDecl *)node` | `node->kind == IRON_NODE_VAR_DECL` | M | Guarded |
+| 152 | comptime.c | 1064 | `(Iron_AssignStmt *)node` | `node->kind == IRON_NODE_ASSIGN` | M | Guarded |
+| 153 | comptime.c | 1069 | `(Iron_ReturnStmt *)node` | `node->kind == IRON_NODE_RETURN` | M | Guarded |
+| 154 | comptime.c | 1074 | `(Iron_IfStmt *)node` | `node->kind == IRON_NODE_IF` | M | Guarded |
+| 155 | comptime.c | 1083 | `(Iron_WhileStmt *)node` | `node->kind == IRON_NODE_WHILE` | M | Guarded |
+| 156 | comptime.c | 1089 | `(Iron_ForStmt *)node` | `node->kind == IRON_NODE_FOR` | M | Guarded |
+| 157 | comptime.c | 1095 | `(Iron_BinaryExpr *)node` | `node->kind == IRON_NODE_BINARY` | M | Guarded |
+| 158 | comptime.c | 1101 | `(Iron_UnaryExpr *)node` | `node->kind == IRON_NODE_UNARY` | M | Guarded |
+| 159 | comptime.c | 1106 | `(Iron_CallExpr *)node` | `node->kind == IRON_NODE_CALL` | M | Guarded |
+| 160 | comptime.c | 1112 | `(Iron_MethodCallExpr *)node` | `node->kind == IRON_NODE_METHOD_CALL` | M | Guarded |
+| 161 | comptime.c | 1118 | `(Iron_FieldAccess *)node` | `node->kind == IRON_NODE_FIELD_ACCESS` | M | Guarded |
+| 162 | comptime.c | 1123 | `(Iron_IndexExpr *)node` | `node->kind == IRON_NODE_INDEX` | M | Guarded |
+| 163 | comptime.c | 1129 | `(Iron_ArrayLit *)node` | `node->kind == IRON_NODE_ARRAY_LIT` | M | Guarded |
+| 164 | comptime.c | 1134 | `(Iron_HeapExpr *)node` | `node->kind == IRON_NODE_HEAP` | M | Guarded |
+| 165 | comptime.c | 1139 | `(Iron_RcExpr *)node` | `node->kind == IRON_NODE_RC` | M | Guarded |
+| 166 | comptime.c | 1144 | `(Iron_ConstructExpr *)node` | `node->kind == IRON_NODE_CONSTRUCT` | M | Guarded |
+| 167 | comptime.c | 1149 | `(Iron_DeferStmt *)node` | `node->kind == IRON_NODE_DEFER` | M | Guarded |
+| 168 | comptime.c | 1154 | `(Iron_FreeStmt *)node` | `node->kind == IRON_NODE_FREE` | M | Guarded |
+| 169 | comptime.c | 1159 | `(Iron_SpawnStmt *)node` | `node->kind == IRON_NODE_SPAWN` | M | Guarded |
+| 170 | comptime.c | 1164 | `(Iron_MatchStmt *)node` | `node->kind == IRON_NODE_MATCH` | M | Guarded |
+| 171 | comptime.c | 1171 | `(Iron_MatchCase *)node` | `node->kind == IRON_NODE_MATCH_CASE` | M | Guarded |
+| 172 | comptime.c | 1176 | `(Iron_AwaitExpr *)node` | `node->kind == IRON_NODE_AWAIT` | M | Guarded |
+| 173 | comptime.c | 1181 | `(Iron_LambdaExpr *)node` | `node->kind == IRON_NODE_LAMBDA` | M | Guarded |
+
+### 2. Enum Switch Exhaustiveness (AUDIT-02) -- Comptime
+
+| # | File | Line | Switch Over | Missing Cases | Severity | Suggested Fix |
+|---|------|------|-------------|---------------|----------|---------------|
+| 20 | comptime.c | 108 | `Iron_ComptimeValKind` (cache_read) | Missing: IRON_CVAL_ARRAY, IRON_CVAL_STRUCT (no serialization) | L | By design; documented at line 207 |
+| 21 | comptime.c | 192 | `Iron_ComptimeValKind` (cache_write) | Missing: IRON_CVAL_ARRAY, IRON_CVAL_STRUCT, IRON_CVAL_NULL | L | By design; complex types not cached |
+| 22 | comptime.c | 310 | `Iron_NodeKind` (eval_expr) | Handles 13 node kinds; `default` emits error for unsupported kinds. Missing: IRON_NODE_METHOD_CALL, IRON_NODE_FIELD_ACCESS, IRON_NODE_INDEX, IRON_NODE_SLICE, IRON_NODE_INTERP_STRING, IRON_NODE_LAMBDA, IRON_NODE_IS, IRON_NODE_MATCH, IRON_NODE_CAST | M | Emits error on hit -- safe but incomplete interpreter |
+| 23 | comptime.c | 397 | `Iron_OpKind` (int arithmetic) | Missing: bitwise ops (SHL, SHR, AMP, PIPE, CARET) | L | Falls through to unsupported-op error |
+| 24 | comptime.c | 430 | `Iron_OpKind` (float arithmetic) | Missing: modulo, bitwise | L | Falls through to error |
+| 25 | comptime.c | 724 | `Iron_NodeKind` (eval_stmt) | Handles 8 node kinds; `default` calls eval_expr | L | Intentional fallback |
+| 26 | comptime.c | 898 | `Iron_ComptimeValKind` (val_to_ast) | IRON_CVAL_STRUCT and IRON_CVAL_NULL return NULL -- cannot round-trip struct/null comptime values | M | Add STRUCT val-to-ast conversion |
+| 27 | comptime.c | 1031 | `Iron_NodeKind` (replace_in_node) | Handles 24 node kinds; `default` is leaf node -- exhaustive for all known node types with children | L | Exhaustive |
+
+### 3. Null Safety (AUDIT-03) -- Comptime
+
+| # | File | Line | Access Pattern | Guard | Severity | Suggested Fix |
+|---|------|------|----------------|-------|----------|---------------|
+| 18 | comptime.c | 28-32 | `cval_alloc` dereferences return of `iron_arena_alloc` without NULL check | **None** | M | arena_alloc may return NULL on OOM |
+| 19 | comptime.c | 494 | `call->callee->kind` -- no NULL check on `call->callee` | **None** | M | Add `if (!call->callee)` guard |
+| 20 | comptime.c | 557 | `iron_scope_lookup` result used without full NULL check | Checked `!sym` at line 558 | L | Safe |
+| 21 | comptime.c | 641-644 | `al->elements[i]` passed to eval_expr | No per-element NULL check | M | eval_expr handles NULL |
+| 22 | comptime.c | 678-680 | `ce->args[i]` passed to eval_expr | No per-element NULL check | L | eval_expr handles NULL |
+| 23 | comptime.c | 802 | `is->elif_conds[i]` | No NULL check | M | Depends on parser correctness |
+| 24 | comptime.c | 808 | `is->elif_bodies[i]` | No NULL check | M | Same |
+| 25 | comptime.c | 870 | `iterable->as_array.elems[i]` | Bounded by `count` but not NULL-checked | M | Add NULL guard |
+
+### 4. Arena Lifetimes (AUDIT-04) -- Comptime
+
+| # | File | Line | Pattern | Severity | Description | Suggested Fix |
+|---|------|------|---------|----------|-------------|---------------|
+| 11 | comptime.c | 264 | `iron_arena_strdup(arena, sb.data, sb.len)` then `iron_strbuf_free(&sb)` | L | Correctly copies data to arena before freeing strbuf |
+| 12 | comptime.c | 546 | `iron_arena_alloc(ctx->arena, ...)` for read_file buffer | L | Arena-allocated; owned by eval context |
+| 13 | comptime.c | 589 | `arrput(arg_vals, av)` -- stb_ds array of arena-allocated vals | L | arg_vals freed at line 603; values stay in arena |
+| 14 | comptime.c | 1242 | `replace_in_node((Iron_Node **)&program, &rctx)` | M | Modifies AST in place; replaced nodes become unreachable in arena but not freed (arena bump allocator). Benign memory waste but could grow on large codebases |
+
+### 5. Integer Safety (AUDIT-05) -- Comptime
+
+| # | File | Line | Pattern | Severity | Suggested Fix |
+|---|------|------|---------|----------|---------------|
+| 13 | comptime.c | 92 | `snprintf(cache_path, sizeof(cache_path), ...)` | L | Fixed 256 buffer; hash path always fits |
+| 14 | comptime.c | 106 | `(Iron_ComptimeValKind)kind_int` -- unchecked int-to-enum cast | M | `kind_int` read from untrusted cache file; could be out-of-range. Add bounds check |
+| 15 | comptime.c | 148 | `long str_len = ftell(f) - start` | M | ftell can return -1 on error; subtraction may produce large positive value. Check `ftell != -1` before using |
+| 16 | comptime.c | 203 | `(int)val->as_string.len` -- size_t to int truncation in fprintf | L | String length > INT_MAX would truncate printf output -- theoretical |
+| 17 | comptime.c | 318 | `strtoll(lit->value, NULL, 10)` | L | No overflow detection; INT64_MAX+1 wraps silently |
+| 18 | comptime.c | 398 | `lv->as_int + rv->as_int` | M | int64_t addition overflow is undefined in C (signed). Use overflow-safe arithmetic or wrap in checked_add |
+| 19 | comptime.c | 399 | `lv->as_int - rv->as_int` | M | Same |
+| 20 | comptime.c | 401 | `lv->as_int * rv->as_int` | M | Same -- multiplication overflow |
+| 21 | comptime.c | 474 | `-operand->as_int` | M | Negation of INT64_MIN is UB |
+| 22 | comptime.c | 520 | `snprintf(full_path, sizeof(full_path), "%s/%s", ...)` | L | Fixed 4096 buffer; very long paths truncated |
+| 23 | comptime.c | 849 | `int64_t i = 0; i < n` in for-range loop | L | Safe: loop count bounded by step_limit |
+
+### 6. Allocation Error Handling (AUDIT-06) -- Comptime
+
+| # | File | Line | Allocation | NULL check | Severity | Suggested Fix |
+|---|------|------|------------|------------|----------|---------------|
+| 84 | comptime.c | 28 | `iron_arena_alloc(...)` for cval_alloc | **None** | M | No OOM check |
+| 85 | comptime.c | 104 | `iron_arena_alloc(...)` for cache read val | **None** | M | Same |
+| 86 | comptime.c | 153 | `iron_arena_alloc(...)` for cache string | **None** | M | Same |
+| 87 | comptime.c | 546 | `iron_arena_alloc(...)` for read_file buf | **None** | M | Same |
+| 88 | comptime.c | 638 | `iron_arena_alloc(...)` for array elems | **None** | M | Same |
+| 89 | comptime.c | 656 | `iron_arena_alloc(...)` for struct field_names | **None** | M | Same |
+| 90 | comptime.c | 659 | `iron_arena_alloc(...)` for struct field_vals | **None** | M | Same |
+| 91 | comptime.c | 901 | `iron_arena_alloc(...)` for IntLit in val_to_ast | **None** | M | Same |
+| 92 | comptime.c | 914 | `iron_arena_alloc(...)` for FloatLit | **None** | M | Same |
+| 93 | comptime.c | 926 | `iron_arena_alloc(...)` for BoolLit | **None** | M | Same |
+| 94 | comptime.c | 936 | `iron_arena_alloc(...)` for StringLit | **None** | M | Same |
+| 95 | comptime.c | 947 | `iron_arena_alloc(...)` for ArrayLit | **None** | M | Same |
+| 96 | comptime.c | 955 | `iron_arena_alloc(...)` for array elements | **None** | M | Same |
+| 97-99 | comptime.c | various | stb_ds arrput/shput calls | **None** | M | Same systemic issue |
+
+### 7. Cross-Platform (AUDIT-08) -- Comptime
+
+| # | File | Line | Pattern | Severity | Suggested Fix |
+|---|------|------|---------|----------|---------------|
+| 3 | comptime.c | 22 | `#include <sys/stat.h>` | **H** | POSIX-only header; used for `mkdir()` at lines 180-181. Windows requires `<direct.h>` and `_mkdir()` |
+| 4 | comptime.c | 180 | `mkdir(".iron-build", 0755)` | **H** | `mkdir()` with mode is POSIX-only. Windows `_mkdir()` takes no mode argument. Add `#ifdef _WIN32` guard with `_mkdir` fallback |
+| 5 | comptime.c | 181 | `mkdir(".iron-build/comptime", 0755)` | **H** | Same issue |
+| 6 | comptime.c | 95 | `fopen(cache_path, "r")` / line 189 `fopen(..., "w")` | L | POSIX-style paths with `/` separator. On Windows, fopen accepts `/` so this is safe |
+
+---
+
+## Summary -- HIR + Comptime
+
+| Dimension | High | Medium | Low | Total |
+|-----------|------|--------|-----|-------|
+| Blind Casts | 1 | 171 | 2 | 174 |
+| Enum Switch Exhaustiveness | 0 | 7 | 20 | 27 |
+| Null Safety | 0 | 13 | 12 | 25 |
+| Arena Lifetimes | 0 | 5 | 9 | 14 |
+| Integer Safety | 0 | 9 | 14 | 23 |
+| Allocation Error Handling | 0 | 99 | 1 | 100 |
+| Cross-Platform | 3 | 0 | 3 | 6 |
+| **Total** | **4** | **304** | **61** | **369** |
+
+### Key Takeaways
+
+1. **hir_to_lir.c is the highest-risk file** -- site of the SIGSEGV incident. The local struct typedef bug pattern is now fixed but the file contains 27 blind casts in the AST walker alone. The `collect_mono_enums_node` switch is incomplete (8 missing node kinds).
+
+2. **Iron_ExprNode common layout assumption** (hir_lower.c:109) is the only H-severity blind cast in HIR -- a locally-defined struct guessing the prefix layout of all AST nodes.
+
+3. **comptime.c has 3 H-severity cross-platform findings** -- `<sys/stat.h>` and `mkdir()` with POSIX mode bits will fail to compile on Windows MSVC.
+
+4. **Allocation error handling is the largest category** (100 findings, all M) -- systemic across all files. The arena allocator does not return NULL on OOM by design.
+
+5. **Integer safety in comptime** -- signed integer overflow in arithmetic operations (comptime.c:398-401) is undefined behavior in C. The comptime evaluator should use overflow-safe wrappers.
+
+6. **No local struct typedef shadows remain** -- the exact pattern that caused the SIGSEGV is fully eliminated.
