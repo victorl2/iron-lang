@@ -23,7 +23,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - [x] **Phase 7: build_web.c emcc Orchestration** - Construct argv, find emcc, mkdir_p, forbidden-flag guard, Windows deferred (completed 2026-04-11)
 - [x] **Phase 8: Raylib Web Integration (Amalgamation)** - Compile `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB` through emcc (completed 2026-04-11)
 - [x] **Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)** - COOP/COEP preflight, audio resume listener, webglcontextlost handler (completed 2026-04-12)
-- [ ] **Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)** - `--preload-file` mapping + analyzer error for top-level `LoadTexture`
+- [x] **Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)** - `--preload-file` mapping + analyzer error for top-level `LoadTexture` (completed 2026-04-11)
 - [ ] **Phase 11: dist/web/ Output Layout** - Predictable `index.{html,js,wasm,data}` drop-to-itch.io output folder
 - [ ] **Phase 12: Pong Reference Game + Validation** - End-to-end Pong proof exercising render, input, audio, captures
 - [ ] **Phase 13: Integration Tests + Full Regression** - CLI/TOML/loop-split/shell/asset/analyzer tests, size budget, Windows CI, 333 native tests green
@@ -173,9 +173,9 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   3. Asset directory paths in `iron.toml` resolve relative to the `iron.toml` file's directory, not the shell's current working directory; a user invoking `iron build` from a subdirectory still gets correct asset mounting.
   4. A project with no `assets` directory produces a warning (not an error) and still builds successfully (asset-free games are supported).
 **Plans**: 3 plans
-- [ ] 10-plan-01-toml-dir-field-PLAN.md — Add toml_dir field to IronProject populated by iron_toml_parse (WEB-ASSET-04 groundwork)
-- [ ] 10-plan-02-asset-preload-argv-PLAN.md — Wire cfg->assets into iron_build_web_link via --preload-file with stat check + missing-dir warning + hello_raylib_assets CI fixture (WEB-ASSET-01/02/04/05)
-- [ ] 10-plan-03-top-level-loader-check-PLAN.md — New analyzer pass banning top-level LoadTexture/LoadSound/LoadFont/LoadModel on web + unit test + pipeline registration (WEB-ASSET-03)
+- [x] 10-plan-01-toml-dir-field-PLAN.md — Add toml_dir field to IronProject populated by iron_toml_parse (WEB-ASSET-04 groundwork)
+- [x] 10-plan-02-asset-preload-argv-PLAN.md — Wire cfg->assets into iron_build_web_link via --preload-file with stat check + missing-dir warning + hello_raylib_assets CI fixture (WEB-ASSET-01/02/04/05)
+- [x] 10-plan-03-top-level-loader-check-PLAN.md — New analyzer pass banning top-level LoadTexture/LoadSound/LoadFont/LoadModel on web + unit test + pipeline registration (WEB-ASSET-03)
 
 ### Phase 11: dist/web/ Output Layout
 **Goal**: Every web build lands in a predictable `dist/web/` folder with stable filenames (`index.html`, `index.js`, `index.wasm`, optional `index.data`, optional `index.wasm.map`) so users can drag-and-drop the folder to itch.io, Netlify, or Cloudflare Pages.
@@ -241,7 +241,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 7. build_web.c emcc Orchestration | 3/4 | In Progress|  |
 | 8. Raylib Web Integration | 2/2 | Complete   | 2026-04-12 |
 | 9. Shell + Audio Autoplay | 2/2 | Complete   | 2026-04-12 |
-| 10. Asset Preload + Guard | 1/3 | In Progress|  |
+| 10. Asset Preload + Guard | 3/3 | Complete   | 2026-04-11 |
 | 11. dist/web/ Output Layout | 0/TBD | Not started | - |
 | 12. Pong Reference Game | 0/TBD | Not started | - |
 | 13. Integration Tests + Regression | 0/TBD | Not started | - |

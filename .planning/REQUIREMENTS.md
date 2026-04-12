@@ -70,11 +70,11 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 
 ### Assets (WEB-ASSET)
 
-- [ ] **WEB-ASSET-01**: `[web].assets = "assets/"` produces `--preload-file assets@assets`, mounting the directory at `/assets` in MEMFS
-- [ ] **WEB-ASSET-02**: `LoadTexture("assets/foo.png")` in Iron code resolves identically on native and web
-- [ ] **WEB-ASSET-03**: Analyzer emits an error if `LoadTexture`, `LoadSound`, `LoadFont`, or `LoadModel` is called at module-level (top-level) when target is web (would race with async `--preload-file`)
+- [x] **WEB-ASSET-01**: `[web].assets = "assets/"` produces `--preload-file assets@assets`, mounting the directory at `/assets` in MEMFS
+- [x] **WEB-ASSET-02**: `LoadTexture("assets/foo.png")` in Iron code resolves identically on native and web
+- [x] **WEB-ASSET-03**: Analyzer emits an error if `LoadTexture`, `LoadSound`, `LoadFont`, or `LoadModel` is called at module-level (top-level) when target is web (would race with async `--preload-file`)
 - [x] **WEB-ASSET-04**: Asset directory path is resolved relative to `iron.toml`'s directory, not cwd
-- [ ] **WEB-ASSET-05**: Missing `assets` directory in `iron.toml` produces a warning but does not fail the build (games can be asset-free)
+- [x] **WEB-ASSET-05**: Missing `assets` directory in `iron.toml` produces a warning but does not fail the build (games can be asset-free)
 
 ### Shell Template (WEB-SHELL)
 
@@ -233,11 +233,11 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-BUILD-06 | Phase 7 — build_web.c emcc Orchestration | Complete |
 | WEB-BUILD-07 | Phase 7 — build_web.c emcc Orchestration | Complete |
 | WEB-BUILD-08 | Phase 7 — build_web.c emcc Orchestration | Complete |
-| WEB-ASSET-01 | Phase 10 — Asset Preload + Loader Guard | Pending |
-| WEB-ASSET-02 | Phase 10 — Asset Preload + Loader Guard | Pending |
-| WEB-ASSET-03 | Phase 10 — Asset Preload + Loader Guard | Pending |
+| WEB-ASSET-01 | Phase 10 — Asset Preload + Loader Guard | Complete |
+| WEB-ASSET-02 | Phase 10 — Asset Preload + Loader Guard | Complete |
+| WEB-ASSET-03 | Phase 10 — Asset Preload + Loader Guard | Complete |
 | WEB-ASSET-04 | Phase 10 — Asset Preload + Loader Guard | Complete |
-| WEB-ASSET-05 | Phase 10 — Asset Preload + Loader Guard | Pending |
+| WEB-ASSET-05 | Phase 10 — Asset Preload + Loader Guard | Complete |
 | WEB-SHELL-01 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-01) |
 | WEB-SHELL-02 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-01) |
 | WEB-SHELL-03 | Phase 9 — Shell Template + Audio Unlock | Complete (09-plan-01) |
