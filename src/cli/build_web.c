@@ -803,11 +803,19 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
             const char *rel = cfg->assets[ai];
             if (!rel || !*rel) continue;
 
-            /* Resolve: <toml_dir>/<rel> */
+            /* Resolve: <toml_dir>/<rel>, then strip any trailing slash(es)
+             * so the final --preload-file mapping is `<abs>@/<mount>` and
+             * not `<abs>/@/<mount>` when the user wrote "assets/" with a
+             * trailing slash in iron.toml. emcc accepts both forms but the
+             * CI smoke asserts the canonical "assets@/assets" shape. */
             size_t need = strlen(eff_toml_dir) + 1 + strlen(rel) + 1;
             char *abs = (char *)malloc(need);
             if (!abs) continue;
             snprintf(abs, need, "%s/%s", eff_toml_dir, rel);
+            size_t abs_len = strlen(abs);
+            while (abs_len > 1 && abs[abs_len - 1] == '/') {
+                abs[--abs_len] = '\0';
+            }
 
             /* stat + is-directory check (WEB-ASSET-05 missing-dir warning) */
             struct stat st;
