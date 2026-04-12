@@ -158,7 +158,9 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   3. A user loads Pong in Chrome, Firefox, or Safari and on the very first paddle hit (first user gesture is a keydown or pointerdown) hears the paddle sound effect; subsequent hits continue to play audio normally. The one-shot listener removes itself after first activation.
   4. A user who points `[web].shell` at a custom HTML file missing `{{{ SCRIPT }}}` gets a clear build error at validation time naming the missing token.
   5. The build does NOT compile miniaudio with `MA_ENABLE_AUDIO_WORKLETS`.
-**Plans**: TBD
+**Plans**: 2 plans
+- [x] 09-plan-01-web-shell-template-header-PLAN.md — New src/cli/web_shell_template.h header embedding the default shell HTML as a C string literal derived from minshell.html with COOP/COEP preflight + audio unlock + webglcontextlost + canvas + {{{ SCRIPT }}} patches (WEB-SHELL-01/02/03/04/05/07)
+- [ ] 09-plan-02-build-web-shell-file-wiring-and-ci-smoke-PLAN.md — Wire iron_build_web_link to materialize the default shell via mkstemp + validate custom [web].shell contains {{{ SCRIPT }}} + emit --shell-file argv + extend web.yml CI grep assertions + mark Phase 9 complete (WEB-SHELL-06)
 
 ### Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)
 **Goal**: Iron games can declare their `assets/` directory once in `iron.toml` and use the same `LoadTexture("assets/foo.png")` code on native and web, while a compile-time analyzer error prevents the race between `--preload-file` MEMFS mounting and static initializers.
