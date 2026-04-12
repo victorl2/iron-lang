@@ -222,14 +222,35 @@ jobs:
           # Clear any stale output directory from the Phase 7 run above
           rm -rf dist/web
 
-          # Run the real emcc link with raylib amalgamation via ironc
-          ./build/ironc build --target=web tests/integration/web/hello_raylib.iron
+          # Run the real emcc link via ironc with --verbose so the emcc argv
+          # is captured. The grep assertions below enforce the per-source
+          # compilation pattern from the raylib-amalgamation-removal fix.
+          ./build/ironc build --target=web --verbose \
+            tests/integration/web/hello_raylib.iron \
+            > /tmp/phase8_build.log 2>&1 \
+            || { echo "FAIL: ironc build exited non-zero"; cat /tmp/phase8_build.log; exit 1; }
 
           # Assert the three output artifacts exist and are non-empty
-          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
-          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
-          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
-          echo "OK: Phase 8 end-to-end — dist/web/index.{html,js,wasm} all present and non-empty (raylib)"
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; cat /tmp/phase8_build.log; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; cat /tmp/phase8_build.log; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; cat /tmp/phase8_build.log; exit 1; }
+
+          # Regression guard: raylib must be passed to emcc as 7 individual
+          # sources, NOT as the old `raylib.c` amalgamation driver. The
+          # amalgamation pattern broke the build when rlgl.h's implementation
+          # block re-emitted in a second re-include within the same TU.
+          # Native builds already compile each raylib source as its own TU
+          # (see build.c:636+); the web path now does the same.
+          for rl in rcore rshapes rtextures rtext rmodels raudio utils; do
+            grep -qE "vendor/raylib/${rl}\.c\b" /tmp/phase8_build.log \
+              || { echo "FAIL: raylib source ${rl}.c not in emcc argv — per-source compilation regressed"; cat /tmp/phase8_build.log; exit 1; }
+          done
+          if grep -qE "vendor/raylib/raylib\.c\b" /tmp/phase8_build.log; then
+            echo "FAIL: raylib.c amalgamation driver reappeared in emcc argv — reintroduces the rlgl.h redefinition bug class"
+            cat /tmp/phase8_build.log
+            exit 1
+          fi
+          echo "OK: Phase 8 end-to-end — dist/web/index.{html,js,wasm} present + raylib compiled per-source (no amalgamation)"
 
       - name: Shell-patch assertions — verify Phase 9 patches land in generated index.html (WEB-SHELL-01..07)
         run: |
