@@ -174,3 +174,102 @@ Files audited:
 
 ---
 
+## LIR Core Files -- Additional Findings
+
+The following findings supplement the per-dimension tables above with items specific to the non-emit LIR core files: lir.c, lir_optimize.c, layout_analysis.c, value_range.c, verify.c, and print.c.
+
+### Blind Casts -- LIR Core
+
+| # | File:Line | Cast | Guard | Severity | Suggested Fix | Regression Fixture |
+|---|-----------|------|-------|----------|---------------|-------------------|
+| 19 | lir_optimize.c:186-187 | Phi in-place to LOAD: `phi->kind = IRON_LIR_LOAD; phi->load.ptr = alloca_id` | Relies on union member overlap between `phi` and `load` | M | The IronLIR_Instr union stores phi and load data in separate members. Rewriting kind + member works because alloc_instr memset(0) the entire union, but this is fragile if union layout changes. Add static_assert(sizeof(phi) >= sizeof(load)) | blind_cast_phi_rewrite |
+| 20 | lir_optimize.c:447-448 | `(Iron_EnumVariant *)ed->variants[vi]` in collect_mono_enums | Guarded by loop bound and ed->variants non-NULL | M | Same void* cast pattern as emit files | blind_cast_mono_enum |
+| 21 | layout_analysis.c:153-154 | `collect_self_fields` accesses `fn->params` without bounds check | Guarded by `fn->param_count >= 1` at call site | L | Safe -- param_count check is sufficient | blind_cast_layout_self |
+| 22 | verify.c:186-194 | SPAWN instruction accesses `instr->spawn.pool_val` and PARALLEL_FOR `instr->parallel_for.*` | Guarded by case label in switch | L | Standard tagged-union pattern | blind_cast_verify_spawn |
+| 23 | print.c:492-516 | PARALLEL_FOR accesses multiple sub-fields | Guarded by case label | L | Standard tagged-union pattern | blind_cast_print_pfor |
+
+### Enum Switch Exhaustiveness -- LIR Core
+
+| # | File:Line | Switch Subject | Missing Cases | Severity | Suggested Fix | Regression Fixture |
+|---|-----------|---------------|---------------|----------|---------------|-------------------|
+| 11 | lir_optimize.c:435-470 | collect_mono_enums_node switch over node kinds | Missing: 8 AST node kinds (ENUM_DECL, IMPORT_STMT, etc.) documented in STATE.md | M | Already tracked as known issue in Phase 65 STATE.md decisions. Silently misses monomorphized enums from uncovered node kinds | optimize_mono_enum_switch |
+| 12 | lir_optimize.c:803-900 | strength_reduction switch | Handles ADD, SUB, MUL, DIV, MOD. Missing: all others | L | Intentional -- only arithmetic ops can be strength-reduced. Others fall to default:break | optimize_strength_switch |
+
+### Null Safety -- LIR Core
+
+| # | File:Line | Dereference | Null Check | Severity | Suggested Fix | Regression Fixture |
+|---|-----------|-------------|-----------|----------|---------------|-------------------|
+| 22 | lir_optimize.c:30-34 | `find_block` returns NULL if block not found | Callers at lines 137,174 check `if (!pred) continue` | L | Correctly handled | null_find_block |
+| 23 | lir_optimize.c:225-231 | `find_ir_func` returns NULL if not found | Callers check return value | L | Safe | null_find_ir_func |
+| 24 | layout_analysis.c:64-66 | `hmgeti(split_ids, array_vid)` result checked | Correctly returns -1 if not found | L | Safe | null_layout_split |
+| 25 | value_range.c:107-112 | `lookup_range` returns RANGE_TOP if vid not in map | Safe default for unknown values | L | Correctly handles missing entries | null_vr_lookup |
+| 26 | verify.c:11-16 | `block_id_valid` iterates fn->blocks | Returns false for BLOCK_INVALID | L | Safe | null_verify_block |
+| 27 | print.c:13-21 | `resolve_block_label` returns "<invalid>" for unknown IDs | Safe default | L | Safe | null_print_label |
+
+### Arena Lifetimes -- LIR Core
+
+| # | File:Line | Pattern | Severity | Suggested Fix | Regression Fixture |
+|---|-----------|---------|----------|---------------|-------------------|
+| 13 | lir_optimize.c:596 | `fusible_calls` stb_ds array (per-function prescan) | Freed at end of block scope | L | Correctly scoped | arena_fusible_calls |
+| 14 | layout_analysis.c:52-56 | `value_to_split` and `alloca_to_split` hashmaps | Both freed at lines 134-135 | L | Correctly freed | arena_layout_maps |
+| 15 | layout_analysis.c:162-163 | `self_vids` and `seen` hashmaps in collect_self_fields | Freed at lines 215-216 | L | Correctly freed | arena_self_fields |
+
+### Integer Safety -- LIR Core
+
+| # | File:Line | Operation | Severity | Suggested Fix | Regression Fixture |
+|---|-----------|-----------|----------|---------------|-------------------|
+| 14 | lir_optimize.c:201-211 | `make_param_mode_key` snprintf into 16-byte buffer for param index | L | param_index is small integer. 16 bytes sufficient for "%d" of any int32 | int_param_mode_key |
+| 15 | layout_analysis.c:272-273 | `snprintf(prefix, sizeof(prefix), "%s_", lower_type)` with 512-byte buffer | L | lower_type is 256 bytes max, prefix is 512. Safe | int_layout_prefix |
+| 16 | value_range.c:222-276 | `narrow_from_comparison` uses `const_val - 1` and `const_val + 1` | M | If const_val is INT64_MIN, `const_val - 1` wraps. If INT64_MAX, `const_val + 1` wraps. Add overflow guards | int_vr_narrow_wrap |
+| 17 | lir.c:17-21 | `fn->next_value_id++` in alloc_instr | L | value_id is uint32_t. Would overflow after ~4 billion instructions per function. Not realistic | int_lir_value_id |
+
+### Allocation Error Handling -- LIR Core
+
+| # | File:Line | Allocation | Error Check | Severity | Suggested Fix | Regression Fixture |
+|---|-----------|------------|-------------|----------|---------------|-------------------|
+| 18 | lir.c:19-21 | `arrput(fn->value_table, NULL)` to grow value_table | stb_ds realloc -- no OOM check | M | Standard stb_ds concern | alloc_lir_value_table |
+| 19 | lir.c:27-28 | `arrput(block->instrs, instr)` to grow instruction array | Same stb_ds concern | M | Same fix needed | alloc_lir_instrs |
+| 20 | lir_optimize.c:51-53 | `arrput(block->instrs, NULL)` in insert_store_before_terminator | stb_ds concern | M | Same | alloc_optimize_insert |
+| 21 | lir_optimize.c:110 | `arrput(phis, instr)` in phi_eliminate | stb_ds concern | M | Same | alloc_optimize_phis |
+| 22 | layout_analysis.c:66 | `hmput(value_to_split, ...)` | stb_ds concern | M | Same | alloc_layout_hmput |
+| 23 | value_range.c:156-173 | `hmput` in record_block_entry_range | stb_ds concern | M | Same | alloc_vr_block_range |
+
+### Cross-Platform -- LIR Core
+
+| # | File:Line | Assumption | Severity | Suggested Fix | Regression Fixture |
+|---|-----------|-----------|----------|---------------|-------------------|
+| 11 | value_range.c:69-90 | `__builtin_add_overflow` etc. are GCC/Clang-only | M | Already documented in emit section (#9). Need MSVC fallback | xplat_vr_builtins |
+| 12 | lir_optimize.c:254 | `for (int iteration = 0; iteration < 8; iteration++)` fixpoint limit | L | Platform-independent. 8 iterations is a hardcoded heuristic, not a portability concern | xplat_fixpoint_limit |
+| 13 | print.c:29-30 | `iron_type_to_string(type, tmp)` for display | L | Uses internal arena -- platform-independent | xplat_print_type |
+
+---
+
+## Summary -- LIR
+
+| Dimension | High | Medium | Low | Total |
+|-----------|------|--------|-----|-------|
+| Blind Casts | 0 | 10 | 13 | 23 |
+| Enum Switch Exhaustiveness | 0 | 3 | 9 | 12 |
+| Null Safety | 2 | 7 | 18 | 27 |
+| Arena Lifetimes | 0 | 2 | 13 | 15 |
+| Integer Safety | 0 | 1 | 16 | 17 |
+| Allocation Error Handling | 2 | 13 | 8 | 23 |
+| Cross-Platform | 0 | 6 | 7 | 13 |
+| **Total** | **4** | **42** | **84** | **130** |
+
+### High-Severity Findings (4)
+
+1. **emit_c.c:3082-3085 (Null Safety + Allocation)**: Generated HEAP_ALLOC C code does `malloc(sizeof(T))` then immediately dereferences `*_vN = val` without NULL check. Segfault on OOM in user programs.
+2. **emit_c.c:3108-3109 (Null Safety + Allocation)**: Same pattern for RC_ALLOC -- malloc without NULL check in generated code.
+3. **emit_c.c:3085 (Allocation)**: Duplicate of #1 from allocation dimension.
+4. **emit_c.c:3109 (Allocation)**: Duplicate of #2 from allocation dimension.
+
+*Note: The H-severity findings are 2 unique issues each counted in both Null Safety and Allocation Error Handling dimensions.*
+
+### Key Observations
+
+- **emit_c.c is the largest file (6600 lines) but is well-structured**: The main `emit_instr` switch is fully exhaustive over all 44 IronLIR_OpKind values.
+- **verify.c and print.c are fully exhaustive**: Both handle all instruction kinds in their switches.
+- **stb_ds allocation failures are the dominant M-severity pattern**: 13 of 42 medium findings are stb_ds OOM paths. This is a project-wide design tradeoff (also noted in audit-parser-lexer.md and audit-analyzer.md).
+- **void* cast patterns (Iron_Field, Iron_TypeAnnotation, Iron_EnumVariant)**: 6 sites cast from void* arrays using only the loop index as guard. These are correct given the AST/type design but fragile if field types change.
+- **value_range.c has the best integer safety discipline**: All arithmetic uses `__builtin_*_overflow` intrinsics. One edge case remains in `narrow_from_comparison` where `const_val +/- 1` can wrap at INT64 boundaries.
