@@ -172,7 +172,10 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   2. An Iron program calling `LoadTexture`, `LoadSound`, `LoadFont`, or `LoadModel` at module-level (outside any function body) produces a clear analyzer error naming the offending call and the required fix (move inside a function) when built with `--target=web`; the same program builds cleanly for `--target=native`.
   3. Asset directory paths in `iron.toml` resolve relative to the `iron.toml` file's directory, not the shell's current working directory; a user invoking `iron build` from a subdirectory still gets correct asset mounting.
   4. A project with no `assets` directory produces a warning (not an error) and still builds successfully (asset-free games are supported).
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 10-plan-01-toml-dir-field-PLAN.md — Add toml_dir field to IronProject populated by iron_toml_parse (WEB-ASSET-04 groundwork)
+- [ ] 10-plan-02-asset-preload-argv-PLAN.md — Wire cfg->assets into iron_build_web_link via --preload-file with stat check + missing-dir warning + hello_raylib_assets CI fixture (WEB-ASSET-01/02/04/05)
+- [ ] 10-plan-03-top-level-loader-check-PLAN.md — New analyzer pass banning top-level LoadTexture/LoadSound/LoadFont/LoadModel on web + unit test + pipeline registration (WEB-ASSET-03)
 
 ### Phase 11: dist/web/ Output Layout
 **Goal**: Every web build lands in a predictable `dist/web/` folder with stable filenames (`index.html`, `index.js`, `index.wasm`, optional `index.data`, optional `index.wasm.map`) so users can drag-and-drop the folder to itch.io, Netlify, or Cloudflare Pages.
