@@ -409,7 +409,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     }
 
     if (opts.use_raylib) {
-        *rl_src_out = make_path(base_dir, "vendor/raylib/raylib.c");
+        /* Sentinel path — invoke_clang's raylib pre-compile loop (line 644+)
+         * builds its own raylib source list and never reads this path. It
+         * only checks `rl_src != NULL` to decide whether raylib is enabled.
+         * Points at rcore.c (a real raylib source that always exists) rather
+         * than the now-deleted raylib.c amalgamation driver. */
+        *rl_src_out = make_path(base_dir, "vendor/raylib/rcore.c");
         size_t rl_i_len = strlen("-I") + strlen(base_dir) + strlen("/vendor/raylib") + 1;
         char *rl_i_flag = (char *)malloc(rl_i_len);
         if (!rl_i_flag) return 1;
