@@ -356,6 +356,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **sl_net_out,
                            IronBuildOpts opts,
                            char **rl_src_out, char **rl_i_flag_out,
+                           char **rl_glfw_src_out, char **rl_glfw_i_flag_out,
                            char **base_dir_out) {
     /* Resolve runtime base directory at runtime */
     char *base_dir = get_iron_lib_dir();
@@ -414,6 +415,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         if (!rl_i_flag) return 1;
         snprintf(rl_i_flag, rl_i_len, "-I%s/vendor/raylib", base_dir);
         *rl_i_flag_out = rl_i_flag;
+
+        *rl_glfw_src_out = make_path(base_dir, "vendor/raylib/rglfw.c");
+        size_t glfw_i_len = strlen("-I") + strlen(base_dir) + strlen("/vendor/raylib/external/glfw/include") + 1;
+        char *glfw_i_flag = (char *)malloc(glfw_i_len);
+        if (!glfw_i_flag) return 1;
+        snprintf(glfw_i_flag, glfw_i_len, "-I%s/vendor/raylib/external/glfw/include", base_dir);
+        *rl_glfw_i_flag_out = glfw_i_flag;
     }
 
     int ai = 0;
@@ -487,10 +495,15 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "-lpthread";
 #endif
 
-    /* Raylib-specific args */
+    /* Raylib-specific args. The source files are compiled individually as
+     * separate .o files in a pre-step (see invoke_clang) because rlgl.h/glad.h
+     * lack proper include guards for their implementation sections.
+     * Only flags (include paths, frameworks, libs) go in the main argv — no
+     * raylib .c files here. The pre-compiled .o paths are added to argv in
+     * invoke_clang after the pre-step completes. */
     if (opts.use_raylib && *rl_src_out) {
-        argv_buf[ai++] = *rl_src_out;
         argv_buf[ai++] = *rl_i_flag_out;
+        argv_buf[ai++] = *rl_glfw_i_flag_out;
         argv_buf[ai++] = "-DPLATFORM_DESKTOP";
 #ifdef __APPLE__
         argv_buf[ai++] = "-framework";
@@ -521,7 +534,8 @@ static void free_src_list(char *base_dir,
                            char *rt_netinit,
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *sl_hint, char *sl_net,
-                           char *rl_src, char *rl_i_flag) {
+                           char *rl_src, char *rl_i_flag,
+                           char *rl_glfw_src, char *rl_glfw_i_flag) {
     free(base_dir);
     free(src_i_flag); free(vendor_i_flag); free(stdlib_i_flag);
     free(rt_stb); free(rt_arena); free(rt_strbuf);
@@ -532,6 +546,7 @@ static void free_src_list(char *base_dir,
     free(sl_hint);
     free(sl_net);
     free(rl_src); free(rl_i_flag);
+    free(rl_glfw_src); free(rl_glfw_i_flag);
 }
 
 static int invoke_clang(const char *c_file, const char *output,
@@ -546,6 +561,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *sl_hint = NULL, *sl_net = NULL;
     char *rl_src = NULL, *rl_i_flag = NULL;
+    char *rl_glfw_src = NULL, *rl_glfw_i_flag = NULL;
 
     const char *argv_buf[128];
     _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 128,
@@ -559,13 +575,15 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_threads, &rt_collect, &rt_netinit,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        &sl_hint, &sl_net,
-                       opts, &rl_src, &rl_i_flag, &base_dir) != 0) {
+                       opts, &rl_src, &rl_i_flag,
+                       &rl_glfw_src, &rl_glfw_i_flag, &base_dir) != 0) {
         free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                       rt_stb, rt_arena, rt_strbuf,
                       rt_string, rt_rc, rt_builtin,
                       rt_threads, rt_collect, rt_netinit,
                       sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
-                      rl_src, rl_i_flag);
+                      rl_src, rl_i_flag,
+                      rl_glfw_src, rl_glfw_i_flag);
         return 1;
     }
 
@@ -596,7 +614,8 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
-                  rl_src, rl_i_flag);
+                  rl_src, rl_i_flag,
+                  rl_glfw_src, rl_glfw_i_flag);
 
     if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         fprintf(stderr, "error: failed to spawn clang-cl (error %lu)\n",
@@ -614,6 +633,82 @@ static int invoke_clang(const char *c_file, const char *output,
     }
     return 0;
 #else
+    /* Pre-compile each raylib source as a separate .o because the raylib
+     * headers (rlgl.h, glad.h) have implementation sections without proper
+     * include guards, making a single-TU amalgamation break on desktop.
+     * Each .o goes into /tmp and is linked by the main clang invocation. */
+    #define IRON_MAX_RAYLIB_OBJS 8
+    char *rl_objs[IRON_MAX_RAYLIB_OBJS];
+    int   rl_obj_count = 0;
+
+    if (opts.use_raylib && rl_src) {
+        static const char *raylib_sources[] = {
+            "vendor/raylib/rcore.c",
+            "vendor/raylib/rshapes.c",
+            "vendor/raylib/rtextures.c",
+            "vendor/raylib/rtext.c",
+            "vendor/raylib/rmodels.c",
+            "vendor/raylib/raudio.c",
+            "vendor/raylib/utils.c",
+            "vendor/raylib/rglfw.c",
+            NULL
+        };
+
+        for (int ri = 0; raylib_sources[ri]; ri++) {
+            char *src_path = make_path(base_dir, raylib_sources[ri]);
+            if (!src_path) continue;
+
+            char obj_path[] = "/tmp/iron_rl_XXXXXX.o";
+            int ofd = mkstemps(obj_path, 2);
+            if (ofd >= 0) close(ofd);
+
+            const char *cc_argv[20];
+            int ci = 0;
+            cc_argv[ci++] = "clang";
+            cc_argv[ci++] = "-c";
+
+            int is_rglfw = (strstr(raylib_sources[ri], "rglfw") != NULL);
+#ifdef __APPLE__
+            if (is_rglfw) cc_argv[ci++] = "-xobjective-c";
+#endif
+            cc_argv[ci++] = src_path;
+            cc_argv[ci++] = rl_i_flag;
+            cc_argv[ci++] = rl_glfw_i_flag;
+            cc_argv[ci++] = "-DPLATFORM_DESKTOP";
+            cc_argv[ci++] = "-w";
+            if (opts.release) cc_argv[ci++] = "-O2";
+            cc_argv[ci++] = "-o";
+            cc_argv[ci++] = obj_path;
+            cc_argv[ci] = NULL;
+
+            pid_t cc_pid;
+            int cc_status = posix_spawnp(&cc_pid, "clang", NULL, NULL,
+                                          (char *const *)cc_argv, environ);
+            free(src_path);
+            if (cc_status != 0) {
+                fprintf(stderr, "error: failed to spawn clang for %s: %s\n",
+                        raylib_sources[ri], strerror(cc_status));
+                for (int k = 0; k < rl_obj_count; k++) { unlink(rl_objs[k]); free(rl_objs[k]); }
+                return 1;
+            }
+            int cc_exit;
+            waitpid(cc_pid, &cc_exit, 0);
+            if (!WIFEXITED(cc_exit) || WEXITSTATUS(cc_exit) != 0) {
+                fprintf(stderr, "error: clang failed on %s (exit %d)\n",
+                        raylib_sources[ri],
+                        WIFEXITED(cc_exit) ? WEXITSTATUS(cc_exit) : -1);
+                unlink(obj_path);
+                for (int k = 0; k < rl_obj_count; k++) { unlink(rl_objs[k]); free(rl_objs[k]); }
+                return 1;
+            }
+
+            rl_objs[rl_obj_count] = strdup(obj_path);
+            argv_buf[ai++] = rl_objs[rl_obj_count];
+            rl_obj_count++;
+        }
+        argv_buf[ai] = NULL;
+    }
+
     pid_t pid;
     int status = posix_spawnp(&pid, "clang", NULL, NULL,
                                (char *const *)argv_buf, environ);
@@ -623,7 +718,8 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
-                  rl_src, rl_i_flag);
+                  rl_src, rl_i_flag,
+                  rl_glfw_src, rl_glfw_i_flag);
 
     if (status != 0) {
         fprintf(stderr, "error: failed to spawn clang: %s\n",
