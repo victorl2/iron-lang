@@ -327,3 +327,26 @@ jobs:
           test -s dist/web/index.data || { echo "FAIL: index.data missing (asset preload expected)"; cat /tmp/phase12_build.log; exit 1; }
 
           echo "Phase 12 Pong smoke: ALL PASSED"
+
+      - name: Size budget — Pong release wasm (Phase 13, WEB-TEST-09)
+        run: |
+          set -e
+          echo "Phase 13 size budget: Pong release build must be < 2 MB gzipped"
+
+          # Clear stale output and build Pong in release mode
+          rm -rf dist/web
+          ./build/ironc build --target=web --release examples/pong/pong.iron \
+            > /tmp/phase13_release.log 2>&1 \
+            || { echo "FAIL: release build exited non-zero"; cat /tmp/phase13_release.log; exit 1; }
+
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing after release build"; exit 1; }
+
+          GZIP_SIZE=$(gzip -c dist/web/index.wasm | wc -c)
+          BUDGET=2097152  # 2 MiB
+          echo "Pong release wasm gzipped size: $GZIP_SIZE bytes (budget: $BUDGET)"
+
+          if [ "$GZIP_SIZE" -gt "$BUDGET" ]; then
+              echo "FAIL: Pong release wasm exceeds 2 MB gzipped budget ($GZIP_SIZE > $BUDGET)"
+              exit 1
+          fi
+          echo "OK: Pong release wasm within 2 MB gzipped budget"

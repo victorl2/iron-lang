@@ -211,3 +211,20 @@ set_tests_properties(test_string_intern_race PROPERTIES
     TIMEOUT 30
     FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
 )
+
+# ── Phase 13: WEB-TEST-06 shell template substitution assertions ─────────────
+add_executable(test_shell_subst test_shell_subst.c)
+target_include_directories(test_shell_subst PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_shell_subst unity)
+add_test(NAME test_shell_subst COMMAND test_shell_subst)
+set_tests_properties(test_shell_subst PROPERTIES LABELS "unit;phase13")
+
+# ── Phase 13: WEB-TEST-05 asset path round-trip structural test ──────────────
+add_executable(test_asset_path
+    test_asset_path.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+)
+target_include_directories(test_asset_path PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_asset_path unity)
+add_test(NAME test_asset_path COMMAND test_asset_path)
+set_tests_properties(test_asset_path PROPERTIES LABELS "unit;phase13")
