@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 09-plan-02-build-web-shell-file-wiring-and-ci-smoke-PLAN.md
-last_updated: "2026-04-12T02:44:27.093Z"
+stopped_at: Completed 10-plan-01-toml-dir-field-PLAN.md
+last_updated: "2026-04-12T03:00:32.357Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 9
-  total_plans: 27
-  completed_plans: 27
+  total_plans: 30
+  completed_plans: 28
   percent: 0
 ---
 
@@ -78,6 +78,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 08-raylib-web-integration-amalgamation P02 | 15 | 3 tasks | 3 files |
 | Phase 09-shell-template-audio-autoplay-unlock P01 | 2m | 2 tasks | 1 files |
 | Phase 09-shell-template-audio-autoplay-unlock P02 | 617 | 4 tasks | 4 files |
+| Phase 10-asset-preload-top-level-loader-guard P01 | 15 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,7 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 09-shell-template-audio-autoplay-unlock]: Adjacent-string-literal concatenation (one C string per HTML line) — keeps diffs line-local, C89/C99 compatible
 - [Phase 09-shell-template-audio-autoplay-unlock]: Use mkstemps with .html suffix on Apple/Linux so emcc file-type heuristic works; POSIX mkstemp fallback for other platforms
 - [Phase 09-shell-template-audio-autoplay-unlock]: use_temp_shell flag guards unlink — never unlink user-supplied cfg->shell
+- [Phase 10-asset-preload-top-level-loader-guard]: Use dirname() via libgen.h for toml_dir computation; toml_dir on IronProject not IronWebConfig; sentinel . for bare-filename inputs
 
 ### Pending Todos
 
@@ -162,6 +164,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T02:44:27.090Z
-Stopped at: Completed 09-plan-02-build-web-shell-file-wiring-and-ci-smoke-PLAN.md
+Last session: 2026-04-12T03:00:32.354Z
+Stopped at: Completed 10-plan-01-toml-dir-field-PLAN.md
 Resume file: None
