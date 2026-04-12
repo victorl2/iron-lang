@@ -1,5 +1,6 @@
 #include "iron_time.h"
-#include <emscripten.h>
+#include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
 #include <stdlib.h>
 
 /*

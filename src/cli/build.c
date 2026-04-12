@@ -667,9 +667,11 @@ static int invoke_clang(const char *c_file, const char *output,
             cc_argv[ci++] = "clang";
             cc_argv[ci++] = "-c";
 
-            int is_rglfw = (strstr(raylib_sources[ri], "rglfw") != NULL);
+            bool is_rglfw = (strstr(raylib_sources[ri], "rglfw") != NULL);
 #ifdef __APPLE__
             if (is_rglfw) cc_argv[ci++] = "-xobjective-c";
+#else
+            (void)is_rglfw;
 #endif
             cc_argv[ci++] = src_path;
             cc_argv[ci++] = rl_i_flag;
