@@ -5,6 +5,7 @@
 #include "cli/build_web.h"
 #include "cli/toml.h"
 #include "cli/web_config.h"
+#include "cli/web_shell_template.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@
 #include <spawn.h>
 #include <libgen.h>       /* dirname() */
 #include <errno.h>
+#include <fcntl.h>        /* O_WRONLY etc (mkstemp uses it) */
 
 extern char **environ;
 
@@ -440,8 +442,6 @@ static const char *is_forbidden_flag(const char *flag) {
 
 int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
                         IronWebConfig *cfg) {
-    (void)cfg;  /* Phase 7: canonical flags are hardcoded; Phase 11 may consume cfg */
-
     if (!c_file_path) {
         fprintf(stderr, "error: iron_build_web_link: c_file_path is NULL\n");
         return 1;
@@ -461,6 +461,139 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         fprintf(stderr, "error: cannot create dist/web/ output directory\n");
         free(emcc_path);
         return 1;
+    }
+
+    /* 2b. Resolve shell file (WEB-SHELL-05/06, Phase 9 Plan 02).
+     *
+     * Two paths:
+     *   A. cfg->shell is set: validate the file contains {{{ SCRIPT }}};
+     *      use it directly as the shell path (no temp file).
+     *   B. cfg->shell is NULL (or cfg is NULL): materialize IRON_WEB_DEFAULT_SHELL
+     *      to a mkstemp temp file; unlink after emcc completes.
+     *
+     * The shell path (either cfg->shell or the temp path) is stored in
+     * shell_path_buf / shell_path and appended to argv as:
+     *   "--shell-file"  shell_path
+     *
+     * use_temp_shell tracks whether we own the file (must unlink).
+     */
+    char shell_path_buf[64];
+    shell_path_buf[0] = '\0';
+    const char *shell_path = NULL;
+    int use_temp_shell = 0;
+
+    if (cfg && cfg->shell && cfg->shell[0] != '\0') {
+        /* Path A: custom shell — validate it contains {{{ SCRIPT }}} */
+        FILE *sf = fopen(cfg->shell, "r");
+        if (!sf) {
+            fprintf(stderr, "error: cannot open [web].shell file '%s': %s\n",
+                    cfg->shell, strerror(errno));
+            free(emcc_path);
+            return 1;
+        }
+
+        /* Read the entire file into a heap buffer */
+        if (fseek(sf, 0, SEEK_END) != 0) {
+            fclose(sf);
+            fprintf(stderr, "error: cannot seek [web].shell file '%s': %s\n",
+                    cfg->shell, strerror(errno));
+            free(emcc_path);
+            return 1;
+        }
+        long shell_file_size = ftell(sf);
+        rewind(sf);
+
+        if (shell_file_size < 0) {
+            fclose(sf);
+            fprintf(stderr, "error: cannot determine size of [web].shell file '%s'\n",
+                    cfg->shell);
+            free(emcc_path);
+            return 1;
+        }
+
+        char *shell_contents = (char *)malloc((size_t)shell_file_size + 1);
+        if (!shell_contents) {
+            fclose(sf);
+            free(emcc_path);
+            return 1;
+        }
+
+        size_t shell_read = fread(shell_contents, 1, (size_t)shell_file_size, sf);
+        fclose(sf);
+        shell_contents[shell_read] = '\0';
+
+        if (strstr(shell_contents, "{{{ SCRIPT }}}") == NULL) {
+            fprintf(stderr,
+                    "error: [web].shell file '%s' is missing the required "
+                    "{{{ SCRIPT }}} substitution token — emcc needs this to "
+                    "insert its glue loader. Fix the file or remove [web].shell "
+                    "to use the default.\n",
+                    cfg->shell);
+            free(shell_contents);
+            free(emcc_path);
+            return 1;
+        }
+
+        free(shell_contents);
+        shell_path = cfg->shell;
+        use_temp_shell = 0;
+
+    } else {
+        /* Path B: no custom shell — materialize IRON_WEB_DEFAULT_SHELL to a
+         * temp file via mkstemp so emcc's --shell-file can point at a real path. */
+        /* mkstemp requires a mutable buffer; copy the template in */
+        const char *tmpl = "/tmp/iron_web_shell_XXXXXX.html";
+        size_t tmpl_len = strlen(tmpl);
+        if (tmpl_len >= sizeof(shell_path_buf)) {
+            fprintf(stderr, "error: temp shell path template too long\n");
+            free(emcc_path);
+            return 1;
+        }
+        memcpy(shell_path_buf, tmpl, tmpl_len + 1);
+
+        /* mkstemp replaces the XXXXXX suffix in-place; the .html suffix after
+         * it is preserved (mkstemps would allow a suffix but is non-POSIX on
+         * macOS/Linux; mkstemp on the full template string works fine because
+         * the XXXXXX are the last 6 chars before the .html suffix — which
+         * unfortunately means mkstemp does NOT randomise past the XXXXXX and
+         * the .html remains literal). We use mkstemps when available; fall
+         * back to mkstemp if not. */
+#if defined(__APPLE__) || defined(__linux__)
+        int tmp_fd = mkstemps(shell_path_buf, 5 /* ".html" length */);
+#else
+        /* Generic POSIX fallback: mkstemp ignores the suffix but the path
+         * still ends in XXXXXX-replaced chars; caller gets a valid temp fd. */
+        int tmp_fd = mkstemp(shell_path_buf);
+#endif
+        if (tmp_fd < 0) {
+            fprintf(stderr, "error: mkstemp for default web shell failed: %s\n",
+                    strerror(errno));
+            free(emcc_path);
+            return 1;
+        }
+
+        /* Write the embedded default shell in one shot, retrying on EINTR. */
+        const char *shell_data = IRON_WEB_DEFAULT_SHELL;
+        size_t shell_data_len = strlen(shell_data);
+        size_t written = 0;
+        while (written < shell_data_len) {
+            ssize_t w = write(tmp_fd, shell_data + written, shell_data_len - written);
+            if (w < 0) {
+                if (errno == EINTR) continue;
+                fprintf(stderr,
+                        "error: write to temp shell file '%s' failed: %s\n",
+                        shell_path_buf, strerror(errno));
+                close(tmp_fd);
+                unlink(shell_path_buf);
+                free(emcc_path);
+                return 1;
+            }
+            written += (size_t)w;
+        }
+        close(tmp_fd);
+
+        shell_path = shell_path_buf;
+        use_temp_shell = 1;
     }
 
     /* 3. Resolve source file paths (Iron runtime + util + web-compatible
@@ -547,15 +680,19 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *      [0]     emcc
      *      [1..12] canonical flags (12 entries from IRON_WEB_CANONICAL_FLAGS)
      *      [13..15] release OR debug flag set (3 entries each)
-     *      [16]    -o
-     *      [17]    dist/web/index.html
-     *      [18]    -I<iron_src_dir>
-     *      [19]    -I<iron_src_dir>/stdlib
-     *      [20]    c_file_path (emitted C from emit_web_module)
-     *      [21..33] 13 source files (util + runtime + stdlib shims)
-     *      [34]    NULL terminator
+     *      [16]    --shell-file  (Phase 9 Plan 02)
+     *      [17]    <shell_path>  (cfg->shell or temp file)
+     *      [18]    -o
+     *      [19]    dist/web/index.html
+     *      [20]    -I<iron_src_dir>
+     *      [21]    -I<iron_src_dir>/stdlib
+     *      [22]    c_file_path (emitted C from emit_web_module)
+     *      [23..35] 13 source files (util + runtime + stdlib shims)
+     *      [36..39] raylib entries (gated on opts.use_raylib, Phase 8)
+     *      [40]    NULL terminator
      *
-     *    Allocate 48 slots — safe margin for Phase 8 raylib additions.
+     *    High-water mark: 40 (Phase 9 raylib case) — well under 48.
+     *    Allocate 48 slots — safe margin for future phases.
      */
     const int max_argv = 48;
     const char *argv[48];
@@ -578,6 +715,13 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         argv[n++] = "-g";
         argv[n++] = "-sASSERTIONS=1";
     }
+
+    /* Shell file (WEB-SHELL-05/06, Phase 9 Plan 02).
+     * shell_path is either cfg->shell (user-supplied, already validated) or
+     * the temp file path written above. emcc accepts --shell-file anywhere in
+     * the linker argv, so we place it before -o for clarity. */
+    argv[n++] = "--shell-file";
+    argv[n++] = shell_path;
 
     /* Output path */
     argv[n++] = "-o";
@@ -652,6 +796,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
                     "error: forbidden emcc flag '%s' — "
                     "web builds cannot use this flag. Refusing to build.\n",
                     hit);
+            if (use_temp_shell) unlink(shell_path_buf);
             free(stdlib_i_flag);
             free(src_i_flag);
             for (int j = 0; j < IRON_WEB_SRC_COUNT; j++) free(abs_paths[j]);
@@ -666,6 +811,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
                                 (char *const *)argv, environ);
     if (spawn_rc != 0) {
         fprintf(stderr, "error: failed to spawn emcc: %s\n", strerror(spawn_rc));
+        if (use_temp_shell) unlink(shell_path_buf);
         free(stdlib_i_flag);
         free(src_i_flag);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
@@ -676,6 +822,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     int wstatus;
     if (waitpid(pid, &wstatus, 0) < 0) {
         fprintf(stderr, "error: waitpid on emcc failed: %s\n", strerror(errno));
+        if (use_temp_shell) unlink(shell_path_buf);
         free(stdlib_i_flag);
         free(src_i_flag);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
@@ -685,7 +832,9 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
 
     int emcc_rc = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
 
-    /* 8. Cleanup */
+    /* 8. Cleanup — unlink temp shell on BOTH success and failure paths so
+     * no /tmp/iron_web_shell_*.html stragglers are left behind. */
+    if (use_temp_shell) unlink(shell_path_buf);
     free(stdlib_i_flag);
     free(src_i_flag);
     for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
