@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 1.0.0 LANGUAGES C)
+project(iron VERSION 1.2.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "1.0.0-alpha")
+set(IRON_VERSION_FULL "1.2.0-alpha")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -97,6 +97,8 @@ add_library(iron_compiler STATIC
     src/analyzer/escape.c
     src/analyzer/capture.c
     src/analyzer/concurrency.c
+    src/analyzer/web_await_check.c
+    src/analyzer/web_top_level_loader_check.c
     src/analyzer/init_check.c
     src/analyzer/iface_collect.c
     src/analyzer/analyzer.c
@@ -108,6 +110,7 @@ add_library(iron_compiler STATIC
     src/hir/hir_to_lir.c
     src/lir/lir.c
     src/lir/emit_c.c
+    src/lir/emit_web.c
     src/lir/emit_helpers.c
     src/lir/emit_structs.c
     src/lir/emit_split.c
@@ -117,6 +120,7 @@ add_library(iron_compiler STATIC
     src/lir/print.c
     src/lir/verify.c
     src/lir/lir_optimize.c
+    src/lir/web_main_loop_split.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 target_link_libraries(iron_compiler iron_runtime)
@@ -153,6 +157,7 @@ add_subdirectory(tests/manual)
 add_executable(ironc
     src/cli/main.c
     src/cli/build.c
+    src/cli/build_web.c
     src/cli/check.c
     src/cli/fmt.c
     src/cli/test_runner.c
@@ -209,6 +214,142 @@ add_test(
 set_tests_properties(test_ironc_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^ironc [0-9]"
 )
+
+# Phase 2 — CLI flag surface smoke tests
+
+add_test(
+    NAME test_ironc_usage_lists_target
+    COMMAND ironc
+)
+set_tests_properties(test_ironc_usage_lists_target PROPERTIES
+    PASS_REGULAR_EXPRESSION "--target=<t>"
+)
+
+add_test(
+    NAME test_ironc_usage_lists_release
+    COMMAND ironc
+)
+set_tests_properties(test_ironc_usage_lists_release PROPERTIES
+    PASS_REGULAR_EXPRESSION "--release"
+)
+
+if(NOT WIN32)
+    add_test(
+        NAME test_ironc_target_unknown
+        COMMAND sh -c "echo 'func main() {}' > /tmp/iron_test_target_unk.iron && OUT=$($<TARGET_FILE:ironc> build --target=bogus /tmp/iron_test_target_unk.iron 2>&1); RC=$?; if [ $RC -eq 0 ]; then echo 'FAIL: ironc should have exited non-zero'; exit 1; fi; echo \"$OUT\" | grep -q 'valid targets: web, native' || { echo 'FAIL: error message missing expected substring:'; echo \"$OUT\"; exit 1; }; echo OK; exit 0"
+    )
+
+    add_test(
+        NAME test_ironc_target_web_smoke
+        # Runs ironc build --target=web on a trivial fixture.
+        # Accepts either outcome: emcc found (banner on stdout) or emcc absent (install one-liner on stderr).
+        # Both prove dispatch reached build_web.c — neither is a parse error.
+        COMMAND sh -c "echo 'func main() {}' > /tmp/iron_test_target_web.iron && $<TARGET_FILE:ironc> build --target=web /tmp/iron_test_target_web.iron 2>&1 | grep -qE 'using emcc|emcc not found in PATH'"
+    )
+endif()
+
+# Phase 2 — emsdk pin-discipline invariants.
+# src/cli/build_web.c and the new Phase 2 headers MUST NOT hard-code the
+# version string "4.0.23" — the version is read from .emsdk-version at runtime.
+
+add_test(
+    NAME test_emsdk_pin_discipline
+    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.c\""
+)
+set_tests_properties(test_emsdk_pin_discipline PROPERTIES
+    LABELS "phase2-invariant"
+)
+
+add_test(
+    NAME test_emsdk_pin_discipline_headers
+    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.h\" \"${CMAKE_SOURCE_DIR}/src/cli/web_config.h\""
+)
+set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
+    LABELS "phase2-invariant"
+)
+
+# ── Phase 3 plan-04: WEB-RUNTIME-07 portability grep invariant ──────────────
+# Fails the local build if iron_rc.c / iron_builtins.c / iron_collections.c
+# gain a reference to any of these non-portable APIs under -Wall -Werror on
+# emcc. The full emcc try-compile runs in CI (.github/workflows/web.yml);
+# this local grep gives development-time feedback without requiring a local
+# emsdk install. The ERE alternation matches headers + symbols that the
+# paper audit in .planning/phases/03-runtime-audit-web-hardening/03-RESEARCH.md
+# confirmed are currently absent from all three files.
+add_test(
+    NAME test_runtime_files_portability_grep
+    COMMAND sh -c "! grep -E 'sysconf|pthread_attr|sigaction|sys/wait\\.h|sys/resource\\.h' \"${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_builtins.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_collections.c\""
+)
+set_tests_properties(test_runtime_files_portability_grep PROPERTIES
+    LABELS "unit;web-portability"
+)
+
+# ── Phase 4 plan-02: WEB-RUNTIME-06 iron_time_web.c symbol gate ─────────────
+# Fails the local build if src/stdlib/iron_time_web.c loses any of the 9
+# public symbols declared in src/stdlib/iron_time.h. Catches accidental
+# rename drift without requiring a local emsdk install. The full emcc
+# try-compile runs in CI (.github/workflows/web.yml probe step), which
+# covers type + syntax drift; this grep covers symbol-presence drift.
+# Labels `unit;web-portability` so `ctest -L web-portability` runs this
+# gate alongside the Phase 3 runtime-files portability grep.
+add_test(
+    NAME test_iron_time_web_symbols
+    COMMAND sh -c "\
+set -e; \
+F=\"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\"; \
+test -f \"$F\" || { echo 'FAIL: iron_time_web.c missing'; exit 1; }; \
+for sym in Iron_time_now Iron_time_now_ms Iron_time_now_ns Iron_time_sleep Iron_time_since Iron_time_Timer Iron_timer_done Iron_timer_update Iron_timer_reset; do \
+  grep -q \"$sym\" \"$F\" || { echo \"FAIL: $sym missing from iron_time_web.c\"; exit 1; }; \
+done; \
+echo 'OK: all 9 iron_time.h symbols present in iron_time_web.c'"
+)
+set_tests_properties(test_iron_time_web_symbols PROPERTIES
+    LABELS "unit;web-portability"
+)
+
+# ── Phase 4 plan-02: pin discipline on iron_time_web.c ──────────────────────
+# Extends the Phase 2 pin-discipline invariant to the new web time shim:
+# the emsdk version string 4.0.23 must live in .emsdk-version only, never
+# in a source file. Same inverted-grep pattern as test_emsdk_pin_discipline.
+add_test(
+    NAME test_emsdk_pin_discipline_iron_time_web
+    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\""
+)
+set_tests_properties(test_emsdk_pin_discipline_iron_time_web PROPERTIES
+    LABELS "phase4-invariant"
+)
+
+# ── Phase 7 plan-04: integration test + fixture + pin discipline ─────────────
+#
+# test_cli_parse_web validates the Phase 2 CLI parse path (--target=web,
+# --target=native, unknown target, default target). Named in Phase 7 success
+# criterion 7. Linux/macOS only — the #ifdef _WIN32 #error guard in
+# test_cli_parse.c enforces this at compile time.
+
+if(NOT WIN32)
+    add_executable(test_cli_parse_web
+        tests/integration/web/test_cli_parse.c
+    )
+    add_test(
+        NAME test_cli_parse_web
+        COMMAND test_cli_parse_web
+    )
+    set_tests_properties(test_cli_parse_web PROPERTIES
+        LABELS "integration;phase7"
+        ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>"
+    )
+    # Ensure ironc is built before test_cli_parse_web runs
+    add_dependencies(test_cli_parse_web ironc)
+
+    # Phase 7 pin discipline: new fixture + test files must not hardcode 4.0.23
+    add_test(
+        NAME test_emsdk_pin_discipline_phase7
+        COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/tests/integration/web/hello.iron\" \"${CMAKE_SOURCE_DIR}/tests/integration/web/test_cli_parse.c\""
+    )
+    set_tests_properties(test_emsdk_pin_discipline_phase7 PROPERTIES
+        LABELS "phase7-invariant"
+    )
+endif()
 
 # iron CLI tests
 add_test(

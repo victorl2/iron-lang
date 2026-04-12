@@ -1,5 +1,7 @@
 #include "cli/toml.h"
 
+#include <libgen.h>   /* dirname() — POSIX; must operate on a mutable copy */
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -162,6 +164,115 @@ static char *extract_inline_field(const char *val, const char *field) {
     return NULL;
 }
 
+/* ── Helper: Levenshtein distance for misspelled-section detection ──────── */
+/*
+ * Naive single-row rolling DP.  Input strings are bounded by line length
+ * (< 1024) so a 66-element stack array is sufficient given the 64-char cap.
+ * Returns INT_MAX if either string exceeds 64 characters (unreasonable for
+ * section names).  Characters are compared case-sensitively; TOML section
+ * headers are case-sensitive ([Web] ≠ [web]).
+ */
+static int levenshtein(const char *a, const char *b) {
+    size_t la = strlen(a);
+    size_t lb = strlen(b);
+    if (la > 64 || lb > 64) return INT_MAX;
+
+    /* v0[j] = edit distance between a[0..i-1] and b[0..j-1] */
+    int v0[66];
+    int v1[66];
+
+    /* Initialize: distance from empty string to b[0..j] */
+    for (size_t j = 0; j <= lb; j++) v0[j] = (int)j;
+
+    for (size_t i = 0; i < la; i++) {
+        v1[0] = (int)(i + 1);
+        for (size_t j = 0; j < lb; j++) {
+            int del_cost  = v0[j + 1] + 1;
+            int ins_cost  = v1[j]     + 1;
+            int sub_cost  = v0[j] + (a[i] != b[j] ? 1 : 0);
+            int best = del_cost < ins_cost ? del_cost : ins_cost;
+            v1[j + 1] = best < sub_cost ? best : sub_cost;
+        }
+        /* swap rows */
+        for (size_t j = 0; j <= lb; j++) v0[j] = v1[j];
+    }
+    return v0[lb];
+}
+
+/* ── Known section names (for Levenshtein typo detection) ───────────────── */
+static const char *KNOWN_SECTIONS[] = {
+    "package",
+    "project",
+    "dependencies",
+    "web",
+    NULL
+};
+
+/* ── Helper: parse TOML inline string array into char** + count ─────────── */
+/*
+ * Given a string starting with '[', parses comma-separated quoted strings.
+ * Example: ["a.png", "b.png"]
+ * Fills *out_arr (malloc'd array of strdup'd strings) and *out_count.
+ * Returns 0 on success, non-zero on malformed input (frees partial results).
+ * The helper is kept static; do NOT expose in any header.
+ */
+static int parse_toml_string_array(const char *val, char ***out_arr, int *out_count) {
+    const char *p = val;
+    /* skip leading whitespace and '[' */
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != '[') return 1;
+    p++; /* skip '[' */
+
+    char **arr = NULL;
+    int count  = 0;
+    int cap    = 0;
+
+    while (1) {
+        /* skip whitespace */
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (!*p) goto fail; /* unexpected end */
+        if (*p == ']') break; /* end of array */
+
+        /* expect opening quote */
+        if (*p != '"') goto fail;
+        p++; /* skip '"' */
+        const char *elem_start = p;
+        while (*p && *p != '"') p++;
+        if (*p != '"') goto fail; /* unclosed quote */
+        size_t elem_len = (size_t)(p - elem_start);
+        p++; /* skip closing '"' */
+
+        /* grow array if needed */
+        if (count >= cap) {
+            int new_cap = cap == 0 ? 4 : cap * 2;
+            char **new_arr = (char **)realloc(arr, sizeof(char *) * (size_t)new_cap);
+            if (!new_arr) goto fail;
+            arr = new_arr;
+            cap = new_cap;
+        }
+        char *elem = (char *)malloc(elem_len + 1);
+        if (!elem) goto fail;
+        memcpy(elem, elem_start, elem_len);
+        elem[elem_len] = '\0';
+        arr[count++] = elem;
+
+        /* skip whitespace then optional ',' */
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p == ',') p++;
+    }
+
+    *out_arr   = arr;
+    *out_count = count;
+    return 0;
+
+fail:
+    for (int fi = 0; fi < count; fi++) free(arr[fi]);
+    free(arr);
+    *out_arr   = NULL;
+    *out_count = 0;
+    return 1;
+}
+
 /* ── iron_toml_parse ─────────────────────────────────────────────────────── */
 
 IronProject *iron_toml_parse(const char *path) {
@@ -172,6 +283,21 @@ IronProject *iron_toml_parse(const char *path) {
     if (!proj) {
         fclose(f);
         return NULL;
+    }
+
+    /* Compute toml_dir: the directory containing iron.toml (WEB-ASSET-04).
+     * Used by web builds to resolve [web].assets paths relative to iron.toml
+     * rather than the shell's cwd.
+     * dirname() may mutate its input (glibc) so we operate on a strdup'd copy;
+     * the result is then strdup'd again so proj owns it independently. */
+    char *path_copy = strdup(path);
+    if (path_copy) {
+        char *dir = dirname(path_copy);   /* may mutate path_copy */
+        if (dir) proj->toml_dir = strdup(dir);
+        free(path_copy);
+    }
+    if (!proj->toml_dir) {
+        proj->toml_dir = strdup(".");     /* sentinel: same directory */
     }
 
     /* Track current section: 0 = none, 1 = [package]/[project], 2 = [dependencies] */
@@ -194,7 +320,7 @@ IronProject *iron_toml_parse(const char *path) {
         /* Skip empty lines */
         if (*s == '\0') continue;
 
-        /* Section header: [package], [project], or [dependencies] */
+        /* Section header: [package], [project], [dependencies], or [web] */
         if (*s == '[') {
             char *end = strchr(s, ']');
             if (end) {
@@ -204,7 +330,24 @@ IronProject *iron_toml_parse(const char *path) {
                     section = 1;
                 } else if (strcmp(sec_name, "dependencies") == 0) {
                     section = 2;
+                } else if (strcmp(sec_name, "web") == 0) {
+                    section = 3;
                 } else {
+                    /* Unknown section: check if it's a typo of a known one (Levenshtein ≤2). */
+                    int best_dist = INT_MAX;
+                    const char *best_match = NULL;
+                    for (int ki = 0; KNOWN_SECTIONS[ki]; ki++) {
+                        int d = levenshtein(sec_name, KNOWN_SECTIONS[ki]);
+                        if (d < best_dist) {
+                            best_dist = d;
+                            best_match = KNOWN_SECTIONS[ki];
+                        }
+                    }
+                    if (best_dist > 0 && best_dist <= 2 && best_match) {
+                        fprintf(stderr, "warning: unknown section [%s] — did you mean [%s]? (ignored)\n",
+                                sec_name, best_match);
+                    }
+                    /* distance > 2 or no match: silently ignore. */
                     section = 0;
                 }
             }
@@ -258,6 +401,69 @@ IronProject *iron_toml_parse(const char *path) {
                 dep->version = extract_inline_field(val_str, "version");
                 proj->dep_count++;
             }
+        } else if (section == 3) {
+            /* [web] section (Phase 2 — WEB-MANIFEST-01..08) */
+            if (strcmp(key, "title") == 0) {
+                free(proj->web.title);
+                proj->web.title = extract_value(val_str);
+            } else if (strcmp(key, "shell") == 0) {
+                free(proj->web.shell);
+                proj->web.shell = extract_value(val_str);
+            } else if (strcmp(key, "initial_memory") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr, "warning: [web].initial_memory must be a positive integer (got '%s', ignored)\n", val_str);
+                } else {
+                    proj->web.initial_memory = (int)v;
+                }
+            } else if (strcmp(key, "stack_size") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr, "warning: [web].stack_size must be a positive integer (got '%s', ignored)\n", val_str);
+                } else {
+                    proj->web.stack_size = (int)v;
+                }
+            } else if (strcmp(key, "pthread_pool_size") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr, "warning: [web].pthread_pool_size must be a positive integer (got '%s', ignored)\n", val_str);
+                } else {
+                    proj->web.pthread_pool_size = (int)v;
+                }
+            } else if (strcmp(key, "assets") == 0) {
+                /* Free previously-set assets (last-write-wins) */
+                for (int ai = 0; ai < proj->web.asset_count; ai++) free(proj->web.assets[ai]);
+                free(proj->web.assets);
+                proj->web.assets = NULL;
+                proj->web.asset_count = 0;
+                /* Determine array vs scalar form */
+                const char *trimmed = val_str;
+                while (*trimmed && isspace((unsigned char)*trimmed)) trimmed++;
+                if (*trimmed == '[') {
+                    if (parse_toml_string_array(trimmed, &proj->web.assets, &proj->web.asset_count) != 0) {
+                        fprintf(stderr, "warning: [web].assets malformed (ignored)\n");
+                        proj->web.assets = NULL;
+                        proj->web.asset_count = 0;
+                    }
+                } else {
+                    /* Scalar string form — normalize to one-element array */
+                    char *one = extract_value(val_str);
+                    if (one) {
+                        proj->web.assets = (char **)malloc(sizeof(char *));
+                        if (proj->web.assets) {
+                            proj->web.assets[0] = one;
+                            proj->web.asset_count = 1;
+                        } else {
+                            free(one);
+                        }
+                    }
+                }
+            } else {
+                fprintf(stderr, "warning: unknown [web] key '%s' (ignored)\n", key);
+            }
         }
     }
 
@@ -282,5 +488,13 @@ void iron_toml_free(IronProject *proj) {
         free(proj->deps[i].cache_path);
     }
     free(proj->deps);
+    /* [web] section (Phase 2 — WEB-MANIFEST-01) */
+    free(proj->web.title);
+    free(proj->web.shell);
+    for (int wi = 0; wi < proj->web.asset_count; wi++) {
+        free(proj->web.assets[wi]);
+    }
+    free(proj->web.assets);
+    free(proj->toml_dir);
     free(proj);
 }

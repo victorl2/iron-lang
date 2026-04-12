@@ -673,9 +673,9 @@ static void lower_type_decls_from_ast(HIR_to_LIR_Ctx *ctx) {
                 _Alignof(IronLIR_Param));
             for (int p = 0; p < fd->param_count; p++) {
                 Iron_Param *ap = (Iron_Param *)fd->params[p];
-                Iron_Type *pt = iron_type_make_primitive(IRON_TYPE_VOID);
-                /* Use type_ann if available, but we don't resolve it here */
-                (void)ap->type_ann;
+                Iron_Type *pt = (fd->resolved_param_types && fd->resolved_param_types[p])
+                    ? fd->resolved_param_types[p]
+                    : iron_type_make_primitive(IRON_TYPE_VOID);
                 param_types[p] = pt;
                 lir_params[p].name = ap->name;
                 lir_params[p].type = pt;

@@ -1029,6 +1029,50 @@ ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class
         </div>
       </div>
     </div>
+
+    <!-- Networking -->
+    <div class="feature reverse">
+      <div class="feature-text">
+        <h3>Networking, batteries included</h3>
+        <p>First-class stdlib for TCP, UDP, DNS, typed IP addresses, and RFC 3986 URLs. Every fallible call returns a <code>(value, error)</code> tuple &mdash; the error is a concrete value, never an exception. Timeouts are deadlines the runtime actually honours, even when the system resolver hangs.</p>
+        <ul class="feature-list">
+          <li>TCP client / server with non-blocking sockets and monotonic deadlines</li>
+          <li>UDP and dual-stack IPv4/IPv6 listeners</li>
+          <li>DNS on an elastic thread pool with stuck-worker abandonment</li>
+          <li>Pure-Iron URL parse, build, resolve, and percent codec</li>
+          <li><code>(value, NetError)</code> tuple returns, no exceptions, no hidden allocs</li>
+        </ul>
+      </div>
+      <div class="feature-code">
+        <div class="code-window">
+          <div class="code-titlebar">
+            <div class="code-dot red"></div>
+            <div class="code-dot yellow"></div>
+            <div class="code-dot green"></div>
+            <span class="code-filename">net.iron</span>
+          </div>
+          <div class="code-body">
+<pre><span class="kw">import</span> net
+
+<span class="cm">-- resolve a hostname with a 2s budget</span>
+<span class="kw">val</span> (addrs, err) = <span class="ty">Net</span>.<span class="fn">lookup_host</span>(<span class="st">"example.com"</span>, <span class="nu">2000</span>)
+<span class="kw">if</span> err.<span class="pr">code</span> != <span class="nu">0</span> { <span class="kw">return</span> }
+
+<span class="cm">-- dial + write, tuples everywhere</span>
+<span class="kw">val</span> (sock, derr) = <span class="ty">Net</span>.<span class="fn">tcp_dial</span>(<span class="st">"example.com"</span>, <span class="nu">80</span>, <span class="nu">2000</span>)
+<span class="kw">if</span> derr.<span class="pr">code</span> != <span class="nu">0</span> { <span class="kw">return</span> }
+<span class="kw">defer</span> <span class="ty">TcpSocket</span>.<span class="fn">close</span>(sock)
+
+<span class="ty">TcpSocket</span>.<span class="fn">write</span>(sock, <span class="st">"GET / HTTP/1.0\r\n\r\n"</span>, <span class="nu">1000</span>)
+
+<span class="cm">-- pure-Iron RFC 3986 URL handling</span>
+<span class="kw">val</span> (u, _) = <span class="ty">Url</span>.<span class="fn">parse</span>(<span class="st">"https://example.com/path?q=iron"</span>)
+<span class="fn">println</span>(u.<span class="pr">host</span>)    <span class="cm">-- "example.com"</span>
+<span class="fn">println</span>(u.<span class="pr">query</span>)   <span class="cm">-- "q=iron"</span></pre>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ── Get Started ──────────────────────────────────── -->

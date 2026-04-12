@@ -22,6 +22,13 @@
  * and ctx->lifted_funcs. */
 void emit_type_decls(EmitCtx *ctx);
 
+/* Emit C forward declarations for `extern func` bindings (raylib and other
+ * C library FFI) into ctx->prototypes. Skips lowercase-initial names that
+ * are assumed to come from system headers (strlen, etc.). Called by both
+ * the native (iron_lir_emit_c) and web (emit_web_module) emitters so the
+ * generated C declares InitWindow, ClearBackground, and friends. */
+void emit_extern_prototypes(EmitCtx *ctx);
+
 /* Estimate size of a concrete type in bytes (for variant split decisions). */
 int emit_estimate_type_size(Iron_ObjectDecl *od);
 

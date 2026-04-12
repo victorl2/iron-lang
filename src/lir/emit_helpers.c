@@ -27,6 +27,27 @@ const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
     return buf;
 }
 
+const char *emit_object_type_name(const char *name, EmitCtx *ctx) {
+    if (ctx->module) {
+        for (int ei = 0; ei < ctx->module->extern_decl_count; ei++) {
+            IronLIR_ExternDecl *ed = ctx->module->extern_decls[ei];
+            for (int pi = 0; pi < ed->param_count; pi++) {
+                if (ed->param_types[pi] &&
+                    ed->param_types[pi]->kind == IRON_TYPE_OBJECT &&
+                    ed->param_types[pi]->object.decl &&
+                    strcmp(ed->param_types[pi]->object.decl->name, name) == 0)
+                    return name;
+            }
+            if (ed->return_type &&
+                ed->return_type->kind == IRON_TYPE_OBJECT &&
+                ed->return_type->object.decl &&
+                strcmp(ed->return_type->object.decl->name, name) == 0)
+                return name;
+        }
+    }
+    return emit_mangle_name(name, ctx->arena);
+}
+
 /* Map an Iron function name to the C symbol name.
  * - Lifted functions (lambda_, spawn_, parallel_) are kept as-is.
  * - Built-in function names (println, print, len, etc.) map to Iron_XXX.
@@ -133,7 +154,7 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
         case IRON_TYPE_ERROR:   return "int";
 
         case IRON_TYPE_OBJECT:
-            return emit_mangle_name(t->object.decl->name, ctx->arena);
+            return emit_object_type_name(t->object.decl->name, ctx);
 
         case IRON_TYPE_ENUM:
             if (t->enu.mangled_name) {
