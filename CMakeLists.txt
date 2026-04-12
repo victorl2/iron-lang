@@ -109,6 +109,7 @@ add_library(iron_compiler STATIC
     src/hir/hir_to_lir.c
     src/lir/lir.c
     src/lir/emit_c.c
+    src/lir/emit_web.c
     src/lir/emit_helpers.c
     src/lir/emit_structs.c
     src/lir/emit_split.c
