@@ -5,6 +5,8 @@
 #include "analyzer/init_check.h"
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
+#include "analyzer/web_await_check.h"
+#include "analyzer/web_top_level_loader_check.h"
 #include "comptime/comptime.h"
 #include "vendor/stb_ds.h"
 #include <stddef.h>
@@ -15,7 +17,8 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
                                  Iron_DiagList *diags,
                                  const char *source_file_dir,
                                  const char *source_text, size_t source_len,
-                                 bool force_comptime) {
+                                 bool force_comptime,
+                                 IronBuildTarget target) {
     Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false };
 
     /* Step 1: Initialize type system (interned primitives) */
@@ -46,6 +49,24 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
 
     /* Step 5: Concurrency checks */
     iron_concurrency_check(program, result.global_scope, arena, diags);
+
+    /* Step 5.5: Web target `await` reachability check (WEB-RUNTIME-04).
+     * Runs only when target == IRON_TARGET_WEB. No-op on native. */
+    iron_web_await_check(program, arena, diags, target);
+    if (diags->error_count > 0) {
+        result.has_errors = true;
+        return result;
+    }
+
+    /* Step 5.6: Web target top-level loader guard (WEB-ASSET-03).
+     * Emits E0502 if LoadTexture/LoadSound/LoadFont/LoadModel is called at
+     * module level (outside any function body) for --target=web.
+     * No-op on native. */
+    iron_web_top_level_loader_check(program, arena, diags, target);
+    if (diags->error_count > 0) {
+        result.has_errors = true;
+        return result;
+    }
 
     /* Step 5b: Interface implementor collection — build IfaceRegistry */
     result.iface_registry = iron_iface_collect(program, arena);

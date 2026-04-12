@@ -151,3 +151,80 @@ if(WIN32)
 endif()
 add_test(NAME test_stdlib_net_cross_platform COMMAND test_stdlib_net_cross_platform)
 set_tests_properties(test_stdlib_net_cross_platform PROPERTIES LABELS "unit")
+
+# ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────
+# test_toml_web compiles src/cli/toml.c directly because toml.c is not currently
+# part of any static library (it's linked straight into the ironc executable in
+# the root CMakeLists.txt). A future refactor could extract an iron_cli_toml
+# library, but for Phase 2 this direct-compile approach keeps the diff minimal.
+add_executable(test_toml_web
+    test_toml_web.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+)
+target_include_directories(test_toml_web PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_toml_web unity)
+add_test(NAME test_toml_web COMMAND test_toml_web)
+set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
+
+# ── Phase 5 plan-03: web_main_loop_split pass test (WEB-EMIT-01..04) ─────────
+add_executable(test_web_main_loop_split test_web_main_loop_split.c)
+target_link_libraries(test_web_main_loop_split iron_compiler unity)
+add_test(NAME test_web_main_loop_split COMMAND test_web_main_loop_split)
+set_tests_properties(test_web_main_loop_split PROPERTIES LABELS "unit")
+
+# ── Phase 6 plan-03: emit_web_module snapshot test (WEB-EMIT-05..08) ─────────
+add_executable(test_emit_web test_emit_web.c)
+target_link_libraries(test_emit_web iron_compiler unity)
+target_compile_definitions(test_emit_web PRIVATE
+    IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
+)
+add_test(NAME test_emit_web COMMAND test_emit_web)
+set_tests_properties(test_emit_web PROPERTIES LABELS "unit")
+
+# ── Phase 3 plan-03: web_await_check pass test (WEB-RUNTIME-04) ──────────────
+add_executable(test_web_await_check test_web_await_check.c)
+target_link_libraries(test_web_await_check iron_compiler unity)
+add_test(NAME test_web_await_check COMMAND test_web_await_check)
+set_tests_properties(test_web_await_check PROPERTIES LABELS "unit")
+
+# ── Phase 10 plan-03: web_top_level_loader_check pass test (WEB-ASSET-03) ────
+add_executable(test_web_top_level_loader_check test_web_top_level_loader_check.c)
+target_link_libraries(test_web_top_level_loader_check iron_compiler unity)
+add_test(NAME test_web_top_level_loader_check COMMAND test_web_top_level_loader_check)
+set_tests_properties(test_web_top_level_loader_check PROPERTIES LABELS "unit")
+
+# ── Phase 3 plan-01: intern table tsan stress test (WEB-RUNTIME-01) ──────────
+# Runs under ThreadSanitizer on Linux only. macOS tsan is flaky and emcc has
+# no tsan. Non-Linux builds still compile+run the test but without tsan
+# instrumentation, giving at least a smoke-test signal.
+add_executable(test_string_intern_race test_string_intern_race.c)
+target_link_libraries(test_string_intern_race iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_string_intern_race PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_string_intern_race PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_string_intern_race COMMAND test_string_intern_race)
+set_tests_properties(test_string_intern_race PROPERTIES
+    LABELS "unit;tsan"
+    TIMEOUT 30
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
+)
+
+# ── Phase 13: WEB-TEST-06 shell template substitution assertions ─────────────
+add_executable(test_shell_subst test_shell_subst.c)
+target_include_directories(test_shell_subst PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_shell_subst unity)
+add_test(NAME test_shell_subst COMMAND test_shell_subst)
+set_tests_properties(test_shell_subst PROPERTIES LABELS "unit;phase13")
+
+# ── Phase 13: WEB-TEST-05 asset path round-trip structural test ──────────────
+add_executable(test_asset_path
+    test_asset_path.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+)
+target_include_directories(test_asset_path PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_asset_path unity)
+add_test(NAME test_asset_path COMMAND test_asset_path)
+set_tests_properties(test_asset_path PROPERTIES LABELS "unit;phase13")

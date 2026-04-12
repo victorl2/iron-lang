@@ -7,12 +7,104 @@ on:
       - '.emsdk-version'
       - '.github/workflows/web.yml'
       - 'scripts/ci-smoke/**'
+      - 'src/analyzer/analyzer.c'
+      - 'src/analyzer/analyzer.h'
+      - 'src/analyzer/web_await_check.c'
+      - 'src/analyzer/web_await_check.h'
+      - 'src/cli/build.c'
+      - 'src/cli/build.h'
+      - 'src/cli/build_web.c'
+      - 'src/cli/build_web.h'
+      - 'src/cli/check.c'
+      - 'src/cli/main.c'
+      - 'src/cli/toml.c'
+      - 'src/cli/toml.h'
+      - 'src/cli/web_config.h'
+      - 'src/diagnostics/diagnostics.h'
+      - 'src/lir/emit_c.c'
+      - 'src/lir/emit_helpers.h'
+      - 'src/lir/emit_web.c'
+      - 'src/lir/emit_web.h'
+      - 'src/lir/lir.h'
+      - 'src/lir/web_main_loop_split.c'
+      - 'src/lir/web_main_loop_split.h'
+      - 'src/runtime/iron_builtins.c'
+      - 'src/runtime/iron_collections.c'
+      - 'src/runtime/iron_rc.c'
+      - 'src/runtime/iron_runtime.h'
+      - 'src/runtime/iron_string.c'
+      - 'src/runtime/iron_threads.c'
+      - 'src/stdlib/iron_time_web.c'
+      - 'tests/integration/web/hello.iron'
+      - 'tests/integration/web/hello_raylib.iron'
+      - 'tests/integration/web/hello_raylib_assets/**'
+      - 'examples/pong/**'
+      - 'tests/integration/web/test_cli_parse.c'
+      - 'tests/unit/CMakeLists.txt'
+      - 'tests/unit/test_emit_web.c'
+      - 'tests/unit/test_string_intern_race.c'
+      - 'tests/unit/test_toml_web.c'
+      - 'tests/unit/test_web_await_check.c'
+      - 'tests/unit/test_web_main_loop_split.c'
+      - 'src/analyzer/web_top_level_loader_check.c'
+      - 'src/analyzer/web_top_level_loader_check.h'
+      - 'tests/unit/test_web_top_level_loader_check.c'
+      - 'src/stdlib/raylib.iron'
+      - 'src/vendor/raylib/raylib.c'
+      - 'src/cli/web_shell_template.h'
+      - 'CMakeLists.txt'
   pull_request:
     branches: [main]
     paths:
       - '.emsdk-version'
       - '.github/workflows/web.yml'
       - 'scripts/ci-smoke/**'
+      - 'src/analyzer/analyzer.c'
+      - 'src/analyzer/analyzer.h'
+      - 'src/analyzer/web_await_check.c'
+      - 'src/analyzer/web_await_check.h'
+      - 'src/cli/build.c'
+      - 'src/cli/build.h'
+      - 'src/cli/build_web.c'
+      - 'src/cli/build_web.h'
+      - 'src/cli/check.c'
+      - 'src/cli/main.c'
+      - 'src/cli/toml.c'
+      - 'src/cli/toml.h'
+      - 'src/cli/web_config.h'
+      - 'src/diagnostics/diagnostics.h'
+      - 'src/lir/emit_c.c'
+      - 'src/lir/emit_helpers.h'
+      - 'src/lir/emit_web.c'
+      - 'src/lir/emit_web.h'
+      - 'src/lir/lir.h'
+      - 'src/lir/web_main_loop_split.c'
+      - 'src/lir/web_main_loop_split.h'
+      - 'src/runtime/iron_builtins.c'
+      - 'src/runtime/iron_collections.c'
+      - 'src/runtime/iron_rc.c'
+      - 'src/runtime/iron_runtime.h'
+      - 'src/runtime/iron_string.c'
+      - 'src/runtime/iron_threads.c'
+      - 'src/stdlib/iron_time_web.c'
+      - 'tests/integration/web/hello.iron'
+      - 'tests/integration/web/hello_raylib.iron'
+      - 'tests/integration/web/hello_raylib_assets/**'
+      - 'examples/pong/**'
+      - 'tests/integration/web/test_cli_parse.c'
+      - 'tests/unit/CMakeLists.txt'
+      - 'tests/unit/test_emit_web.c'
+      - 'tests/unit/test_string_intern_race.c'
+      - 'tests/unit/test_toml_web.c'
+      - 'tests/unit/test_web_await_check.c'
+      - 'tests/unit/test_web_main_loop_split.c'
+      - 'src/analyzer/web_top_level_loader_check.c'
+      - 'src/analyzer/web_top_level_loader_check.h'
+      - 'tests/unit/test_web_top_level_loader_check.c'
+      - 'src/stdlib/raylib.iron'
+      - 'src/vendor/raylib/raylib.c'
+      - 'src/cli/web_shell_template.h'
+      - 'CMakeLists.txt'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -58,3 +150,203 @@ jobs:
           test -s /tmp/hello.js   || { echo "FAIL: /tmp/hello.js missing or empty"; exit 1; }
           test -s /tmp/hello.wasm || { echo "FAIL: /tmp/hello.wasm missing or empty"; exit 1; }
           echo "OK: hello.js and hello.wasm exist and are non-empty"
+
+      - name: Probe runtime + stdlib files portability under emcc (WEB-RUNTIME-07, WEB-RUNTIME-06)
+        run: |
+          set -e
+          echo "WEB-RUNTIME-07: try-compiling three runtime files under emcc --"
+          echo "these files must build cleanly with zero modifications."
+          echo "WEB-RUNTIME-06: also try-compiling iron_time_web.c under emcc --"
+          echo "this file provides the web time shim (emscripten_get_now / emscripten_date_now)."
+          emcc -c src/runtime/iron_rc.c          -I src -Wall -Werror -o /tmp/iron_rc.o
+          emcc -c src/runtime/iron_builtins.c    -I src -Wall -Werror -o /tmp/iron_builtins.o
+          emcc -c src/runtime/iron_collections.c -I src -Wall -Werror -o /tmp/iron_collections.o
+          emcc -c src/stdlib/iron_time_web.c     -I src -Wall -Werror -o /tmp/iron_time_web.o
+          test -s /tmp/iron_rc.o          || { echo "FAIL: iron_rc.o empty";          exit 1; }
+          test -s /tmp/iron_builtins.o    || { echo "FAIL: iron_builtins.o empty";    exit 1; }
+          test -s /tmp/iron_collections.o || { echo "FAIL: iron_collections.o empty"; exit 1; }
+          test -s /tmp/iron_time_web.o    || { echo "FAIL: iron_time_web.o empty";    exit 1; }
+          echo "OK: iron_rc.c + iron_builtins.c + iron_collections.c + iron_time_web.c compile clean under emcc"
+
+      - name: Configure + build ironc (Phase 7 end-to-end smoke)
+        run: |
+          set -e
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang
+          cmake --build build --target ironc --parallel
+
+      - name: End-to-end smoke — iron build --target=web (Phase 7, WEB-BUILD-01..08)
+        run: |
+          set -e
+          echo "Phase 7 end-to-end: iron build --target=web tests/integration/web/hello.iron"
+          echo "Expected: dist/web/index.html, dist/web/index.js, dist/web/index.wasm, dist/web/index.wasm.map"
+
+          # Clear any stale output directory from a previous run
+          rm -rf dist/web
+
+          # Run the real emcc link via ironc (debug build — no --release flag)
+          ./build/ironc build --target=web tests/integration/web/hello.iron
+
+          # Assert the three canonical output artifacts exist and are non-empty
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
+          # Assert the sourcemap is present for debug builds (WEB-OUT-04)
+          test -s dist/web/index.wasm.map || { echo "FAIL: dist/web/index.wasm.map missing or empty — debug build should emit sourcemap via -gsource-map"; exit 1; }
+          echo "OK: Phase 7 end-to-end — dist/web/index.{html,js,wasm,wasm.map} all present and non-empty"
+
+      - name: End-to-end smoke — iron build --target=web --release (Phase 11, WEB-OUT-04 release absence)
+        run: |
+          set -e
+          echo "Phase 11 WEB-OUT-04: release build must NOT emit index.wasm.map"
+
+          # Clear any stale output directory from the debug run above
+          rm -rf dist/web
+
+          # Run the real emcc link in release mode — -gsource-map is NOT added for release
+          ./build/ironc build --target=web --release tests/integration/web/hello.iron
+
+          # Assert the three canonical artifacts are present
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
+          # Assert the sourcemap is ABSENT for release builds (WEB-OUT-04)
+          test ! -f dist/web/index.wasm.map || { echo "FAIL: dist/web/index.wasm.map present in release build — should be absent"; exit 1; }
+          echo "OK: Phase 11 WEB-OUT-04 — release build has no index.wasm.map"
+
+      - name: End-to-end smoke — raylib (Phase 8, WEB-BUILD-05)
+        run: |
+          set -e
+          echo "Phase 8 end-to-end: iron build --target=web tests/integration/web/hello_raylib.iron"
+          echo "Expected: dist/web/index.html, dist/web/index.js, dist/web/index.wasm"
+
+          # Clear any stale output directory from the Phase 7 run above
+          rm -rf dist/web
+
+          # Run the real emcc link with raylib amalgamation via ironc
+          ./build/ironc build --target=web tests/integration/web/hello_raylib.iron
+
+          # Assert the three output artifacts exist and are non-empty
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
+          echo "OK: Phase 8 end-to-end — dist/web/index.{html,js,wasm} all present and non-empty (raylib)"
+
+      - name: Shell-patch assertions — verify Phase 9 patches land in generated index.html (WEB-SHELL-01..07)
+        run: |
+          set -e
+          echo "Phase 9: grepping dist/web/index.html for shell-template patches"
+
+          # COOP/COEP preflight (WEB-SHELL-04)
+          grep -q "crossOriginIsolated" dist/web/index.html \
+            && echo "OK: crossOriginIsolated present in index.html" \
+            || { echo "FAIL: crossOriginIsolated missing from index.html — COOP/COEP preflight not in shell"; exit 1; }
+
+          # Audio unlock listener (WEB-SHELL-02 / WEB-AUDIO-01)
+          grep -qE "unlockAudio|_audio_resume" dist/web/index.html \
+            && echo "OK: audio-unlock listener present in index.html" \
+            || { echo "FAIL: unlockAudio/_audio_resume missing from index.html — audio unlock not in shell"; exit 1; }
+
+          # WebGL context-lost handler (WEB-SHELL-07)
+          grep -q "webglcontextlost" dist/web/index.html \
+            && echo "OK: webglcontextlost handler present in index.html" \
+            || { echo "FAIL: webglcontextlost missing from index.html — context-lost handler not in shell"; exit 1; }
+
+          # Canvas element (WEB-SHELL-03)
+          grep -q "canvas" dist/web/index.html \
+            && echo "OK: canvas element present in index.html" \
+            || { echo "FAIL: canvas missing from index.html — canvas element not in shell"; exit 1; }
+
+          # {{{ SCRIPT }}} must be ABSENT — emcc replaces it at link time
+          # If it's still present verbatim, the shell-file flow did not fire
+          if grep -qF "{{{ SCRIPT }}}" dist/web/index.html; then
+            echo "FAIL: {{{ SCRIPT }}} still present in dist/web/index.html — shell-file substitution did not occur"
+            exit 1
+          fi
+          echo "OK: {{{ SCRIPT }}} correctly replaced by emcc glue loader"
+
+          echo "Phase 9 shell-patch assertions: ALL PASSED"
+
+      - name: End-to-end smoke — asset preload (Phase 10, WEB-ASSET-01/02/04/05)
+        run: |
+          set -e
+          echo "Phase 10 end-to-end: iron build --target=web tests/integration/web/hello_raylib_assets/hello_raylib_assets.iron"
+          echo "Expected: argv contains '--preload-file' flag, dist/web/index.html exists"
+
+          # Clear any stale output directory from previous steps
+          rm -rf dist/web
+
+          # Run ironc with --verbose so the full emcc argv is printed to stderr.
+          # Capture both streams to a log file we can grep.
+          ./build/ironc build --target=web --verbose \
+            tests/integration/web/hello_raylib_assets/hello_raylib_assets.iron \
+            > /tmp/phase10_build.log 2>&1 \
+            || { echo "FAIL: ironc build exited non-zero — see log below:"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert the canonical output artifacts exist
+          test -s dist/web/index.html || { echo "FAIL: dist/web/index.html missing or empty"; cat /tmp/phase10_build.log; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty";   cat /tmp/phase10_build.log; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert --preload-file appeared in the emitted emcc argv (via --verbose)
+          grep -qE '\-\-preload-file' /tmp/phase10_build.log \
+            && echo "OK: --preload-file present in emcc argv" \
+            || { echo "FAIL: --preload-file missing from emcc argv — cfg->assets not wired"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert the specific asset mapping format appears (abs path ending in /assets, mounted at /assets)
+          grep -qE 'assets@/assets' /tmp/phase10_build.log \
+            && echo "OK: assets@/assets mount mapping present" \
+            || { echo "FAIL: assets@/assets mapping missing"; cat /tmp/phase10_build.log; exit 1; }
+
+          # Assert the missing-dir warning path is NOT taken (directory exists via .gitkeep)
+          if grep -q "warning: \[web\].assets" /tmp/phase10_build.log; then
+            echo "FAIL: missing-dir warning fired despite assets/ existing"; cat /tmp/phase10_build.log; exit 1
+          fi
+          echo "OK: no spurious missing-dir warning"
+
+          echo "Phase 10 asset preload smoke: ALL PASSED"
+
+      - name: End-to-end smoke — Pong reference game (Phase 12, WEB-VALIDATE-01/04/05)
+        run: |
+          set -e
+          echo "Phase 12 end-to-end: iron build --target=web examples/pong/pong.iron"
+          echo "Expected: Pong compiles, main-loop split fires, dist/web/index.html produced"
+
+          # Clear stale output
+          rm -rf dist/web
+
+          ./build/ironc build --target=web --verbose \
+            examples/pong/pong.iron \
+            > /tmp/phase12_build.log 2>&1 \
+            || { echo "FAIL: ironc build exited non-zero — see log:"; cat /tmp/phase12_build.log; exit 1; }
+
+          test -s dist/web/index.html || { echo "FAIL: index.html missing"; cat /tmp/phase12_build.log; exit 1; }
+          test -s dist/web/index.js   || { echo "FAIL: index.js missing";   cat /tmp/phase12_build.log; exit 1; }
+          test -s dist/web/index.wasm || { echo "FAIL: index.wasm missing"; cat /tmp/phase12_build.log; exit 1; }
+
+          # Pong has an assets/ dir (WEB-VALIDATE-03) so index.data should exist
+          test -s dist/web/index.data || { echo "FAIL: index.data missing (asset preload expected)"; cat /tmp/phase12_build.log; exit 1; }
+
+          echo "Phase 12 Pong smoke: ALL PASSED"
+
+      - name: Size budget — Pong release wasm (Phase 13, WEB-TEST-09)
+        run: |
+          set -e
+          echo "Phase 13 size budget: Pong release build must be < 2 MB gzipped"
+
+          # Clear stale output and build Pong in release mode
+          rm -rf dist/web
+          ./build/ironc build --target=web --release examples/pong/pong.iron \
+            > /tmp/phase13_release.log 2>&1 \
+            || { echo "FAIL: release build exited non-zero"; cat /tmp/phase13_release.log; exit 1; }
+
+          test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing after release build"; exit 1; }
+
+          GZIP_SIZE=$(gzip -c dist/web/index.wasm | wc -c)
+          BUDGET=2097152  # 2 MiB
+          echo "Pong release wasm gzipped size: $GZIP_SIZE bytes (budget: $BUDGET)"
+
+          if [ "$GZIP_SIZE" -gt "$BUDGET" ]; then
+              echo "FAIL: Pong release wasm exceeds 2 MB gzipped budget ($GZIP_SIZE > $BUDGET)"
+              exit 1
+          fi
+          echo "OK: Pong release wasm within 2 MB gzipped budget"

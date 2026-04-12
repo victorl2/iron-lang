@@ -175,4 +175,19 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_WARN_POSSIBLE_OVERFLOW     603
 #define IRON_WARN_SPAWN_DATA_RACE      604
 
+/* Web-target LIR main-loop split pass errors (700 range) — Phase 5 WEB-EMIT-04.
+ *
+ * Emitted by src/lir/web_main_loop_split.c when the canonical
+ * `while (!WindowShouldClose()) { body }` shape cannot be located in a
+ * function containing InitWindow() under --target=web. Each error cites
+ * the canonical alternative in its message so users get an actionable fix.
+ *
+ * The 700 range is reserved for future --target=web LIR passes; Plan 06
+ * and later web phases should allocate upward from 704.
+ */
+#define IRON_ERR_WEB_MULTIPLE_MAIN_LOOPS       700
+#define IRON_ERR_WEB_NON_CANONICAL_MAIN_LOOP   701
+#define IRON_ERR_WEB_NESTED_MAIN_LOOP          702
+#define IRON_ERR_WEB_MAIN_LOOP_WRONG_FUNCTION  703
+
 #endif /* IRON_DIAGNOSTICS_H */

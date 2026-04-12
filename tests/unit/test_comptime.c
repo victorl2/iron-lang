@@ -59,7 +59,8 @@ static Iron_Program *run_analysis(const char *src) {
                                             &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    iron_analyze(prog, &g_arena, &g_diags, NULL, src, strlen(src), false);
+    iron_analyze(prog, &g_arena, &g_diags, NULL, src, strlen(src), false,
+                 IRON_TARGET_NATIVE);
     return prog;
 }
 
@@ -255,7 +256,8 @@ static Iron_Program *run_analysis_with_dir(const char *src,
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
     iron_analyze(prog, &g_arena, &g_diags,
-                 source_file_dir, src, strlen(src), false);
+                 source_file_dir, src, strlen(src), false,
+                 IRON_TARGET_NATIVE);
     return prog;
 }
 

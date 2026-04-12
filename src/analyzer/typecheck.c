@@ -378,16 +378,22 @@ static void maybe_fill_missing_generic_args(Iron_Node *init_node,
     ec->resolved_type = decl_type;
 }
 
-/* Allow integer literals to implicitly narrow to Int32.
- * `val x: Int32 = 42` is safe because the literal is statically known.
- * `val x: Int32 = someIntVar` is NOT allowed -- use Int32(someIntVar).
+static bool try_get_constant_int(Iron_Node *node, long long *out);
+
+/* Allow integer literals to implicitly narrow to any narrow integer type
+ * when the literal value fits in the target range.
+ * `val x: UInt8 = 255` is safe because 255 fits in UInt8.
+ * `val x: UInt8 = someIntVar` is NOT allowed -- use UInt8(someIntVar).
+ * A bare INT_LIT or `-INT_LIT` counts as a literal for this check.
  */
 static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
                                      const Iron_Node *init_node) {
     if (!decl_t || !init_t || !init_node) return false;
-    return (decl_t->kind == IRON_TYPE_INT32 &&
-            init_t->kind == IRON_TYPE_INT &&
-            init_node->kind == IRON_NODE_INT_LIT);
+    if (init_t->kind != IRON_TYPE_INT) return false;
+    if (!is_narrow_integer(decl_t)) return false;
+    long long val;
+    if (!try_get_constant_int((Iron_Node *)init_node, &val)) return false;
+    return value_fits_type(val, decl_t);
 }
 
 /* Try to extract a compile-time constant integer from an AST node.
@@ -3118,6 +3124,8 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
         Iron_Param *p = (Iron_Param *)fd->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
     }
+
+    fd->resolved_param_types = param_types;
 
     /* Build and assign function type to the global symbol */
     Iron_Symbol *func_sym = iron_scope_lookup(ctx->global_scope, fd->name);

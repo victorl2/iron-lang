@@ -111,6 +111,7 @@ jobs:
           cp src/stdlib/*.c src/stdlib/*.h src/stdlib/*.iron staging/lib/stdlib/
           cp -r src/vendor/* staging/lib/vendor/
           cp LICENSE staging/
+          cp .emsdk-version staging/lib/ 2>/dev/null || true
           tar -czf "${ARCHIVE}" -C staging .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 

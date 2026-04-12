@@ -1,0 +1,11 @@
+import raylib
+
+func main() {
+    InitWindow(800, 600, "Hello Raylib Web")
+    while not WindowShouldClose() {
+        BeginDrawing()
+        ClearBackground(WHITE)
+        EndDrawing()
+    }
+    CloseWindow()
+}

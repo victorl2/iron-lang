@@ -1,0 +1,11 @@
+[package]
+name = "hello_raylib_assets"
+version = "0.1.0"
+type = "bin"
+
+[dependencies]
+raylib = true
+
+[web]
+title = "Hello Raylib Assets"
+assets = "assets/"

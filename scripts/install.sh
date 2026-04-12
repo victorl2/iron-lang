@@ -94,15 +94,79 @@ ENVEOF
         add_to_profile "$HOME/.profile"
     fi
 
+    # ── emsdk (Emscripten) auto-install for web target support ────────────
+    EMSDK_DIR="$IRON_HOME/emsdk"
+    EMSDK_VERSION_FILE="$IRON_HOME/lib/.emsdk-version"
+
+    install_emsdk() {
+        if [ ! -f "$EMSDK_VERSION_FILE" ]; then
+            return 0
+        fi
+        EMSDK_PIN="$(cat "$EMSDK_VERSION_FILE" | tr -d '[:space:]')"
+        if [ -z "$EMSDK_PIN" ]; then
+            return 0
+        fi
+
+        # Skip if already installed at the right version
+        if [ -x "$EMSDK_DIR/upstream/emscripten/emcc" ]; then
+            INSTALLED_VER="$("$EMSDK_DIR/upstream/emscripten/emcc" --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+            if [ "$INSTALLED_VER" = "$EMSDK_PIN" ]; then
+                echo "  emsdk ${EMSDK_PIN} already installed, skipping"
+                return 0
+            fi
+        fi
+
+        echo "  Installing Emscripten SDK ${EMSDK_PIN} (for iron build --target=web)..."
+
+        if [ ! -d "$EMSDK_DIR" ]; then
+            if command -v git > /dev/null 2>&1; then
+                git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$EMSDK_DIR" > /dev/null 2>&1
+            else
+                echo "  Warning: git not found, skipping emsdk install (install git and re-run)"
+                return 0
+            fi
+        fi
+
+        (
+            cd "$EMSDK_DIR"
+            ./emsdk install "$EMSDK_PIN" > /dev/null 2>&1
+            ./emsdk activate "$EMSDK_PIN" > /dev/null 2>&1
+        )
+
+        if [ -x "$EMSDK_DIR/upstream/emscripten/emcc" ]; then
+            echo "  emsdk ${EMSDK_PIN} installed to ${EMSDK_DIR}"
+        else
+            echo "  Warning: emsdk install may have failed — run 'iron build --target=web' for diagnostics"
+        fi
+    }
+
+    install_emsdk
+
+    # Update env file to include emsdk paths
+    cat > "$ENV_FILE" << ENVEOF
+# Iron language environment
+# source this file to add iron to your PATH
+export PATH="\$HOME/.iron/bin:\$PATH"
+
+# Emscripten SDK (for iron build --target=web)
+if [ -f "\$HOME/.iron/emsdk/emsdk_env.sh" ]; then
+    . "\$HOME/.iron/emsdk/emsdk_env.sh" > /dev/null 2>&1
+fi
+ENVEOF
+
     echo ""
     echo "Iron ${VERSION} installed to ${IRON_HOME}"
     echo "  Binaries: ${IRON_HOME}/bin/iron, ${IRON_HOME}/bin/ironc"
+    if [ -x "$EMSDK_DIR/upstream/emscripten/emcc" ]; then
+        echo "  Web SDK:  ${EMSDK_DIR} (emcc on PATH after sourcing env)"
+    fi
     echo ""
     echo "To get started you may need to restart your shell or run:"
     echo '  source "$HOME/.iron/env"'
     echo ""
     echo "Then verify with:"
     echo "  iron --version"
+    echo "  iron build --target=web --help    # web builds ready"
 }
 
 main

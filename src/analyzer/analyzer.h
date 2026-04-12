@@ -7,6 +7,7 @@
 #include "analyzer/iface_collect.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
+#include "cli/build.h"
 #include <stddef.h>
 #include <stdbool.h>
 
@@ -23,6 +24,7 @@ typedef struct {
  *   3. Type checking
  *   4. Escape analysis
  *   5. Concurrency checks
+ *   5.5. Web target `await` reachability check (WEB-RUNTIME-04)
  *   6. Comptime evaluation (if no errors)
  *
  * source_file_dir: directory of the source .iron file, for read_file() path
@@ -30,6 +32,8 @@ typedef struct {
  * source_text/len: full source text used as comptime cache key.  Pass NULL/0
  *   to skip caching.
  * force_comptime: bypass cache and re-evaluate all comptime expressions.
+ * target: build target enum from IronBuildOpts.target. Used to gate
+ *   web-specific analyzer passes (WEB-RUNTIME-04).
  *
  * Returns result with global scope and error flag.
  * If has_errors is true, the program should NOT be passed to codegen.
@@ -39,6 +43,7 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
                                  Iron_DiagList *diags,
                                  const char *source_file_dir,
                                  const char *source_text, size_t source_len,
-                                 bool force_comptime);
+                                 bool force_comptime,
+                                 IronBuildTarget target);
 
 #endif /* IRON_ANALYZER_H */

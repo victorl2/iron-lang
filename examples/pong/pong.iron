@@ -1,0 +1,184 @@
+-- Pong — Phase 12 reference game for the Iron WASM worker
+--
+-- Two paddles, ball with reflection, per-player score, win condition,
+-- and a title/play/game-over state machine driven from a single
+-- top-level while(!WindowShouldClose()) loop that captures at least
+-- four locals (ball_x, ball_y, ball_vx, ball_vy, paddle positions, scores).
+--
+-- Builds on both `--target=native` and `--target=web` from the same source.
+
+import raylib
+
+-- Game state enum for the title → play → game over → restart state machine
+enum GameState {
+    TITLE    = 0,
+    PLAYING  = 1,
+    GAME_OVER = 2,
+}
+
+-- Convert a non-negative Int to its decimal String representation.
+-- Iron has no stdlib Int→String; implement locally (pattern from url.iron).
+func int_to_str(n: Int) -> String {
+    if n == 0 { return "0" }
+    var x = n
+    var s = ""
+    while x > 0 {
+        val d = x % 10
+        val digit_char = String.from_byte(48 + d)
+        s = "{digit_char}{s}"
+        x = x / 10
+    }
+    return s
+}
+
+func main() {
+    -- Screen dimensions + tunables (local to main so the LIR main-loop split
+    -- sees them as captures alongside the mutable game state).
+    val SCREEN_W: Int = 800
+    val SCREEN_H: Int = 600
+    val PADDLE_W: Int = 12
+    val PADDLE_H: Int = 80
+    val PADDLE_SPEED: Int = 6
+    val BALL_SIZE: Int = 12
+    val BALL_SPEED: Int = 5
+    val WIN_SCORE: Int = 5
+
+    InitWindow(SCREEN_W, SCREEN_H, "Iron Pong")
+    SetTargetFPS(60)
+
+    -- Captured locals — the Phase 5 LIR main-loop split pass lifts these
+    -- into a FrameState struct for web so writes persist frame-over-frame.
+    var state: GameState = GameState.TITLE
+    var ball_x: Int = SCREEN_W / 2
+    var ball_y: Int = SCREEN_H / 2
+    var ball_vx: Int = BALL_SPEED
+    var ball_vy: Int = BALL_SPEED
+    var left_y: Int = SCREEN_H / 2 - PADDLE_H / 2
+    var right_y: Int = SCREEN_H / 2 - PADDLE_H / 2
+    var left_score: Int = 0
+    var right_score: Int = 0
+
+    while not WindowShouldClose() {
+        -- Per-frame update dispatch on game state
+        if state == GameState.TITLE {
+            -- Wait for SPACE to start
+            if IsKeyPressed(Key.SPACE) {
+                state = GameState.PLAYING
+            }
+        }
+        if state == GameState.PLAYING {
+            -- Left paddle: W / S
+            if IsKeyDown(Key.W) { left_y = left_y - PADDLE_SPEED }
+            if IsKeyDown(Key.S) { left_y = left_y + PADDLE_SPEED }
+            -- Right paddle: UP / DOWN arrows
+            if IsKeyDown(Key.UP)   { right_y = right_y - PADDLE_SPEED }
+            if IsKeyDown(Key.DOWN) { right_y = right_y + PADDLE_SPEED }
+
+            -- Clamp paddles to screen
+            if left_y < 0 { left_y = 0 }
+            if left_y > SCREEN_H - PADDLE_H { left_y = SCREEN_H - PADDLE_H }
+            if right_y < 0 { right_y = 0 }
+            if right_y > SCREEN_H - PADDLE_H { right_y = SCREEN_H - PADDLE_H }
+
+            -- Ball update
+            ball_x = ball_x + ball_vx
+            ball_y = ball_y + ball_vy
+
+            -- Top/bottom wall reflection
+            if ball_y < 0 {
+                ball_y = 0
+                ball_vy = -ball_vy
+            }
+            if ball_y > SCREEN_H - BALL_SIZE {
+                ball_y = SCREEN_H - BALL_SIZE
+                ball_vy = -ball_vy
+            }
+
+            -- Left paddle collision (x range + y range)
+            if ball_x < PADDLE_W and ball_x > 0 {
+                if ball_y + BALL_SIZE > left_y and ball_y < left_y + PADDLE_H {
+                    ball_x = PADDLE_W
+                    ball_vx = -ball_vx
+                }
+            }
+            -- Right paddle collision
+            if ball_x + BALL_SIZE > SCREEN_W - PADDLE_W and ball_x + BALL_SIZE < SCREEN_W {
+                if ball_y + BALL_SIZE > right_y and ball_y < right_y + PADDLE_H {
+                    ball_x = SCREEN_W - PADDLE_W - BALL_SIZE
+                    ball_vx = -ball_vx
+                }
+            }
+
+            -- Scoring
+            if ball_x < 0 {
+                right_score = right_score + 1
+                ball_x = SCREEN_W / 2
+                ball_y = SCREEN_H / 2
+                ball_vx = BALL_SPEED
+                ball_vy = BALL_SPEED
+            }
+            if ball_x > SCREEN_W {
+                left_score = left_score + 1
+                ball_x = SCREEN_W / 2
+                ball_y = SCREEN_H / 2
+                ball_vx = -BALL_SPEED
+                ball_vy = BALL_SPEED
+            }
+
+            -- Win condition
+            if left_score >= WIN_SCORE { state = GameState.GAME_OVER }
+            if right_score >= WIN_SCORE { state = GameState.GAME_OVER }
+        }
+        if state == GameState.GAME_OVER {
+            -- SPACE restarts
+            if IsKeyPressed(Key.SPACE) {
+                state = GameState.PLAYING
+                left_score = 0
+                right_score = 0
+                ball_x = SCREEN_W / 2
+                ball_y = SCREEN_H / 2
+                ball_vx = BALL_SPEED
+                ball_vy = BALL_SPEED
+            }
+        }
+
+        -- Render
+        BeginDrawing()
+        ClearBackground(BLACK)
+
+        -- Center line
+        DrawLine(SCREEN_W / 2, 0, SCREEN_W / 2, SCREEN_H, DARKGRAY)
+
+        -- Paddles
+        DrawRectangle(0, left_y, PADDLE_W, PADDLE_H, WHITE)
+        DrawRectangle(SCREEN_W - PADDLE_W, right_y, PADDLE_W, PADDLE_H, WHITE)
+
+        -- Ball (only draw during play / game over to avoid flashing on title)
+        if state == GameState.PLAYING {
+            DrawRectangle(ball_x, ball_y, BALL_SIZE, BALL_SIZE, WHITE)
+        }
+        if state == GameState.GAME_OVER {
+            DrawRectangle(ball_x, ball_y, BALL_SIZE, BALL_SIZE, WHITE)
+        }
+
+        -- Scores
+        val left_str = int_to_str(left_score)
+        val right_str = int_to_str(right_score)
+        DrawText(left_str, SCREEN_W / 4, 20, 40, WHITE)
+        DrawText(right_str, 3 * SCREEN_W / 4, 20, 40, WHITE)
+
+        -- State-specific overlay text
+        if state == GameState.TITLE {
+            DrawText("IRON PONG", SCREEN_W / 2 - 100, SCREEN_H / 2 - 40, 40, WHITE)
+            DrawText("Press SPACE to start", SCREEN_W / 2 - 120, SCREEN_H / 2 + 20, 20, DARKGRAY)
+        }
+        if state == GameState.GAME_OVER {
+            DrawText("GAME OVER", SCREEN_W / 2 - 100, SCREEN_H / 2 - 40, 40, RED)
+            DrawText("Press SPACE to restart", SCREEN_W / 2 - 130, SCREEN_H / 2 + 20, 20, DARKGRAY)
+        }
+
+        EndDrawing()
+    }
+
+    CloseWindow()
+}
