@@ -268,14 +268,13 @@ set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
     LABELS "phase2-invariant"
 )
 
-# ── Phase 3 plan-04: WEB-RUNTIME-07 portability grep invariant ──────────────
+# ── WEB-RUNTIME-07 portability grep invariant ──────────────────────────────
 # Fails the local build if iron_rc.c / iron_builtins.c / iron_collections.c
 # gain a reference to any of these non-portable APIs under -Wall -Werror on
 # emcc. The full emcc try-compile runs in CI (.github/workflows/web.yml);
 # this local grep gives development-time feedback without requiring a local
-# emsdk install. The ERE alternation matches headers + symbols that the
-# paper audit in .planning/phases/03-runtime-audit-web-hardening/03-RESEARCH.md
-# confirmed are currently absent from all three files.
+# emsdk install. The ERE alternation matches headers + symbols that are
+# currently absent from all three files.
 add_test(
     NAME test_runtime_files_portability_grep
     COMMAND sh -c "! grep -E 'sysconf|pthread_attr|sigaction|sys/wait\\.h|sys/resource\\.h' \"${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_builtins.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_collections.c\""
