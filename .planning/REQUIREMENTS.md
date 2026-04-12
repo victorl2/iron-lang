@@ -52,9 +52,9 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 - [x] **WEB-EMIT-03**: Writes from within the loop body to captured locals persist correctly across frames (capture-by-reference semantics)
 - [x] **WEB-EMIT-04**: Non-canonical loop shapes (nested, for-loop, do-while, multiple top-level loops) produce a clear error naming the required pattern
 - [x] **WEB-EMIT-05**: New file `src/lir/emit_web.c` emits the web-specific `main()` wrapper using `emit_helpers.h` only (zero touches to `emit_c.c`)
-- [ ] **WEB-EMIT-06**: Emitted C includes `<emscripten/emscripten.h>` at the top when target is web
-- [ ] **WEB-EMIT-07**: `main()` calls `emscripten_set_main_loop_arg(frame_cb, state, 0, 0)` with `simulate_infinite_loop=0`
-- [ ] **WEB-EMIT-08**: Cleanup code (`CloseWindow()`, `iron_runtime_shutdown()`, `free(state)`) runs inside the frame callback's shutdown branch before `emscripten_cancel_main_loop()`
+- [x] **WEB-EMIT-06**: Emitted C includes `<emscripten/emscripten.h>` at the top when target is web
+- [x] **WEB-EMIT-07**: `main()` calls `emscripten_set_main_loop_arg(frame_cb, state, 0, 0)` with `simulate_infinite_loop=0`
+- [x] **WEB-EMIT-08**: Cleanup code (`CloseWindow()`, `iron_runtime_shutdown()`, `free(state)`) runs inside the frame callback's shutdown branch before `emscripten_cancel_main_loop()`
 - [ ] **WEB-EMIT-09**: `src/cli/build.c` step 12 dispatches to `emit_web_module()` when `target == WEB`, `iron_lir_emit_c()` otherwise
 
 ### Build Orchestration (WEB-BUILD)
@@ -221,9 +221,9 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-EMIT-03 | Phase 5 — LIR Main-Loop Split Pass | Complete |
 | WEB-EMIT-04 | Phase 5 — LIR Main-Loop Split Pass | Complete |
 | WEB-EMIT-05 | Phase 6 — emit_web.c Wrapper | Complete |
-| WEB-EMIT-06 | Phase 6 — emit_web.c Wrapper | Pending |
-| WEB-EMIT-07 | Phase 6 — emit_web.c Wrapper | Pending |
-| WEB-EMIT-08 | Phase 6 — emit_web.c Wrapper | Pending |
+| WEB-EMIT-06 | Phase 6 — emit_web.c Wrapper | Complete |
+| WEB-EMIT-07 | Phase 6 — emit_web.c Wrapper | Complete |
+| WEB-EMIT-08 | Phase 6 — emit_web.c Wrapper | Complete |
 | WEB-EMIT-09 | Phase 6 — emit_web.c Wrapper | Pending |
 | WEB-BUILD-01 | Phase 7 — build_web.c emcc Orchestration | Pending |
 | WEB-BUILD-02 | Phase 7 — build_web.c emcc Orchestration | Pending |

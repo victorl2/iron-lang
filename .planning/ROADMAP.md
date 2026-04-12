@@ -226,7 +226,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 3. Runtime Audit | 3/4 | In Progress|  |
 | 4. WASM-Safe Time Shim | 2/2 | Complete   | 2026-04-11 |
 | 5. LIR Main-Loop Split Pass | 3/3 | Complete   | 2026-04-11 |
-| 6. emit_web.c Wrapper | 1/3 | In Progress|  |
+| 6. emit_web.c Wrapper | 2/3 | In Progress|  |
 | 7. build_web.c emcc Orchestration | 0/TBD | Not started | - |
 | 8. Raylib Web Integration | 0/TBD | Not started | - |
 | 9. Shell + Audio Autoplay | 0/TBD | Not started | - |

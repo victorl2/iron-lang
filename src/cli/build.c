@@ -34,6 +34,7 @@
 #include "hir/hir_lower.h"
 #include "hir/hir_to_lir.h"
 #include "lir/emit_c.h"
+#include "lir/emit_web.h"
 #include "lir/lir_optimize.h"
 #include "lir/web_main_loop_split.h"
 #include "lir/print.h"
@@ -646,9 +647,18 @@ static int invoke_clang(const char *c_file, const char *output,
 
 int iron_build(const char *source_path, const char *output_path,
                IronBuildOpts opts) {
-    /* Phase 2: dispatch to web build stub when --target=web */
+    /* Phase 6: on --target=web run the Phase 2 preflight (find_emcc + banner +
+     * config validation + drift warning) BEFORE the main pipeline. The preflight
+     * was previously a full stub that returned 0 without compiling. Now it's a
+     * real gate: if it fails, iron_build() returns early. If it passes, we fall
+     * through to the native pipeline which — after Phase 6 plan 02 — dispatches
+     * to emit_web_module() at step 12. Phase 7 will replace the final invoke_clang
+     * call (step 13) with emcc orchestration; for now --target=web still fails at
+     * that boundary, which is expected scope for Phase 6. */
     if (opts.target == IRON_TARGET_WEB) {
-        return iron_build_web(source_path, output_path, opts);
+        int pre_rc = iron_build_web(source_path, output_path, opts);
+        if (pre_rc != 0) return pre_rc;
+        /* fall through — the pipeline runs for both targets */
     }
 
     /* Resolve runtime lib/src base directory once for this build */
@@ -1037,17 +1047,15 @@ int iron_build(const char *source_path, const char *output_path,
     /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *
      * Detects the canonical `while(!WindowShouldClose())` shape on
-     * --target=web and populates fn->web_frame_captures with outer-scope
-     * locals that the loop body reads or writes. On --target=native this
-     * is a zero-cost early return at the pass entry point.
+     * 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *
-     * NOTE: today this code path runs only on the native build — web
-     * builds short-circuit to iron_build_web() at the top of iron_build().
-     * Phase 6 will refactor iron_build_web to reuse this pipeline, at
-     * which point the call below becomes the single source of truth for
-     * both targets. Landing it here now makes the wiring forward-
-     * compatible so Phase 6 only adds its emit-time code, not its own
-     * call site.
+     * On --target=web this pass populates fn->web_frame_captures with
+     * outer-scope locals that the canonical while(!WindowShouldClose()) body
+     * reads or writes. On --target=native this is a zero-cost early return.
+     *
+     * Phase 6 plan 03 removed the Phase 2 stub short-circuit at iron_build()
+     * entry, so this call now runs for BOTH targets and feeds the Phase 6
+     * emit_web_module() dispatch at step 12 below.
      */
     iron_lir_web_main_loop_split(ir_module, &arena, &diags, opts.target);
     if (diags.error_count > 0) {
@@ -1063,11 +1071,25 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 8. Emit C from IR */
-    const char *c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
-                                        &analysis.iface_registry,
-                                        opts.warn_fusion_break,
-                                        opts.report_compression);
+    /* 8. Emit C from IR — dispatch by target.
+     *   --target=web    -> emit_web_module (src/lir/emit_web.c, Phase 6 plan 02)
+     *   --target=native -> iron_lir_emit_c (src/lir/emit_c.c, the canonical native emitter)
+     * Both emitters return an arena-allocated const char * with identical error
+     * semantics. The web emitter prepends #include <emscripten/emscripten.h>
+     * and synthesizes a main() wrapper + frame callback for the function whose
+     * fn->web_frame_captures was populated by iron_lir_web_main_loop_split. */
+    const char *c_src;
+    if (opts.target == IRON_TARGET_WEB) {
+        c_src = emit_web_module(ir_module, &arena, &diags, &optimize_info,
+                                &analysis.iface_registry,
+                                opts.warn_fusion_break,
+                                opts.report_compression);
+    } else {
+        c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
+                                &analysis.iface_registry,
+                                opts.warn_fusion_break,
+                                opts.report_compression);
+    }
 
     iron_lir_module_destroy(ir_module);
     iron_arena_free(&ir_arena);

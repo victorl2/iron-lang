@@ -236,8 +236,8 @@ static int validate_web_config(const IronWebConfig *cfg) {
 
 int iron_build_web(const char *source_path, const char *output_path,
                    IronBuildOpts opts) {
-    (void)output_path;  /* Phase 2: unused, Phase 7 consumes */
-    (void)opts;         /* Phase 2: release flag stored for Phase 7 */
+    (void)output_path;  /* Preflight: unused here; Phase 7 consumes for emcc output path */
+    (void)opts;         /* Preflight: opts consumed by caller (iron_build) for target check; Phase 7 uses release flags */
 
     /* 1. Parse iron.toml alongside the source file, if any (best-effort). */
     IronWebConfig local_cfg = {0};
@@ -300,8 +300,7 @@ int iron_build_web(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 8. Phase 2 stub: real compilation lands in Phase 7. */
-    printf("Phase 2: CLI + TOML scaffold complete; real compilation in Phase 7\n");
+    /* 8. Preflight success: iron_build() will run the main pipeline. */
 
     /* 9. Cleanup. */
     free(emcc_version);
