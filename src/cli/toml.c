@@ -1,5 +1,6 @@
 #include "cli/toml.h"
 
+#include <libgen.h>   /* dirname() — POSIX; must operate on a mutable copy */
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -284,6 +285,21 @@ IronProject *iron_toml_parse(const char *path) {
         return NULL;
     }
 
+    /* Compute toml_dir: the directory containing iron.toml (WEB-ASSET-04).
+     * Used by web builds to resolve [web].assets paths relative to iron.toml
+     * rather than the shell's cwd.
+     * dirname() may mutate its input (glibc) so we operate on a strdup'd copy;
+     * the result is then strdup'd again so proj owns it independently. */
+    char *path_copy = strdup(path);
+    if (path_copy) {
+        char *dir = dirname(path_copy);   /* may mutate path_copy */
+        if (dir) proj->toml_dir = strdup(dir);
+        free(path_copy);
+    }
+    if (!proj->toml_dir) {
+        proj->toml_dir = strdup(".");     /* sentinel: same directory */
+    }
+
     /* Track current section: 0 = none, 1 = [package]/[project], 2 = [dependencies] */
     int section = 0;
 
@@ -479,5 +495,6 @@ void iron_toml_free(IronProject *proj) {
         free(proj->web.assets[wi]);
     }
     free(proj->web.assets);
+    free(proj->toml_dir);
     free(proj);
 }
