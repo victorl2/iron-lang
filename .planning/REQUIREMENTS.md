@@ -65,8 +65,8 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 - [x] **WEB-BUILD-04**: Every translation unit is compiled with `-pthread` (raylib amalgamation, Iron runtime, emitted C, all stdlib shims)
 - [ ] **WEB-BUILD-05**: Raylib is built from the amalgamation driver `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB -DGRAPHICS_API_OPENGL_ES2` (NOT via raylib's Makefile)
 - [x] **WEB-BUILD-06**: `mkdir_p("dist/web")` is called before emcc runs; works cross-platform
-- [ ] **WEB-BUILD-07**: Build NEVER passes any of these forbidden flags: `ASYNCIFY=1`, `MINIMAL_RUNTIME`, `PROXY_TO_PTHREAD`, `SAFE_HEAP`, `ALLOW_BLOCKING_ON_MAIN_THREAD`, `ERROR_ON_UNDEFINED_SYMBOLS=0`, `MODULARIZE`, `EXPORT_ES6`, `-fwasm-exceptions`
-- [ ] **WEB-BUILD-08**: Build fails with a clear diagnostic if any forbidden flag is requested via user config
+- [x] **WEB-BUILD-07**: Build NEVER passes any of these forbidden flags: `ASYNCIFY=1`, `MINIMAL_RUNTIME`, `PROXY_TO_PTHREAD`, `SAFE_HEAP`, `ALLOW_BLOCKING_ON_MAIN_THREAD`, `ERROR_ON_UNDEFINED_SYMBOLS=0`, `MODULARIZE`, `EXPORT_ES6`, `-fwasm-exceptions`
+- [x] **WEB-BUILD-08**: Build fails with a clear diagnostic if any forbidden flag is requested via user config
 
 ### Assets (WEB-ASSET)
 
@@ -231,8 +231,8 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-BUILD-04 | Phase 7 — build_web.c emcc Orchestration | Complete |
 | WEB-BUILD-05 | Phase 8 — Raylib Web Integration | Pending |
 | WEB-BUILD-06 | Phase 7 — build_web.c emcc Orchestration | Complete |
-| WEB-BUILD-07 | Phase 7 — build_web.c emcc Orchestration | Pending |
-| WEB-BUILD-08 | Phase 7 — build_web.c emcc Orchestration | Pending |
+| WEB-BUILD-07 | Phase 7 — build_web.c emcc Orchestration | Complete |
+| WEB-BUILD-08 | Phase 7 — build_web.c emcc Orchestration | Complete |
 | WEB-ASSET-01 | Phase 10 — Asset Preload + Loader Guard | Pending |
 | WEB-ASSET-02 | Phase 10 — Asset Preload + Loader Guard | Pending |
 | WEB-ASSET-03 | Phase 10 — Asset Preload + Loader Guard | Pending |
