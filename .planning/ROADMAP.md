@@ -129,7 +129,11 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   4. User whose `iron.toml` `[web]` config attempts to set any forbidden flag (`ASYNCIFY=1`, `MINIMAL_RUNTIME`, `PROXY_TO_PTHREAD`, `SAFE_HEAP`, `ALLOW_BLOCKING_ON_MAIN_THREAD`, `ERROR_ON_UNDEFINED_SYMBOLS=0`, `MODULARIZE`, `EXPORT_ES6`, `-fwasm-exceptions`) gets a clear diagnostic naming the flag and refusing to build.
   5. Building from a fresh clone with no prior `dist/` directory succeeds without manual `mkdir`; `mkdir_p("dist/web")` handles the cross-platform path creation.
   6. `tests/integration/web/test_cli_parse.c` passes (CLI parse coverage from Phase 2 is verified by the integration test harness spawned from this phase).
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 07-plan-01-iron-build-web-link-orchestration-PLAN.md — iron_build_web_link function + mkdir_p + argv with canonical flag set + release/debug flag sets + posix_spawnp emcc (WEB-BUILD-01, 03, 04, 06)
+- [ ] 07-plan-02-forbidden-flag-guard-PLAN.md — IRON_WEB_FORBIDDEN_FLAGS array + is_forbidden_flag helper + self-audit walk in iron_build_web_link (WEB-BUILD-07, 08)
+- [ ] 07-plan-03-dispatch-and-emrun-PLAN.md — build.c step 13 target branch to iron_build_web_link + iron run --target=web → emrun posix_spawnp flow + fallback message
+- [ ] 07-plan-04-tests-ci-fixture-roadmap-PLAN.md — hello.iron fixture + test_cli_parse.c integration test + web.yml end-to-end smoke job + ROADMAP SC1 Windows-parity update + Phase 7 pin discipline (WEB-BUILD-02)
 
 ### Phase 8: Raylib Web Integration (Amalgamation)
 **Goal**: The vendored raylib 5.5 compiles through emcc via its amalgamation driver with `-DPLATFORM_WEB -DGRAPHICS_API_OPENGL_ES2 -sUSE_GLFW=3` and links cleanly with the Iron-emitted C, so a minimal raylib program opens a canvas in a desktop browser.
@@ -227,7 +231,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 4. WASM-Safe Time Shim | 2/2 | Complete   | 2026-04-11 |
 | 5. LIR Main-Loop Split Pass | 3/3 | Complete   | 2026-04-11 |
 | 6. emit_web.c Wrapper | 3/3 | Complete   | 2026-04-12 |
-| 7. build_web.c emcc Orchestration | 0/TBD | Not started | - |
+| 7. build_web.c emcc Orchestration | 1/4 | In Progress|  |
 | 8. Raylib Web Integration | 0/TBD | Not started | - |
 | 9. Shell + Audio Autoplay | 0/TBD | Not started | - |
 | 10. Asset Preload + Guard | 0/TBD | Not started | - |

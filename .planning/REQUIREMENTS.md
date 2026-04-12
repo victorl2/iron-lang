@@ -59,12 +59,12 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 
 ### Build Orchestration (WEB-BUILD)
 
-- [ ] **WEB-BUILD-01**: New file `src/cli/build_web.c` orchestrates the full web build
+- [x] **WEB-BUILD-01**: New file `src/cli/build_web.c` orchestrates the full web build
 - [ ] **WEB-BUILD-02**: `find_emcc()` probes PATH for `emcc`, `emcc.bat`, `emcc.cmd` (Windows compatibility)
-- [ ] **WEB-BUILD-03**: emcc is invoked with the full canonical flag set including `-pthread`, `-sUSE_PTHREADS=1`, `-sPTHREAD_POOL_SIZE=4`, `-sINITIAL_MEMORY=134217728`, `-sALLOW_MEMORY_GROWTH=1`, `-sMAXIMUM_MEMORY=268435456`, `-sSTACK_SIZE=1048576`, `-sUSE_GLFW=3`, `-sFORCE_FILESYSTEM=1`, `-sGL_ENABLE_GET_PROC_ADDRESS=1`, `-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPF32,HEAP32,HEAPU8`, `-sASYNCIFY=0`
-- [ ] **WEB-BUILD-04**: Every translation unit is compiled with `-pthread` (raylib amalgamation, Iron runtime, emitted C, all stdlib shims)
+- [x] **WEB-BUILD-03**: emcc is invoked with the full canonical flag set including `-pthread`, `-sUSE_PTHREADS=1`, `-sPTHREAD_POOL_SIZE=4`, `-sINITIAL_MEMORY=134217728`, `-sALLOW_MEMORY_GROWTH=1`, `-sMAXIMUM_MEMORY=268435456`, `-sSTACK_SIZE=1048576`, `-sUSE_GLFW=3`, `-sFORCE_FILESYSTEM=1`, `-sGL_ENABLE_GET_PROC_ADDRESS=1`, `-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPF32,HEAP32,HEAPU8`, `-sASYNCIFY=0`
+- [x] **WEB-BUILD-04**: Every translation unit is compiled with `-pthread` (raylib amalgamation, Iron runtime, emitted C, all stdlib shims)
 - [ ] **WEB-BUILD-05**: Raylib is built from the amalgamation driver `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB -DGRAPHICS_API_OPENGL_ES2` (NOT via raylib's Makefile)
-- [ ] **WEB-BUILD-06**: `mkdir_p("dist/web")` is called before emcc runs; works cross-platform
+- [x] **WEB-BUILD-06**: `mkdir_p("dist/web")` is called before emcc runs; works cross-platform
 - [ ] **WEB-BUILD-07**: Build NEVER passes any of these forbidden flags: `ASYNCIFY=1`, `MINIMAL_RUNTIME`, `PROXY_TO_PTHREAD`, `SAFE_HEAP`, `ALLOW_BLOCKING_ON_MAIN_THREAD`, `ERROR_ON_UNDEFINED_SYMBOLS=0`, `MODULARIZE`, `EXPORT_ES6`, `-fwasm-exceptions`
 - [ ] **WEB-BUILD-08**: Build fails with a clear diagnostic if any forbidden flag is requested via user config
 
@@ -225,12 +225,12 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-EMIT-07 | Phase 6 — emit_web.c Wrapper | Complete |
 | WEB-EMIT-08 | Phase 6 — emit_web.c Wrapper | Complete |
 | WEB-EMIT-09 | Phase 6 — emit_web.c Wrapper | Complete |
-| WEB-BUILD-01 | Phase 7 — build_web.c emcc Orchestration | Pending |
+| WEB-BUILD-01 | Phase 7 — build_web.c emcc Orchestration | Complete |
 | WEB-BUILD-02 | Phase 7 — build_web.c emcc Orchestration | Pending |
-| WEB-BUILD-03 | Phase 7 — build_web.c emcc Orchestration | Pending |
-| WEB-BUILD-04 | Phase 7 — build_web.c emcc Orchestration | Pending |
+| WEB-BUILD-03 | Phase 7 — build_web.c emcc Orchestration | Complete |
+| WEB-BUILD-04 | Phase 7 — build_web.c emcc Orchestration | Complete |
 | WEB-BUILD-05 | Phase 8 — Raylib Web Integration | Pending |
-| WEB-BUILD-06 | Phase 7 — build_web.c emcc Orchestration | Pending |
+| WEB-BUILD-06 | Phase 7 — build_web.c emcc Orchestration | Complete |
 | WEB-BUILD-07 | Phase 7 — build_web.c emcc Orchestration | Pending |
 | WEB-BUILD-08 | Phase 7 — build_web.c emcc Orchestration | Pending |
 | WEB-ASSET-01 | Phase 10 — Asset Preload + Loader Guard | Pending |
