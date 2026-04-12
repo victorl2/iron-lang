@@ -1143,8 +1143,27 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
-    /* 13. Invoke clang */
-    int ret = invoke_clang(c_file_path, binary_name, "src", opts);
+    /* 13. Invoke the linker — target-branched.
+     *
+     * Native: invoke_clang produces a native executable at binary_name.
+     * Web (Phase 7): iron_build_web_link spawns emcc to produce
+     *                dist/web/index.{html,js,wasm}. The emitted C has
+     *                already been produced by emit_web_module at step 8,
+     *                written to c_file_path by write_temp_c at step 12.
+     *                The Phase 2/6 preflight at iron_build() entry has
+     *                already validated find_emcc, the config, and the
+     *                emsdk version pin.
+     */
+    int ret;
+    if (opts.target == IRON_TARGET_WEB) {
+        /* Web: spawn emcc with the canonical flag set + Iron runtime + web stdlib.
+         * cfg is NULL — Phase 7 does not consume [web] overrides from iron.toml.
+         * The preflight at iron_build() entry already validated the parsed
+         * [web] config. Phase 11 may pass the parsed IronWebConfig through. */
+        ret = iron_build_web_link(c_file_path, opts, NULL);
+    } else {
+        ret = invoke_clang(c_file_path, binary_name, "src", opts);
+    }
 
     /* 14. Clean up temp file unless --debug-build */
     if (!opts.debug_build) {
@@ -1203,6 +1222,42 @@ int iron_build(const char *source_path, const char *output_path,
         free(derived_output);
         return (int)run_exit;
 #else
+        /* Web target (Phase 7): spawn `emrun dist/web/index.html` via PATH.
+         * emrun is shipped with emsdk; if the user has `emcc` on PATH they
+         * should also have `emrun`. If emrun is missing, fall back to a
+         * friendly message pointing at the output file. */
+        if (opts.target == IRON_TARGET_WEB) {
+            char *emrun_argv[] = {
+                (char *)"emrun",
+                (char *)"dist/web/index.html",
+                NULL,
+            };
+            pid_t emrun_pid;
+            int emrun_spawn_rc = posix_spawnp(&emrun_pid, "emrun", NULL, NULL,
+                                              emrun_argv, environ);
+            if (emrun_spawn_rc != 0) {
+                /* emrun not found (ENOENT) or spawn failure — fall back
+                 * to a message, do NOT fail the build. */
+                fprintf(stderr,
+                        "note: emrun not found in PATH (%s)\n"
+                        "      Open dist/web/index.html in a browser manually.\n",
+                        strerror(emrun_spawn_rc));
+                free(derived_output);
+                return 0;  /* Build succeeded; run is a best-effort extra */
+            }
+            int emrun_wstatus;
+            if (waitpid(emrun_pid, &emrun_wstatus, 0) < 0) {
+                fprintf(stderr, "error: waitpid on emrun failed: %s\n",
+                        strerror(errno));
+                free(derived_output);
+                return 1;
+            }
+            free(derived_output);
+            return WIFEXITED(emrun_wstatus) ? WEXITSTATUS(emrun_wstatus) : 1;
+        }
+
+        /* Native run — existing posix_spawn flow continues unchanged below */
+
         /* If binary_name has no '/', it's in the current directory.
          * posix_spawnp searches PATH, which won't find ./binary.
          * Prefix with "./" so the shell-like search works correctly. */
