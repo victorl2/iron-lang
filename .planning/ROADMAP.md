@@ -1061,7 +1061,7 @@ Phases execute in numeric order: 59 -> 65 -> 66 -> 67 -> 68 -> 69 -> 70 (60-64 p
 | 62. [paused] HTTP/1.1 Parser + Client | v0.2.0-alpha | 0/0 | Paused | - |
 | 63. [paused] HTTP Server | v0.2.0-alpha | 0/0 | Paused | - |
 | 64. [paused] WebSocket Client | v0.2.0-alpha | 0/0 | Paused | - |
-| 65. Correctness Audit | 6/6 | Complete   | 2026-04-12 | - |
+| 65. Correctness Audit | 6/6 | Complete    | 2026-04-12 | - |
 | 66. Structural Protections + Linux Release CI | v0.1.4-alpha | 0/0 | Not started | - |
 | 67. Correctness Fixes + Crash Canaries | v0.1.4-alpha | 0/0 | Not started | - |
 | 68. Fuzzing Infrastructure | v0.1.4-alpha | 0/0 | Not started | - |
@@ -1328,7 +1328,12 @@ Plans:
   3. A Debug build that casts an AST node to the wrong kind (e.g., treating an `Iron_IfStmt` as an `Iron_WhileStmt`) hits `iron_node_assert_kind` and aborts with a file:line message; a Release build pays zero cost for this check
   4. CI job `build-and-test-release (ubuntu-latest)` in `.github/workflows/ci.yml` builds `ironc` in Release mode and runs integration tests -- a crash in any test fails the CI check (not swallowed as "benchmark failed")
   5. `tests/integration/hir_to_lir_elif_mono_walker.iron` is the reference pattern for regression fixtures, and its doc-comment style (motivating incident + layout diagram + fix summary + severity) is documented as the template
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 66-01-PLAN.md -- PROT-01 + PROT-03: move Iron_ExprNode to ast.h with _Static_assert prefix enforcement, add iron_ice + IRON_NODE_ASSERT_KIND macro
+- [ ] 66-02-PLAN.md -- PROT-02: append -Werror=switch-enum globally, audit and fix every Iron-enum switch across compiler/runtime/stdlib/ironc including net-new WebAssembly sources, convert emit_c.c FFI cast if-chain to exhaustive switch
+- [ ] 66-03-PLAN.md -- PROT-04: rewrite all 9 H-severity blind-cast sites in typecheck.c/resolve.c/escape.c with IRON_NODE_ASSERT_KIND + real struct, land 6 regression fixtures following the 4-section template
+- [ ] 66-04-PLAN.md -- REG-01 + REG-04: add build-and-test-release (ubuntu-latest) job to ci.yml, harden run_integration.sh crash-swallow prevention, create docs/regression-fixtures.md template documentation
 
 ### Phase 67: Correctness Fixes + Crash Canaries
 **Goal**: All top-20 high-severity issues from the audit are resolved with regression fixtures, and crash-canary fixtures cover every AST node kind the HIR-to-LIR walker handles
