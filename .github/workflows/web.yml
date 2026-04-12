@@ -46,6 +46,7 @@ on:
       - 'tests/unit/test_web_main_loop_split.c'
       - 'src/stdlib/raylib.iron'
       - 'src/vendor/raylib/raylib.c'
+      - 'src/cli/web_shell_template.h'
       - 'CMakeLists.txt'
   pull_request:
     branches: [main]
@@ -92,6 +93,7 @@ on:
       - 'tests/unit/test_web_main_loop_split.c'
       - 'src/stdlib/raylib.iron'
       - 'src/vendor/raylib/raylib.c'
+      - 'src/cli/web_shell_template.h'
       - 'CMakeLists.txt'
 
 concurrency:
@@ -197,3 +199,38 @@ jobs:
           test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; exit 1; }
           test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; exit 1; }
           echo "OK: Phase 8 end-to-end — dist/web/index.{html,js,wasm} all present and non-empty (raylib)"
+
+      - name: Shell-patch assertions — verify Phase 9 patches land in generated index.html (WEB-SHELL-01..07)
+        run: |
+          set -e
+          echo "Phase 9: grepping dist/web/index.html for shell-template patches"
+
+          # COOP/COEP preflight (WEB-SHELL-04)
+          grep -q "crossOriginIsolated" dist/web/index.html \
+            && echo "OK: crossOriginIsolated present in index.html" \
+            || { echo "FAIL: crossOriginIsolated missing from index.html — COOP/COEP preflight not in shell"; exit 1; }
+
+          # Audio unlock listener (WEB-SHELL-02 / WEB-AUDIO-01)
+          grep -qE "unlockAudio|_audio_resume" dist/web/index.html \
+            && echo "OK: audio-unlock listener present in index.html" \
+            || { echo "FAIL: unlockAudio/_audio_resume missing from index.html — audio unlock not in shell"; exit 1; }
+
+          # WebGL context-lost handler (WEB-SHELL-07)
+          grep -q "webglcontextlost" dist/web/index.html \
+            && echo "OK: webglcontextlost handler present in index.html" \
+            || { echo "FAIL: webglcontextlost missing from index.html — context-lost handler not in shell"; exit 1; }
+
+          # Canvas element (WEB-SHELL-03)
+          grep -q "canvas" dist/web/index.html \
+            && echo "OK: canvas element present in index.html" \
+            || { echo "FAIL: canvas missing from index.html — canvas element not in shell"; exit 1; }
+
+          # {{{ SCRIPT }}} must be ABSENT — emcc replaces it at link time
+          # If it's still present verbatim, the shell-file flow did not fire
+          if grep -qF "{{{ SCRIPT }}}" dist/web/index.html; then
+            echo "FAIL: {{{ SCRIPT }}} still present in dist/web/index.html — shell-file substitution did not occur"
+            exit 1
+          fi
+          echo "OK: {{{ SCRIPT }}} correctly replaced by emcc glue loader"
+
+          echo "Phase 9 shell-patch assertions: ALL PASSED"
