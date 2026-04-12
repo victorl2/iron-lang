@@ -309,3 +309,289 @@ int iron_build_web(const char *source_path, const char *output_path,
     if (proj) iron_toml_free(proj);
     return 0;
 }
+
+/* ── Section H: mkdir_p helper (Phase 7, WEB-BUILD-06) ─────────────────────── */
+
+/* Recursively create a directory path (like `mkdir -p`). Handles nested
+ * directories, EEXIST as success, and reports errors to stderr.
+ *
+ * Linux/macOS only — Phase 7 keeps the #ifdef _WIN32 #error guard at
+ * file top. Windows support is deferred until Iron gains Windows base
+ * support (same rationale as Phase 1).
+ *
+ * Returns 0 on success (directory exists or was created), non-zero on error.
+ */
+static int mkdir_p(const char *path) {
+    if (!path || !*path) return -1;
+
+    /* Duplicate so we can mutate separators */
+    char *copy = strdup(path);
+    if (!copy) return -1;
+
+    size_t len = strlen(copy);
+    /* Strip trailing slash(es) so we don't create a bogus empty component */
+    while (len > 1 && copy[len - 1] == '/') {
+        copy[--len] = '\0';
+    }
+
+    /* Walk each path component, creating intermediates */
+    for (char *p = copy + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(copy, 0755) != 0 && errno != EEXIST) {
+                fprintf(stderr, "error: mkdir_p: cannot create '%s': %s\n",
+                        copy, strerror(errno));
+                free(copy);
+                return -1;
+            }
+            *p = '/';
+        }
+    }
+
+    if (mkdir(copy, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "error: mkdir_p: cannot create '%s': %s\n",
+                copy, strerror(errno));
+        free(copy);
+        return -1;
+    }
+
+    free(copy);
+    return 0;
+}
+
+/* ── Section I: iron_build_web_link (Phase 7, WEB-BUILD-01/03/04/06) ───────── */
+
+/* Canonical emcc flag set (WEB-BUILD-03). These 12 entries are hardcoded
+ * and MUST appear verbatim in every web link. No user override in Phase 7.
+ *
+ * Phase 2's IronWebConfig carries optional overrides for initial_memory,
+ * stack_size, and pthread_pool_size — these are NOT applied in Phase 7
+ * (Phase 11 may wire them). The defaults below match IRON_WEB_DEFAULT_*
+ * in web_config.h so behavior is consistent.
+ */
+static const char *const IRON_WEB_CANONICAL_FLAGS[] = {
+    "-pthread",
+    "-sUSE_PTHREADS=1",
+    "-sPTHREAD_POOL_SIZE=4",
+    "-sINITIAL_MEMORY=134217728",
+    "-sALLOW_MEMORY_GROWTH=1",
+    "-sMAXIMUM_MEMORY=268435456",
+    "-sSTACK_SIZE=1048576",
+    "-sUSE_GLFW=3",
+    "-sFORCE_FILESYSTEM=1",
+    "-sGL_ENABLE_GET_PROC_ADDRESS=1",
+    "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPF32,HEAP32,HEAPU8",
+    "-sASYNCIFY=0",
+};
+static const size_t IRON_WEB_CANONICAL_FLAGS_COUNT =
+    sizeof(IRON_WEB_CANONICAL_FLAGS) / sizeof(IRON_WEB_CANONICAL_FLAGS[0]);
+
+int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
+                        IronWebConfig *cfg) {
+    (void)cfg;  /* Phase 7: canonical flags are hardcoded; Phase 11 may consume cfg */
+
+    if (!c_file_path) {
+        fprintf(stderr, "error: iron_build_web_link: c_file_path is NULL\n");
+        return 1;
+    }
+
+    /* 1. Find emcc (PATH probe). Same helper the Phase 2/6 preflight uses. */
+    char *emcc_path = find_emcc();
+    if (!emcc_path) {
+        char *pinned = iron_read_pinned_emsdk_version(NULL);
+        print_install_one_liner(pinned);
+        free(pinned);
+        return 1;
+    }
+
+    /* 2. Create dist/web/ (WEB-BUILD-06). */
+    if (mkdir_p("dist/web") != 0) {
+        fprintf(stderr, "error: cannot create dist/web/ output directory\n");
+        free(emcc_path);
+        return 1;
+    }
+
+    /* 3. Resolve source file paths (Iron runtime + util + web-compatible
+     *    stdlib, mirroring build_src_list in build.c but substituting
+     *    iron_time_web.c for iron_time.c and dropping iron_net*.c).
+     *
+     *    Files linked on web (13 .c files total + the emitted C):
+     *      src/util/stb_ds_impl.c
+     *      src/util/arena.c
+     *      src/util/strbuf.c
+     *      src/runtime/iron_string.c
+     *      src/runtime/iron_rc.c
+     *      src/runtime/iron_builtins.c
+     *      src/runtime/iron_threads.c
+     *      src/runtime/iron_collections.c
+     *      src/stdlib/iron_io.c
+     *      src/stdlib/iron_log.c
+     *      src/stdlib/iron_math.c
+     *      src/stdlib/iron_hint.c
+     *      src/stdlib/iron_time_web.c      (NOT iron_time.c)
+     *
+     *    Explicitly NOT linked on web:
+     *      src/runtime/iron_net_init.c    (networking runtime — Phase 14)
+     *      src/stdlib/iron_net.c          (networking stdlib — Phase 14)
+     *      src/stdlib/iron_time.c         (native time shim — replaced by iron_time_web.c)
+     *      src/vendor/raylib/raylib.c     (Phase 8)
+     *
+     *    CWD-relative "src" matches invoke_clang(c_file, binary, "src", opts) in build.c.
+     *    If iron build is run from the repo root (CI case), this is stable.
+     */
+    const char *iron_src_dir = "src";
+
+#define IRON_WEB_SRC_COUNT 13
+    const char *rel_paths[IRON_WEB_SRC_COUNT] = {
+        "util/stb_ds_impl.c",
+        "util/arena.c",
+        "util/strbuf.c",
+        "runtime/iron_string.c",
+        "runtime/iron_rc.c",
+        "runtime/iron_builtins.c",
+        "runtime/iron_threads.c",
+        "runtime/iron_collections.c",
+        "stdlib/iron_io.c",
+        "stdlib/iron_log.c",
+        "stdlib/iron_math.c",
+        "stdlib/iron_hint.c",
+        "stdlib/iron_time_web.c",
+    };
+    char *abs_paths[IRON_WEB_SRC_COUNT] = {0};
+    for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) {
+        size_t need = strlen(iron_src_dir) + 1 + strlen(rel_paths[i]) + 1;
+        abs_paths[i] = (char *)malloc(need);
+        if (!abs_paths[i]) {
+            for (int j = 0; j < i; j++) free(abs_paths[j]);
+            free(emcc_path);
+            return 1;
+        }
+        snprintf(abs_paths[i], need, "%s/%s", iron_src_dir, rel_paths[i]);
+    }
+
+    /* Build the -I flags (src dir for header resolution). */
+    size_t src_i_len = strlen("-I") + strlen(iron_src_dir) + 1;
+    char *src_i_flag = (char *)malloc(src_i_len);
+    if (!src_i_flag) {
+        for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
+        free(emcc_path);
+        return 1;
+    }
+    snprintf(src_i_flag, src_i_len, "-I%s", iron_src_dir);
+
+    size_t stdlib_i_len = strlen("-I") + strlen(iron_src_dir) + strlen("/stdlib") + 1;
+    char *stdlib_i_flag = (char *)malloc(stdlib_i_len);
+    if (!stdlib_i_flag) {
+        free(src_i_flag);
+        for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
+        free(emcc_path);
+        return 1;
+    }
+    snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", iron_src_dir);
+
+    /* 4. Build the emcc argv.
+     *
+     *    Layout:
+     *      [0]     emcc
+     *      [1..12] canonical flags (12 entries from IRON_WEB_CANONICAL_FLAGS)
+     *      [13..15] release OR debug flag set (3 entries each)
+     *      [16]    -o
+     *      [17]    dist/web/index.html
+     *      [18]    -I<iron_src_dir>
+     *      [19]    -I<iron_src_dir>/stdlib
+     *      [20]    c_file_path (emitted C from emit_web_module)
+     *      [21..33] 13 source files (util + runtime + stdlib shims)
+     *      [34]    NULL terminator
+     *
+     *    Allocate 48 slots — safe margin for Phase 8 raylib additions.
+     */
+    const int max_argv = 48;
+    const char *argv[48];
+    int n = 0;
+
+    argv[n++] = emcc_path;
+
+    /* Canonical flag set (WEB-BUILD-03) */
+    for (size_t i = 0; i < IRON_WEB_CANONICAL_FLAGS_COUNT; i++) {
+        argv[n++] = IRON_WEB_CANONICAL_FLAGS[i];
+    }
+
+    /* Release/debug flag set (WEB-CLI-05/06 from Phase 2) */
+    if (opts.release) {
+        argv[n++] = "-Oz";
+        argv[n++] = "-flto";
+        argv[n++] = "-sASSERTIONS=0";
+    } else {
+        argv[n++] = "-O0";
+        argv[n++] = "-g";
+        argv[n++] = "-sASSERTIONS=1";
+    }
+
+    /* Output path */
+    argv[n++] = "-o";
+    argv[n++] = "dist/web/index.html";
+
+    /* Include paths */
+    argv[n++] = src_i_flag;
+    argv[n++] = stdlib_i_flag;
+
+    /* Emitted C file from emit_web_module + write_temp_c */
+    argv[n++] = c_file_path;
+
+    /* Iron runtime + util + stdlib source files */
+    for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) {
+        argv[n++] = abs_paths[i];
+    }
+
+    argv[n] = NULL;
+
+    /* 5. Verbose mode: dump the full command before spawning */
+    if (opts.verbose) {
+        fprintf(stderr, "iron build --target=web: spawning emcc:\n  ");
+        for (int i = 0; i < n; i++) {
+            fprintf(stderr, "%s ", argv[i]);
+        }
+        fprintf(stderr, "\n");
+    }
+
+    /* 6. Spawn emcc via posix_spawnp.
+     *    Plan 02 will add a forbidden-flag self-audit here BEFORE the spawn. */
+    pid_t pid;
+    int spawn_rc = posix_spawnp(&pid, emcc_path, NULL, NULL,
+                                (char *const *)argv, environ);
+    if (spawn_rc != 0) {
+        fprintf(stderr, "error: failed to spawn emcc: %s\n", strerror(spawn_rc));
+        free(stdlib_i_flag);
+        free(src_i_flag);
+        for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
+        free(emcc_path);
+        return 1;
+    }
+
+    int wstatus;
+    if (waitpid(pid, &wstatus, 0) < 0) {
+        fprintf(stderr, "error: waitpid on emcc failed: %s\n", strerror(errno));
+        free(stdlib_i_flag);
+        free(src_i_flag);
+        for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
+        free(emcc_path);
+        return 1;
+    }
+
+    int emcc_rc = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
+
+    /* 7. Cleanup */
+    free(stdlib_i_flag);
+    free(src_i_flag);
+    for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
+    free(emcc_path);
+
+    if (emcc_rc != 0) {
+        fprintf(stderr, "error: emcc exited with status %d\n", emcc_rc);
+        return 1;
+    }
+
+    (void)max_argv; /* suppress unused-variable warning */
+    fprintf(stderr, "Built: dist/web/index.html\n");
+    return 0;
+}
