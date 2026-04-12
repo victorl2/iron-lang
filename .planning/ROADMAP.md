@@ -237,7 +237,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 6. emit_web.c Wrapper | 3/3 | Complete   | 2026-04-12 |
 | 7. build_web.c emcc Orchestration | 3/4 | In Progress|  |
 | 8. Raylib Web Integration | 2/2 | Complete   | 2026-04-12 |
-| 9. Shell + Audio Autoplay | 0/TBD | Not started | - |
+| 9. Shell + Audio Autoplay | 2/2 | Complete   | 2026-04-12 |
 | 10. Asset Preload + Guard | 0/TBD | Not started | - |
 | 11. dist/web/ Output Layout | 0/TBD | Not started | - |
 | 12. Pong Reference Game | 0/TBD | Not started | - |
