@@ -143,7 +143,9 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
   1. A minimal Iron program that calls `InitWindow`, `BeginDrawing`, `ClearBackground(RAYWHITE)`, `EndDrawing`, and `CloseWindow` builds with `iron build --target=web` and produces `dist/web/index.html` with no undefined-symbol errors from the linker (no missing `glfwGetError`, `glfwGetGamepadState`, or GLES2 entry points).
   2. Running `emrun --no_browser --port 8080 dist/web/index.html` and opening the URL in Chrome, Firefox, or Safari shows a blank canvas with the expected clear color — the raylib runtime has reached `EndDrawing` without crashing.
   3. The build invokes emcc against `src/vendor/raylib/raylib.c` (the amalgamation driver that `#include`s `platforms/rcore_web.c` under `PLATFORM_WEB`) — not raylib's Makefile, not a separate `.a` artifact.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 08-plan-01-build-web-raylib-amalgamation-link-PLAN.md — Extend iron_build_web_link in src/cli/build_web.c with a gated block appending src/vendor/raylib/raylib.c + -DPLATFORM_WEB -DGRAPHICS_API_OPENGL_ES2 -Isrc/vendor/raylib when opts.use_raylib is true (WEB-BUILD-05)
+- [ ] 08-plan-02-raylib-fixture-and-ci-smoke-PLAN.md — Add tests/integration/web/hello_raylib.iron + .github/workflows/web.yml Phase 8 end-to-end smoke step + paths filter additions + ROADMAP/REQUIREMENTS marking complete
 
 ### Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)
 **Goal**: The default HTML shell protects users from the #1 deployment pitfall (COOP/COEP misconfiguration silently disabling SharedArrayBuffer) and from the #2 game-audio pitfall (suspended `AudioContext` on first frame), while remaining fully overrideable via `[web].shell`.
