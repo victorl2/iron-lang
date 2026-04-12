@@ -1157,10 +1157,36 @@ int iron_build(const char *source_path, const char *output_path,
     int ret;
     if (opts.target == IRON_TARGET_WEB) {
         /* Web: spawn emcc with the canonical flag set + Iron runtime + web stdlib.
-         * cfg is NULL — Phase 7 does not consume [web] overrides from iron.toml.
-         * The preflight at iron_build() entry already validated the parsed
-         * [web] config. Phase 11 may pass the parsed IronWebConfig through. */
-        ret = iron_build_web_link(c_file_path, opts, NULL);
+         * Parse iron.toml once to obtain [web] config (cfg) and toml_dir for
+         * resolving relative asset paths (WEB-ASSET-04). The preflight at
+         * iron_build() entry already validated find_emcc + emsdk version pin.
+         * When no iron.toml exists alongside the source file (e.g. bare hello.iron
+         * builds), web_proj is NULL and web_cfg/web_toml_dir are also NULL —
+         * iron_build_web_link treats NULL cfg as "no [web] overrides" and NULL
+         * toml_dir as "." so the asset section is a no-op. */
+        IronProject *web_proj = NULL;
+        IronWebConfig *web_cfg = NULL;
+        const char *web_toml_dir = NULL;
+        {
+            char *src_copy = strdup(source_path);
+            if (src_copy) {
+                char *dir = dirname(src_copy);
+                size_t toml_len = strlen(dir) + strlen("/iron.toml") + 1;
+                char *toml_path = (char *)malloc(toml_len);
+                if (toml_path) {
+                    snprintf(toml_path, toml_len, "%s/iron.toml", dir);
+                    web_proj = iron_toml_parse(toml_path);
+                    free(toml_path);
+                }
+                free(src_copy);
+            }
+            if (web_proj) {
+                web_cfg = &web_proj->web;
+                web_toml_dir = web_proj->toml_dir;
+            }
+        }
+        ret = iron_build_web_link(c_file_path, opts, web_cfg, web_toml_dir);
+        if (web_proj) iron_toml_free(web_proj);
     } else {
         ret = invoke_clang(c_file_path, binary_name, "src", opts);
     }

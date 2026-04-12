@@ -441,7 +441,7 @@ static const char *is_forbidden_flag(const char *flag) {
 }
 
 int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
-                        IronWebConfig *cfg) {
+                        IronWebConfig *cfg, const char *toml_dir) {
     if (!c_file_path) {
         fprintf(stderr, "error: iron_build_web_link: c_file_path is NULL\n");
         return 1;
@@ -674,6 +674,11 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     }
     snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", iron_src_dir);
 
+    /* WEB-ASSET-01/02/04/05: per-asset preload mapping strings.
+     * Heap-allocated; freed on every return path below. */
+    char *preload_mappings[16] = {0};
+    int   preload_count        = 0;
+
     /* 4. Build the emcc argv.
      *
      *    Layout:
@@ -691,11 +696,13 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *      [36..39] raylib entries (gated on opts.use_raylib, Phase 8)
      *      [40]    NULL terminator
      *
-     *    High-water mark: 40 (Phase 9 raylib case) — well under 48.
-     *    Allocate 48 slots — safe margin for future phases.
+     *    High-water mark: 40 (Phase 9 raylib case); Phase 10 adds up to 16
+     *    more slots for --preload-file pairs (8 asset entries x 2 each).
+     *    Budget: 64 - 40 - 16 = 8 spare slots.
+     *    Allocate 64 slots — safe margin for future phases.
      */
-    const int max_argv = 48;
-    const char *argv[48];
+    const int max_argv = 64;
+    const char *argv[64];
     int n = 0;
 
     argv[n++] = emcc_path;
@@ -770,6 +777,62 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         argv[n++] = "-Isrc/vendor/raylib";
     }
 
+    /* WEB-ASSET-01/02/04/05: preload [web].assets directories via --preload-file.
+     *
+     * Each entry in cfg->assets[] is resolved relative to toml_dir (WEB-ASSET-04),
+     * stat-checked for existence + directory-ness, and emitted as a --preload-file
+     * argv pair mapping <abs>@/<basename>. Missing directories warn + skip,
+     * never fail the build (WEB-ASSET-05, asset-free games are supported).
+     */
+    if (cfg && cfg->assets && cfg->asset_count > 0) {
+        const char *eff_toml_dir = toml_dir ? toml_dir : ".";
+        for (int ai = 0; ai < cfg->asset_count && ai < 16; ai++) {
+            const char *rel = cfg->assets[ai];
+            if (!rel || !*rel) continue;
+
+            /* Resolve: <toml_dir>/<rel> */
+            size_t need = strlen(eff_toml_dir) + 1 + strlen(rel) + 1;
+            char *abs = (char *)malloc(need);
+            if (!abs) continue;
+            snprintf(abs, need, "%s/%s", eff_toml_dir, rel);
+
+            /* stat + is-directory check (WEB-ASSET-05 missing-dir warning) */
+            struct stat st;
+            if (stat(abs, &st) != 0 || !S_ISDIR(st.st_mode)) {
+                fprintf(stderr,
+                        "warning: [web].assets directory '%s' not found — "
+                        "asset-free build continues\n", rel);
+                free(abs);
+                continue;
+            }
+
+            /* Compute basename of the ORIGINAL rel for the mount point.
+             * "assets/" -> "assets"; "sounds/sfx/" -> "sfx".
+             * Strip trailing slash(es), then take the last '/' segment. */
+            char *rel_copy = strdup(rel);
+            if (!rel_copy) { free(abs); continue; }
+            size_t rc_len = strlen(rel_copy);
+            while (rc_len > 0 && rel_copy[rc_len - 1] == '/') {
+                rel_copy[--rc_len] = '\0';
+            }
+            const char *slash = strrchr(rel_copy, '/');
+            const char *mount_base = slash ? slash + 1 : rel_copy;
+
+            /* Build "<abs>@/<mount_base>" */
+            size_t map_len = strlen(abs) + 2 + strlen(mount_base) + 1;
+            char *mapping = (char *)malloc(map_len);
+            if (!mapping) { free(rel_copy); free(abs); continue; }
+            snprintf(mapping, map_len, "%s@/%s", abs, mount_base);
+            free(rel_copy);
+            free(abs);
+
+            /* Track for cleanup + append to argv */
+            preload_mappings[preload_count++] = mapping;
+            argv[n++] = "--preload-file";
+            argv[n++] = mapping;
+        }
+    }
+
     argv[n] = NULL;
 
     /* 5. Verbose mode: dump the full command before spawning */
@@ -797,6 +860,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
                     "web builds cannot use this flag. Refusing to build.\n",
                     hit);
             if (use_temp_shell) unlink(shell_path_buf);
+            for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
             free(stdlib_i_flag);
             free(src_i_flag);
             for (int j = 0; j < IRON_WEB_SRC_COUNT; j++) free(abs_paths[j]);
@@ -812,6 +876,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     if (spawn_rc != 0) {
         fprintf(stderr, "error: failed to spawn emcc: %s\n", strerror(spawn_rc));
         if (use_temp_shell) unlink(shell_path_buf);
+        for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
         free(stdlib_i_flag);
         free(src_i_flag);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
@@ -823,6 +888,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     if (waitpid(pid, &wstatus, 0) < 0) {
         fprintf(stderr, "error: waitpid on emcc failed: %s\n", strerror(errno));
         if (use_temp_shell) unlink(shell_path_buf);
+        for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
         free(stdlib_i_flag);
         free(src_i_flag);
         for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
@@ -835,6 +901,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     /* 8. Cleanup — unlink temp shell on BOTH success and failure paths so
      * no /tmp/iron_web_shell_*.html stragglers are left behind. */
     if (use_temp_shell) unlink(shell_path_buf);
+    for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
     free(stdlib_i_flag);
     free(src_i_flag);
     for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);

@@ -48,13 +48,16 @@ int iron_build_web(const char *source_path, const char *output_path,
  *   opts:        build options; opts.release selects release vs debug flag set,
  *                opts.verbose gates the command-dump in -v mode
  *   cfg:         parsed [web] config from iron.toml (may be NULL — defaults
- *                from web_config.h are applied). Not consumed for flag
- *                overrides in Phase 7.
+ *                from web_config.h are applied).
+ *   toml_dir:    directory containing iron.toml for resolving relative asset
+ *                paths (WEB-ASSET-04). NULL is treated as "." (cwd). Required
+ *                for [web].assets path resolution; may be NULL when there is
+ *                no iron.toml on disk (e.g. bare hello.iron builds).
  *
  * Returns 0 on success (emcc exited 0 and dist/web/index.html exists),
  * non-zero on failure.
  */
 int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
-                        IronWebConfig *cfg);
+                        IronWebConfig *cfg, const char *toml_dir);
 
 #endif /* IRON_CLI_BUILD_WEB_H */
