@@ -24,7 +24,7 @@ This milestone adds an Emscripten-driven WebAssembly build target to Iron so tha
 - [x] **Phase 8: Raylib Web Integration (Amalgamation)** - Compile `src/vendor/raylib/raylib.c` with `-DPLATFORM_WEB` through emcc (completed 2026-04-11)
 - [x] **Phase 9: Shell Template + Audio Autoplay Unlock (LOW-MEDIUM risk)** - COOP/COEP preflight, audio resume listener, webglcontextlost handler (completed 2026-04-12)
 - [x] **Phase 10: Asset Preload + Top-Level Loader Guard (MEDIUM risk)** - `--preload-file` mapping + analyzer error for top-level `LoadTexture` (completed 2026-04-11)
-- [ ] **Phase 11: dist/web/ Output Layout** - Predictable `index.{html,js,wasm,data}` drop-to-itch.io output folder
+- [x] **Phase 11: dist/web/ Output Layout** - Predictable `index.{html,js,wasm,data}` drop-to-itch.io output folder (completed 2026-04-12)
 - [ ] **Phase 12: Pong Reference Game + Validation** - End-to-end Pong proof exercising render, input, audio, captures
 - [ ] **Phase 13: Integration Tests + Full Regression** - CLI/TOML/loop-split/shell/asset/analyzer tests, size budget, Windows CI, 333 native tests green
 - [ ] **Phase 14: Iron-Native Dev Server (DEFERRED, GATED)** - `iron serve --target=web` with COOP/COEP headers — BLOCKED on networking milestone's HTTP server landing on main
@@ -241,7 +241,7 @@ Phase 14 is blocked on the parallel networking milestone and does NOT gate any o
 | 7. build_web.c emcc Orchestration | 3/4 | In Progress|  |
 | 8. Raylib Web Integration | 2/2 | Complete   | 2026-04-12 |
 | 9. Shell + Audio Autoplay | 2/2 | Complete   | 2026-04-12 |
-| 10. Asset Preload + Guard | 3/3 | Complete   | 2026-04-12 |
+| 10. Asset Preload + Guard | 3/3 | Complete    | 2026-04-12 |
 | 11. dist/web/ Output Layout | 0/TBD | Not started | - |
 | 12. Pong Reference Game | 0/TBD | Not started | - |
 | 13. Integration Tests + Regression | 0/TBD | Not started | - |

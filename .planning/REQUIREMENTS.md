@@ -95,11 +95,11 @@ Requirements for the initial shipping WASM target. Derived from `.planning/resea
 
 ### Output Layout (WEB-OUT)
 
-- [ ] **WEB-OUT-01**: Web build output lands in `dist/web/` (created on demand)
-- [ ] **WEB-OUT-02**: Primary HTML is named `index.html` regardless of source filename (itch.io / static host convention)
-- [ ] **WEB-OUT-03**: Emitted siblings include `index.js`, `index.wasm`, and `index.data` (when assets present)
-- [ ] **WEB-OUT-04**: Debug builds additionally emit `index.wasm.map` sourcemap
-- [ ] **WEB-OUT-05**: Building from a fresh clone with no prior `dist/` succeeds without manual `mkdir`
+- [x] **WEB-OUT-01**: Web build output lands in `dist/web/` (created on demand)
+- [x] **WEB-OUT-02**: Primary HTML is named `index.html` regardless of source filename (itch.io / static host convention)
+- [x] **WEB-OUT-03**: Emitted siblings include `index.js`, `index.wasm`, and `index.data` (when assets present)
+- [x] **WEB-OUT-04**: Debug builds additionally emit `index.wasm.map` sourcemap
+- [x] **WEB-OUT-05**: Building from a fresh clone with no prior `dist/` succeeds without manual `mkdir`
 
 ### Pong Reference Game (WEB-VALIDATE)
 
@@ -249,11 +249,11 @@ Explicitly excluded from v1 with reasoning. Rejected on sight.
 | WEB-AUDIO-02 | Phase 9 — Shell Template + Audio Unlock | Pending |
 | WEB-AUDIO-03 | Phase 9 — Shell Template + Audio Unlock | Pending |
 | WEB-AUDIO-04 | Phase 9 — Shell Template + Audio Unlock | Pending |
-| WEB-OUT-01 | Phase 11 — dist/web/ Output Layout | Pending |
-| WEB-OUT-02 | Phase 11 — dist/web/ Output Layout | Pending |
-| WEB-OUT-03 | Phase 11 — dist/web/ Output Layout | Pending |
-| WEB-OUT-04 | Phase 11 — dist/web/ Output Layout | Pending |
-| WEB-OUT-05 | Phase 11 — dist/web/ Output Layout | Pending |
+| WEB-OUT-01 | Phase 11 — dist/web/ Output Layout | Complete |
+| WEB-OUT-02 | Phase 11 — dist/web/ Output Layout | Complete |
+| WEB-OUT-03 | Phase 11 — dist/web/ Output Layout | Complete |
+| WEB-OUT-04 | Phase 11 — dist/web/ Output Layout | Complete |
+| WEB-OUT-05 | Phase 11 — dist/web/ Output Layout | Complete |
 | WEB-VALIDATE-01 | Phase 12 — Pong Reference Game | Pending |
 | WEB-VALIDATE-02 | Phase 12 — Pong Reference Game | Pending |
 | WEB-VALIDATE-03 | Phase 12 — Pong Reference Game | Pending |
