@@ -595,6 +595,37 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         argv[n++] = abs_paths[i];
     }
 
+    /* Phase 8: Raylib amalgamation (WEB-BUILD-05).
+     *
+     * When the user's program imports raylib (or iron.toml sets raylib = true),
+     * build.c sets opts.use_raylib = true and we append the amalgamation driver
+     * src/vendor/raylib/raylib.c as a source file plus three flags:
+     *   -DPLATFORM_WEB              routes rcore.c through platforms/rcore_web.c
+     *                               (raylib's web backend, verified at
+     *                               src/vendor/raylib/rcore.c lines 545-546)
+     *   -DGRAPHICS_API_OPENGL_ES2   selects the GLES2 rlgl backend, which is
+     *                               what emcc + WebGL2 expects
+     *   -Isrc/vendor/raylib         header search path for raylib's internal
+     *                               #include "raylib.h" / "rcamera.h" / etc.
+     *
+     * The third raylib-required flag from the Phase 8 goal — -sUSE_GLFW=3 —
+     * already lives in IRON_WEB_CANONICAL_FLAGS since Phase 7. We do NOT
+     * touch it here.
+     *
+     * Amalgamation discipline: ONLY raylib.c is referenced. rcore.c, rglfw.c,
+     * rshapes.c, rtext.c, rtextures.c, rmodels.c, raudio.c, and utils.c are
+     * pulled in transitively by raylib.c via #include — do NOT add them
+     * directly.
+     *
+     * String-literal entries — no malloc, no free.
+     */
+    if (opts.use_raylib) {
+        argv[n++] = "src/vendor/raylib/raylib.c";
+        argv[n++] = "-DPLATFORM_WEB";
+        argv[n++] = "-DGRAPHICS_API_OPENGL_ES2";
+        argv[n++] = "-Isrc/vendor/raylib";
+    }
+
     argv[n] = NULL;
 
     /* 5. Verbose mode: dump the full command before spawning */
