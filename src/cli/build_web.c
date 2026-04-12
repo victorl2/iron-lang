@@ -386,6 +386,58 @@ static const char *const IRON_WEB_CANONICAL_FLAGS[] = {
 static const size_t IRON_WEB_CANONICAL_FLAGS_COUNT =
     sizeof(IRON_WEB_CANONICAL_FLAGS) / sizeof(IRON_WEB_CANONICAL_FLAGS[0]);
 
+/* ── Section I.2: Forbidden emcc flags (Phase 7, WEB-BUILD-07) ────────────── */
+
+/* Forbidden emcc flag substrings. These strings MUST NEVER appear inside
+ * any argv entry passed to emcc for a web build (WEB-BUILD-07). The list
+ * is copied verbatim from REQUIREMENTS.md WEB-BUILD-07. Each entry is a
+ * substring tested via strstr() against each argv entry — this handles
+ * both the `-s<NAME>` form (emcc setting flags) and the `-fwasm-exceptions`
+ * literal flag form.
+ *
+ * Rationale for each entry:
+ *   ASYNCIFY=1                      — 20-40% runtime overhead, up to 10x WASM size blowup
+ *   MINIMAL_RUNTIME                 — incompatible with -pthread in practice
+ *   PROXY_TO_PTHREAD                — breaks emscripten_set_main_loop registration from main thread
+ *   SAFE_HEAP                       — runtime cost, not needed once LIR verifier is trusted
+ *   ALLOW_BLOCKING_ON_MAIN_THREAD   — papers over the underlying deadlock; fix the code instead
+ *   ERROR_ON_UNDEFINED_SYMBOLS=0    — silences the #1 signal that something is linked wrong
+ *   MODULARIZE                      — breaks the {{{ SCRIPT }}} template path in shell
+ *   EXPORT_ES6                      — breaks the {{{ SCRIPT }}} template path in shell
+ *   -fwasm-exceptions               — breaks simulate_infinite_loop semantics
+ *
+ * Plan 02 adds is_forbidden_flag() as a linear scan. Phase 7 has NO user-input
+ * channel feeding argv, so this is a structural safety net — the audit catches
+ * accidental additions in future phases (Plan 11 output layout overrides, user-
+ * flag channels in Phase 13+).
+ */
+static const char *const IRON_WEB_FORBIDDEN_FLAGS[] = {
+    "ASYNCIFY=1",
+    "MINIMAL_RUNTIME",
+    "PROXY_TO_PTHREAD",
+    "SAFE_HEAP",
+    "ALLOW_BLOCKING_ON_MAIN_THREAD",
+    "ERROR_ON_UNDEFINED_SYMBOLS=0",
+    "MODULARIZE",
+    "EXPORT_ES6",
+    "-fwasm-exceptions",
+};
+static const size_t IRON_WEB_FORBIDDEN_FLAGS_COUNT =
+    sizeof(IRON_WEB_FORBIDDEN_FLAGS) / sizeof(IRON_WEB_FORBIDDEN_FLAGS[0]);
+
+/* Test whether `flag` contains any forbidden substring.
+ * Returns a pointer to the matching forbidden entry on hit, NULL if clean.
+ * NULL-safe: is_forbidden_flag(NULL) returns NULL. */
+static const char *is_forbidden_flag(const char *flag) {
+    if (!flag) return NULL;
+    for (size_t i = 0; i < IRON_WEB_FORBIDDEN_FLAGS_COUNT; i++) {
+        if (strstr(flag, IRON_WEB_FORBIDDEN_FLAGS[i]) != NULL) {
+            return IRON_WEB_FORBIDDEN_FLAGS[i];
+        }
+    }
+    return NULL;
+}
+
 int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
                         IronWebConfig *cfg) {
     (void)cfg;  /* Phase 7: canonical flags are hardcoded; Phase 11 may consume cfg */
@@ -554,8 +606,30 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         fprintf(stderr, "\n");
     }
 
-    /* 6. Spawn emcc via posix_spawnp.
-     *    Plan 02 will add a forbidden-flag self-audit here BEFORE the spawn. */
+    /* 6. Forbidden-flag self-audit (WEB-BUILD-07 + WEB-BUILD-08, Plan 02).
+     *
+     * Walk the final argv and reject the build if any entry contains a
+     * forbidden substring. Phase 7 has no user-input channel feeding argv
+     * so this audit is a structural safety net — it catches accidental
+     * additions in future phases. Runs BEFORE posix_spawnp so a rejection
+     * never actually starts emcc.
+     */
+    for (int i = 0; i < n; i++) {
+        const char *hit = is_forbidden_flag(argv[i]);
+        if (hit) {
+            fprintf(stderr,
+                    "error: forbidden emcc flag '%s' — "
+                    "web builds cannot use this flag. Refusing to build.\n",
+                    hit);
+            free(stdlib_i_flag);
+            free(src_i_flag);
+            for (int j = 0; j < IRON_WEB_SRC_COUNT; j++) free(abs_paths[j]);
+            free(emcc_path);
+            return 1;
+        }
+    }
+
+    /* 7. Spawn emcc via posix_spawnp. */
     pid_t pid;
     int spawn_rc = posix_spawnp(&pid, emcc_path, NULL, NULL,
                                 (char *const *)argv, environ);
@@ -580,7 +654,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
 
     int emcc_rc = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
 
-    /* 7. Cleanup */
+    /* 8. Cleanup */
     free(stdlib_i_flag);
     free(src_i_flag);
     for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
