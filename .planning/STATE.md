@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: planning
-stopped_at: Completed 07-build-web-c-emcc-orchestration plan-02 forbidden-flag-guard
-last_updated: "2026-04-12T01:18:09.565Z"
+stopped_at: Completed 07-build-web-c-emcc-orchestration plan-03 dispatch-and-emrun
+last_updated: "2026-04-12T01:31:15.374Z"
 last_activity: "2026-04-10 — ROADMAP.md created from research synthesis (87/87 v1 requirements mapped across 14 phases, Phase 14 deferred/gated), then synced main from 4de97c8 → c517aef (v1.1.0-alpha, PR #13 merged), refocused WEB-BOOT-02 from PR #13 to PR #17 conflict zone, bumped WEB-TEST-11 baseline from 293 → 333 tests."
 progress:
   total_phases: 14
   completed_phases: 6
   total_plans: 23
-  completed_plans: 21
+  completed_plans: 22
   percent: 0
 ---
 
@@ -72,6 +72,7 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 | Phase 06-emit-web-c-wrapper-medium-risk PP03 | 1018s | 3 tasks | 5 files |
 | Phase 07-build-web-c-emcc-orchestration P01 | 509s | 1 tasks | 2 files |
 | Phase 07-build-web-c-emcc-orchestration P02 | 12m | 1 tasks | 1 files |
+| Phase 07-build-web-c-emcc-orchestration P03 | 668 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,9 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. Recent decis
 - [Phase 06-emit-web-c-wrapper-medium-risk]: IRON_SOURCE_DIR compile definition added to test_emit_web CMake target to enable emit_web.c boundary invariant test
 - [Phase 07-build-web-c-emcc-orchestration]: CWD-relative 'src' for iron_src_dir mirrors invoke_clang pattern; -Isrc/stdlib added alongside -Isrc; IRON_WEB_SRC_COUNT=13 macro; (void)cfg deferred to Phase 11
 - [Phase 07-build-web-c-emcc-orchestration]: strstr substring match used in is_forbidden_flag() — handles both -s<NAME> and -f<flag> forms; ASYNCIFY=1 entry preserves -sASYNCIFY=0 canonical flag without false positives
+- [Phase 07-build-web-c-emcc-orchestration]: cfg=NULL passed to iron_build_web_link: Phase 7 hardcodes canonical flags; [web] config overrides deferred to Phase 11
+- [Phase 07-build-web-c-emcc-orchestration]: posix_spawnp for emrun (PATH-resolved) vs posix_spawn for native binary (explicit path) — deliberate distinction
+- [Phase 07-build-web-c-emcc-orchestration]: return 0 on emrun ENOENT: build artifacts exist; iron run is best-effort affordance, not a build requirement
 
 ### Pending Todos
 
@@ -143,6 +147,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T01:18:09.561Z
-Stopped at: Completed 07-build-web-c-emcc-orchestration plan-02 forbidden-flag-guard
+Last session: 2026-04-12T01:31:10.778Z
+Stopped at: Completed 07-build-web-c-emcc-orchestration plan-03 dispatch-and-emrun
 Resume file: None
