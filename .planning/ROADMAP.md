@@ -1328,12 +1328,13 @@ Plans:
   3. A Debug build that casts an AST node to the wrong kind (e.g., treating an `Iron_IfStmt` as an `Iron_WhileStmt`) hits `iron_node_assert_kind` and aborts with a file:line message; a Release build pays zero cost for this check
   4. CI job `build-and-test-release (ubuntu-latest)` in `.github/workflows/ci.yml` builds `ironc` in Release mode and runs integration tests -- a crash in any test fails the CI check (not swallowed as "benchmark failed")
   5. `tests/integration/hir_to_lir_elif_mono_walker.iron` is the reference pattern for regression fixtures, and its doc-comment style (motivating incident + layout diagram + fix summary + severity) is documented as the template
-**Plans**: 4 plans
+**Plans**: 5 plans
 Plans:
-- [ ] 66-01-PLAN.md -- PROT-01 + PROT-03: move Iron_ExprNode to ast.h with _Static_assert prefix enforcement, add iron_ice + IRON_NODE_ASSERT_KIND macro
+- [ ] 66-01-PLAN.md -- PROT-01 + PROT-03 (macro surface): move Iron_ExprNode to ast.h with _Static_assert prefix enforcement, add iron_ice + IRON_NODE_ASSERT_KIND macro
 - [ ] 66-02-PLAN.md -- PROT-02: append -Werror=switch-enum globally, audit and fix every Iron-enum switch across compiler/runtime/stdlib/ironc including net-new WebAssembly sources, convert emit_c.c FFI cast if-chain to exhaustive switch
-- [ ] 66-03-PLAN.md -- PROT-04: rewrite all 9 H-severity blind-cast sites in typecheck.c/resolve.c/escape.c with IRON_NODE_ASSERT_KIND + real struct, land 6 regression fixtures following the 4-section template
+- [ ] 66-03-PLAN.md -- PROT-03 + PROT-04: rewrite all 9 H-severity blind-cast sites in typecheck.c/resolve.c/escape.c with IRON_NODE_ASSERT_KIND + real struct, demo M-severity walkthrough at escape.c:251, land 6 regression fixtures following the 4-section template
 - [ ] 66-04-PLAN.md -- REG-01 + REG-04: add build-and-test-release (ubuntu-latest) job to ci.yml, harden run_integration.sh crash-swallow prevention, create docs/regression-fixtures.md template documentation
+- [ ] 66-05-PLAN.md -- PROT-03 (M-severity walkthrough): apply IRON_NODE_ASSERT_KIND to every AUDIT-01 M-severity blind-cast row explicitly enumerated in CORRECTNESS-AUDIT.md rows 10-34 (25 sites across typecheck.c, resolve.c, iron_net.c, emit_c.c, emit_structs.c, lir_optimize.c); fix iron_net.c:594 const-stripping cast with a local-buffer replacement
 
 ### Phase 67: Correctness Fixes + Crash Canaries
 **Goal**: All top-20 high-severity issues from the audit are resolved with regression fixtures, and crash-canary fixtures cover every AST node kind the HIR-to-LIR walker handles
