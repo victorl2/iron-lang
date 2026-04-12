@@ -6100,49 +6100,9 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     }
 
     /* Auto-generate C prototypes for extern functions whose parameter types
-     * are resolved (not void-placeholders). This covers raylib and other C
-     * library bindings declared via `extern func` in Iron source. */
-    for (int ei = 0; ei < module->extern_decl_count; ei++) {
-        IronLIR_ExternDecl *ed = module->extern_decls[ei];
-        bool has_real_types = false;
-        for (int pi = 0; pi < ed->param_count; pi++) {
-            if (ed->param_types[pi] && ed->param_types[pi]->kind != IRON_TYPE_VOID) {
-                has_real_types = true;
-                break;
-            }
-        }
-        if (!has_real_types && ed->param_count > 0) continue;
-        if (ed->c_name && ed->c_name[0] >= 'a' && ed->c_name[0] <= 'z') continue;
-
-        const char *ret_c = "void";
-        if (ed->return_type) {
-            if (ed->return_type->kind == IRON_TYPE_BOOL) ret_c = "bool";
-            else if (ed->return_type->kind == IRON_TYPE_INT) ret_c = "int";
-            else if (ed->return_type->kind == IRON_TYPE_FLOAT32) ret_c = "float";
-            else ret_c = emit_type_to_c(ed->return_type, &ctx);
-        }
-        iron_strbuf_appendf(&ctx.prototypes, "%s %s(", ret_c, ed->c_name);
-        if (ed->param_count == 0) {
-            iron_strbuf_appendf(&ctx.prototypes, "void");
-        }
-        for (int pi = 0; pi < ed->param_count; pi++) {
-            if (pi > 0) iron_strbuf_appendf(&ctx.prototypes, ", ");
-            Iron_Type *pt = ed->param_types[pi];
-            if (pt && pt->kind == IRON_TYPE_STRING) {
-                iron_strbuf_appendf(&ctx.prototypes, "const char *_p%d", pi);
-            } else if (pt && (pt->kind == IRON_TYPE_INT || pt->kind == IRON_TYPE_INT64)) {
-                iron_strbuf_appendf(&ctx.prototypes, "int _p%d", pi);
-            } else if (pt && pt->kind == IRON_TYPE_FLOAT32) {
-                iron_strbuf_appendf(&ctx.prototypes, "float _p%d", pi);
-            } else if (pt && pt->kind == IRON_TYPE_BOOL) {
-                iron_strbuf_appendf(&ctx.prototypes, "bool _p%d", pi);
-            } else {
-                const char *pt_c = emit_type_to_c(pt, &ctx);
-                iron_strbuf_appendf(&ctx.prototypes, "%s _p%d", pt_c, pi);
-            }
-        }
-        iron_strbuf_appendf(&ctx.prototypes, ");\n");
-    }
+     * are resolved. Shared with emit_web_module so the web target also
+     * declares raylib and other C library bindings. */
+    emit_extern_prototypes(&ctx);
 
     /* Phase 59 02: emit extern prototypes for the Net/TcpSocket/TcpListener
      * stub functions so the generated C can call into iron_net.c without

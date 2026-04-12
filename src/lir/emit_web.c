@@ -36,6 +36,7 @@
 
 #include "lir/emit_web.h"
 #include "lir/emit_helpers.h"    /* EmitCtx + promoted emit_func_body/emit_instr/emit_func_signature */
+#include "lir/emit_structs.h"    /* emit_type_decls + emit_extern_prototypes — shared with native emitter */
 #include "lir/lir.h"
 #include "util/strbuf.h"
 #include "util/arena.h"
@@ -369,6 +370,17 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
         "#else\n"
         "  #define IRON_PREFETCH(addr) ((void)0)\n"
         "#endif\n\n");
+
+    /* ── Type declarations + extern prototypes (shared with native emitter) ──
+     *
+     * Without these, raylib bindings — Color/Vec2/Key struct bodies and
+     * InitWindow/ClearBackground/etc. forward declarations — never reach
+     * the generated C, so emcc fails with "undeclared function 'InitWindow'"
+     * and "use of undeclared identifier 'Color'". The native iron_lir_emit_c
+     * path runs the same two helpers; emit_web_module must do likewise.
+     */
+    emit_type_decls(&ctx);
+    emit_extern_prototypes(&ctx);
 
     /* ── Identify the main-loop function ───────────────────────────────────── */
     int main_loop_fi = -1;

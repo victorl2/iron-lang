@@ -251,6 +251,98 @@ void test_emit_web_no_iron_main_function(void) {
     TEST_ASSERT_NOT_NULL(strstr(c, "int main("));
 }
 
+/* ── Test 7: extern prototypes + struct bodies present in web output ──────
+ *
+ * Regression for the FFI-fix gap: cf06593 wired auto-generated extern
+ * prototypes and bare-name struct bodies into iron_lir_emit_c (native) but
+ * left emit_web_module untouched, so `iron build --target=web` produced
+ * generated C with no `void InitWindow(...)` forward decl and no
+ * `struct Color { ... }` body. emcc then failed with
+ *   "call to undeclared function 'InitWindow'" and
+ *   "use of undeclared identifier 'Color'".
+ *
+ * This test builds a module with one Color object decl, three extern decls
+ * (InitWindow taking Int/Int/String, ClearBackground taking Color,
+ * WindowShouldClose returning Bool with no params), and the canonical
+ * web main loop. After emit_web_module runs the output must contain:
+ *   - struct Color { ... }   (bare name, not Iron_Color)
+ *   - void InitWindow(int _p0, int _p1, const char *_p2);
+ *   - void ClearBackground(Color _p0);
+ *   - bool WindowShouldClose(void);
+ */
+static IronLIR_Module *build_module_with_raylib_extern_decls(Iron_Arena *a) {
+    IronLIR_Module *mod = build_canonical_module_with_captures(a);
+
+    /* Register a Color object type so emit_type_decls produces a struct body */
+    Iron_ObjectDecl *color_od = ARENA_ALLOC(a, Iron_ObjectDecl);
+    memset(color_od, 0, sizeof(*color_od));
+    color_od->name = "Color";
+    Iron_Type *color_type = iron_type_make_object(a, color_od);
+    iron_lir_module_add_type_decl(mod, IRON_LIR_TYPE_OBJECT, "Color", color_type);
+
+    Iron_Type *int_type    = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type   = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_Type *string_type = iron_type_make_primitive(IRON_TYPE_STRING);
+
+    /* InitWindow(Int, Int, String) → emit `void InitWindow(int _p0, int _p1, const char *_p2);` */
+    Iron_Type **init_params = (Iron_Type **)iron_arena_alloc(
+        a, sizeof(Iron_Type *) * 3, _Alignof(Iron_Type *));
+    init_params[0] = int_type;
+    init_params[1] = int_type;
+    init_params[2] = string_type;
+    iron_lir_module_add_extern(mod, "InitWindow", "InitWindow", init_params, 3, NULL);
+
+    /* ClearBackground(Color) → emit `void ClearBackground(Color _p0);` */
+    Iron_Type **cb_params = (Iron_Type **)iron_arena_alloc(
+        a, sizeof(Iron_Type *), _Alignof(Iron_Type *));
+    cb_params[0] = color_type;
+    iron_lir_module_add_extern(mod, "ClearBackground", "ClearBackground", cb_params, 1, NULL);
+
+    /* WindowShouldClose() → emit `bool WindowShouldClose(void);` (zero-arg path) */
+    iron_lir_module_add_extern(mod, "WindowShouldClose", "WindowShouldClose",
+                               NULL, 0, bool_type);
+
+    return mod;
+}
+
+void test_emit_web_extern_prototypes_and_struct_bodies(void) {
+    Iron_Arena ir_arena = iron_arena_create(1024 * 512);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = build_module_with_raylib_extern_decls(&ir_arena);
+
+    iron_lir_web_main_loop_split(mod, &g_arena, &g_diags, IRON_TARGET_WEB);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    IronLIR_OptimizeInfo opt_info;
+    memset(&opt_info, 0, sizeof(opt_info));
+
+    const char *c = emit_web_module(mod, &g_arena, &g_diags, &opt_info,
+                                    NULL, false, false);
+    TEST_ASSERT_NOT_NULL(c);
+
+    /* Color struct body must use the bare name (not Iron_Color) because
+     * Color appears in an extern decl's parameter list. */
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c, "struct Color"),
+        "emit_web_module must emit struct Color body via emit_type_decls");
+    TEST_ASSERT_NULL_MESSAGE(strstr(c, "struct Iron_Color"),
+        "Color appears in an extern decl, so emit_object_type_name should pick the bare name");
+
+    /* Extern function prototypes — emit_extern_prototypes formats them
+     * with `_p<i>` parameter names. */
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(c, "void InitWindow(int _p0, int _p1, const char *_p2);"),
+        "InitWindow forward declaration missing — extern prototype loop did not run on web target");
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(c, "void ClearBackground(Color _p0);"),
+        "ClearBackground forward declaration missing — extern prototype loop did not run on web target");
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(c, "bool WindowShouldClose(void);"),
+        "WindowShouldClose forward declaration missing — zero-arg extern prototype path broken");
+
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── Test 6: WEB-EMIT-05 structural invariant — emit_web.c must not
  *   #include "lir/emit_c.h" (boundary enforcement) ─────────────────────── */
 
@@ -302,6 +394,7 @@ int main(void) {
     RUN_TEST(test_emit_web_shutdown_branch_textual_order);
     RUN_TEST(test_emit_web_frame_state_struct_named_after_func);
     RUN_TEST(test_emit_web_no_iron_main_function);
+    RUN_TEST(test_emit_web_extern_prototypes_and_struct_bodies);
     RUN_TEST(test_emit_web_clean_boundary_invariant);
     return UNITY_END();
 }
