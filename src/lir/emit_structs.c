@@ -238,7 +238,7 @@ static bool ir_has_subtype(IronLIR_Module *module, const char *name) {
 
 static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                                      int type_tag) {
-    const char *mangled = emit_mangle_name(td->name, ctx->arena);
+    const char *mangled = emit_object_type_name(td->name, ctx);
     iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
 
     Iron_ObjectDecl *od = NULL;
@@ -337,9 +337,11 @@ void emit_type_decls(EmitCtx *ctx) {
         IronLIR_TypeDecl *td = module->type_decls[i];
         if (td->kind == IRON_LIR_TYPE_OBJECT ||
             td->kind == IRON_LIR_TYPE_INTERFACE) {
-            const char *mangled = emit_mangle_name(td->name, ctx->arena);
+            const char *type_name = (td->kind == IRON_LIR_TYPE_OBJECT)
+                ? emit_object_type_name(td->name, ctx)
+                : emit_mangle_name(td->name, ctx->arena);
             iron_strbuf_appendf(&ctx->forward_decls,
-                                 "typedef struct %s %s;\n", mangled, mangled);
+                                 "typedef struct %s %s;\n", type_name, type_name);
         }
     }
     if (ctx->forward_decls.len > 0) {

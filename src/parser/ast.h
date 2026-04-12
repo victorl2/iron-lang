@@ -162,6 +162,7 @@ typedef struct {
     Iron_Node        **generic_params;
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
+    struct Iron_Type **resolved_param_types;  /* set by type checker (extern func FFI) */
     bool               is_fusible;            /* Phase 49: @fusible annotation */
 } Iron_FuncDecl;
 

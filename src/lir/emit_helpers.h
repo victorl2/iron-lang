@@ -162,6 +162,7 @@ typedef struct {
 /* ── Name mangling ───────────────────────────────────────────────────────── */
 
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
+const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);
 const char *emit_resolve_func_c_name(EmitCtx *ctx, const char *ir_name);
 const char *emit_sanitize_label(const char *label, Iron_Arena *arena);

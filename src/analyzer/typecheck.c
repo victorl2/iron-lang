@@ -3125,6 +3125,8 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
     }
 
+    fd->resolved_param_types = param_types;
+
     /* Build and assign function type to the global symbol */
     Iron_Symbol *func_sym = iron_scope_lookup(ctx->global_scope, fd->name);
     Iron_Type *func_type = iron_type_make_func(ctx->arena, param_types,

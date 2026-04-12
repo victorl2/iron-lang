@@ -2805,8 +2805,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 continue;
             }
 
-            /* For extern calls, convert Iron_String arguments to const char* */
+            /* For extern calls, apply FFI type conversions:
+             * - Iron_String → const char* via iron_string_cstr()
+             * - int64_t → int via (int) cast when extern param is Int
+             * - Float64 → float via (float) cast when extern param is Float32
+             * This bridges Iron's uniform types to C's native types. */
             bool is_string_arg = false;
+            bool needs_int_cast = false;
+            bool needs_float_cast = false;
             if (is_extern_call && arg_id != IRON_LIR_VALUE_INVALID &&
                 arg_id < (IronLIR_ValueId)arrlen(fn->value_table) &&
                 fn->value_table[arg_id] != NULL) {
@@ -2814,9 +2820,44 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (arg_type && arg_type->kind == IRON_TYPE_STRING) {
                     is_string_arg = true;
                 }
+                /* Look up the extern declaration's parameter type to decide
+                 * if we need a narrowing cast (int64_t → int). */
+                if (!is_string_arg && arg_type) {
+                    const char *ext_name = NULL;
+                    if (instr->call.func_decl && instr->call.func_decl->extern_c_name)
+                        ext_name = instr->call.func_decl->name;
+                    if (ext_name) {
+                        for (int ei = 0; ei < ctx->module->extern_decl_count; ei++) {
+                            IronLIR_ExternDecl *ed = ctx->module->extern_decls[ei];
+                            if (strcmp(ed->iron_name, ext_name) == 0 &&
+                                i < ed->param_count && ed->param_types[i]) {
+                                Iron_Type *pt = ed->param_types[i];
+                                if ((arg_type->kind == IRON_TYPE_INT ||
+                                     arg_type->kind == IRON_TYPE_INT64) &&
+                                    (pt->kind == IRON_TYPE_INT ||
+                                     pt->kind == IRON_TYPE_INT32)) {
+                                    needs_int_cast = true;
+                                }
+                                if (arg_type->kind == IRON_TYPE_FLOAT64 &&
+                                    pt->kind == IRON_TYPE_FLOAT32) {
+                                    needs_float_cast = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
             }
             if (is_string_arg) {
                 iron_strbuf_appendf(sb, "iron_string_cstr(&");
+                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ")");
+            } else if (needs_int_cast) {
+                iron_strbuf_appendf(sb, "(int)(");
+                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ")");
+            } else if (needs_float_cast) {
+                iron_strbuf_appendf(sb, "(float)(");
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ")");
             } else {
@@ -6056,6 +6097,51 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         IronLIR_Func *fn = module->funcs[i];
         if (fn->is_extern) continue;
         emit_func_signature(&ctx.prototypes, fn, &ctx, true);
+    }
+
+    /* Auto-generate C prototypes for extern functions whose parameter types
+     * are resolved (not void-placeholders). This covers raylib and other C
+     * library bindings declared via `extern func` in Iron source. */
+    for (int ei = 0; ei < module->extern_decl_count; ei++) {
+        IronLIR_ExternDecl *ed = module->extern_decls[ei];
+        bool has_real_types = false;
+        for (int pi = 0; pi < ed->param_count; pi++) {
+            if (ed->param_types[pi] && ed->param_types[pi]->kind != IRON_TYPE_VOID) {
+                has_real_types = true;
+                break;
+            }
+        }
+        if (!has_real_types && ed->param_count > 0) continue;
+        if (ed->c_name && ed->c_name[0] >= 'a' && ed->c_name[0] <= 'z') continue;
+
+        const char *ret_c = "void";
+        if (ed->return_type) {
+            if (ed->return_type->kind == IRON_TYPE_BOOL) ret_c = "bool";
+            else if (ed->return_type->kind == IRON_TYPE_INT) ret_c = "int";
+            else if (ed->return_type->kind == IRON_TYPE_FLOAT32) ret_c = "float";
+            else ret_c = emit_type_to_c(ed->return_type, &ctx);
+        }
+        iron_strbuf_appendf(&ctx.prototypes, "%s %s(", ret_c, ed->c_name);
+        if (ed->param_count == 0) {
+            iron_strbuf_appendf(&ctx.prototypes, "void");
+        }
+        for (int pi = 0; pi < ed->param_count; pi++) {
+            if (pi > 0) iron_strbuf_appendf(&ctx.prototypes, ", ");
+            Iron_Type *pt = ed->param_types[pi];
+            if (pt && pt->kind == IRON_TYPE_STRING) {
+                iron_strbuf_appendf(&ctx.prototypes, "const char *_p%d", pi);
+            } else if (pt && (pt->kind == IRON_TYPE_INT || pt->kind == IRON_TYPE_INT64)) {
+                iron_strbuf_appendf(&ctx.prototypes, "int _p%d", pi);
+            } else if (pt && pt->kind == IRON_TYPE_FLOAT32) {
+                iron_strbuf_appendf(&ctx.prototypes, "float _p%d", pi);
+            } else if (pt && pt->kind == IRON_TYPE_BOOL) {
+                iron_strbuf_appendf(&ctx.prototypes, "bool _p%d", pi);
+            } else {
+                const char *pt_c = emit_type_to_c(pt, &ctx);
+                iron_strbuf_appendf(&ctx.prototypes, "%s _p%d", pt_c, pi);
+            }
+        }
+        iron_strbuf_appendf(&ctx.prototypes, ");\n");
     }
 
     /* Phase 59 02: emit extern prototypes for the Net/TcpSocket/TcpListener

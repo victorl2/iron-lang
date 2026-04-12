@@ -1,0 +1,11 @@
+-- ffi_extern_int_cast.iron — verifies int64_t → int casting at extern call sites
+-- Tests that Iron's uniform Int (int64_t) is narrowed to C's int when calling
+-- extern functions that expect int parameters.
+
+import raylib
+
+func main() {
+    InitWindow(640, 480, "Int Cast Test")
+    SetTargetFPS(30)
+    CloseWindow()
+}
