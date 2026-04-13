@@ -214,18 +214,28 @@ static void tc_define_pattern_bindings(TypeCtx *ctx,
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                        const char *msg, const char *suggestion) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("typecheck.c:emit_error msg");
+    const char *sug_copy = NULL;
+    if (suggestion) {
+        sug_copy = iron_arena_strdup(ctx->arena, suggestion, strlen(suggestion));
+        if (!sug_copy) iron_oom_abort("typecheck.c:emit_error suggestion");
+    }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                   suggestion ? iron_arena_strdup(ctx->arena, suggestion,
-                                                   strlen(suggestion)) : NULL);
+                   msg_copy, sug_copy);
 }
 
 static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
                          const char *msg, const char *suggestion) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("typecheck.c:emit_warning msg");
+    const char *sug_copy = NULL;
+    if (suggestion) {
+        sug_copy = iron_arena_strdup(ctx->arena, suggestion, strlen(suggestion));
+        if (!sug_copy) iron_oom_abort("typecheck.c:emit_warning suggestion");
+    }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                   suggestion ? iron_arena_strdup(ctx->arena, suggestion,
-                                                   strlen(suggestion)) : NULL);
+                   msg_copy, sug_copy);
 }
 
 static int type_bit_width(const Iron_Type *t) {
@@ -590,6 +600,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Type **elem_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, sizeof(Iron_Type *) * (size_t)n,
             _Alignof(Iron_Type *));
+        if (!elem_types) iron_oom_abort("typecheck.c:resolve_type_annotation tuple_elems");
         for (int i = 0; i < n; i++) {
             elem_types[i] = ann->tuple_elems
                 ? resolve_type_annotation(ctx, ann->tuple_elems[i])
@@ -608,6 +619,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         int param_count = ann->func_param_count;
         if (param_count > 0) {
             param_types = iron_arena_alloc(ctx->arena, sizeof(Iron_Type *) * param_count, _Alignof(Iron_Type *));
+            if (!param_types) iron_oom_abort("typecheck.c:resolve_type_annotation func_params");
             for (int i = 0; i < param_count; i++) {
                 param_types[i] = resolve_type_annotation(ctx, ann->func_params[i]);
             }
@@ -678,6 +690,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     Iron_Type **type_args = iron_arena_alloc(ctx->arena,
                         sizeof(Iron_Type *) * (size_t)ann->generic_arg_count,
                         _Alignof(Iron_Type *));
+                    if (!type_args) iron_oom_abort("typecheck.c:resolve_type_annotation type_args");
                     for (int i = 0; i < ann->generic_arg_count; i++) {
                         type_args[i] = resolve_type_annotation(ctx, ann->generic_args[i]);
                     }
@@ -691,6 +704,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     }
                     const char *mangled = iron_arena_strdup(ctx->arena,
                         iron_strbuf_get(&sb), sb.len);
+                    if (!mangled) iron_oom_abort("typecheck.c:resolve_type_annotation mangled");
                     iron_strbuf_free(&sb);
 
                     /* Cycle detection / caching: if this mangled name is already being
@@ -708,6 +722,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     /* Build monomorphized Iron_Type */
                     Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
                         _Alignof(Iron_Type));
+                    if (!mono) iron_oom_abort("typecheck.c:resolve_type_annotation mono");
                     memset(mono, 0, sizeof(*mono));
                     mono->kind = IRON_TYPE_ENUM;
                     mono->enu.decl = ed;
@@ -717,9 +732,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
 
                     /* Register mono BEFORE resolving payloads to break recursive cycles
                      * (e.g. Tree[T] → Branch(Tree[T], Tree[T]) → Tree[T] again). */
-                    shput(ctx->mono_registry,
-                          iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
-                          mono);
+                    const char *mono_key = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
+                    if (!mono_key) iron_oom_abort("typecheck.c:resolve_type_annotation mono_key");
+                    shput(ctx->mono_registry, mono_key, mono);
 
                     /* Substitute variant_payload_types:
                      * Bind generic param names to their CONCRETE type args in a temporary
@@ -754,6 +769,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
                         sizeof(Iron_Type **) * (size_t)ed->variant_count,
                         _Alignof(Iron_Type **));
+                    if (!vpt) iron_oom_abort("typecheck.c:resolve_type_annotation vpt");
                     memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
                     for (int j = 0; j < ed->variant_count; j++) {
                         Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
@@ -761,6 +777,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                         Iron_Type **row = iron_arena_alloc(ctx->arena,
                             sizeof(Iron_Type *) * (size_t)ev->payload_count,
                             _Alignof(Iron_Type *));
+                        if (!row) iron_oom_abort("typecheck.c:resolve_type_annotation vpt row");
                         for (int k = 0; k < ev->payload_count; k++) {
                             /* T is already bound to the concrete type arg in gen_scope,
                              * so no post-substitution is needed. */
@@ -776,12 +793,14 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     /* Compute payload_is_boxed for monomorphized type */
                     bool **pib = iron_arena_alloc(ctx->arena,
                         sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                    if (!pib) iron_oom_abort("typecheck.c:resolve_type_annotation pib");
                     memset(pib, 0, sizeof(bool *) * (size_t)ed->variant_count);
                     for (int j = 0; j < ed->variant_count; j++) {
                         Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
                         if (ev->payload_count == 0) continue;
                         bool *pib_row = iron_arena_alloc(ctx->arena,
                             sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+                        if (!pib_row) iron_oom_abort("typecheck.c:resolve_type_annotation pib row");
                         memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
                         for (int k = 0; k < ev->payload_count; k++) {
                             if (vpt[j] && vpt[j][k]) {
@@ -2076,6 +2095,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ctx->arena,
                     (size_t)le->param_count * sizeof(Iron_Type *),
                     _Alignof(Iron_Type *));
+                if (!param_types) iron_oom_abort("typecheck.c:check_expr LAMBDA param_types");
                 for (int p = 0; p < le->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)le->params[p];
                     param_types[p] = resolve_type_annotation(ctx, ap->type_ann);
@@ -2134,6 +2154,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type **tup_elems = (Iron_Type **)iron_arena_alloc(
                         ctx->arena, sizeof(Iron_Type *) * (size_t)n,
                         _Alignof(Iron_Type *));
+                    if (!tup_elems) iron_oom_abort("typecheck.c:check_expr ARRAY_LIT tuple");
                     for (int i = 0; i < n; i++) {
                         Iron_Type *et = check_expr(ctx, al->elements[i]);
                         if (!et) et = iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -2262,6 +2283,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Type **inferred_args = iron_arena_alloc(ctx->arena,
                     sizeof(Iron_Type *) * (size_t)ed->generic_param_count,
                     _Alignof(Iron_Type *));
+                if (!inferred_args) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT inferred_args");
                 memset(inferred_args, 0,
                     sizeof(Iron_Type *) * (size_t)ed->generic_param_count);
 
@@ -2354,6 +2376,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
                 const char *mangled = iron_arena_strdup(ctx->arena,
                     iron_strbuf_get(&sb), sb.len);
+                if (!mangled) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT mangled");
                 iron_strbuf_free(&sb);
 
                 /* Check mono_registry: if this mangled type was already built
@@ -2371,6 +2394,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 /* Create monomorphized type */
                 Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
                     _Alignof(Iron_Type));
+                if (!mono) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT mono");
                 memset(mono, 0, sizeof(*mono));
                 mono->kind = IRON_TYPE_ENUM;
                 mono->enu.decl = ed;
@@ -2379,9 +2403,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 mono->enu.mangled_name = mangled;
 
                 /* Register in mono_registry before payload resolution (cycle detection). */
-                shput(ctx->mono_registry,
-                      iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
-                      mono);
+                const char *mono2_key = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
+                if (!mono2_key) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT mono2_key");
+                shput(ctx->mono_registry, mono2_key, mono);
 
                 /* Substitute variant_payload_types:
                  * Bind concrete inferred_args in gen_scope (not GENERIC_PARAMs)
@@ -2389,6 +2413,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
                     sizeof(Iron_Type **) * (size_t)ed->variant_count,
                     _Alignof(Iron_Type **));
+                if (!vpt) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT vpt");
                 memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
                 Iron_Scope *saved_gen2 = ctx->global_scope;
                 Iron_Scope *gen2 = iron_scope_create(ctx->arena,
@@ -2419,6 +2444,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type **row = iron_arena_alloc(ctx->arena,
                         sizeof(Iron_Type *) * (size_t)vev->payload_count,
                         _Alignof(Iron_Type *));
+                    if (!row) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT vpt row");
                     for (int kk = 0; kk < vev->payload_count; kk++) {
                         /* T is bound to concrete inferred_args[i] in gen2 scope,
                          * so no post-substitution needed. */
@@ -2432,12 +2458,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 /* Compute payload_is_boxed for monomorphized type (path 2) */
                 bool **pib2 = iron_arena_alloc(ctx->arena,
                     sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                if (!pib2) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT pib2");
                 memset(pib2, 0, sizeof(bool *) * (size_t)ed->variant_count);
                 for (int vj2 = 0; vj2 < ed->variant_count; vj2++) {
                     Iron_EnumVariant *vev2 = (Iron_EnumVariant *)ed->variants[vj2];
                     if (vev2->payload_count == 0) continue;
                     bool *pib2_row = iron_arena_alloc(ctx->arena,
                         sizeof(bool) * (size_t)vev2->payload_count, _Alignof(bool));
+                    if (!pib2_row) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT pib2 row");
                     memset(pib2_row, 0, sizeof(bool) * (size_t)vev2->payload_count);
                     for (int kk2 = 0; kk2 < vev2->payload_count; kk2++) {
                         if (vpt[vj2] && vpt[vj2][kk2]) {
@@ -2589,9 +2617,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg),
                              "tuple destructure expects %d binding(s) but found %d",
                              init_type->tuple.elem_count, vd->binding_count);
-                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, vd->span,
-                               iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                               NULL);
+                    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    if (!msg_copy) iron_oom_abort("typecheck.c:check_stmt VAL_DECL tuple-mismatch msg");
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, vd->span, msg_copy, NULL);
                 }
                 /* Bind each name to its element type (skip wildcards). */
                 int defined_count = vd->binding_count < init_type->tuple.elem_count
@@ -2958,6 +2986,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (ed && ed->has_payloads) {
                     bool *covered = iron_arena_alloc(ctx->arena,
                         sizeof(bool) * (size_t)ed->variant_count, _Alignof(bool));
+                    if (!covered) iron_oom_abort("typecheck.c:check_stmt MATCH covered payload");
                     memset(covered, 0, sizeof(bool) * (size_t)ed->variant_count);
                     bool has_catch_all = (ms->else_body != NULL);
                     for (int i = 0; i < ms->case_count; i++) {
@@ -3033,10 +3062,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                 }
                             }
                             (void)pos;  /* suppress unused-variable warning */
+                            const char *note_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                            if (!note_copy) iron_oom_abort("typecheck.c:check_stmt MATCH else-note");
                             iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE, 0,
-                                           ms->span,
-                                           iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                                           NULL);
+                                           ms->span, note_copy, NULL);
                         }
                     }
                 } else if (ed) {
@@ -3263,6 +3292,7 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)fd->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
+        if (!param_types) iron_oom_abort("typecheck.c:check_func_decl param_types");
     }
     for (int i = 0; i < fd->param_count; i++) {
         Iron_Param *p = (Iron_Param *)fd->params[i];
@@ -3323,6 +3353,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)md->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
+        if (!param_types) iron_oom_abort("typecheck.c:check_method_decl param_types");
     }
     for (int i = 0; i < md->param_count; i++) {
         Iron_Param *p = (Iron_Param *)md->params[i];
@@ -3486,11 +3517,13 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         /* Allocate outer array of Iron_Type** pointers */
         Iron_Type ***vpt = iron_arena_alloc(ctx.arena,
             sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));
+        if (!vpt) iron_oom_abort("typecheck.c:iron_typecheck enum vpt");
         memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
         ty->enu.variant_payload_types = vpt;
         /* Allocate payload_is_boxed parallel structure on the type */
         bool **pib_ty = iron_arena_alloc(ctx.arena,
             sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+        if (!pib_ty) iron_oom_abort("typecheck.c:iron_typecheck enum pib_ty");
         memset(pib_ty, 0, sizeof(bool *) * (size_t)ed->variant_count);
         ty->enu.payload_is_boxed = pib_ty;
         for (int j = 0; j < ed->variant_count; j++) {
@@ -3501,12 +3534,15 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             }
             Iron_Type **row = iron_arena_alloc(ctx.arena,
                 sizeof(Iron_Type *) * (size_t)ev->payload_count, _Alignof(Iron_Type *));
+            if (!row) iron_oom_abort("typecheck.c:iron_typecheck enum vpt row");
             /* Allocate boxing flags for this variant */
             ev->payload_is_boxed = iron_arena_alloc(ctx.arena,
                 sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            if (!ev->payload_is_boxed) iron_oom_abort("typecheck.c:iron_typecheck enum ev payload_is_boxed");
             memset(ev->payload_is_boxed, 0, sizeof(bool) * (size_t)ev->payload_count);
             bool *pib_row = iron_arena_alloc(ctx.arena,
                 sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            if (!pib_row) iron_oom_abort("typecheck.c:iron_typecheck enum pib_row");
             memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
             for (int k = 0; k < ev->payload_count; k++) {
                 row[k] = resolve_type_annotation(&ctx, ev->payload_type_anns[k]);
@@ -3536,6 +3572,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 param_types = (Iron_Type **)iron_arena_alloc(
                     ctx.arena, (size_t)fd->param_count * sizeof(Iron_Type *),
                     _Alignof(Iron_Type *));
+                if (!param_types) iron_oom_abort("typecheck.c:iron_typecheck FUNC_DECL param_types");
                 for (int j = 0; j < fd->param_count; j++) {
                     Iron_Param *p = (Iron_Param *)fd->params[j];
                     param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
@@ -3565,6 +3602,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     param_types = (Iron_Type **)iron_arena_alloc(
                         ctx.arena, (size_t)pc * sizeof(Iron_Type *),
                         _Alignof(Iron_Type *));
+                    if (!param_types) iron_oom_abort("typecheck.c:iron_typecheck METHOD_DECL param_types");
                     for (int j = 0; j < pc; j++) {
                         Iron_Param *p = (Iron_Param *)md->params[j];
                         param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
