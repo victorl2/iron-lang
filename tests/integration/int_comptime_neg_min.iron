@@ -1,0 +1,50 @@
+-- Regression: FIX-01 rank 15 — comptime unary negation of INT64_MIN.
+--
+-- **Motivating Incident.** Phase 65 audit row §5.10 (top-20 rank 15)
+-- flagged src/comptime/comptime.c:493 — `-operand->as_int` where operand
+-- can be INT64_MIN. Negation of INT64_MIN is undefined behavior under
+-- C11 6.5.3.3p3 because INT64_MAX = 9223372036854775807 cannot represent
+-- -(INT64_MIN) = 9223372036854775808. Same optimizer-semantics bug class
+-- as rank 14: an upgrade from clang N to N+1 could silently change what
+-- `comptime -(-9223372036854775808)` means in an Iron program.
+--
+-- **Layout Diagram.** Pre-fix (comptime.c:493):
+--     if (un->op == IRON_TOK_MINUS) {
+--         if (operand->kind == IRON_CVAL_INT)
+--             return cval_int(ctx, -operand->as_int);   // UB on INT64_MIN
+--         ...
+--     }
+--
+-- Post-fix:
+--     if (un->op == IRON_TOK_MINUS) {
+--         if (operand->kind == IRON_CVAL_INT) {
+--             if (operand->as_int == INT64_MIN) {
+--                 emit_error(ctx, IRON_ERR_COMPTIME_ERROR, span,
+--                            "comptime: integer overflow in negation (INT64_MIN)");
+--                 return cval_null(ctx);
+--             }
+--             return cval_int(ctx, -operand->as_int);
+--         }
+--         ...
+--     }
+--
+-- **Fix Summary.** Phase 67-03 Task 1 rewrote the IRON_TOK_MINUS unary
+-- branch in comptime.c's eval_expr to guard INT64_MIN before negating.
+-- This fixture exercises a near-min negation that MUST stay in range and
+-- a round-trip double-negation, proving the non-overflow path still works.
+-- The INT64_MIN diagnostic path is verified in the same plan by direct
+-- source-level grep on the error-message literal (acceptance criteria in
+-- 67-03 PLAN Task 1).
+--
+-- **Severity.** H — same UB class as rank 14; would silently produce
+-- wrong results on optimizer upgrade.
+
+val NEG_SAFE = comptime -4611686018427387900
+val NEG_MAX = comptime -(0 - 4611686018427387907)
+val POS_FROM_NEG = comptime -(0 - 100)
+
+func main() {
+  println("neg: {NEG_SAFE}")
+  println("round: {NEG_MAX}")
+  println("pos: {POS_FROM_NEG}")
+}

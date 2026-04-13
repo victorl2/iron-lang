@@ -407,13 +407,49 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             /* Integer arithmetic */
             if (lv->kind == IRON_CVAL_INT && rv->kind == IRON_CVAL_INT) {
                 switch (bin->op) {
-                    case IRON_TOK_PLUS:       return cval_int(ctx, lv->as_int + rv->as_int);
-                    case IRON_TOK_MINUS:      return cval_int(ctx, lv->as_int - rv->as_int);
-                    case IRON_TOK_STAR:       return cval_int(ctx, lv->as_int * rv->as_int);
+                    case IRON_TOK_PLUS: {
+                        /* FIX-01 rank 14: signed int64_t addition overflow is UB
+                         * under C11 6.5p5. Use __builtin_add_overflow so an
+                         * overflowing comptime expression becomes a diagnostic
+                         * instead of optimizer-dependent behavior. */
+                        int64_t result;
+                        if (__builtin_add_overflow(lv->as_int, rv->as_int, &result)) {
+                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                                       "comptime: integer overflow in addition");
+                            return cval_null(ctx);
+                        }
+                        return cval_int(ctx, result);
+                    }
+                    case IRON_TOK_MINUS: {
+                        /* FIX-01 rank 14: signed int64_t subtraction overflow is UB. */
+                        int64_t result;
+                        if (__builtin_sub_overflow(lv->as_int, rv->as_int, &result)) {
+                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                                       "comptime: integer overflow in subtraction");
+                            return cval_null(ctx);
+                        }
+                        return cval_int(ctx, result);
+                    }
+                    case IRON_TOK_STAR: {
+                        /* FIX-01 rank 14: signed int64_t multiplication overflow is UB. */
+                        int64_t result;
+                        if (__builtin_mul_overflow(lv->as_int, rv->as_int, &result)) {
+                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                                       "comptime: integer overflow in multiplication");
+                            return cval_null(ctx);
+                        }
+                        return cval_int(ctx, result);
+                    }
                     case IRON_TOK_SLASH:
                         if (rv->as_int == 0) {
                             emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
                                        "comptime: division by zero");
+                            return cval_null(ctx);
+                        }
+                        /* FIX-01 rank 14: INT64_MIN / -1 is also UB (C11 6.5.5p6). */
+                        if (lv->as_int == INT64_MIN && rv->as_int == -1) {
+                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                                       "comptime: integer overflow in division (INT64_MIN / -1)");
                             return cval_null(ctx);
                         }
                         return cval_int(ctx, lv->as_int / rv->as_int);
@@ -421,6 +457,12 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                         if (rv->as_int == 0) {
                             emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
                                        "comptime: modulo by zero");
+                            return cval_null(ctx);
+                        }
+                        /* FIX-01 rank 14: INT64_MIN % -1 is also UB. */
+                        if (lv->as_int == INT64_MIN && rv->as_int == -1) {
+                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                                       "comptime: integer overflow in modulo (INT64_MIN % -1)");
                             return cval_null(ctx);
                         }
                         return cval_int(ctx, lv->as_int % rv->as_int);
@@ -489,8 +531,18 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             if (ctx->had_error) return cval_null(ctx);
 
             if (un->op == IRON_TOK_MINUS) {
-                if (operand->kind == IRON_CVAL_INT)
+                if (operand->kind == IRON_CVAL_INT) {
+                    /* FIX-01 rank 15: negation of INT64_MIN is undefined
+                     * behavior (C11 6.5.3.3p3) because INT64_MAX cannot
+                     * represent -(INT64_MIN) = 9223372036854775808.
+                     * Reject it explicitly before the negation. */
+                    if (operand->as_int == INT64_MIN) {
+                        emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                                   "comptime: integer overflow in negation (INT64_MIN)");
+                        return cval_null(ctx);
+                    }
                     return cval_int(ctx, -operand->as_int);
+                }
                 if (operand->kind == IRON_CVAL_FLOAT)
                     return cval_float(ctx, -operand->as_float);
             }
