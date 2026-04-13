@@ -148,6 +148,7 @@ static Iron_Token *iron_expect(Iron_Parser *p, Iron_TokenKind kind) {
 /* Create an ErrorNode at the current position */
 static Iron_Node *iron_make_error(Iron_Parser *p) {
     Iron_ErrorNode *n = ARENA_ALLOC(p->arena, Iron_ErrorNode);
+    if (!n) iron_oom_abort("parser.c:iron_make_error");
     n->span = iron_token_span(p, iron_current(p));
     n->kind = IRON_NODE_ERROR;
     return (Iron_Node *)n;
@@ -228,10 +229,12 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
             p->arena, sizeof(Iron_Node *) * (size_t)count,
             _Alignof(Iron_Node *));
+        if (!arena_elems) iron_oom_abort("parser.c:iron_parse_type_annotation tuple elems");
         memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
         arrfree(elems);
 
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation tuple");
         memset(ann, 0, sizeof(*ann));
         ann->kind             = IRON_NODE_TYPE_ANNOTATION;
         ann->span             = iron_span_merge(start_span,
@@ -245,6 +248,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     /* Array type: [T] or [T; N] or [func(T)->R] */
     if (iron_match(p, IRON_TOK_LBRACKET)) {
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation array");
         memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = true;
@@ -291,6 +295,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
             Iron_Token *name_tok = iron_advance(p);
             ann->name = iron_arena_strdup(p->arena, name_tok->value,
                                           strlen(name_tok->value));
+            if (!ann->name) iron_oom_abort("parser.c:iron_parse_type_annotation array elem name");
         }
 
         /* Phase 48: Parse optional layout attributes: [T, layout: soa/aos] [T, unordered] */
@@ -345,6 +350,7 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         iron_advance(p);  /* consume 'func' */
 
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation func");
         memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = false;
@@ -398,12 +404,14 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
 
     Iron_Token *name_tok = iron_advance(p);
     Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+    if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation named");
     memset(ann, 0, sizeof(*ann));
     ann->kind              = IRON_NODE_TYPE_ANNOTATION;
     ann->is_array          = false;
     ann->array_size        = NULL;
     ann->name = iron_arena_strdup(p->arena, name_tok->value,
                                   strlen(name_tok->value));
+    if (!ann->name) iron_oom_abort("parser.c:iron_parse_type_annotation named name");
 
     /* nullable? */
     ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
@@ -459,14 +467,17 @@ static Iron_Node **iron_parse_generic_params(Iron_Parser *p, int *out_count,
         if (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *t  = iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!id) iron_oom_abort("parser.c:iron_parse_generic_params");
             id->span       = iron_token_span(p, t);
             id->kind       = IRON_NODE_IDENT;
             id->name       = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            if (!id->name) iron_oom_abort("parser.c:iron_parse_generic_params name");
             id->constraint_name = NULL;
             if (iron_match(p, IRON_TOK_COLON)) {
                 if (iron_check(p, IRON_TOK_IDENTIFIER)) {
                     Iron_Token *ct = iron_advance(p);
                     id->constraint_name = iron_arena_strdup(p->arena, ct->value, strlen(ct->value));
+                    if (!id->constraint_name) iron_oom_abort("parser.c:iron_parse_generic_params constraint");
                 }
             }
             arrput(arr, (Iron_Node *)id);
@@ -514,11 +525,13 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
 
         Iron_Token *name_tok = iron_advance(p);
         Iron_Param *param    = ARENA_ALLOC(p->arena, Iron_Param);
+        if (!param) iron_oom_abort("parser.c:iron_parse_param_list");
         param->kind          = IRON_NODE_PARAM;
         param->span          = iron_token_span(p, name_tok);
         param->is_var        = is_var;
         param->name = iron_arena_strdup(p->arena, name_tok->value,
                                         strlen(name_tok->value));
+        if (!param->name) iron_oom_abort("parser.c:iron_parse_param_list name");
 
         /* optional type annotation: : Type */
         if (iron_match(p, IRON_TOK_COLON)) {
@@ -581,6 +594,7 @@ static Iron_Node *iron_parse_block(Iron_Parser *p) {
     }
 
     Iron_Block *blk  = ARENA_ALLOC(p->arena, Iron_Block);
+    if (!blk) iron_oom_abort("parser.c:iron_parse_block");
     blk->kind        = IRON_NODE_BLOCK;
     blk->span        = iron_span_merge(iron_token_span(p, start),
                                        iron_token_span(p, end));
@@ -629,6 +643,7 @@ static Iron_Node *iron_parse_lambda(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_LambdaExpr *lam = ARENA_ALLOC(p->arena, Iron_LambdaExpr);
+    if (!lam) iron_oom_abort("parser.c:iron_parse_lambda");
     lam->kind            = IRON_NODE_LAMBDA;
     lam->span            = iron_span_merge(iron_token_span(p, start), body->span);
     lam->params          = params;
@@ -687,27 +702,33 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_INTEGER: {
             iron_advance(p);
             Iron_IntLit *n = ARENA_ALLOC(p->arena, Iron_IntLit);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary IntLit");
             n->kind  = IRON_NODE_INT_LIT;
             n->span  = iron_token_span(p, t);
             n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            if (!n->value) iron_oom_abort("parser.c:iron_parse_primary IntLit value");
             return (Iron_Node *)n;
         }
         /* Float literal */
         case IRON_TOK_FLOAT: {
             iron_advance(p);
             Iron_FloatLit *n = ARENA_ALLOC(p->arena, Iron_FloatLit);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary FloatLit");
             n->kind  = IRON_NODE_FLOAT_LIT;
             n->span  = iron_token_span(p, t);
             n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            if (!n->value) iron_oom_abort("parser.c:iron_parse_primary FloatLit value");
             return (Iron_Node *)n;
         }
         /* String literal */
         case IRON_TOK_STRING: {
             iron_advance(p);
             Iron_StringLit *n = ARENA_ALLOC(p->arena, Iron_StringLit);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary StringLit");
             n->kind  = IRON_NODE_STRING_LIT;
             n->span  = iron_token_span(p, t);
             n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            if (!n->value) iron_oom_abort("parser.c:iron_parse_primary StringLit value");
             return (Iron_Node *)n;
         }
         /* Interpolated string — parse into alternating literal/expr segments */
@@ -719,6 +740,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_TRUE: {
             iron_advance(p);
             Iron_BoolLit *n = ARENA_ALLOC(p->arena, Iron_BoolLit);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary BoolLit true");
             n->kind  = IRON_NODE_BOOL_LIT;
             n->span  = iron_token_span(p, t);
             n->value = true;
@@ -728,6 +750,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_FALSE: {
             iron_advance(p);
             Iron_BoolLit *n = ARENA_ALLOC(p->arena, Iron_BoolLit);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary BoolLit false");
             n->kind  = IRON_NODE_BOOL_LIT;
             n->span  = iron_token_span(p, t);
             n->value = false;
@@ -737,6 +760,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_NULL_KW: {
             iron_advance(p);
             Iron_NullLit *n = ARENA_ALLOC(p->arena, Iron_NullLit);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary NullLit");
             n->kind = IRON_NODE_NULL_LIT;
             n->span = iron_token_span(p, t);
             return (Iron_Node *)n;
@@ -746,6 +770,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary UnaryExpr minus");
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_MINUS;
@@ -757,6 +782,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary UnaryExpr not");
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_NOT;
@@ -768,6 +794,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary UnaryExpr tilde");
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_TILDE;
@@ -819,6 +846,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                  * we set a sentinel: type_ann points at an Iron_TypeAnnotation
                  * with is_tuple=true. Downstream consumers check this. */
                 Iron_ArrayLit *al = ARENA_ALLOC(p->arena, Iron_ArrayLit);
+                if (!al) iron_oom_abort("parser.c:iron_parse_primary tuple ArrayLit");
                 memset(al, 0, sizeof(*al));
                 al->kind          = IRON_NODE_ARRAY_LIT;
                 al->span          = iron_span_merge(
@@ -827,6 +855,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                 Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
                     p->arena, sizeof(Iron_Node *) * (size_t)count,
                     _Alignof(Iron_Node *));
+                if (!arena_elems) iron_oom_abort("parser.c:iron_parse_primary tuple elems");
                 memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
                 arrfree(elems);
                 al->elements      = arena_elems;
@@ -835,6 +864,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                  * is_tuple=true. The type checker reads this to know to
                  * treat the array lit as a tuple. */
                 Iron_TypeAnnotation *tag = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+                if (!tag) iron_oom_abort("parser.c:iron_parse_primary tuple tag");
                 memset(tag, 0, sizeof(*tag));
                 tag->kind             = IRON_NODE_TYPE_ANNOTATION;
                 tag->span             = al->span;
@@ -855,6 +885,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
              * captured as part of the inner expression (e.g. heap Enemy(args)) */
             Iron_Node *inner   = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_HeapExpr *n   = ARENA_ALLOC(p->arena, Iron_HeapExpr);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary HeapExpr");
             n->kind            = IRON_NODE_HEAP;
             n->span            = iron_span_merge(iron_token_span(p, t), inner->span);
             n->inner           = inner;
@@ -868,6 +899,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *inner = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_RcExpr *n   = ARENA_ALLOC(p->arena, Iron_RcExpr);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary RcExpr");
             n->kind          = IRON_NODE_RC;
             n->span          = iron_span_merge(iron_token_span(p, t), inner->span);
             n->inner         = inner;
@@ -878,6 +910,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *inner      = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_ComptimeExpr *n  = ARENA_ALLOC(p->arena, Iron_ComptimeExpr);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary ComptimeExpr");
             n->kind               = IRON_NODE_COMPTIME;
             n->span               = iron_span_merge(iron_token_span(p, t), inner->span);
             n->inner              = inner;
@@ -888,6 +921,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *handle  = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_AwaitExpr *n  = ARENA_ALLOC(p->arena, Iron_AwaitExpr);
+            if (!n) iron_oom_abort("parser.c:iron_parse_primary AwaitExpr");
             n->kind            = IRON_NODE_AWAIT;
             n->span            = iron_span_merge(iron_token_span(p, t), handle->span);
             n->handle          = handle;
@@ -904,6 +938,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_skip_newlines(p);
 
             Iron_ArrayLit *arr = ARENA_ALLOC(p->arena, Iron_ArrayLit);
+            if (!arr) iron_oom_abort("parser.c:iron_parse_primary ArrayLit bracket");
             arr->kind         = IRON_NODE_ARRAY_LIT;
             arr->type_ann     = NULL;
             arr->size         = NULL;
@@ -956,9 +991,11 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_IDENTIFIER: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!id) iron_oom_abort("parser.c:iron_parse_primary Ident");
             id->kind            = IRON_NODE_IDENT;
             id->span            = iron_token_span(p, t);
             id->name            = iron_arena_strdup(p->arena, t->value, strlen(t->value));
+            if (!id->name) iron_oom_abort("parser.c:iron_parse_primary Ident name");
             id->resolved_sym    = NULL;
             id->resolved_type   = NULL;
             id->constraint_name = NULL;
@@ -968,6 +1005,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_SELF: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!id) iron_oom_abort("parser.c:iron_parse_primary Ident self");
             id->kind            = IRON_NODE_IDENT;
             id->span            = iron_token_span(p, t);
             id->name            = "self";
@@ -979,6 +1017,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_SUPER: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!id) iron_oom_abort("parser.c:iron_parse_primary Ident super");
             id->kind            = IRON_NODE_IDENT;
             id->span            = iron_token_span(p, t);
             id->name            = "super";
@@ -1032,6 +1071,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
             Iron_Token *name_tok = iron_advance(p);
             const char *name = iron_arena_strdup(p->arena, name_tok->value,
                                                   strlen(name_tok->value));
+            if (!name) iron_oom_abort("parser.c:iron_parse_expr_prec dot name");
 
             if (iron_check(p, IRON_TOK_LPAREN)) {
                 /* Heuristic: if the LHS is a simple identifier starting with
@@ -1049,6 +1089,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                         int arg_count = 0;
                         Iron_Node **args = iron_parse_call_args(p, &arg_count);
                         Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
+                        if (!ec) iron_oom_abort("parser.c:iron_parse_expr_prec EnumConstruct call");
                         ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
                         ec->span          = iron_span_merge(left->span,
                                                 iron_token_span(p, iron_current(p)));
@@ -1062,6 +1103,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                         int arg_count = 0;
                         Iron_Node **args = iron_parse_call_args(p, &arg_count);
                         Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
+                        if (!mc) iron_oom_abort("parser.c:iron_parse_expr_prec MethodCall ident");
                         mc->kind      = IRON_NODE_METHOD_CALL;
                         mc->span      = iron_span_merge(left->span,
                                                         iron_token_span(p, iron_current(p)));
@@ -1077,6 +1119,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                     int arg_count = 0;
                     Iron_Node **args = iron_parse_call_args(p, &arg_count);
                     Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
+                    if (!mc) iron_oom_abort("parser.c:iron_parse_expr_prec MethodCall nonident");
                     mc->kind      = IRON_NODE_METHOD_CALL;
                     mc->span      = iron_span_merge(left->span,
                                                     iron_token_span(p, iron_current(p)));
@@ -1095,6 +1138,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                     bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
                     if (looks_like_type && looks_like_variant) {
                         Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
+                        if (!ec) iron_oom_abort("parser.c:iron_parse_expr_prec EnumConstruct unit");
                         ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
                         ec->span          = iron_span_merge(left->span,
                                                             iron_token_span(p, iron_current(p)));
@@ -1109,6 +1153,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                 }
                 /* Field access: obj.field */
                 Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+                if (!fa) iron_oom_abort("parser.c:iron_parse_expr_prec FieldAccess");
                 fa->kind   = IRON_NODE_FIELD_ACCESS;
                 fa->span   = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
@@ -1134,6 +1179,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                 }
                 iron_expect(p, IRON_TOK_RBRACKET);
                 Iron_SliceExpr *sl = ARENA_ALLOC(p->arena, Iron_SliceExpr);
+                if (!sl) iron_oom_abort("parser.c:iron_parse_expr_prec SliceExpr");
                 sl->kind   = IRON_NODE_SLICE;
                 sl->span   = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
@@ -1144,6 +1190,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
             } else {
                 iron_expect(p, IRON_TOK_RBRACKET);
                 Iron_IndexExpr *ix = ARENA_ALLOC(p->arena, Iron_IndexExpr);
+                if (!ix) iron_oom_abort("parser.c:iron_parse_expr_prec IndexExpr");
                 ix->kind   = IRON_NODE_INDEX;
                 ix->span   = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
@@ -1162,6 +1209,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
             /* If callee is an Ident, may be construct or call.
              * We emit a CallExpr regardless; semantic analysis disambiguates. */
             Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
+            if (!call) iron_oom_abort("parser.c:iron_parse_expr_prec CallExpr");
             call->kind      = IRON_NODE_CALL;
             call->span      = iron_span_merge(left->span,
                                               iron_token_span(p, iron_current(p)));
@@ -1186,7 +1234,9 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
             Iron_Token *type_tok = iron_advance(p);
             const char *type_name = iron_arena_strdup(p->arena, type_tok->value,
                                                        strlen(type_tok->value));
+            if (!type_name) iron_oom_abort("parser.c:iron_parse_expr_prec IsExpr type_name");
             Iron_IsExpr *is_n = ARENA_ALLOC(p->arena, Iron_IsExpr);
+            if (!is_n) iron_oom_abort("parser.c:iron_parse_expr_prec IsExpr");
             is_n->kind      = IRON_NODE_IS;
             is_n->span      = iron_span_merge(left->span,
                                               iron_token_span(p, iron_current(p)));
@@ -1202,6 +1252,7 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
         Iron_Node *right = iron_parse_expr_prec(p, prec);
 
         Iron_BinaryExpr *bin = ARENA_ALLOC(p->arena, Iron_BinaryExpr);
+        if (!bin) iron_oom_abort("parser.c:iron_parse_expr_prec BinaryExpr");
         bin->kind  = IRON_NODE_BINARY;
         bin->span  = iron_span_merge(left->span, right->span);
         bin->left  = left;
@@ -1248,6 +1299,7 @@ static Iron_Node *iron_parse_if_stmt(Iron_Parser *p) {
     }
 
     Iron_IfStmt *n  = ARENA_ALLOC(p->arena, Iron_IfStmt);
+    if (!n) iron_oom_abort("parser.c:iron_parse_if_stmt");
     n->kind         = IRON_NODE_IF;
     n->span         = iron_span_merge(iron_token_span(p, start),
                                        else_body ? else_body->span : body->span);
@@ -1268,6 +1320,7 @@ static Iron_Node *iron_parse_while_stmt(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_WhileStmt *n = ARENA_ALLOC(p->arena, Iron_WhileStmt);
+    if (!n) iron_oom_abort("parser.c:iron_parse_while_stmt");
     n->kind           = IRON_NODE_WHILE;
     n->span           = iron_span_merge(iron_token_span(p, start), body->span);
     n->condition      = cond;
@@ -1290,6 +1343,7 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     Iron_Token *var_tok  = iron_advance(p);
     const char *var_name = iron_arena_strdup(p->arena, var_tok->value,
                                               strlen(var_tok->value));
+    if (!var_name) iron_oom_abort("parser.c:iron_parse_for_stmt var_name");
 
     /* 'in' */
     if (!iron_expect(p, IRON_TOK_IN)) return iron_make_error(p);
@@ -1314,6 +1368,7 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_ForStmt *n = ARENA_ALLOC(p->arena, Iron_ForStmt);
+    if (!n) iron_oom_abort("parser.c:iron_parse_for_stmt");
     n->kind         = IRON_NODE_FOR;
     n->span         = iron_span_merge(iron_token_span(p, start), body->span);
     n->var_name     = var_name;
@@ -1380,6 +1435,7 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
                     iron_advance(p);
                     const char *bname = iron_arena_strdup(p->arena, name_tok->value,
                                                            strlen(name_tok->value));
+                    if (!bname) iron_oom_abort("parser.c:iron_parse_pattern bname");
                     arrput(binding_names,   bname);
                     arrput(nested_patterns, (Iron_Node *)NULL);
                 }
@@ -1399,13 +1455,16 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
     }
 
     Iron_Pattern *pat   = ARENA_ALLOC(p->arena, Iron_Pattern);
+    if (!pat) iron_oom_abort("parser.c:iron_parse_pattern");
     pat->kind           = IRON_NODE_PATTERN;
     pat->span           = iron_span_merge(iron_token_span(p, start),
                                            iron_token_span(p, iron_current(p)));
     pat->enum_name      = iron_arena_strdup(p->arena, enum_tok->value,
                                              strlen(enum_tok->value));
+    if (!pat->enum_name) iron_oom_abort("parser.c:iron_parse_pattern enum_name");
     pat->variant_name   = iron_arena_strdup(p->arena, variant_tok->value,
                                              strlen(variant_tok->value));
+    if (!pat->variant_name) iron_oom_abort("parser.c:iron_parse_pattern variant_name");
     pat->binding_names  = binding_names;
     pat->nested_patterns = nested_patterns;
     pat->binding_count  = binding_count;
@@ -1451,6 +1510,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
                 } else {
                     Iron_Node *single = iron_parse_stmt(p);
                     Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+                    if (!blk) iron_oom_abort("parser.c:iron_parse_match_stmt else Block");
                     blk->kind       = IRON_NODE_BLOCK;
                     blk->span       = single->span;
                     blk->stmts      = NULL;
@@ -1485,6 +1545,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
             /* Error recovery: parse the block anyway to continue */
             Iron_Node *cbody = iron_parse_block(p);
             Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
+            if (!mc) iron_oom_abort("parser.c:iron_parse_match_stmt MatchCase error recovery");
             mc->kind    = IRON_NODE_MATCH_CASE;
             mc->span    = iron_span_merge(pattern->span, cbody->span);
             mc->pattern = pattern;
@@ -1507,6 +1568,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
         } else {
             Iron_Node *single = iron_parse_stmt(p);
             Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+            if (!blk) iron_oom_abort("parser.c:iron_parse_match_stmt case Block");
             blk->kind       = IRON_NODE_BLOCK;
             blk->span       = single->span;
             blk->stmts      = NULL;
@@ -1516,6 +1578,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
         }
 
         Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
+        if (!mc) iron_oom_abort("parser.c:iron_parse_match_stmt MatchCase");
         mc->kind    = IRON_NODE_MATCH_CASE;
         mc->span    = iron_span_merge(pattern->span, cbody->span);
         mc->pattern = pattern;
@@ -1529,6 +1592,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_MatchStmt *n = ARENA_ALLOC(p->arena, Iron_MatchStmt);
+    if (!n) iron_oom_abort("parser.c:iron_parse_match_stmt MatchStmt");
     n->kind           = IRON_NODE_MATCH;
     n->span           = iron_span_merge(iron_token_span(p, start),
                                          iron_token_span(p, end));
@@ -1551,6 +1615,7 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
     if (iron_check(p, IRON_TOK_STRING)) {
         Iron_Token *nt = iron_advance(p);
         spawn_name = iron_arena_strdup(p->arena, nt->value, strlen(nt->value));
+        if (!spawn_name) iron_oom_abort("parser.c:iron_parse_spawn_stmt name");
     } else {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -1568,6 +1633,7 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_SpawnStmt *n = ARENA_ALLOC(p->arena, Iron_SpawnStmt);
+    if (!n) iron_oom_abort("parser.c:iron_parse_spawn_stmt SpawnStmt");
     n->kind           = IRON_NODE_SPAWN;
     n->span           = iron_span_merge(iron_token_span(p, start), body->span);
     n->name           = spawn_name;
@@ -1588,6 +1654,7 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
 static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value,
                                             Iron_Span span) {
     Iron_InterpString *n = ARENA_ALLOC(p->arena, Iron_InterpString);
+    if (!n) iron_oom_abort("parser.c:iron_parse_interp_string");
     n->kind       = IRON_NODE_INTERP_STRING;
     n->span       = span;
     n->parts      = NULL;
@@ -1613,9 +1680,11 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
             if (lit_len > 0) {
                 lit_buf[lit_len] = '\0';
                 Iron_StringLit *sl = ARENA_ALLOC(p->arena, Iron_StringLit);
+                if (!sl) iron_oom_abort("parser.c:iron_parse_interp_string StringLit segment");
                 sl->kind  = IRON_NODE_STRING_LIT;
                 sl->span  = span;
                 sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
+                if (!sl->value) iron_oom_abort("parser.c:iron_parse_interp_string StringLit segment value");
                 arrput(n->parts, (Iron_Node *)sl);
                 n->part_count++;
                 lit_len = 0;
@@ -1678,9 +1747,11 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
     if (lit_len > 0) {
         lit_buf[lit_len] = '\0';
         Iron_StringLit *sl = ARENA_ALLOC(p->arena, Iron_StringLit);
+        if (!sl) iron_oom_abort("parser.c:iron_parse_interp_string StringLit tail");
         sl->kind  = IRON_NODE_STRING_LIT;
         sl->span  = span;
         sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
+        if (!sl->value) iron_oom_abort("parser.c:iron_parse_interp_string StringLit tail value");
         arrput(n->parts, (Iron_Node *)sl);
         n->part_count++;
         lit_len = 0;
@@ -1703,8 +1774,10 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
             if (iron_check(p, IRON_TOK_IDENTIFIER)) {
                 Iron_Token *id = iron_advance(p);
-                arrput(names, iron_arena_strdup(p->arena, id->value,
-                                                 strlen(id->value)));
+                const char *tuple_name = iron_arena_strdup(p->arena, id->value,
+                                                            strlen(id->value));
+                if (!tuple_name) iron_oom_abort("parser.c:iron_parse_val_decl tuple binding name");
+                arrput(names, tuple_name);
             } else if (iron_check(p, IRON_TOK_WILDCARD)) {
                 iron_advance(p);
                 arrput(names, NULL);  /* sentinel for wildcard */
@@ -1735,6 +1808,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         const char **arena_names = (const char **)iron_arena_alloc(
             p->arena, sizeof(const char *) * (size_t)count,
             _Alignof(const char *));
+        if (!arena_names) iron_oom_abort("parser.c:iron_parse_val_decl tuple arena_names");
         memcpy(arena_names, names, sizeof(const char *) * (size_t)count);
         arrfree(names);
 
@@ -1757,6 +1831,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         }
 
         Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
+        if (!n) iron_oom_abort("parser.c:iron_parse_val_decl tuple ValDecl");
         memset(n, 0, sizeof(*n));
         n->kind          = IRON_NODE_VAL_DECL;
         n->span          = iron_span_merge(iron_token_span(p, start),
@@ -1799,6 +1874,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
                 Iron_SpawnStmt *ss = (Iron_SpawnStmt *)spawn_node;
                 ss->handle_name = iron_arena_strdup(p->arena, name_tok->value,
                                                      strlen(name_tok->value));
+                if (!ss->handle_name) iron_oom_abort("parser.c:iron_parse_val_decl spawn handle_name");
             }
             init = spawn_node;
         } else {
@@ -1807,11 +1883,13 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     }
 
     Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
+    if (!n) iron_oom_abort("parser.c:iron_parse_val_decl ValDecl");
     n->kind          = IRON_NODE_VAL_DECL;
     n->span          = iron_span_merge(iron_token_span(p, start),
                                        init ? init->span : iron_token_span(p, name_tok));
     n->name          = iron_arena_strdup(p->arena, name_tok->value,
                                          strlen(name_tok->value));
+    if (!n->name) iron_oom_abort("parser.c:iron_parse_val_decl ValDecl name");
     n->type_ann      = type_ann;
     n->init          = init;
     n->declared_type = NULL;  /* set by type checker */
@@ -1849,6 +1927,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
                 Iron_SpawnStmt *ss = (Iron_SpawnStmt *)spawn_node;
                 ss->handle_name = iron_arena_strdup(p->arena, name_tok->value,
                                                      strlen(name_tok->value));
+                if (!ss->handle_name) iron_oom_abort("parser.c:iron_parse_var_decl spawn handle_name");
             }
             init = spawn_node;
         } else {
@@ -1857,11 +1936,13 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     }
 
     Iron_VarDecl *n = ARENA_ALLOC(p->arena, Iron_VarDecl);
+    if (!n) iron_oom_abort("parser.c:iron_parse_var_decl VarDecl");
     n->kind          = IRON_NODE_VAR_DECL;
     n->span          = iron_span_merge(iron_token_span(p, start),
                                        init ? init->span : iron_token_span(p, name_tok));
     n->name          = iron_arena_strdup(p->arena, name_tok->value,
                                          strlen(name_tok->value));
+    if (!n->name) iron_oom_abort("parser.c:iron_parse_var_decl VarDecl name");
     n->type_ann      = type_ann;
     n->init          = init;
     n->declared_type = NULL;  /* set by type checker */
@@ -1886,6 +1967,7 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
                 val = iron_parse_expr(p);
             }
             Iron_ReturnStmt *n = ARENA_ALLOC(p->arena, Iron_ReturnStmt);
+            if (!n) iron_oom_abort("parser.c:iron_parse_stmt ReturnStmt");
             n->kind  = IRON_NODE_RETURN;
             n->span  = iron_span_merge(iron_token_span(p, t),
                                         val ? val->span : iron_token_span(p, t));
@@ -1904,6 +1986,7 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *expr  = iron_parse_expr(p);
             Iron_DeferStmt *n = ARENA_ALLOC(p->arena, Iron_DeferStmt);
+            if (!n) iron_oom_abort("parser.c:iron_parse_stmt DeferStmt");
             n->kind           = IRON_NODE_DEFER;
             n->span           = iron_span_merge(iron_token_span(p, t), expr->span);
             n->expr           = expr;
@@ -1913,6 +1996,7 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *expr = iron_parse_expr(p);
             Iron_FreeStmt *n = ARENA_ALLOC(p->arena, Iron_FreeStmt);
+            if (!n) iron_oom_abort("parser.c:iron_parse_stmt FreeStmt");
             n->kind          = IRON_NODE_FREE;
             n->span          = iron_span_merge(iron_token_span(p, t), expr->span);
             n->expr          = expr;
@@ -1922,6 +2006,7 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *expr = iron_parse_expr(p);
             Iron_LeakStmt *n = ARENA_ALLOC(p->arena, Iron_LeakStmt);
+            if (!n) iron_oom_abort("parser.c:iron_parse_stmt LeakStmt");
             n->kind          = IRON_NODE_LEAK;
             n->span          = iron_span_merge(iron_token_span(p, t), expr->span);
             n->expr          = expr;
@@ -1956,6 +2041,7 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
                 iron_skip_newlines(p);
                 Iron_Node *val = iron_parse_expr(p);
                 Iron_AssignStmt *a = ARENA_ALLOC(p->arena, Iron_AssignStmt);
+                if (!a) iron_oom_abort("parser.c:iron_parse_stmt AssignStmt");
                 a->kind   = IRON_NODE_ASSIGN;
                 a->span   = iron_span_merge(expr->span, val->span);
                 a->target = expr;
@@ -2012,6 +2098,7 @@ static Iron_Node *iron_parse_import_decl(Iron_Parser *p) {
     }
     path_buf[path_len] = '\0';
     const char *path = iron_arena_strdup(p->arena, path_buf, path_len);
+    if (!path) iron_oom_abort("parser.c:iron_parse_import_decl path");
 
     /* optional: as alias */
     const char *alias = NULL;
@@ -2021,10 +2108,12 @@ static Iron_Node *iron_parse_import_decl(Iron_Parser *p) {
         if (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *at = iron_advance(p);
             alias = iron_arena_strdup(p->arena, at->value, strlen(at->value));
+            if (!alias) iron_oom_abort("parser.c:iron_parse_import_decl alias");
         }
     }
 
     Iron_ImportDecl *n = ARENA_ALLOC(p->arena, Iron_ImportDecl);
+    if (!n) iron_oom_abort("parser.c:iron_parse_import_decl ImportDecl");
     n->kind            = IRON_NODE_IMPORT_DECL;
     n->span            = iron_span_merge(iron_token_span(p, start),
                                           iron_token_span(p, iron_current(p)));
@@ -2046,7 +2135,7 @@ static const char *iron_snake_to_camel(Iron_Arena *arena, const char *name) {
     size_t len = strlen(name);
     /* Output can be at most len bytes (we remove underscores, add nothing) */
     char *buf = (char *)iron_arena_alloc(arena, len + 1, 1);
-    if (!buf) return name;
+    if (!buf) iron_oom_abort("parser.c:iron_snake_to_camel");
 
     size_t out = 0;
     bool capitalize_next = true;  /* capitalize first letter */
@@ -2095,6 +2184,7 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
     Iron_Token *name_tok = iron_advance(p);
     const char *iron_name = iron_arena_strdup(p->arena, name_tok->value,
                                                strlen(name_tok->value));
+    if (!iron_name) iron_oom_abort("parser.c:iron_parse_extern_func iron_name");
     /* Derive C name: snake_case -> CamelCase */
     const char *c_name = iron_snake_to_camel(p->arena, iron_name);
 
@@ -2110,6 +2200,7 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
 
     /* No body for extern funcs */
     Iron_FuncDecl *f        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
+    if (!f) iron_oom_abort("parser.c:iron_parse_extern_func FuncDecl");
     f->kind                 = IRON_NODE_FUNC_DECL;
     f->span                 = iron_span_merge(iron_token_span(p, start),
                                               ret ? ret->span
@@ -2193,11 +2284,13 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         Iron_Node *body = iron_parse_block(p);
 
         Iron_MethodDecl *m      = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+        if (!m) iron_oom_abort("parser.c:iron_parse_func_or_method array MethodDecl");
         m->kind                 = IRON_NODE_METHOD_DECL;
         m->span                 = iron_span_merge(iron_token_span(p, start), body->span);
         m->type_name            = "__Array";  /* sentinel: marks this as array extension */
         m->method_name          = iron_arena_strdup(p->arena, method_tok->value,
                                                      strlen(method_tok->value));
+        if (!m->method_name) iron_oom_abort("parser.c:iron_parse_func_or_method array method_name");
         m->params               = params;
         m->param_count          = param_count;
         m->return_type          = ret;
@@ -2210,6 +2303,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->is_array_extension   = true;
         m->elem_type_name       = iron_arena_strdup(p->arena, elem_type_tok->value,
                                                      strlen(elem_type_tok->value));
+        if (!m->elem_type_name) iron_oom_abort("parser.c:iron_parse_func_or_method array elem_type_name");
         return (Iron_Node *)m;
     }
 
@@ -2260,12 +2354,15 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         Iron_Node *body = iron_parse_block(p);
 
         Iron_MethodDecl *m      = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+        if (!m) iron_oom_abort("parser.c:iron_parse_func_or_method MethodDecl");
         m->kind                 = IRON_NODE_METHOD_DECL;
         m->span                 = iron_span_merge(iron_token_span(p, start), body->span);
         m->type_name            = iron_arena_strdup(p->arena, name_tok->value,
                                                      strlen(name_tok->value));
+        if (!m->type_name) iron_oom_abort("parser.c:iron_parse_func_or_method type_name");
         m->method_name          = iron_arena_strdup(p->arena, method_tok->value,
                                                      strlen(method_tok->value));
+        if (!m->method_name) iron_oom_abort("parser.c:iron_parse_func_or_method method_name");
         m->params               = params;
         m->param_count          = param_count;
         m->return_type          = ret;
@@ -2292,10 +2389,12 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_FuncDecl *f        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
+    if (!f) iron_oom_abort("parser.c:iron_parse_func_or_method FuncDecl");
     f->kind                 = IRON_NODE_FUNC_DECL;
     f->span                 = iron_span_merge(iron_token_span(p, start), body->span);
     f->name                 = iron_arena_strdup(p->arena, name_tok->value,
                                                strlen(name_tok->value));
+    if (!f->name) iron_oom_abort("parser.c:iron_parse_func_or_method FuncDecl name");
     f->params               = params;
     f->param_count          = param_count;
     f->return_type          = ret;
@@ -2338,6 +2437,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
             Iron_Token *ext_tok = iron_advance(p);
             extends_name = iron_arena_strdup(p->arena, ext_tok->value,
                                               strlen(ext_tok->value));
+            if (!extends_name) iron_oom_abort("parser.c:iron_parse_object_decl extends_name");
         }
     }
 
@@ -2350,6 +2450,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
             Iron_Token *it = iron_advance(p);
             const char *iname = iron_arena_strdup(p->arena, it->value,
                                                    strlen(it->value));
+            if (!iname) iron_oom_abort("parser.c:iron_parse_object_decl impl iname");
             arrput(impl_names, iname);
             impl_count++;
             if (!iron_match(p, IRON_TOK_COMMA)) break;
@@ -2399,12 +2500,14 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
         }
 
         Iron_Field *field = ARENA_ALLOC(p->arena, Iron_Field);
+        if (!field) iron_oom_abort("parser.c:iron_parse_object_decl Field");
         field->kind       = IRON_NODE_FIELD;
         field->span       = iron_span_merge(iron_token_span(p, field_start),
                                              ftype ? ftype->span
                                                    : iron_token_span(p, fname));
         field->name       = iron_arena_strdup(p->arena, fname->value,
                                                strlen(fname->value));
+        if (!field->name) iron_oom_abort("parser.c:iron_parse_object_decl Field name");
         field->type_ann   = ftype;
         field->is_var     = is_var;
         arrput(fields, (Iron_Node *)field);
@@ -2416,11 +2519,13 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_ObjectDecl *n         = ARENA_ALLOC(p->arena, Iron_ObjectDecl);
+    if (!n) iron_oom_abort("parser.c:iron_parse_object_decl ObjectDecl");
     n->kind                    = IRON_NODE_OBJECT_DECL;
     n->span                    = iron_span_merge(iron_token_span(p, start),
                                                   iron_token_span(p, end));
     n->name                    = iron_arena_strdup(p->arena, name_tok->value,
                                                     strlen(name_tok->value));
+    if (!n->name) iron_oom_abort("parser.c:iron_parse_object_decl ObjectDecl name");
     n->fields                  = fields;
     n->field_count             = field_count;
     n->extends_name            = extends_name;
@@ -2484,11 +2589,13 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
 
         /* Store as a FuncDecl with NULL body to represent a signature */
         Iron_FuncDecl *sig        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
+        if (!sig) iron_oom_abort("parser.c:iron_parse_interface_decl sig FuncDecl");
         sig->kind                 = IRON_NODE_FUNC_DECL;
         sig->span                 = iron_span_merge(iron_token_span(p, fsig_start),
                                                      iron_token_span(p, iron_current(p)));
         sig->name                 = iron_arena_strdup(p->arena, sig_name->value,
                                                        strlen(sig_name->value));
+        if (!sig->name) iron_oom_abort("parser.c:iron_parse_interface_decl sig name");
         sig->params               = sig_params;
         sig->param_count          = sig_param_count;
         sig->return_type          = sig_ret;
@@ -2508,11 +2615,13 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_InterfaceDecl *n = ARENA_ALLOC(p->arena, Iron_InterfaceDecl);
+    if (!n) iron_oom_abort("parser.c:iron_parse_interface_decl InterfaceDecl");
     n->kind               = IRON_NODE_INTERFACE_DECL;
     n->span               = iron_span_merge(iron_token_span(p, start),
                                              iron_token_span(p, end));
     n->name               = iron_arena_strdup(p->arena, name_tok->value,
                                                strlen(name_tok->value));
+    if (!n->name) iron_oom_abort("parser.c:iron_parse_interface_decl InterfaceDecl name");
     n->method_sigs        = method_sigs;
     n->method_count       = method_count;
     (void)is_private;
@@ -2557,9 +2666,11 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
         }
         Iron_Token *vt  = iron_advance(p);
         Iron_EnumVariant *v = ARENA_ALLOC(p->arena, Iron_EnumVariant);
+        if (!v) iron_oom_abort("parser.c:iron_parse_enum_decl EnumVariant");
         v->kind               = IRON_NODE_ENUM_VARIANT;
         v->span               = iron_token_span(p, vt);
         v->name               = iron_arena_strdup(p->arena, vt->value, strlen(vt->value));
+        if (!v->name) iron_oom_abort("parser.c:iron_parse_enum_decl EnumVariant name");
         v->has_explicit_value = false;
         v->explicit_value     = 0;
         v->payload_type_anns  = NULL;
@@ -2626,11 +2737,13 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_EnumDecl *n   = ARENA_ALLOC(p->arena, Iron_EnumDecl);
+    if (!n) iron_oom_abort("parser.c:iron_parse_enum_decl EnumDecl");
     n->kind            = IRON_NODE_ENUM_DECL;
     n->span            = iron_span_merge(iron_token_span(p, start),
                                           iron_token_span(p, end));
     n->name            = iron_arena_strdup(p->arena, name_tok->value,
                                             strlen(name_tok->value));
+    if (!n->name) iron_oom_abort("parser.c:iron_parse_enum_decl EnumDecl name");
     n->variants             = variants;
     n->variant_count        = variant_count;
     n->has_payloads         = has_payloads;
@@ -2774,6 +2887,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     }
 
     Iron_Program *prog  = ARENA_ALLOC(p->arena, Iron_Program);
+    if (!prog) iron_oom_abort("parser.c:iron_parse Program");
     prog->kind          = IRON_NODE_PROGRAM;
     prog->span          = iron_span_merge(iron_token_span(p, start),
                                            iron_token_span(p, iron_current(p)));
