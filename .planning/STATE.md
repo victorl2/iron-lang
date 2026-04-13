@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: 66-03
+current_plan: 66-05
 status: in-progress
-stopped_at: Completed 66-02-PLAN.md
-last_updated: "2026-04-13T01:36:48Z"
-last_activity: 2026-04-13 — 66-02 shipped PROT-02 (global -Werror=switch-enum on all non-MSVC targets), 17 AUDIT-02 M-severity enum-switch findings individually fixed, emit_c.c FFI cast if-chain converted to exhaustive switch, 82 /* -Wswitch-enum opt-out: */ audit trails across 21 source files
+stopped_at: Completed 66-03-PLAN.md
+last_updated: "2026-04-13T02:33:53Z"
+last_activity: 2026-04-13 — 66-03 shipped PROT-04 H-severity blind-cast rewrites (ranks 5, 6, 7, 8, 10a, 10b, 11a, 11b) across typecheck.c + resolve.c + escape.c; 8 IRON_NODE_ASSERT_KIND call sites added; fresh-alloc + size-fit _Static_assert rewrite of the Iron_EnumConstruct reinterpret branch; 6 new regression fixtures with 4-section doc-comments; integration suite 346 → 352 pass
 progress:
   total_phases: 32
   completed_phases: 11
   total_plans: 48
-  completed_plans: 44
-  percent: 92
+  completed_plans: 45
+  percent: 94
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (3/5 plans shipped: 66-01, 66-02, 66-04)
-Current Plan: 66-03-PLAN.md (PROT-04 H-severity blind-cast rewrites)
-Status: Phase 66 Plan 01 + Plan 02 + Plan 04 complete; ready for Plan 03 (PROT-04 H-severity rewrites), Plan 05 (M/L IRON_NODE_ASSERT_KIND walkthrough)
-Last activity: 2026-04-13 — 66-02 shipped PROT-02 (global -Werror=switch-enum on all non-MSVC targets), 17 AUDIT-02 M-severity enum-switch findings individually fixed, emit_c.c FFI cast if-chain converted to exhaustive switch, 82 /* -Wswitch-enum opt-out: */ audit trails across 21 source files
+Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (4/5 plans shipped: 66-01, 66-02, 66-03, 66-04)
+Current Plan: 66-05-PLAN.md (PROT-03 M/L walkthrough)
+Status: Phase 66 Plan 01 + Plan 02 + Plan 03 + Plan 04 complete; ready for Plan 05 (M/L IRON_NODE_ASSERT_KIND walkthrough across remaining 25 M-severity AUDIT-01 sites)
+Last activity: 2026-04-13 — 66-03 shipped PROT-04 H-severity blind-cast rewrites (ranks 5, 6, 7, 8, 10a, 10b, 11a, 11b) across typecheck.c + resolve.c + escape.c; 8 IRON_NODE_ASSERT_KIND call sites added; fresh-alloc + size-fit _Static_assert rewrite of the Iron_EnumConstruct reinterpret branch; 6 new regression fixtures with 4-section doc-comments; integration suite 346 → 352 pass
 
-Progress: [█████████░] 92%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -91,6 +91,7 @@ Progress: [█████████░] 92%
 | Phase 66-structural-protections-linux-release-ci P01 | 17min | 3 tasks | 4 files |
 | Phase 66-structural-protections-linux-release-ci P04 | 15min | 3 tasks | 3 files |
 | Phase 66-structural-protections-linux-release-ci P02 | 25min | 1 tasks | 24 files |
+| Phase 66-structural-protections-linux-release-ci P03 | 54min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -216,6 +217,15 @@ Progress: [█████████░] 92%
 - [Phase 66-structural-protections]: Phase 66 Plan 02: collect_mono_enums_node now recurses into 16 additional Iron_NodeKind values (FOR, DEFER, SPAWN, FREE, LEAK, LAMBDA, INDEX, SLICE, ARRAY_LIT, CONSTRUCT, HEAP, RC, IS, AWAIT, COMPTIME, INTERP_STRING) — the motivating-bug-class fix that closes rank 13 from AUDIT-02
 - [Phase 66-structural-protections]: Phase 66 Plan 02: emit_c.c FFI cast dispatch rewritten from if-chain to exhaustive switch over Iron_TypeKind — STRING/INT/INT64/FLOAT64 are the only kinds rewritten and default falls through byte-identically
 - [Phase 66-structural-protections]: Phase 66 Plan 02: emit_helpers.c emit_type_to_c was already exhaustive and needed zero modification; iron_net.c WSA/errno translation switches are over int not Iron enums so -Werror=switch-enum never fires there; src/lexer/printer.c was a stale path — the actual file is src/parser/printer.c
+- [Phase 66-structural-protections P03]: Task 1 rank 5/6: emit explicit IRON_ERR_NOT_CALLABLE diagnostic for non-object SYM_TYPE rather than silently breaking out — interface/enum in constructor position deserves a clean user-visible error, not a latent NULL field_count path
+- [Phase 66-structural-protections P03]: Task 1 rank 11a uses Iron_ExprNode (layout-locked by PROT-01) not IRON_NODE_ASSERT_KIND — rs->value is a truly generic expression node, no specific kind is expected; ExprNode is the type-safe accessor
+- [Phase 66-structural-protections P03]: Task 1 rank 11b keeps the Iron_IntLit cast but adds IRON_NODE_ASSERT_KIND gate — is_int_literal_narrowing already confirms the kind, the assert documents the invariant and catches future predicate drift
+- [Phase 66-structural-protections P03]: Task 2 ranks 7/8 committed to Option A (fresh arena alloc + size-fit _Static_assert + in-place copy over ec). Both _Static_asserts pass at Phase 66 head (Iron_MethodCallExpr == Iron_EnumConstruct, Iron_FieldAccess < Iron_EnumConstruct). Option B (rewrite_target field) not considered per plan directive
+- [Phase 66-structural-protections P03]: Task 2 fixture blind_cast_owner_decl cannot exercise super.method() end-to-end because Iron typecheck/HIR do not wire super — attempting `return super.foo()` reports E0215 Void-vs-Int return mismatch. Fixture covers the positive `object Dog extends Animal` path through resolve.c (parsing, symbol creation, method-owner wiring); IRON_NODE_ASSERT_KIND gate is the structural protection
+- [Phase 66-structural-protections P03]: Task 3 escape.c: chose inline-guard form (no goto). Control flow already nested inside `if (!he) { ... }`, so `if (ls->expr->kind == IRON_NODE_IDENT)` guard replaces the two redundant inner kind checks without a label
+- [Phase 66-structural-protections P03]: Task 3 blind_cast_leak_ident: the cast site only executes on the E0213 negative branch (leak on non-heap value), but integration runner requires successful build. Fixture covers the positive `heap Point(3,4)` + `leak p` path and documents why the negative path can't be exercised via integration tests
+- [Phase 66-structural-protections P03]: Task 3 blind_cast_expr_common_layout exercises 12 distinct expression kinds (IntLit, StringLit, BoolLit, Ident, BinaryExpr, UnaryExpr, CallExpr, ConstructExpr, FieldAccess, ArrayLit, IndexExpr, InterpString) — 50% more than the 8 minimum required by acceptance criteria
+- [Phase 66-structural-protections P03]: 6 new regression fixtures land with 4-section doc-comments, validating the REG-04 template end-to-end; Phase 67 REG-02's crash-canary campaign can adopt the template with high confidence
 
 ### Roadmap Evolution
 
@@ -237,6 +247,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T01:36:48.072Z
-Stopped at: Completed 66-02-PLAN.md
+Last session: 2026-04-13T02:33:53Z
+Stopped at: Completed 66-03-PLAN.md
 Resume file: None

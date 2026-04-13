@@ -32,7 +32,7 @@ Changes that make the blind-cast bug class structurally impossible to reintroduc
 - [x] **PROT-01**: `Iron_ExprNode` moved from `src/hir/hir_lower.c:101` into `src/parser/ast.h` as a blessed prefix typedef next to `Iron_Node`, with compile-time `_Static_assert`s enforcing the `{Iron_Span span; Iron_NodeKind kind; struct Iron_Type *resolved_type;}` prefix on every expression AST type — `Iron_IntLit`, `Iron_FloatLit`, `Iron_StringLit`, `Iron_BoolLit`, `Iron_NullLit`, `Iron_Ident`, `Iron_BinaryExpr`, `Iron_UnaryExpr`, `Iron_CallExpr`, `Iron_MethodCallExpr`, `Iron_FieldAccess`, `Iron_Index`, `Iron_HeapExpr`, `Iron_ConstructExpr`, `Iron_ArrayLit`, `Iron_EnumConstruct`, `Iron_Closure`, and any others that `expr_type()` might see
 - [x] **PROT-02**: `-Werror=switch-enum` enabled on `iron_compiler`, `iron_runtime`, `iron_stdlib`, and `ironc` targets in `CMakeLists.txt`; every existing `switch` over an `Iron_*Kind` / `IronHIR_*Kind` / `IronLIR_OpKind` enum either handles every case explicitly or opts out with a `default: break;` that has a comment explaining why the unhandled kinds are genuinely don't-care
 - [x] **PROT-03**: Debug-build `iron_node_assert_kind(node, expected_kind, __FILE__, __LINE__)` helper added in `src/parser/ast.h` and called at the top of every AST-node cast site, gated by `#ifndef NDEBUG` so Release builds pay zero cost; catches wrong-kind casts at runtime in CI even when compile-time guards miss one
-- [ ] **PROT-04**: All high-severity blind-cast sites from AUDIT-01 are rewritten to use the real struct from `parser/ast.h` (not a local shadow) with a preceding kind-check; any fix that touches a walker function adds a minimal regression fixture in `tests/integration/` following the `hir_to_lir_elif_mono_walker.iron` reference pattern
+- [x] **PROT-04**: All high-severity blind-cast sites from AUDIT-01 are rewritten to use the real struct from `parser/ast.h` (not a local shadow) with a preceding kind-check; any fix that touches a walker function adds a minimal regression fixture in `tests/integration/` following the `hir_to_lir_elif_mono_walker.iron` reference pattern
 
 ### Correctness Fixes
 
@@ -126,7 +126,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROT-01 | Phase 66 | Complete |
 | PROT-02 | Phase 66 | Complete |
 | PROT-03 | Phase 66 | Complete |
-| PROT-04 | Phase 66 | Pending |
+| PROT-04 | Phase 66 | Complete |
 | FIX-01 | Phase 67 | Pending |
 | FIX-02 | Phase 67 | Pending |
 | FIX-03 | Phase 67 | Pending |
