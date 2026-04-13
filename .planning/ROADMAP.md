@@ -1063,7 +1063,7 @@ Phases execute in numeric order: 59 -> 65 -> 66 -> 67 -> 68 -> 69 -> 70 (60-64 p
 | 64. [paused] WebSocket Client | v0.2.0-alpha | 0/0 | Paused | - |
 | 65. Correctness Audit | 6/6 | Complete    | 2026-04-12 | - |
 | 66. Structural Protections + Linux Release CI | 5/5 | Complete    | 2026-04-13 | - |
-| 67. Correctness Fixes + Crash Canaries | 2/8 | In Progress|  | - |
+| 67. Correctness Fixes + Crash Canaries | 3/8 | In Progress|  | - |
 | 68. Fuzzing Infrastructure | v0.1.4-alpha | 0/0 | Not started | - |
 | 69. Coverage Tooling + Benchmark Calibration | v0.1.4-alpha | 0/0 | Not started | - |
 | 70. Version Reconciliation | v0.1.4-alpha | 0/0 | Not started | - |

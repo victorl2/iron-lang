@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: Phase 67 Plan 02 complete; 67-03 next (FIX-04 integer-safety tail + enum-switch tail — ranks 14, 15, 19)
-status: Phase 67 in progress — 67-01 + 67-02 shipped (2/8 plans); 67-03..67-08 remain
-stopped_at: Completed 67-02-PLAN.md (FIX-01 ranks 1-4 + Wasm-W1 H-severity alloc-fail walkthrough + iron_oom_abort helper)
-last_updated: "2026-04-13T17:35:10.458Z"
-last_activity: "2026-04-13 — 67-02 shipped iron_oom_abort helper + IRON_LIST/MAP/SET macro guards + emit_c.c + emit_web.c generated-code malloc guards; closed audit ranks 1-4 + Wasm-W1; 67-AUDIT-STATUS.md updated 17 DONE / 3 OPEN (was 13/7); ctest 74/74 green, integration suite 354/354 green"
+current_plan: Phase 67 Plan 03 complete; 67-04 next (FIX-02 parser arena walkthrough — ~80 parser/lexer arena sites)
+status: Phase 67 in progress — 67-01 + 67-02 + 67-03 shipped (3/8 plans); 67-04..67-08 remain
+stopped_at: Completed 67-03-PLAN.md (FIX-01 ranks 14+15+19 integer-safety tail + FIX-04 row 13 typecheck covered[] dynamic sizing)
+last_updated: "2026-04-13T18:25:40Z"
+last_activity: "2026-04-13 — 67-03 shipped overflow-safe comptime arithmetic (__builtin_add/sub/mul_overflow + INT64_MIN div/mod/negation guards) + parser enum-variant atoi->strtol with ERANGE+bounds + typecheck.c covered[256] dynamic-sizing fix; closed final 3 top-20 OPEN rows (ranks 14,15,19); walked FIX-04 enum-switch tail (16 of 17 AUDIT-02 M rows confirmed already covered, row 13 fixed); 67-AUDIT-STATUS.md updated 20 DONE / 0 OPEN (was 17/3); 3 new integration fixtures; integration suite 354 -> 357 green, ctest green"
 progress:
   total_phases: 32
   completed_phases: 12
   total_plans: 56
-  completed_plans: 48
-  percent: 86
+  completed_plans: 49
+  percent: 88
 ---
 
 # Project State
@@ -31,19 +31,19 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 2/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1)
-Current Plan: Phase 67 Plan 02 complete; 67-03 next (FIX-04 integer-safety tail + enum-switch tail — ranks 14, 15, 19)
-Status: Phase 67 in progress — 67-01 + 67-02 shipped (2/8 plans); 67-03..67-08 remain
-Last activity: 2026-04-13 — 67-02 shipped iron_oom_abort helper (src/runtime/iron_oom.c, declared in diagnostics.h) + IRON_LIST/MAP/SET macro guards + emit_c.c + emit_web.c generated-code malloc guards covering audit ranks 1-4 + Wasm-W1; 67-AUDIT-STATUS.md updated 17 DONE / 3 OPEN (was 13 DONE / 7 OPEN); 2 new C unit tests (fork+SIGABRT assertions) + 2 new Iron integration fixtures with 4-section doc-comment headers (null_heap_alloc_malloc, null_rc_alloc_malloc); ctest 74/74 green, integration suite 354/354 green
+Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 3/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1 + 67-03 FIX-01 ranks 14+15+19 + FIX-04 row 13)
+Current Plan: Phase 67 Plan 03 complete; 67-04 next (FIX-02 parser arena walkthrough — ~80 parser/lexer arena sites)
+Status: Phase 67 in progress — 67-01 + 67-02 + 67-03 shipped (3/8 plans); 67-04..67-08 remain
+Last activity: 2026-04-13 — 67-03 shipped overflow-safe comptime arithmetic (__builtin_add/sub/mul_overflow for +,-,* with INT64_MIN guards on div/mod/negation) + parser enum-variant strtol-with-bounds rewrite (atoi eliminated from variant-value path) + typecheck.c plain-enum covered[256] silent-truncation fix (now calloc-backed with iron_oom_abort guard + free); closed audit ranks 14, 15, 19 — the final 3 top-20 H-severity OPEN rows. FIX-04 walkthrough verified 16 of 17 AUDIT-02 M rows are already covered by Phase 66-02/66-03 (explicit cases + opt-out comments + -Werror=switch-enum enforcement); only row 13 needed an edit. 67-AUDIT-STATUS.md updated 20 DONE / 0 OPEN (was 17 DONE / 3 OPEN). 3 new integration fixtures with 4-section doc-comment headers (int_comptime_arith_overflow, int_comptime_neg_min, int_enum_value_overflow); integration suite 354 -> 357 green, ctest green.
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 23
-- Average duration: 20min
-- Total execution time: ~6.7 hours
+- Total plans completed: 24
+- Average duration: 21min
+- Total execution time: ~7.4 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -95,6 +95,7 @@ Progress: [█████████░] 86%
 | Phase 66-structural-protections-linux-release-ci P05 | 55min | 3 tasks | 6 files |
 | Phase 67-correctness-fixes-+-crash-canaries P01 | 6min | 1 tasks | 1 files |
 | Phase 67-correctness-fixes-+-crash-canaries P02 | 2h 2min | 3 tasks | 12 files |
+| Phase 67-correctness-fixes-+-crash-canaries P03 | 45min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -244,6 +245,13 @@ Progress: [█████████░] 86%
 - [Phase 67-correctness-fixes-P02]: emit_c.c location literals identify structural call-sites ('emit_c HEAP_ALLOC', 'emit_c closure env (A|B|C)') — generated C can't meaningfully use __FILE__ because it points at emit_c.c not user source; structural literals let stderr grep bisect which emitter path faulted
 - [Phase 67-correctness-fixes-P02]: Generated C prelude already includes runtime/iron_runtime.h in both emit_c.c and emit_web.c; iron_runtime.h transitively includes diagnostics/diagnostics.h — zero additional include wiring needed in emitters for iron_oom_abort to be reachable from every compiled user binary
 - [Phase 67-correctness-fixes-P02]: Unit test strategy: LIST exercises capacity-overflow arm (no prereq), MAP exercises _create_with_capacity malloc-NULL arm (MAP _put does a linear scan over self->keys before the capacity check, so the overflow-capacity trick segfaults on the scan) — both arms hit the same iron_oom_abort with the same stderr contract
+- [Phase 67-correctness-fixes-P03]: Use __builtin_add/sub/mul_overflow unwrapped in comptime.c — matches the lir/value_range.c Phase 54 precedent and keeps the fix minimal; Windows is out of scope per REQUIREMENTS.md so a portable wrapper is premature abstraction
+- [Phase 67-correctness-fixes-P03]: Extended rank 14 to cover INT64_MIN / -1 division and modulo — audit only listed +/-/* but C11 6.5.5p6 makes /, % UB in the same boundary; two extra condition blocks for comprehensive overflow-safety vs. "mostly safe on three operators"
+- [Phase 67-correctness-fixes-P03]: Reuse IRON_ERR_UNEXPECTED_TOKEN (101) for enum-value out-of-range parser diagnostic rather than adding a new code — IRON_ERR_INVALID_NUMBER is lexer-level and misleading here; 101 is the parser-generic bucket and the message literal carries the semantics
+- [Phase 67-correctness-fixes-P03]: Integer-safety canaries use safe-path fixtures + source-level grep acceptance criteria because run_integration.sh has no .expected-error mode (verified by reading the full 138-line script); the split lets the rewritten branches exercise on every build while the diagnostic literal is verified by grep in the PLAN acceptance criteria
+- [Phase 67-correctness-fixes-P03]: typecheck.c row 13 fix uses calloc + iron_oom_abort + free rather than ctx->arena — the adjacent has_payloads branch uses arena without NULL check (latent bug tracked for 67-05), mixing would blur plan boundaries; calloc path is individually bisectable via stderr grep
+- [Phase 67-correctness-fixes-P03]: FIX-04 walkthrough preserves row-by-row evidence in the Task 3 commit message body rather than editing 16 files that need no changes — downstream reviewers can `git show e84497c` for the full walkthrough audit without touching source
+- [Phase 67-correctness-fixes-P03]: All 20 top-20 H-severity audit rows now closed (ranks 1-20 DONE in 67-AUDIT-STATUS.md); remaining 67-04..67-08 plans address non-top-20 M-severity rows and REG-02 canaries only
 
 ### Roadmap Evolution
 
