@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: Phase 67 Plan 04 complete; 67-05 next (FIX-02 analyzer + comptime arena walkthrough — ~100 sites)
+current_plan: Phase 67 Plan 05 complete; 67-06 next (FIX-02 hir + lir + runtime/stdlib arena walkthrough — ~105 sites)
 status: executing
-stopped_at: Completed 67-04-PLAN.md (FIX-02 parser + lexer arena walkthrough)
-last_updated: "2026-04-13T19:12:55.739Z"
-last_activity: "2026-04-13 — 67-04 shipped FIX-02 parser subsystem arena walkthrough: all 114 parser.c + 9 lexer.c iron_arena_alloc/ARENA_ALLOC/iron_arena_strdup call-sites routed through iron_oom_abort on NULL with function-qualified location literals ("parser.c:<function>" / "lexer.c:<function>"). Two pre-existing latent bugs auto-fixed under Rule 1: iron_snake_to_camel silent graceful-degradation on alloc fail (returned un-converted snake_case name — silently mangled emitted C names) and iron_lex_string OOM misclassified as IRON_ERR_UNTERMINATED_STRING (user saw a bogus "unterminated string" diagnostic on OOM). Phase-level gate: 123 guards total. Zero new fixtures, zero error codes, zero behaviour changes. Build green, ctest 74/74, integration 357/357 (no regression from 67-03)."
+stopped_at: Completed 67-05-PLAN.md (FIX-02 analyzer + comptime arena walkthrough — 94 sites)
+last_updated: "2026-04-13T20:15:46.150Z"
+last_activity: "2026-04-13 — 67-05 shipped FIX-02 analyzer + comptime arena walkthrough: all 94 iron_arena_alloc/ARENA_ALLOC/iron_arena_strdup call-sites across 11 files (typecheck.c 36, types.c 18, comptime.c 18, resolve.c 8, capture.c 6, scope.c 2, concurrency.c 2, escape.c 1, init_check.c 1, web_await_check.c 1, web_top_level_loader_check.c 1) routed through iron_oom_abort on NULL with function-qualified location literals. Applied to types.c iron_type_make_* constructors by replacing pre-existing `if (!t) return NULL;` bailouts with iron_oom_abort (callers already assumed non-NULL). Inline iron_arena_strdup calls hidden inside iron_diag_emit arguments (typecheck emit_error/emit_warning, resolve PATTERN/ENUM_CONSTRUCT, escape/concurrency/init_check/web_* emit_* helpers) hoisted into named locals so NULL checks can fire before the diag_emit call. Phase-level gate: 95 guards total (94 new + 1 pre-existing from 67-03). 67-03 integer-overflow guards in comptime.c still intact. Zero behaviour changes. Build green, ctest 74/74, integration 357/357 (no regression from 67-04)."
 progress:
   total_phases: 32
   completed_phases: 12
   total_plans: 56
-  completed_plans: 50
+  completed_plans: 51
   percent: 89
 ---
 
@@ -31,10 +31,10 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 4/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1 + 67-03 FIX-01 ranks 14+15+19 + FIX-04 row 13 + 67-04 FIX-02 parser+lexer)
-Current Plan: Phase 67 Plan 04 complete; 67-05 next (FIX-02 analyzer + comptime arena walkthrough — ~100 sites)
-Status: Phase 67 in progress — 67-01 + 67-02 + 67-03 + 67-04 shipped (4/8 plans); 67-05..67-08 remain
-Last activity: 2026-04-13 — 67-04 shipped FIX-02 parser subsystem arena walkthrough: all 114 parser.c + 9 lexer.c iron_arena_alloc/ARENA_ALLOC/iron_arena_strdup call-sites routed through iron_oom_abort on NULL with function-qualified location literals ("parser.c:<function>" / "lexer.c:<function>"). Two pre-existing latent bugs auto-fixed under Rule 1: iron_snake_to_camel silent graceful-degradation on alloc fail (returned un-converted snake_case name — silently mangled emitted C names) and iron_lex_string OOM misclassified as IRON_ERR_UNTERMINATED_STRING (user saw a bogus "unterminated string" diagnostic on OOM). Phase-level gate: 123 guards total. Zero new fixtures, zero error codes, zero behaviour changes. Build green, ctest 74/74, integration 357/357 (no regression from 67-03).
+Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 5/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1 + 67-03 FIX-01 ranks 14+15+19 + FIX-04 row 13 + 67-04 FIX-02 parser+lexer + 67-05 FIX-02 analyzer+comptime)
+Current Plan: Phase 67 Plan 05 complete; 67-06 next (FIX-02 hir + lir + runtime/stdlib arena walkthrough — ~105 sites)
+Status: Phase 67 in progress — 67-01 + 67-02 + 67-03 + 67-04 + 67-05 shipped (5/8 plans); 67-06..67-08 remain
+Last activity: 2026-04-13 — 67-05 shipped FIX-02 analyzer + comptime arena walkthrough: 94 arena-alloc sites across 11 files (typecheck.c 36, types.c 18, comptime.c 18, resolve.c 8, capture.c 6, scope.c 2, concurrency.c 2, escape.c 1, init_check.c 1, web_await_check.c 1, web_top_level_loader_check.c 1) guarded via iron_oom_abort with function-qualified location literals. types.c iron_type_make_* constructors' pre-existing `if (!t) return NULL;` bailouts replaced with iron_oom_abort. Inline iron_arena_strdup calls inside iron_diag_emit args hoisted into named locals across analyzer emit_* helpers. Phase-level gate: 95 guards total (94 new + 1 pre-existing from 67-03). 67-03 integer-overflow guards in comptime.c still intact. Zero behaviour changes, zero regressions. Build green, ctest 74/74, integration 357/357 (no regression from 67-04).
 
 Progress: [█████████░] 89%
 
@@ -97,6 +97,7 @@ Progress: [█████████░] 89%
 | Phase 67-correctness-fixes-+-crash-canaries P02 | 2h 2min | 3 tasks | 12 files |
 | Phase 67-correctness-fixes-+-crash-canaries P03 | 45min | 3 tasks | 11 files |
 | Phase 67-correctness-fixes-+-crash-canaries P04 | 38 min | 2 tasks | 2 files |
+| Phase 67-correctness-fixes-+-crash-canaries P05 | 57 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -256,6 +257,7 @@ Progress: [█████████░] 89%
 - [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: Guard-by-default over SAFETY annotations — every parser/lexer alloc on user-reachable input path gets iron_oom_abort (123 guards), zero SAFETY comments
 - [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: Location literal convention "<file>:<function>" with sub-site disambiguator for multi-alloc functions — 114 distinct parser.c literals + 9 lexer.c literals
 - [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: iron_snake_to_camel silent graceful-degradation and iron_lex_string IRON_ERR_UNTERMINATED_STRING OOM misclassification both fixed inline as Rule 1 auto-fixes (latent pre-existing bugs surfaced by the walkthrough)
+- [Phase 67-correctness-fixes-+-crash-canaries]: 67-05 FIX-02 analyzer + comptime walkthrough: 94 arena-alloc sites across 11 files (10 analyzer + comptime.c) guarded via Idiom A (iron_oom_abort with function-qualified location literals). Zero SAFETY annotations, zero behaviour changes, zero regressions. 95 total guards (94 new + 1 pre-existing from 67-03).
 
 ### Roadmap Evolution
 
@@ -277,6 +279,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T19:12:55.735Z
-Stopped at: Completed 67-04-PLAN.md (FIX-02 parser + lexer arena walkthrough)
+Last session: 2026-04-13T20:15:40.566Z
+Stopped at: Completed 67-05-PLAN.md (FIX-02 analyzer + comptime arena walkthrough — 94 sites)
 Resume file: None
