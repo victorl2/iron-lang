@@ -190,4 +190,27 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_WEB_NESTED_MAIN_LOOP          702
 #define IRON_ERR_WEB_MAIN_LOOP_WRONG_FUNCTION  703
 
+/* ── Internal compiler error (ICE) helper (PROT-03) ──────────────────────────
+ * iron_ice is the canonical abort path for compiler-internal invariants that
+ * should never be reachable in a correct build. It prints a formatted message
+ * prefixed with "iron: internal compiler error: " to stderr and calls abort().
+ *
+ * Use iron_ice when:
+ *   - An AST node is the wrong kind after a sym_kind check that should have
+ *     guaranteed the correct kind (PROT-03 kind-assert failure path).
+ *   - A switch over an Iron_*Kind hits a case the compiler thought was
+ *     unreachable.
+ *   - An invariant that the type system should have enforced is violated at
+ *     runtime.
+ *
+ * Do NOT use iron_ice for user-facing errors — those go through iron_diag_emit
+ * with the Iron_DiagList surface. iron_ice is compiler-bug territory only.
+ *
+ * The function is declared noreturn. It takes a printf-style format string.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn, format(printf, 1, 2)))
+#endif
+void iron_ice(const char *fmt, ...);
+
 #endif /* IRON_DIAGNOSTICS_H */

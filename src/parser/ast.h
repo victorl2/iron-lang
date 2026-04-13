@@ -112,6 +112,37 @@ typedef struct Iron_ExprNode {
     struct Iron_Type *resolved_type;
 } Iron_ExprNode;
 
+/* ── AST node kind assertion (PROT-03) ───────────────────────────────────────
+ * Debug-build runtime check that an AST node has the expected kind before a
+ * concrete cast. Call immediately before casting Iron_Node* to any concrete
+ * expression/statement/decl type:
+ *
+ *   IRON_NODE_ASSERT_KIND(sym->decl_node, IRON_NODE_OBJECT_DECL);
+ *   Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
+ *
+ * In Release builds (NDEBUG defined) the macro expands to ((void)0) so there
+ * is zero runtime cost. In Debug builds a wrong-kind cast aborts via iron_ice
+ * with file:line:func diagnostic — the wrong cast shows up as an internal
+ * compiler error in CI rather than silent memory corruption.
+ *
+ * The impl function lives in src/diagnostics/diagnostics.c; it's declared here
+ * because ast.h is the single include point for compiler-side AST consumers.
+ */
+void iron_node_assert_kind_impl(const Iron_Node *node,
+                                Iron_NodeKind expected,
+                                const char *file,
+                                int line,
+                                const char *func);
+
+#ifndef NDEBUG
+#  define IRON_NODE_ASSERT_KIND(node, expected_kind)                    \
+       iron_node_assert_kind_impl((const Iron_Node *)(node),            \
+                                  (expected_kind),                      \
+                                  __FILE__, __LINE__, __func__)
+#else
+#  define IRON_NODE_ASSERT_KIND(node, expected_kind) ((void)0)
+#endif
+
 /* ── Forward-declare token kind for operators stored in nodes ────────────── */
 /* We need Iron_TokenKind from lexer.h but avoid a circular include.
  * The token kind values fit in an int; use int here and cast at use sites. */
