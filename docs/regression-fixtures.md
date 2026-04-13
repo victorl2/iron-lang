@@ -145,6 +145,21 @@ update this list in the same commit so the two sources stay in sync.
 - `tests/integration/blind_cast_leak_ident.iron` — Iron_Ident cast in
   leak statement without kind check (escape.c:251).
 
+### Phase 67 Plan 02 (FIX-01 ranks 3 + 4 — generated-C OOM guards)
+
+Landed with the `emit_c.c` HEAP_ALLOC / RC_ALLOC malloc-guard rewrites and
+the `emit_web.c` FrameState wrapper guard (Wasm-W1 from 67-01's re-audit).
+Each fixture exercises a minimal Iron program whose compiled binary's
+generated C contains an `iron_oom_abort` call on the allocation failure
+path. Run the fixture, verify the expected stdout, then grep the cached
+intermediate C under `.iron-build/` (or build with `IRON_KEEP_C=1`) to
+confirm the guard string is present in the emitted code.
+
+- `tests/integration/null_heap_alloc_malloc.iron` — `heap` keyword HEAP_ALLOC
+  malloc guard (emit_c.c IRON_LIR_HEAP_ALLOC case, post-Phase-67-02 drift).
+- `tests/integration/null_rc_alloc_malloc.iron` — `rc` keyword RC_ALLOC
+  malloc guard (emit_c.c IRON_LIR_RC_ALLOC case, post-Phase-67-02 drift).
+
 ### Phase 67 REG-02 (crash-canary fixtures — planned)
 
 Phase 67 will add one fixture per AST node kind that the HIR-to-LIR walker

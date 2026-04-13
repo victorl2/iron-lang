@@ -3160,12 +3160,23 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         /* The inner_val is an already-constructed value; wrap it in a pointer.
          * instr->type is the inner (value) type, e.g. Iron_Data.
          * The heap result is a pointer: Iron_Data *_vN = malloc(sizeof(Iron_Data));
-         * *_vN = inner_val; */
+         * *_vN = inner_val;
+         *
+         * FIX-01 rank 3 (Phase 67-02): pre-Phase-67 ironc emitted a bare
+         * `T *_vN = malloc(...); *_vN = val;` sequence with zero NULL check,
+         * so every compiled Iron program that used `heap` silently segfaulted
+         * under OOM. The guard below routes OOM into iron_oom_abort which
+         * prints a bisectable diagnostic before abort(3). */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s *)malloc(sizeof(%s));\n", val_type, val_type);
+        /* FIX-01 rank 3: OOM guard before dereference */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "if (!");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ") iron_oom_abort(\"emit_c HEAP_ALLOC\");\n");
         /* Store the inner value into the allocated memory */
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "*");
@@ -3179,7 +3190,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_RC_ALLOC: {
         /* rc allocates via malloc (simplified: no actual ref-count tracking yet).
          * instr->type is IRON_TYPE_RC wrapping an inner type; result is a pointer
-         * to the inner type (e.g. rc Config -> Iron_Config *). */
+         * to the inner type (e.g. rc Config -> Iron_Config *).
+         *
+         * FIX-01 rank 4 (Phase 67-02): same pattern as rank 3 above — pre-fix
+         * the emitted C dereferenced the malloc result without a NULL check,
+         * so every `rc` use was one OOM away from silent segfault. */
         const char *val_type = NULL;
         if (instr->type && instr->type->kind == IRON_TYPE_RC && instr->type->rc.inner) {
             val_type = emit_type_to_c(instr->type->rc.inner, ctx);
@@ -3190,6 +3205,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s *)malloc(sizeof(%s));\n", val_type, val_type);
+        /* FIX-01 rank 4: OOM guard before dereference */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "if (!");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ") iron_oom_abort(\"emit_c RC_ALLOC\");\n");
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "*");
         emit_val(sb, instr->id);
@@ -3258,6 +3278,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s *__box_%u_%d = (%s *)malloc(sizeof(%s));\n",
                             field_type, (unsigned)instr->id, pi, field_type, field_type);
+                        /* FIX-02 Phase 67-02: OOM guard on boxed ADT field */
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb,
+                            "if (!__box_%u_%d) iron_oom_abort(\"emit_c boxed ADT\");\n",
+                            (unsigned)instr->id, pi);
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "*__box_%u_%d = ", (unsigned)instr->id, pi);
                         emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, ctx->current_block_id, 0);
@@ -3677,6 +3702,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb,
             "char *_interp_buf_%u = (char *)malloc((size_t)(_interp_len_%u + 1));\n",
             instr->id, instr->id);
+        /* FIX-02 Phase 67-02: OOM guard on interpolation buffer */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb,
+            "if (!_interp_buf_%u) iron_oom_abort(\"emit_c interp string\");\n",
+            instr->id);
 
         /* Pass 2: fill */
         emit_indent(sb, ind);
@@ -3753,6 +3783,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)malloc(sizeof(%s));\n",
                                 env_type, instr->id, env_type, env_type);
+            /* FIX-02 Phase 67-02: OOM guard on closure env (A) */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb,
+                "if (!_env_%u) iron_oom_abort(\"emit_c closure env (A)\");\n",
+                instr->id);
 
             /* Populate env fields */
             for (int ci = 0; ci < cap_count; ci++) {
@@ -3927,6 +3962,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)malloc(sizeof(%s));\n",
                     env_type, instr->id, env_type, env_type);
+                /* FIX-02 Phase 67-02: OOM guard on closure env (B) */
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb,
+                    "if (!_env_%u) iron_oom_abort(\"emit_c closure env (B)\");\n",
+                    instr->id);
                 /* Populate env fields */
                 for (int ci = 0; ci < cap_count; ci++) {
                     emit_indent(sb, ind);
@@ -3964,6 +4004,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_indent(sb, inner);
                 iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)malloc(sizeof(%s));\n",
                     env_type, instr->id, env_type, env_type);
+                /* FIX-02 Phase 67-02: OOM guard on closure env (C) */
+                emit_indent(sb, inner);
+                iron_strbuf_appendf(sb,
+                    "if (!_env_%u) iron_oom_abort(\"emit_c closure env (C)\");\n",
+                    instr->id);
                 for (int ci = 0; ci < cap_count; ci++) {
                     emit_indent(sb, inner);
                     iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_meta[ci].name);
@@ -4174,6 +4219,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb,
             "%s *_pctx = (%s *)malloc(sizeof(%s));\n",
             ctx_type, ctx_type, ctx_type);
+        /* FIX-02 Phase 67-02: OOM guard on parallel-for ctx */
+        emit_indent(sb, inner2);
+        iron_strbuf_appendf(sb,
+            "if (!_pctx) iron_oom_abort(\"emit_c parallel-for ctx\");\n");
         emit_indent(sb, inner2);
         iron_strbuf_appendf(sb, "_pctx->start = _c;\n");
         emit_indent(sb, inner2);

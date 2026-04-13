@@ -1,0 +1,49 @@
+-- Regression: emit_c.c HEAP_ALLOC malloc without NULL check (FIX-01 rank 3).
+--
+-- **Motivating Incident.** Phase 65 CORRECTNESS-AUDIT.md §3 row 3 and §6 row
+-- 1 flagged src/lir/emit_c.c:3159-3168 (the IRON_LIR_HEAP_ALLOC codegen case)
+-- as a bare malloc followed by an unguarded dereference. Every Iron program
+-- that used the `heap` keyword had ironc emit:
+--     Iron_Data *_v3 = (Iron_Data *)malloc(sizeof(Iron_Data));
+--     *_v3 = some_value;   // NULL deref on OOM — silent SIGSEGV
+-- Users under memory pressure got a generic segfault with no way to tell
+-- "out of memory" apart from "wild pointer bug in my code". The bug affected
+-- the most frequently emitted allocation path in the compiler — every
+-- heap-allocated object construction.
+--
+-- **Layout Diagram.** Pre-fix (emit_c.c:3159 case body):
+--     %s *_vN = (%s *)malloc(sizeof(%s));    <- line 3168
+--     *_vN    = inner_val;                    <- line 3175, may deref NULL
+--
+-- Post-fix:
+--     %s *_vN = (%s *)malloc(sizeof(%s));
+--     if (!_vN) iron_oom_abort("emit_c HEAP_ALLOC");
+--     *_vN    = inner_val;
+--
+-- The guard routes OOM through iron_oom_abort (declared in
+-- src/diagnostics/diagnostics.h, defined in src/runtime/iron_oom.c, added by
+-- 67-02 Task 1) which prints "iron: out of memory at emit_c HEAP_ALLOC" to
+-- stderr and calls abort(3). Every compiled Iron binary links iron_oom_abort
+-- transitively via iron_runtime.h's diagnostics.h include.
+--
+-- **Fix Summary.** src/lir/emit_c.c IRON_LIR_HEAP_ALLOC case rewritten to
+-- emit a 3-line `if (!_vN) iron_oom_abort(...);` guard between the malloc
+-- call and the `*_vN =` dereference. Covers FIX-01 rank 3 from the Phase 65
+-- audit. Phase 67-02 Task 3. This fixture verifies the guard is present in
+-- the generated C and that a normal non-OOM `heap Point(3, 4)` still
+-- compiles and runs correctly.
+--
+-- **Severity.** H — pre-fix every Iron program using `heap` was one OOM
+-- away from a silent segfault with no diagnostic; post-fix users get a
+-- clear "iron: out of memory at emit_c HEAP_ALLOC" message before abort.
+
+object Point {
+  var x: Int
+  var y: Int
+}
+
+func main() {
+  val p = heap Point(3, 4)
+  println("point.x: {p.x}")
+  println("point.y: {p.y}")
+}

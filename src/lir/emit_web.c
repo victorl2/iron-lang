@@ -277,6 +277,12 @@ static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) 
         "    FrameState_%s *state ="
         " (FrameState_%s *)malloc(sizeof(FrameState_%s));\n",
         fn->name, fn->name, fn->name);
+    /* FIX-01 Wasm-W1 (Phase 67-02): web main-loop wrapper malloc guard.
+     * Pre-fix the next `memset(state, 0, ...)` dereferenced a possibly-NULL
+     * pointer under Emscripten heap exhaustion. Same class as emit_c.c
+     * HEAP_ALLOC / RC_ALLOC but in the web main-loop wrapper path. */
+    iron_strbuf_appendf(&ctx->main_wrapper,
+        "    if (!state) iron_oom_abort(\"emit_web main-loop FrameState\");\n");
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    memset(state, 0, sizeof(FrameState_%s));\n", fn->name);
     iron_strbuf_appendf(&ctx->main_wrapper,
