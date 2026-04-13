@@ -456,6 +456,12 @@ static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
     Iron_Symbol *csym = iron_scope_lookup(ctx->global_scope, constraint_name);
     if (!csym || csym->sym_kind != IRON_SYM_INTERFACE) return true;
 
+    /* PROT-03 row 10 (AUDIT-01 M-severity): csym->decl_node may be NULL for
+     * builtin interfaces with no source decl; guard then assert kind before
+     * casting so a wrong-kind decl_node aborts in Debug instead of silently
+     * misreading memory. */
+    if (!csym->decl_node) return true;
+    IRON_NODE_ASSERT_KIND(csym->decl_node, IRON_NODE_INTERFACE_DECL);
     Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)csym->decl_node;
     if (!iface) return true;
 
@@ -516,6 +522,11 @@ static void check_generic_constraints(TypeCtx *ctx,
                       ? generic_param_count : concrete_count;
     for (int i = 0; i < check_count; i++) {
         if (!generic_params[i]) continue;
+        /* PROT-03 row 11 (AUDIT-01 M-severity): generic_params[] is a void**
+         * of Iron_Ident*; assert the kind before casting so any future drift
+         * (e.g., generic-param syntax growing constraints into a richer node)
+         * aborts in Debug. */
+        IRON_NODE_ASSERT_KIND(generic_params[i], IRON_NODE_IDENT);
         Iron_Ident *gp = (Iron_Ident *)generic_params[i];
         if (!gp->constraint_name) continue;
 
@@ -721,6 +732,10 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
                         ctx->global_scope, IRON_SCOPE_BLOCK);
                     for (int i = 0; i < ed->generic_param_count; i++) {
+                        /* PROT-03 row 12 (AUDIT-01 M-severity): assert kind on
+                         * the generic-param node before the Iron_Ident cast. */
+                        if (ed->generic_params[i])
+                            IRON_NODE_ASSERT_KIND(ed->generic_params[i], IRON_NODE_IDENT);
                         Iron_Ident *param = (Iron_Ident *)ed->generic_params[i];
                         if (param) {
                             Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
@@ -1440,6 +1455,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
                         for (int gi = 0; gi < gc; gi++) {
                             concrete[gi] = NULL;
+                            /* PROT-03 row 13 (AUDIT-01 M-severity): assert kind
+                             * on od->generic_params[gi] before the Iron_Ident cast. */
+                            if (od->generic_params[gi])
+                                IRON_NODE_ASSERT_KIND(od->generic_params[gi], IRON_NODE_IDENT);
                             Iron_Ident *gp = (Iron_Ident *)od->generic_params[gi];
                             if (!gp) continue;
                             for (int fi = 0; fi < od->field_count && fi < ce->arg_count; fi++) {
@@ -1564,12 +1583,19 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
                 Iron_Symbol *fn_sym = iron_scope_lookup(ctx->global_scope, fn_id->name);
                 if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION && fn_sym->decl_node) {
+                    /* PROT-03 row 14 (AUDIT-01 M-severity): IRON_SYM_FUNCTION's
+                     * decl_node should always be IRON_NODE_FUNC_DECL; assert it. */
+                    IRON_NODE_ASSERT_KIND(fn_sym->decl_node, IRON_NODE_FUNC_DECL);
                     Iron_FuncDecl *fd = (Iron_FuncDecl *)fn_sym->decl_node;
                     if (fd->generic_param_count > 0 && fd->generic_params) {
                         Iron_Type *concrete[16];
                         int gc = fd->generic_param_count < 16 ? fd->generic_param_count : 16;
                         for (int gi = 0; gi < gc; gi++) {
                             concrete[gi] = NULL;
+                            /* PROT-03 row 15 (AUDIT-01 M-severity): assert kind
+                             * on fd->generic_params[gi] before the Iron_Ident cast. */
+                            if (fd->generic_params[gi])
+                                IRON_NODE_ASSERT_KIND(fd->generic_params[gi], IRON_NODE_IDENT);
                             Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
                             if (!gp) continue;
                             for (int pi = 0; pi < fd->param_count && pi < ce->arg_count; pi++) {
@@ -2244,6 +2270,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
                     ctx->global_scope, IRON_SCOPE_BLOCK);
                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    /* PROT-03 row 16 (AUDIT-01 M-severity): assert kind on
+                     * ed->generic_params[gi] before the Iron_Ident cast. */
+                    if (ed->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                     Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                     if (param) {
                         Iron_Type *gpt = iron_type_make_generic_param(
@@ -2265,6 +2295,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* If expected is GENERIC_PARAM, map it to arg_t */
                     if (expected && expected->kind == IRON_TYPE_GENERIC_PARAM) {
                         for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                            /* PROT-03 row 17 (AUDIT-01 M-severity): assert kind
+                             * on ed->generic_params[gi] before the Iron_Ident cast. */
+                            if (ed->generic_params[gi])
+                                IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                             Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                             if (param && expected->generic_param.name &&
                                 strcmp(param->name, expected->generic_param.name) == 0) {
@@ -2288,6 +2322,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                                ? arg_t->enu.type_args[ta] : NULL;
                             if (exp_ta && exp_ta->kind == IRON_TYPE_GENERIC_PARAM && arg_ta) {
                                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                                    /* PROT-03 row 18 (AUDIT-01 M-severity): assert kind
+                                     * on ed->generic_params[gi] before the Iron_Ident cast. */
+                                    if (ed->generic_params[gi])
+                                        IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                                     Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                                     if (param && exp_ta->generic_param.name &&
                                         strcmp(param->name, exp_ta->generic_param.name) == 0) {
@@ -2356,6 +2394,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Scope *gen2 = iron_scope_create(ctx->arena,
                     ctx->global_scope, IRON_SCOPE_BLOCK);
                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    /* PROT-03 unenumerated bonus (AUDIT-01 M-severity sibling
+                     * of rows 16-18): assert kind on ed->generic_params[gi]
+                     * before the Iron_Ident cast at the second gen-scope build
+                     * for variant payload type substitution. */
+                    if (ed->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                     Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                     if (param) {
                         Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
@@ -2838,6 +2882,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             else if (is_check_name) {
                 Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, is_check_name);
                 if (type_sym && type_sym->sym_kind == IRON_SYM_TYPE) {
+                    /* PROT-03 row 19 (AUDIT-01 M-severity): is_s->condition is
+                     * already classified as IRON_NODE_IS by classify_is_check
+                     * upstream; the assert documents the invariant and catches
+                     * future predicate drift. */
+                    IRON_NODE_ASSERT_KIND(is_s->condition, IRON_NODE_IS);
                     Iron_IsExpr *ie = (Iron_IsExpr *)is_s->condition;
                     if (ie->expr && ie->expr->kind == IRON_NODE_IDENT) {
                         const char *ident_name = ((Iron_Ident *)ie->expr)->name;
@@ -3123,7 +3172,15 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (ss->handle_name) {
                 /* Walk the spawn body to find IRON_NODE_RETURN and use its expr type */
                 Iron_Type *body_ret = iron_type_make_primitive(IRON_TYPE_INT);
-                Iron_Block *blk = (Iron_Block *)ss->body;
+                /* PROT-03 row 20 (AUDIT-01 M-severity): ss->body is normally an
+                 * IRON_NODE_BLOCK but error-recovery paths can leave it as a
+                 * non-block expression form; guard before the cast and assert
+                 * the kind so a wrong-kind shape aborts in Debug. */
+                Iron_Block *blk = NULL;
+                if (ss->body && ss->body->kind == IRON_NODE_BLOCK) {
+                    IRON_NODE_ASSERT_KIND(ss->body, IRON_NODE_BLOCK);
+                    blk = (Iron_Block *)ss->body;
+                }
                 if (blk) {
                     for (int i = 0; i < blk->stmt_count; i++) {
                         if (blk->stmts[i]->kind == IRON_NODE_RETURN) {
@@ -3303,6 +3360,13 @@ static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
             Iron_Symbol *iface_sym = iron_scope_lookup(ctx->global_scope, iface_name);
             if (!iface_sym || iface_sym->sym_kind != IRON_SYM_INTERFACE) continue;
 
+            /* PROT-03 row 21 (AUDIT-01 M-severity): iface_sym->decl_node may
+             * be NULL or a non-INTERFACE_DECL in error-recovery paths; guard
+             * then assert kind before the cast so any wrong-kind decl_node
+             * aborts in Debug instead of misreading the interface's vtable. */
+            if (!iface_sym->decl_node ||
+                iface_sym->decl_node->kind != IRON_NODE_INTERFACE_DECL) continue;
+            IRON_NODE_ASSERT_KIND(iface_sym->decl_node, IRON_NODE_INTERFACE_DECL);
             Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)iface_sym->decl_node;
             if (!iface) continue;
 
