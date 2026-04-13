@@ -3630,4 +3630,17 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
 
     shfree(ctx.narrowed);
     shfree(ctx.spawn_result_types);
+    /* FIX-03 / AUDIT-04 §2: explicit shfree of the mono_registry stb_ds
+     * string-keyed hashmap. Pre-Phase-67 the registry was shput-filled in
+     * resolve_type_annotation (lines ~737, ~2408) but never freed — every
+     * compilation unit leaked the map plus all strdup'd mangled-name keys
+     * (sh_new_strdup was called at line ~3471 above). The map's VALUES are
+     * arena-allocated Iron_Type*, which the parser arena reclaims later,
+     * but the stb_ds backing buffer and the strdup'd keys are heap, and
+     * they outlived every consumer in the pre-67-07 codebase. This shfree
+     * closes that leak; paired with narrowed/spawn_result_types above it
+     * now runs immediately after every consumer of mono_registry has
+     * completed (check_func_decl / check_method_decl / check_interface_
+     * completeness are the only readers per grep at 715/2386). */
+    shfree(ctx.mono_registry);
 }

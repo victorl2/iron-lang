@@ -3,6 +3,28 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* FIX-03 / AUDIT-04 §9: SAFETY — the interface registry (Iron_IfaceRegistry)
+ * is built once per compilation in iron_iface_collect (analyzer.c line 72)
+ * and held in Iron_AnalyzeResult.iface_registry for the lifetime of the
+ * analyzer result, which itself lives for the entire compilation pipeline
+ * (parse -> analyze -> HIR lower -> LIR emit -> write output -> exit).
+ *
+ * The registry's stb_ds shmap uses `sh_new_arena(reg.map)` below, so the
+ * KEYS are allocated in the compilation arena and reclaimed at arena free.
+ * The VALUES' `impls` stb_ds arrays (heap-managed via `arrput` at line ~55)
+ * are NEVER explicitly freed — they leak to process exit along with the
+ * shmap backing buffer itself. Total leak per compile is O(iface_count *
+ * impl_count), typically a few KB for an Iron program with a dozen
+ * interfaces and hundreds of impls.
+ *
+ * Program-lifetime leak, bounded by source-code size, reclaimed by the OS
+ * at process exit. The batch-compiler process is single-shot; there is no
+ * `iron_compile_shutdown` that runs between compiles. Same tradeoff
+ * justification as parser.c §1 and scope.c §3 — full cleanup would
+ * require either migrating `impls` to arena storage OR adding a registry
+ * shutdown hook invoked after LIR emit, both of which are out of Phase 67
+ * scope per REQUIREMENTS.md. */
+
 /* ── Comparator for sorting implementors alphabetically ─────────────────── */
 
 static int cmp_impl_by_name(const void *a, const void *b) {

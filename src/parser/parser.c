@@ -12,6 +12,42 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* FIX-03 / AUDIT-04 §1: SAFETY — this file contains 17 cross-arena storage
+ * sites where stb_ds heap-managed arrays (built via `arrput`) are transferred
+ * into arena-allocated AST nodes (assigned to `n->fields`, `n->variants`,
+ * `n->params`, `n->args`, `n->stmts`, `n->cases`, `n->parts`, etc.). The
+ * concern in the Phase 65 audit was: when the arena is freed, the stb_ds
+ * backing buffers leak; if the stb_ds buffers are freed while the AST is
+ * still live, the arena-allocated nodes hold dangling pointers.
+ *
+ * Invariant upheld by the parser lifecycle:
+ *
+ *   1. Every stb_ds array in this file is either (a) function-scoped and
+ *      `arrfree`'d on every exit path (see arrfree sites at 223, 234, 833,
+ *      860, 1804, 1813), or (b) ownership-transferred to an arena-allocated
+ *      AST node (e.g., `n->fields = fields;`) whose lifetime is coupled to
+ *      the compilation unit's parser arena (`p->arena`).
+ *
+ *   2. Callers NEVER call `arrfree` on the transferred stb_ds array after
+ *      ownership transfer — by convention, ownership is irrevocable once
+ *      assigned into an arena AST node.
+ *
+ *   3. The parser arena lives for the entire compilation unit (typecheck,
+ *      HIR lower, LIR lower, emit — see src/cli/ironc.c for the teardown
+ *      order). When `iron_arena_free(p->arena)` is called, the AST nodes
+ *      are reclaimed but the stb_ds backing buffers leak to process exit.
+ *      This is a deliberate, batch-compiler tradeoff: stb_ds leak per
+ *      compilation unit is bounded by AST size (a few MB per translation
+ *      unit worst-case) and process lifetime is short. A full fix would
+ *      require migrating every such transferred array into arena storage,
+ *      which is out of Phase 67 scope — see REQUIREMENTS.md "out of scope:
+ *      rewriting arena allocator to a tracked/ref-counted model".
+ *
+ * The inline `FIX-03` markers below tag 5 representative transfer sites
+ * (function params, function-call args, object fields, enum variants, block
+ * statements) for grep discoverability. All 17 sites in this file follow the
+ * same pattern; tagging every one would be noise. */
+
 /* ── Precedence levels (Pratt) ────────────────────────────────────────────── */
 
 typedef enum {
@@ -378,6 +414,9 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
                 param_count++;
             }
             iron_expect(p, IRON_TOK_RPAREN);
+            /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `params` array ownership
+             * transfers to the arena-allocated TypeAnnotation node. Parser
+             * arena lifetime governs both (file-header comment). */
             ann->func_params      = params;
             ann->func_param_count = param_count;
         }
@@ -598,6 +637,8 @@ static Iron_Node *iron_parse_block(Iron_Parser *p) {
     blk->kind        = IRON_NODE_BLOCK;
     blk->span        = iron_span_merge(iron_token_span(p, start),
                                        iron_token_span(p, end));
+    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `stmts` array ownership-
+     * transferred to arena-allocated Block; file-header comment. */
     blk->stmts       = stmts;
     blk->stmt_count  = stmt_count;
     return (Iron_Node *)blk;
@@ -605,6 +646,10 @@ static Iron_Node *iron_parse_block(Iron_Parser *p) {
 
 /* ── Call argument list: (expr, ...) ─────────────────────────────────────── */
 
+/* FIX-03 / AUDIT-04 §1: SAFETY — the stb_ds `arr` built here is returned to
+ * the caller, which in every case assigns it into an arena-allocated call-
+ * expression node (e.g., `call->args = arr;`). Ownership transfers to the
+ * arena AST node; stb_ds backing buffer lives for the compilation unit. */
 static Iron_Node **iron_parse_call_args(Iron_Parser *p, int *out_count) {
     Iron_Node **arr = NULL;
     *out_count = 0;
@@ -646,6 +691,8 @@ static Iron_Node *iron_parse_lambda(Iron_Parser *p) {
     if (!lam) iron_oom_abort("parser.c:iron_parse_lambda");
     lam->kind            = IRON_NODE_LAMBDA;
     lam->span            = iron_span_merge(iron_token_span(p, start), body->span);
+    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `params` array transferred to
+     * arena-allocated LambdaExpr; see file-header comment. */
     lam->params          = params;
     lam->param_count     = param_count;
     lam->return_type     = ret;
@@ -2526,6 +2573,8 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
     n->name                    = iron_arena_strdup(p->arena, name_tok->value,
                                                     strlen(name_tok->value));
     if (!n->name) iron_oom_abort("parser.c:iron_parse_object_decl ObjectDecl name");
+    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `fields` and `impl_names` arrays
+     * ownership-transferred to arena-allocated ObjectDecl; file-header. */
     n->fields                  = fields;
     n->field_count             = field_count;
     n->extends_name            = extends_name;
@@ -2744,6 +2793,8 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     n->name            = iron_arena_strdup(p->arena, name_tok->value,
                                             strlen(name_tok->value));
     if (!n->name) iron_oom_abort("parser.c:iron_parse_enum_decl EnumDecl name");
+    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `variants` array ownership-
+     * transferred to arena-allocated EnumDecl; file-header comment. */
     n->variants             = variants;
     n->variant_count        = variant_count;
     n->has_payloads         = has_payloads;

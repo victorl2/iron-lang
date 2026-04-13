@@ -1101,10 +1101,28 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         IronHIR_Expr **parts = NULL;
         for (int i = 0; i < is->part_count; i++) {
             IronHIR_Expr *p = lower_expr_hir(ctx, is->parts[i]);
+            /* FIX-03 / AUDIT-04 §7: SAFETY — lower_expr_hir may return NULL
+             * (e.g., unrecognized inner node kind); storing NULL here is
+             * safe — consumers tolerate NULL entries (see emit_c.c
+             * emit_interp_string walker). The loop CANNOT fail partway in
+             * a way that leaves `parts` half-built and then aborts: no
+             * call in lower_expr_hir ever aborts or longjmps, and the
+             * iron_hir_expr_interp_string constructor below uses
+             * iron_oom_abort on its own arena_alloc failure (noreturn),
+             * so the only exit from this block is `return` with `parts`
+             * already ownership-transferred to the HIR expr. */
             arrput(parts, p);
         }
         int part_count = (int)arrlen(parts);
-        /* NOTE: parts stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        /* FIX-03 / AUDIT-04 §7: SAFETY — parts stb_ds array ownership
+         * transfers to the HIR expr — do NOT arrfree. The stb_ds backing
+         * buffer is NEVER explicitly freed; when the HIR module is
+         * destroyed (iron_hir_module_destroy in hir.c), only the
+         * name_table stb_ds array is arrfreed. Every other stb_ds array
+         * stored on HIR nodes (including this `parts` buffer) leaks when
+         * the HIR arena is freed. This is the same bounded, batch-compile
+         * tradeoff documented in the parser.c file-header comment (FIX-03
+         * §1) — out-of-scope full fix in Phase 67. */
         return iron_hir_expr_interp_string(mod, parts, part_count,
                                            is->resolved_type, span);
     }

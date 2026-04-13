@@ -396,6 +396,18 @@ static bool hirlir_dominates(HirLir_DomEntry *idom, IronLIR_BlockId a, IronLIR_B
 
 /* ── Compute dominance frontiers ─────────────────────────────────────────── */
 /* Returns stb_ds array of arrays: df[block_index] = stb_ds array of BlockId */
+/* FIX-03 / AUDIT-04 §6: SAFETY — `df` is calloc'd at the top, populated by a
+ * straight-line nested-loop algorithm, then returned to the caller. There
+ * is NO early return between the calloc on the next line and the `return
+ * df;` at the bottom of the function: `grep -n return` on the post-
+ * Phase-67-07 source shows only two returns (`return NULL` on calloc
+ * failure and the final `return df`). The caller (`ssa_construct_func` at
+ * line ~2609) handles NULL via `hmfree(idom); return;` and cleans up df
+ * on the normal path via the arrfree+free loop at lines ~2747-2749. The
+ * "correct but fragile if early return" concern in the Phase 65 audit is
+ * NOT reachable in current code — adding a future early return here would
+ * need to also free df, but that's a future-code contract, not a leak
+ * today. Treatment: SAFETY-annotate, no code change needed. */
 static IronLIR_BlockId **compute_dominance_frontiers(IronLIR_Func *fn,
                                                        HirLir_DomEntry *idom) {
     int n = fn->block_count;

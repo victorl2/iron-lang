@@ -1095,6 +1095,16 @@ static void replace_in_node_array(Iron_Node **nodes, int count,
                                    ReplaceCtx *rctx);
 static void replace_in_node(Iron_Node **slot, ReplaceCtx *rctx);
 
+/* FIX-03 / AUDIT-04 §15: SAFETY — `replace_in_node` overwrites the AST slot
+ * pointer with a fresh arena-allocated literal node, leaving the PREVIOUS
+ * node (the comptime expression that was just evaluated) unreachable but
+ * not reclaimed. This is a known bump-allocator characteristic: the arena
+ * cannot free individual allocations in place, so every replaced node
+ * represents a small arena-waste "puddle". The waste is bounded by the
+ * total size of all comptime expressions in the source (typically a few
+ * KB per compile) and is reclaimed wholesale when the compilation arena
+ * is freed at iron_arena_free. Audit row 15 calls this "benign waste";
+ * no code change needed. */
 static void replace_in_node(Iron_Node **slot, ReplaceCtx *rctx) {
     if (!slot || !*slot) return;
     Iron_Node *node = *slot;

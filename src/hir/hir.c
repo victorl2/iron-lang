@@ -2,6 +2,33 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* FIX-03 / AUDIT-04 §5: SAFETY — HIR module lifetime contract.
+ *
+ * IronHIR_Module owns its own arena (allocated in iron_hir_module_create
+ * below) AND a stb_ds `name_table` array of VarInfo records. Each
+ * VarInfo.name is a `const char *` pointer that, for the vast majority of
+ * callers (see grep `iron_hir_alloc_var` src/hir/hir_lower.c), points
+ * INTO THE AST ARENA (e.g., `vd->name` is a string allocated by the parser
+ * via iron_arena_strdup on the parser arena).
+ *
+ * Invariant: the HIR module MUST NOT outlive the AST arena. The call order
+ * in src/cli/ironc.c is:
+ *     1. parse -> AST in parser arena
+ *     2. analyze -> annotations in parser arena
+ *     3. iron_hir_lower -> IronHIR_Module with name_table[i].name pointing
+ *        into parser arena
+ *     4. iron_hir_to_lir -> LIR module; HIR module still alive
+ *     5. iron_hir_module_destroy -> arrfree(name_table) + free HIR arena
+ *     6. iron_arena_free(parser_arena) -> AST strings reclaimed
+ *
+ * Steps 5 and 6 are ordered: the HIR module is destroyed BEFORE the parser
+ * arena is freed, so the dangling-pointer window is zero. The stb_ds
+ * `name_table` backing buffer is freed at step 5 (iron_hir_module_destroy
+ * line 39: `arrfree(mod->name_table);`), so there is no leak. Any future
+ * code path that frees the parser arena before destroying the HIR module
+ * would make `iron_hir_var_name` return dangling pointers — enforce this
+ * ordering in any new compile pipeline. */
+
 /* Initial arena size for a HIR module: 64 KB */
 #define HIR_ARENA_INITIAL_SIZE (64 * 1024)
 
@@ -49,6 +76,9 @@ IronHIR_VarId iron_hir_alloc_var(IronHIR_Module *mod, const char *name,
     IronHIR_VarId id = mod->next_var_id++;
     IronHIR_VarInfo info;
     info.id         = id;
+    /* FIX-03 / AUDIT-04 §5: SAFETY — `name` points into the AST parser arena
+     * for every caller in hir_lower.c; the HIR module must be destroyed
+     * before the parser arena (see file-header comment above). */
     info.name       = name;
     info.type       = type;
     info.is_mutable = is_mutable;

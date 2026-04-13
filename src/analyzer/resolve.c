@@ -844,6 +844,18 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     /* Initialize type system */
     iron_types_init(arena);
 
+    /* FIX-03 / AUDIT-04 §4: SAFETY — the builtin symbol registration block
+     * below (lines ~849-~1010, print/println/len/min/max/clamp/abs/assert/
+     * range/...) allocates each Iron_Symbol via iron_symbol_create on the
+     * compilation arena, then stores it in ctx.global_scope->symbols (the
+     * stb_ds shmap covered by §3). The stb_ds shmap holds pointers whose
+     * BACKING storage is the compilation arena; when the arena is freed,
+     * the shmap's key bytes (duplicated by sh_new_strdup at scope.c:17)
+     * remain heap-owned and leak to process exit. The VALUES (Iron_Symbol*)
+     * are arena-owned and reclaimed at arena teardown. No dangling-pointer
+     * risk: shmap readers always run before arena teardown (resolve and
+     * typecheck share the same ctx lifetime). Same cross-arena coupling as
+     * §3; same tradeoff justification. */
     /* Register built-in functions in global scope.
      * print/println map to printf in codegen; register as func(String)->Void
      * so the resolver and type-checker accept them without errors.
