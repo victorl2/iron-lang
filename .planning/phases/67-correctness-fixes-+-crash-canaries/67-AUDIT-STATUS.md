@@ -9,10 +9,10 @@ Verification method: Every DONE row's grep-evidence claim has been executed agai
 
 | Rank | File:Line (post-Phase-66 drift) | Dimension | Status | Evidence | Target Plan |
 |------|----------------------------------|-----------|--------|----------|-------------|
-| 1 | src/runtime/iron_runtime.h:497 | Null + Alloc | OPEN | `IRON_LIST_IMPL _push` macro body unchanged; line 497 is still `self->items = (T *)realloc(self->items, ...)` with zero NULL check before line 499 `self->items[self->count++] = item` | 67-02 |
-| 2 | src/runtime/iron_runtime.h:640-641 | Null + Alloc | OPEN | `IRON_MAP_IMPL _put` macro body unchanged; lines 640 + 641 are unchecked `realloc` calls for both `keys` and `values`, immediately followed by `self->keys[self->count] = key; self->values[self->count] = value;` on 643-644 | 67-02 |
-| 3 | src/lir/emit_c.c:3159-3168 | Null + Alloc | OPEN | `IRON_LIR_HEAP_ALLOC` case at line 3159 still emits `%s *_vN = (%s *)malloc(sizeof(%s))` on line 3168 followed by an unguarded `*_vN = ...` assignment on 3171-3175 — no NULL check emitted into the generated C | 67-02 |
-| 4 | src/lir/emit_c.c:3179-3192 | Null + Alloc | OPEN | `IRON_LIR_RC_ALLOC` case at line 3179 emits the identical unchecked-malloc-then-store pattern on lines 3192 and 3196-3198 | 67-02 |
+| 1 | src/runtime/iron_runtime.h:497 | Null + Alloc | DONE — Phase 67-02 | commit `61f0a8c` (feat(67-02): guard IRON_LIST/MAP/SET realloc + malloc via iron_oom_abort); IRON_LIST_IMPL `_push` now captures realloc into `new_items`, NULL-checks it via `iron_oom_abort("Iron_List_" #suffix "_push")`, and also guards capacity-doubling int64_t wraparound. grep `iron_oom_abort` iron_runtime.h → 16 hits across LIST/MAP/SET _create_with_capacity, _clone, _push/_put/_add. Unit test `tests/unit/test_alloc_list_push_oom.c` exercises the capacity-overflow arm and verifies SIGABRT + stderr prefix | — |
+| 2 | src/runtime/iron_runtime.h:640-641 | Null + Alloc | DONE — Phase 67-02 | Same commit `61f0a8c`; IRON_MAP_IMPL `_put` now NULL-checks both keys-side and values-side reallocs via `iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_put: keys|values")` and captures each into a named temporary so partial failure cannot leave the map with one live + one dangling pointer. _create_with_capacity and _clone get the same treatment. Unit test `tests/unit/test_alloc_map_put_oom.c` exercises the create_with_capacity malloc-NULL arm and verifies SIGABRT + stderr prefix naming the failing arm | — |
+| 3 | src/lir/emit_c.c:3159-3168 | Null + Alloc | DONE — Phase 67-02 | commit `b2e1555` (feat(67-02): guard emit_c.c + emit_web.c generated malloc sites); IRON_LIR_HEAP_ALLOC case now emits `if (!_vN) iron_oom_abort("emit_c HEAP_ALLOC");` between the malloc and the `*_vN =` dereference. Verified end-to-end by building `tests/integration/null_heap_alloc_malloc.iron` with `ironc build --debug-build` and grepping `.iron-build/main.c` — the guard string is literally present in the emitted C. Integration fixture with 4-section doc-comment header committed in the same diff | — |
+| 4 | src/lir/emit_c.c:3179-3192 | Null + Alloc | DONE — Phase 67-02 | Same commit `b2e1555`; IRON_LIR_RC_ALLOC case emits `if (!_vN) iron_oom_abort("emit_c RC_ALLOC");` with a distinct location literal so a stderr grep after any OOM abort can tell HEAP_ALLOC and RC_ALLOC apart. Verified in the generated C for `tests/integration/null_rc_alloc_malloc.iron` | — |
 | 5 | src/analyzer/typecheck.c:1416 | Blind Cast | DONE — Phase 66-03 | commit `d0070b7` (fix(66-03): rewrite typecheck.c H-severity blind casts (ranks 5, 6, 11)); grep `IRON_NODE_ASSERT_KIND(callee_sym->decl_node, IRON_NODE_OBJECT_DECL)` → 1 hit at typecheck.c:1416; fixture `tests/integration/blind_cast_type_sym_decl.iron` committed with the same commit | — |
 | 6 | src/analyzer/typecheck.c:1868 | Blind Cast | DONE — Phase 66-03 | Same commit `d0070b7`; grep `IRON_NODE_ASSERT_KIND(sym->decl_node, IRON_NODE_OBJECT_DECL)` → 1 hit at typecheck.c:1868 (pre-Phase-66 site 1785 moved under insertions); same fixture covers both ranks 5 + 6 | — |
 | 7 | src/analyzer/resolve.c:726 | Blind Cast | DONE — Phase 66-03 | commit `4e19a9d` (fix(66-03): rewrite resolve.c H-severity blind casts (ranks 7, 8, 10)); grep `_Static_assert(sizeof(Iron_MethodCallExpr) <= sizeof(Iron_EnumConstruct)` → 1 hit at resolve.c:726; fixture `tests/integration/enum_construct_reinterpret.iron` committed with the same commit | — |
@@ -30,7 +30,7 @@ Verification method: Every DONE row's grep-evidence claim has been executed agai
 | 19 | src/parser/parser.c:2585 | Integer Safety | OPEN | line 2585 is still `v->explicit_value = (int)atoi(num->value);` — no `strtol` / `ERANGE` handling, no bounds check against INT_MAX/INT_MIN | 67-03 |
 | 20 | src/lir/emit_helpers.c:115-219 (emit_type_to_c) | Enum Switch | DONE — Phase 66-02 | commit `91cbcc5`; emit_type_to_c switch at lines 115-219 now includes `case IRON_TYPE_ERROR: return "int";` at line 154 and `case IRON_TYPE_TUPLE:` at line 219. `-Werror=switch-enum` enforces exhaustive coverage — any missing Iron_TypeKind would have broken the build | — |
 
-**Summary:** 13 DONE (ranks 5-13, 16, 17, 18, 20), 7 OPEN (ranks 1, 2, 3, 4, 14, 15, 19).
+**Summary:** 17 DONE (ranks 1-13, 16, 17, 18, 20), 3 OPEN (ranks 14, 15, 19 — all routed to 67-03 FIX-04 integer-safety tail).
 
 ## Wasm Re-Audit (post-Phase-65)
 
@@ -104,9 +104,9 @@ Dimensions applied (same 6 as Phase 65):
 
 ### New H-severity findings
 
-| ID | File | Line | Dimension | Description | Suggested Fix | Target Plan |
-|----|------|------|-----------|-------------|---------------|-------------|
-| Wasm-W1 | src/lir/emit_web.c | 278 | Null + Alloc (generated code) | Web main-loop wrapper emits `FrameState_%s *state = (FrameState_%s *)malloc(sizeof(FrameState_%s));` followed by unguarded `memset(state, 0, ...)` on line 281 and `*_e = state;` alias on 283. Compiled Iron web programs crash with SIGSEGV on OOM when the wrapper allocates their top-level frame state. Same class as ranks 3 + 4 but in the web emitter instead of the native LIR HEAP_ALLOC/RC_ALLOC paths. | Emit the same `iron_oom_abort` helper call after malloc that 67-02 will add for ranks 3 + 4. The web wrapper MUST share the fix because the same generated binary is expected to behave correctly under Emscripten's heap-growth-exhausted scenario. | 67-02 |
+| ID | File | Line | Dimension | Status | Evidence | Target Plan |
+|----|------|------|-----------|--------|----------|-------------|
+| Wasm-W1 | src/lir/emit_web.c | 278 | Null + Alloc (generated code) | DONE — Phase 67-02 | commit `b2e1555`; `ew_emit_main_wrapper` now emits `if (!state) iron_oom_abort("emit_web main-loop FrameState");` immediately after the malloc and before the `memset(state, 0, ...)` call, preventing SIGSEGV on Emscripten heap-growth-exhausted scenarios. Same `iron_oom_abort` helper (declared in diagnostics.h, defined in src/runtime/iron_oom.c per 67-02 Task 1) as the native HEAP_ALLOC/RC_ALLOC paths. | — |
 
 ### New M-severity findings
 
@@ -114,16 +114,16 @@ None. The Wasm files were written after Phase 66-02 (`-Werror=switch-enum`) and 
 
 ## Plan Assignment for OPEN Rows
 
-| Rank | File:Line | Plan | Rationale |
-|------|-----------|------|-----------|
-| 1 | src/runtime/iron_runtime.h:497 | 67-02 | H-severity runtime macro OOM — lands with `iron_oom_abort` helper in iron_runtime.c + IRON_LIST_IMPL edit |
-| 2 | src/runtime/iron_runtime.h:640-641 | 67-02 | H-severity runtime macro OOM — same helper, IRON_MAP_IMPL edit |
-| 3 | src/lir/emit_c.c:3159-3168 | 67-02 | H-severity generated-C OOM — emit `iron_oom_abort()` call in HEAP_ALLOC codegen |
-| 4 | src/lir/emit_c.c:3179-3192 | 67-02 | H-severity generated-C OOM — same, RC_ALLOC codegen |
-| Wasm-W1 | src/lir/emit_web.c:278 | 67-02 | H-severity generated-C OOM in web main-loop wrapper — same `iron_oom_abort()` call, web emitter edit |
-| 14 | src/comptime/comptime.c:410-412 | 67-03 | Integer-overflow arithmetic — wrap in `__builtin_add/sub/mul_overflow` with error emission |
-| 15 | src/comptime/comptime.c:493 | 67-03 | INT64_MIN negation UB — explicit check before negation |
-| 19 | src/parser/parser.c:2585 | 67-03 | `atoi` → `strtol` with ERANGE + INT_MIN/INT_MAX bounds for enum variant values |
+| Rank | File:Line | Plan | Rationale | Status |
+|------|-----------|------|-----------|--------|
+| 1 | src/runtime/iron_runtime.h:497 | 67-02 | H-severity runtime macro OOM — lands with `iron_oom_abort` helper + IRON_LIST_IMPL edit | DONE — commit `61f0a8c` |
+| 2 | src/runtime/iron_runtime.h:640-641 | 67-02 | H-severity runtime macro OOM — same helper, IRON_MAP_IMPL edit | DONE — commit `61f0a8c` |
+| 3 | src/lir/emit_c.c:3159-3168 | 67-02 | H-severity generated-C OOM — emit `iron_oom_abort()` call in HEAP_ALLOC codegen | DONE — commit `b2e1555` |
+| 4 | src/lir/emit_c.c:3179-3192 | 67-02 | H-severity generated-C OOM — same, RC_ALLOC codegen | DONE — commit `b2e1555` |
+| Wasm-W1 | src/lir/emit_web.c:278 | 67-02 | H-severity generated-C OOM in web main-loop wrapper — same `iron_oom_abort()` call, web emitter edit | DONE — commit `b2e1555` |
+| 14 | src/comptime/comptime.c:410-412 | 67-03 | Integer-overflow arithmetic — wrap in `__builtin_add/sub/mul_overflow` with error emission | OPEN |
+| 15 | src/comptime/comptime.c:493 | 67-03 | INT64_MIN negation UB — explicit check before negation | OPEN |
+| 19 | src/parser/parser.c:2585 | 67-03 | `atoi` → `strtol` with ERANGE + INT_MIN/INT_MAX bounds for enum variant values | OPEN |
 
 ### FIX-02 full walkthrough (non-top-20 arena sites)
 

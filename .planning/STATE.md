@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: Phase 67 Plan 01 complete; 67-02 next (FIX-01 H-severity alloc-fail walkthrough + iron_oom_abort helper)
-status: Phase 67 kicked off — 67-01 shipped audit-status verification doc; 67-02..67-08 remain
-stopped_at: Completed 67-01-PLAN.md (audit status verification)
-last_updated: "2026-04-13T15:10:11Z"
-last_activity: "2026-04-13 — 67-01 shipped 67-AUDIT-STATUS.md verifying 13 DONE / 7 OPEN top-20 rows against head commit 9792e87 + Wasm re-audit across all 6 post-merge WebAssembly files + 1 new H-severity finding (Wasm-W1 emit_web.c:278 unchecked FrameState_* malloc) + plan-assignment table distributing OPEN rows across 67-02..67-08"
+current_plan: Phase 67 Plan 02 complete; 67-03 next (FIX-04 integer-safety tail + enum-switch tail — ranks 14, 15, 19)
+status: Phase 67 in progress — 67-01 + 67-02 shipped (2/8 plans); 67-03..67-08 remain
+stopped_at: Completed 67-02-PLAN.md (FIX-01 ranks 1-4 + Wasm-W1 H-severity alloc-fail walkthrough + iron_oom_abort helper)
+last_updated: "2026-04-13T17:35:10.458Z"
+last_activity: "2026-04-13 — 67-02 shipped iron_oom_abort helper + IRON_LIST/MAP/SET macro guards + emit_c.c + emit_web.c generated-code malloc guards; closed audit ranks 1-4 + Wasm-W1; 67-AUDIT-STATUS.md updated 17 DONE / 3 OPEN (was 13/7); ctest 74/74 green, integration suite 354/354 green"
 progress:
   total_phases: 32
   completed_phases: 12
   total_plans: 56
-  completed_plans: 47
-  percent: 84
+  completed_plans: 48
+  percent: 86
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 1/8 plans shipped (67-01 audit-status verification)
-Current Plan: Phase 67 Plan 01 complete; 67-02 next (FIX-01 H-severity alloc-fail walkthrough + iron_oom_abort helper)
-Status: Phase 67 kicked off — 67-01 shipped audit-status verification doc; 67-02..67-08 remain
-Last activity: 2026-04-13 — 67-01 shipped 67-AUDIT-STATUS.md verifying 13 DONE / 7 OPEN top-20 rows against head commit 9792e87 + Wasm re-audit across all 6 post-merge WebAssembly files + 1 new H-severity finding (Wasm-W1 emit_web.c:278 unchecked FrameState_* malloc) + plan-assignment table distributing OPEN rows across 67-02..67-08
+Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 2/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1)
+Current Plan: Phase 67 Plan 02 complete; 67-03 next (FIX-04 integer-safety tail + enum-switch tail — ranks 14, 15, 19)
+Status: Phase 67 in progress — 67-01 + 67-02 shipped (2/8 plans); 67-03..67-08 remain
+Last activity: 2026-04-13 — 67-02 shipped iron_oom_abort helper (src/runtime/iron_oom.c, declared in diagnostics.h) + IRON_LIST/MAP/SET macro guards + emit_c.c + emit_web.c generated-code malloc guards covering audit ranks 1-4 + Wasm-W1; 67-AUDIT-STATUS.md updated 17 DONE / 3 OPEN (was 13 DONE / 7 OPEN); 2 new C unit tests (fork+SIGABRT assertions) + 2 new Iron integration fixtures with 4-section doc-comment headers (null_heap_alloc_malloc, null_rc_alloc_malloc); ctest 74/74 green, integration suite 354/354 green
 
-Progress: [████████▌ ] 84%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -94,6 +94,7 @@ Progress: [████████▌ ] 84%
 | Phase 66-structural-protections-linux-release-ci P03 | 54min | 3 tasks | 15 files |
 | Phase 66-structural-protections-linux-release-ci P05 | 55min | 3 tasks | 6 files |
 | Phase 67-correctness-fixes-+-crash-canaries P01 | 6min | 1 tasks | 1 files |
+| Phase 67-correctness-fixes-+-crash-canaries P02 | 2h 2min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -237,6 +238,12 @@ Progress: [████████▌ ] 84%
 - [Phase 67-correctness-fixes P01]: Classified case-label switches as structurally equivalent to IRON_NODE_ASSERT_KIND for Wasm blind-cast audit — 24 `(Iron_<Kind>*)node` casts in web_await_check.c + web_top_level_loader_check.c all sit inside `case IRON_NODE_<Kind>:` branches of `switch ((int)(node->kind))`, so the case label IS the kind proof and no additional ASSERT_KIND is needed
 - [Phase 67-correctness-fixes P01]: One new H-severity Wasm finding (Wasm-W1) at src/lir/emit_web.c:278 — web main-loop wrapper emits `FrameState_* state = (FrameState_* )malloc(sizeof(FrameState_*))` into generated C with no NULL check before `memset(state, 0, ...)`. Same class as ranks 3/4 but in web emitter. Routed to 67-02 so a single plan lands iron_oom_abort helper + all 5 generated-code OOM sites (native HEAP_ALLOC + RC_ALLOC + web FrameState).
 - [Phase 67-correctness-fixes P01]: build_web.c host-side allocation is exemplary — every one of 16 malloc/strdup call sites is explicitly NULL-checked with full error-path cleanup (spot-verified at lines 41-53, 85-96, 128-137, 246-259, 509-519, 645-723). Zero Wasm findings for host-side CLI orchestration.
+- [Phase 67-correctness-fixes-P02]: iron_oom_abort lives in src/runtime/iron_oom.c not diagnostics.c — keeps iron_runtime self-contained (diagnostics.c drags parser/ast.h + stb_ds which iron_runtime unit tests must not link)
+- [Phase 67-correctness-fixes-P02]: IRON_LIST/MAP/SET _push/_put/_add capture realloc into a named temp BEFORE committing to self-> — on OOM the original backing pointer is untouched and the abort fires with zero live-collection side effects
+- [Phase 67-correctness-fixes-P02]: Capacity-doubling wraparound check (new_cap < self->capacity) sits BEFORE realloc — aborts with a 'capacity overflow' suffix instead of wrapping int64_t negative and feeding (size_t)-4 to realloc
+- [Phase 67-correctness-fixes-P02]: emit_c.c location literals identify structural call-sites ('emit_c HEAP_ALLOC', 'emit_c closure env (A|B|C)') — generated C can't meaningfully use __FILE__ because it points at emit_c.c not user source; structural literals let stderr grep bisect which emitter path faulted
+- [Phase 67-correctness-fixes-P02]: Generated C prelude already includes runtime/iron_runtime.h in both emit_c.c and emit_web.c; iron_runtime.h transitively includes diagnostics/diagnostics.h — zero additional include wiring needed in emitters for iron_oom_abort to be reachable from every compiled user binary
+- [Phase 67-correctness-fixes-P02]: Unit test strategy: LIST exercises capacity-overflow arm (no prereq), MAP exercises _create_with_capacity malloc-NULL arm (MAP _put does a linear scan over self->keys before the capacity check, so the overflow-capacity trick segfaults on the scan) — both arms hit the same iron_oom_abort with the same stderr contract
 
 ### Roadmap Evolution
 
@@ -258,6 +265,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T03:30:00Z
-Stopped at: Completed 66-05-PLAN.md (Phase 66 complete)
+Last session: 2026-04-13T17:35:10.454Z
+Stopped at: Completed 67-02-PLAN.md (FIX-01 ranks 1-4 + Wasm-W1 H-severity alloc-fail walkthrough + iron_oom_abort helper)
 Resume file: None

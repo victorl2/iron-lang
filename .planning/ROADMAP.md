@@ -1063,7 +1063,7 @@ Phases execute in numeric order: 59 -> 65 -> 66 -> 67 -> 68 -> 69 -> 70 (60-64 p
 | 64. [paused] WebSocket Client | v0.2.0-alpha | 0/0 | Paused | - |
 | 65. Correctness Audit | 6/6 | Complete    | 2026-04-12 | - |
 | 66. Structural Protections + Linux Release CI | 5/5 | Complete    | 2026-04-13 | - |
-| 67. Correctness Fixes + Crash Canaries | 1/8 | In Progress|  | - |
+| 67. Correctness Fixes + Crash Canaries | 2/8 | In Progress|  | - |
 | 68. Fuzzing Infrastructure | v0.1.4-alpha | 0/0 | Not started | - |
 | 69. Coverage Tooling + Benchmark Calibration | v0.1.4-alpha | 0/0 | Not started | - |
 | 70. Version Reconciliation | v0.1.4-alpha | 0/0 | Not started | - |
@@ -1348,8 +1348,8 @@ Plans:
   5. Crash-canary fixtures exist under `tests/integration/hir_canary_*.iron` covering `if/elif/else`, `match`, `while`, `for`, `assign`, nested `if`, `spawn`, `parallel for`, tuple destructure, enum construct, method call, static call, lambda, closure capture, heap expr -- each compiles cleanly in both Debug and Release and round-trips its expected output
 **Plans**: 8 plans
 Plans:
-- [ ] 67-01-PLAN.md -- Verification artifact: top-20 audit status table + Wasm re-audit (NO CODE)
-- [ ] 67-02-PLAN.md -- FIX-01 H-severity ranks 1-4: iron_oom_abort helper + IRON_LIST/MAP/SET macro guards + emit_c.c generated-C malloc guards + 2 fixtures + 2 unit tests
+- [x] 67-01-PLAN.md -- Verification artifact: top-20 audit status table + Wasm re-audit (NO CODE)
+- [x] 67-02-PLAN.md -- FIX-01 H-severity ranks 1-4 + Wasm-W1: iron_oom_abort helper + IRON_LIST/MAP/SET macro guards + emit_c.c + emit_web.c generated-C malloc guards + 2 fixtures + 2 unit tests
 - [ ] 67-03-PLAN.md -- FIX-01 ranks 14/15/19 (comptime overflow + INT64_MIN + parser atoi->strtol) + FIX-04 enum-switch tail + typecheck covered[] dynamic sizing + 3 fixtures
 - [ ] 67-04-PLAN.md -- FIX-02 parser subsystem walkthrough (parser.c ~114 + lexer.c ~9 arena sites)
 - [ ] 67-05-PLAN.md -- FIX-02 analyzer + comptime walkthrough (11 files, ~94 arena sites)
