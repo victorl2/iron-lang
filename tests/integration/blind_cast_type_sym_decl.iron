@@ -1,0 +1,44 @@
+-- Regression: SYM_TYPE->decl_node blind cast to Iron_ObjectDecl.
+--
+-- **Motivating Incident.** Phase 65 AUDIT-01 ranks 5 and 6 flagged two
+-- sites in src/analyzer/typecheck.c (CALL handler and CONSTRUCT handler)
+-- that cast (Iron_ObjectDecl *)sym->decl_node whenever
+-- sym->sym_kind == IRON_SYM_TYPE without first checking decl_node->kind.
+-- SYM_TYPE symbols can point to Iron_InterfaceDecl, Iron_EnumDecl, or be
+-- NULL for builtin primitive types created with decl_node=NULL. The cast
+-- silently read wrong memory when the symbol was interface/enum and
+-- NULL-deref'd for builtins, producing wrong arity checks that leaked
+-- wrong codegen into emitted programs.
+--
+-- **Layout Diagram.**
+--   Iron_ObjectDecl:    { span, kind, name, fields[], field_count, extends_name, ... }
+--   Iron_InterfaceDecl: { span, kind, name, method_sigs[], method_count, ... }
+--   Iron_EnumDecl:      { span, kind, name, variants[], variant_count, ... }
+--   Builtin primitive:  decl_node == NULL
+--
+--   Reading od->field_count at the InterfaceDecl::method_count offset or
+--   the EnumDecl::variant_count offset produced silently-wrong arity checks.
+--
+-- **Fix Summary.** typecheck.c CALL and CONSTRUCT handlers now check
+-- decl_node->kind == IRON_NODE_OBJECT_DECL explicitly, emit a diagnostic
+-- for the non-object SYM_TYPE case, and call IRON_NODE_ASSERT_KIND before
+-- the cast so Debug builds abort via iron_ice rather than silently
+-- misreading memory. PROT-04, Phase 66 Plan 03.
+--
+-- **Severity.** H. Blast radius: every user program that references an
+-- object type in constructor position. Silent memory misinterpretation
+-- for interface/enum misuse, possible NULL deref for builtin misuse.
+
+object Circle {
+    val radius: Int
+}
+
+func area(c: Circle) -> Int {
+    return c.radius * c.radius * 3
+}
+
+func main() {
+    val c = Circle(5)
+    println("radius: {c.radius}")
+    println("area: {area(c)}")
+}

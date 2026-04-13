@@ -1,0 +1,61 @@
+-- Regression: Iron_IntLit aliasing for resolved_type access.
+--
+-- **Motivating Incident.** Phase 65 AUDIT-01 rank 11 flagged two sites
+-- in src/analyzer/typecheck.c that cast a generic Iron_Node* to
+-- (Iron_IntLit *) solely to access resolved_type at the common prefix
+-- offset. This is aliasing-unsafe under strict-aliasing optimization
+-- and misreads memory whenever the concrete expression kind is not an
+-- int literal. Two sites:
+--   - typecheck.c rank 11a (spawn body return inference): walks
+--     blk->stmts[i] for IRON_NODE_RETURN, then reads rs->value->resolved_type
+--     via the Iron_IntLit cast. rs->value can be any expression kind
+--     (binary, call, method call, field access).
+--   - typecheck.c rank 11b (return narrowing, post-merge occurrence): the
+--     return-type-mismatch branch casts rs->value to Iron_IntLit after
+--     is_int_literal_narrowing confirms the kind but leaves no
+--     structural proof, so a future predicate bug would silently corrupt
+--     a non-IntLit node's fields.
+--
+-- **Layout Diagram.**
+--   All expression AST types share the prefix {span, kind, resolved_type}
+--   enforced by _Static_assert in src/parser/ast.h (PROT-01 + Iron_ExprNode).
+--   The correct accessor for rs->value->resolved_type is Iron_ExprNode, not
+--   Iron_IntLit.
+--
+--     Iron_ExprNode:  [span][kind][resolved_type]
+--     Iron_IntLit:    [span][kind][resolved_type][value_str]
+--     Iron_CallExpr:  [span][kind][resolved_type][callee][args][arg_count]
+--
+-- **Fix Summary.** typecheck.c rank 11a now uses
+-- `Iron_ExprNode *expr_node = (Iron_ExprNode *)rs->value;` from ast.h
+-- (layout-locked by PROT-01). Rank 11b adds IRON_NODE_ASSERT_KIND before
+-- the legitimate Iron_IntLit cast so Debug builds catch any future
+-- predicate drift. PROT-04, Phase 66 Plan 03.
+--
+-- **Severity.** H. Aliasing-unsafe across all AST node types; affects
+-- spawn return type inference for every spawn body whose return value
+-- is not literally an int literal, and every int-literal return in a
+-- narrower-typed function.
+
+func compute(n: Int) -> Int {
+    return n * 2 + 1
+}
+
+func main() {
+    -- Exercises rank 11a: spawn body returns a call expression
+    -- (not a bare int literal), so the old (Iron_IntLit *) cast read
+    -- resolved_type at the Iron_CallExpr prefix offset. PROT-01's
+    -- _Static_assert guarantees the prefix is stable; rank 11a now uses
+    -- Iron_ExprNode directly.
+    val h = spawn("work") {
+        return compute(10)
+    }
+    val result = await h
+    println("spawn result: {result}")
+
+    -- Exercises rank 11b: plain int-literal return through the narrowing
+    -- path (compute returns Int). Kind is already confirmed by
+    -- is_int_literal_narrowing; the new IRON_NODE_ASSERT_KIND makes the
+    -- invariant explicit.
+    println("narrow: {compute(5)}")
+}

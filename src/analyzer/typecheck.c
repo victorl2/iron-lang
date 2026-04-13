@@ -1376,9 +1376,31 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             break;
                         }
                     }
-                    /* Treat as construction: validate args against fields */
+                    /* Treat as construction: validate args against fields.
+                     *
+                     * PROT-04 rewrite (rank 5, AUDIT-01): SYM_TYPE can point to
+                     * Iron_InterfaceDecl, Iron_EnumDecl, or NULL (builtin primitive
+                     * types). The previous code cast decl_node to Iron_ObjectDecl
+                     * unconditionally and silently misread interface/enum memory
+                     * (or NULL-deref'd for builtins). Guard on decl_node->kind
+                     * before the concrete cast and emit a diagnostic for the
+                     * non-object case instead of proceeding with a bogus cast. */
+                    if (!callee_sym->decl_node ||
+                        callee_sym->decl_node->kind != IRON_NODE_OBJECT_DECL) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "type '%s' is not constructible with call syntax",
+                                 callee_id->name);
+                        emit_error(ctx, IRON_ERR_NOT_CALLABLE, ce->span, msg, NULL);
+                        for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ce->resolved_type = result;
+                        callee_id->resolved_type = result;
+                        break;
+                    }
+                    IRON_NODE_ASSERT_KIND(callee_sym->decl_node, IRON_NODE_OBJECT_DECL);
                     Iron_ObjectDecl *od = (Iron_ObjectDecl *)callee_sym->decl_node;
-                    int field_count = od ? od->field_count : 0;
+                    int field_count = od->field_count;
 
                     if (ce->arg_count != field_count) {
                         char msg[256];
@@ -1387,7 +1409,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                  callee_id->name, field_count, ce->arg_count);
                         emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg, NULL);
                         for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
-                    } else if (od) {
+                    } else {
                         for (int i = 0; i < ce->arg_count; i++) {
                             Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
                             Iron_Field *fld = (Iron_Field *)od->fields[i];
@@ -1413,7 +1435,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         }
                     }
                     /* Check generic constraints on call-as-construction */
-                    if (od && od->generic_param_count > 0 && od->generic_params) {
+                    if (od->generic_param_count > 0 && od->generic_params) {
                         Iron_Type *concrete[16];
                         int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
                         for (int gi = 0; gi < gc; gi++) {
@@ -1802,8 +1824,24 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
 
             if (sym->sym_kind == IRON_SYM_TYPE) {
+                /* PROT-04 rewrite (rank 6, AUDIT-01): sym->decl_node for a
+                 * SYM_TYPE may be InterfaceDecl, EnumDecl, or NULL for builtins.
+                 * Guard before the concrete Iron_ObjectDecl cast and bail with
+                 * a diagnostic for the non-object case. */
+                if (!sym->decl_node ||
+                    sym->decl_node->kind != IRON_NODE_OBJECT_DECL) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "type '%s' is not constructible", ce->type_name);
+                    emit_error(ctx, IRON_ERR_NOT_CALLABLE, ce->span, msg, NULL);
+                    for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+                IRON_NODE_ASSERT_KIND(sym->decl_node, IRON_NODE_OBJECT_DECL);
                 Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
-                int field_count = od ? od->field_count : 0;
+                int field_count = od->field_count;
 
                 if (ce->arg_count != field_count) {
                     char msg[256];
@@ -1812,7 +1850,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                              ce->type_name, field_count, ce->arg_count);
                     emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg, NULL);
                     for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
-                } else if (od) {
+                } else {
                     for (int i = 0; i < ce->arg_count; i++) {
                         Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
                         Iron_Field *fld = (Iron_Field *)od->fields[i];
@@ -1837,7 +1875,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
                 /* Check generic constraints on type construction */
-                if (od && od->generic_param_count > 0 && od->generic_params &&
+                if (od->generic_param_count > 0 && od->generic_params &&
                     ce->generic_arg_count > 0 && ce->generic_args) {
                     Iron_Type *concrete[16];
                     int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
@@ -2722,7 +2760,15 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     }
                     /* Narrow literal in return (e.g., return 42 in Int32 func) */
                     if (is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
-                        ((Iron_IntLit *)rs->value)->resolved_type = ctx->current_return_type;
+                        /* PROT-04 rewrite (rank 11b, AUDIT-01 post-merge): the
+                         * is_int_literal_narrowing predicate has already confirmed
+                         * rs->value->kind == IRON_NODE_INT_LIT, but leaves no
+                         * structural proof. Assert the invariant explicitly so a
+                         * future predicate bug aborts in Debug rather than
+                         * silently writing to a foreign node layout. */
+                        IRON_NODE_ASSERT_KIND(rs->value, IRON_NODE_INT_LIT);
+                        Iron_IntLit *int_lit = (Iron_IntLit *)rs->value;
+                        int_lit->resolved_type = ctx->current_return_type;
                     }
                 }
             }
@@ -3083,9 +3129,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         if (blk->stmts[i]->kind == IRON_NODE_RETURN) {
                             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)blk->stmts[i];
                             if (rs->value) {
-                                /* All expr nodes share the layout:
-                                 * { span, kind, resolved_type, ... } */
-                                Iron_IntLit *expr_node = (Iron_IntLit *)rs->value;
+                                /* PROT-04 rewrite (rank 11a, AUDIT-01): rs->value
+                                 * is a generic expression node (any kind). The
+                                 * previous code aliased Iron_IntLit solely to read
+                                 * resolved_type at the common prefix offset. Use
+                                 * Iron_ExprNode from ast.h (layout-locked by
+                                 * PROT-01 _Static_asserts) for type-safe prefix
+                                 * access. */
+                                Iron_ExprNode *expr_node = (Iron_ExprNode *)rs->value;
                                 if (expr_node->resolved_type) {
                                     body_ret = expr_node->resolved_type;
                                 }
