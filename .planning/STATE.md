@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: Phase 67 Plan 05 complete; 67-06 next (FIX-02 hir + lir + runtime/stdlib arena walkthrough — ~105 sites)
+current_plan: Phase 67 Plan 06 complete; 67-07 next (FIX-03 cross-arena AUDIT-04 walkthrough — 16 M rows)
 status: executing
-stopped_at: Completed 67-05-PLAN.md (FIX-02 analyzer + comptime arena walkthrough — 94 sites)
-last_updated: "2026-04-13T20:15:46.150Z"
-last_activity: "2026-04-13 — 67-05 shipped FIX-02 analyzer + comptime arena walkthrough: all 94 iron_arena_alloc/ARENA_ALLOC/iron_arena_strdup call-sites across 11 files (typecheck.c 36, types.c 18, comptime.c 18, resolve.c 8, capture.c 6, scope.c 2, concurrency.c 2, escape.c 1, init_check.c 1, web_await_check.c 1, web_top_level_loader_check.c 1) routed through iron_oom_abort on NULL with function-qualified location literals. Applied to types.c iron_type_make_* constructors by replacing pre-existing `if (!t) return NULL;` bailouts with iron_oom_abort (callers already assumed non-NULL). Inline iron_arena_strdup calls hidden inside iron_diag_emit arguments (typecheck emit_error/emit_warning, resolve PATTERN/ENUM_CONSTRUCT, escape/concurrency/init_check/web_* emit_* helpers) hoisted into named locals so NULL checks can fire before the diag_emit call. Phase-level gate: 95 guards total (94 new + 1 pre-existing from 67-03). 67-03 integer-overflow guards in comptime.c still intact. Zero behaviour changes. Build green, ctest 74/74, integration 357/357 (no regression from 67-04)."
+stopped_at: Completed 67-06-PLAN.md (FIX-02 hir + lir + runtime/stdlib arena walkthrough; FIX-02 closed end-to-end)
+last_updated: "2026-04-13T21:54:08.675Z"
+last_activity: "2026-04-13 — 67-06 shipped FIX-02 hir + lir + runtime/stdlib arena walkthrough: ~150 new guards across 18 files completing FIX-02 end-to-end. HIR subsystem: hir.c 46 / hir_lower.c 16 / hir_to_lir.c 12 (73 sites). LIR + printer: lir_optimize.c 16 / emit_c.c 24 arena (+ 8 preserved 67-02 generated-C) / emit_helpers.c 8 / lir.c 6 / emit_structs.c 5 / emit_fusion.c 4 calloc / web_main_loop_split.c 3 / emit_split.c 2 / value_range.c 2 / emit_web.c 1 / layout_analysis.c 1 / printer.c 1 (69 sites). Runtime + stdlib: iron_string.c 9 / iron_threads.c 21 / iron_net.c 1 (29 raw malloc + 4 IRON_THREAD_CREATE). Combined 67-04 + 67-05 + 67-06 = ~368 total guards, exceeding the 285 M-severity audit site count. iron_string.c Phase 65 silent-truncation fallbacks replaced with iron_oom_abort (deliberate behaviour change, FIX-02 tagged). iron_threads.c Iron_pool_create / Iron_elastic_pool_create / Iron_handle_create / Iron_channel_create / Iron_mutex_create soft-NULL returns replaced; 4 IRON_THREAD_CREATE return-value checks added (AUDIT-03 §32). iron_net.c build_address_list_from_addrinfo silent-empty-list fallback replaced; lookup_host NetError channel preserved. Phase 66 IRON_NODE_ASSERT_KIND counts preserved exactly (typecheck=16, resolve=6, emit_structs=3). Phase 66-05 iron_net.c local_recv_buf intact. 67-02 emit_c.c generated-C guards intact. Build green, ctest 74/74, integration 357/357 (no regression from 67-05 baseline)."
 progress:
   total_phases: 32
   completed_phases: 12
   total_plans: 56
-  completed_plans: 51
-  percent: 89
+  completed_plans: 52
+  percent: 93
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 5/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1 + 67-03 FIX-01 ranks 14+15+19 + FIX-04 row 13 + 67-04 FIX-02 parser+lexer + 67-05 FIX-02 analyzer+comptime)
-Current Plan: Phase 67 Plan 05 complete; 67-06 next (FIX-02 hir + lir + runtime/stdlib arena walkthrough — ~105 sites)
-Status: Phase 67 in progress — 67-01 + 67-02 + 67-03 + 67-04 + 67-05 shipped (5/8 plans); 67-06..67-08 remain
-Last activity: 2026-04-13 — 67-05 shipped FIX-02 analyzer + comptime arena walkthrough: 94 arena-alloc sites across 11 files (typecheck.c 36, types.c 18, comptime.c 18, resolve.c 8, capture.c 6, scope.c 2, concurrency.c 2, escape.c 1, init_check.c 1, web_await_check.c 1, web_top_level_loader_check.c 1) guarded via iron_oom_abort with function-qualified location literals. types.c iron_type_make_* constructors' pre-existing `if (!t) return NULL;` bailouts replaced with iron_oom_abort. Inline iron_arena_strdup calls inside iron_diag_emit args hoisted into named locals across analyzer emit_* helpers. Phase-level gate: 95 guards total (94 new + 1 pre-existing from 67-03). 67-03 integer-overflow guards in comptime.c still intact. Zero behaviour changes, zero regressions. Build green, ctest 74/74, integration 357/357 (no regression from 67-04).
+Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 6/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1 + 67-03 FIX-01 ranks 14+15+19 + FIX-04 row 13 + 67-04 FIX-02 parser+lexer + 67-05 FIX-02 analyzer+comptime + 67-06 FIX-02 hir+lir+runtime+stdlib)
+Current Plan: Phase 67 Plan 06 complete; 67-07 next (FIX-03 cross-arena AUDIT-04 walkthrough — 16 M rows)
+Status: Phase 67 in progress — 67-01 + 67-02 + 67-03 + 67-04 + 67-05 + 67-06 shipped (6/8 plans); 67-07..67-08 remain. FIX-02 closed end-to-end — ready to mark `[x]` in REQUIREMENTS.md
+Last activity: 2026-04-13 — 67-06 shipped FIX-02 hir + lir + runtime/stdlib arena walkthrough: ~150 new guards across 18 files completing FIX-02 end-to-end. HIR subsystem: hir.c 46 / hir_lower.c 16 / hir_to_lir.c 12 (73 sites). LIR + printer: lir_optimize.c 16 / emit_c.c 24 arena (+ 8 preserved 67-02 generated-C) / emit_helpers.c 8 / lir.c 6 / emit_structs.c 5 / emit_fusion.c 4 calloc / web_main_loop_split.c 3 / emit_split.c 2 / value_range.c 2 / emit_web.c 1 / layout_analysis.c 1 / printer.c 1 (69 sites). Runtime + stdlib: iron_string.c 9 / iron_threads.c 21 / iron_net.c 1 (29 raw malloc + 4 IRON_THREAD_CREATE). Combined 67-04 + 67-05 + 67-06 = ~368 total guards, exceeding the 285 M-severity audit site count. iron_string.c Phase 65 silent-truncation fallbacks replaced with iron_oom_abort (deliberate behaviour change, FIX-02 tagged). iron_threads.c Iron_pool_create / Iron_elastic_pool_create / Iron_handle_create / Iron_channel_create / Iron_mutex_create soft-NULL returns replaced; 4 IRON_THREAD_CREATE return-value checks added (AUDIT-03 §32). iron_net.c build_address_list_from_addrinfo silent-empty-list fallback replaced; lookup_host NetError channel preserved. Phase 66 IRON_NODE_ASSERT_KIND counts preserved exactly (typecheck=16, resolve=6, emit_structs=3). Phase 66-05 iron_net.c local_recv_buf intact. 67-02 emit_c.c generated-C guards intact. Build green, ctest 74/74, integration 357/357 (no regression from 67-05 baseline).
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -98,6 +98,7 @@ Progress: [█████████░] 89%
 | Phase 67-correctness-fixes-+-crash-canaries P03 | 45min | 3 tasks | 11 files |
 | Phase 67-correctness-fixes-+-crash-canaries P04 | 38 min | 2 tasks | 2 files |
 | Phase 67-correctness-fixes-+-crash-canaries P05 | 57 min | 3 tasks | 11 files |
+| Phase 67 P06 | 59min | 3 tasks | 22 files |
 
 ## Accumulated Context
 
@@ -258,6 +259,7 @@ Progress: [█████████░] 89%
 - [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: Location literal convention "<file>:<function>" with sub-site disambiguator for multi-alloc functions — 114 distinct parser.c literals + 9 lexer.c literals
 - [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: iron_snake_to_camel silent graceful-degradation and iron_lex_string IRON_ERR_UNTERMINATED_STRING OOM misclassification both fixed inline as Rule 1 auto-fixes (latent pre-existing bugs surfaced by the walkthrough)
 - [Phase 67-correctness-fixes-+-crash-canaries]: 67-05 FIX-02 analyzer + comptime walkthrough: 94 arena-alloc sites across 11 files (10 analyzer + comptime.c) guarded via Idiom A (iron_oom_abort with function-qualified location literals). Zero SAFETY annotations, zero behaviour changes, zero regressions. 95 total guards (94 new + 1 pre-existing from 67-03).
+- [Phase 67]: 67-06 FIX-02 hir/lir/runtime walkthrough: ~150 new iron_oom_abort guards across 18 files closing FIX-02 end-to-end. HIR node constructors + LIR emitter scratch + LIR optimizer passes + printer.c get Idiom A guards. iron_string.c Phase 65 silent-truncation fallbacks deliberately replaced with iron_oom_abort. iron_threads.c Iron_pool_create/Iron_elastic_pool_create/Iron_handle_create/Iron_channel_create/Iron_mutex_create soft-NULL returns replaced; 4 IRON_THREAD_CREATE return-value checks added (AUDIT-03 §32). iron_net.c dual-channel decision: build_address_list_from_addrinfo silent-empty-list replaced with iron_oom_abort but lookup_host's NetError channel preserved as designed fallible path. Combined 67-04 + 67-05 + 67-06 = ~368 total FIX-02 guards exceeding the audit's 285 M-severity count.
 
 ### Roadmap Evolution
 
@@ -279,6 +281,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T20:15:40.566Z
-Stopped at: Completed 67-05-PLAN.md (FIX-02 analyzer + comptime arena walkthrough — 94 sites)
+Last session: 2026-04-13T21:53:57.943Z
+Stopped at: Completed 67-06-PLAN.md (FIX-02 hir + lir + runtime/stdlib arena walkthrough; FIX-02 closed end-to-end)
 Resume file: None

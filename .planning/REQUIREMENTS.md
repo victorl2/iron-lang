@@ -39,7 +39,7 @@ Changes that make the blind-cast bug class structurally impossible to reintroduc
 Concrete fixes for known and audit-discovered high-severity issues.
 
 - [x] **FIX-01**: All top-20 high-severity issues from `CORRECTNESS-AUDIT.md` are resolved — each fix lands with a regression fixture (integration test, unit test, or C-level assertion) that would have failed before the fix and passes after
-- [ ] **FIX-02**: Every unchecked `malloc`/`calloc`/`realloc`/`strdup` call that could produce a user-visible crash is either fixed with a guarded error path (returning a typed error) or explicitly annotated `/* SAFETY: cannot fail because ... */` with the invariant documented at the call site
+- [x] **FIX-02**: Every unchecked `malloc`/`calloc`/`realloc`/`strdup` call that could produce a user-visible crash is either fixed with a guarded error path (returning a typed error) or explicitly annotated `/* SAFETY: cannot fail because ... */` with the invariant documented at the call site
 - [ ] **FIX-03**: All cross-arena pointer storage issues flagged by AUDIT-04 are resolved by either migrating ownership to the correct arena or duplicating the value into the long-lived arena with `iron_arena_strdup` / `iron_arena_alloc` + `memcpy`
 - [x] **FIX-04**: All silent `default:` fall-throughs in Iron enum switches flagged by AUDIT-02 are replaced with either explicit `case` entries (when the intent is "handle this kind") or a commented `default:` that explains why the fall-through is intentional
 
