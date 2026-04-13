@@ -168,6 +168,7 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         Iron_Type **elem_types = (Iron_Type **)iron_arena_alloc(
             ctx->module->arena, sizeof(Iron_Type *) * (size_t)n,
             _Alignof(Iron_Type *));
+        if (!elem_types) iron_oom_abort("hir_lower.c:resolve_type_ann tuple_elems");
         for (int i = 0; i < n; i++) {
             elem_types[i] = ta->tuple_elems
                 ? resolve_type_ann(ctx, ta->tuple_elems[i])
@@ -188,6 +189,7 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
                 ctx->module->arena,
                 (size_t)param_count * sizeof(Iron_Type *),
                 _Alignof(Iron_Type *));
+            if (!param_types) iron_oom_abort("hir_lower.c:resolve_type_ann func_params");
             for (int i = 0; i < param_count; i++) {
                 param_types[i] = resolve_type_ann(ctx, ta->func_params[i]);
             }
@@ -281,6 +283,7 @@ static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
         ctx->module->arena,
         (size_t)param_count * sizeof(IronHIR_Param),
         _Alignof(IronHIR_Param));
+    if (!arr) iron_oom_abort("hir_lower.c:build_hir_params_named");
     for (int p = 0; p < param_count; p++) {
         Iron_Param *ap = (Iron_Param *)params[p];
         Iron_Type  *pt;
@@ -441,9 +444,11 @@ static void inject_pattern_let_stmts(IronHIR_LowerCtx *ctx,
 
         if (bname) {
             /* Simple binding: val bname = scrut.data.VariantName._b */
+            char *slot_field_copy = iron_arena_strdup(mod->arena, slot_field,
+                                                      strlen(slot_field));
+            if (!slot_field_copy) iron_oom_abort("hir_lower.c:inject_pattern_let_stmts slot_field");
             IronHIR_Expr *field_expr = iron_hir_expr_field_access(mod, scrut_expr,
-                                         iron_arena_strdup(mod->arena, slot_field,
-                                                           strlen(slot_field)),
+                                         slot_field_copy,
                                          ptype, span);
             IronHIR_VarId vid = iron_hir_alloc_var(mod, bname, ptype, false);
             declare_var(ctx, bname, vid);
@@ -536,6 +541,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 snprintf(field_name, sizeof(field_name), "v%d", i);
                 const char *fname_arena = (const char *)iron_arena_alloc(
                     ctx->module->arena, strlen(field_name) + 1, 1);
+                if (!fname_arena) iron_oom_abort("hir_lower.c:lower_stmt_hir tuple_destructure fname");
                 memcpy((char *)fname_arena, field_name, strlen(field_name) + 1);
 
                 IronHIR_Expr *tmp_ref = iron_hir_expr_ident(mod, tmp_id,
@@ -572,6 +578,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 ctx->module->arena,
                 strlen(lifted_name) + 1,
                 _Alignof(char));
+            if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir val_decl spawn lifted_name");
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
             IronHIR_Block *spawn_body = iron_hir_block_create(mod);
@@ -741,6 +748,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 ctx->module->arena,
                 strlen(lifted_name) + 1,
                 _Alignof(char));
+            if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir parallel_for lifted_name");
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
             Iron_Type *void_ty = iron_type_make_primitive(IRON_TYPE_VOID);
@@ -986,6 +994,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             ctx->module->arena,
             strlen(lifted_name) + 1,
             _Alignof(char));
+        if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir spawn lifted_name");
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
         IronHIR_Block *spawn_body = iron_hir_block_create(mod);
@@ -1304,6 +1313,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             ctx->module->arena,
             strlen(lifted_name) + 1,
             _Alignof(char));
+        if (!name_copy) iron_oom_abort("hir_lower.c:lower_expr_hir lambda lifted_name");
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
         /* Extract the actual return type from the lambda's function type.
@@ -1402,6 +1412,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 arrput(tup_vals, v);
                 /* Field name "v<i>" — max 12 chars for i up to 9 digits. */
                 char *fname = (char *)iron_arena_alloc(ctx->module->arena, 12, 1);
+                if (!fname) iron_oom_abort("hir_lower.c:lower_expr_hir tuple_array_lit fname");
                 snprintf(fname, 12, "v%d", i);
                 arrput(tup_names, fname);
             }
@@ -1599,6 +1610,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                         mod->arena,
                         (size_t)total_params * sizeof(IronHIR_Param),
                         _Alignof(IronHIR_Param));
+                    if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir stub_params");
                     for (int p = 0; p < md->param_count; p++) {
                         Iron_Param *ap = (Iron_Param *)md->params[p];
                         params[p].name   = ap->name;
@@ -1613,6 +1625,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     mod->arena,
                     (size_t)total_params * sizeof(IronHIR_Param),
                     _Alignof(IronHIR_Param));
+                if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir method_params");
 
                 /* Self param: resolve to the object type by name */
                 Iron_Type *self_type = NULL;
@@ -1653,6 +1666,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Copy mangled name to arena */
             size_t mlen = strlen(mangled) + 1;
             char *mname = (char *)iron_arena_alloc(mod->arena, mlen, _Alignof(char));
+            if (!mname) iron_oom_abort("hir_lower.c:lower_module_decls_hir method_mangled_name");
             memcpy(mname, mangled, mlen);
 
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
@@ -1829,6 +1843,7 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                 mod->arena,
                 (size_t)total_params * sizeof(IronHIR_Param),
                 _Alignof(IronHIR_Param));
+            if (!final_params) iron_oom_abort("hir_lower.c:lower_lift_pending_hir LAMBDA final_params");
             /* _env placeholder — VarId set below after alloc */
             final_params[0].name   = "_env";
             final_params[0].type   = NULL; /* void* — emit_c handles NULL-typed params */
@@ -1938,6 +1953,7 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                     mod->arena,
                     (size_t)total_params * sizeof(IronHIR_Param),
                     _Alignof(IronHIR_Param));
+                if (!final_params) iron_oom_abort("hir_lower.c:lower_lift_pending_hir SPAWN final_params");
                 final_params[0].name   = "_env";
                 final_params[0].type   = NULL; /* void* */
                 final_params[0].var_id = IRON_HIR_VAR_INVALID;
@@ -2010,6 +2026,7 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                 mod->arena,
                 (size_t)total_pfor_params * sizeof(IronHIR_Param),
                 _Alignof(IronHIR_Param));
+            if (!params) iron_oom_abort("hir_lower.c:lower_lift_pending_hir PARALLEL_FOR params");
             int loop_var_idx = 0;
             if (pfor_cap_count > 0) {
                 /* _env as first param */

@@ -78,6 +78,7 @@ static char *make_label(HIR_to_LIR_Ctx *ctx, const char *prefix) {
     snprintf(buf, sizeof(buf), "%s_%d", prefix, ctx->label_counter++);
     size_t len = strlen(buf) + 1;
     char *label = (char *)iron_arena_alloc(ctx->lir_arena, len, 1);
+    if (!label) iron_oom_abort("hir_to_lir.c:make_label");
     memcpy(label, buf, len);
     return label;
 }
@@ -778,10 +779,12 @@ static void lower_type_decls_from_ast(HIR_to_LIR_Ctx *ctx) {
                 ctx->lir_arena,
                 (size_t)fd->param_count * sizeof(Iron_Type *),
                 _Alignof(Iron_Type *));
+            if (!param_types) iron_oom_abort("hir_to_lir.c:lower_type_decls_from_ast extern_param_types");
             lir_params = (IronLIR_Param *)iron_arena_alloc(
                 ctx->lir_arena,
                 (size_t)fd->param_count * sizeof(IronLIR_Param),
                 _Alignof(IronLIR_Param));
+            if (!lir_params) iron_oom_abort("hir_to_lir.c:lower_type_decls_from_ast extern_lir_params");
             for (int p = 0; p < fd->param_count; p++) {
                 Iron_Param *ap = (Iron_Param *)fd->params[p];
                 Iron_Type *pt = (fd->resolved_param_types && fd->resolved_param_types[p])
@@ -1144,6 +1147,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                             if (elem->object.decl) {
                                 size_t slen = 5 + strlen(elem->object.decl->name) + 1;
                                 char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix object");
                                 snprintf(s, slen, "Iron_%s", elem->object.decl->name);
                                 elem_suffix = s;
                             }
@@ -1152,6 +1156,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                             if (elem->interface.decl) {
                                 size_t slen = 5 + strlen(elem->interface.decl->name) + 1;
                                 char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix interface");
                                 snprintf(s, slen, "Iron_%s", elem->interface.decl->name);
                                 elem_suffix = s;
                             }
@@ -1166,6 +1171,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                             if (elem->enu.decl) {
                                 size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
                                 char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix enum");
                                 snprintf(s, slen, "Iron_%s", elem->enu.decl->name);
                                 elem_suffix = s;
                             }
@@ -1180,6 +1186,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 const char *coll_method = expr->method_call.method;
                 size_t clen = 10 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
                 char *full_name = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
+                if (!full_name) iron_oom_abort("hir_to_lir.c:lower_expr list_method_full_name");
                 snprintf(full_name, clen, "Iron_List_%s_%s", elem_suffix, coll_method);
 
                 /* Build args and return early — skip the generic mangling path below */
@@ -1274,6 +1281,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * body carries an implicit self param (Phase 59 P05). */
         size_t mlen = strlen(type_name) + 1 + strlen(expr->method_call.method) + 1;
         char *mangled = (char *)iron_arena_alloc(ctx->lir_arena, mlen, 1);
+        if (!mangled) iron_oom_abort("hir_to_lir.c:lower_expr method_mangled_name");
         snprintf(mangled, mlen, "%s_%s", type_name, expr->method_call.method);
         /* Lowercase the entire type name portion (e.g. IO → io, Time → time) */
         for (size_t ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
@@ -2256,6 +2264,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
                 ctx->lir_arena,
                 (size_t)param_count * sizeof(IronLIR_Param),
                 _Alignof(IronLIR_Param));
+            if (!lir_params) iron_oom_abort("hir_to_lir.c:flatten_func empty_body_lir_params");
             for (int p = 0; p < param_count; p++) {
                 lir_params[p].name = hir_func->params[p].name;
                 lir_params[p].type = hir_func->params[p].type;
@@ -2282,6 +2291,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
             ctx->lir_arena,
             (size_t)param_count * sizeof(IronLIR_Param),
             _Alignof(IronLIR_Param));
+        if (!lir_params) iron_oom_abort("hir_to_lir.c:flatten_func lir_params");
         for (int p = 0; p < param_count; p++) {
             lir_params[p].name = hir_func->params[p].name;
             lir_params[p].type = hir_func->params[p].type;
@@ -2337,6 +2347,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         param_val_ids = (IronLIR_ValueId *)iron_arena_alloc(
             ctx->lir_arena, (size_t)param_count * sizeof(IronLIR_ValueId),
             _Alignof(IronLIR_ValueId));
+        if (!param_val_ids) iron_oom_abort("hir_to_lir.c:flatten_func param_val_ids");
     }
     for (int p = 0; p < param_count; p++) {
         IronLIR_ValueId param_val_id = lir_func->next_value_id++;
@@ -2671,6 +2682,7 @@ static void ssa_construct_func(IronLIR_Func *fn) {
 
                 /* Create phi instruction — insert at front of y_blk */
                 IronLIR_Instr *phi_instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                if (!phi_instr) iron_oom_abort("hir_to_lir.c:ssa_construct_func phi_instr");
                 memset(phi_instr, 0, sizeof(*phi_instr));
                 phi_instr->kind = IRON_LIR_PHI;
                 phi_instr->type = alloca_type;

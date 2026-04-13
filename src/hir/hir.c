@@ -10,9 +10,11 @@
 IronHIR_Module *iron_hir_module_create(const char *name) {
     /* Allocate arena on the heap and bootstrap it */
     Iron_Arena *arena = (Iron_Arena *)malloc(sizeof(Iron_Arena));
+    if (!arena) iron_oom_abort("hir.c:iron_hir_module_create arena");
     *arena = iron_arena_create(HIR_ARENA_INITIAL_SIZE);
 
     IronHIR_Module *mod = ARENA_ALLOC(arena, IronHIR_Module);
+    if (!mod) iron_oom_abort("hir.c:iron_hir_module_create");
     memset(mod, 0, sizeof(*mod));
     mod->name       = name;
     mod->arena      = arena;
@@ -66,6 +68,7 @@ IronHIR_Func *iron_hir_func_create(IronHIR_Module *mod, const char *name,
                                     IronHIR_Param *params, int param_count,
                                     Iron_Type *return_type) {
     IronHIR_Func *fn = ARENA_ALLOC(mod->arena, IronHIR_Func);
+    if (!fn) iron_oom_abort("hir.c:iron_hir_func_create");
     memset(fn, 0, sizeof(*fn));
     fn->name        = name;
     fn->return_type = return_type;
@@ -84,6 +87,7 @@ void iron_hir_module_add_func(IronHIR_Module *mod, IronHIR_Func *func) {
 
 IronHIR_Block *iron_hir_block_create(IronHIR_Module *mod) {
     IronHIR_Block *block = ARENA_ALLOC(mod->arena, IronHIR_Block);
+    if (!block) iron_oom_abort("hir.c:iron_hir_block_create");
     memset(block, 0, sizeof(*block));
     block->stmts      = NULL;
     block->stmt_count = 0;
@@ -101,6 +105,7 @@ IronHIR_Stmt *iron_hir_stmt_let(IronHIR_Module *mod, IronHIR_VarId var_id,
                                   Iron_Type *type, IronHIR_Expr *init,
                                   bool is_mutable, Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_let");
     memset(s, 0, sizeof(*s));
     s->kind            = IRON_HIR_STMT_LET;
     s->span            = span;
@@ -114,6 +119,7 @@ IronHIR_Stmt *iron_hir_stmt_let(IronHIR_Module *mod, IronHIR_VarId var_id,
 IronHIR_Stmt *iron_hir_stmt_assign(IronHIR_Module *mod, IronHIR_Expr *target,
                                      IronHIR_Expr *value, Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_assign");
     memset(s, 0, sizeof(*s));
     s->kind          = IRON_HIR_STMT_ASSIGN;
     s->span          = span;
@@ -126,6 +132,7 @@ IronHIR_Stmt *iron_hir_stmt_if(IronHIR_Module *mod, IronHIR_Expr *condition,
                                  IronHIR_Block *then_body, IronHIR_Block *else_body,
                                  Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_if");
     memset(s, 0, sizeof(*s));
     s->kind               = IRON_HIR_STMT_IF;
     s->span               = span;
@@ -138,6 +145,7 @@ IronHIR_Stmt *iron_hir_stmt_if(IronHIR_Module *mod, IronHIR_Expr *condition,
 IronHIR_Stmt *iron_hir_stmt_while(IronHIR_Module *mod, IronHIR_Expr *condition,
                                     IronHIR_Block *body, Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_while");
     memset(s, 0, sizeof(*s));
     s->kind                = IRON_HIR_STMT_WHILE;
     s->span                = span;
@@ -150,6 +158,7 @@ IronHIR_Stmt *iron_hir_stmt_for(IronHIR_Module *mod, IronHIR_VarId var_id,
                                   IronHIR_Expr *iterable, IronHIR_Block *body,
                                   Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_for");
     memset(s, 0, sizeof(*s));
     s->kind            = IRON_HIR_STMT_FOR;
     s->span            = span;
@@ -163,6 +172,7 @@ IronHIR_Stmt *iron_hir_stmt_match(IronHIR_Module *mod, IronHIR_Expr *scrutinee,
                                     IronHIR_MatchArm *arms, int arm_count,
                                     Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_match");
     memset(s, 0, sizeof(*s));
     s->kind                 = IRON_HIR_STMT_MATCH;
     s->span                 = span;
@@ -175,6 +185,7 @@ IronHIR_Stmt *iron_hir_stmt_match(IronHIR_Module *mod, IronHIR_Expr *scrutinee,
 IronHIR_Stmt *iron_hir_stmt_return(IronHIR_Module *mod, IronHIR_Expr *value,
                                      Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_return");
     memset(s, 0, sizeof(*s));
     s->kind               = IRON_HIR_STMT_RETURN;
     s->span               = span;
@@ -185,6 +196,7 @@ IronHIR_Stmt *iron_hir_stmt_return(IronHIR_Module *mod, IronHIR_Expr *value,
 IronHIR_Stmt *iron_hir_stmt_defer(IronHIR_Module *mod, IronHIR_Block *body,
                                     Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_defer");
     memset(s, 0, sizeof(*s));
     s->kind       = IRON_HIR_STMT_DEFER;
     s->span       = span;
@@ -195,6 +207,7 @@ IronHIR_Stmt *iron_hir_stmt_defer(IronHIR_Module *mod, IronHIR_Block *body,
 IronHIR_Stmt *iron_hir_stmt_block(IronHIR_Module *mod, IronHIR_Block *block,
                                     Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_block");
     memset(s, 0, sizeof(*s));
     s->kind        = IRON_HIR_STMT_BLOCK;
     s->span        = span;
@@ -205,6 +218,7 @@ IronHIR_Stmt *iron_hir_stmt_block(IronHIR_Module *mod, IronHIR_Block *block,
 IronHIR_Stmt *iron_hir_stmt_expr(IronHIR_Module *mod, IronHIR_Expr *expr,
                                    Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_expr");
     memset(s, 0, sizeof(*s));
     s->kind           = IRON_HIR_STMT_EXPR;
     s->span           = span;
@@ -215,6 +229,7 @@ IronHIR_Stmt *iron_hir_stmt_expr(IronHIR_Module *mod, IronHIR_Expr *expr,
 IronHIR_Stmt *iron_hir_stmt_free(IronHIR_Module *mod, IronHIR_Expr *value,
                                    Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_free");
     memset(s, 0, sizeof(*s));
     s->kind            = IRON_HIR_STMT_FREE;
     s->span            = span;
@@ -226,6 +241,7 @@ IronHIR_Stmt *iron_hir_stmt_spawn(IronHIR_Module *mod, const char *handle_name,
                                     IronHIR_Block *body, const char *lifted_name,
                                     Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_spawn");
     memset(s, 0, sizeof(*s));
     s->kind               = IRON_HIR_STMT_SPAWN;
     s->span               = span;
@@ -238,6 +254,7 @@ IronHIR_Stmt *iron_hir_stmt_spawn(IronHIR_Module *mod, const char *handle_name,
 IronHIR_Stmt *iron_hir_stmt_leak(IronHIR_Module *mod, IronHIR_Expr *value,
                                    Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_leak");
     memset(s, 0, sizeof(*s));
     s->kind        = IRON_HIR_STMT_LEAK;
     s->span        = span;
@@ -250,6 +267,7 @@ IronHIR_Stmt *iron_hir_stmt_leak(IronHIR_Module *mod, IronHIR_Expr *value,
 IronHIR_Expr *iron_hir_expr_int_lit(IronHIR_Module *mod, int64_t value,
                                       Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_int_lit");
     memset(e, 0, sizeof(*e));
     e->kind          = IRON_HIR_EXPR_INT_LIT;
     e->span          = span;
@@ -261,6 +279,7 @@ IronHIR_Expr *iron_hir_expr_int_lit(IronHIR_Module *mod, int64_t value,
 IronHIR_Expr *iron_hir_expr_float_lit(IronHIR_Module *mod, double value,
                                         Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_float_lit");
     memset(e, 0, sizeof(*e));
     e->kind            = IRON_HIR_EXPR_FLOAT_LIT;
     e->span            = span;
@@ -272,6 +291,7 @@ IronHIR_Expr *iron_hir_expr_float_lit(IronHIR_Module *mod, double value,
 IronHIR_Expr *iron_hir_expr_string_lit(IronHIR_Module *mod, const char *value,
                                          Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_string_lit");
     memset(e, 0, sizeof(*e));
     e->kind             = IRON_HIR_EXPR_STRING_LIT;
     e->span             = span;
@@ -284,6 +304,7 @@ IronHIR_Expr *iron_hir_expr_interp_string(IronHIR_Module *mod,
                                             IronHIR_Expr **parts, int part_count,
                                             Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_interp_string");
     memset(e, 0, sizeof(*e));
     e->kind                    = IRON_HIR_EXPR_INTERP_STRING;
     e->span                    = span;
@@ -296,6 +317,7 @@ IronHIR_Expr *iron_hir_expr_interp_string(IronHIR_Module *mod,
 IronHIR_Expr *iron_hir_expr_bool_lit(IronHIR_Module *mod, bool value,
                                        Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_bool_lit");
     memset(e, 0, sizeof(*e));
     e->kind           = IRON_HIR_EXPR_BOOL_LIT;
     e->span           = span;
@@ -307,6 +329,7 @@ IronHIR_Expr *iron_hir_expr_bool_lit(IronHIR_Module *mod, bool value,
 IronHIR_Expr *iron_hir_expr_null_lit(IronHIR_Module *mod, Iron_Type *type,
                                        Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_null_lit");
     memset(e, 0, sizeof(*e));
     e->kind = IRON_HIR_EXPR_NULL_LIT;
     e->span = span;
@@ -318,6 +341,7 @@ IronHIR_Expr *iron_hir_expr_ident(IronHIR_Module *mod, IronHIR_VarId var_id,
                                     const char *name, Iron_Type *type,
                                     Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_ident");
     memset(e, 0, sizeof(*e));
     e->kind           = IRON_HIR_EXPR_IDENT;
     e->span           = span;
@@ -331,6 +355,7 @@ IronHIR_Expr *iron_hir_expr_binop(IronHIR_Module *mod, IronHIR_BinOp op,
                                     IronHIR_Expr *left, IronHIR_Expr *right,
                                     Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_binop");
     memset(e, 0, sizeof(*e));
     e->kind        = IRON_HIR_EXPR_BINOP;
     e->span        = span;
@@ -345,6 +370,7 @@ IronHIR_Expr *iron_hir_expr_unop(IronHIR_Module *mod, IronHIR_UnOp op,
                                    IronHIR_Expr *operand,
                                    Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_unop");
     memset(e, 0, sizeof(*e));
     e->kind          = IRON_HIR_EXPR_UNOP;
     e->span          = span;
@@ -358,6 +384,7 @@ IronHIR_Expr *iron_hir_expr_call(IronHIR_Module *mod, IronHIR_Expr *callee,
                                    IronHIR_Expr **args, int arg_count,
                                    Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_call");
     memset(e, 0, sizeof(*e));
     e->kind           = IRON_HIR_EXPR_CALL;
     e->span           = span;
@@ -373,6 +400,7 @@ IronHIR_Expr *iron_hir_expr_method_call(IronHIR_Module *mod, IronHIR_Expr *objec
                                           IronHIR_Expr **args, int arg_count,
                                           Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_method_call");
     memset(e, 0, sizeof(*e));
     e->kind                   = IRON_HIR_EXPR_METHOD_CALL;
     e->span                   = span;
@@ -388,6 +416,7 @@ IronHIR_Expr *iron_hir_expr_field_access(IronHIR_Module *mod, IronHIR_Expr *obje
                                            const char *field,
                                            Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_field_access");
     memset(e, 0, sizeof(*e));
     e->kind                = IRON_HIR_EXPR_FIELD_ACCESS;
     e->span                = span;
@@ -401,6 +430,7 @@ IronHIR_Expr *iron_hir_expr_index(IronHIR_Module *mod, IronHIR_Expr *array,
                                     IronHIR_Expr *index,
                                     Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_index");
     memset(e, 0, sizeof(*e));
     e->kind        = IRON_HIR_EXPR_INDEX;
     e->span        = span;
@@ -414,6 +444,7 @@ IronHIR_Expr *iron_hir_expr_slice(IronHIR_Module *mod, IronHIR_Expr *array,
                                     IronHIR_Expr *start, IronHIR_Expr *end,
                                     Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_slice");
     memset(e, 0, sizeof(*e));
     e->kind        = IRON_HIR_EXPR_SLICE;
     e->span        = span;
@@ -431,6 +462,7 @@ IronHIR_Expr *iron_hir_expr_closure(IronHIR_Module *mod,
                                       Iron_CaptureEntry *captures, int capture_count,
                                       Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_closure");
     memset(e, 0, sizeof(*e));
     e->kind                        = IRON_HIR_EXPR_CLOSURE;
     e->span                        = span;
@@ -450,6 +482,7 @@ IronHIR_Expr *iron_hir_expr_heap(IronHIR_Module *mod, IronHIR_Expr *inner,
                                    bool auto_free, bool escapes,
                                    Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_heap");
     memset(e, 0, sizeof(*e));
     e->kind           = IRON_HIR_EXPR_HEAP;
     e->span           = span;
@@ -463,6 +496,7 @@ IronHIR_Expr *iron_hir_expr_heap(IronHIR_Module *mod, IronHIR_Expr *inner,
 IronHIR_Expr *iron_hir_expr_rc(IronHIR_Module *mod, IronHIR_Expr *inner,
                                  Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_rc");
     memset(e, 0, sizeof(*e));
     e->kind     = IRON_HIR_EXPR_RC;
     e->span     = span;
@@ -476,6 +510,7 @@ IronHIR_Expr *iron_hir_expr_construct(IronHIR_Module *mod, Iron_Type *type,
                                         IronHIR_Expr **field_values, int field_count,
                                         Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_construct");
     memset(e, 0, sizeof(*e));
     e->kind                   = IRON_HIR_EXPR_CONSTRUCT;
     e->span                   = span;
@@ -491,6 +526,7 @@ IronHIR_Expr *iron_hir_expr_array_lit(IronHIR_Module *mod, Iron_Type *elem_type,
                                         IronHIR_Expr **elements, int element_count,
                                         Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_array_lit");
     memset(e, 0, sizeof(*e));
     e->kind                     = IRON_HIR_EXPR_ARRAY_LIT;
     e->span                     = span;
@@ -504,6 +540,7 @@ IronHIR_Expr *iron_hir_expr_array_lit(IronHIR_Module *mod, Iron_Type *elem_type,
 IronHIR_Expr *iron_hir_expr_await(IronHIR_Module *mod, IronHIR_Expr *handle,
                                     Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_await");
     memset(e, 0, sizeof(*e));
     e->kind             = IRON_HIR_EXPR_AWAIT;
     e->span             = span;
@@ -515,6 +552,7 @@ IronHIR_Expr *iron_hir_expr_await(IronHIR_Module *mod, IronHIR_Expr *handle,
 IronHIR_Expr *iron_hir_expr_cast(IronHIR_Module *mod, IronHIR_Expr *value,
                                    Iron_Type *target_type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_cast");
     memset(e, 0, sizeof(*e));
     e->kind              = IRON_HIR_EXPR_CAST;
     e->span              = span;
@@ -527,6 +565,7 @@ IronHIR_Expr *iron_hir_expr_cast(IronHIR_Module *mod, IronHIR_Expr *value,
 IronHIR_Expr *iron_hir_expr_is_null(IronHIR_Module *mod, IronHIR_Expr *value,
                                       Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_is_null");
     memset(e, 0, sizeof(*e));
     e->kind             = IRON_HIR_EXPR_IS_NULL;
     e->span             = span;
@@ -538,6 +577,7 @@ IronHIR_Expr *iron_hir_expr_is_null(IronHIR_Module *mod, IronHIR_Expr *value,
 IronHIR_Expr *iron_hir_expr_is_not_null(IronHIR_Module *mod, IronHIR_Expr *value,
                                           Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_is_not_null");
     memset(e, 0, sizeof(*e));
     e->kind             = IRON_HIR_EXPR_IS_NOT_NULL;
     e->span             = span;
@@ -549,6 +589,7 @@ IronHIR_Expr *iron_hir_expr_is_not_null(IronHIR_Module *mod, IronHIR_Expr *value
 IronHIR_Expr *iron_hir_expr_func_ref(IronHIR_Module *mod, const char *func_name,
                                        Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_func_ref");
     memset(e, 0, sizeof(*e));
     e->kind                = IRON_HIR_EXPR_FUNC_REF;
     e->span                = span;
@@ -564,6 +605,7 @@ IronHIR_Expr *iron_hir_expr_parallel_for(IronHIR_Module *mod,
                                            Iron_Type *type, const char *lifted_name,
                                            Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_parallel_for");
     memset(e, 0, sizeof(*e));
     e->kind                          = IRON_HIR_EXPR_PARALLEL_FOR;
     e->span                          = span;
@@ -578,6 +620,7 @@ IronHIR_Expr *iron_hir_expr_parallel_for(IronHIR_Module *mod,
 IronHIR_Expr *iron_hir_expr_comptime(IronHIR_Module *mod, IronHIR_Expr *inner,
                                        Iron_Type *type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_comptime");
     memset(e, 0, sizeof(*e));
     e->kind          = IRON_HIR_EXPR_COMPTIME;
     e->span          = span;
@@ -589,6 +632,7 @@ IronHIR_Expr *iron_hir_expr_comptime(IronHIR_Module *mod, IronHIR_Expr *inner,
 IronHIR_Expr *iron_hir_expr_is(IronHIR_Module *mod, IronHIR_Expr *value,
                                  Iron_Type *check_type, Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_is");
     memset(e, 0, sizeof(*e));
     e->kind                = IRON_HIR_EXPR_IS;
     e->span                = span;
@@ -605,6 +649,7 @@ IronHIR_Expr *iron_hir_expr_enum_construct(IronHIR_Module *mod, Iron_Type *type,
                                              IronHIR_Expr **args, int arg_count,
                                              Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_enum_construct");
     memset(e, 0, sizeof(*e));
     e->kind                          = IRON_HIR_EXPR_ENUM_CONSTRUCT;
     e->span                          = span;
@@ -627,6 +672,7 @@ IronHIR_Expr *iron_hir_expr_pattern(IronHIR_Module *mod,
                                       int binding_count,
                                       Iron_Span span) {
     IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_pattern");
     memset(e, 0, sizeof(*e));
     e->kind                          = IRON_HIR_EXPR_PATTERN;
     e->span                          = span;
