@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: 66-05-PLAN.md (Phase 66 complete)
-status: completed
-stopped_at: Completed 66-05-PLAN.md
-last_updated: "2026-04-13T03:31:56.611Z"
-last_activity: 2026-04-13 — 66-05 shipped PROT-03 M-severity walkthrough across typecheck.c + resolve.c + iron_net.c + emit_c.c + emit_structs.c + lir_optimize.c; 17 new IRON_NODE_ASSERT_KIND call sites added (cumulative 29 across src/); 5 unenumerated bonus sibling rows covered; iron_net.c:594 const-strip cast replaced with local heap buffer + free; phi-to-load _Static_assert pinning union-fit invariant; integration suite 352/352 pass; Phase 66 complete (5/5 plans shipped)
+current_plan: Phase 67 Plan 01 complete; 67-02 next (FIX-01 H-severity alloc-fail walkthrough + iron_oom_abort helper)
+status: Phase 67 kicked off — 67-01 shipped audit-status verification doc; 67-02..67-08 remain
+stopped_at: Completed 67-01-PLAN.md (audit status verification)
+last_updated: "2026-04-13T15:10:11Z"
+last_activity: "2026-04-13 — 67-01 shipped 67-AUDIT-STATUS.md verifying 13 DONE / 7 OPEN top-20 rows against head commit 9792e87 + Wasm re-audit across all 6 post-merge WebAssembly files + 1 new H-severity finding (Wasm-W1 emit_web.c:278 unchecked FrameState_* malloc) + plan-assignment table distributing OPEN rows across 67-02..67-08"
 progress:
   total_phases: 32
   completed_phases: 12
-  total_plans: 48
-  completed_plans: 46
-  percent: 96
+  total_plans: 56
+  completed_plans: 47
+  percent: 84
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 66 of 70 (Structural Protections + Linux Release CI) — complete (5/5 plans shipped: 66-01, 66-02, 66-03, 66-04, 66-05)
-Current Plan: Phase 66 complete; ready to plan Phase 67 (REG-02 crash-canary fixtures + FIX-01..04)
-Status: Phase 66 fully shipped — PROT-01..04 + REG-01 + REG-04 + cumulative PROT-03 walkthrough coverage across every enumerated AUDIT-01 blind-cast row
-Last activity: 2026-04-13 — 66-05 shipped PROT-03 M-severity walkthrough across typecheck.c + resolve.c + iron_net.c + emit_c.c + emit_structs.c + lir_optimize.c; 17 new IRON_NODE_ASSERT_KIND call sites added (cumulative 29 across src/); 5 unenumerated bonus sibling rows covered; iron_net.c:594 const-strip cast replaced with local heap buffer + free; phi-to-load _Static_assert pinning union-fit invariant; integration suite 352/352 pass; Phase 66 complete (5/5 plans shipped)
+Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 1/8 plans shipped (67-01 audit-status verification)
+Current Plan: Phase 67 Plan 01 complete; 67-02 next (FIX-01 H-severity alloc-fail walkthrough + iron_oom_abort helper)
+Status: Phase 67 kicked off — 67-01 shipped audit-status verification doc; 67-02..67-08 remain
+Last activity: 2026-04-13 — 67-01 shipped 67-AUDIT-STATUS.md verifying 13 DONE / 7 OPEN top-20 rows against head commit 9792e87 + Wasm re-audit across all 6 post-merge WebAssembly files + 1 new H-severity finding (Wasm-W1 emit_web.c:278 unchecked FrameState_* malloc) + plan-assignment table distributing OPEN rows across 67-02..67-08
 
-Progress: [██████████] 96%
+Progress: [████████▌ ] 84%
 
 ## Performance Metrics
 
@@ -93,6 +93,7 @@ Progress: [██████████] 96%
 | Phase 66-structural-protections-linux-release-ci P02 | 25min | 1 tasks | 24 files |
 | Phase 66-structural-protections-linux-release-ci P03 | 54min | 3 tasks | 15 files |
 | Phase 66-structural-protections-linux-release-ci P05 | 55min | 3 tasks | 6 files |
+| Phase 67-correctness-fixes-+-crash-canaries P01 | 6min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -232,6 +233,10 @@ Progress: [██████████] 96%
 - [Phase 66-structural-protections P05]: iron_net.c row 24 fix caps the local recv buffer at 64 KiB to avoid unbounded heap allocation if a caller passes a maliciously large Iron_String capacity; the function (Iron_tcpsocket_read) is broken-by-design (Iron_String is value-typed and immutable, the recv'd bytes are effectively discarded) and the fix's comment block makes that explicit
 - [Phase 66-structural-protections P05]: 5 unenumerated bonus sibling rows (typecheck.c:2359, emit_c.c:4525, emit_structs.c:606, plus typecheck.c bonus IsExpr/Block sites) covered as siblings of nearby enumerated rows because the audit's intent is "every cast of this shape in the flagged file"; broader cross-file sweeps deferred to Phase 67
 - [Phase 66-structural-protections P05]: Cumulative PROT-03 coverage across Plan 03 + Plan 05 reaches 29 IRON_NODE_ASSERT_KIND call sites + 38 PROT-03/04 markers in src/, exceeding the plan's minimum thresholds (27 ASSERT_KIND, 34 markers); every explicitly enumerated AUDIT-01 §1 blind-cast row 1-34 is now structurally protected; Phase 66 ROADMAP success criterion satisfied
+- [Phase 67-correctness-fixes P01]: Verified every DONE-row grep claim against live source at head 9792e87 before trusting Phase 66 summary text — caught drift in escape.c (251 → 291) and typecheck.c (1785 → 1868) and resolve.c (674/680 → 726/745) and comptime.c (474 → 493); documented post-drift line numbers in 67-AUDIT-STATUS.md so downstream plans grep against reality
+- [Phase 67-correctness-fixes P01]: Classified case-label switches as structurally equivalent to IRON_NODE_ASSERT_KIND for Wasm blind-cast audit — 24 `(Iron_<Kind>*)node` casts in web_await_check.c + web_top_level_loader_check.c all sit inside `case IRON_NODE_<Kind>:` branches of `switch ((int)(node->kind))`, so the case label IS the kind proof and no additional ASSERT_KIND is needed
+- [Phase 67-correctness-fixes P01]: One new H-severity Wasm finding (Wasm-W1) at src/lir/emit_web.c:278 — web main-loop wrapper emits `FrameState_* state = (FrameState_* )malloc(sizeof(FrameState_*))` into generated C with no NULL check before `memset(state, 0, ...)`. Same class as ranks 3/4 but in web emitter. Routed to 67-02 so a single plan lands iron_oom_abort helper + all 5 generated-code OOM sites (native HEAP_ALLOC + RC_ALLOC + web FrameState).
+- [Phase 67-correctness-fixes P01]: build_web.c host-side allocation is exemplary — every one of 16 malloc/strdup call sites is explicitly NULL-checked with full error-path cleanup (spot-verified at lines 41-53, 85-96, 128-137, 246-259, 509-519, 645-723). Zero Wasm findings for host-side CLI orchestration.
 
 ### Roadmap Evolution
 
