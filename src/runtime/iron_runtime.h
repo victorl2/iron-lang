@@ -8,6 +8,7 @@
                       * WIN32_LEAN_AND_MEAN strips transitive includes */
 
 #include "runtime/iron_errors.h"
+#include "diagnostics/diagnostics.h"  /* iron_oom_abort for IRON_LIST/MAP/SET OOM paths (FIX-01, Phase 67) */
 
 /* ── Platform atomic abstraction ────────────────────────────────────────── */
 #ifdef _WIN32
