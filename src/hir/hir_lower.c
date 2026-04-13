@@ -96,13 +96,8 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node);
 static void lower_block_hir(IronHIR_LowerCtx *ctx, Iron_Block *block,
                              IronHIR_Block *out);
 
-/* ── Common layout prefix for all expression nodes ───────────────────────── */
-
-typedef struct {
-    Iron_Span         span;
-    Iron_NodeKind     kind;
-    struct Iron_Type *resolved_type;
-} Iron_ExprNode;
+/* Iron_ExprNode lives in src/parser/ast.h now (Phase 66 PROT-01). expr_type()
+ * below uses the shared typedef — the layout is compile-time-enforced there. */
 
 static Iron_Type *expr_type(Iron_Node *node) {
     if (!node) return NULL;

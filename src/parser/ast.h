@@ -4,6 +4,7 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Forward declarations for semantic annotation fields.
@@ -94,6 +95,22 @@ typedef struct Iron_Node {
     Iron_Span     span;
     Iron_NodeKind kind;
 } Iron_Node;
+
+/* ── Expression node prefix (PROT-01) ────────────────────────────────────────
+ * Every expression AST type (Iron_IntLit, Iron_Ident, Iron_BinaryExpr, ...)
+ * begins with the same three-field prefix. This typedef lets a caller access
+ * `resolved_type` on any expression node via a single generic path instead of
+ * branching on kind first. The _Static_assert block at the bottom of this
+ * header enforces the layout on every expression type at compile time — adding
+ * a new expression type with a wrong field order fails the build immediately.
+ *
+ * Moved to ast.h in Phase 66 (PROT-01). Previous home: src/hir/hir_lower.c.
+ */
+typedef struct Iron_ExprNode {
+    Iron_Span         span;
+    Iron_NodeKind     kind;
+    struct Iron_Type *resolved_type;
+} Iron_ExprNode;
 
 /* ── Forward-declare token kind for operators stored in nodes ────────────── */
 /* We need Iron_TokenKind from lexer.h but avoid a circular include.
@@ -590,5 +607,54 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v);
 
 /* Return a human-readable name for the node kind. */
 const char *iron_node_kind_str(Iron_NodeKind kind);
+
+/* ── Expression prefix layout enforcement (PROT-01) ──────────────────────────
+ * Each expression AST type must begin with {Iron_Span span; Iron_NodeKind kind;
+ * struct Iron_Type *resolved_type;} in that exact order. The compile-time
+ * asserts below lock this layout so that `Iron_ExprNode *` reads correctly
+ * regardless of the concrete expression type, and so that any future expression
+ * type is forced to adopt the prefix.
+ *
+ * If one of these asserts fires: either the new type is not an expression
+ * (remove it from the list) or its fields need reordering to match the prefix.
+ */
+#define IRON_ASSERT_EXPR_PREFIX(T)                                              \
+    _Static_assert(offsetof(T, span) == offsetof(Iron_ExprNode, span),          \
+                   #T " must begin with Iron_Span span");                       \
+    _Static_assert(offsetof(T, kind) == offsetof(Iron_ExprNode, kind),          \
+                   #T " must have Iron_NodeKind kind after span");              \
+    _Static_assert(offsetof(T, resolved_type) ==                                \
+                       offsetof(Iron_ExprNode, resolved_type),                  \
+                   #T " must have resolved_type after kind");                   \
+    _Static_assert(sizeof(((T*)0)->span) == sizeof(Iron_Span),                  \
+                   #T " span field size mismatch");                             \
+    _Static_assert(sizeof(((T*)0)->kind) == sizeof(Iron_NodeKind),              \
+                   #T " kind field size mismatch")
+
+IRON_ASSERT_EXPR_PREFIX(Iron_IntLit);
+IRON_ASSERT_EXPR_PREFIX(Iron_FloatLit);
+IRON_ASSERT_EXPR_PREFIX(Iron_StringLit);
+IRON_ASSERT_EXPR_PREFIX(Iron_InterpString);
+IRON_ASSERT_EXPR_PREFIX(Iron_BoolLit);
+IRON_ASSERT_EXPR_PREFIX(Iron_NullLit);
+IRON_ASSERT_EXPR_PREFIX(Iron_Ident);
+IRON_ASSERT_EXPR_PREFIX(Iron_BinaryExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_UnaryExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_CallExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_MethodCallExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_FieldAccess);
+IRON_ASSERT_EXPR_PREFIX(Iron_IndexExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_SliceExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_LambdaExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_HeapExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_RcExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_ComptimeExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_IsExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_AwaitExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_ConstructExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_ArrayLit);
+IRON_ASSERT_EXPR_PREFIX(Iron_EnumConstruct);
+
+#undef IRON_ASSERT_EXPR_PREFIX
 
 #endif /* IRON_AST_H */
