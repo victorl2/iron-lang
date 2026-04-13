@@ -1,0 +1,76 @@
+-- Regression: FIX-01 rank 19 — atoi(num->value) for enum variant values.
+--
+-- **Motivating Incident.** Phase 65 audit row §5.1 (top-20 rank 19) flagged
+-- src/parser/parser.c:2585 — the parser used `atoi(num->value)` to read
+-- explicit enum variant values. atoi has undefined behavior on overflow
+-- (C11 7.22.1.1p2) and performs no range validation. User code like
+--     enum X { BIG = 99999999999999 }
+-- could produce wrong tags, parser wraparound, or (on optimizer upgrade)
+-- silently miscompile the entire enum without any diagnostic. The cast to
+-- `(int)` compounds the problem by narrowing any value that survived atoi
+-- into a second layer of implementation-defined conversion.
+--
+-- **Layout Diagram.** Pre-fix (parser.c:2585):
+--     if (iron_check(p, IRON_TOK_INTEGER)) {
+--         Iron_Token *num = iron_advance(p);
+--         v->has_explicit_value = true;
+--         v->explicit_value     = (int)atoi(num->value);   // UB on overflow
+--     }
+--
+-- Post-fix:
+--     errno = 0;
+--     char *end = NULL;
+--     long parsed = strtol(num->value, &end, 10);
+--     bool consumed_all = (end != NULL && *end == '\0' && end != num->value);
+--     if (errno == ERANGE || !consumed_all ||
+--         parsed > (long)INT_MAX || parsed < (long)INT_MIN) {
+--         char msg[160];
+--         snprintf(msg, sizeof(msg),
+--                  "enum variant value '%s' out of range (expected int32 ...)",
+--                  num->value);
+--         iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+--                        iron_token_span(p, num), msg);
+--         v->explicit_value = 0;  /* defensive fallback */
+--     } else {
+--         v->explicit_value = (int)parsed;
+--     }
+--
+-- **Fix Summary.** Phase 67-03 Task 2 rewrote the enum-variant
+-- explicit-value parser branch to use strtol with full range validation:
+-- errno == ERANGE catches the overflow case, the INT_MIN/INT_MAX bounds
+-- catch values that fit long on a 64-bit host but not int32, and the
+-- endptr-consumed check rejects mixed-token junk. The defensive fallback
+-- of 0 keeps the parse tree well-formed so downstream type-checking can
+-- continue and surface other errors. This fixture exercises the in-range
+-- path (including exactly INT_MAX = 2147483647) and compiles cleanly.
+-- Out-of-range values would now produce a parser diagnostic instead of
+-- atoi UB; since run_integration.sh has no .expected-error mode, the
+-- diagnostic path is verified by grep on the source-level acceptance
+-- criteria in 67-03 PLAN Task 2.
+--
+-- **Severity.** H (audit top-20 rank 19) — UB in user-controlled parser
+-- input is the exact bug class Phase 67 was created to eliminate.
+
+enum Priority {
+  LOW = 1,
+  MEDIUM = 50,
+  HIGH = 100,
+  MAX_INT = 2147483647,
+}
+
+func describe(p: Priority) -> String {
+  match p {
+    Priority.LOW -> return "low"
+    Priority.MEDIUM -> return "med"
+    Priority.HIGH -> return "high"
+    Priority.MAX_INT -> return "max"
+  }
+  return "unknown"
+}
+
+func main() {
+  println(describe(Priority.LOW))
+  println(describe(Priority.MEDIUM))
+  println(describe(Priority.HIGH))
+  println(describe(Priority.MAX_INT))
+}

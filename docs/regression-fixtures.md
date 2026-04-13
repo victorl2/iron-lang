@@ -160,6 +160,29 @@ confirm the guard string is present in the emitted code.
 - `tests/integration/null_rc_alloc_malloc.iron` — `rc` keyword RC_ALLOC
   malloc guard (emit_c.c IRON_LIR_RC_ALLOC case, post-Phase-67-02 drift).
 
+### Phase 67 Plan 03 (FIX-01 ranks 14 + 15 + 19 — integer safety)
+
+Landed with the comptime arithmetic overflow rewrite, the comptime
+unary-negation INT64_MIN guard, and the parser enum-variant `atoi -> strtol`
+replacement. Each fixture exercises the non-overflow code path with values
+deliberately close to the limit so the rewritten branches run on every
+compiler build; the diagnostic paths are verified by source-level grep on
+the acceptance criteria in 67-03-PLAN.md (run_integration.sh has no
+`.expected-error` mode, so the safe-path + grep split is the canonical
+structure for integer-safety canaries this phase).
+
+- `tests/integration/int_comptime_arith_overflow.iron` — comptime
+  `+`, `-`, `*` rewritten to `__builtin_add/sub/mul_overflow` with
+  `IRON_ERR_COMPTIME_ERROR` emission on overflow (comptime.c:410-412 site;
+  FIX-01 rank 14).
+- `tests/integration/int_comptime_neg_min.iron` — comptime unary `-`
+  guarded against INT64_MIN before the C negation (comptime.c:493 site;
+  FIX-01 rank 15).
+- `tests/integration/int_enum_value_overflow.iron` — parser enum variant
+  explicit-value path rewritten from `atoi(num->value)` to
+  `strtol + errno/ERANGE + INT_MIN/INT_MAX + endptr-consumed` with
+  `iron_emit_diag` on out-of-range (parser.c:2585 site; FIX-01 rank 19).
+
 ### Phase 67 REG-02 (crash-canary fixtures — planned)
 
 Phase 67 will add one fixture per AST node kind that the HIR-to-LIR walker

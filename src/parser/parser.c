@@ -5,8 +5,11 @@
 #include "util/arena.h"
 #include "stb_ds.h"
 
+#include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 /* ── Precedence levels (Pratt) ────────────────────────────────────────────── */
@@ -2582,7 +2585,27 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
             if (iron_check(p, IRON_TOK_INTEGER)) {
                 Iron_Token *num = iron_advance(p);
                 v->has_explicit_value = true;
-                v->explicit_value     = (int)atoi(num->value);
+                /* FIX-01 rank 19: atoi has UB on overflow and no range
+                 * validation (C11 7.22.1.1p2). Use strtol + errno/ERANGE
+                 * + INT_MIN/INT_MAX bounds so out-of-range enum variant
+                 * values become a parse error instead of silently
+                 * producing wrong tags on optimizer upgrade. */
+                errno = 0;
+                char *end = NULL;
+                long parsed = strtol(num->value, &end, 10);
+                bool consumed_all = (end != NULL && *end == '\0' && end != num->value);
+                if (errno == ERANGE || !consumed_all ||
+                    parsed > (long)INT_MAX || parsed < (long)INT_MIN) {
+                    char msg[160];
+                    snprintf(msg, sizeof(msg),
+                             "enum variant value '%s' out of range (expected int32 in [INT_MIN, INT_MAX])",
+                             num->value);
+                    iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, num), msg);
+                    v->explicit_value = 0;  /* defensive fallback keeps parse tree well-formed */
+                } else {
+                    v->explicit_value = (int)parsed;
+                }
             }
         }
         arrput(variants, (Iron_Node *)v);
