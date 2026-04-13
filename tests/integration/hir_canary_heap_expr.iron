@@ -1,0 +1,46 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_EXPR_HEAP.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because of a locally-
+-- shadowed struct typedef. Heap-expression dispatch is structurally
+-- risky because it lowers to LIR IRON_LIR_HEAP_ALLOC + constructor
+-- call, and the emit_c.c HEAP_ALLOC case is precisely the rank-3
+-- FIX-01 site where Phase 67-02 added an iron_oom_abort guard on
+-- the generated-C malloc path. Walker cases that handle HEAP but
+-- fail to recurse into the constructor args silently drop the
+-- initializer values, producing a zero-initialized heap object at
+-- runtime. Phase 66 added -Werror=switch-enum to catch missing
+-- `case IRON_HIR_EXPR_HEAP:` at compile time, and Phase 67-02 added
+-- the generated-C OOM guard. This canary is the runtime regression
+-- net for the HEAP walker dispatch path.
+--
+-- **Layout Diagram.** Iron_HeapExpr carries
+--   { span, kind, type_ref, constructor_args[], constructor_arg_count }
+-- Walker cases that fail to recurse into constructor_args drop the
+-- initializer values; cases that ignore type_ref dispatch to the
+-- default allocation type (sizeof void*) at codegen time.
+-- Complements tests/integration/null_heap_alloc_malloc.iron which
+-- is the Phase 67-02 OOM-guard fixture for the same code path.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Overlaps deliberately with null_heap_alloc_malloc.iron --
+-- that one is the FIX-01 rank-3 fixture, this is the REG-02
+-- catalogue entry. CI integration: runs in both Debug and Release
+-- via Phase 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- `heap` is used by every
+-- Iron program that allocates an object outside the current stack
+-- frame, and a walker regression would corrupt every heap
+-- constructor call on the program.
+
+object Point {
+  var x: Int
+  var y: Int
+}
+
+func main() {
+  val p = heap Point(3, 4)
+  println("x: {p.x}")
+  println("y: {p.y}")
+  println("sum: {p.x + p.y}")
+}

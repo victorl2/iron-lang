@@ -197,11 +197,63 @@ Landed with the 16-row AUDIT-04 walkthrough.
   now reclaimed. AUDIT-04 §8 closed. Matching fixture expected output
   `102` is derived from `[1..10] → +1 → *2 → filter(>10) → sum`.
 
-### Phase 67 REG-02 (crash-canary fixtures — planned)
+### Phase 67-08 (REG-02 crash-canary fixtures)
 
-Phase 67 will add one fixture per AST node kind that the HIR-to-LIR walker
-handles. Each follows this template with the Motivating Incident section
-quoting the specific walker incompleteness the canary targets.
+Phase 67-08 added 15 crash-canary fixtures, one per AST node kind family
+the HIR-to-LIR walker handles. Each compiles cleanly in both Debug and
+Release CI and round-trips a deterministic integer-only output. Fixtures
+exercising partial features ship with a `# KNOWN GAP: <future-phase>`
+header documenting the gap and pointing at the phase that will close
+it. These canaries are the runtime regression net complementing Phase
+66's structural protections (PROT-01..04, REG-01 Linux Release CI job,
+`-Werror=switch-enum`, `IRON_NODE_ASSERT_KIND` debug guards). Any future
+change to `src/hir/hir_to_lir.c` that regresses the walker's handling of
+a specific node kind family turns the corresponding canary red
+immediately.
+
+- `tests/integration/hir_canary_if_elif_else.iron` — `IRON_HIR_STMT_IF`
+  with `elif` chain (catalogue entry complementing the original
+  `hir_to_lir_elif_mono_walker.iron` Phase 59 fixture).
+- `tests/integration/hir_canary_while.iron` — `IRON_HIR_STMT_WHILE`
+  (classic sum-1-to-N accumulator).
+- `tests/integration/hir_canary_for.iron` — `IRON_HIR_STMT_FOR`
+  (factorial + sum-of-squares over `range(n)`).
+- `tests/integration/hir_canary_assign.iron` — `IRON_HIR_STMT_ASSIGN`
+  including the compound forms `+=`, `-=`, `*=`.
+- `tests/integration/hir_canary_nested_if.iron` — nested
+  `IRON_HIR_STMT_IF` at depth 2, exercising walker recursion into an
+  IfStmt whose body/else\_body both contain further IfStmt nodes.
+- `tests/integration/hir_canary_match.iron` — `IRON_HIR_STMT_MATCH`
+  with four arms over an integer scrutinee.
+- `tests/integration/hir_canary_spawn.iron` — `IRON_HIR_STMT_SPAWN`
+  single-spawn-with-await pattern returning a deterministic Int.
+- `tests/integration/hir_canary_parallel_for.iron` —
+  `IRON_HIR_EXPR_PARALLEL_FOR` (outer-scope-free body + sequential
+  aggregate for deterministic output).
+- `tests/integration/hir_canary_tuple_destructure.iron` — 2-tuple
+  destructure only, with a `KNOWN GAP` header noting that 3+ tuple
+  destructure is a pre-existing gap (Iron v0.1.4-alpha 2-tuple-only
+  codegen, not a Phase 67 bug).
+- `tests/integration/hir_canary_enum_construct.iron` —
+  `IRON_HIR_EXPR_ENUM_CONSTRUCT` with a 3-variant enum + method-on-self
+  match (complements `enum_construct_reinterpret.iron`).
+- `tests/integration/hir_canary_method_call.iron` —
+  `IRON_HIR_EXPR_METHOD_CALL` (instance method on an extends-less
+  object); ships with a `KNOWN GAP` header noting `super.method()`
+  dispatch is deferred to a future phase.
+- `tests/integration/hir_canary_static_call.iron` — static/namespace
+  call dispatch via `Math.sign(x)` (the only stdlib static call that
+  returns an integer, making it the one deterministic integer-only
+  option).
+- `tests/integration/hir_canary_lambda.iron` —
+  `IRON_HIR_EXPR_CLOSURE` lambda without capture (`func(x: Int) -> Int`).
+- `tests/integration/hir_canary_closure_capture.iron` — closure
+  capture of mutable outer state via `+=` inside the closure body;
+  complements the Phase 67-02 FIX-01 rank-3 closure-env malloc guard.
+- `tests/integration/hir_canary_heap_expr.iron` —
+  `IRON_HIR_EXPR_HEAP` via `heap Point(x, y)`; overlaps deliberately
+  with `null_heap_alloc_malloc.iron` (that one is the Phase 67-02
+  FIX-01 rank-3 OOM-guard fixture; this is the REG-02 catalogue entry).
 
 ## Why This Matters
 

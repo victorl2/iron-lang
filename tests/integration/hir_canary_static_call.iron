@@ -1,0 +1,52 @@
+-- Regression: REG-02 crash-canary for static method dispatch
+-- (Type.method via stdlib namespace form).
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because of a locally-
+-- shadowed struct typedef. Static/namespace-style calls
+-- (`Math.sign(x)`, `Net.tcp_listen(...)`) lower through
+-- Iron_FuncRef + Iron_CallExpr where the func_ref carries a
+-- type-prefixed name that resolves at typecheck time to a free
+-- function on the stdlib type namespace. Walker cases that handle
+-- the generic CALL kind but mis-read the func_ref payload silently
+-- drop the type-qualified prefix and dispatch to the wrong function.
+-- Phase 66 added PROT-04 blind-cast rewrites for FUNC_REF sites and
+-- -Werror=switch-enum globally; this canary is the runtime regression
+-- net for namespace-style CALL dispatch.
+--
+-- **Layout Diagram.** Iron v0.1.4-alpha exposes namespace-style
+-- static calls via the stdlib `Math`, `Net`, `TcpListener`,
+-- `TcpSocket`, `Time` types. Each resolves via:
+--   Iron_CallExpr { callee: Iron_FuncRef { type_name, method_name },
+--                   args[] }
+-- Walker cases that fail to recurse into `type_name` drop the
+-- namespace prefix; cases that ignore `method_name` dispatch to the
+-- default function in the namespace.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Uses `Math.sign(x)` because it is the only stdlib static
+-- call that returns Int (every other Math.* returns Float, which is
+-- platform-format-sensitive in println). Note that Iron does not yet
+-- expose the `static` keyword for user-defined types -- user-space
+-- static method dispatch is synthesized at typecheck time via
+-- `func Type.method(args)` without a self parameter, but that idiom
+-- is not uniformly supported across Iron v0.1.4-alpha; this canary
+-- uses the documented stdlib form. CI integration: runs in both
+-- Debug and Release via Phase 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- static/namespace calls
+-- are used by every Iron program that touches stdlib Math, Net,
+-- Time, TcpListener, or TcpSocket.
+
+import math
+
+func main() {
+  val s1 = Math.sign(-7.5)    -- -1
+  val s2 = Math.sign(0.0)     -- 0
+  val s3 = Math.sign(4.2)     -- 1
+  val sum = s1 + s2 + s3      -- 0
+  println("s1: {s1}")
+  println("s2: {s2}")
+  println("s3: {s3}")
+  println("sum: {sum}")
+}

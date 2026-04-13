@@ -1,0 +1,45 @@
+-- Regression: REG-02 crash-canary for closure capture of mutable state.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because of a locally-
+-- shadowed struct typedef. Closure-with-capture is structurally
+-- different from a bare lambda: the walker must recurse into the
+-- captured_names[] array AND the closure body, and the lowered LIR
+-- materializes a closure environment struct + a malloc site for the
+-- environment. Walker cases that handle CLOSURE but fail to recurse
+-- into the capture list produce an empty environment at runtime,
+-- silently reading zero for every captured variable. Phase 67-02
+-- added an iron_oom_abort guard on the closure-env malloc path, and
+-- Phase 66 added -Werror=switch-enum globally; this canary is the
+-- runtime regression net for the capture-list dispatch path.
+--
+-- **Layout Diagram.** A capturing closure lowers to
+--   ClosureEnv { captured_a, captured_b, ... }  (heap-allocated)
+--   + Iron_FuncDecl { is_lambda=true, captured_names=[a, b, ...] }
+-- Walker cases that fail to recurse into captured_names drop the
+-- environment slots; cases that fail to recurse into the body drop
+-- every statement inside the closure. The resulting silent-wrong
+-- output is exactly the "passes compile, wrong at runtime" failure
+-- mode the Phase 37-02 bug caused.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Uses the `var count = 0` + `count += 1` inside closure
+-- pattern (see tests/integration/capture_02_mutate.iron and
+-- capture_20_game_state.iron for the canonical templates).
+-- CI integration: runs in both Debug and Release via Phase 66-04's
+-- build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- captures are exercised
+-- by every stateful callback / game-state Iron program, so a walker
+-- regression would produce silent wrong output on real code.
+
+func main() {
+  var count = 0
+  val bump = func() { count += 1 }
+  bump()
+  bump()
+  bump()
+  bump()
+  bump()
+  println("count: {count}")
+}

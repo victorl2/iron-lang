@@ -1,0 +1,50 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_EXPR_CLOSURE (lambda).
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because of a locally-
+-- shadowed struct typedef. Lambda expressions in Iron lower through
+-- Iron_FuncDecl { is_lambda=true, captured_names[], body } and the
+-- HIR walker must recurse into the body block to collect inner enum
+-- construction sites (the Phase 37-02 pass). Walker cases that
+-- handle CLOSURE but mis-recurse into the body silently drop every
+-- statement inside the lambda -- the same class of "passes compile,
+-- wrong at runtime" bug the Phase 37-02 motivating incident caused.
+-- Phase 66 added -Werror=switch-enum and PROT-04 blind-cast fixes;
+-- this canary is the runtime regression net.
+--
+-- **Layout Diagram.** Iron_FuncDecl (is_lambda=true) carries
+--   { span, kind, is_lambda, params[], return_type, body,
+--     captured_names[], captured_count }
+-- Walker cases that fail to recurse into `body` drop every statement
+-- inside the lambda; cases that fail to collect captured_names drop
+-- the closure environment.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Uses `func(x: Int) -> Int { ... }` lambda syntax (the
+-- supported Iron form) stored in a val and called indirectly. No
+-- captured outer state -- that is the companion fixture
+-- hir_canary_closure_capture.iron. CI integration: runs in both
+-- Debug and Release via Phase 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- lambdas are exercised by
+-- every functional-style Iron program, so a walker regression
+-- produces silently wrong output on real code.
+
+func main() {
+  val double = func(x: Int) -> Int {
+    return x * 2
+  }
+  val square = func(x: Int) -> Int {
+    return x * x
+  }
+  val inc = func(x: Int) -> Int {
+    return x + 1
+  }
+  val a = double(5)          -- 10
+  val b = square(7)          -- 49
+  val c = inc(square(3))     -- 10
+  println("a: {a}")
+  println("b: {b}")
+  println("c: {c}")
+  println("sum: {a + b + c}")
+}
