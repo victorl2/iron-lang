@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: 66-02
+current_plan: 66-03
 status: in-progress
-stopped_at: Completed 66-04-PLAN.md
-last_updated: "2026-04-13T00:38:43Z"
-last_activity: 2026-04-13 — 66-04 shipped REG-01 (build-and-test-release Linux Release CI job), hardened run_integration.sh crash detection, and landed docs/regression-fixtures.md 4-section template (REG-04)
+stopped_at: Completed 66-02-PLAN.md
+last_updated: "2026-04-13T01:36:48Z"
+last_activity: 2026-04-13 — 66-02 shipped PROT-02 (global -Werror=switch-enum on all non-MSVC targets), 17 AUDIT-02 M-severity enum-switch findings individually fixed, emit_c.c FFI cast if-chain converted to exhaustive switch, 82 /* -Wswitch-enum opt-out: */ audit trails across 21 source files
 progress:
   total_phases: 32
   completed_phases: 11
   total_plans: 48
-  completed_plans: 43
-  percent: 90
+  completed_plans: 44
+  percent: 92
 ---
 
 # Project State
@@ -31,19 +31,19 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (2/5 plans shipped: 66-01, 66-04)
-Current Plan: 66-02-PLAN.md (PROT-02: -Werror=switch-enum rollout)
-Status: Phase 66 Plan 01 + Plan 04 complete; ready for Plan 02 (PROT-02), Plan 03 (PROT-04 H-severity rewrites), Plan 05 (M/L IRON_NODE_ASSERT_KIND walkthrough)
-Last activity: 2026-04-13 — 66-04 shipped REG-01 (build-and-test-release Linux Release CI job), hardened run_integration.sh crash detection, and landed docs/regression-fixtures.md 4-section template (REG-04)
+Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (3/5 plans shipped: 66-01, 66-02, 66-04)
+Current Plan: 66-03-PLAN.md (PROT-04 H-severity blind-cast rewrites)
+Status: Phase 66 Plan 01 + Plan 02 + Plan 04 complete; ready for Plan 03 (PROT-04 H-severity rewrites), Plan 05 (M/L IRON_NODE_ASSERT_KIND walkthrough)
+Last activity: 2026-04-13 — 66-02 shipped PROT-02 (global -Werror=switch-enum on all non-MSVC targets), 17 AUDIT-02 M-severity enum-switch findings individually fixed, emit_c.c FFI cast if-chain converted to exhaustive switch, 82 /* -Wswitch-enum opt-out: */ audit trails across 21 source files
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
+- Total plans completed: 23
 - Average duration: 20min
-- Total execution time: ~6.3 hours
+- Total execution time: ~6.7 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -90,6 +90,7 @@ Progress: [█████████░] 90%
 | Phase 65-correctness-audit P06 | 7min | 2 tasks | 2 files |
 | Phase 66-structural-protections-linux-release-ci P01 | 17min | 3 tasks | 4 files |
 | Phase 66-structural-protections-linux-release-ci P04 | 15min | 3 tasks | 3 files |
+| Phase 66-structural-protections-linux-release-ci P02 | 25min | 1 tasks | 24 files |
 
 ## Accumulated Context
 
@@ -210,6 +211,11 @@ Progress: [█████████░] 90%
 - [Phase 66-structural-protections P04]: 'do not swallow SIGSEGV' written in lowercase twice in run_integration.sh as load-bearing acceptance-criteria grep tokens; future contributors may capitalize in new comments but these two instances must stay lowercase until the acceptance check is updated
 - [Phase 66-structural-protections P04]: docs/regression-fixtures.md lists the 6 Plan 03 PROT-04 fixture names as a forward reference — if Plan 03 chooses different names, the doc must be updated in the same commit to stay in sync (explicitly flagged in the doc body)
 - [Phase 66-structural-protections P04]: CI comment rephrased from 'Verify sanitizers step omitted' to 'Sanitizer-verification step omitted' so the new build-and-test-release block does not grep-match the Debug job's step name — acceptance-criteria grep asserts zero 'Verify sanitizers' occurrences in the new block
+- [Phase 66-structural-protections]: Phase 66 Plan 02: -Werror=switch-enum enabled globally on non-MSVC targets via single-line append to CMakeLists.txt:39 add_compile_options
+- [Phase 66-structural-protections]: Phase 66 Plan 02: Opt-out pattern is switch((int)expr->kind) + inline /* -Wswitch-enum opt-out: <reason> */ comment — formally an int switch so the flag does not fire, inline comment is the grep-visible audit trail (82 instances across 21 files)
+- [Phase 66-structural-protections]: Phase 66 Plan 02: collect_mono_enums_node now recurses into 16 additional Iron_NodeKind values (FOR, DEFER, SPAWN, FREE, LEAK, LAMBDA, INDEX, SLICE, ARRAY_LIT, CONSTRUCT, HEAP, RC, IS, AWAIT, COMPTIME, INTERP_STRING) — the motivating-bug-class fix that closes rank 13 from AUDIT-02
+- [Phase 66-structural-protections]: Phase 66 Plan 02: emit_c.c FFI cast dispatch rewritten from if-chain to exhaustive switch over Iron_TypeKind — STRING/INT/INT64/FLOAT64 are the only kinds rewritten and default falls through byte-identically
+- [Phase 66-structural-protections]: Phase 66 Plan 02: emit_helpers.c emit_type_to_c was already exhaustive and needed zero modification; iron_net.c WSA/errno translation switches are over int not Iron enums so -Werror=switch-enum never fires there; src/lexer/printer.c was a stale path — the actual file is src/parser/printer.c
 
 ### Roadmap Evolution
 
@@ -231,6 +237,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T00:38:43Z
-Stopped at: Completed 66-04-PLAN.md
+Last session: 2026-04-13T01:36:48.072Z
+Stopped at: Completed 66-02-PLAN.md
 Resume file: None
