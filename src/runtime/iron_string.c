@@ -71,6 +71,13 @@ Iron_String iron_string_from_cstr(const char *cstr, size_t byte_len) {
         /* Heap path */
         /* FIX-02: replace Phase 65 silent-truncation fallback with iron_oom_abort
          * for consistent OOM reporting (AUDIT-06 §21). */
+        /* FIX-03 / AUDIT-04 §10: SAFETY — cross-reference. Phase 65 audit row
+         * §4.10 flagged the silent SSO-truncation fallback on OOM as
+         * "caller cannot detect truncation". That fallback was REMOVED in
+         * Phase 67-06 (commit 85e925c) — the path now calls iron_oom_abort
+         * with a named location literal, so a grep of stderr during any
+         * OOM run pinpoints this exact site. Row 10 is closed by that
+         * earlier FIX-02 edit; no additional work required. */
         char *buf = (char *)malloc(byte_len + 1);
         if (!buf) iron_oom_abort("iron_string.c:iron_string_from_cstr");
         memcpy(buf, cstr, byte_len);
@@ -180,6 +187,29 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
  * IS WRONG and a DCL upgrade is required — see CONTEXT.md for the
  * upgrade playbook.
  */
+/* FIX-03 / AUDIT-04 §11: iron_string_intern OWNERSHIP CONTRACT.
+ *
+ * iron_string_intern takes ownership of the input Iron_String's heap
+ * allocation (`s.heap.data` when s.heap.flags & 0x01 is set AND the
+ * is_interned bit 0x02 is NOT yet set). If the input's content is already
+ * present in the intern table, this function frees the input's heap.data
+ * and returns the existing interned copy — the caller MUST NOT retain any
+ * pointer derived from `s.heap.data` (such as a prior `iron_string_cstr(&s)`
+ * result) after this call, because that pointer is a use-after-free.
+ *
+ * Callers MUST discard the input Iron_String value after interning and use
+ * the returned Iron_String instead. The Iron compiler's string-literal
+ * interning path (iron_string_from_literal in this file) already follows
+ * this contract: it assigns the return value to the same local and
+ * immediately uses that returned value. Any future caller that wants to
+ * keep both the input and the interned copy around must copy the input's
+ * bytes into a fresh Iron_String FIRST and then intern the copy.
+ *
+ * This comment makes the pre-existing runtime contract grep-visible. No
+ * code change — the contract is enforced by convention on every Iron
+ * string-literal path, not by runtime assertion (an assertion would
+ * require modifying s, but s is a by-value Iron_String argument, so any
+ * mutation dies with the function call). */
 Iron_String iron_string_intern(Iron_String s) {
     const char *cstr = iron_string_cstr(&s);
     size_t      blen = iron_string_byte_len(&s);
@@ -191,7 +221,10 @@ Iron_String iron_string_intern(Iron_String s) {
     if (idx >= 0) {
         Iron_String existing = s_intern_table[idx].value;
         IRON_MUTEX_UNLOCK(s_intern_lock);
-        /* Free the heap allocation of the input string if not yet interned */
+        /* FIX-03 / AUDIT-04 §11: free the heap allocation of the input
+         * string if not yet interned. After this point `cstr` (computed
+         * above from &s.heap.data) is dangling; DO NOT touch it again in
+         * this function, and callers MUST discard their local copy of s. */
         if ((s.heap.flags & 0x01) && !(s.heap.flags & 0x02)) {
             free(s.heap.data);
         }
@@ -262,6 +295,35 @@ void iron_runtime_shutdown(void) {
 
     iron__ensure_intern_lock();
     IRON_MUTEX_LOCK(s_intern_lock);
+    /* FIX-03 / AUDIT-04 §12: SAFETY — verify shput key-storage independence.
+     *
+     * Phase 65 audit row §4.12 worried that `iron_runtime_shutdown` might
+     * double-free: freeing v->heap.data below and then shfree'ing the
+     * intern table could free the same bytes twice if the stb_ds shmap
+     * stored the VALUE's heap.data pointer as its KEY (aliasing).
+     *
+     * Verification (audited at 67-07):
+     *   1. s_intern_table is initialized with `sh_new_strdup(s_intern_table)`
+     *      in iron_runtime_init above (line ~235). `sh_new_strdup` tells
+     *      stb_ds to call `strdup()` on every key passed to `shput`,
+     *      producing an independent heap copy owned by the shmap.
+     *   2. The `shput(s_intern_table, cstr, interned)` call in
+     *      iron_string_intern passes `cstr = iron_string_cstr(&s)` as the
+     *      key. For the heap path, this returns `s.heap.data`. stb_ds
+     *      strdup's this pointer's content into a fresh heap block.
+     *   3. The VALUE stored is `interned`, which is `s` itself (see
+     *      intern function body `interned = s;`). So `interned.heap.data`
+     *      IS s.heap.data — the same pointer returned by iron_string_cstr.
+     *   4. At shutdown: we free `v->heap.data` (the ORIGINAL pointer from
+     *      step 3), THEN `shfree(s_intern_table)` which frees the stb_ds
+     *      strdup'd KEY copy from step 1. These are TWO DIFFERENT heap
+     *      blocks — no double-free.
+     *
+     * The two-pointer separation depends critically on `sh_new_strdup`
+     * being called in iron_runtime_init. If anyone ever replaces it with
+     * `sh_new_arena` or plain `shput` (without strdup), the shutdown path
+     * below becomes a double-free. Enforce at review: search for
+     * sh_new_strdup in this file — it MUST be the shmap initializer. */
     /* Free heap-allocated string data stored in the intern table values */
     for (ptrdiff_t i = 0; i < shlen(s_intern_table); i++) {
         Iron_String *v = &s_intern_table[i].value;

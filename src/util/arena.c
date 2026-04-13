@@ -107,6 +107,41 @@ void iron_arena_free(Iron_Arena *a) {
     a->capacity = 0;
 }
 
+/* FIX-03 / AUDIT-04 §16: SAFETY — iron_arena_track aliasing contract.
+ *
+ * `iron_arena_track` adds `ptr` to the arena's tracked-pointer registry
+ * (`a->tracked_ptrs`). At `iron_arena_free` time, every tracked pointer is
+ * passed to the libc `free()` function (see loop at lines ~86-88 above).
+ *
+ * CALLER CONTRACT (enforced by convention, NOT by runtime assertion):
+ *
+ *   1. `ptr` MUST be a pointer returned by `malloc`, `calloc`, `realloc`,
+ *      or `strdup` (anything free()-compatible). Passing a pointer
+ *      obtained from any other allocator (stack, arena chunk data, mmap,
+ *      aligned_alloc with non-power-of-two alignment, etc.) is undefined
+ *      behavior at iron_arena_free time.
+ *
+ *   2. `ptr` MUST NOT alias any arena-internal memory — specifically, it
+ *      MUST NOT point into any `Iron_ArenaChunk::data[]` byte range of
+ *      this arena or any other arena. Aliasing would cause free() to be
+ *      called on bytes that are ALSO freed by the chunk-walk loop at
+ *      lines ~97-101, producing a double-free SIGSEGV.
+ *
+ *   3. `ptr` MUST have exclusive ownership handed to the arena: callers
+ *      MUST NOT call free(ptr) themselves after tracking, MUST NOT pass
+ *      the same pointer to two different arenas, and MUST NOT retain the
+ *      pointer past iron_arena_free.
+ *
+ * Current callers (audited 2026-04-13):
+ *   - Phase 50 SplitList sub-arrays allocated via `malloc` in the Iron
+ *     runtime's collection scaffolding (src/runtime/iron_runtime.h
+ *     IRON_LIST_IMPL / IRON_SPLITLIST sites) and tracked at insertion
+ *     time so they're reclaimed when the compilation arena is freed.
+ *   - Phase 50 iron_arena_realloc_tracked wraps this same registry for
+ *     realloc-by-pointer substitution (see function below).
+ *
+ * Every current caller uses pure heap-malloc'd pointers disjoint from
+ * arena chunks. The contract is upheld by convention. */
 void *iron_arena_track(Iron_Arena *a, void *ptr) {
     if (!ptr) return NULL;
     if (a->tracked_count >= a->tracked_cap) {

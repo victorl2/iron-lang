@@ -183,6 +183,20 @@ structure for integer-safety canaries this phase).
   `strtol + errno/ERANGE + INT_MIN/INT_MAX + endptr-consumed` with
   `iron_emit_diag` on out-of-range (parser.c:2585 site; FIX-01 rank 19).
 
+### Phase 67-07 (FIX-03 cross-arena pointer ownership)
+
+Landed with the 16-row AUDIT-04 walkthrough.
+
+- `tests/integration/arena_cross_arena_fix.iron` — exercises the fused
+  `.map().map().filter().sum()` code path whose per-map `cur_var` calloc
+  scratch buffers (`emit_fusion.c:173` flat branch + `emit_fusion.c:366`
+  split branch) are now tracked in two stb_ds `char **` arrays and
+  explicitly `free`'d at function exit. Pre-67-07 each `map` node in a
+  fused chain leaked a 32-byte scratch buffer; the fixture's three-map
+  chain forces three calloc calls per compile, all three of which are
+  now reclaimed. AUDIT-04 §8 closed. Matching fixture expected output
+  `102` is derived from `[1..10] → +1 → *2 → filter(>10) → sum`.
+
 ### Phase 67 REG-02 (crash-canary fixtures — planned)
 
 Phase 67 will add one fixture per AST node kind that the HIR-to-LIR walker

@@ -3,6 +3,47 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* FIX-03 / AUDIT-04 §13 + §14: SAFETY + deferred-fix documentation.
+ *
+ * Row §13 (iron_rc_release weak-count leak): when the last strong reference
+ * drops while weak_count > 0, the control block is deliberately kept alive
+ * (line ~43 below) so that a later `iron_weak_upgrade` can safely observe
+ * `strong_count == 0` and return an empty Iron_Rc. The audit's concern is
+ * that if every weak reference is later dropped WITHOUT an explicit
+ * weak-count decrement, the control block leaks forever.
+ *
+ * Row §14 (Iron_weak_release missing API): there is no public
+ * `Iron_weak_release` / `iron_weak_release` function to decrement
+ * weak_count. The Iron_Weak type owns a strong reference to the control
+ * block on construction (iron_rc_downgrade line ~57 increments
+ * weak_count), but there is no counterpart decrement. Every
+ * iron_rc_downgrade permanently adds to weak_count.
+ *
+ * Reachability analysis (2026-04-13, Phase 67-07):
+ *   - grep `iron_rc_downgrade\|iron_weak_upgrade` src/ → 4 hits, all in
+ *     runtime declarations + definitions (iron_runtime.h + iron_rc.c).
+ *     Zero codegen sites (src/hir/ + src/lir/ emit nothing that calls
+ *     downgrade or upgrade).
+ *   - grep `weak` tests/integration/ → 0 hits. No Iron source fixture
+ *     exercises any weak-reference API.
+ *   - Iron language does not currently expose `weak` as a keyword or
+ *     stdlib function — the runtime type is present but unused.
+ *
+ * Conclusion: rows §13 and §14 describe theoretical leaks in a runtime
+ * API that is not reachable from Iron source today. The plan's decision
+ * rule (see 67-07-PLAN.md) is: "If the rc leak is exploitable from Iron
+ * source code today, fix it; if it's only a theoretical leak under weak-
+ * ref usage patterns Iron doesn't support yet, SAFETY-annotate and defer."
+ *
+ * Treatment: SAFETY-annotate and DEFER to the future phase that wires
+ * Iron-level weak references (no such phase is planned in the current
+ * ROADMAP.md). The annotation below makes the deferral grep-visible so
+ * that when the language does gain weak-ref support, the implementer
+ * MUST land a paired Iron_weak_release API + an explicit weak-count
+ * decrement path in iron_rc_release before shipping. Leaving this as
+ * SAFETY-only without a future work ticket is acceptable because the
+ * leak is guaranteed-zero under current Iron programs. */
+
 /* ── Iron_Rc — atomic reference-counted heap value ───────────────────────── */
 
 Iron_Rc iron_rc_create(void *value, size_t size, void (*destructor)(void *)) {
