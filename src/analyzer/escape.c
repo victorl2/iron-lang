@@ -276,19 +276,37 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
                 /* Check if this is a heap allocation */
                 Iron_HeapExpr *he = find_heap_for_name(ctx, name);
                 if (!he) {
-                    /* Check if it's an rc value via resolved_sym->type */
-                    Iron_Ident *id = (Iron_Ident *)ls->expr;
+                    /* PROT-04 walkthrough (AUDIT-01 row 9, M-severity):
+                     * expr_ident_name returns non-NULL for a FieldAccess
+                     * chain root as well as a bare Iron_Ident, so ls->expr
+                     * might be an Iron_FieldAccess that shares only the
+                     * expression prefix with Iron_Ident. Reading
+                     * id->resolved_sym on a FieldAccess would read the
+                     * `object` field offset and produce wrong symbol
+                     * resolution. Guard on ls->expr->kind before the cast;
+                     * fall through to the non-RC diagnostic path on
+                     * non-ident shapes. */
                     bool is_rc = false;
-                    if (id->kind == IRON_NODE_IDENT && id->resolved_sym &&
-                        id->resolved_sym->type &&
-                        id->resolved_sym->type->kind == IRON_TYPE_RC) {
-                        is_rc = true;
+                    if (ls->expr->kind == IRON_NODE_IDENT) {
+                        IRON_NODE_ASSERT_KIND(ls->expr, IRON_NODE_IDENT);
+                        Iron_Ident *id = (Iron_Ident *)ls->expr;
+                        /* Check if it's an rc value via resolved_sym->type */
+                        if (id->resolved_sym &&
+                            id->resolved_sym->type &&
+                            id->resolved_sym->type->kind == IRON_TYPE_RC) {
+                            is_rc = true;
+                        }
+                        /* Also check if the leaked ident itself has RC type */
+                        if (!is_rc && id->resolved_type &&
+                            id->resolved_type->kind == IRON_TYPE_RC) {
+                            is_rc = true;
+                        }
                     }
-                    /* Also check if the leaked ident itself has RC type */
-                    if (!is_rc && id->kind == IRON_NODE_IDENT && id->resolved_type &&
-                        id->resolved_type->kind == IRON_TYPE_RC) {
-                        is_rc = true;
-                    }
+                    /* else: ls->expr is a field-access or other non-ident
+                     * leak target. Fall through with is_rc=false; the
+                     * "not a heap-allocated value" diagnostic below is the
+                     * correct error for a non-ident leak that doesn't
+                     * match any heap binding. */
                     if (is_rc) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
