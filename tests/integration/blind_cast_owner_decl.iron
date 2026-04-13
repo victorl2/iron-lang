@@ -1,0 +1,68 @@
+-- Regression: owner_sym->decl_node blind cast in super handler.
+--
+-- **Motivating Incident.** Phase 65 AUDIT-01 Top-20 rank 10 (rows 10a
+-- and 10b) flagged two call sites in src/analyzer/resolve.c (the 'super'
+-- expression handler) where the current method's owner symbol decl_node
+-- was cast to Iron_ObjectDecl without a preceding kind check. Iron
+-- supports methods on enums (`func Dir.is_vertical()`), so
+-- `current_method->owner_sym` can resolve to a symbol whose decl_node is
+-- Iron_EnumDecl or Iron_InterfaceDecl. The unconditional cast then
+-- misread `extends_name` at a foreign offset (for EnumDecl this is the
+-- `variants[]` header pointer, producing a garbage string fed to
+-- scope_lookup).
+--
+-- **Layout Diagram.**
+--   Iron_ObjectDecl: { span, kind, name, fields[], field_count, extends_name, ... }
+--   Iron_EnumDecl:   { span, kind, name, variants[], variant_count, ... }
+--
+--   Reading od->extends_name at the EnumDecl layout offset returns
+--   whatever pointer happens to sit at the variants[] header address —
+--   typically a heap array pointer that looks like a garbage string when
+--   fed to iron_scope_lookup as a type name.
+--
+-- **Fix Summary.** resolve.c (super handler) now checks
+-- decl_node->kind == IRON_NODE_OBJECT_DECL before the cast and emits a
+-- clean diagnostic for the enum/interface-owner case. Both cast sites
+-- (the initial extends_name check at ~resolve.c:240 and the parent
+-- lookup at ~resolve.c:255) call IRON_NODE_ASSERT_KIND before casting
+-- to Iron_ObjectDecl. PROT-04, Phase 66 Plan 03.
+--
+-- **Severity.** H. Affects every enum method (`func EnumType.method()`)
+-- where the body references `super`, and every interface-method context
+-- where owner_sym resolves to a non-object declaration.
+--
+-- **Note on fixture coverage.** Iron's typecheck/HIR layers do not
+-- currently wire `super.method()` end-to-end — attempting
+-- `return super.foo()` inside a method body reports a Void-vs-Int return
+-- mismatch because super is parsed but the method-on-parent lookup is
+-- not implemented. This fixture therefore exercises the positive
+-- `object Dog extends Animal` path through resolve.c (parsing, symbol
+-- creation, method owner wiring) without dereferencing `super`. The new
+-- IRON_NODE_ASSERT_KIND gate in resolve.c's super handler is the
+-- structural protection: any future code path that surfaces `super`
+-- through resolve.c with a non-object owner will abort via iron_ice in
+-- Debug builds rather than silently misreading memory.
+
+object Animal {
+    val tag: Int
+}
+
+object Dog extends Animal {
+    val breed: Int
+}
+
+func Dog.describe() -> Int {
+    val local = 1
+    return local + self.breed
+}
+
+func Animal.get_kind() -> Int {
+    return 7
+}
+
+func main() {
+    val d = Dog(42)
+    println("dog.describe: {d.describe()}")
+    val a = Animal(3)
+    println("animal.kind: {a.get_kind()}")
+}

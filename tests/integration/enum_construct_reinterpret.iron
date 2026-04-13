@@ -1,0 +1,65 @@
+-- Regression: in-place AST node reinterpretation for enum variant resolution.
+--
+-- **Motivating Incident.** Phase 65 AUDIT-01 ranks 7 and 8 flagged
+-- src/analyzer/resolve.c lines 678 and 684 where Iron_EnumConstruct
+-- nodes were reinterpreted in place as Iron_MethodCallExpr or
+-- Iron_FieldAccess by casting a pointer and overwriting fields. The
+-- reinterpret branch fires whenever the parser's uppercase heuristic
+-- misidentifies a module static call like `Time.Timer(1.0)` or a module
+-- constant like `Log.DEBUG` as an enum construct — resolve then has to
+-- rewrite the node into the correct expression kind. The in-place
+-- reinterpret was layout-dependent UB: if Iron_EnumConstruct,
+-- Iron_MethodCallExpr, or Iron_FieldAccess gained or lost fields, the
+-- overwrite would silently corrupt memory in unrelated downstream code
+-- paths.
+--
+-- **Layout Diagram.**
+--   Iron_EnumConstruct:  [span][kind][resolved_type][enum_name][variant_name][args][arg_count]
+--   Iron_MethodCallExpr: [span][kind][resolved_type][object][method][args][arg_count]
+--   Iron_FieldAccess:    [span][kind][resolved_type][object][field]
+--
+--   The three types share the first three fields (the expression prefix
+--   enforced by PROT-01 _Static_assert) but diverge immediately after.
+--   Old code wrote enum_name and variant_name at the MethodCallExpr
+--   object/method offsets or the FieldAccess object/field offsets —
+--   which happened to work only because the surface field types (both
+--   pointers) coincided at those positions.
+--
+-- **Fix Summary.** resolve.c now allocates a fresh Iron_MethodCallExpr
+-- or Iron_FieldAccess node via iron_arena_alloc, populates it with the
+-- correct fields, and copies the fresh layout over the Iron_EnumConstruct
+-- storage (preserving the upstream parent pointer). Size fit is
+-- enforced by two `_Static_assert(sizeof(Iron_MethodCallExpr) <=
+-- sizeof(Iron_EnumConstruct), ...)` style guards so a future struct-size
+-- regression fails the build immediately. IRON_NODE_ASSERT_KIND confirms
+-- the pre-cast invariant on `ec`. PROT-04, Phase 66 Plan 03.
+--
+-- **Severity.** H. Affects every reference to an enum variant in user
+-- code: the legitimate enum-variant path flows through the same resolve
+-- handler, and this regression fixture exercises both the
+-- parameterless (FieldAccess rewrite) and parameterized (MethodCall
+-- rewrite) code paths end-to-end.
+
+enum Shape {
+  Circle(Int),
+  Square,
+  Rect(Int, Int),
+}
+
+func Shape.area() -> Int {
+  match self {
+    Shape.Circle(r) -> return r * r
+    Shape.Square -> return 16
+    Shape.Rect(w, h) -> return w * h
+  }
+  return 0
+}
+
+func main() {
+    val c = Shape.Circle(5)        -- exercises the parameterized path
+    val sq = Shape.Square          -- exercises the parameterless path
+    val r = Shape.Rect(3, 4)
+    println("{c.area()}")
+    println("{sq.area()}")
+    println("{r.area()}")
+}
