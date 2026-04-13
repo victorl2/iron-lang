@@ -68,10 +68,10 @@ Track compiler / runtime coverage over time; identify untested code paths.
 
 Changes that would have caught the bugs we just found, and that pay off over time.
 
-- [ ] **REG-01**: New CI job `build-and-test-release (ubuntu-latest)` in `.github/workflows/ci.yml` builds `ironc` in `Release` mode and runs the integration test suite against a curated set of "compilation canary" fixtures — this is the missing job that would have caught the `find_first_last` SIGSEGV months earlier (the existing Benchmark workflow runs Release but reports compile crashes as "benchmark failed", swallowing the signal)
+- [x] **REG-01**: New CI job `build-and-test-release (ubuntu-latest)` in `.github/workflows/ci.yml` builds `ironc` in `Release` mode and runs the integration test suite against a curated set of "compilation canary" fixtures — this is the missing job that would have caught the `find_first_last` SIGSEGV months earlier (the existing Benchmark workflow runs Release but reports compile crashes as "benchmark failed", swallowing the signal)
 - [ ] **REG-02**: Crash-canary fixtures for every AST node kind the HIR-to-LIR walker handles — minimal `.iron` files under `tests/integration/hir_canary_*.iron` covering `if / elif / else`, `match / elif-match`, `while`, `for`, `assign / compound-assign`, nested `if`, `spawn`, `parallel for`, tuple destructure, enum construct, method call, static call (`Type.method`), lambda, closure capture, heap expr — each is a minimal regression test that must compile cleanly in both Debug and Release and must round-trip its expected output
 - [ ] **REG-03**: Cross-platform benchmark threshold calibration documented at `docs/benchmark-calibration.md` explaining the macOS-arm64-vs-Linux-x86_64 variance we observed during Phase 59 (sieve_of_eratosthenes 0.73x → 1.70x, merge_k_sorted_lists 0.77x → 1.50x, find_first_last 1.10x → 1.40x, matrix_chain_mult 0.77x → 1.40x); `scripts/bench_audit.sh` extended with a `--platform linux-x86_64` flag that re-audits thresholds from observed data so the next drift is a 5-minute fix instead of a 30-minute debug session
-- [ ] **REG-04**: `tests/integration/hir_to_lir_elif_mono_walker.iron` (already landed in the Phase 59 fix) kept as the reference pattern for "class of bug" regression fixtures, and its doc comment style (motivating incident + layout diagram + fix summary + severity) adopted as the template for REG-02 crash-canary fixtures and any future AUDIT-derived regression tests
+- [x] **REG-04**: `tests/integration/hir_to_lir_elif_mono_walker.iron` (already landed in the Phase 59 fix) kept as the reference pattern for "class of bug" regression fixtures, and its doc comment style (motivating incident + layout diagram + fix summary + severity) adopted as the template for REG-02 crash-canary fixtures and any future AUDIT-derived regression tests
 
 ### Version Reconciliation
 
@@ -142,10 +142,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | COV-03 | Phase 69 | Pending |
 | COV-04 | Phase 69 | Pending |
 | COV-05 | Phase 69 | Pending |
-| REG-01 | Phase 66 | Pending |
+| REG-01 | Phase 66 | Complete |
 | REG-02 | Phase 67 | Pending |
 | REG-03 | Phase 69 | Pending |
-| REG-04 | Phase 66 | Pending |
+| REG-04 | Phase 66 | Complete |
 | VER-01 | Phase 70 | Pending |
 | VER-02 | Phase 70 | Pending |
 | VER-03 | Phase 70 | Pending |

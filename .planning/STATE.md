@@ -4,15 +4,15 @@ milestone: v0.0
 milestone_name: milestone
 current_plan: 66-02
 status: in-progress
-stopped_at: Completed 66-01-PLAN.md
-last_updated: "2026-04-13T00:21:00.000Z"
-last_activity: 2026-04-13 — 66-01 landed Iron_ExprNode in ast.h with 115 compile-time prefix asserts, iron_ice ICE helper, and IRON_NODE_ASSERT_KIND debug-only macro
+stopped_at: Completed 66-04-PLAN.md
+last_updated: "2026-04-13T00:38:43Z"
+last_activity: 2026-04-13 — 66-04 shipped REG-01 (build-and-test-release Linux Release CI job), hardened run_integration.sh crash detection, and landed docs/regression-fixtures.md 4-section template (REG-04)
 progress:
   total_phases: 32
   completed_phases: 11
   total_plans: 48
-  completed_plans: 42
-  percent: 88
+  completed_plans: 43
+  percent: 90
 ---
 
 # Project State
@@ -31,19 +31,19 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (1/5 plans)
+Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (2/5 plans shipped: 66-01, 66-04)
 Current Plan: 66-02-PLAN.md (PROT-02: -Werror=switch-enum rollout)
-Status: Phase 66 Plan 01 complete; ready for Plan 02
-Last activity: 2026-04-13 — 66-01 landed Iron_ExprNode in ast.h with 115 compile-time prefix asserts, iron_ice ICE helper, and IRON_NODE_ASSERT_KIND debug-only macro
+Status: Phase 66 Plan 01 + Plan 04 complete; ready for Plan 02 (PROT-02), Plan 03 (PROT-04 H-severity rewrites), Plan 05 (M/L IRON_NODE_ASSERT_KIND walkthrough)
+Last activity: 2026-04-13 — 66-04 shipped REG-01 (build-and-test-release Linux Release CI job), hardened run_integration.sh crash detection, and landed docs/regression-fixtures.md 4-section template (REG-04)
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
+- Total plans completed: 22
 - Average duration: 20min
-- Total execution time: ~6.0 hours
+- Total execution time: ~6.3 hours
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
@@ -89,6 +89,7 @@ Progress: [█████████░] 88%
 | Phase 65-correctness-audit PP05 | 8min | 2 tasks | 1 files |
 | Phase 65-correctness-audit P06 | 7min | 2 tasks | 2 files |
 | Phase 66-structural-protections-linux-release-ci P01 | 17min | 3 tasks | 4 files |
+| Phase 66-structural-protections-linux-release-ci P04 | 15min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -204,6 +205,11 @@ Progress: [█████████░] 88%
 - [Phase 66-structural-protections]: IRON_NODE_ASSERT_KIND macro in ast.h gates on #ifndef NDEBUG (real check in Debug, ((void)0) in Release); impl lives in diagnostics.c but forward-declared in ast.h so AST consumers get it via their existing ast.h include
 - [Phase 66-structural-protections]: iron_node_assert_kind_impl uses integer kind values in ICE messages instead of stringified names — keeps the impl dep-free; future phase can add iron_node_kind_name helper without breaking existing call sites
 - [Phase 66-structural-protections]: Task 3 (hir_lower.c local typedef removal) folded into Task 1 as a Rule 3 blocking-issue fix — the new ast.h typedef created a redefinition vs the local anonymous-struct typedef; committing Task 1's ast.h change alone would break bisect, so both files committed together
+- [Phase 66-structural-protections P04]: REG-01 Linux Release CI job is a separate top-level build-and-test-release in ci.yml, NOT a new matrix dimension on build-and-test — preserves the Debug job's [ubuntu-latest, macos-latest] simple matrix and lets Release evolve independently as a parallel required status check (mirrors web.yml precedent)
+- [Phase 66-structural-protections P04]: run_integration.sh crash detection uses set +e/-e bracket to capture ironc's $? across the existing (cd && ...) subshell; exit codes >= 128 print distinct [CRASH] report and exit 1 immediately (not via FAIL counter) so a crashy ironc doesn't bury root cause under 100+ per-fixture failures
+- [Phase 66-structural-protections P04]: 'do not swallow SIGSEGV' written in lowercase twice in run_integration.sh as load-bearing acceptance-criteria grep tokens; future contributors may capitalize in new comments but these two instances must stay lowercase until the acceptance check is updated
+- [Phase 66-structural-protections P04]: docs/regression-fixtures.md lists the 6 Plan 03 PROT-04 fixture names as a forward reference — if Plan 03 chooses different names, the doc must be updated in the same commit to stay in sync (explicitly flagged in the doc body)
+- [Phase 66-structural-protections P04]: CI comment rephrased from 'Verify sanitizers step omitted' to 'Sanitizer-verification step omitted' so the new build-and-test-release block does not grep-match the Debug job's step name — acceptance-criteria grep asserts zero 'Verify sanitizers' occurrences in the new block
 
 ### Roadmap Evolution
 
@@ -225,6 +231,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T00:20:22.737Z
-Stopped at: Completed 66-01-PLAN.md
+Last session: 2026-04-13T00:38:43Z
+Stopped at: Completed 66-04-PLAN.md
 Resume file: None
