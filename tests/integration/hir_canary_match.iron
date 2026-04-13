@@ -1,0 +1,49 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_STMT_MATCH.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker in hir_to_lir.c crashed on if/elif/else lowering because its
+-- locally-shadowed struct typedef omitted elif fields. The same class
+-- of walker incompleteness can re-emerge for any other statement kind
+-- -- match in particular carries a condition expression plus a
+-- variable-length arm array, so a walker case that fails to recurse
+-- into either the scrutinee or any of the arm bodies silently drops
+-- the corresponding LIR branches. Phase 66 added -Werror=switch-enum
+-- globally to catch missing `case IRON_HIR_STMT_MATCH:` at compile
+-- time; this canary is the runtime regression net for walker cases
+-- that handle the case header but mis-recurse into the payload.
+--
+-- **Layout Diagram.** Iron_MatchStmt carries
+--   { span, kind, scrutinee, arms[], arm_count, default_arm }
+-- where each arm carries { pattern, binders[], body }. Walker cases
+-- that fail to recurse into the arm array silently drop the bodies
+-- from the lowered LIR; cases that fail to recurse into the scrutinee
+-- drop the match target expression entirely.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Exercises a simple 4-arm integer match over a helper
+-- function's return value, verifies the sum of all arm results.
+-- CI integration: runs in both Debug and Release via Phase 66-04's
+-- build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- match is the second most
+-- frequent control-flow statement after IF in Iron source code, so
+-- any walker regression here turns most real programs red immediately.
+
+func describe(n: Int) -> Int {
+  match n {
+    1 -> return 10
+    2 -> return 20
+    3 -> return 30
+    else -> return 99
+  }
+  return 0
+}
+
+func main() {
+  var total = 0
+  total = total + describe(1)   -- 10
+  total = total + describe(2)   -- 20
+  total = total + describe(3)   -- 30
+  total = total + describe(7)   -- 99
+  println("total: {total}")
+}

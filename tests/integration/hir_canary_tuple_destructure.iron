@@ -1,0 +1,45 @@
+-- Regression: REG-02 crash-canary for tuple destructure (2-tuple).
+--
+-- # KNOWN GAP: 3+ tuple destructure lands in a future phase (tuple-N
+--              codegen). Iron v0.1.4-alpha supports 2-tuples only --
+--              Phase 59 P01d shipped 2-tuple destructure via
+--              Iron_ArrayLit + is_tuple sentinel; 3+ tuple codegen is
+--              a pre-existing gap, not a Phase 67 bug. This canary
+--              exercises the supported subset.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because of a locally-
+-- shadowed struct typedef. The same walker-incompleteness class can
+-- re-emerge for any other lower_stmt / lower_expr case, and tuple
+-- destructure is particularly risky because the RHS is an expression
+-- and the LHS is a binder list -- walker cases that handle one but
+-- not the other produce silent data corruption. Phase 66 added
+-- _Static_assert on Iron_ArrayLit layout and -Werror=switch-enum;
+-- this canary is the runtime regression net.
+--
+-- **Layout Diagram.** 2-tuple destructure in current Iron lowers to
+--   Iron_ArrayLit { is_tuple=true, items=[a_ref, b_ref] }
+--   Iron_Assign   { target=a, value=arr[0] }
+--   Iron_Assign   { target=b, value=arr[1] }
+-- Walker cases that fail to recurse into the binder list drop one or
+-- both destructure bindings, producing undefined local variable
+-- values at runtime.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Exercises the 2-tuple subset supported by current Iron
+-- codegen. The 3+ tuple gap is tracked separately and lands in a
+-- future phase. CI integration: runs in both Debug and Release via
+-- Phase 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- tuple destructure is
+-- used by every Iron program that has a multi-return function, so a
+-- walker regression would surface quickly in real code.
+
+func make_pair() -> (Int, Int) {
+  return (21, 34)
+}
+
+func main() {
+  val (a, b) = make_pair()
+  println("sum: {a + b}")
+}

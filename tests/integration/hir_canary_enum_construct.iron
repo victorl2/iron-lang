@@ -1,0 +1,57 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_EXPR_ENUM_CONSTRUCT.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker was literally the collection pass for monomorphized enum
+-- types -- it walked every AST looking for enum construction sites.
+-- The walker's if/elif/else layout bug caused the same pass to crash
+-- on programs that used enum constructors inside control flow. Enum
+-- construct is therefore both a producer (the bug hid here) and a
+-- sink (the bug crashed here) for the Phase 37-02 SIGSEGV. Phase 66
+-- added PROT-04 blind-cast rewrites for Iron_EnumConstruct (see
+-- tests/integration/enum_construct_reinterpret.iron) and
+-- -Werror=switch-enum. This canary is the per-node-kind runtime
+-- regression net complementing those structural guards.
+--
+-- **Layout Diagram.** Iron_EnumConstruct carries
+--   { span, kind, enum_type_ref, variant_name, args[], arg_count }
+-- Walker cases that fail to recurse into args[] silently drop the
+-- variant payload from the lowered LIR, producing a zero-initialized
+-- payload at runtime. Walker cases that fail to recurse into
+-- enum_type_ref mis-dispatch to the wrong enum type when multiple
+-- enums share a variant name.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Complements enum_construct_reinterpret.iron (Phase 66-03
+-- PROT-04 fixture) with a minimal 3-variant enum and match-over-
+-- variants integration. CI integration: runs in both Debug and
+-- Release via Phase 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- enum_construct is the
+-- exact node kind the Phase 37-02 motivating bug walked, so it
+-- carries the most bisection weight for any future walker regression.
+
+enum Color {
+  Red(Int),
+  Green(Int),
+  Blue(Int),
+}
+
+func Color.intensity() -> Int {
+  match self {
+    Color.Red(v)   -> return v
+    Color.Green(v) -> return v * 2
+    Color.Blue(v)  -> return v * 3
+  }
+  return 0
+}
+
+func main() {
+  val r = Color.Red(10)
+  val g = Color.Green(10)
+  val b = Color.Blue(10)
+  var total = 0
+  total = total + r.intensity()    -- 10
+  total = total + g.intensity()    -- 20
+  total = total + b.intensity()    -- 30
+  println("total: {total}")
+}

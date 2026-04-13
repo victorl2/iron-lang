@@ -1,0 +1,45 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_EXPR_PARALLEL_FOR.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because of a locally-
+-- shadowed struct typedef. The same class of walker-incompleteness
+-- can re-emerge for any expression kind the lower_expr switch
+-- handles. Parallel-for dispatch produces a worker-pool task
+-- expression whose body runs N times across the thread pool, and
+-- walker cases that fail to recurse into the body silently drop the
+-- per-iteration work from the lowered LIR. Because reading outer
+-- variables inside parallel bodies is not yet supported, the canary
+-- output is produced from a separate sequential aggregate computed
+-- after the parallel-for returns -- that keeps the fixture
+-- deterministic while still exercising the dispatch path.
+--
+-- **Layout Diagram.** Iron_ParallelFor carries
+--   { span, kind, iterator_var, bound_expr, body, parallel_flag }
+-- Walker cases that fail to recurse into `body` produce an empty
+-- parallel loop (no-op) with no compile error. Walker cases that
+-- mis-read `bound_expr` dispatch zero iterations or an out-of-range
+-- count, both of which fall through silently.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Copies the dispatch pattern from tests/integration/
+-- parallel_for_capture.iron and tests/integration/hir_parallel_for.iron
+-- (body does its own arithmetic without reading outer state; main
+-- then runs a sequential aggregate for the deterministic print).
+-- CI integration: runs in both Debug and Release via Phase 66-04's
+-- build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- parallel-for is the
+-- THARD-07 dispatch mechanism and a walker regression produces
+-- silently-wrong output under normal execution.
+
+func main() {
+  for i in 50 parallel {
+    var work = i * i
+    work = work + 1
+  }
+  var total = 0
+  for i in range(10) {
+    total = total + (i * i)
+  }
+  println("sum: {total}")
+}
