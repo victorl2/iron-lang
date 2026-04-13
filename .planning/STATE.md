@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: 66-05
-status: in-progress
-stopped_at: Completed 66-03-PLAN.md
-last_updated: "2026-04-13T02:33:53Z"
-last_activity: 2026-04-13 — 66-03 shipped PROT-04 H-severity blind-cast rewrites (ranks 5, 6, 7, 8, 10a, 10b, 11a, 11b) across typecheck.c + resolve.c + escape.c; 8 IRON_NODE_ASSERT_KIND call sites added; fresh-alloc + size-fit _Static_assert rewrite of the Iron_EnumConstruct reinterpret branch; 6 new regression fixtures with 4-section doc-comments; integration suite 346 → 352 pass
+current_plan: 66-05-PLAN.md (Phase 66 complete)
+status: completed
+stopped_at: Completed 66-05-PLAN.md
+last_updated: "2026-04-13T03:31:56.611Z"
+last_activity: 2026-04-13 — 66-05 shipped PROT-03 M-severity walkthrough across typecheck.c + resolve.c + iron_net.c + emit_c.c + emit_structs.c + lir_optimize.c; 17 new IRON_NODE_ASSERT_KIND call sites added (cumulative 29 across src/); 5 unenumerated bonus sibling rows covered; iron_net.c:594 const-strip cast replaced with local heap buffer + free; phi-to-load _Static_assert pinning union-fit invariant; integration suite 352/352 pass; Phase 66 complete (5/5 plans shipped)
 progress:
   total_phases: 32
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 48
-  completed_plans: 45
-  percent: 94
+  completed_plans: 46
+  percent: 96
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (4/5 plans shipped: 66-01, 66-02, 66-03, 66-04)
-Current Plan: 66-05-PLAN.md (PROT-03 M/L walkthrough)
-Status: Phase 66 Plan 01 + Plan 02 + Plan 03 + Plan 04 complete; ready for Plan 05 (M/L IRON_NODE_ASSERT_KIND walkthrough across remaining 25 M-severity AUDIT-01 sites)
-Last activity: 2026-04-13 — 66-03 shipped PROT-04 H-severity blind-cast rewrites (ranks 5, 6, 7, 8, 10a, 10b, 11a, 11b) across typecheck.c + resolve.c + escape.c; 8 IRON_NODE_ASSERT_KIND call sites added; fresh-alloc + size-fit _Static_assert rewrite of the Iron_EnumConstruct reinterpret branch; 6 new regression fixtures with 4-section doc-comments; integration suite 346 → 352 pass
+Phase: 66 of 70 (Structural Protections + Linux Release CI) — complete (5/5 plans shipped: 66-01, 66-02, 66-03, 66-04, 66-05)
+Current Plan: Phase 66 complete; ready to plan Phase 67 (REG-02 crash-canary fixtures + FIX-01..04)
+Status: Phase 66 fully shipped — PROT-01..04 + REG-01 + REG-04 + cumulative PROT-03 walkthrough coverage across every enumerated AUDIT-01 blind-cast row
+Last activity: 2026-04-13 — 66-05 shipped PROT-03 M-severity walkthrough across typecheck.c + resolve.c + iron_net.c + emit_c.c + emit_structs.c + lir_optimize.c; 17 new IRON_NODE_ASSERT_KIND call sites added (cumulative 29 across src/); 5 unenumerated bonus sibling rows covered; iron_net.c:594 const-strip cast replaced with local heap buffer + free; phi-to-load _Static_assert pinning union-fit invariant; integration suite 352/352 pass; Phase 66 complete (5/5 plans shipped)
 
-Progress: [█████████░] 94%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Progress: [█████████░] 94%
 | Phase 66-structural-protections-linux-release-ci P04 | 15min | 3 tasks | 3 files |
 | Phase 66-structural-protections-linux-release-ci P02 | 25min | 1 tasks | 24 files |
 | Phase 66-structural-protections-linux-release-ci P03 | 54min | 3 tasks | 15 files |
+| Phase 66-structural-protections-linux-release-ci P05 | 55min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -226,6 +227,11 @@ Progress: [█████████░] 94%
 - [Phase 66-structural-protections P03]: Task 3 blind_cast_leak_ident: the cast site only executes on the E0213 negative branch (leak on non-heap value), but integration runner requires successful build. Fixture covers the positive `heap Point(3,4)` + `leak p` path and documents why the negative path can't be exercised via integration tests
 - [Phase 66-structural-protections P03]: Task 3 blind_cast_expr_common_layout exercises 12 distinct expression kinds (IntLit, StringLit, BoolLit, Ident, BinaryExpr, UnaryExpr, CallExpr, ConstructExpr, FieldAccess, ArrayLit, IndexExpr, InterpString) — 50% more than the 8 minimum required by acceptance criteria
 - [Phase 66-structural-protections P03]: 6 new regression fixtures land with 4-section doc-comments, validating the REG-04 template end-to-end; Phase 67 REG-02's crash-canary campaign can adopt the template with high confidence
+- [Phase 66-structural-protections P05]: Iron_TypeAnnotation IS an Iron_Node derivative (first field is Iron_NodeKind kind, IRON_NODE_TYPE_ANNOTATION enum value already exists in src/parser/ast.h) — gets IRON_NODE_ASSERT_KIND, not just a runtime non-NULL assert. Iron_EnumVariant and Iron_Field are pure sub-structures without kind fields and get loop-bound + non-NULL asserts only.
+- [Phase 66-structural-protections P05]: phi-to-load in-place rewrite at lir_optimize.c:187-188 is a single rewrite site covering audit rows 31 + 32; consolidated into one _Static_assert(sizeof(load) <= sizeof(phi)) + comment block instead of two separate asserts. The _Static_assert pins the union-fit invariant explicitly so future refactors that grow load past phi fail the build.
+- [Phase 66-structural-protections P05]: iron_net.c row 24 fix caps the local recv buffer at 64 KiB to avoid unbounded heap allocation if a caller passes a maliciously large Iron_String capacity; the function (Iron_tcpsocket_read) is broken-by-design (Iron_String is value-typed and immutable, the recv'd bytes are effectively discarded) and the fix's comment block makes that explicit
+- [Phase 66-structural-protections P05]: 5 unenumerated bonus sibling rows (typecheck.c:2359, emit_c.c:4525, emit_structs.c:606, plus typecheck.c bonus IsExpr/Block sites) covered as siblings of nearby enumerated rows because the audit's intent is "every cast of this shape in the flagged file"; broader cross-file sweeps deferred to Phase 67
+- [Phase 66-structural-protections P05]: Cumulative PROT-03 coverage across Plan 03 + Plan 05 reaches 29 IRON_NODE_ASSERT_KIND call sites + 38 PROT-03/04 markers in src/, exceeding the plan's minimum thresholds (27 ASSERT_KIND, 34 markers); every explicitly enumerated AUDIT-01 §1 blind-cast row 1-34 is now structurally protected; Phase 66 ROADMAP success criterion satisfied
 
 ### Roadmap Evolution
 
@@ -247,6 +253,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T02:33:53Z
-Stopped at: Completed 66-03-PLAN.md
+Last session: 2026-04-13T03:30:00Z
+Stopped at: Completed 66-05-PLAN.md (Phase 66 complete)
 Resume file: None

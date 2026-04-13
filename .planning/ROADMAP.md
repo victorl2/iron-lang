@@ -140,7 +140,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### v0.1.4-alpha Compiler Correctness & Maintenance
 
 - [ ] **Phase 65: Correctness Audit** - Systematic audit of compiler + runtime + stdlib C code across 7 dimensions; produces ranked CORRECTNESS-AUDIT.md with top-20 must-fix issues
-- [ ] **Phase 66: Structural Protections + Linux Release CI** - _Static_assert prefix invariants, -Werror=switch-enum, debug-build kind-check helper, blind-cast rewrites, Linux Release CI job, regression fixture template
+- [x] **Phase 66: Structural Protections + Linux Release CI** - _Static_assert prefix invariants, -Werror=switch-enum, debug-build kind-check helper, blind-cast rewrites, Linux Release CI job, regression fixture template
 - [ ] **Phase 67: Correctness Fixes + Crash Canaries** - Top-20 high-severity fixes with regression fixtures, malloc/realloc guards, cross-arena ownership fixes, enum switch completions, crash-canary fixtures for every AST node kind
 - [ ] **Phase 68: Fuzzing Infrastructure** - libFuzzer targets for parser/typechecker/hir-to-lir, seed corpora, nightly CI job, crash-to-fixture harness
 - [ ] **Phase 69: Coverage Tooling + Benchmark Calibration** - llvm-cov CMake wiring, coverage script, CI job with PR diff comment, baseline report, targeted tests for <50% files, benchmark threshold calibration doc
@@ -1062,7 +1062,7 @@ Phases execute in numeric order: 59 -> 65 -> 66 -> 67 -> 68 -> 69 -> 70 (60-64 p
 | 63. [paused] HTTP Server | v0.2.0-alpha | 0/0 | Paused | - |
 | 64. [paused] WebSocket Client | v0.2.0-alpha | 0/0 | Paused | - |
 | 65. Correctness Audit | 6/6 | Complete    | 2026-04-12 | - |
-| 66. Structural Protections + Linux Release CI | 4/5 | In Progress|  | - |
+| 66. Structural Protections + Linux Release CI | 5/5 | Complete   | 2026-04-13 | - |
 | 67. Correctness Fixes + Crash Canaries | v0.1.4-alpha | 0/0 | Not started | - |
 | 68. Fuzzing Infrastructure | v0.1.4-alpha | 0/0 | Not started | - |
 | 69. Coverage Tooling + Benchmark Calibration | v0.1.4-alpha | 0/0 | Not started | - |
@@ -1330,11 +1330,11 @@ Plans:
   5. `tests/integration/hir_to_lir_elif_mono_walker.iron` is the reference pattern for regression fixtures, and its doc-comment style (motivating incident + layout diagram + fix summary + severity) is documented as the template
 **Plans**: 5 plans
 Plans:
-- [ ] 66-01-PLAN.md -- PROT-01 + PROT-03 (macro surface): move Iron_ExprNode to ast.h with _Static_assert prefix enforcement, add iron_ice + IRON_NODE_ASSERT_KIND macro
-- [ ] 66-02-PLAN.md -- PROT-02: append -Werror=switch-enum globally, audit and fix every Iron-enum switch across compiler/runtime/stdlib/ironc including net-new WebAssembly sources, convert emit_c.c FFI cast if-chain to exhaustive switch
-- [ ] 66-03-PLAN.md -- PROT-03 + PROT-04: rewrite all 9 H-severity blind-cast sites in typecheck.c/resolve.c/escape.c with IRON_NODE_ASSERT_KIND + real struct, demo M-severity walkthrough at escape.c:251, land 6 regression fixtures following the 4-section template
-- [ ] 66-04-PLAN.md -- REG-01 + REG-04: add build-and-test-release (ubuntu-latest) job to ci.yml, harden run_integration.sh crash-swallow prevention, create docs/regression-fixtures.md template documentation
-- [ ] 66-05-PLAN.md -- PROT-03 (M-severity walkthrough): apply IRON_NODE_ASSERT_KIND to every AUDIT-01 M-severity blind-cast row explicitly enumerated in CORRECTNESS-AUDIT.md rows 10-34 (25 sites across typecheck.c, resolve.c, iron_net.c, emit_c.c, emit_structs.c, lir_optimize.c); fix iron_net.c:594 const-stripping cast with a local-buffer replacement
+- [x] 66-01-PLAN.md -- PROT-01 + PROT-03 (macro surface): move Iron_ExprNode to ast.h with _Static_assert prefix enforcement, add iron_ice + IRON_NODE_ASSERT_KIND macro
+- [x] 66-02-PLAN.md -- PROT-02: append -Werror=switch-enum globally, audit and fix every Iron-enum switch across compiler/runtime/stdlib/ironc including net-new WebAssembly sources, convert emit_c.c FFI cast if-chain to exhaustive switch
+- [x] 66-03-PLAN.md -- PROT-03 + PROT-04: rewrite all 9 H-severity blind-cast sites in typecheck.c/resolve.c/escape.c with IRON_NODE_ASSERT_KIND + real struct, demo M-severity walkthrough at escape.c:251, land 6 regression fixtures following the 4-section template
+- [x] 66-04-PLAN.md -- REG-01 + REG-04: add build-and-test-release (ubuntu-latest) job to ci.yml, harden run_integration.sh crash-swallow prevention, create docs/regression-fixtures.md template documentation
+- [x] 66-05-PLAN.md -- PROT-03 (M-severity walkthrough): apply IRON_NODE_ASSERT_KIND to every AUDIT-01 M-severity blind-cast row explicitly enumerated in CORRECTNESS-AUDIT.md rows 10-34 (25 sites across typecheck.c, resolve.c, iron_net.c, emit_c.c, emit_structs.c, lir_optimize.c); fix iron_net.c:594 const-stripping cast with a local-buffer replacement
 
 ### Phase 67: Correctness Fixes + Crash Canaries
 **Goal**: All top-20 high-severity issues from the audit are resolved with regression fixtures, and crash-canary fixtures cover every AST node kind the HIR-to-LIR walker handles
