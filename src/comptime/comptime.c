@@ -164,6 +164,12 @@ static Iron_ComptimeVal *comptime_cache_read(const char *source_text,
             val->as_string.len  = nread;
             break;
         }
+        /* -Wswitch-enum opt-out: comptime cache file format only persists the
+         * four primitive CVAL kinds; ARRAY / STRUCT / NULL are not cached and
+         * reading one is a decode failure handled by returning NULL. */
+        case IRON_CVAL_ARRAY:
+        case IRON_CVAL_STRUCT:
+        case IRON_CVAL_NULL:
         default:
             fclose(f);
             return NULL;
@@ -204,6 +210,11 @@ static void comptime_cache_write(const char *source_text, size_t source_len,
             fprintf(f, "3\n%.*s\n",
                     (int)val->as_string.len, val->as_string.data);
             break;
+        /* -Wswitch-enum opt-out: ARRAY / STRUCT / NULL round-trip is
+         * intentionally not cached yet — see AUDIT-02 #9. */
+        case IRON_CVAL_ARRAY:
+        case IRON_CVAL_STRUCT:
+        case IRON_CVAL_NULL:
         default:
             /* Arrays and structs not cached (complex serialization) */
             break;
@@ -308,7 +319,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
         return cval_null(ctx);
     }
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
 
         /* ── Literals ───────────────────────────────────────────────────── */
 
@@ -419,6 +430,10 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                     case IRON_TOK_GREATER:    return cval_bool(ctx, lv->as_int > rv->as_int);
                     case IRON_TOK_LESS_EQ:    return cval_bool(ctx, lv->as_int <= rv->as_int);
                     case IRON_TOK_GREATER_EQ: return cval_bool(ctx, lv->as_int >= rv->as_int);
+                    /* -Wswitch-enum opt-out: int-binop handler only supports
+                     * arithmetic + comparison ops; unsupported ops fall
+                     * through to the generic "unsupported binary operation"
+                     * diagnostic below. */
                     default: break;
                 }
             }
@@ -444,6 +459,8 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                     case IRON_TOK_GREATER:    return cval_bool(ctx, l > r);
                     case IRON_TOK_LESS_EQ:    return cval_bool(ctx, l <= r);
                     case IRON_TOK_GREATER_EQ: return cval_bool(ctx, l >= r);
+                    /* -Wswitch-enum opt-out: float-binop handler only supports
+                     * arithmetic + comparison ops; others fall through. */
                     default: break;
                 }
             }
@@ -453,6 +470,8 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                 switch (bin->op) {
                     case IRON_TOK_EQUALS:     return cval_bool(ctx, lv->as_bool == rv->as_bool);
                     case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, lv->as_bool != rv->as_bool);
+                    /* -Wswitch-enum opt-out: bool-binop handler only supports
+                     * equality; comparisons and arithmetic on bool fall through. */
                     default: break;
                 }
             }
@@ -703,6 +722,24 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             return iron_comptime_eval_expr(ctx, ce->inner);
         }
 
+        /* AUDIT-02 #8 fix: previously these expression kinds fell through
+         * to the silent default; enumerate them so future enum growth trips
+         * -Werror=switch-enum instead of silently misclassifying. */
+        case IRON_NODE_METHOD_CALL:
+        case IRON_NODE_FIELD_ACCESS:
+        case IRON_NODE_INDEX:
+        case IRON_NODE_SLICE:
+        case IRON_NODE_INTERP_STRING:
+        case IRON_NODE_LAMBDA:
+        case IRON_NODE_IS:
+        case IRON_NODE_MATCH:
+            emit_error(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                       "comptime: expression kind not supported in comptime context");
+            return cval_null(ctx);
+
+        /* -Wswitch-enum opt-out: comptime evaluator only handles expression
+         * kinds; statement and declaration kinds fall through to the generic
+         * "unsupported expression kind" diagnostic. */
         default:
             emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
                        "comptime: unsupported expression kind in comptime context");
@@ -721,7 +758,7 @@ static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node) {
         return;
     }
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
 
         case IRON_NODE_BLOCK: {
             Iron_Block *blk = (Iron_Block *)node;
@@ -875,6 +912,9 @@ static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        /* -Wswitch-enum opt-out: comptime eval_stmt handles statement kinds
+         * explicitly; remaining kinds (mostly expressions used as statements)
+         * are evaluated via iron_comptime_eval_expr for their side effects. */
         default:
             /* Treat as expression statement if it can be evaluated */
             iron_comptime_eval_expr(ctx, node);
@@ -962,11 +1002,13 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             return (Iron_Node *)al;
         }
 
+        /* AUDIT-02 #9: STRUCT / NULL round-trip back to AST is not supported
+         * yet — returning NULL propagates as a comptime error upstream. */
         case IRON_CVAL_STRUCT:
         case IRON_CVAL_NULL:
-        default:
             return NULL;
     }
+    return NULL; /* unreachable — switch is exhaustive */
 }
 
 /* ── AST walker for replacing IRON_NODE_COMPTIME nodes ───────────────────── */
@@ -1028,7 +1070,7 @@ static void replace_in_node(Iron_Node **slot, ReplaceCtx *rctx) {
     }
 
     /* Recurse into children */
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
 
         case IRON_NODE_PROGRAM: {
             Iron_Program *p = (Iron_Program *)node;
@@ -1182,6 +1224,9 @@ static void replace_in_node(Iron_Node **slot, ReplaceCtx *rctx) {
             replace_in_node(&le->body, rctx);
             break;
         }
+        /* -Wswitch-enum opt-out: COMPTIME-node replacement walker only recurses
+         * into expression-bearing kinds; leaf nodes (literals, IDENT, etc.)
+         * have no child slot that can contain IRON_NODE_COMPTIME. */
         default:
             /* Leaf nodes: INT_LIT, FLOAT_LIT, BOOL_LIT, STRING_LIT, IDENT, etc. */
             break;

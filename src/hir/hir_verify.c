@@ -288,6 +288,8 @@ static void verify_stmt(const IronHIR_Stmt *stmt, const IronHIR_Module *mod,
         }
         break;
 
+    /* -Wswitch-enum opt-out: verify_stmt handles every statement kind with
+     * sub-expressions; any remaining IronHIR_StmtKind has no verifier state. */
     default:
         break;
     }
@@ -548,6 +550,26 @@ static void verify_expr(const IronHIR_Expr *expr, const IronHIR_Module *mod,
         }
         break;
 
+    /* AUDIT-02 #7 fix: ENUM_CONSTRUCT and PATTERN were silently dropped by
+     * the default, so malformed enum construction / pattern nodes escaped
+     * HIR verification. */
+    case IRON_HIR_EXPR_ENUM_CONSTRUCT:
+        for (int i = 0; i < expr->enum_construct.arg_count; i++) {
+            verify_expr(expr->enum_construct.args[i], mod, stack, diags, arena);
+        }
+        break;
+    case IRON_HIR_EXPR_PATTERN:
+        for (int i = 0; i < expr->pattern.binding_count; i++) {
+            if (expr->pattern.nested_patterns &&
+                expr->pattern.nested_patterns[i]) {
+                verify_expr(expr->pattern.nested_patterns[i], mod, stack,
+                            diags, arena);
+            }
+        }
+        break;
+
+    /* -Wswitch-enum opt-out: any remaining HIR expression kinds (UNIT, etc.)
+     * have no sub-expressions requiring verification. */
     default:
         break;
     }

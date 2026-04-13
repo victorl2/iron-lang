@@ -42,7 +42,7 @@ typedef struct {
 
 /* Returns true if a symbol kind should never be treated as a capture. */
 static bool sym_kind_is_non_capture(Iron_SymbolKind k) {
-    switch (k) {
+    switch ((int)(k)) {
         case IRON_SYM_FUNCTION:
         case IRON_SYM_METHOD:
         case IRON_SYM_TYPE:
@@ -51,6 +51,8 @@ static bool sym_kind_is_non_capture(Iron_SymbolKind k) {
         case IRON_SYM_INTERFACE:
         case IRON_SYM_FIELD:
             return true;
+        /* -Wswitch-enum opt-out: IRON_SYM_VARIABLE and IRON_SYM_PARAM ARE
+         * capturable and intentionally fall through to `false`. */
         default:
             return false;
     }
@@ -63,7 +65,7 @@ static bool sym_kind_is_non_capture(Iron_SymbolKind k) {
  * val/var decls inside the lambda body. */
 static void collect_locals(Iron_Node *node, StrSet **locals) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
             shput(*locals, vd->name, 1);
@@ -119,6 +121,9 @@ static void collect_locals(Iron_Node *node, StrSet **locals) {
         }
         /* Do NOT recurse into nested IRON_NODE_LAMBDA — its locals are
          * handled when find_captures processes it separately. */
+        /* -Wswitch-enum opt-out: collect_locals only visits statement-shaped
+         * kinds that can declare a new name; every other Iron_NodeKind is
+         * ignored. */
         default:
             break;
     }
@@ -135,7 +140,7 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node);
 static void collect_idents(Iron_Node *node, StrSet **locals,
                             TmpCapture **captures, StrSet **seen) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_IDENT: {
             Iron_Ident *id = (Iron_Ident *)node;
             if (!id->resolved_sym) break;
@@ -347,6 +352,9 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
             collect_idents(ss->body,      locals, captures, seen);
             break;
         }
+        /* -Wswitch-enum opt-out: collect_idents walks every expression-bearing
+         * kind; leaf nodes (literals, self, super) have no identifiers of
+         * their own and intentionally fall through. */
         default:
             break;
     }
@@ -478,7 +486,7 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
  * ordering), then process the lambda itself. */
 static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
             /* Process nested lambdas first */
@@ -670,6 +678,9 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
             find_spawn_captures(ctx, ss);
             break;
         }
+        /* -Wswitch-enum opt-out: walk_node_for_lambdas is a generic AST
+         * walker; every kind that does not contain a lambda / spawn / pfor
+         * is a valid no-op. */
         default:
             break;
     }
@@ -681,7 +692,7 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
  * Called by iron_capture_verbose_report only when --verbose is active. */
 static void verbose_walk(Iron_Node *node, Iron_Arena *arena, int depth) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
             fprintf(stderr, "  [capture] lambda at %s:%u captures %d variable(s):\n",
@@ -788,6 +799,8 @@ static void verbose_walk(Iron_Node *node, Iron_Arena *arena, int depth) {
             }
             break;
         }
+        /* -Wswitch-enum opt-out: verbose_walk is a debugging dumper that
+         * only descends into the kinds it explicitly handles. */
         default:
             break;
     }
@@ -807,7 +820,7 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
                 if (fd->body) walk_node_for_lambdas(&ctx, fd->body);
@@ -818,6 +831,8 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
                 if (md->body) walk_node_for_lambdas(&ctx, md->body);
                 break;
             }
+            /* -Wswitch-enum opt-out: capture analysis only runs on function /
+             * method bodies. */
             default:
                 break;
         }
@@ -834,7 +849,7 @@ void iron_capture_verbose_report(Iron_Program *program, Iron_Arena *arena) {
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
                 if (fd->body) verbose_walk(fd->body, arena, 0);
@@ -845,6 +860,8 @@ void iron_capture_verbose_report(Iron_Program *program, Iron_Arena *arena) {
                 if (md->body) verbose_walk(md->body, arena, 0);
                 break;
             }
+            /* -Wswitch-enum opt-out: verbose report only visits func / method
+             * bodies; every other top-level decl kind is intentionally ignored. */
             default:
                 break;
         }

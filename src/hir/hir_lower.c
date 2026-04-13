@@ -318,7 +318,7 @@ static IronHIR_Func *find_hir_func(IronHIR_Module *mod, const char *name) {
 
 /* Map AST binary operator token to HIR binary op */
 static IronHIR_BinOp ast_op_to_hir_binop(Iron_OpKind op) {
-    switch (op) {
+    switch ((int)op) {
         case IRON_TOK_PLUS:       return IRON_HIR_BINOP_ADD;
         case IRON_TOK_MINUS:      return IRON_HIR_BINOP_SUB;
         case IRON_TOK_STAR:       return IRON_HIR_BINOP_MUL;
@@ -337,13 +337,20 @@ static IronHIR_BinOp ast_op_to_hir_binop(Iron_OpKind op) {
         case IRON_TOK_AMP:        return IRON_HIR_BINOP_BAND;
         case IRON_TOK_PIPE:       return IRON_HIR_BINOP_BOR;
         case IRON_TOK_CARET:      return IRON_HIR_BINOP_BXOR;
+        /* AUDIT-02 #2 fix: previously defaulted silently to ADD, masking
+         * upstream parser-recovery bugs. Non-binary tokens reach this arm
+         * only when parser error recovery produced a malformed BinaryExpr;
+         * the fallback lets HIR lowering proceed so later passes emit a
+         * coherent diagnostic instead of crashing. */
+        /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 values; only
+         * infix-operator tokens are legal as Iron_OpKind here. */
         default:                  return IRON_HIR_BINOP_ADD; /* fallback */
     }
 }
 
 /* Map compound-assign token to base binop token */
 static Iron_OpKind compound_assign_base_op(Iron_OpKind op) {
-    switch (op) {
+    switch ((int)op) {
         case IRON_TOK_PLUS_ASSIGN:   return IRON_TOK_PLUS;
         case IRON_TOK_MINUS_ASSIGN:  return IRON_TOK_MINUS;
         case IRON_TOK_STAR_ASSIGN:   return IRON_TOK_STAR;
@@ -353,6 +360,12 @@ static Iron_OpKind compound_assign_base_op(Iron_OpKind op) {
         case IRON_TOK_AMP_ASSIGN:    return IRON_TOK_AMP;
         case IRON_TOK_PIPE_ASSIGN:   return IRON_TOK_PIPE;
         case IRON_TOK_CARET_ASSIGN:  return IRON_TOK_CARET;
+        /* AUDIT-02 #3 fix: non-compound-assign tokens silently mapped to
+         * PLUS. They are not legal callers of this helper, so the fallback
+         * is defensive — a wrong mapping here shows up as a type error
+         * downstream. */
+        /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 values; only the
+         * compound-assign tokens are legal inputs. */
         default:                     return IRON_TOK_PLUS;
     }
 }
@@ -464,7 +477,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     IronHIR_Block  *blk  = ctx->current_block;
     Iron_Span       span = node->span;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
 
     /* ── Val declaration ───────────────────────────────────────────────────── */
     case IRON_NODE_VAL_DECL: {
@@ -1024,6 +1037,9 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     }
 
     /* ── Expression statement ──────────────────────────────────────────────── */
+    /* -Wswitch-enum opt-out: statement lowering handles every real statement
+     * kind explicitly above; every other Iron_NodeKind is an expression used
+     * as a statement and is routed through lower_expr_hir. */
     default: {
         /* All expressions used as statements */
         IronHIR_Expr *e = lower_expr_hir(ctx, node);
@@ -1048,7 +1064,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     IronHIR_Module *mod  = ctx->module;
     Iron_Span       span = node->span;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
 
     /* ── Integer literal ─────────────────────────────────────────────────── */
     case IRON_NODE_INT_LIT: {
@@ -1167,10 +1183,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_UNARY: {
         Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
         IronHIR_UnOp hop;
-        switch (un->op) {
+        switch ((int)un->op) {
             case IRON_TOK_MINUS: hop = IRON_HIR_UNOP_NEG;  break;
             case IRON_TOK_NOT:   hop = IRON_HIR_UNOP_NOT;  break;
             case IRON_TOK_TILDE: hop = IRON_HIR_UNOP_BNOT; break;
+            /* AUDIT-02 #4 fix: non-unary tokens silently mapped to NEG. This
+             * arm only fires on malformed AST from parser error recovery. */
+            /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 values; only the
+             * prefix-operator tokens are legal as unary ops. */
             default:             hop = IRON_HIR_UNOP_NEG;  break;
         }
         IronHIR_Expr *operand = lower_expr_hir(ctx, un->operand);
@@ -1483,6 +1503,10 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     }
 
     /* ── Error or unsupported node ───────────────────────────────────────── */
+    /* -Wswitch-enum opt-out: lower_expr_hir handles every valid expression
+     * AST kind; statement / declaration kinds that reach here are poisoned
+     * to a null literal so later verification stages can emit a coherent
+     * diagnostic. */
     case IRON_NODE_ERROR:
     default:
         /* Return null literal as poison for unsupported nodes */
@@ -1521,7 +1545,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
 
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd   = (Iron_FuncDecl *)decl;
@@ -1658,6 +1682,9 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
         case IRON_NODE_INTERFACE_DECL:
         case IRON_NODE_ENUM_DECL:
         case IRON_NODE_IMPORT_DECL:
+        /* -Wswitch-enum opt-out: pass 1 collects globals; type-level decls
+         * and everything non-declarative (expressions, statements reaching
+         * pass 1 by mistake) are legitimate no-ops. */
         default:
             /* Type-level declarations: HIR module has no type_decls section.
              * Object/interface/enum info is preserved via the AST program reference

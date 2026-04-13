@@ -639,7 +639,11 @@ static Iron_Node *iron_parse_lambda(Iron_Parser *p) {
 
 /* Return the infix precedence of the current token, or PREC_NONE */
 static int iron_infix_prec(Iron_TokenKind k) {
-    switch (k) {
+    /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 variants; only the
+     * infix-operator tokens carry precedence. Cast to int so the switch is
+     * not an enum switch and the default arm is accepted by the strictness
+     * posture added in Phase 66 Plan 02. */
+    switch ((int)k) {
         case IRON_TOK_OR:         return PREC_OR;
         case IRON_TOK_AND:        return PREC_AND;
         case IRON_TOK_PIPE:       return PREC_BIT_OR;
@@ -662,6 +666,10 @@ static int iron_infix_prec(Iron_TokenKind k) {
         case IRON_TOK_LBRACKET:   return PREC_CALL;
         case IRON_TOK_LPAREN:     return PREC_CALL;
         case IRON_TOK_IS:         return PREC_IS;
+        /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 variants; only the
+         * infix-operator tokens carry precedence. All other tokens (literals,
+         * keywords, punctuation) intentionally return PREC_NONE so the Pratt
+         * parser stops climbing. */
         default:                  return PREC_NONE;
     }
 }
@@ -671,7 +679,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     iron_skip_newlines(p);
     Iron_Token *t = iron_current(p);
 
-    switch (t->kind) {
+    switch ((int)t->kind) {
         /* Integer literal */
         case IRON_TOK_INTEGER: {
             iron_advance(p);
@@ -976,6 +984,10 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             id->constraint_name = NULL;
             return (Iron_Node *)id;
         }
+        /* -Wswitch-enum opt-out: primary-expression switch only handles the
+         * token kinds that can begin an expression; every other Iron_TokenKind
+         * (punctuation, closers, keywords that are not prefix-position) falls
+         * through to the "expected expression" diagnostic below. */
         default:
             break;
     }
@@ -1858,7 +1870,7 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
     iron_skip_newlines(p);
     Iron_Token *t = iron_current(p);
 
-    switch (t->kind) {
+    switch ((int)t->kind) {
         case IRON_TOK_VAL:
             return iron_parse_val_decl(p);
         case IRON_TOK_VAR:
@@ -1916,6 +1928,9 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
             return iron_parse_spawn_stmt(p);
         case IRON_TOK_LBRACE:
             return iron_parse_block(p);
+        /* -Wswitch-enum opt-out: statement switch only handles the token kinds
+         * that begin a statement keyword; every other Iron_TokenKind falls
+         * through to the expression-statement / assignment default below. */
         default: {
             /* Expression statement, or assignment */
             Iron_Node *expr = iron_parse_expr(p);
@@ -2603,7 +2618,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
 }
 
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
-    switch (iron_peek(p)) {
+    switch ((int)iron_peek(p)) {
         case IRON_TOK_AT: {
             iron_advance(p);  /* consume '@' */
             Iron_Token *ann_tok = iron_current(p);
@@ -2675,6 +2690,9 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
             p->in_error_recovery = false;
             return n;
         }
+        /* -Wswitch-enum opt-out: top-level declaration switch handles only
+         * the token kinds that introduce a declaration; every other
+         * Iron_TokenKind is a parse error routed through the default arm. */
         default: {
             iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),

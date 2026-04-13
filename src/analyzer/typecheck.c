@@ -87,7 +87,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
  * "Iron_Result_Option_Int_String" (valid C identifier). */
 static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) {
     if (!t) return "unknown";
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT:    return "Int";
         case IRON_TYPE_INT8:   return "Int8";
         case IRON_TYPE_INT16:  return "Int16";
@@ -113,6 +113,9 @@ static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) 
             }
             if (t->enu.decl) return t->enu.decl->name;
             return "Enum";
+        /* -Wswitch-enum opt-out: composite kinds (OBJECT, INTERFACE, ARRAY,
+         * NULLABLE, FUNC, TUPLE, POINTER, ERROR, NULL) flow through the
+         * iron_type_to_string fallback which already handles each variant. */
         default:
             /* Fallback: use iron_type_to_string but replace brackets with underscores */
             return iron_type_to_string(t, arena);
@@ -227,7 +230,7 @@ static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
 
 static int type_bit_width(const Iron_Type *t) {
     if (!t) return 0;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT8:   case IRON_TYPE_UINT8:   return 8;
         case IRON_TYPE_INT16:  case IRON_TYPE_UINT16:  return 16;
         case IRON_TYPE_INT32:  case IRON_TYPE_UINT32:  return 32;
@@ -236,13 +239,15 @@ static int type_bit_width(const Iron_Type *t) {
         case IRON_TYPE_FLOAT32:                        return 32;
         case IRON_TYPE_FLOAT64: case IRON_TYPE_FLOAT:  return 64;
         case IRON_TYPE_BOOL:                           return 1;
+        /* -Wswitch-enum opt-out: predicate is numeric-only; non-numeric kinds
+         * return 0 meaning "no defined bit width". */
         default:                                       return 0;
     }
 }
 
 static bool value_fits_type(int64_t val, const Iron_Type *t) {
     if (!t) return false;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT8:   return val >= -128 && val <= 127;
         case IRON_TYPE_INT16:  return val >= -32768 && val <= 32767;
         case IRON_TYPE_INT32:  return val >= INT32_MIN && val <= INT32_MAX;
@@ -253,16 +258,21 @@ static bool value_fits_type(int64_t val, const Iron_Type *t) {
         case IRON_TYPE_UINT32: return val >= 0 && (uint64_t)val <= UINT32_MAX;
         case IRON_TYPE_UINT64: return val >= 0;
         case IRON_TYPE_UINT:   return val >= 0;
+        /* -Wswitch-enum opt-out: non-integer kinds are never passed an int
+         * literal to check; the predicate defaults to "fits" so non-int
+         * contexts don't emit spurious overflow diagnostics. */
         default:               return true;
     }
 }
 
 static bool is_narrow_integer(const Iron_Type *t) {
     if (!t) return false;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT8:  case IRON_TYPE_INT16:  case IRON_TYPE_INT32:
         case IRON_TYPE_UINT8: case IRON_TYPE_UINT16: case IRON_TYPE_UINT32:
             return true;
+        /* -Wswitch-enum opt-out: predicate is strictly for sub-word integer
+         * kinds; every other Iron_TypeKind is non-narrow. */
         default:
             return false;
     }
@@ -1026,7 +1036,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
     Iron_Type *result = NULL;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_INT_LIT: {
             Iron_IntLit *n = (Iron_IntLit *)node;
             result = iron_type_make_primitive(IRON_TYPE_INT);
@@ -1276,7 +1286,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type *target_t = callee_sym->type;
                     if (target_t && ce->arg_count == 1) {
                         bool is_numeric_or_bool = false;
-                        switch (target_t->kind) {
+                        switch ((int)(target_t->kind)) {
                             case IRON_TYPE_INT:
                             case IRON_TYPE_INT8:
                             case IRON_TYPE_INT16:
@@ -1293,6 +1303,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             case IRON_TYPE_BOOL:
                                 is_numeric_or_bool = true;
                                 break;
+                            /* -Wswitch-enum opt-out: cast-target check accepts
+                             * only numeric + bool targets; every other kind
+                             * falls through leaving is_numeric_or_bool false
+                             * so non-primitive "casts" stay as ordinary calls. */
                             default:
                                 break;
                         }
@@ -2401,6 +2415,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        /* -Wswitch-enum opt-out: check_expr only handles expression node kinds;
+         * statement/declaration kinds reach this arm if an upstream caller
+         * passes them in by mistake and get an IRON_TYPE_ERROR result that
+         * surfaces as a type-mismatch downstream. */
         default:
             result = iron_type_make_primitive(IRON_TYPE_ERROR);
             break;
@@ -2440,7 +2458,7 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
 static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_BLOCK: {
             Iron_Block *b = (Iron_Block *)node;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
@@ -3088,6 +3106,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        /* -Wswitch-enum opt-out: check_stmt handles every statement kind
+         * explicitly; any remaining Iron_NodeKind (expression kinds, helpers
+         * like PARAM / FIELD / TYPE_ANNOTATION) is treated as an expression-
+         * used-as-statement and routed through check_expr. */
         default:
             /* Expression used as statement */
             check_expr(ctx, node);

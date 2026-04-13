@@ -71,7 +71,11 @@ static Iron_Ident *find_ident_in_array(Iron_Node **nodes, int count, const char 
 
 static Iron_Ident *find_ident(Iron_Node *node, const char *name) {
     if (!node) return NULL;
-    switch (node->kind) {
+    /* -Wswitch-enum opt-out: test helper only traverses the subset of
+     * node kinds that can appear in the test fixtures; cast to int so
+     * the default arm is accepted under the Phase 66 Plan 02 strictness
+     * posture. */
+    switch ((int)node->kind) {
         case IRON_NODE_IDENT: {
             Iron_Ident *id = (Iron_Ident *)node;
             if (strcmp(id->name, name) == 0) return id;

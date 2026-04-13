@@ -17,7 +17,7 @@ static bool      s_initialized = false;
 /* Kinds that have interned singletons (IRON_TYPE_VOID and IRON_TYPE_NULL
  * and IRON_TYPE_ERROR are also interned for convenience). */
 static bool is_primitive_kind(Iron_TypeKind kind) {
-    switch (kind) {
+    switch ((int)(kind)) {
         case IRON_TYPE_INT:
         case IRON_TYPE_INT8:
         case IRON_TYPE_INT16:
@@ -37,6 +37,9 @@ static bool is_primitive_kind(Iron_TypeKind kind) {
         case IRON_TYPE_NULL:
         case IRON_TYPE_ERROR:
             return true;
+        /* -Wswitch-enum opt-out: non-primitive kinds (OBJECT, INTERFACE, ENUM,
+         * ARRAY, NULLABLE, FUNC, TUPLE, POINTER, ...) intentionally return
+         * false — they are not interned in the s_primitives table. */
         default:
             return false;
     }
@@ -420,12 +423,15 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
 
 bool iron_type_is_integer(const Iron_Type *t) {
     if (!t) return false;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT:   case IRON_TYPE_INT8:  case IRON_TYPE_INT16:
         case IRON_TYPE_INT32: case IRON_TYPE_INT64:
         case IRON_TYPE_UINT:  case IRON_TYPE_UINT8: case IRON_TYPE_UINT16:
         case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
             return true;
+        /* -Wswitch-enum opt-out: predicate is strictly for integer kinds;
+         * every other Iron_TypeKind (FLOAT*, BOOL, STRING, OBJECT, ...) is
+         * intentionally non-integer. */
         default:
             return false;
     }
@@ -433,11 +439,13 @@ bool iron_type_is_integer(const Iron_Type *t) {
 
 bool iron_type_is_float(const Iron_Type *t) {
     if (!t) return false;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_FLOAT:
         case IRON_TYPE_FLOAT32:
         case IRON_TYPE_FLOAT64:
             return true;
+        /* -Wswitch-enum opt-out: predicate is strictly for float kinds; every
+         * other Iron_TypeKind is intentionally non-float. */
         default:
             return false;
     }

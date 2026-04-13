@@ -78,13 +78,17 @@ static void emit_err(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) 
  * Returns NULL if the expression is not rooted in an identifier. */
 static const char *expr_ident_name(Iron_Node *node) {
     if (!node) return NULL;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_IDENT:
             return ((Iron_Ident *)node)->name;
         case IRON_NODE_FIELD_ACCESS:
             return expr_ident_name(((Iron_FieldAccess *)node)->object);
         case IRON_NODE_INDEX:
             return expr_ident_name(((Iron_IndexExpr *)node)->object);
+        /* -Wswitch-enum opt-out: expr_ident_name only unwraps the three node
+         * kinds that can be rooted in an identifier; every other expression
+         * (calls, literals, binary ops, etc.) legitimately returns NULL so
+         * the caller knows it is not an aliasable storage location. */
         default:
             return NULL;
     }
@@ -98,7 +102,7 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node);
 
 static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
             if (vd->init && vd->init->kind == IRON_NODE_HEAP) {
@@ -206,6 +210,31 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             if (fs->body) collect_stmt(ctx, fs->body);
             break;
         }
+        /* AUDIT-02 #10 fix: MATCH / DEFER / SPAWN were previously missed,
+         * so escape analysis silently ignored heap bindings / frees / leaks
+         * that occurred inside a match arm, defer body, or spawn block. */
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                if (mc && mc->body) collect_stmt(ctx, mc->body);
+            }
+            if (ms->else_body) collect_stmt(ctx, ms->else_body);
+            break;
+        }
+        case IRON_NODE_DEFER: {
+            Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+            if (ds->expr) collect_stmt(ctx, ds->expr);
+            break;
+        }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            if (ss->body) collect_stmt(ctx, ss->body);
+            break;
+        }
+        /* -Wswitch-enum opt-out: escape.c::collect_stmt only cares about
+         * statements that can produce, free, leak, or escape a heap binding;
+         * every other Iron_NodeKind is intentionally a no-op here. */
         default:
             break;
     }
@@ -224,7 +253,7 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node);
 
 static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_FREE: {
             Iron_FreeStmt *fs = (Iron_FreeStmt *)node;
             const char *name = expr_ident_name(fs->expr);
@@ -314,6 +343,30 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
             if (fs->body) validate_node(ctx, fs->body);
             break;
         }
+        /* AUDIT-02 #11 fix: validate_node was previously ignoring MATCH /
+         * DEFER / SPAWN bodies, so a `free`/`leak` inside a match arm or
+         * defer block silently evaded validation. */
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                if (mc && mc->body) validate_node(ctx, mc->body);
+            }
+            if (ms->else_body) validate_node(ctx, ms->else_body);
+            break;
+        }
+        case IRON_NODE_DEFER: {
+            Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+            if (ds->expr) validate_node(ctx, ds->expr);
+            break;
+        }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            if (ss->body) validate_node(ctx, ss->body);
+            break;
+        }
+        /* -Wswitch-enum opt-out: validate_node only inspects stmts that can
+         * reference a freed/leaked binding or introduce a nested scope. */
         default:
             break;
     }
@@ -397,7 +450,7 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
                 if (fd->body) analyze_function_body(&ctx, fd->body);
@@ -408,6 +461,9 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
                 if (md->body) analyze_function_body(&ctx, md->body);
                 break;
             }
+            /* -Wswitch-enum opt-out: escape analysis only runs on function
+             * and method bodies; every other top-level Iron_NodeKind is
+             * intentionally skipped. */
             default:
                 break;
         }

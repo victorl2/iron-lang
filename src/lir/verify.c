@@ -33,7 +33,7 @@ static void collect_operands(const IronLIR_Instr *instr,
         out[(*count)++] = (v); \
 } while (0)
 
-    switch (instr->kind) {
+    switch ((int)(instr->kind)) {
     case IRON_LIR_CONST_INT:
     case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL:
@@ -208,6 +208,10 @@ static void collect_operands(const IronLIR_Instr *instr,
         /* No operands — poison is a standalone error placeholder */
         break;
 
+    /* -Wswitch-enum opt-out: collect_operands enumerates every opcode that
+     * consumes a typed value operand; opcodes whose data lives entirely in
+     * the arena-allocated per-op union (and the IRON_LIR_INSTR_COUNT
+     * sentinel) intentionally produce an empty operand list. */
     default:
         break;
     }
@@ -330,7 +334,7 @@ static void verify_func(const IronLIR_Func *fn, const IronLIR_Module *module,
         /* Invariant 4: branch targets must be valid block IDs in this function */
         for (int ii = 0; ii < block->instr_count; ii++) {
             const IronLIR_Instr *instr = block->instrs[ii];
-            switch (instr->kind) {
+            switch ((int)(instr->kind)) {
             case IRON_LIR_JUMP:
                 if (!block_id_valid(fn, instr->jump.target)) {
                     char msg[256];

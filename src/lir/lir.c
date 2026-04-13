@@ -63,7 +63,7 @@ void iron_lir_module_destroy(IronLIR_Module *mod) {
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *instr = blk->instrs[ii];
                 if (!instr) continue;
-                switch (instr->kind) {
+                switch ((int)(instr->kind)) {
                     case IRON_LIR_CALL:
                         arrfree(instr->call.args);
                         break;
@@ -90,6 +90,9 @@ void iron_lir_module_destroy(IronLIR_Module *mod) {
                         arrfree(instr->phi.values);
                         arrfree(instr->phi.pred_blocks);
                         break;
+                    /* -Wswitch-enum opt-out: per-instruction free walker
+                     * only needs to release stb_ds arrays; scalar / pointer
+                     * fields on other IronLIR opcodes live in the arena. */
                     default:
                         break;
                 }

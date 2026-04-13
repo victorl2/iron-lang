@@ -70,7 +70,7 @@ static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
 /* ── Pass 1a: Collect top-level declarations ─────────────────────────────── */
 
 static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)node;
             /* Create an object type and attach to symbol */
@@ -154,6 +154,10 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             }
             break;
         }
+        /* -Wswitch-enum opt-out: collect_decl only processes top-level
+         * type/func/import declarations; method decls are handled in Pass 1b
+         * and every other Iron_NodeKind (expressions, statements, literals)
+         * is intentionally ignored at the top level. */
         default:
             /* Method decls handled in pass 1b; everything else ignored here */
             break;
@@ -732,7 +736,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* Should not appear in isolation; handled at entry point */
             break;
 
-        default:
+        case IRON_NODE_COUNT:
+            /* sentinel — never a real node kind */
             break;
     }
 }
@@ -923,7 +928,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
 
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
             case IRON_NODE_FUNC_DECL:
                 resolve_node(&ctx, decl);
                 break;
@@ -936,6 +941,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             case IRON_NODE_IMPORT_DECL:
                 /* Bodies of these are handled during type checking passes */
                 break;
+            /* -Wswitch-enum opt-out: Pass 2 runs over top-level declarations;
+             * any stray expression/statement kinds reach the default and go
+             * through the generic resolve_node path. */
             default:
                 resolve_node(&ctx, decl);
                 break;

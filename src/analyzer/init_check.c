@@ -103,7 +103,7 @@ static void union_assigned(InitCheckCtx *ctx, const bool *other) {
 static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
     if (!expr) return;
 
-    switch (expr->kind) {
+    switch ((int)(expr->kind)) {
     case IRON_NODE_IDENT: {
         Iron_Ident *id = (Iron_Ident *)expr;
         if (find_uninit_index(ctx, id->name) >= 0 &&
@@ -202,6 +202,9 @@ static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
         /* Lambda bodies are separate scopes; skip for now. */
         break;
     }
+    /* -Wswitch-enum opt-out: init-check walker only visits expression kinds
+     * that can read a name; literals, nulls, bools, and helper kinds are
+     * intentional no-ops. */
     default:
         /* Literals and other leaf nodes -- nothing to check. */
         break;
@@ -213,7 +216,7 @@ static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
 static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
     if (!node) return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
     case IRON_NODE_VAR_DECL: {
         Iron_VarDecl *vd = (Iron_VarDecl *)node;
         if (vd->init == NULL) {
@@ -460,6 +463,9 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
         check_expr_uses(ctx, ds->expr);
         break;
     }
+    /* -Wswitch-enum opt-out: init-check statement walker handles every named
+     * statement kind; any remaining Iron_NodeKind (expressions used as
+     * statements, helpers, etc.) is routed through check_expr_uses. */
     default:
         /* Expression statement -- check for uses */
         check_expr_uses(ctx, node);

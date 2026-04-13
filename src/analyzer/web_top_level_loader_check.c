@@ -91,7 +91,7 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node);
 static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
     if (!node) return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         /* ── Call expression: check callee name ─────────────────────────── */
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
@@ -166,6 +166,8 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
             break;
         }
         /* ── Default: leaf or unrecognised container — no-op ─────────────── */
+        /* -Wswitch-enum opt-out: web-top-level-loader BFS only needs to
+         * descend into kinds that can call an async loader. */
         default:
             break;
     }

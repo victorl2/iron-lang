@@ -36,7 +36,7 @@ if(MSVC)
     # build. Scoped to MSVC only so clang/gcc strictness is unchanged.
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
-    add_compile_options(-Wall -Wextra -Werror -Wpedantic)
+    add_compile_options(-Wall -Wextra -Werror -Wpedantic -Werror=switch-enum)
     if(IRON_ENABLE_SANITIZERS)
         add_compile_options(-fsanitize=address,undefined)
         add_link_options(-fsanitize=address,undefined)

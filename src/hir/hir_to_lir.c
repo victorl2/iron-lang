@@ -210,7 +210,7 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
         IronLIR_Block *blk = fn->blocks[bi];
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *instr = blk->instrs[ii];
-            switch (instr->kind) {
+            switch ((int)(instr->kind)) {
             case IRON_LIR_JUMP: {
                 IronLIR_BlockId t = instr->jump.target;
                 arrput(blk->succs, t);
@@ -242,6 +242,9 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
                 }
                 break;
             }
+            /* -Wswitch-enum opt-out: CFG edge rebuild only cares about
+             * terminator kinds (JUMP / BRANCH / SWITCH); every other IronLIR
+             * opcode is a non-terminator and intentionally adds no edges. */
             default: break;
             }
         }
@@ -460,7 +463,7 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
 static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
                                      Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
             register_mono_enum(ctx, seen, fd->resolved_return_type);
@@ -588,6 +591,114 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
             register_mono_enum(ctx, seen, id->resolved_type);
             break;
         }
+        /* AUDIT-02 #5 fix (the motivating bug class): these kinds were
+         * silently dropped by the default arm, so collect_mono_enums_node
+         * missed monomorphized enums produced inside for / defer / lambda
+         * bodies, index / slice / array-lit expressions, and construct /
+         * spawn / interp-string / heap / rc / is / await / comptime / free
+         * / leak containers. */
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            collect_mono_enums_node(ctx, seen, fs->iterable);
+            collect_mono_enums_node(ctx, seen, fs->body);
+            break;
+        }
+        case IRON_NODE_DEFER: {
+            Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+            collect_mono_enums_node(ctx, seen, ds->expr);
+            break;
+        }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            collect_mono_enums_node(ctx, seen, ss->body);
+            break;
+        }
+        case IRON_NODE_FREE: {
+            Iron_FreeStmt *fs = (Iron_FreeStmt *)node;
+            collect_mono_enums_node(ctx, seen, fs->expr);
+            break;
+        }
+        case IRON_NODE_LEAK: {
+            Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
+            collect_mono_enums_node(ctx, seen, ls->expr);
+            break;
+        }
+        case IRON_NODE_LAMBDA: {
+            Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
+            register_mono_enum(ctx, seen, le->resolved_type);
+            collect_mono_enums_node(ctx, seen, le->body);
+            break;
+        }
+        case IRON_NODE_INDEX: {
+            Iron_IndexExpr *ie = (Iron_IndexExpr *)node;
+            register_mono_enum(ctx, seen, ie->resolved_type);
+            collect_mono_enums_node(ctx, seen, ie->object);
+            collect_mono_enums_node(ctx, seen, ie->index);
+            break;
+        }
+        case IRON_NODE_SLICE: {
+            Iron_SliceExpr *se = (Iron_SliceExpr *)node;
+            register_mono_enum(ctx, seen, se->resolved_type);
+            collect_mono_enums_node(ctx, seen, se->object);
+            collect_mono_enums_node(ctx, seen, se->start);
+            collect_mono_enums_node(ctx, seen, se->end);
+            break;
+        }
+        case IRON_NODE_ARRAY_LIT: {
+            Iron_ArrayLit *al = (Iron_ArrayLit *)node;
+            register_mono_enum(ctx, seen, al->resolved_type);
+            for (int i = 0; i < al->element_count; i++)
+                collect_mono_enums_node(ctx, seen, al->elements[i]);
+            break;
+        }
+        case IRON_NODE_CONSTRUCT: {
+            Iron_ConstructExpr *ce = (Iron_ConstructExpr *)node;
+            register_mono_enum(ctx, seen, ce->resolved_type);
+            for (int i = 0; i < ce->arg_count; i++)
+                collect_mono_enums_node(ctx, seen, ce->args[i]);
+            break;
+        }
+        case IRON_NODE_HEAP: {
+            Iron_HeapExpr *he = (Iron_HeapExpr *)node;
+            register_mono_enum(ctx, seen, he->resolved_type);
+            collect_mono_enums_node(ctx, seen, he->inner);
+            break;
+        }
+        case IRON_NODE_RC: {
+            Iron_RcExpr *re = (Iron_RcExpr *)node;
+            register_mono_enum(ctx, seen, re->resolved_type);
+            collect_mono_enums_node(ctx, seen, re->inner);
+            break;
+        }
+        case IRON_NODE_IS: {
+            Iron_IsExpr *is = (Iron_IsExpr *)node;
+            register_mono_enum(ctx, seen, is->resolved_type);
+            collect_mono_enums_node(ctx, seen, is->expr);
+            break;
+        }
+        case IRON_NODE_AWAIT: {
+            Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
+            register_mono_enum(ctx, seen, ae->resolved_type);
+            collect_mono_enums_node(ctx, seen, ae->handle);
+            break;
+        }
+        case IRON_NODE_COMPTIME: {
+            Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
+            register_mono_enum(ctx, seen, ce->resolved_type);
+            collect_mono_enums_node(ctx, seen, ce->inner);
+            break;
+        }
+        case IRON_NODE_INTERP_STRING: {
+            Iron_InterpString *is = (Iron_InterpString *)node;
+            register_mono_enum(ctx, seen, is->resolved_type);
+            for (int i = 0; i < is->part_count; i++)
+                collect_mono_enums_node(ctx, seen, is->parts[i]);
+            break;
+        }
+        /* -Wswitch-enum opt-out: leaf literals (INT/FLOAT/BOOL/STRING/NULL)
+         * and structural helpers (PARAM / FIELD / MATCH_CASE / ENUM_VARIANT
+         * / TYPE_ANNOTATION / PATTERN / ERROR / etc.) never carry a
+         * monomorphized enum payload. */
         default:
             /* Other node kinds do not carry monomorphized enum types */
             break;
@@ -1009,12 +1120,26 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 Iron_Type *elem = obj_type->array.elem;
                 const char *elem_suffix = "int64_t";
                 if (elem) {
-                    switch (elem->kind) {
+                    switch ((int)(elem->kind)) {
                         case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
                         case IRON_TYPE_INT32:  elem_suffix = "int32_t";     break;
                         case IRON_TYPE_FLOAT:  elem_suffix = "double";      break;
                         case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
                         case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
+                        /* AUDIT-02 #6 fix: narrow/wide int and float kinds
+                         * previously fell through to the silent default,
+                         * mis-dispatching [Int8].method() etc. to
+                         * Iron_List_int64_t_*. */
+                        case IRON_TYPE_INT8:   elem_suffix = "int8_t";      break;
+                        case IRON_TYPE_INT16:  elem_suffix = "int16_t";     break;
+                        case IRON_TYPE_INT64:  elem_suffix = "int64_t";     break;
+                        case IRON_TYPE_UINT:   elem_suffix = "uint64_t";    break;
+                        case IRON_TYPE_UINT8:  elem_suffix = "uint8_t";     break;
+                        case IRON_TYPE_UINT16: elem_suffix = "uint16_t";    break;
+                        case IRON_TYPE_UINT32: elem_suffix = "uint32_t";    break;
+                        case IRON_TYPE_UINT64: elem_suffix = "uint64_t";    break;
+                        case IRON_TYPE_FLOAT32: elem_suffix = "float";      break;
+                        case IRON_TYPE_FLOAT64: elem_suffix = "double";     break;
                         case IRON_TYPE_OBJECT:
                             if (elem->object.decl) {
                                 size_t slen = 5 + strlen(elem->object.decl->name) + 1;
@@ -1045,6 +1170,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                 elem_suffix = s;
                             }
                             break;
+                        /* -Wswitch-enum opt-out: composite types (ARRAY,
+                         * NULLABLE, FUNC, TUPLE) and meta kinds (VOID,
+                         * NULL, ERROR) are not supported as list elem
+                         * types yet; fall through to int64_t fallback. */
                         default: break;
                     }
                 }

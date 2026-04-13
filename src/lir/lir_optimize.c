@@ -298,7 +298,7 @@ static void analyze_array_param_modes(IronLIR_Module *module,
                     for (int ii = 0; ii < block->instr_count && !disqualified; ii++) {
                         IronLIR_Instr *instr = block->instrs[ii];
 
-                        switch (instr->kind) {
+                        switch ((int)(instr->kind)) {
                         case IRON_LIR_GET_INDEX:
                             break;
                         case IRON_LIR_SET_INDEX:
@@ -374,6 +374,10 @@ static void analyze_array_param_modes(IronLIR_Module *module,
                             if (hmgeti(aliases, instr->slice.array) >= 0)
                                 disqualified = true;
                             break;
+                        /* -Wswitch-enum opt-out: array-param-mode scanner
+                         * only inspects opcodes that can write, alias, or
+                         * escape an array; every other LIR opcode is a
+                         * non-disqualifying no-op. */
                         default:
                             break;
                         }
@@ -636,7 +640,7 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     } \
 } while (0)
 
-    switch (instr->kind) {
+    switch ((int)(instr->kind)) {
     case IRON_LIR_CONST_INT: case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL: case IRON_LIR_CONST_STRING:
     case IRON_LIR_CONST_NULL: case IRON_LIR_FUNC_REF:
@@ -784,6 +788,9 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     case IRON_LIR_POISON:
         break; /* no operands */
 
+    /* -Wswitch-enum opt-out: operand-replacement walker handles every opcode
+     * that carries a value operand; opcodes with no value operands (sentinel
+     * / never-reachable kinds) short-circuit through this arm. */
     default:
         break;
     }
@@ -799,7 +806,7 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
     *count = 0;
 #define PUSH(v) do { if ((v) != IRON_LIR_VALUE_INVALID && *count < MAX_OPERANDS) out[(*count)++] = (v); } while(0)
 
-    switch (instr->kind) {
+    switch ((int)(instr->kind)) {
     case IRON_LIR_CONST_INT:
     case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL:
@@ -973,6 +980,9 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
     case IRON_LIR_POISON:
         break;
 
+    /* -Wswitch-enum opt-out: LIR operand collector handles every value-bearing
+     * opcode; opcodes with no value operands (and the INSTR_COUNT sentinel)
+     * intentionally produce an empty operand list. */
     default:
         break;
     }
@@ -1170,7 +1180,7 @@ static bool run_constant_folding(IronLIR_Module *module) {
                         int64_t R = right_def->const_int.value;
                         int64_t result = 0;
                         bool can_fold = true;
-                        switch (in->kind) {
+                        switch ((int)(in->kind)) {
                             case IRON_LIR_ADD: result = L + R; break;
                             case IRON_LIR_SUB: result = L - R; break;
                             case IRON_LIR_MUL: result = L * R; break;
@@ -1180,6 +1190,9 @@ static bool run_constant_folding(IronLIR_Module *module) {
                             case IRON_LIR_MOD:
                                 if (R == 0) { can_fold = false; break; }
                                 result = L % R; break;
+                            /* -Wswitch-enum opt-out: constant folder only
+                             * knows integer arithmetic; every other binop
+                             * opcode defers folding. */
                             default: can_fold = false; break;
                         }
                         if (can_fold) {
@@ -1206,13 +1219,16 @@ static bool run_constant_folding(IronLIR_Module *module) {
                         int64_t L = left_def->const_int.value;
                         int64_t R = right_def->const_int.value;
                         bool result = false;
-                        switch (in->kind) {
+                        switch ((int)(in->kind)) {
                             case IRON_LIR_EQ:  result = (L == R); break;
                             case IRON_LIR_NEQ: result = (L != R); break;
                             case IRON_LIR_LT:  result = (L < R);  break;
                             case IRON_LIR_LTE: result = (L <= R); break;
                             case IRON_LIR_GT:  result = (L > R);  break;
                             case IRON_LIR_GTE: result = (L >= R); break;
+                            /* -Wswitch-enum opt-out: only the comparison
+                             * opcodes fold to a constant bool; caller
+                             * already gated on is_comparison_binop. */
                             default: break;
                         }
                         in->kind = IRON_LIR_CONST_BOOL;
@@ -1366,7 +1382,7 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *in = blk->instrs[ii];
 
-            switch (in->kind) {
+            switch ((int)(in->kind)) {
             case IRON_LIR_CALL:
                 /* If an alloca address is passed as a call argument, it escapes */
                 for (int ai = 0; ai < in->call.arg_count; ai++) {
@@ -1400,6 +1416,9 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
                 }
                 break;
 
+            /* -Wswitch-enum opt-out: alloca-escape scanner only reacts to
+             * opcodes that can leak an alloca address; all other opcodes
+             * are safe no-ops here. */
             default:
                 break;
             }
@@ -1437,7 +1456,7 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
-                switch (in->kind) {
+                switch ((int)(in->kind)) {
                 case IRON_LIR_LOAD:
                     hmput(loaded, in->load.ptr, true);
                     break;
@@ -1449,6 +1468,9 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                 case IRON_LIR_SET_FIELD:
                     hmput(loaded, in->field.object, true);
                     break;
+                /* -Wswitch-enum opt-out: load-set scanner only needs to
+                 * track direct reads of allocas; all other opcodes are
+                 * intentional no-ops. */
                 default:
                     break;
                 }
@@ -1572,7 +1594,7 @@ static bool run_store_load_elim(IronLIR_Module *module) {
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
 
-                switch (in->kind) {
+                switch ((int)(in->kind)) {
                 case IRON_LIR_STORE:
                     /* Only track stores to known alloca slots that are not capture
                      * aliases. Capture alias allocas represent env struct fields that
@@ -1630,6 +1652,9 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                     }
                     break;
 
+                /* -Wswitch-enum opt-out: store-load forwarding only tracks
+                 * STORE / LOAD / CALL opcodes; everything else preserves
+                 * the current last_store map unchanged. */
                 default:
                     break;
                 }
@@ -1851,7 +1876,7 @@ void iron_lir_compute_value_block(IronLIR_Func *fn, IronLIR_OptimizeInfo *info) 
 /* Returns true if instruction kind mutates memory (STORE, SET_INDEX, SET_FIELD,
  * CALL, HEAP_ALLOC, RC_ALLOC, FREE).  Used to detect ordering hazards. */
 static bool instr_mutates_memory(IronLIR_InstrKind kind) {
-    switch (kind) {
+    switch ((int)(kind)) {
     case IRON_LIR_STORE:
     case IRON_LIR_SET_INDEX:
     case IRON_LIR_SET_FIELD:
@@ -1860,6 +1885,9 @@ static bool instr_mutates_memory(IronLIR_InstrKind kind) {
     case IRON_LIR_RC_ALLOC:
     case IRON_LIR_FREE:
         return true;
+    /* -Wswitch-enum opt-out: predicate is strictly memory-mutating opcodes;
+     * every other LIR opcode is intentionally pure from this predicate's
+     * perspective. */
     default:
         return false;
     }
@@ -2150,7 +2178,7 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
         IronLIR_Block *blk = fn->blocks[bi];
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *instr = blk->instrs[ii];
-            switch (instr->kind) {
+            switch ((int)(instr->kind)) {
             case IRON_LIR_JUMP: {
                 IronLIR_BlockId target = instr->jump.target;
                 arrput(blk->succs, target);
@@ -2182,6 +2210,8 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
                 }
                 break;
             }
+            /* -Wswitch-enum opt-out: post-optimization CFG rebuild only
+             * cares about terminator opcodes; non-terminators add no edges. */
             default:
                 break;
             }
@@ -2535,13 +2565,15 @@ static bool is_loop_invariant(IronLIR_Func *fn, IronLIR_LoopInfo *loop, IronLIR_
     if (!def) return false;
 
     /* Constants are always invariant */
-    switch (def->kind) {
+    switch ((int)(def->kind)) {
     case IRON_LIR_CONST_INT:
     case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL:
     case IRON_LIR_CONST_STRING:
     case IRON_LIR_CONST_NULL:
         return true;
+    /* -Wswitch-enum opt-out: fast-path handles compile-time constants; all
+     * other opcodes fall through to the full loop-invariant analysis below. */
     default:
         break;
     }
@@ -2932,7 +2964,7 @@ static bool run_strength_reduction(IronLIR_Module *module) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
-    switch (kind) {
+    switch ((int)(kind)) {
     /* Pure — no side effects */
     case IRON_LIR_CONST_INT: case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL: case IRON_LIR_CONST_STRING:
@@ -2953,6 +2985,10 @@ bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
     case IRON_LIR_MAKE_CLOSURE: case IRON_LIR_FUNC_REF:
         return true;
     /* Side-effecting — everything else */
+    /* -Wswitch-enum opt-out: predicate lists every side-effect-free opcode;
+     * all remaining opcodes (STORE, SET_*, CALL, HEAP_ALLOC, RC_ALLOC, FREE,
+     * SPAWN, PARALLEL_FOR, AWAIT, terminators, PHI, POISON, sentinel) are
+     * intentionally treated as side-effecting. */
     default:
         return false;
     }

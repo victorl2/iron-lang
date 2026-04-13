@@ -83,7 +83,7 @@ static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
                       Iron_Node *node) {
     if (!node) return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         /* ── The target: flag every await expression ─────────────────────── */
         case IRON_NODE_AWAIT: {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
@@ -180,6 +180,10 @@ static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
             break;
         }
         /* ── Default: leaf or unrecognised container — no-op ─────────────── */
+        /* -Wswitch-enum opt-out: web-await BFS only needs to descend into
+         * expression / control-flow kinds that can contain an AWAIT. Leaf
+         * kinds (literals, idents, field accesses with no child expr) are
+         * intentional no-ops here. */
         default:
             break;
     }

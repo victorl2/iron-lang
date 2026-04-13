@@ -65,7 +65,7 @@ void iron_diag_emit(Iron_DiagList *list,
     switch (level) {
     case IRON_DIAG_ERROR:   list->error_count   += 1; break;
     case IRON_DIAG_WARNING: list->warning_count += 1; break;
-    default: break;
+    case IRON_DIAG_NOTE:    break; /* notes do not affect error/warning counts */
     }
 }
 
