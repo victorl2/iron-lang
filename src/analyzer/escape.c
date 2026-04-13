@@ -67,8 +67,10 @@ static Iron_HeapExpr *find_heap_for_name(EscapeCtx *ctx, const char *name) {
 
 /* Emit a diagnostic. */
 static void emit_err(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("escape.c:emit_err msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                   msg_copy, NULL);
 }
 
 /* ── Name extraction from expression nodes ───────────────────────────────── */

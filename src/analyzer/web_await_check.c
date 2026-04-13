@@ -68,9 +68,11 @@ static void emit_await_error(WebAwaitCtx *ctx, const char *fn_name,
              fn_name ? fn_name : "(anon)",
              chain_buf);
 
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("web_await_check.c:emit_await_error msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_DIAG_E0501_AWAIT_ON_WEB, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                   msg_copy, NULL);
 }
 
 /* ── AST walker ──────────────────────────────────────────────────────────── */

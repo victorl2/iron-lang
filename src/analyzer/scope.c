@@ -7,7 +7,7 @@
 
 Iron_Scope *iron_scope_create(Iron_Arena *a, Iron_Scope *parent, Iron_ScopeKind kind) {
     Iron_Scope *s = ARENA_ALLOC(a, Iron_Scope);
-    if (!s) return NULL;
+    if (!s) iron_oom_abort("scope.c:iron_scope_create");
     memset(s, 0, sizeof(*s));
     s->parent     = parent;
     s->kind       = kind;
@@ -56,7 +56,7 @@ Iron_Symbol *iron_symbol_create(Iron_Arena *a,
                                  struct Iron_Node *decl,
                                  Iron_Span span) {
     Iron_Symbol *sym = ARENA_ALLOC(a, Iron_Symbol);
-    if (!sym) return NULL;
+    if (!sym) iron_oom_abort("scope.c:iron_symbol_create");
     memset(sym, 0, sizeof(*sym));
     sym->name       = name;
     sym->sym_kind   = kind;

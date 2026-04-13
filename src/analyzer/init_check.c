@@ -65,9 +65,11 @@ static void emit_uninit_error(InitCheckCtx *ctx, Iron_Span span,
     char buf[256];
     snprintf(buf, sizeof(buf),
              "variable '%s' may be used before initialization", name);
+    const char *msg_copy = iron_arena_strdup(ctx->arena, buf, strlen(buf));
+    if (!msg_copy) iron_oom_abort("init_check.c:emit_uninit_error msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_ERR_POSSIBLY_UNINITIALIZED, span,
-                   iron_arena_strdup(ctx->arena, buf, strlen(buf)), NULL);
+                   msg_copy, NULL);
 }
 
 /* ── Snapshot helpers for control flow merging ───────────────────────────── */
