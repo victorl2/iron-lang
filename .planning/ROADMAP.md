@@ -1062,7 +1062,7 @@ Phases execute in numeric order: 59 -> 65 -> 66 -> 67 -> 68 -> 69 -> 70 (60-64 p
 | 63. [paused] HTTP Server | v0.2.0-alpha | 0/0 | Paused | - |
 | 64. [paused] WebSocket Client | v0.2.0-alpha | 0/0 | Paused | - |
 | 65. Correctness Audit | 6/6 | Complete    | 2026-04-12 | - |
-| 66. Structural Protections + Linux Release CI | 5/5 | Complete   | 2026-04-13 | - |
+| 66. Structural Protections + Linux Release CI | 5/5 | Complete    | 2026-04-13 | - |
 | 67. Correctness Fixes + Crash Canaries | v0.1.4-alpha | 0/0 | Not started | - |
 | 68. Fuzzing Infrastructure | v0.1.4-alpha | 0/0 | Not started | - |
 | 69. Coverage Tooling + Benchmark Calibration | v0.1.4-alpha | 0/0 | Not started | - |
@@ -1346,7 +1346,17 @@ Plans:
   3. All cross-arena pointer storage issues flagged by the audit are resolved by migrating ownership or duplicating the value into the correct arena
   4. All silent `default:` fall-throughs in Iron enum switches are replaced with explicit `case` entries or a commented `default:` explaining the intentional fall-through
   5. Crash-canary fixtures exist under `tests/integration/hir_canary_*.iron` covering `if/elif/else`, `match`, `while`, `for`, `assign`, nested `if`, `spawn`, `parallel for`, tuple destructure, enum construct, method call, static call, lambda, closure capture, heap expr -- each compiles cleanly in both Debug and Release and round-trips its expected output
-**Plans**: TBD
+**Plans**: 8 plans
+Plans:
+- [ ] 67-01-PLAN.md -- Verification artifact: top-20 audit status table + Wasm re-audit (NO CODE)
+- [ ] 67-02-PLAN.md -- FIX-01 H-severity ranks 1-4: iron_oom_abort helper + IRON_LIST/MAP/SET macro guards + emit_c.c generated-C malloc guards + 2 fixtures + 2 unit tests
+- [ ] 67-03-PLAN.md -- FIX-01 ranks 14/15/19 (comptime overflow + INT64_MIN + parser atoi->strtol) + FIX-04 enum-switch tail + typecheck covered[] dynamic sizing + 3 fixtures
+- [ ] 67-04-PLAN.md -- FIX-02 parser subsystem walkthrough (parser.c ~114 + lexer.c ~9 arena sites)
+- [ ] 67-05-PLAN.md -- FIX-02 analyzer + comptime walkthrough (11 files, ~94 arena sites)
+- [ ] 67-06-PLAN.md -- FIX-02 hir + lir + runtime/stdlib walkthrough (19 files: hir.c/hir_lower/hir_to_lir + lir.c/lir_optimize/emit_c/emit_helpers/emit_structs/emit_split/emit_fusion/emit_web/web_main_loop_split/value_range/layout_analysis + printer.c + iron_string.c/iron_threads.c/iron_net.c)
+- [ ] 67-07-PLAN.md -- FIX-03 cross-arena pointer storage: AUDIT-04 16-row walkthrough with SAFETY annotations + targeted fixes + 1 regression fixture
+- [ ] 67-08-PLAN.md -- REG-02 crash-canary fixtures: 15 hir_canary_*.iron files covering every AST node kind family the HIR-to-LIR walker handles
+
 
 ### Phase 68: Fuzzing Infrastructure
 **Goal**: Standing libFuzzer targets in CI that catch new bug classes automatically -- parser, typechecker, and hir-to-lir each have a fuzz target with seed corpora and a crash-to-fixture pipeline
