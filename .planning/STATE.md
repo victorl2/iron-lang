@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: —
-status: phase-complete
-stopped_at: Completed 65-06-PLAN.md
-last_updated: "2026-04-12T15:21:20Z"
-last_activity: 2026-04-12 — Phase 65 complete (6/6 plans); CORRECTNESS-AUDIT.md and CROSS-PLATFORM-DEBT.md produced
+current_plan: 66-02
+status: in-progress
+stopped_at: Completed 66-01-PLAN.md
+last_updated: "2026-04-13T00:21:00.000Z"
+last_activity: 2026-04-13 — 66-01 landed Iron_ExprNode in ast.h with 115 compile-time prefix asserts, iron_ice ICE helper, and IRON_NODE_ASSERT_KIND debug-only macro
 progress:
   total_phases: 32
   completed_phases: 11
-  total_plans: 43
-  completed_plans: 41
-  percent: 95
+  total_plans: 48
+  completed_plans: 42
+  percent: 88
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 65 of 70 (Correctness Audit) — complete (6/6 plans)
-Current Plan: —
-Status: Phase 65 complete; ready for Phase 66
-Last activity: 2026-04-12 — Phase 65 complete; CORRECTNESS-AUDIT.md (955 findings, top-20 must-fix) and CROSS-PLATFORM-DEBT.md (41 findings) produced
+Phase: 66 of 70 (Structural Protections + Linux Release CI) — in progress (1/5 plans)
+Current Plan: 66-02-PLAN.md (PROT-02: -Werror=switch-enum rollout)
+Status: Phase 66 Plan 01 complete; ready for Plan 02
+Last activity: 2026-04-13 — 66-01 landed Iron_ExprNode in ast.h with 115 compile-time prefix asserts, iron_ice ICE helper, and IRON_NODE_ASSERT_KIND debug-only macro
 
-Progress: [█████████░] 95%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Progress: [█████████░] 95%
 | Phase 65-correctness-audit P04 | 7min | 2 tasks | 1 files |
 | Phase 65-correctness-audit PP05 | 8min | 2 tasks | 1 files |
 | Phase 65-correctness-audit P06 | 7min | 2 tasks | 2 files |
+| Phase 66-structural-protections-linux-release-ci P01 | 17min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -198,6 +199,11 @@ Progress: [█████████░] 95%
 - [Phase 65-correctness-audit]: Infrastructure audit: 74 findings (8H, 13M, 53L); all 8H are cross-platform POSIX-only APIs (test_runner.c, diagnostics.c, iron_io.c, iron_log.c, iron_time.c)
 - [Phase 65-correctness-audit]: Consolidated audit: 955 findings (18H, 619M, 318L) across 6 dimensions; cross-platform separated into CROSS-PLATFORM-DEBT.md (41 findings)
 - [Phase 65-correctness-audit]: Top-20 must-fix ranked by blast radius; IRON_LIST _push and IRON_MAP _put ranked #1-2 (most exercised runtime paths)
+- [Phase 66-structural-protections]: Iron_ExprNode published in ast.h with 5 _Static_asserts per expression type (23 types × 5 = 115 compile-time layout checks) via a single IRON_ASSERT_EXPR_PREFIX(T) macro invoked once per type
+- [Phase 66-structural-protections]: iron_ice declared in diagnostics.h as noreturn with printf format attribute; implementation in diagnostics.c calls abort() after printing 'iron: internal compiler error: <msg>' to stderr; canonical ICE path distinct from user-facing iron_diag_emit
+- [Phase 66-structural-protections]: IRON_NODE_ASSERT_KIND macro in ast.h gates on #ifndef NDEBUG (real check in Debug, ((void)0) in Release); impl lives in diagnostics.c but forward-declared in ast.h so AST consumers get it via their existing ast.h include
+- [Phase 66-structural-protections]: iron_node_assert_kind_impl uses integer kind values in ICE messages instead of stringified names — keeps the impl dep-free; future phase can add iron_node_kind_name helper without breaking existing call sites
+- [Phase 66-structural-protections]: Task 3 (hir_lower.c local typedef removal) folded into Task 1 as a Rule 3 blocking-issue fix — the new ast.h typedef created a redefinition vs the local anonymous-struct typedef; committing Task 1's ast.h change alone would break bisect, so both files committed together
 
 ### Roadmap Evolution
 
@@ -219,6 +225,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T15:21:20Z
-Stopped at: Completed 65-06-PLAN.md (Phase 65 complete)
+Last session: 2026-04-13T00:20:22.737Z
+Stopped at: Completed 66-01-PLAN.md
 Resume file: None
