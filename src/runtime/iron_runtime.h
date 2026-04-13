@@ -477,7 +477,11 @@ typedef struct {
         Iron_List_##suffix l; \
         l.count = 0; \
         l.capacity = cap; \
-        l.items = cap > 0 ? (T *)malloc((size_t)cap * sizeof(T)) : NULL; \
+        l.items = NULL; \
+        if (cap > 0) { \
+            l.items = (T *)malloc((size_t)cap * sizeof(T)); \
+            if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
+        } \
         return l; \
     } \
     Iron_List_##suffix Iron_List_##suffix##_clone(const Iron_List_##suffix *src) { \
@@ -486,6 +490,7 @@ typedef struct {
         dst.capacity = src->count; \
         if (src->count > 0) { \
             dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
+            if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
             memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
             dst.items = NULL; \
@@ -494,8 +499,15 @@ typedef struct {
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
         if (self->count >= self->capacity) { \
-            self->capacity = self->capacity ? self->capacity * 2 : 8; \
-            self->items = (T *)realloc(self->items, (size_t)self->capacity * sizeof(T)); \
+            int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
+            /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
+            if (new_cap < self->capacity) { \
+                iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
+            } \
+            T *new_items = (T *)realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
+            self->items = new_items; \
+            self->capacity = new_cap; \
         } \
         self->items[self->count++] = item; \
     } \
@@ -613,8 +625,13 @@ typedef struct {
         Iron_Map_##ksuffix##_##vsuffix m; \
         m.count = 0; \
         m.capacity = cap; \
-        m.keys   = cap > 0 ? (K *)malloc((size_t)cap * sizeof(K)) : NULL; \
-        m.values = cap > 0 ? (V *)malloc((size_t)cap * sizeof(V)) : NULL; \
+        m.keys = NULL; m.values = NULL; \
+        if (cap > 0) { \
+            m.keys = (K *)malloc((size_t)cap * sizeof(K)); \
+            if (!m.keys) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_create_with_capacity: keys"); \
+            m.values = (V *)malloc((size_t)cap * sizeof(V)); \
+            if (!m.values) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_create_with_capacity: values"); \
+        } \
         return m; \
     } \
     Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_clone(const Iron_Map_##ksuffix##_##vsuffix *src) { \
@@ -623,7 +640,9 @@ typedef struct {
         dst.capacity = src->count; \
         if (src->count > 0) { \
             dst.keys   = (K *)malloc((size_t)src->count * sizeof(K)); \
+            if (!dst.keys) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_clone: keys"); \
             dst.values = (V *)malloc((size_t)src->count * sizeof(V)); \
+            if (!dst.values) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_clone: values"); \
             memcpy(dst.keys,   src->keys,   (size_t)src->count * sizeof(K)); \
             memcpy(dst.values, src->values, (size_t)src->count * sizeof(V)); \
         } else { \
@@ -637,9 +656,18 @@ typedef struct {
             if (eq_fn(&self->keys[i], &key)) { self->values[i] = value; return; } \
         } \
         if (self->count >= self->capacity) { \
-            self->capacity = self->capacity ? self->capacity * 2 : 8; \
-            self->keys   = (K *)realloc(self->keys,   (size_t)self->capacity * sizeof(K)); \
-            self->values = (V *)realloc(self->values, (size_t)self->capacity * sizeof(V)); \
+            int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
+            /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
+            if (new_cap < self->capacity) { \
+                iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_put: capacity overflow"); \
+            } \
+            K *new_keys = (K *)realloc(self->keys, (size_t)new_cap * sizeof(K)); \
+            if (!new_keys) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_put: keys"); \
+            self->keys = new_keys; \
+            V *new_values = (V *)realloc(self->values, (size_t)new_cap * sizeof(V)); \
+            if (!new_values) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_put: values"); \
+            self->values = new_values; \
+            self->capacity = new_cap; \
         } \
         self->keys[self->count]   = key; \
         self->values[self->count] = value; \
@@ -710,7 +738,11 @@ typedef struct {
         Iron_Set_##suffix s; \
         s.count = 0; \
         s.capacity = cap; \
-        s.items = cap > 0 ? (T *)malloc((size_t)cap * sizeof(T)) : NULL; \
+        s.items = NULL; \
+        if (cap > 0) { \
+            s.items = (T *)malloc((size_t)cap * sizeof(T)); \
+            if (!s.items) iron_oom_abort("Iron_Set_" #suffix "_create_with_capacity"); \
+        } \
         return s; \
     } \
     Iron_Set_##suffix Iron_Set_##suffix##_clone(const Iron_Set_##suffix *src) { \
@@ -719,6 +751,7 @@ typedef struct {
         dst.capacity = src->count; \
         if (src->count > 0) { \
             dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
+            if (!dst.items) iron_oom_abort("Iron_Set_" #suffix "_clone"); \
             memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
             dst.items = NULL; \
@@ -730,8 +763,15 @@ typedef struct {
             if (eq_fn(&self->items[i], &item)) { return; } \
         } \
         if (self->count >= self->capacity) { \
-            self->capacity = self->capacity ? self->capacity * 2 : 8; \
-            self->items = (T *)realloc(self->items, (size_t)self->capacity * sizeof(T)); \
+            int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
+            /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
+            if (new_cap < self->capacity) { \
+                iron_oom_abort("Iron_Set_" #suffix "_add: capacity overflow"); \
+            } \
+            T *new_items = (T *)realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            if (!new_items) iron_oom_abort("Iron_Set_" #suffix "_add"); \
+            self->items = new_items; \
+            self->capacity = new_cap; \
         } \
         self->items[self->count++] = item; \
     } \

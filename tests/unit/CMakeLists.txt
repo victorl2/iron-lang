@@ -104,6 +104,20 @@ target_link_libraries(test_runtime_collections iron_runtime unity)
 add_test(NAME test_runtime_collections COMMAND test_runtime_collections)
 set_tests_properties(test_runtime_collections PROPERTIES LABELS "unit")
 
+# ── Phase 67-02: FIX-01 rank 1 + 2 OOM guard regression tests ───────────────
+# Exercise the iron_oom_abort capacity-overflow paths in IRON_LIST_IMPL _push
+# and IRON_MAP_IMPL _put. Fork-based so the child's abort() does not kill the
+# test binary; parent verifies SIGABRT + stderr diagnostic message.
+add_executable(test_alloc_list_push_oom test_alloc_list_push_oom.c)
+target_link_libraries(test_alloc_list_push_oom iron_runtime unity)
+add_test(NAME test_alloc_list_push_oom COMMAND test_alloc_list_push_oom)
+set_tests_properties(test_alloc_list_push_oom PROPERTIES LABELS "unit")
+
+add_executable(test_alloc_map_put_oom test_alloc_map_put_oom.c)
+target_link_libraries(test_alloc_map_put_oom iron_runtime unity)
+add_test(NAME test_alloc_map_put_oom COMMAND test_alloc_map_put_oom)
+set_tests_properties(test_alloc_map_put_oom PROPERTIES LABELS "unit")
+
 # ── Stdlib unit test ─────────────────────────────────────────────────────────
 add_executable(test_stdlib test_stdlib.c)
 target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)
