@@ -690,6 +690,7 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
                 } else {
                     const char *key_str = iron_arena_strdup(vra->arena,
                         key_buf, strlen(key_buf));
+                    if (!key_str) iron_oom_abort("value_range.c:analyze_function_ranges set_field_key");
                     shput(vra->field_ranges, key_str, val_range);
                 }
             }
@@ -722,6 +723,7 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
                     } else {
                         const char *key_str = iron_arena_strdup(vra->arena,
                             key_buf, strlen(key_buf));
+                        if (!key_str) iron_oom_abort("value_range.c:analyze_function_ranges construct_key");
                         shput(vra->field_ranges, key_str, val_range);
                     }
                 }

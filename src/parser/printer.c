@@ -761,11 +761,10 @@ char *iron_print_ast(Iron_Node *root, Iron_Arena *arena) {
     const char *result = iron_strbuf_get(&sb);
     size_t      len    = sb.len;
     char       *out    = (char *)iron_arena_alloc(arena, len + 1, 1);
-    if (out) {
-        memcpy(out, result, len + 1);
-    }
+    if (!out) iron_oom_abort("printer.c:iron_print_ast");
+    memcpy(out, result, len + 1);
     iron_strbuf_free(&sb);
-    return out ? out : (char *)"";
+    return out;
 }
 
 void iron_print_ast_to_file(Iron_Node *root, FILE *out) {

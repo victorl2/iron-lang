@@ -443,8 +443,10 @@ static void ws_emit_err(Iron_DiagList *diags, Iron_Arena *arena,
              fn_name ? fn_name : "(anon)",
              canonical_fix);
 
+    char *msg_copy = iron_arena_strdup(arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("web_main_loop_split.c:ws_emit_err msg");
     iron_diag_emit(diags, arena, IRON_DIAG_ERROR, code, span,
-                   iron_arena_strdup(arena, msg, strlen(msg)),
+                   msg_copy,
                    NULL);
 }
 
@@ -566,8 +568,10 @@ static void ws_process_function(IronLIR_Func *fn, Iron_Arena *arena, Iron_DiagLi
              * arena passed in from the pipeline caller). */
             Iron_CaptureEntry *entries = (Iron_CaptureEntry *)iron_arena_alloc(
                 arena, sizeof(Iron_CaptureEntry) * (size_t)cap_count, _Alignof(Iron_CaptureEntry));
+            if (!entries) iron_oom_abort("web_main_loop_split.c:ws_process_function entries");
             for (int i = 0; i < cap_count; i++) {
                 entries[i].name       = iron_arena_strdup(arena, tmps[i].name_hint, strlen(tmps[i].name_hint));
+                if (!entries[i].name) iron_oom_abort("web_main_loop_split.c:ws_process_function entry_name");
                 entries[i].type       = tmps[i].alloc_type;
                 entries[i].is_mutable = tmps[i].is_mutable;
             }

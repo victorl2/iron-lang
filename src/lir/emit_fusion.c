@@ -51,7 +51,9 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
      * - map: output elem type comes from the CALL's return type (.array.elem)
      * - filter: output elem = input elem (passes through)
      * - reduce/sum/forEach: scalar result, no intermediate elem */
+    /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
     const char **node_out_type = (const char **)calloc((size_t)chain->node_count, sizeof(const char *));
+    if (!node_out_type) iron_oom_abort("emit_fusion.c:emit_fused_chain node_out_type");
     for (int ni = 0; ni < chain->node_count; ni++) {
         FusionChainNode *node = &chain->nodes[ni];
         IronLIR_Instr *node_instr = NULL;
@@ -76,7 +78,9 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
 
     /* Determine the "current element type" entering each node.
      * Node 0 receives source_elem_c. Node N receives the previous node's output. */
+    /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
     const char **node_in_type = (const char **)calloc((size_t)chain->node_count, sizeof(const char *));
+    if (!node_in_type) iron_oom_abort("emit_fusion.c:emit_fused_chain node_in_type");
     for (int ni = 0; ni < chain->node_count; ni++) {
         node_in_type[ni] = (ni == 0) ? source_elem_c : node_out_type[ni - 1];
     }
@@ -165,7 +169,9 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
                 iron_strbuf_appendf(sb, "%s _fuse_v%d = _fuse_fn_%d(_fuse_env_%d, %s);\n",
                     node_out_type[ni], ni, ni, ni, cur_var);
                 /* Update cur_var for next operation */
+                /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
                 char *new_var = (char *)calloc(32, 1);
+                if (!new_var) iron_oom_abort("emit_fusion.c:emit_fused_chain flat_cur_var");
                 snprintf(new_var, 32, "_fuse_v%d", ni);
                 cur_var = new_var;
             } else if (strcmp(node->method, "filter") == 0) {
@@ -356,7 +362,9 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
                     emit_indent(sb, inner_ind);
                     iron_strbuf_appendf(sb, "%s _fuse_v%d = _fuse_fn_%d(_fuse_env_%d, %s);\n",
                         node_out_type[ni], ni, ni, ni, cur_var);
+                    /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
                     char *new_var = (char *)calloc(32, 1);
+                    if (!new_var) iron_oom_abort("emit_fusion.c:emit_fused_chain split_cur_var");
                     snprintf(new_var, 32, "_fuse_v%d", ni);
                     cur_var = new_var;
                 } else if (strcmp(node->method, "filter") == 0) {

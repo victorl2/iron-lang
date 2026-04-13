@@ -303,6 +303,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     c_type = iron_arena_strdup(ctx->arena,
                                                iron_strbuf_get(&opt_sb),
                                                opt_sb.len);
+                    if (!c_type) iron_oom_abort("emit_structs.c:emit_object_struct_body optional_field");
                     iron_strbuf_free(&opt_sb);
                     /* Emit the optional struct if not already done */
                     iron_strbuf_appendf(&ctx->struct_bodies,
@@ -323,6 +324,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     }
                     c_type = iron_arena_strdup(ctx->arena,
                                                iron_strbuf_get(&list_sb), list_sb.len);
+                    if (!c_type) iron_oom_abort("emit_structs.c:emit_object_struct_body array_field");
                     iron_strbuf_free(&list_sb);
                 } else {
                     c_type = emit_annotation_to_c(ta->name, ctx);
@@ -396,6 +398,7 @@ void emit_type_decls(EmitCtx *ctx) {
         int *colors = (int *)iron_arena_alloc(ctx->arena,
                                                sizeof(int) * (size_t)module->type_decl_count,
                                                _Alignof(int));
+        if (!colors) iron_oom_abort("emit_structs.c:emit_type_decls topo_colors");
         memset(colors, 0, sizeof(int) * (size_t)module->type_decl_count);
 
         IrTopoState topo;
@@ -474,6 +477,7 @@ void emit_type_decls(EmitCtx *ctx) {
                         char ikey_buf[512];
                         snprintf(ikey_buf, sizeof(ikey_buf), "%s:%s", iface_mangled, impl->type_name);
                         const char *ikey_str = iron_arena_strdup(ctx->arena, ikey_buf, strlen(ikey_buf));
+                        if (!ikey_str) iron_oom_abort("emit_structs.c:emit_type_decls indirect_variant_key");
                         shput(ctx->indirect_variants, ikey_str, true);
                     }
                 }
@@ -718,8 +722,9 @@ void emit_type_decls(EmitCtx *ctx) {
         /* Deduplicate: skip if already emitted (relevant for monomorphized enums
          * that may be registered multiple times from different use sites). */
         if (shgeti(ctx->mono_registry, mangled) >= 0) continue;
-        shput(ctx->mono_registry,
-              iron_arena_strdup(ctx->arena, mangled, strlen(mangled)), true);
+        const char *mangled_copy = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
+        if (!mangled_copy) iron_oom_abort("emit_structs.c:emit_type_decls mono_registry_key");
+        shput(ctx->mono_registry, mangled_copy, true);
 
         if (ed->has_payloads) {
             /* ADT enum: emit tagged-union struct layout into struct_bodies */

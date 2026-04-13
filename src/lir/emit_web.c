@@ -478,6 +478,7 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
 
     const char *result = iron_arena_strdup(arena, iron_strbuf_get(&output),
                                            output.len);
+    if (!result) iron_oom_abort("emit_web.c:iron_lir_emit_web result");
 
     emit_ctx_cleanup(&ctx);
     iron_strbuf_free(&output);

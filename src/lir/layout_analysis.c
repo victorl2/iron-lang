@@ -33,7 +33,9 @@ static char *make_field_key(Iron_Arena *arena, IronLIR_ValueId collection_vid,
     char buf[256];
     int len = snprintf(buf, sizeof(buf), "%u:%s", collection_vid, field_name);
     if (len < 0) len = 0;
-    return iron_arena_strdup(arena, buf, (size_t)len);
+    char *key = iron_arena_strdup(arena, buf, (size_t)len);
+    if (!key) iron_oom_abort("layout_analysis.c:make_field_key");
+    return key;
 }
 
 /* Mark a field as used for a given collection. */

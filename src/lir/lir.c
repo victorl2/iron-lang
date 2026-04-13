@@ -9,6 +9,7 @@ static IronLIR_Instr *alloc_instr(IronLIR_Func *fn, IronLIR_Block *block,
                                   IronLIR_InstrKind kind, Iron_Type *type,
                                   Iron_Span span, bool produces_value) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir.c:alloc_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind = kind;
     instr->type = type;
@@ -35,6 +36,7 @@ static IronLIR_Instr *alloc_instr(IronLIR_Func *fn, IronLIR_Block *block,
 
 IronLIR_Module *iron_lir_module_create(Iron_Arena *ir_arena, const char *name) {
     IronLIR_Module *mod = ARENA_ALLOC(ir_arena, IronLIR_Module);
+    if (!mod) iron_oom_abort("lir.c:iron_lir_module_create");
     memset(mod, 0, sizeof(*mod));
     mod->name  = name;
     mod->arena = ir_arena;
@@ -122,6 +124,7 @@ IronLIR_Func *iron_lir_func_create(IronLIR_Module *mod, const char *name,
                                   IronLIR_Param *params, int param_count,
                                   Iron_Type *return_type) {
     IronLIR_Func *fn = ARENA_ALLOC(mod->arena, IronLIR_Func);
+    if (!fn) iron_oom_abort("lir.c:iron_lir_func_create");
     memset(fn, 0, sizeof(*fn));
     fn->name         = name;
     fn->return_type  = return_type;
@@ -144,6 +147,7 @@ IronLIR_Func *iron_lir_func_create(IronLIR_Module *mod, const char *name,
 
 IronLIR_Block *iron_lir_block_create(IronLIR_Func *func, const char *label) {
     IronLIR_Block *blk = ARENA_ALLOC(func->arena, IronLIR_Block);
+    if (!blk) iron_oom_abort("lir.c:iron_lir_block_create");
     memset(blk, 0, sizeof(*blk));
     blk->id    = func->next_block_id++;
     blk->label = label;
@@ -549,6 +553,7 @@ bool iron_lir_is_terminator(IronLIR_InstrKind kind) {
 void iron_lir_module_add_type_decl(IronLIR_Module *mod, IronLIR_TypeDeclKind kind,
                                    const char *name, Iron_Type *type) {
     IronLIR_TypeDecl *decl = ARENA_ALLOC(mod->arena, IronLIR_TypeDecl);
+    if (!decl) iron_oom_abort("lir.c:iron_lir_module_add_type_decl");
     decl->kind = kind;
     decl->name = name;
     decl->type = type;
@@ -561,6 +566,7 @@ void iron_lir_module_add_extern(IronLIR_Module *mod,
                                 Iron_Type **param_types, int param_count,
                                 Iron_Type *return_type) {
     IronLIR_ExternDecl *decl = ARENA_ALLOC(mod->arena, IronLIR_ExternDecl);
+    if (!decl) iron_oom_abort("lir.c:iron_lir_module_add_extern");
     decl->iron_name   = iron_name;
     decl->c_name      = c_name;
     decl->param_types = param_types;

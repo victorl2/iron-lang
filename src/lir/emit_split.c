@@ -34,8 +34,9 @@ void emit_prescan_split_collections(EmitCtx *ctx) {
                     in2->array_lit.elem_type->interface.decl) {
                     const char *im = emit_mangle_name(
                         in2->array_lit.elem_type->interface.decl->name, ctx->arena);
-                    hmput(ctx->split_collection_ids, in2->id,
-                          iron_arena_strdup(ctx->arena, im, strlen(im)));
+                    const char *im_copy = iron_arena_strdup(ctx->arena, im, strlen(im));
+                    if (!im_copy) iron_oom_abort("emit_split.c:emit_prescan_split_collections iface_mangled");
+                    hmput(ctx->split_collection_ids, in2->id, im_copy);
                     /* Phase 48-03: Check for layout annotation override */
                     if (in2->type && in2->type->kind == IRON_TYPE_ARRAY) {
                         if (in2->type->array.layout_hint != 0) {
@@ -291,6 +292,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 /* Arena-allocate key so it survives block scope */
                 const char *soa_key_str = iron_arena_strdup(ctx->arena,
                     soa_key_tmp, strlen(soa_key_tmp));
+                if (!soa_key_str) iron_oom_abort("emit_split.c:emit_split_collection_for_iface soa_key");
                 shput(ctx->soa_types, soa_key_str, true);
             }
             iron_strbuf_appendf(sb, "    /* SoA layout for %s */\n",

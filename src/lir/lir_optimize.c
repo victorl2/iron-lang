@@ -63,6 +63,7 @@ static void insert_store_before_terminator_instr(IronLIR_Block *block,
 static IronLIR_Instr *make_alloca_instr(IronLIR_Func *fn, Iron_Type *alloc_type,
                                         Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_alloca_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind             = IRON_LIR_ALLOCA;
     instr->type             = alloc_type;  /* alloca result "type" for load */
@@ -83,6 +84,7 @@ static IronLIR_Instr *make_alloca_instr(IronLIR_Func *fn, Iron_Type *alloc_type,
 static IronLIR_Instr *make_store_instr(IronLIR_Func *fn, IronLIR_ValueId ptr,
                                        IronLIR_ValueId value, Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_store_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind        = IRON_LIR_STORE;
     instr->span        = span;
@@ -223,6 +225,7 @@ static const char *make_param_mode_key(const char *func_name, int param_index,
     size_t idx_len = strlen(buf);
     size_t total = fn_len + 1 + idx_len + 1;
     char *key = (char *)iron_arena_alloc(arena, total, 1);
+    if (!key) iron_oom_abort("lir_optimize.c:make_param_mode_key");
     memcpy(key, func_name, fn_len);
     key[fn_len] = '\t';
     memcpy(key + fn_len + 1, buf, idx_len + 1);
@@ -2688,6 +2691,7 @@ static IronLIR_Instr *make_binop_instr(IronLIR_Func *fn, IronLIR_InstrKind kind,
                                        IronLIR_ValueId left, IronLIR_ValueId right,
                                        Iron_Type *type, Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_binop_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind         = kind;
     instr->type         = type;
@@ -2706,6 +2710,7 @@ static IronLIR_Instr *make_binop_instr(IronLIR_Func *fn, IronLIR_InstrKind kind,
 static IronLIR_Instr *make_load_instr(IronLIR_Func *fn, IronLIR_ValueId ptr,
                                       Iron_Type *type, Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_load_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind     = IRON_LIR_LOAD;
     instr->type     = type;
@@ -2883,6 +2888,7 @@ static bool run_strength_reduction(IronLIR_Module *module) {
                             if (inv_def && inv_def->kind == IRON_LIR_CONST_INT) {
                                 /* Create a fresh CONST_INT in entry block for the step */
                                 IronLIR_Instr *step_const = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                                if (!step_const) iron_oom_abort("lir_optimize.c:run_strength_reduction step_const");
                                 memset(step_const, 0, sizeof(*step_const));
                                 step_const->kind = IRON_LIR_CONST_INT;
                                 step_const->type = int_type;
@@ -3130,6 +3136,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
     if (non_void) {
         IronLIR_Instr *result_alloca = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+        if (!result_alloca) iron_oom_abort("lir_optimize.c:inline_call_site result_alloca");
         memset(result_alloca, 0, sizeof(*result_alloca));
         result_alloca->kind              = IRON_LIR_ALLOCA;
         result_alloca->type              = callee->return_type;
@@ -3159,6 +3166,7 @@ static void inline_call_site(IronLIR_Func *fn,
         IronLIR_Block *src_blk = callee->blocks[bi];
 
         IronLIR_Block *new_blk = ARENA_ALLOC(fn->arena, IronLIR_Block);
+        if (!new_blk) iron_oom_abort("lir_optimize.c:inline_call_site new_blk");
         memset(new_blk, 0, sizeof(*new_blk));
         new_blk->id    = fn->next_block_id++;
         new_blk->label = src_blk->label ? src_blk->label : "inline_body";
@@ -3169,6 +3177,7 @@ static void inline_call_site(IronLIR_Func *fn,
         for (int ii = 0; ii < src_blk->instr_count; ii++) {
             IronLIR_Instr *src    = src_blk->instrs[ii];
             IronLIR_Instr *cloned = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+            if (!cloned) iron_oom_abort("lir_optimize.c:inline_call_site cloned_instr");
             memcpy(cloned, src, sizeof(*src));
 
             /* Deep-copy stb_ds arrays owned by the instruction */
@@ -3264,12 +3273,14 @@ static void inline_call_site(IronLIR_Func *fn,
      * the continuation block (the LOAD is added here; JUMP added in step 8).
      */
     IronLIR_Block *merge = ARENA_ALLOC(fn->arena, IronLIR_Block);
+    if (!merge) iron_oom_abort("lir_optimize.c:inline_call_site merge_blk");
     memset(merge, 0, sizeof(*merge));
     merge->id    = fn->next_block_id++;
     merge->label = "inline_merge";
 
     if (non_void) {
         IronLIR_Instr *load_result = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+        if (!load_result) iron_oom_abort("lir_optimize.c:inline_call_site load_result");
         memset(load_result, 0, sizeof(*load_result));
         load_result->kind     = IRON_LIR_LOAD;
         load_result->type     = callee->return_type;
@@ -3300,6 +3311,7 @@ static void inline_call_site(IronLIR_Func *fn,
             if (instr->kind != IRON_LIR_RETURN) continue;
 
             IronLIR_Instr *jump_to_merge = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+            if (!jump_to_merge) iron_oom_abort("lir_optimize.c:inline_call_site jump_to_merge");
             memset(jump_to_merge, 0, sizeof(*jump_to_merge));
             jump_to_merge->kind        = IRON_LIR_JUMP;
             jump_to_merge->id          = IRON_LIR_VALUE_INVALID;
@@ -3308,6 +3320,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
             if (non_void && !instr->ret.is_void) {
                 IronLIR_Instr *store_ret = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                if (!store_ret) iron_oom_abort("lir_optimize.c:inline_call_site store_ret");
                 memset(store_ret, 0, sizeof(*store_ret));
                 store_ret->kind        = IRON_LIR_STORE;
                 store_ret->id          = IRON_LIR_VALUE_INVALID;
@@ -3337,6 +3350,7 @@ static void inline_call_site(IronLIR_Func *fn,
      *   [call_idx+1 .. end]         — post-call instrs -> go to cont block
      */
     IronLIR_Block *cont = ARENA_ALLOC(fn->arena, IronLIR_Block);
+    if (!cont) iron_oom_abort("lir_optimize.c:inline_call_site cont_blk");
     memset(cont, 0, sizeof(*cont));
     cont->id    = fn->next_block_id++;
     cont->label = "inline_cont";
@@ -3352,6 +3366,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
     /* JUMP from call_block to cloned callee entry */
     IronLIR_Instr *jump_to_entry = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!jump_to_entry) iron_oom_abort("lir_optimize.c:inline_call_site jump_to_entry");
     memset(jump_to_entry, 0, sizeof(*jump_to_entry));
     jump_to_entry->kind        = IRON_LIR_JUMP;
     jump_to_entry->id          = IRON_LIR_VALUE_INVALID;
@@ -3362,6 +3377,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
     /* JUMP from merge to continuation */
     IronLIR_Instr *jump_to_cont = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!jump_to_cont) iron_oom_abort("lir_optimize.c:inline_call_site jump_to_cont");
     memset(jump_to_cont, 0, sizeof(*jump_to_cont));
     jump_to_cont->kind        = IRON_LIR_JUMP;
     jump_to_cont->id          = IRON_LIR_VALUE_INVALID;
