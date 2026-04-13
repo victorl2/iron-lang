@@ -638,6 +638,14 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     break;
                 }
                 /* Validate variant exists in the enum */
+                /* PROT-03 row 22 (AUDIT-01 M-severity): IRON_SYM_ENUM's
+                 * decl_node should always be IRON_NODE_ENUM_DECL. The
+                 * upstream sym_kind check above guarantees the symbol
+                 * shape; assert kind on the decl_node before the cast so
+                 * any future drift (e.g., a builtin enum with NULL
+                 * decl_node, or a wrong-kind decl_node) aborts in Debug. */
+                if (!esym->decl_node) break;
+                IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
                 Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
                 bool found = false;
                 for (int i = 0; i < ed->variant_count; i++) {
@@ -751,6 +759,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 break;
             }
             /* Validate variant exists */
+            /* PROT-03 row 23 (AUDIT-01 M-severity): same pattern as row 22 —
+             * assert IRON_NODE_ENUM_DECL before casting esym->decl_node. */
+            if (!esym->decl_node) break;
+            IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
             Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
             bool found = false;
             for (int i = 0; i < ed->variant_count; i++) {
