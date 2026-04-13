@@ -3042,9 +3042,21 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 } else if (ed) {
                     /* Plain enum (no payloads): check ident/pattern-based variant coverage */
                     int vc = ed->variant_count;
-                    bool covered[256];
-                    if (vc > 256) vc = 256;
-                    for (int i = 0; i < vc; i++) covered[i] = false;
+                    /* FIX-04 / audit row 13 — replace the former fixed-size
+                     * `bool covered[256]` + `if (vc > 256) vc = 256;` silent
+                     * truncation with a dynamically-sized buffer so plain
+                     * enums with more than 256 variants are checked
+                     * correctly instead of having silently-unchecked tail
+                     * variants report spurious non-exhaustive match errors.
+                     * calloc + iron_oom_abort follows the FIX-01 Phase 67-02
+                     * pattern so OOM aborts are reportable via stderr grep.
+                     * vc is bounded by int so the cast to size_t is safe;
+                     * the max(1, vc) guard keeps calloc(0) well-defined. */
+                    size_t covered_n = (size_t)(vc > 0 ? vc : 1);
+                    bool *covered = (bool *)calloc(covered_n, sizeof(bool));
+                    if (!covered) {
+                        iron_oom_abort("typecheck.c match-exhaustiveness covered[]");
+                    }
 
                     for (int ci = 0; ci < ms->case_count; ci++) {
                         if (!ms->cases[ci]) continue;
@@ -3119,6 +3131,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                        "add the missing variants or an else clause");
                         }
                     }
+                    /* FIX-04 row 13 — release the dynamic covered[] buffer. */
+                    free(covered);
                 }
             } else if (!ms->else_body) {
                 /* Non-enum subject without else clause */
