@@ -530,6 +530,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 }
             }
             if (variant_idx < 0 || variant_idx >= adt_ed->variant_count) variant_idx = 0;
+            /* PROT-03 row 25 (AUDIT-01 M-severity): Iron_EnumVariant is a
+             * sub-struct stored in a void** array. The loop bound
+             * variant_count and the parser's allocation protocol guarantee
+             * every entry is a non-NULL Iron_EnumVariant; the explicit
+             * runtime asserts catch any future regression that violates the
+             * invariant in Debug builds. */
+            assert(variant_idx >= 0 && variant_idx < adt_ed->variant_count);
+            assert(adt_ed->variants[variant_idx] != NULL);
             Iron_EnumVariant *adt_ev = (Iron_EnumVariant *)adt_ed->variants[variant_idx];
             iron_strbuf_appendf(sb, " .tag = %s_TAG_%s", adt_mangled, adt_ev->name);
             int payload_count = instr->construct.field_count - 1;
@@ -1409,6 +1417,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 memcpy(vname, vname_start, vname_len);
                                 vname[vname_len] = '\0';
                                 for (int vi = 0; vi < ged->variant_count; vi++) {
+                                    /* PROT-03 row 34 (AUDIT-01 M-severity):
+                                     * loop-bound + non-NULL assert before the
+                                     * Iron_EnumVariant cast from a void**
+                                     * variants array. */
+                                    assert(vi >= 0 && vi < ged->variant_count);
+                                    assert(ged->variants[vi] != NULL);
                                     Iron_EnumVariant *gev = (Iron_EnumVariant *)ged->variants[vi];
                                     if (strcmp(gev->name, vname) == 0) {
                                         if (obj_enum_type->enu.payload_is_boxed[vi] &&
@@ -3220,6 +3234,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
             if (variant_idx < 0 || variant_idx >= adt_ed->variant_count)
                 variant_idx = 0;
+            /* PROT-03 row 26 (AUDIT-01 M-severity): same pattern as row 25 —
+             * loop-bound + non-NULL assert before the Iron_EnumVariant cast
+             * from the void** variants array in the CONSTRUCT statement
+             * emitter. */
+            assert(variant_idx >= 0 && variant_idx < adt_ed->variant_count);
+            assert(adt_ed->variants[variant_idx] != NULL);
             Iron_EnumVariant *adt_ev = (Iron_EnumVariant *)adt_ed->variants[variant_idx];
             int payload_count = instr->construct.field_count - 1;
 
@@ -4522,6 +4542,11 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 bool any_boxed = false;
                 for (int avi = 0; avi < aed->variant_count && !any_boxed; avi++) {
                     if (!atype->enu.payload_is_boxed[avi]) continue;
+                    /* PROT-03 unenumerated bonus (AUDIT-01 M-severity sibling
+                     * of rows 25/26/34): loop-bound + non-NULL assert before
+                     * the Iron_EnumVariant cast in the boxed-alloca scan. */
+                    assert(avi >= 0 && avi < aed->variant_count);
+                    assert(aed->variants[avi] != NULL);
                     Iron_EnumVariant *aev = (Iron_EnumVariant *)aed->variants[avi];
                     for (int ak = 0; ak < aev->payload_count; ak++) {
                         if (atype->enu.payload_is_boxed[avi][ak]) {

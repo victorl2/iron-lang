@@ -184,6 +184,24 @@ static void phi_eliminate(IronLIR_Module *module) {
             }
 
             /* 3. Replace phi with a LOAD from the alloca */
+            /* PROT-03 rows 31 + 32 (AUDIT-01 M-severity): phi-to-load
+             * in-place rewrite. The previous IRON_LIR_PHI payload at
+             * phi->phi (24 bytes: two stb_ds pointers + count) is
+             * overwritten with the IRON_LIR_LOAD payload at phi->load
+             * (one ValueId). Both payloads share the same union slot in
+             * struct IronLIR_Instr (src/lir/lir.h), so the rewrite is
+             * structurally safe — the union grows to whichever variant
+             * is largest, and load is strictly smaller than phi. The
+             * _Static_assert below makes the union-fit invariant
+             * grep-visible. If a future change adds a larger variant to
+             * IronLIR_Instr's union AND shrinks phi to less than load,
+             * this rewrite would silently overflow into adjacent fields
+             * — the assert would still fire because it pins the
+             * load-size <= phi-size relationship explicitly. */
+            _Static_assert(sizeof(((IronLIR_Instr *)0)->load) <=
+                           sizeof(((IronLIR_Instr *)0)->phi),
+                           "phi-to-load in-place rewrite requires "
+                           "sizeof(load) <= sizeof(phi)");
             phi->kind     = IRON_LIR_LOAD;
             phi->load.ptr = alloca_id;
             /* phi->id and phi->type remain the same — the load produces the
@@ -2115,6 +2133,11 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
                     Iron_EnumDecl *ced = in->construct.type->enu.decl;
                     if (ced) {
                         for (int vi = 0; vi < ced->variant_count && eligible; vi++) {
+                            /* PROT-03 row 33 (AUDIT-01 M-severity): loop-bound
+                             * + non-NULL assert before the Iron_EnumVariant
+                             * cast in the inline-eligibility CONSTRUCT scan. */
+                            assert(vi >= 0 && vi < ced->variant_count);
+                            assert(ced->variants[vi] != NULL);
                             Iron_EnumVariant *cev = (Iron_EnumVariant *)ced->variants[vi];
                             if (in->construct.type->enu.payload_is_boxed[vi]) {
                                 for (int pk = 0; pk < cev->payload_count && eligible; pk++) {
