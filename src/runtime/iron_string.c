@@ -69,15 +69,10 @@ Iron_String iron_string_from_cstr(const char *cstr, size_t byte_len) {
         s.sso.len = (uint8_t)byte_len;
     } else {
         /* Heap path */
+        /* FIX-02: replace Phase 65 silent-truncation fallback with iron_oom_abort
+         * for consistent OOM reporting (AUDIT-06 §21). */
         char *buf = (char *)malloc(byte_len + 1);
-        if (!buf) {
-            /* OOM fallback: store as much as fits in SSO */
-            size_t cap = IRON_STRING_SSO_MAX;
-            if (cstr) memcpy(s.sso.data, cstr, cap);
-            s.sso.data[cap] = '\0';
-            s.sso.len = (uint8_t)cap;
-            return s;
-        }
+        if (!buf) iron_oom_abort("iron_string.c:iron_string_from_cstr");
         memcpy(buf, cstr, byte_len);
         buf[byte_len] = '\0';
         s.heap.data            = buf;
@@ -139,10 +134,9 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
         return s;
     }
 
+    /* FIX-02: replace Phase 65 silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
-    if (!buf) {
-        return iron_string_from_cstr("", 0);
-    }
+    if (!buf) iron_oom_abort("iron_string.c:iron_string_concat");
     memcpy(buf,      iron_string_cstr(a), la);
     memcpy(buf + la, iron_string_cstr(b), lb);
     buf[total] = '\0';
@@ -285,8 +279,9 @@ void iron_runtime_shutdown(void) {
 Iron_String Iron_string_upper(Iron_String self) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
+    /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(len + 1);
-    if (!buf) return iron_string_from_cstr("", 0);
+    if (!buf) iron_oom_abort("iron_string.c:Iron_string_upper");
     for (size_t i = 0; i < len; i++)
         buf[i] = (char)toupper((unsigned char)s[i]);
     buf[len] = '\0';
@@ -298,8 +293,9 @@ Iron_String Iron_string_upper(Iron_String self) {
 Iron_String Iron_string_lower(Iron_String self) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
+    /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(len + 1);
-    if (!buf) return iron_string_from_cstr("", 0);
+    if (!buf) iron_oom_abort("iron_string.c:Iron_string_lower");
     for (size_t i = 0; i < len; i++)
         buf[i] = (char)tolower((unsigned char)s[i]);
     buf[len] = '\0';
@@ -415,8 +411,9 @@ Iron_String Iron_string_join(Iron_String self, Iron_List_Iron_String parts) {
     }
     total += (size_t)(n > 0 ? n - 1 : 0) * seplen;
 
+    /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
-    if (!buf) return iron_string_from_cstr("", 0);
+    if (!buf) iron_oom_abort("iron_string.c:Iron_string_join");
     char *p = buf;
     for (int64_t i = 0; i < n; i++) {
         if (i > 0) { memcpy(p, sep, seplen); p += seplen; }
@@ -447,8 +444,9 @@ Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String
     while ((p = strstr(p, oldc)) != NULL) { count++; p += oldlen; }
 
     size_t total = slen + count * (newlen - oldlen);
+    /* FIX-02: replace silent self-return fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
-    if (!buf) return self;
+    if (!buf) iron_oom_abort("iron_string.c:Iron_string_replace");
 
     char *out = buf;
     const char *cur = s;
@@ -504,8 +502,9 @@ Iron_String Iron_string_repeat(Iron_String self, int64_t n) {
     size_t      len = iron_string_byte_len(&self);
     if (n <= 0 || len == 0) return iron_string_from_cstr("", 0);
     size_t total = len * (size_t)n;
+    /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
-    if (!buf) return iron_string_from_cstr("", 0);
+    if (!buf) iron_oom_abort("iron_string.c:Iron_string_repeat");
     for (int64_t i = 0; i < n; i++)
         memcpy(buf + (size_t)i * len, s, len);
     buf[total] = '\0';
@@ -524,8 +523,9 @@ Iron_String Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch
     if ((int64_t)slen >= width) return self;
     size_t pad_count = (size_t)width - slen;
     size_t total     = (size_t)width;
+    /* FIX-02: replace silent self-return fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
-    if (!buf) return self;
+    if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_left");
     for (size_t i = 0; i < pad_count; i++) buf[i] = pc;
     memcpy(buf + pad_count, s, slen);
     buf[total] = '\0';
@@ -544,8 +544,9 @@ Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String c
     if ((int64_t)slen >= width) return self;
     size_t pad_count = (size_t)width - slen;
     size_t total     = (size_t)width;
+    /* FIX-02: replace silent self-return fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
-    if (!buf) return self;
+    if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_right");
     memcpy(buf, s, slen);
     for (size_t i = 0; i < pad_count; i++) buf[slen + i] = pc;
     buf[total] = '\0';

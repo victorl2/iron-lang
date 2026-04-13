@@ -1222,8 +1222,13 @@ static Iron_List_Iron_Address build_address_list_from_addrinfo(
     }
     if (n == 0) return list;
 
+    /* FIX-02: replace silent empty-list fallback with iron_oom_abort — the
+     * empty-list return is indistinguishable from "lookup succeeded with zero
+     * matching entries" and masks OOM. The sibling Iron_net_lookup_host path
+     * still surfaces NO_MEMORY via the NetError channel (designed fallible
+     * path), which is a separate contract. */
     list.items = (Iron_Address *)calloc((size_t)n, sizeof(Iron_Address));
-    if (!list.items) return list;
+    if (!list.items) iron_oom_abort("iron_net.c:build_address_list_from_addrinfo");
     list.capacity = n;
 
     for (struct addrinfo *p = ai; p; p = p->ai_next) {
