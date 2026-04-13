@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.0
 milestone_name: milestone
-current_plan: Phase 67 Plan 03 complete; 67-04 next (FIX-02 parser arena walkthrough — ~80 parser/lexer arena sites)
-status: Phase 67 in progress — 67-01 + 67-02 + 67-03 shipped (3/8 plans); 67-04..67-08 remain
-stopped_at: Completed 67-03-PLAN.md (FIX-01 ranks 14+15+19 integer-safety tail + FIX-04 row 13 typecheck covered[] dynamic sizing)
-last_updated: "2026-04-13T18:25:40Z"
-last_activity: "2026-04-13 — 67-03 shipped overflow-safe comptime arithmetic (__builtin_add/sub/mul_overflow + INT64_MIN div/mod/negation guards) + parser enum-variant atoi->strtol with ERANGE+bounds + typecheck.c covered[256] dynamic-sizing fix; closed final 3 top-20 OPEN rows (ranks 14,15,19); walked FIX-04 enum-switch tail (16 of 17 AUDIT-02 M rows confirmed already covered, row 13 fixed); 67-AUDIT-STATUS.md updated 20 DONE / 0 OPEN (was 17/3); 3 new integration fixtures; integration suite 354 -> 357 green, ctest green"
+current_plan: Phase 67 Plan 04 complete; 67-05 next (FIX-02 analyzer + comptime arena walkthrough — ~100 sites)
+status: executing
+stopped_at: Completed 67-04-PLAN.md (FIX-02 parser + lexer arena walkthrough)
+last_updated: "2026-04-13T19:12:55.739Z"
+last_activity: "2026-04-13 — 67-04 shipped FIX-02 parser subsystem arena walkthrough: all 114 parser.c + 9 lexer.c iron_arena_alloc/ARENA_ALLOC/iron_arena_strdup call-sites routed through iron_oom_abort on NULL with function-qualified location literals ("parser.c:<function>" / "lexer.c:<function>"). Two pre-existing latent bugs auto-fixed under Rule 1: iron_snake_to_camel silent graceful-degradation on alloc fail (returned un-converted snake_case name — silently mangled emitted C names) and iron_lex_string OOM misclassified as IRON_ERR_UNTERMINATED_STRING (user saw a bogus "unterminated string" diagnostic on OOM). Phase-level gate: 123 guards total. Zero new fixtures, zero error codes, zero behaviour changes. Build green, ctest 74/74, integration 357/357 (no regression from 67-03)."
 progress:
   total_phases: 32
   completed_phases: 12
   total_plans: 56
-  completed_plans: 49
-  percent: 88
+  completed_plans: 50
+  percent: 89
 ---
 
 # Project State
@@ -31,12 +31,12 @@ v0.2.0-alpha Networking Standard Library is paused at 25/89 requirements shipped
 ## Current Position
 
 Milestone: v0.1.4-alpha Compiler Correctness & Maintenance
-Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 3/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1 + 67-03 FIX-01 ranks 14+15+19 + FIX-04 row 13)
-Current Plan: Phase 67 Plan 03 complete; 67-04 next (FIX-02 parser arena walkthrough — ~80 parser/lexer arena sites)
-Status: Phase 67 in progress — 67-01 + 67-02 + 67-03 shipped (3/8 plans); 67-04..67-08 remain
-Last activity: 2026-04-13 — 67-03 shipped overflow-safe comptime arithmetic (__builtin_add/sub/mul_overflow for +,-,* with INT64_MIN guards on div/mod/negation) + parser enum-variant strtol-with-bounds rewrite (atoi eliminated from variant-value path) + typecheck.c plain-enum covered[256] silent-truncation fix (now calloc-backed with iron_oom_abort guard + free); closed audit ranks 14, 15, 19 — the final 3 top-20 H-severity OPEN rows. FIX-04 walkthrough verified 16 of 17 AUDIT-02 M rows are already covered by Phase 66-02/66-03 (explicit cases + opt-out comments + -Werror=switch-enum enforcement); only row 13 needed an edit. 67-AUDIT-STATUS.md updated 20 DONE / 0 OPEN (was 17 DONE / 3 OPEN). 3 new integration fixtures with 4-section doc-comment headers (int_comptime_arith_overflow, int_comptime_neg_min, int_enum_value_overflow); integration suite 354 -> 357 green, ctest green.
+Phase: 67 of 70 (Correctness Fixes + Crash Canaries) — 4/8 plans shipped (67-01 audit-status verification + 67-02 FIX-01 ranks 1-4 + Wasm-W1 + 67-03 FIX-01 ranks 14+15+19 + FIX-04 row 13 + 67-04 FIX-02 parser+lexer)
+Current Plan: Phase 67 Plan 04 complete; 67-05 next (FIX-02 analyzer + comptime arena walkthrough — ~100 sites)
+Status: Phase 67 in progress — 67-01 + 67-02 + 67-03 + 67-04 shipped (4/8 plans); 67-05..67-08 remain
+Last activity: 2026-04-13 — 67-04 shipped FIX-02 parser subsystem arena walkthrough: all 114 parser.c + 9 lexer.c iron_arena_alloc/ARENA_ALLOC/iron_arena_strdup call-sites routed through iron_oom_abort on NULL with function-qualified location literals ("parser.c:<function>" / "lexer.c:<function>"). Two pre-existing latent bugs auto-fixed under Rule 1: iron_snake_to_camel silent graceful-degradation on alloc fail (returned un-converted snake_case name — silently mangled emitted C names) and iron_lex_string OOM misclassified as IRON_ERR_UNTERMINATED_STRING (user saw a bogus "unterminated string" diagnostic on OOM). Phase-level gate: 123 guards total. Zero new fixtures, zero error codes, zero behaviour changes. Build green, ctest 74/74, integration 357/357 (no regression from 67-03).
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Progress: [█████████░] 88%
 | Phase 67-correctness-fixes-+-crash-canaries P01 | 6min | 1 tasks | 1 files |
 | Phase 67-correctness-fixes-+-crash-canaries P02 | 2h 2min | 3 tasks | 12 files |
 | Phase 67-correctness-fixes-+-crash-canaries P03 | 45min | 3 tasks | 11 files |
+| Phase 67-correctness-fixes-+-crash-canaries P04 | 38 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -252,6 +253,9 @@ Progress: [█████████░] 88%
 - [Phase 67-correctness-fixes-P03]: typecheck.c row 13 fix uses calloc + iron_oom_abort + free rather than ctx->arena — the adjacent has_payloads branch uses arena without NULL check (latent bug tracked for 67-05), mixing would blur plan boundaries; calloc path is individually bisectable via stderr grep
 - [Phase 67-correctness-fixes-P03]: FIX-04 walkthrough preserves row-by-row evidence in the Task 3 commit message body rather than editing 16 files that need no changes — downstream reviewers can `git show e84497c` for the full walkthrough audit without touching source
 - [Phase 67-correctness-fixes-P03]: All 20 top-20 H-severity audit rows now closed (ranks 1-20 DONE in 67-AUDIT-STATUS.md); remaining 67-04..67-08 plans address non-top-20 M-severity rows and REG-02 canaries only
+- [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: Guard-by-default over SAFETY annotations — every parser/lexer alloc on user-reachable input path gets iron_oom_abort (123 guards), zero SAFETY comments
+- [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: Location literal convention "<file>:<function>" with sub-site disambiguator for multi-alloc functions — 114 distinct parser.c literals + 9 lexer.c literals
+- [Phase 67-correctness-fixes-+-crash-canaries]: 67-04: iron_snake_to_camel silent graceful-degradation and iron_lex_string IRON_ERR_UNTERMINATED_STRING OOM misclassification both fixed inline as Rule 1 auto-fixes (latent pre-existing bugs surfaced by the walkthrough)
 
 ### Roadmap Evolution
 
@@ -273,6 +277,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T17:35:10.454Z
-Stopped at: Completed 67-02-PLAN.md (FIX-01 ranks 1-4 + Wasm-W1 H-severity alloc-fail walkthrough + iron_oom_abort helper)
+Last session: 2026-04-13T19:12:55.735Z
+Stopped at: Completed 67-04-PLAN.md (FIX-02 parser + lexer arena walkthrough)
 Resume file: None

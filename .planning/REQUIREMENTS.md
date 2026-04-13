@@ -128,7 +128,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROT-03 | Phase 66 | Complete |
 | PROT-04 | Phase 66 | Complete |
 | FIX-01 | Phase 67 | Complete |
-| FIX-02 | Phase 67 | In Progress (partial: 67-02 iron_runtime.h + emit_c.c + emit_web.c; 67-04/05/06 continue parser + analyzer + hir+lir+runtime/stdlib walkthroughs) |
+| FIX-02 | Phase 67 | In Progress (partial: 67-02 iron_runtime.h + emit_c.c + emit_web.c; 67-04 parser.c + lexer.c walkthrough complete (123 sites); 67-05/06 continue analyzer + hir+lir+runtime/stdlib walkthroughs) |
 | FIX-03 | Phase 67 | Pending |
 | FIX-04 | Phase 67 | Complete |
 | FUZZ-01 | Phase 68 | Pending |
