@@ -27,6 +27,31 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer (requires Debug build)" OFF)
 option(IRON_ENABLE_FUZZING "Build libFuzzer fuzz targets (requires clang)" OFF)
+option(IRON_ENABLE_COVERAGE "Build with llvm-cov instrumentation (requires clang)" OFF)
+
+# Three-way mutex: at most one of SANITIZERS / FUZZING / COVERAGE may be ON.
+# llvm-cov and libFuzzer profile formats conflict; sanitizer instrumentation
+# distorts coverage line counts and fuzzer coverage metrics. Use separate
+# build directories for each purpose. Evaluated BEFORE the per-option clang
+# checks below so the fail-fast happens regardless of compiler detection.
+if(IRON_ENABLE_COVERAGE AND IRON_ENABLE_FUZZING)
+    message(FATAL_ERROR
+        "IRON_ENABLE_COVERAGE and IRON_ENABLE_FUZZING are mutually exclusive "
+        "(llvm-cov profile format conflicts with libFuzzer's coverage "
+        "instrumentation). Use separate build directories.")
+endif()
+if(IRON_ENABLE_COVERAGE AND IRON_ENABLE_SANITIZERS)
+    message(FATAL_ERROR
+        "IRON_ENABLE_COVERAGE and IRON_ENABLE_SANITIZERS are mutually exclusive "
+        "(ASan/UBSan instrumentation distorts llvm-cov line/branch counts). "
+        "Use separate build directories.")
+endif()
+if(IRON_ENABLE_FUZZING AND IRON_ENABLE_SANITIZERS)
+    message(FATAL_ERROR
+        "IRON_ENABLE_FUZZING and IRON_ENABLE_SANITIZERS are mutually exclusive "
+        "(libFuzzer ships its own sanitizer-equivalent instrumentation via "
+        "-fsanitize=fuzzer,address,undefined). Use separate build directories.")
+endif()
 
 if(MSVC)
     add_compile_options(/W3 /WX)
@@ -49,6 +74,22 @@ else()
                 "clang-only feature). Re-configure with -DCMAKE_C_COMPILER=clang. "
                 "Linux: sudo apt-get install clang. macOS: clang ships with Xcode CLT.")
         endif()
+    endif()
+    if(IRON_ENABLE_COVERAGE)
+        # Accept both "Clang" (upstream/Linux) and "AppleClang" (macOS Xcode CLT)
+        # — both ship the -fprofile-instr-generate / -fcoverage-mapping pair and
+        # llvm-profdata/llvm-cov tooling. GCC's gcov format is intentionally
+        # rejected: llvm-cov cannot consume it.
+        if(NOT (CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_C_COMPILER_ID STREQUAL "AppleClang"))
+            message(FATAL_ERROR
+                "IRON_ENABLE_COVERAGE=ON requires clang "
+                "(-fprofile-instr-generate -fcoverage-mapping are clang-only). "
+                "Re-configure with -DCMAKE_C_COMPILER=clang. "
+                "Linux: sudo apt-get install clang. macOS: clang ships with Xcode CLT.")
+        endif()
+        add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+        add_link_options(-fprofile-instr-generate -fcoverage-mapping)
+        message(STATUS "Iron: coverage instrumentation ON (clang llvm-cov)")
     endif()
 endif()
 
