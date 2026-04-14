@@ -1293,7 +1293,27 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
         return out;
     }
 
-    Iron_pool_submit_wait(Iron_io_pool, dns_worker_fn, job, job->wait);
+    /* FIX: use Iron_pool_submit (not _submit_wait) because dns_worker_fn
+     * manages job->wait directly — it calls Iron_poolwait_worker_finish
+     * itself (passing job + dns_abandoned_destructor so the abandoned
+     * path can tear everything down).
+     *
+     * If we used Iron_pool_submit_wait, pool_worker_elastic would ALSO
+     * call Iron_poolwait_worker_finish(item.wait, NULL, NULL) after
+     * dns_worker_fn returns. That second call is a race:
+     *   - Normal path: main may already have locked + read
+     *     w->completed=true and freed w via Iron_poolwait_destroy by the
+     *     time pool_worker_elastic runs its post-fn finish, so the
+     *     second call is a heap-use-after-free on w->lock/w->abandoned
+     *     (reproduced locally under Docker Ubuntu + ASan; observed in
+     *     CI as test #51 SegFault under build-and-test(ubuntu-latest)).
+     *   - Abandoned path: dns_abandoned_destructor runs inside the
+     *     first finish call, which frees w via Iron_poolwait_destroy.
+     *     The second finish call then UAF-accesses the freed w.
+     * Iron_pool_submit stores item.wait=NULL, so pool_worker_elastic's
+     * `if (item.wait)` branch is skipped and no second finish happens.
+     */
+    Iron_pool_submit(Iron_io_pool, dns_worker_fn, job);
 
     Iron_Deadline dl = Iron_deadline_from_timeout_ms(timeout_ms);
     bool completed = false;
