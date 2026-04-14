@@ -354,6 +354,15 @@ void Iron_window_init(int32_t w, int32_t h, Iron_String title);
 void Iron_window_close(void);
 bool Iron_window_should_close(void);
 
+/* Window state queries (WIN-02) */
+bool Iron_window_is_ready(void);
+bool Iron_window_is_fullscreen(void);
+bool Iron_window_is_hidden(void);
+bool Iron_window_is_minimized(void);
+bool Iron_window_is_maximized(void);
+bool Iron_window_is_focused(void);
+bool Iron_window_is_resized(void);
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */

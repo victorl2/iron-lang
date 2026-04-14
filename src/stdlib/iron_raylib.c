@@ -61,6 +61,16 @@ bool Iron_window_should_close(void) {
     return WindowShouldClose();
 }
 
+/* Window state queries (WIN-02) */
+
+bool Iron_window_is_ready(void)      { return IsWindowReady();      }
+bool Iron_window_is_fullscreen(void) { return IsWindowFullscreen(); }
+bool Iron_window_is_hidden(void)     { return IsWindowHidden();     }
+bool Iron_window_is_minimized(void)  { return IsWindowMinimized();  }
+bool Iron_window_is_maximized(void)  { return IsWindowMaximized();  }
+bool Iron_window_is_focused(void)    { return IsWindowFocused();    }
+bool Iron_window_is_resized(void)    { return IsWindowResized();    }
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */

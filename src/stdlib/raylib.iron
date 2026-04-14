@@ -985,3 +985,12 @@ func Window.abi_smoke_test() -> Vector2 {}
 func Window.init(w: Int32, h: Int32, title: String) {}
 func Window.close() {}
 func Window.should_close() -> Bool {}
+
+-- Window state queries (WIN-02)
+func Window.is_ready() -> Bool {}
+func Window.is_fullscreen() -> Bool {}
+func Window.is_hidden() -> Bool {}
+func Window.is_minimized() -> Bool {}
+func Window.is_maximized() -> Bool {}
+func Window.is_focused() -> Bool {}
+func Window.is_resized() -> Bool {}
