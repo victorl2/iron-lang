@@ -181,8 +181,99 @@ _Static_assert(offsetof(struct Iron_Font, _recs)        == offsetof(Font, recs),
 _Static_assert(offsetof(struct Iron_Font, _glyphs)      == offsetof(Font, glyphs),       "Iron_Font._glyphs offset must equal Font.glyphs");
 
 /* ── Camera / Mesh / Model types (Plan 60-04) ─────────────────────── */
-/* Static-assertion groups for Camera2D, Camera3D, Mesh, Shader,
- * MaterialMap, Material, Transform, BoneInfo, Model, ModelAnimation. */
+
+/* Iron_Camera — raylib's C Camera2D. Size + 4 offsets. */
+_Static_assert(sizeof(struct Iron_Camera) == sizeof(Camera2D),
+               "Iron_Camera size must equal Camera2D");
+_Static_assert(offsetof(struct Iron_Camera, offset)   == offsetof(Camera2D, offset),   "Iron_Camera.offset offset mismatch");
+_Static_assert(offsetof(struct Iron_Camera, target)   == offsetof(Camera2D, target),   "Iron_Camera.target offset mismatch");
+_Static_assert(offsetof(struct Iron_Camera, rotation) == offsetof(Camera2D, rotation), "Iron_Camera.rotation offset mismatch");
+_Static_assert(offsetof(struct Iron_Camera, zoom)     == offsetof(Camera2D, zoom),     "Iron_Camera.zoom offset mismatch");
+
+/* Iron_Camera3D — raylib's C Camera3D (and Camera typedef). Size + 5 offsets. */
+_Static_assert(sizeof(struct Iron_Camera3D) == sizeof(Camera3D),
+               "Iron_Camera3D size must equal Camera3D");
+_Static_assert(offsetof(struct Iron_Camera3D, position)   == offsetof(Camera3D, position),   "Iron_Camera3D.position offset mismatch");
+_Static_assert(offsetof(struct Iron_Camera3D, target)     == offsetof(Camera3D, target),     "Iron_Camera3D.target offset mismatch");
+_Static_assert(offsetof(struct Iron_Camera3D, up)         == offsetof(Camera3D, up),         "Iron_Camera3D.up offset mismatch");
+_Static_assert(offsetof(struct Iron_Camera3D, fovy)       == offsetof(Camera3D, fovy),       "Iron_Camera3D.fovy offset mismatch");
+_Static_assert(offsetof(struct Iron_Camera3D, projection) == offsetof(Camera3D, projection), "Iron_Camera3D.projection offset mismatch");
+
+/* Transform — size + 3 offsets. */
+_Static_assert(sizeof(struct Iron_Transform) == sizeof(Transform),
+               "Iron_Transform size must equal Transform");
+_Static_assert(offsetof(struct Iron_Transform, translation) == offsetof(Transform, translation), "Iron_Transform.translation offset mismatch");
+_Static_assert(offsetof(struct Iron_Transform, rotation)    == offsetof(Transform, rotation),    "Iron_Transform.rotation offset mismatch");
+_Static_assert(offsetof(struct Iron_Transform, scale)       == offsetof(Transform, scale),       "Iron_Transform.scale offset mismatch");
+
+/* BoneInfo — size + 2 offsets (name at 0, parent at 32). */
+_Static_assert(sizeof(struct Iron_BoneInfo) == sizeof(BoneInfo),
+               "Iron_BoneInfo size must equal BoneInfo");
+_Static_assert(offsetof(struct Iron_BoneInfo, name)   == offsetof(BoneInfo, name),   "Iron_BoneInfo.name offset mismatch");
+_Static_assert(offsetof(struct Iron_BoneInfo, parent) == offsetof(BoneInfo, parent), "Iron_BoneInfo.parent offset mismatch");
+
+/* Mesh — size + 17 offsets. This is the largest single-type group. */
+_Static_assert(sizeof(struct Iron_Mesh) == sizeof(Mesh),
+               "Iron_Mesh size must equal Mesh");
+_Static_assert(offsetof(struct Iron_Mesh, vertexCount)    == offsetof(Mesh, vertexCount),    "Iron_Mesh.vertexCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, triangleCount)  == offsetof(Mesh, triangleCount),  "Iron_Mesh.triangleCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _vertices)      == offsetof(Mesh, vertices),       "Iron_Mesh._vertices offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _texcoords)     == offsetof(Mesh, texcoords),      "Iron_Mesh._texcoords offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _texcoords2)    == offsetof(Mesh, texcoords2),     "Iron_Mesh._texcoords2 offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _normals)       == offsetof(Mesh, normals),        "Iron_Mesh._normals offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _tangents)      == offsetof(Mesh, tangents),       "Iron_Mesh._tangents offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _colors)        == offsetof(Mesh, colors),         "Iron_Mesh._colors offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _indices)       == offsetof(Mesh, indices),        "Iron_Mesh._indices offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _animVertices)  == offsetof(Mesh, animVertices),   "Iron_Mesh._animVertices offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _animNormals)   == offsetof(Mesh, animNormals),    "Iron_Mesh._animNormals offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _boneIds)       == offsetof(Mesh, boneIds),        "Iron_Mesh._boneIds offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _boneWeights)   == offsetof(Mesh, boneWeights),    "Iron_Mesh._boneWeights offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _boneMatrices)  == offsetof(Mesh, boneMatrices),   "Iron_Mesh._boneMatrices offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, boneCount)      == offsetof(Mesh, boneCount),      "Iron_Mesh.boneCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, vaoId)          == offsetof(Mesh, vaoId),          "Iron_Mesh.vaoId offset mismatch");
+_Static_assert(offsetof(struct Iron_Mesh, _vboId)         == offsetof(Mesh, vboId),          "Iron_Mesh._vboId offset mismatch");
+
+/* Shader — size + 2 offsets. */
+_Static_assert(sizeof(struct Iron_Shader) == sizeof(Shader),
+               "Iron_Shader size must equal Shader");
+_Static_assert(offsetof(struct Iron_Shader, id)    == offsetof(Shader, id),   "Iron_Shader.id offset mismatch");
+_Static_assert(offsetof(struct Iron_Shader, _locs) == offsetof(Shader, locs), "Iron_Shader._locs offset mismatch");
+
+/* MaterialMap — size + 3 offsets. */
+_Static_assert(sizeof(struct Iron_MaterialMap) == sizeof(MaterialMap),
+               "Iron_MaterialMap size must equal MaterialMap");
+_Static_assert(offsetof(struct Iron_MaterialMap, texture) == offsetof(MaterialMap, texture), "Iron_MaterialMap.texture offset mismatch");
+_Static_assert(offsetof(struct Iron_MaterialMap, color)   == offsetof(MaterialMap, color),   "Iron_MaterialMap.color offset mismatch");
+_Static_assert(offsetof(struct Iron_MaterialMap, value)   == offsetof(MaterialMap, value),   "Iron_MaterialMap.value offset mismatch");
+
+/* Material — size + 3 offsets. `params` is inline float[4]. */
+_Static_assert(sizeof(struct Iron_Material) == sizeof(Material),
+               "Iron_Material size must equal Material");
+_Static_assert(offsetof(struct Iron_Material, shader) == offsetof(Material, shader), "Iron_Material.shader offset mismatch");
+_Static_assert(offsetof(struct Iron_Material, _maps)  == offsetof(Material, maps),   "Iron_Material._maps offset mismatch");
+_Static_assert(offsetof(struct Iron_Material, params) == offsetof(Material, params), "Iron_Material.params offset mismatch");
+
+/* Model — size + 9 offsets. */
+_Static_assert(sizeof(struct Iron_Model) == sizeof(Model),
+               "Iron_Model size must equal Model");
+_Static_assert(offsetof(struct Iron_Model, transform)     == offsetof(Model, transform),     "Iron_Model.transform offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, meshCount)     == offsetof(Model, meshCount),     "Iron_Model.meshCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, materialCount) == offsetof(Model, materialCount), "Iron_Model.materialCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, _meshes)       == offsetof(Model, meshes),        "Iron_Model._meshes offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, _materials)    == offsetof(Model, materials),     "Iron_Model._materials offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, _meshMaterial) == offsetof(Model, meshMaterial),  "Iron_Model._meshMaterial offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, boneCount)     == offsetof(Model, boneCount),     "Iron_Model.boneCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, _bones)        == offsetof(Model, bones),         "Iron_Model._bones offset mismatch");
+_Static_assert(offsetof(struct Iron_Model, _bindPose)     == offsetof(Model, bindPose),      "Iron_Model._bindPose offset mismatch");
+
+/* ModelAnimation — size + 5 offsets. */
+_Static_assert(sizeof(struct Iron_ModelAnimation) == sizeof(ModelAnimation),
+               "Iron_ModelAnimation size must equal ModelAnimation");
+_Static_assert(offsetof(struct Iron_ModelAnimation, boneCount)   == offsetof(ModelAnimation, boneCount),   "Iron_ModelAnimation.boneCount offset mismatch");
+_Static_assert(offsetof(struct Iron_ModelAnimation, frameCount)  == offsetof(ModelAnimation, frameCount),  "Iron_ModelAnimation.frameCount offset mismatch");
+_Static_assert(offsetof(struct Iron_ModelAnimation, _bones)      == offsetof(ModelAnimation, bones),       "Iron_ModelAnimation._bones offset mismatch");
+_Static_assert(offsetof(struct Iron_ModelAnimation, _framePoses) == offsetof(ModelAnimation, framePoses),  "Iron_ModelAnimation._framePoses offset mismatch");
+_Static_assert(offsetof(struct Iron_ModelAnimation, name)        == offsetof(ModelAnimation, name),        "Iron_ModelAnimation.name offset mismatch");
 
 /* ── 3D helpers / audio / file types (Plan 60-05) ─────────────────── */
 /* Static-assertion groups for Ray, RayCollision, BoundingBox, Wave,
