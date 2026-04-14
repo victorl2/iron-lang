@@ -119,8 +119,66 @@ _Static_assert(offsetof(struct Iron_Color, b) == offsetof(Color, b), "Iron_Color
 _Static_assert(offsetof(struct Iron_Color, a) == offsetof(Color, a), "Iron_Color.a offset mismatch");
 
 /* ── Image / Texture / Font types (Plan 60-03) ────────────────────── */
-/* Static-assertion groups for Image, Texture, RenderTexture,
- * NPatchInfo, GlyphInfo, Font. */
+
+/* Image: size + 5 offsets. `_data` maps to C's `data`. */
+_Static_assert(sizeof(struct Iron_Image) == sizeof(Image),
+               "Iron_Image size must equal Image");
+_Static_assert(offsetof(struct Iron_Image, _data)   == offsetof(Image, data),
+               "Iron_Image._data offset must equal Image.data");
+_Static_assert(offsetof(struct Iron_Image, width)   == offsetof(Image, width),
+               "Iron_Image.width offset mismatch");
+_Static_assert(offsetof(struct Iron_Image, height)  == offsetof(Image, height),
+               "Iron_Image.height offset mismatch");
+_Static_assert(offsetof(struct Iron_Image, mipmaps) == offsetof(Image, mipmaps),
+               "Iron_Image.mipmaps offset mismatch");
+_Static_assert(offsetof(struct Iron_Image, format)  == offsetof(Image, format),
+               "Iron_Image.format offset mismatch");
+
+/* Texture: size + 5 offsets. */
+_Static_assert(sizeof(struct Iron_Texture) == sizeof(Texture),
+               "Iron_Texture size must equal Texture");
+_Static_assert(offsetof(struct Iron_Texture, id)      == offsetof(Texture, id),      "Iron_Texture.id offset mismatch");
+_Static_assert(offsetof(struct Iron_Texture, width)   == offsetof(Texture, width),   "Iron_Texture.width offset mismatch");
+_Static_assert(offsetof(struct Iron_Texture, height)  == offsetof(Texture, height),  "Iron_Texture.height offset mismatch");
+_Static_assert(offsetof(struct Iron_Texture, mipmaps) == offsetof(Texture, mipmaps), "Iron_Texture.mipmaps offset mismatch");
+_Static_assert(offsetof(struct Iron_Texture, format)  == offsetof(Texture, format),  "Iron_Texture.format offset mismatch");
+
+/* RenderTexture: size + 3 offsets. Embedded Iron_Texture by value. */
+_Static_assert(sizeof(struct Iron_RenderTexture) == sizeof(RenderTexture),
+               "Iron_RenderTexture size must equal RenderTexture");
+_Static_assert(offsetof(struct Iron_RenderTexture, id)      == offsetof(RenderTexture, id),      "Iron_RenderTexture.id offset mismatch");
+_Static_assert(offsetof(struct Iron_RenderTexture, texture) == offsetof(RenderTexture, texture), "Iron_RenderTexture.texture offset mismatch");
+_Static_assert(offsetof(struct Iron_RenderTexture, depth)   == offsetof(RenderTexture, depth),   "Iron_RenderTexture.depth offset mismatch");
+
+/* NPatchInfo: size + 6 offsets. Embedded Iron_Rectangle by value. */
+_Static_assert(sizeof(struct Iron_NPatchInfo) == sizeof(NPatchInfo),
+               "Iron_NPatchInfo size must equal NPatchInfo");
+_Static_assert(offsetof(struct Iron_NPatchInfo, source) == offsetof(NPatchInfo, source), "Iron_NPatchInfo.source offset mismatch");
+_Static_assert(offsetof(struct Iron_NPatchInfo, left)   == offsetof(NPatchInfo, left),   "Iron_NPatchInfo.left offset mismatch");
+_Static_assert(offsetof(struct Iron_NPatchInfo, top)    == offsetof(NPatchInfo, top),    "Iron_NPatchInfo.top offset mismatch");
+_Static_assert(offsetof(struct Iron_NPatchInfo, right)  == offsetof(NPatchInfo, right),  "Iron_NPatchInfo.right offset mismatch");
+_Static_assert(offsetof(struct Iron_NPatchInfo, bottom) == offsetof(NPatchInfo, bottom), "Iron_NPatchInfo.bottom offset mismatch");
+_Static_assert(offsetof(struct Iron_NPatchInfo, layout) == offsetof(NPatchInfo, layout), "Iron_NPatchInfo.layout offset mismatch");
+
+/* GlyphInfo: size + 5 offsets. Embedded Iron_Image by value. */
+_Static_assert(sizeof(struct Iron_GlyphInfo) == sizeof(GlyphInfo),
+               "Iron_GlyphInfo size must equal GlyphInfo");
+_Static_assert(offsetof(struct Iron_GlyphInfo, value)    == offsetof(GlyphInfo, value),    "Iron_GlyphInfo.value offset mismatch");
+_Static_assert(offsetof(struct Iron_GlyphInfo, offsetX)  == offsetof(GlyphInfo, offsetX),  "Iron_GlyphInfo.offsetX offset mismatch");
+_Static_assert(offsetof(struct Iron_GlyphInfo, offsetY)  == offsetof(GlyphInfo, offsetY),  "Iron_GlyphInfo.offsetY offset mismatch");
+_Static_assert(offsetof(struct Iron_GlyphInfo, advanceX) == offsetof(GlyphInfo, advanceX), "Iron_GlyphInfo.advanceX offset mismatch");
+_Static_assert(offsetof(struct Iron_GlyphInfo, image)    == offsetof(GlyphInfo, image),    "Iron_GlyphInfo.image offset mismatch");
+
+/* Font: size + 6 offsets. `_recs` maps to C's `recs`, `_glyphs` maps
+ * to C's `glyphs`. Embeds Iron_Texture by value. */
+_Static_assert(sizeof(struct Iron_Font) == sizeof(Font),
+               "Iron_Font size must equal Font");
+_Static_assert(offsetof(struct Iron_Font, baseSize)     == offsetof(Font, baseSize),     "Iron_Font.baseSize offset mismatch");
+_Static_assert(offsetof(struct Iron_Font, glyphCount)   == offsetof(Font, glyphCount),   "Iron_Font.glyphCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Font, glyphPadding) == offsetof(Font, glyphPadding), "Iron_Font.glyphPadding offset mismatch");
+_Static_assert(offsetof(struct Iron_Font, texture)      == offsetof(Font, texture),      "Iron_Font.texture offset mismatch");
+_Static_assert(offsetof(struct Iron_Font, _recs)        == offsetof(Font, recs),         "Iron_Font._recs offset must equal Font.recs");
+_Static_assert(offsetof(struct Iron_Font, _glyphs)      == offsetof(Font, glyphs),       "Iron_Font._glyphs offset must equal Font.glyphs");
 
 /* ── Camera / Mesh / Model types (Plan 60-04) ─────────────────────── */
 /* Static-assertion groups for Camera2D, Camera3D, Mesh, Shader,
