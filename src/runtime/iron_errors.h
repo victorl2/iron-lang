@@ -65,6 +65,13 @@
 /* ── JSON (4000..4999) — reserved for Phase 61 ───────────────────────────── */
 /* ── HTTP (5000..5999) — reserved for Phase 62/63 ────────────────────────── */
 /* ── WS (6000..6999) — reserved for Phase 64 ─────────────────────────────── */
-/* ── Internal (7000..7999) — reserved for runtime invariant violations ───── */
+
+/* ── Runtime / Thread-pool pressure (7000..7099) — HARDEN-01 ────────────── */
+#define IRON_ERR_THREAD_LIMIT           7000   /* pthread_create / equivalent returned EAGAIN — scheduler pressure, recoverable */
+#define IRON_ERR_POOL_FULL              7001   /* pool queue could not grow (OOM on grow malloc or explicit bound hit) */
+#define IRON_ERR_RESOURCE_EXHAUSTED     7002   /* kernel resource exhaustion — fds, mutexes, semaphores, cond vars */
+/* 7003..7099 reserved for future runtime-pressure / concurrency additions */
+
+/* ── Internal (7100..7999) — reserved for runtime invariant violations ───── */
 
 #endif /* IRON_ERRORS_H */

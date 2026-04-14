@@ -388,6 +388,58 @@ void       *Iron_mutex_lock(Iron_Mutex *m);   /* returns pointer to value */
 void        Iron_mutex_unlock(Iron_Mutex *m);
 void        Iron_mutex_destroy(Iron_Mutex *m);
 
+/* ── HARDEN-01 typed-error channel variants (Phase 71) ──────────────────────
+ * Parallel `*_or_error` API for thread-pool creation and submission that
+ * distinguishes four failure classes (OOM / scheduler-pressure / kernel-
+ * exhaustion / degraded-mode) instead of routing every failure through
+ * `iron_oom_abort`. See docs/runtime-failure-contract.md for the classification
+ * and retry guidance.
+ *
+ * Legacy creation functions above (Iron_pool_create, Iron_channel_create, ...)
+ * are UNCHANGED — they delegate internally to these _or_error variants and
+ * abort on any non-zero Iron_Error. Callers that can handle scheduler pressure
+ * migrate to the _or_error variant; callers that cannot (codegen-emitted user
+ * code, one-shot CLI tools) keep using the legacy abort-on-failure form.
+ */
+
+/* Result-with-error structs. Each wraps a creation-function return pointer
+ * plus an Iron_Error. On success: pointer is non-NULL and err.code == 0.
+ * On failure: pointer is NULL and err.code is one of:
+ *   IRON_ERR_THREAD_LIMIT     — pthread_create returned EAGAIN
+ *   IRON_ERR_RESOURCE_EXHAUSTED — pthread_mutex_init / similar exhaustion
+ *   (malloc-NULL still routes through iron_oom_abort inside the _or_error
+ *    variant — OOM stays a hard abort by design; only scheduler/kernel
+ *    pressure surfaces as a typed error.)
+ */
+typedef struct { Iron_Pool     *pool;  Iron_Error err; } Iron_Pool_OrError;
+typedef struct { Iron_Pool     *pool;  Iron_Error err; } Iron_ElasticPool_OrError;
+typedef struct { Iron_PoolWait *wait;  Iron_Error err; } Iron_PoolWait_OrError;
+typedef struct { Iron_Handle   *handle; Iron_Error err; } Iron_Handle_OrError;
+typedef struct { Iron_Channel  *channel; Iron_Error err; } Iron_Channel_OrError;
+typedef struct { Iron_Mutex    *mutex; Iron_Error err; } Iron_Mutex_OrError;
+
+/* Creation functions — typed-error variants. Legacy signatures above in this
+ * file remain valid and delegate to these. */
+Iron_Pool_OrError        Iron_pool_create_or_error(const char *name,
+                                                    int thread_count);
+Iron_ElasticPool_OrError Iron_elastic_pool_create_or_error(const char *name,
+                                                            int max_threads,
+                                                            int idle_timeout_ms);
+Iron_PoolWait_OrError    Iron_poolwait_create_or_error(void);
+Iron_Handle_OrError      Iron_handle_create_or_error(void (*fn)(void *), void *arg);
+Iron_Handle_OrError      iron_handle_create_self_ref_or_error(void (*fn)(void *));
+Iron_Channel_OrError     Iron_channel_create_or_error(int capacity);
+Iron_Mutex_OrError       Iron_mutex_create_or_error(void *initial_value, size_t size);
+
+/* Submission variant — typed-error. Legacy Iron_pool_submit (void return)
+ * above delegates to this and aborts on any non-zero Iron_Error to preserve
+ * codegen-emitted caller behavior. Returns iron_error_none() on success,
+ * IRON_ERR_POOL_FULL on grow failure, IRON_ERR_THREAD_LIMIT on elastic-spawn
+ * failure. */
+Iron_Error Iron_pool_submit_or_error(Iron_Pool *pool,
+                                     void (*fn)(void *),
+                                     void *arg);
+
 /* ── Lock / CondVar raw primitives ───────────────────────────────────────────
  * Thin wrappers around pthread_mutex_t and pthread_cond_t for use in
  * Iron programs that need lower-level synchronisation.
