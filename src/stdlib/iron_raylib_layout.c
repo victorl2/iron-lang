@@ -35,8 +35,88 @@
  * ════════════════════════════════════════════════════════════════════ */
 
 /* ── Core math types (Plan 60-02) ─────────────────────────────────── */
-/* Static-assertion groups for Vector2, Vector3, Vector4, Quaternion,
- * Matrix, Rectangle, Color. */
+
+/* Vector2: size + 2 offsets */
+_Static_assert(sizeof(struct Iron_Vector2) == sizeof(Vector2),
+               "Iron_Vector2 size must equal Vector2");
+_Static_assert(offsetof(struct Iron_Vector2, x) == offsetof(Vector2, x),
+               "Iron_Vector2.x offset must equal Vector2.x");
+_Static_assert(offsetof(struct Iron_Vector2, y) == offsetof(Vector2, y),
+               "Iron_Vector2.y offset must equal Vector2.y");
+
+/* Vector3: size + 3 offsets */
+_Static_assert(sizeof(struct Iron_Vector3) == sizeof(Vector3),
+               "Iron_Vector3 size must equal Vector3");
+_Static_assert(offsetof(struct Iron_Vector3, x) == offsetof(Vector3, x),
+               "Iron_Vector3.x offset must equal Vector3.x");
+_Static_assert(offsetof(struct Iron_Vector3, y) == offsetof(Vector3, y),
+               "Iron_Vector3.y offset must equal Vector3.y");
+_Static_assert(offsetof(struct Iron_Vector3, z) == offsetof(Vector3, z),
+               "Iron_Vector3.z offset must equal Vector3.z");
+
+/* Vector4: size + 4 offsets */
+_Static_assert(sizeof(struct Iron_Vector4) == sizeof(Vector4),
+               "Iron_Vector4 size must equal Vector4");
+_Static_assert(offsetof(struct Iron_Vector4, x) == offsetof(Vector4, x),
+               "Iron_Vector4.x offset must equal Vector4.x");
+_Static_assert(offsetof(struct Iron_Vector4, y) == offsetof(Vector4, y),
+               "Iron_Vector4.y offset must equal Vector4.y");
+_Static_assert(offsetof(struct Iron_Vector4, z) == offsetof(Vector4, z),
+               "Iron_Vector4.z offset must equal Vector4.z");
+_Static_assert(offsetof(struct Iron_Vector4, w) == offsetof(Vector4, w),
+               "Iron_Vector4.w offset must equal Vector4.w");
+
+/* Quaternion: layout-compat with Vector4 (raylib typedef). Assert
+ * against the concrete Vector4 struct — raylib's `Quaternion` is a
+ * typedef to Vector4, so sizeof/offsetof work on both names. */
+_Static_assert(sizeof(struct Iron_Quaternion) == sizeof(Quaternion),
+               "Iron_Quaternion size must equal Quaternion");
+_Static_assert(sizeof(struct Iron_Quaternion) == sizeof(Vector4),
+               "Iron_Quaternion must be layout-identical to Vector4");
+_Static_assert(offsetof(struct Iron_Quaternion, x) == offsetof(Quaternion, x),
+               "Iron_Quaternion.x offset must equal Quaternion.x");
+_Static_assert(offsetof(struct Iron_Quaternion, y) == offsetof(Quaternion, y),
+               "Iron_Quaternion.y offset must equal Quaternion.y");
+_Static_assert(offsetof(struct Iron_Quaternion, z) == offsetof(Quaternion, z),
+               "Iron_Quaternion.z offset must equal Quaternion.z");
+_Static_assert(offsetof(struct Iron_Quaternion, w) == offsetof(Quaternion, w),
+               "Iron_Quaternion.w offset must equal Quaternion.w");
+
+/* Matrix: size + 16 offsets */
+_Static_assert(sizeof(struct Iron_Matrix) == sizeof(Matrix),
+               "Iron_Matrix size must equal Matrix");
+_Static_assert(offsetof(struct Iron_Matrix, m0)  == offsetof(Matrix, m0),  "Iron_Matrix.m0 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m4)  == offsetof(Matrix, m4),  "Iron_Matrix.m4 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m8)  == offsetof(Matrix, m8),  "Iron_Matrix.m8 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m12) == offsetof(Matrix, m12), "Iron_Matrix.m12 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m1)  == offsetof(Matrix, m1),  "Iron_Matrix.m1 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m5)  == offsetof(Matrix, m5),  "Iron_Matrix.m5 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m9)  == offsetof(Matrix, m9),  "Iron_Matrix.m9 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m13) == offsetof(Matrix, m13), "Iron_Matrix.m13 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m2)  == offsetof(Matrix, m2),  "Iron_Matrix.m2 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m6)  == offsetof(Matrix, m6),  "Iron_Matrix.m6 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m10) == offsetof(Matrix, m10), "Iron_Matrix.m10 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m14) == offsetof(Matrix, m14), "Iron_Matrix.m14 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m3)  == offsetof(Matrix, m3),  "Iron_Matrix.m3 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m7)  == offsetof(Matrix, m7),  "Iron_Matrix.m7 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m11) == offsetof(Matrix, m11), "Iron_Matrix.m11 offset mismatch");
+_Static_assert(offsetof(struct Iron_Matrix, m15) == offsetof(Matrix, m15), "Iron_Matrix.m15 offset mismatch");
+
+/* Rectangle: size + 4 offsets */
+_Static_assert(sizeof(struct Iron_Rectangle) == sizeof(Rectangle),
+               "Iron_Rectangle size must equal Rectangle");
+_Static_assert(offsetof(struct Iron_Rectangle, x)      == offsetof(Rectangle, x),      "Iron_Rectangle.x offset mismatch");
+_Static_assert(offsetof(struct Iron_Rectangle, y)      == offsetof(Rectangle, y),      "Iron_Rectangle.y offset mismatch");
+_Static_assert(offsetof(struct Iron_Rectangle, width)  == offsetof(Rectangle, width),  "Iron_Rectangle.width offset mismatch");
+_Static_assert(offsetof(struct Iron_Rectangle, height) == offsetof(Rectangle, height), "Iron_Rectangle.height offset mismatch");
+
+/* Color: size + 4 offsets */
+_Static_assert(sizeof(struct Iron_Color) == sizeof(Color),
+               "Iron_Color size must equal Color");
+_Static_assert(offsetof(struct Iron_Color, r) == offsetof(Color, r), "Iron_Color.r offset mismatch");
+_Static_assert(offsetof(struct Iron_Color, g) == offsetof(Color, g), "Iron_Color.g offset mismatch");
+_Static_assert(offsetof(struct Iron_Color, b) == offsetof(Color, b), "Iron_Color.b offset mismatch");
+_Static_assert(offsetof(struct Iron_Color, a) == offsetof(Color, a), "Iron_Color.a offset mismatch");
 
 /* ── Image / Texture / Font types (Plan 60-03) ────────────────────── */
 /* Static-assertion groups for Image, Texture, RenderTexture,
