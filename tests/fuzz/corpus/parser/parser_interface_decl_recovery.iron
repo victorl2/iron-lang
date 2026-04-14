@@ -1,0 +1,110 @@
+-- Regression: parser recovery-loop forward-progress bug in iron_parse_interface_decl.
+--
+-- **Motivating Incident.** Phase 68 fuzz infrastructure (fuzz_parser,
+-- fuzz_typecheck, fuzz_hir_to_lir) all converged on a slow-input pathology
+-- within 1000 iterations at -seed=1, captured as
+-- /tmp/fuzz_parser_slow_input_1.bin, /tmp/fuzz_parser_slow_input_2.bin,
+-- /tmp/fuzz_typecheck_slow_input_1.bin, and /tmp/fuzz_hir_to_lir_slow_input_1.bin.
+-- Three of the four artifacts shared the same stall shape: the token sequence
+-- `interface <name> { <sync-boundary-token> ... }` where the body token was not
+-- `func` / `identifier` / `}`. The bug lived in src/parser/parser.c
+-- iron_parse_interface_decl's recovery loop (L2608-2661 at HEAD db1e47b):
+-- the outer `while (!RBRACE && !EOF)` check only guards RBRACE/EOF, but
+-- iron_parser_sync_stmt's stop-list at parser.c L214-225 also includes
+-- VAL/VAR/IF/WHILE/FOR/MATCH/RETURN/DEFER/FREE/LEAK/SPAWN. When the current
+-- token is one of the 10 non-RBRACE stop tokens (e.g., a `val` sitting inside
+-- an interface body), sync_stmt returned WITHOUT advancing p->pos, and the
+-- `continue` at L2619 / L2627 looped forever until libFuzzer's -timeout=10
+-- wall-clock fired. User-visible symptom: `ironc build` hangs indefinitely on
+-- inputs like `interface X { val y }` — confirmed pre-fix to exhaust a 5s
+-- bash-perl timeout guard. Discovered via Phase 68 Plans 03/04/05 triangulating
+-- on parser.c:2614; deferred to Phase 72 (HARDEN-02) for a targeted fix.
+--
+-- **Layout Diagram.** The recovery loop's forward-progress failure mode:
+--
+--   BEFORE FIX (parser.c L2608-2620 @ HEAD db1e47b):
+--     while (!RBRACE && !EOF) {
+--         skip_newlines
+--         if RBRACE break
+--         if !FUNC:
+--             emit diag
+--             sync_stmt(p)   <- may return with p->pos unchanged
+--             continue       <- spins forever on VAL/IF/WHILE/RETURN/...
+--     }
+--
+--   sync_stmt stop-list (parser.c L214-225):
+--     RBRACE | VAL | VAR | IF | WHILE | FOR | MATCH | RETURN | DEFER | FREE | LEAK | SPAWN
+--     ^^^^^^   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+--     outer    THE 10 STALL TOKENS — cause infinite loop
+--
+--   AFTER FIX (Phase 72 Plan 01 Task 2):
+--     - Captures `int iter_start_pos = p->pos` at loop top
+--     - After sync_stmt on error branches, force `iron_advance(p)` if
+--       `p->pos == iter_start_pos && !RBRACE && !EOF`
+--     - Defense-in-depth: `const int MAX_INTERFACE_RECOVERY_ITERS = 1024`
+--       fuel counter incremented on every error-branch iteration; loop
+--       breaks with "parser internal error" diag on fuel exhaustion
+--
+-- **Fix Summary.** src/parser/parser.c iron_parse_interface_decl (L2605-L2700
+-- at post-fix revision) gains a per-iteration forward-progress invariant
+-- (captures `iter_start_pos` before the error branches, force-advances one
+-- token if `iron_parser_sync_stmt` returned without moving the cursor) AND a
+-- `MAX_INTERFACE_RECOVERY_ITERS = 1024` fuel counter as defense-in-depth
+-- against any OTHER future forward-progress regression in the same loop.
+-- Covers HARDEN-02 (.planning/specs/v1.3.1-alpha-HARDENING-SPEC.md). Landed in
+-- Phase 72 Plan 01 Task 2. This fixture is a VALID interface with multiple
+-- method signatures that exercises the recovery loop's happy path end-to-end
+-- — a future regression that re-breaks forward progress would either hang
+-- this integration test (caught by CI) or break interface parsing entirely.
+--
+-- **Severity.** H (High). Blast radius: any malformed Iron source with a
+-- sync-boundary token inside an interface body hangs `ironc build`
+-- indefinitely. Triangulated by 3 independent Phase 68 fuzz targets at
+-- -seed=1 within 1000 iterations — real pathological-input pathology, not
+-- theoretical. Promoted from HARDEN-02 in v1.3.1-alpha-HARDENING-SPEC.md.
+
+interface Shape {
+  func area() -> Int
+  func perimeter() -> Int
+  func name() -> String
+}
+
+object Square {
+  var side: Int
+}
+
+object Rectangle {
+  var width: Int
+  var height: Int
+}
+
+func Square.area() -> Int {
+  return self.side * self.side
+}
+
+func Square.perimeter() -> Int {
+  return self.side * 4
+}
+
+func Square.name() -> String {
+  return "square"
+}
+
+func Rectangle.area() -> Int {
+  return self.width * self.height
+}
+
+func Rectangle.perimeter() -> Int {
+  return (self.width + self.height) * 2
+}
+
+func Rectangle.name() -> String {
+  return "rectangle"
+}
+
+func main() {
+  val sq = Square(4)
+  val rect = Rectangle(3, 5)
+  println("{sq.name()}: area={sq.area()} perim={sq.perimeter()}")
+  println("{rect.name()}: area={rect.area()} perim={rect.perimeter()}")
+}
