@@ -167,9 +167,102 @@ struct Iron_Font {
 };
 
 /* ── Camera / Mesh / Model types (Plan 60-04) ─────────────────────── */
-/* Iron_Camera2D, Iron_Camera3D, Iron_Mesh, Iron_Shader,
- * Iron_MaterialMap, Iron_Material, Iron_Transform, Iron_BoneInfo,
- * Iron_Model, Iron_ModelAnimation — added by 60-04. */
+
+/* Iron_Camera mirrors raylib `Camera2D` (naming inversion). */
+struct Iron_Camera {
+    struct Iron_Vector2 offset;
+    struct Iron_Vector2 target;
+    float rotation;
+    float zoom;
+};
+
+/* Iron_Camera3D mirrors raylib `Camera3D` (and raylib's `Camera`
+ * typedef). */
+struct Iron_Camera3D {
+    struct Iron_Vector3 position;
+    struct Iron_Vector3 target;
+    struct Iron_Vector3 up;
+    float fovy;
+    int projection;
+};
+
+/* Transform — embeds Vector3 / Quaternion / Vector3. */
+struct Iron_Transform {
+    struct Iron_Vector3   translation;
+    struct Iron_Quaternion rotation;
+    struct Iron_Vector3   scale;
+};
+
+/* BoneInfo — inline char[32] matches raylib exactly. The flattened
+ * _name_00 .. _name_31 Iron fields land at the same offsets (0..31). */
+struct Iron_BoneInfo {
+    char name[32];
+    int  parent;
+};
+
+/* Mesh — 14 pointer fields + plain `vaoId` + 1 pointer-array. */
+struct Iron_Mesh {
+    int            vertexCount;
+    int            triangleCount;
+    float         *_vertices;
+    float         *_texcoords;
+    float         *_texcoords2;
+    float         *_normals;
+    float         *_tangents;
+    unsigned char *_colors;
+    unsigned short*_indices;
+    float         *_animVertices;
+    float         *_animNormals;
+    unsigned char *_boneIds;
+    float         *_boneWeights;
+    struct Iron_Matrix *_boneMatrices;
+    int            boneCount;
+    unsigned int   vaoId;
+    unsigned int  *_vboId;
+};
+
+/* Shader — unsigned int id + opaque int* locs. */
+struct Iron_Shader {
+    unsigned int id;
+    int         *_locs;
+};
+
+/* MaterialMap — embedded Texture + Color + float. */
+struct Iron_MaterialMap {
+    struct Iron_Texture texture;
+    struct Iron_Color   color;
+    float               value;
+};
+
+/* Material — embedded Shader + opaque MaterialMap* + inline float[4]. */
+struct Iron_Material {
+    struct Iron_Shader       shader;
+    struct Iron_MaterialMap *_maps;
+    float                    params[4];
+};
+
+/* Model — embedded Matrix + 5 opaque pointer fields. */
+struct Iron_Model {
+    struct Iron_Matrix transform;
+    int                meshCount;
+    int                materialCount;
+    struct Iron_Mesh      *_meshes;
+    struct Iron_Material  *_materials;
+    int                   *_meshMaterial;
+    int                    boneCount;
+    struct Iron_BoneInfo  *_bones;
+    struct Iron_Transform *_bindPose;
+};
+
+/* ModelAnimation — 2 pointers, double-indirect framePoses, and inline
+ * char[32] name at the end. */
+struct Iron_ModelAnimation {
+    int                     boneCount;
+    int                     frameCount;
+    struct Iron_BoneInfo   *_bones;
+    struct Iron_Transform **_framePoses;
+    char                    name[32];
+};
 
 /* ── 3D helpers / audio / file types (Plan 60-05) ─────────────────── */
 /* Iron_Ray, Iron_RayCollision, Iron_BoundingBox, Iron_Wave,
