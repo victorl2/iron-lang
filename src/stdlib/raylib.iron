@@ -118,3 +118,411 @@ object Color {
     val b: UInt8
     val a: UInt8
 }
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Enums (ENUM-01..22)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Every value's ordinal is hand-copied from src/vendor/raylib/raylib.h
+-- and verified at build time by `_Static_assert` in
+-- iron_raylib_layout.c. Any drift between raylib's C constants and
+-- these Iron values fires a compile error.
+--
+-- Naming: C `KEY_SPACE` → Iron `KeyboardKey.SPACE`. The type prefix
+-- (KEY_, MOUSE_, TEXTURE_) is dropped; the tail is kept in
+-- SCREAMING_SNAKE_CASE. Bitflag enums (ConfigFlags, Gesture) use hex
+-- literals so the bit pattern stays visible.
+
+-- ── ConfigFlags (ENUM-06) — raylib.h:541-558 ────────────────────────
+-- Bitmask of window / graphics config bits. Usable as |-combined int.
+enum ConfigFlags {
+    VSYNC_HINT               = 0x00000040,
+    FULLSCREEN_MODE          = 0x00000002,
+    WINDOW_RESIZABLE         = 0x00000004,
+    WINDOW_UNDECORATED       = 0x00000008,
+    WINDOW_HIDDEN            = 0x00000080,
+    WINDOW_MINIMIZED         = 0x00000200,
+    WINDOW_MAXIMIZED         = 0x00000400,
+    WINDOW_UNFOCUSED         = 0x00000800,
+    WINDOW_TOPMOST           = 0x00001000,
+    WINDOW_ALWAYS_RUN        = 0x00000100,
+    WINDOW_TRANSPARENT       = 0x00000010,
+    WINDOW_HIGHDPI           = 0x00002000,
+    WINDOW_MOUSE_PASSTHROUGH = 0x00004000,
+    BORDERLESS_WINDOWED_MODE = 0x00008000,
+    MSAA_4X_HINT             = 0x00000020,
+    INTERLACED_HINT          = 0x00010000,
+}
+
+-- ── TraceLogLevel (ENUM-07) — raylib.h:562-571 ──────────────────────
+enum TraceLogLevel {
+    ALL     = 0,
+    TRACE   = 1,
+    DEBUG   = 2,
+    INFO    = 3,
+    WARNING = 4,
+    ERROR   = 5,
+    FATAL   = 6,
+    NONE    = 7,
+}
+
+-- ── KeyboardKey (ENUM-01) — raylib.h:576-691, 110 values ────────────
+-- Transcribed in raylib.h field order, grouped by section. Only
+-- raylib's explicit = assignments are preserved; implicit numbering
+-- is NOT used in Iron (every ordinal is spelled out).
+enum KeyboardKey {
+    NULL          = 0,
+    -- Alphanumeric keys
+    APOSTROPHE    = 39,
+    COMMA         = 44,
+    MINUS         = 45,
+    PERIOD        = 46,
+    SLASH         = 47,
+    ZERO          = 48,
+    ONE           = 49,
+    TWO           = 50,
+    THREE         = 51,
+    FOUR          = 52,
+    FIVE          = 53,
+    SIX           = 54,
+    SEVEN         = 55,
+    EIGHT         = 56,
+    NINE          = 57,
+    SEMICOLON     = 59,
+    EQUAL         = 61,
+    A             = 65,
+    B             = 66,
+    C             = 67,
+    D             = 68,
+    E             = 69,
+    F             = 70,
+    G             = 71,
+    H             = 72,
+    I             = 73,
+    J             = 74,
+    K             = 75,
+    L             = 76,
+    M             = 77,
+    N             = 78,
+    O             = 79,
+    P             = 80,
+    Q             = 81,
+    R             = 82,
+    S             = 83,
+    T             = 84,
+    U             = 85,
+    V             = 86,
+    W             = 87,
+    X             = 88,
+    Y             = 89,
+    Z             = 90,
+    LEFT_BRACKET  = 91,
+    BACKSLASH     = 92,
+    RIGHT_BRACKET = 93,
+    GRAVE         = 96,
+    -- Function keys
+    SPACE         = 32,
+    ESCAPE        = 256,
+    ENTER         = 257,
+    TAB           = 258,
+    BACKSPACE     = 259,
+    INSERT        = 260,
+    DELETE        = 261,
+    RIGHT         = 262,
+    LEFT          = 263,
+    DOWN          = 264,
+    UP            = 265,
+    PAGE_UP       = 266,
+    PAGE_DOWN     = 267,
+    HOME          = 268,
+    END           = 269,
+    CAPS_LOCK     = 280,
+    SCROLL_LOCK   = 281,
+    NUM_LOCK      = 282,
+    PRINT_SCREEN  = 283,
+    PAUSE         = 284,
+    F1            = 290,
+    F2            = 291,
+    F3            = 292,
+    F4            = 293,
+    F5            = 294,
+    F6            = 295,
+    F7            = 296,
+    F8            = 297,
+    F9            = 298,
+    F10           = 299,
+    F11           = 300,
+    F12           = 301,
+    LEFT_SHIFT    = 340,
+    LEFT_CONTROL  = 341,
+    LEFT_ALT      = 342,
+    LEFT_SUPER    = 343,
+    RIGHT_SHIFT   = 344,
+    RIGHT_CONTROL = 345,
+    RIGHT_ALT     = 346,
+    RIGHT_SUPER   = 347,
+    KB_MENU       = 348,
+    -- Keypad keys
+    KP_0          = 320,
+    KP_1          = 321,
+    KP_2          = 322,
+    KP_3          = 323,
+    KP_4          = 324,
+    KP_5          = 325,
+    KP_6          = 326,
+    KP_7          = 327,
+    KP_8          = 328,
+    KP_9          = 329,
+    KP_DECIMAL    = 330,
+    KP_DIVIDE     = 331,
+    KP_MULTIPLY   = 332,
+    KP_SUBTRACT   = 333,
+    KP_ADD        = 334,
+    KP_ENTER      = 335,
+    KP_EQUAL      = 336,
+    -- Android key buttons
+    BACK          = 4,
+    MENU          = 5,
+    VOLUME_UP     = 24,
+    VOLUME_DOWN   = 25,
+}
+
+-- ── MouseButton (ENUM-02) — raylib.h:699-707 ────────────────────────
+enum MouseButton {
+    LEFT    = 0,
+    RIGHT   = 1,
+    MIDDLE  = 2,
+    SIDE    = 3,
+    EXTRA   = 4,
+    FORWARD = 5,
+    BACK    = 6,
+}
+
+-- ── MouseCursor (ENUM-03) — raylib.h:710-722 ────────────────────────
+enum MouseCursor {
+    DEFAULT       = 0,
+    ARROW         = 1,
+    IBEAM         = 2,
+    CROSSHAIR     = 3,
+    POINTING_HAND = 4,
+    RESIZE_EW     = 5,
+    RESIZE_NS     = 6,
+    RESIZE_NWSE   = 7,
+    RESIZE_NESW   = 8,
+    RESIZE_ALL    = 9,
+    NOT_ALLOWED   = 10,
+}
+
+-- ── GamepadButton (ENUM-04) — raylib.h:725-744 ──────────────────────
+enum GamepadButton {
+    UNKNOWN           = 0,
+    LEFT_FACE_UP      = 1,
+    LEFT_FACE_RIGHT   = 2,
+    LEFT_FACE_DOWN    = 3,
+    LEFT_FACE_LEFT    = 4,
+    RIGHT_FACE_UP     = 5,
+    RIGHT_FACE_RIGHT  = 6,
+    RIGHT_FACE_DOWN   = 7,
+    RIGHT_FACE_LEFT   = 8,
+    LEFT_TRIGGER_1    = 9,
+    LEFT_TRIGGER_2    = 10,
+    RIGHT_TRIGGER_1   = 11,
+    RIGHT_TRIGGER_2   = 12,
+    MIDDLE_LEFT       = 13,
+    MIDDLE            = 14,
+    MIDDLE_RIGHT      = 15,
+    LEFT_THUMB        = 16,
+    RIGHT_THUMB       = 17,
+}
+
+-- ── GamepadAxis (ENUM-05) — raylib.h:747-754 ────────────────────────
+enum GamepadAxis {
+    LEFT_X        = 0,
+    LEFT_Y        = 1,
+    RIGHT_X       = 2,
+    RIGHT_Y       = 3,
+    LEFT_TRIGGER  = 4,
+    RIGHT_TRIGGER = 5,
+}
+
+-- ── MaterialMapIndex (ENUM-16) — raylib.h:757-769 ───────────────────
+enum MaterialMapIndex {
+    ALBEDO     = 0,
+    METALNESS  = 1,
+    NORMAL     = 2,
+    ROUGHNESS  = 3,
+    OCCLUSION  = 4,
+    EMISSION   = 5,
+    HEIGHT     = 6,
+    CUBEMAP    = 7,
+    IRRADIANCE = 8,
+    PREFILTER  = 9,
+    BRDF       = 10,
+}
+
+-- ── ShaderLocationIndex (ENUM-17) — raylib.h:775-805 ────────────────
+enum ShaderLocationIndex {
+    VERTEX_POSITION   = 0,
+    VERTEX_TEXCOORD01 = 1,
+    VERTEX_TEXCOORD02 = 2,
+    VERTEX_NORMAL     = 3,
+    VERTEX_TANGENT    = 4,
+    VERTEX_COLOR      = 5,
+    MATRIX_MVP        = 6,
+    MATRIX_VIEW       = 7,
+    MATRIX_PROJECTION = 8,
+    MATRIX_MODEL      = 9,
+    MATRIX_NORMAL     = 10,
+    VECTOR_VIEW       = 11,
+    COLOR_DIFFUSE     = 12,
+    COLOR_SPECULAR    = 13,
+    COLOR_AMBIENT     = 14,
+    MAP_ALBEDO        = 15,
+    MAP_METALNESS     = 16,
+    MAP_NORMAL        = 17,
+    MAP_ROUGHNESS     = 18,
+    MAP_OCCLUSION     = 19,
+    MAP_EMISSION      = 20,
+    MAP_HEIGHT        = 21,
+    MAP_CUBEMAP       = 22,
+    MAP_IRRADIANCE    = 23,
+    MAP_PREFILTER     = 24,
+    MAP_BRDF          = 25,
+    VERTEX_BONEIDS    = 26,
+    VERTEX_BONEWEIGHTS = 27,
+    BONE_MATRICES     = 28,
+}
+
+-- ── ShaderUniformDataType (ENUM-18) — raylib.h:811-821 ──────────────
+enum ShaderUniformDataType {
+    FLOAT     = 0,
+    VEC2      = 1,
+    VEC3      = 2,
+    VEC4      = 3,
+    INT       = 4,
+    IVEC2     = 5,
+    IVEC3     = 6,
+    IVEC4     = 7,
+    SAMPLER2D = 8,
+}
+
+-- ── ShaderAttributeDataType (ENUM-19) — raylib.h:824-829 ────────────
+enum ShaderAttributeDataType {
+    FLOAT = 0,
+    VEC2  = 1,
+    VEC3  = 2,
+    VEC4  = 3,
+}
+
+-- ── PixelFormat (ENUM-09) — raylib.h:833-858 ────────────────────────
+-- NOTE: raylib starts this enum at 1, not 0.
+enum PixelFormat {
+    UNCOMPRESSED_GRAYSCALE    = 1,
+    UNCOMPRESSED_GRAY_ALPHA   = 2,
+    UNCOMPRESSED_R5G6B5       = 3,
+    UNCOMPRESSED_R8G8B8       = 4,
+    UNCOMPRESSED_R5G5B5A1     = 5,
+    UNCOMPRESSED_R4G4B4A4     = 6,
+    UNCOMPRESSED_R8G8B8A8     = 7,
+    UNCOMPRESSED_R32          = 8,
+    UNCOMPRESSED_R32G32B32    = 9,
+    UNCOMPRESSED_R32G32B32A32 = 10,
+    UNCOMPRESSED_R16          = 11,
+    UNCOMPRESSED_R16G16B16    = 12,
+    UNCOMPRESSED_R16G16B16A16 = 13,
+    COMPRESSED_DXT1_RGB       = 14,
+    COMPRESSED_DXT1_RGBA      = 15,
+    COMPRESSED_DXT3_RGBA      = 16,
+    COMPRESSED_DXT5_RGBA      = 17,
+    COMPRESSED_ETC1_RGB       = 18,
+    COMPRESSED_ETC2_RGB       = 19,
+    COMPRESSED_ETC2_EAC_RGBA  = 20,
+    COMPRESSED_PVRT_RGB       = 21,
+    COMPRESSED_PVRT_RGBA      = 22,
+    COMPRESSED_ASTC_4x4_RGBA  = 23,
+    COMPRESSED_ASTC_8x8_RGBA  = 24,
+}
+
+-- ── TextureFilter (ENUM-10) — raylib.h:863-870 ──────────────────────
+enum TextureFilter {
+    POINT          = 0,
+    BILINEAR       = 1,
+    TRILINEAR      = 2,
+    ANISOTROPIC_4X = 3,
+    ANISOTROPIC_8X = 4,
+    ANISOTROPIC_16X = 5,
+}
+
+-- ── TextureWrap (ENUM-11) — raylib.h:873-878 ────────────────────────
+enum TextureWrap {
+    REPEAT        = 0,
+    CLAMP         = 1,
+    MIRROR_REPEAT = 2,
+    MIRROR_CLAMP  = 3,
+}
+
+-- ── CubemapLayout (ENUM-12) — raylib.h:881-887 ──────────────────────
+enum CubemapLayout {
+    AUTO_DETECT     = 0,
+    LINE_VERTICAL   = 1,
+    LINE_HORIZONTAL = 2,
+    CROSS_THREE_BY_FOUR = 3,
+    CROSS_FOUR_BY_THREE = 4,
+}
+
+-- ── FontType (ENUM-13) — raylib.h:890-894 ───────────────────────────
+enum FontType {
+    DEFAULT = 0,
+    BITMAP  = 1,
+    SDF     = 2,
+}
+
+-- ── BlendMode (ENUM-08) — raylib.h:897-906 ──────────────────────────
+enum BlendMode {
+    ALPHA             = 0,
+    ADDITIVE          = 1,
+    MULTIPLIED        = 2,
+    ADD_COLORS        = 3,
+    SUBTRACT_COLORS   = 4,
+    ALPHA_PREMULTIPLY = 5,
+    CUSTOM            = 6,
+    CUSTOM_SEPARATE   = 7,
+}
+
+-- ── Gesture (ENUM-20) — raylib.h:910-922 ────────────────────────────
+-- Bitmask (hex literals match raylib.h exactly).
+enum Gesture {
+    NONE        = 0,
+    TAP         = 1,
+    DOUBLETAP   = 2,
+    HOLD        = 4,
+    DRAG        = 8,
+    SWIPE_RIGHT = 16,
+    SWIPE_LEFT  = 32,
+    SWIPE_UP    = 64,
+    SWIPE_DOWN  = 128,
+    PINCH_IN    = 256,
+    PINCH_OUT   = 512,
+}
+
+-- ── CameraMode (ENUM-14) — raylib.h:925-931 ─────────────────────────
+enum CameraMode {
+    CUSTOM       = 0,
+    FREE         = 1,
+    ORBITAL      = 2,
+    FIRST_PERSON = 3,
+    THIRD_PERSON = 4,
+}
+
+-- ── CameraProjection (ENUM-15) — raylib.h:934-937 ───────────────────
+enum CameraProjection {
+    PERSPECTIVE  = 0,
+    ORTHOGRAPHIC = 1,
+}
+
+-- ── NPatchLayout (ENUM-21) — raylib.h:940-944 ───────────────────────
+enum NPatchLayout {
+    NINE_PATCH             = 0,
+    THREE_PATCH_VERTICAL   = 1,
+    THREE_PATCH_HORIZONTAL = 2,
+}
