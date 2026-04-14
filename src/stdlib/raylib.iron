@@ -994,3 +994,36 @@ func Window.is_minimized() -> Bool {}
 func Window.is_maximized() -> Bool {}
 func Window.is_focused() -> Bool {}
 func Window.is_resized() -> Bool {}
+
+-- Window state toggles (WIN-03)
+--
+-- `set_state` / `clear_state` / `is_state` take a ConfigFlags bitmask.
+-- raylib uses the SAME ConfigFlags enum for both pre-init SetConfigFlags
+-- and post-init SetWindowState. Pass a single bit like
+-- `ConfigFlags.WINDOW_RESIZABLE` or a caller-combined mask — Iron has
+-- no native enum OR operator yet, so multi-flag calls currently require
+-- one call per bit. Combining is a Phase 73 concern.
+func Window.toggle_fullscreen() {}
+func Window.toggle_borderless_windowed() {}
+func Window.maximize() {}
+func Window.minimize() {}
+func Window.restore() {}
+func Window.set_state(flags: ConfigFlags) {}
+func Window.clear_state(flags: ConfigFlags) {}
+func Window.is_state(flag: ConfigFlags) -> Bool {}
+
+-- Window runtime properties (WIN-04)
+--
+-- `set_icon` takes a single Image by value. raylib also exposes
+-- SetWindowIcons(Image *images, int count) for animated icons;
+-- Iron has no `Array<Image>` type yet, so the plural form is
+-- DEFERRED to Phase 73 (API polish).
+func Window.set_icon(image: Image) {}
+func Window.set_title(title: String) {}
+func Window.set_position(x: Int32, y: Int32) {}
+func Window.set_monitor(monitor: Int32) {}
+func Window.set_min_size(w: Int32, h: Int32) {}
+func Window.set_max_size(w: Int32, h: Int32) {}
+func Window.set_size(w: Int32, h: Int32) {}
+func Window.set_opacity(opacity: Float32) {}
+func Window.set_focused() {}

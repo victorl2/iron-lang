@@ -363,6 +363,27 @@ bool Iron_window_is_maximized(void);
 bool Iron_window_is_focused(void);
 bool Iron_window_is_resized(void);
 
+/* Window state toggles (WIN-03) */
+void Iron_window_toggle_fullscreen(void);
+void Iron_window_toggle_borderless_windowed(void);
+void Iron_window_maximize(void);
+void Iron_window_minimize(void);
+void Iron_window_restore(void);
+void Iron_window_set_state(uint32_t flags);
+void Iron_window_clear_state(uint32_t flags);
+bool Iron_window_is_state(uint32_t flag);
+
+/* Window runtime properties (WIN-04) */
+void Iron_window_set_icon(struct Iron_Image image);
+void Iron_window_set_title(Iron_String title);
+void Iron_window_set_position(int32_t x, int32_t y);
+void Iron_window_set_monitor(int32_t monitor);
+void Iron_window_set_min_size(int32_t w, int32_t h);
+void Iron_window_set_max_size(int32_t w, int32_t h);
+void Iron_window_set_size(int32_t w, int32_t h);
+void Iron_window_set_opacity(float opacity);
+void Iron_window_set_focused(void);
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
