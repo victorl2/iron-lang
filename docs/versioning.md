@@ -71,6 +71,19 @@ that gap.
   release tag. The `.github/workflows/changelog-on-release.yml` workflow
   (triggered on `release: published`) keeps these in sync automatically via
   `scripts/update_changelog_from_release.py`.
+- **Parallel API variant convention.** When a runtime function needs to
+  expose both an abort-on-failure legacy signature (for codegen-emitted
+  user code and one-shot CLI tools) AND a typed-error variant (for long-
+  running services and networked code), introduce the typed-error form as
+  a parallel `*_or_error` function with a `Iron_*_OrError` result struct,
+  not as a clean-break signature change. The legacy form delegates to the
+  new form and aborts on any non-zero error so external callers continue
+  to link byte-identically. Phase 71 (HARDEN-01) established this
+  convention for the thread-pool creation and submission API — see
+  [`docs/runtime-failure-contract.md`](runtime-failure-contract.md). Future
+  runtime error-channel work (`iron_string`, `iron_collections`,
+  `iron_net.c` caller migration) should follow the same pattern so user
+  code can migrate at its own pace without a mega-refactor.
 
 ## Verification
 
