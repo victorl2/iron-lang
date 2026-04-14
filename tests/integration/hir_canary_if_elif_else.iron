@@ -1,0 +1,61 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_STMT_IF with elif/else branches.
+--
+-- **Motivating Incident.** Phase 37-02 introduced hir_to_lir.c's
+-- collect_mono_enums_node AST walker, which declared a locally-shadowed
+-- Iron_If struct guess that omitted elif_conds[] / elif_bodies[] /
+-- elif_count between `body` and `else_body`. The walker crashed
+-- deterministically on Linux x86_64 Release for any program containing
+-- an if/elif/else chain, but macOS arm64 masked the bug for months
+-- because the garbage bytes landed on the switch default case. Phase 66
+-- added a _Static_assert on the real Iron_IfStmt layout and enabled
+-- -Werror=switch-enum globally; this canary is the runtime regression
+-- net so any future walker regression for IRON_NODE_IF surfaces
+-- immediately in both Debug and Release CI.
+--
+-- **Layout Diagram.** Iron_IfStmt carries
+--   { span, kind, condition, body, elif_conds[], elif_bodies[],
+--     elif_count, else_body }
+-- Any walker case that fails to recurse into elif_conds[] or
+-- elif_bodies[] silently drops sub-expressions from the lowered LIR --
+-- exactly the defect class this canary protects against.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Complements the existing hir_to_lir_elif_mono_walker.iron
+-- (Phase 59 P01 reference fixture) -- that one is the original bug
+-- reproduction, this is the REG-02 catalogue entry with distinct input
+-- values for grep independence. CI integration: runs in both Debug and
+-- Release via Phase 66-04's build-and-test-release job plus the
+-- existing Debug integration job.
+--
+-- **Severity.** H (regression potential) -- the Phase 37-02 SIGSEGV was
+-- a deterministic Linux x86_64 Release crash that hid for months
+-- because no per-node-kind canary existed. This canary IS the missing
+-- regression net.
+
+func bucket(n: Int) -> Int {
+  if n < -10 {
+    return 0
+  } elif n < 0 {
+    return 1
+  } elif n == 0 {
+    return 2
+  } elif n < 10 {
+    return 3
+  } elif n < 100 {
+    return 4
+  } else {
+    return 5
+  }
+}
+
+func main() {
+  var total = 0
+  total = total + bucket(-20)   -- 0
+  total = total + bucket(-15)   -- 0
+  total = total + bucket(-5)    -- 1
+  total = total + bucket(0)     -- 2
+  total = total + bucket(5)     -- 3
+  total = total + bucket(50)    -- 4
+  total = total + bucket(500)   -- 5
+  println("total: {total}")
+}

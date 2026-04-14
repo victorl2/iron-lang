@@ -1,0 +1,54 @@
+-- Regression: REG-02 crash-canary for nested IRON_HIR_STMT_IF.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker missed elif_conds[]/elif_bodies[] recursion for Iron_IfStmt.
+-- Nested if-statements compound the risk: an outer IF whose `body`
+-- contains another IF exercises the walker's recursion depth across
+-- the same struct twice, so any layout assumption about IfStmt field
+-- offsets fails twice as fast. This canary uses a 2-level nested IF
+-- over two independent Int inputs, then sums the classification
+-- result across all four (a,b) sign combinations. A walker regression
+-- that drops the inner IF from the lowered LIR produces wrong sums
+-- that turn this fixture red immediately.
+--
+-- **Layout Diagram.** Iron_IfStmt nesting:
+--   outer IfStmt { condition: a>0, body: <IfStmt{cond:b>0, body, else}>,
+--                  else_body: <IfStmt{cond:b>0, body, else}> }
+-- Walker cases that recurse correctly at one level but fail at the
+-- nested level silently drop the inner classification, producing
+-- wrong sums under specific (a,b) quadrant combinations.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Complements hir_canary_if_elif_else.iron (flat elif chain)
+-- with a nesting-depth-2 regression net. CI integration: runs in both
+-- Debug and Release via Phase 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential). Nested control flow was
+-- precisely where the Phase 37-02 walker bug hid for months -- the
+-- classification function containing if/elif/else chains was only
+-- exercised indirectly by monomorphization-time walking.
+
+func classify_pair(a: Int, b: Int) -> Int {
+  if a > 0 {
+    if b > 0 {
+      return 1       -- both positive
+    } else {
+      return 2       -- a positive, b non-positive
+    }
+  } else {
+    if b > 0 {
+      return 3       -- a non-positive, b positive
+    } else {
+      return 4       -- both non-positive
+    }
+  }
+}
+
+func main() {
+  var total = 0
+  total = total + classify_pair(1, 1)      -- 1
+  total = total + classify_pair(1, -1)     -- 2
+  total = total + classify_pair(-1, 1)     -- 3
+  total = total + classify_pair(-1, -1)    -- 4
+  println("total: {total}")
+}

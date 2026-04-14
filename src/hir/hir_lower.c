@@ -96,13 +96,8 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node);
 static void lower_block_hir(IronHIR_LowerCtx *ctx, Iron_Block *block,
                              IronHIR_Block *out);
 
-/* ── Common layout prefix for all expression nodes ───────────────────────── */
-
-typedef struct {
-    Iron_Span         span;
-    Iron_NodeKind     kind;
-    struct Iron_Type *resolved_type;
-} Iron_ExprNode;
+/* Iron_ExprNode lives in src/parser/ast.h now (Phase 66 PROT-01). expr_type()
+ * below uses the shared typedef — the layout is compile-time-enforced there. */
 
 static Iron_Type *expr_type(Iron_Node *node) {
     if (!node) return NULL;
@@ -173,6 +168,7 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         Iron_Type **elem_types = (Iron_Type **)iron_arena_alloc(
             ctx->module->arena, sizeof(Iron_Type *) * (size_t)n,
             _Alignof(Iron_Type *));
+        if (!elem_types) iron_oom_abort("hir_lower.c:resolve_type_ann tuple_elems");
         for (int i = 0; i < n; i++) {
             elem_types[i] = ta->tuple_elems
                 ? resolve_type_ann(ctx, ta->tuple_elems[i])
@@ -193,6 +189,7 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
                 ctx->module->arena,
                 (size_t)param_count * sizeof(Iron_Type *),
                 _Alignof(Iron_Type *));
+            if (!param_types) iron_oom_abort("hir_lower.c:resolve_type_ann func_params");
             for (int i = 0; i < param_count; i++) {
                 param_types[i] = resolve_type_ann(ctx, ta->func_params[i]);
             }
@@ -286,6 +283,7 @@ static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
         ctx->module->arena,
         (size_t)param_count * sizeof(IronHIR_Param),
         _Alignof(IronHIR_Param));
+    if (!arr) iron_oom_abort("hir_lower.c:build_hir_params_named");
     for (int p = 0; p < param_count; p++) {
         Iron_Param *ap = (Iron_Param *)params[p];
         Iron_Type  *pt;
@@ -323,7 +321,7 @@ static IronHIR_Func *find_hir_func(IronHIR_Module *mod, const char *name) {
 
 /* Map AST binary operator token to HIR binary op */
 static IronHIR_BinOp ast_op_to_hir_binop(Iron_OpKind op) {
-    switch (op) {
+    switch ((int)op) {
         case IRON_TOK_PLUS:       return IRON_HIR_BINOP_ADD;
         case IRON_TOK_MINUS:      return IRON_HIR_BINOP_SUB;
         case IRON_TOK_STAR:       return IRON_HIR_BINOP_MUL;
@@ -342,13 +340,20 @@ static IronHIR_BinOp ast_op_to_hir_binop(Iron_OpKind op) {
         case IRON_TOK_AMP:        return IRON_HIR_BINOP_BAND;
         case IRON_TOK_PIPE:       return IRON_HIR_BINOP_BOR;
         case IRON_TOK_CARET:      return IRON_HIR_BINOP_BXOR;
+        /* AUDIT-02 #2 fix: previously defaulted silently to ADD, masking
+         * upstream parser-recovery bugs. Non-binary tokens reach this arm
+         * only when parser error recovery produced a malformed BinaryExpr;
+         * the fallback lets HIR lowering proceed so later passes emit a
+         * coherent diagnostic instead of crashing. */
+        /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 values; only
+         * infix-operator tokens are legal as Iron_OpKind here. */
         default:                  return IRON_HIR_BINOP_ADD; /* fallback */
     }
 }
 
 /* Map compound-assign token to base binop token */
 static Iron_OpKind compound_assign_base_op(Iron_OpKind op) {
-    switch (op) {
+    switch ((int)op) {
         case IRON_TOK_PLUS_ASSIGN:   return IRON_TOK_PLUS;
         case IRON_TOK_MINUS_ASSIGN:  return IRON_TOK_MINUS;
         case IRON_TOK_STAR_ASSIGN:   return IRON_TOK_STAR;
@@ -358,6 +363,12 @@ static Iron_OpKind compound_assign_base_op(Iron_OpKind op) {
         case IRON_TOK_AMP_ASSIGN:    return IRON_TOK_AMP;
         case IRON_TOK_PIPE_ASSIGN:   return IRON_TOK_PIPE;
         case IRON_TOK_CARET_ASSIGN:  return IRON_TOK_CARET;
+        /* AUDIT-02 #3 fix: non-compound-assign tokens silently mapped to
+         * PLUS. They are not legal callers of this helper, so the fallback
+         * is defensive — a wrong mapping here shows up as a type error
+         * downstream. */
+        /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 values; only the
+         * compound-assign tokens are legal inputs. */
         default:                     return IRON_TOK_PLUS;
     }
 }
@@ -433,9 +444,11 @@ static void inject_pattern_let_stmts(IronHIR_LowerCtx *ctx,
 
         if (bname) {
             /* Simple binding: val bname = scrut.data.VariantName._b */
+            char *slot_field_copy = iron_arena_strdup(mod->arena, slot_field,
+                                                      strlen(slot_field));
+            if (!slot_field_copy) iron_oom_abort("hir_lower.c:inject_pattern_let_stmts slot_field");
             IronHIR_Expr *field_expr = iron_hir_expr_field_access(mod, scrut_expr,
-                                         iron_arena_strdup(mod->arena, slot_field,
-                                                           strlen(slot_field)),
+                                         slot_field_copy,
                                          ptype, span);
             IronHIR_VarId vid = iron_hir_alloc_var(mod, bname, ptype, false);
             declare_var(ctx, bname, vid);
@@ -469,7 +482,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     IronHIR_Block  *blk  = ctx->current_block;
     Iron_Span       span = node->span;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
 
     /* ── Val declaration ───────────────────────────────────────────────────── */
     case IRON_NODE_VAL_DECL: {
@@ -528,6 +541,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 snprintf(field_name, sizeof(field_name), "v%d", i);
                 const char *fname_arena = (const char *)iron_arena_alloc(
                     ctx->module->arena, strlen(field_name) + 1, 1);
+                if (!fname_arena) iron_oom_abort("hir_lower.c:lower_stmt_hir tuple_destructure fname");
                 memcpy((char *)fname_arena, field_name, strlen(field_name) + 1);
 
                 IronHIR_Expr *tmp_ref = iron_hir_expr_ident(mod, tmp_id,
@@ -564,6 +578,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 ctx->module->arena,
                 strlen(lifted_name) + 1,
                 _Alignof(char));
+            if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir val_decl spawn lifted_name");
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
             IronHIR_Block *spawn_body = iron_hir_block_create(mod);
@@ -733,6 +748,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 ctx->module->arena,
                 strlen(lifted_name) + 1,
                 _Alignof(char));
+            if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir parallel_for lifted_name");
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
             Iron_Type *void_ty = iron_type_make_primitive(IRON_TYPE_VOID);
@@ -978,6 +994,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             ctx->module->arena,
             strlen(lifted_name) + 1,
             _Alignof(char));
+        if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir spawn lifted_name");
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
         IronHIR_Block *spawn_body = iron_hir_block_create(mod);
@@ -1029,6 +1046,9 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     }
 
     /* ── Expression statement ──────────────────────────────────────────────── */
+    /* -Wswitch-enum opt-out: statement lowering handles every real statement
+     * kind explicitly above; every other Iron_NodeKind is an expression used
+     * as a statement and is routed through lower_expr_hir. */
     default: {
         /* All expressions used as statements */
         IronHIR_Expr *e = lower_expr_hir(ctx, node);
@@ -1053,7 +1073,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     IronHIR_Module *mod  = ctx->module;
     Iron_Span       span = node->span;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
 
     /* ── Integer literal ─────────────────────────────────────────────────── */
     case IRON_NODE_INT_LIT: {
@@ -1081,10 +1101,28 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         IronHIR_Expr **parts = NULL;
         for (int i = 0; i < is->part_count; i++) {
             IronHIR_Expr *p = lower_expr_hir(ctx, is->parts[i]);
+            /* FIX-03 / AUDIT-04 §7: SAFETY — lower_expr_hir may return NULL
+             * (e.g., unrecognized inner node kind); storing NULL here is
+             * safe — consumers tolerate NULL entries (see emit_c.c
+             * emit_interp_string walker). The loop CANNOT fail partway in
+             * a way that leaves `parts` half-built and then aborts: no
+             * call in lower_expr_hir ever aborts or longjmps, and the
+             * iron_hir_expr_interp_string constructor below uses
+             * iron_oom_abort on its own arena_alloc failure (noreturn),
+             * so the only exit from this block is `return` with `parts`
+             * already ownership-transferred to the HIR expr. */
             arrput(parts, p);
         }
         int part_count = (int)arrlen(parts);
-        /* NOTE: parts stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
+        /* FIX-03 / AUDIT-04 §7: SAFETY — parts stb_ds array ownership
+         * transfers to the HIR expr — do NOT arrfree. The stb_ds backing
+         * buffer is NEVER explicitly freed; when the HIR module is
+         * destroyed (iron_hir_module_destroy in hir.c), only the
+         * name_table stb_ds array is arrfreed. Every other stb_ds array
+         * stored on HIR nodes (including this `parts` buffer) leaks when
+         * the HIR arena is freed. This is the same bounded, batch-compile
+         * tradeoff documented in the parser.c file-header comment (FIX-03
+         * §1) — out-of-scope full fix in Phase 67. */
         return iron_hir_expr_interp_string(mod, parts, part_count,
                                            is->resolved_type, span);
     }
@@ -1172,10 +1210,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_UNARY: {
         Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
         IronHIR_UnOp hop;
-        switch (un->op) {
+        switch ((int)un->op) {
             case IRON_TOK_MINUS: hop = IRON_HIR_UNOP_NEG;  break;
             case IRON_TOK_NOT:   hop = IRON_HIR_UNOP_NOT;  break;
             case IRON_TOK_TILDE: hop = IRON_HIR_UNOP_BNOT; break;
+            /* AUDIT-02 #4 fix: non-unary tokens silently mapped to NEG. This
+             * arm only fires on malformed AST from parser error recovery. */
+            /* -Wswitch-enum opt-out: Iron_TokenKind has ~80 values; only the
+             * prefix-operator tokens are legal as unary ops. */
             default:             hop = IRON_HIR_UNOP_NEG;  break;
         }
         IronHIR_Expr *operand = lower_expr_hir(ctx, un->operand);
@@ -1289,6 +1331,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             ctx->module->arena,
             strlen(lifted_name) + 1,
             _Alignof(char));
+        if (!name_copy) iron_oom_abort("hir_lower.c:lower_expr_hir lambda lifted_name");
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
         /* Extract the actual return type from the lambda's function type.
@@ -1387,6 +1430,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 arrput(tup_vals, v);
                 /* Field name "v<i>" — max 12 chars for i up to 9 digits. */
                 char *fname = (char *)iron_arena_alloc(ctx->module->arena, 12, 1);
+                if (!fname) iron_oom_abort("hir_lower.c:lower_expr_hir tuple_array_lit fname");
                 snprintf(fname, 12, "v%d", i);
                 arrput(tup_names, fname);
             }
@@ -1488,6 +1532,10 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     }
 
     /* ── Error or unsupported node ───────────────────────────────────────── */
+    /* -Wswitch-enum opt-out: lower_expr_hir handles every valid expression
+     * AST kind; statement / declaration kinds that reach here are poisoned
+     * to a null literal so later verification stages can emit a coherent
+     * diagnostic. */
     case IRON_NODE_ERROR:
     default:
         /* Return null literal as poison for unsupported nodes */
@@ -1526,7 +1574,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
 
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd   = (Iron_FuncDecl *)decl;
@@ -1580,6 +1628,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                         mod->arena,
                         (size_t)total_params * sizeof(IronHIR_Param),
                         _Alignof(IronHIR_Param));
+                    if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir stub_params");
                     for (int p = 0; p < md->param_count; p++) {
                         Iron_Param *ap = (Iron_Param *)md->params[p];
                         params[p].name   = ap->name;
@@ -1594,6 +1643,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     mod->arena,
                     (size_t)total_params * sizeof(IronHIR_Param),
                     _Alignof(IronHIR_Param));
+                if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir method_params");
 
                 /* Self param: resolve to the object type by name */
                 Iron_Type *self_type = NULL;
@@ -1634,6 +1684,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Copy mangled name to arena */
             size_t mlen = strlen(mangled) + 1;
             char *mname = (char *)iron_arena_alloc(mod->arena, mlen, _Alignof(char));
+            if (!mname) iron_oom_abort("hir_lower.c:lower_module_decls_hir method_mangled_name");
             memcpy(mname, mangled, mlen);
 
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
@@ -1663,6 +1714,9 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
         case IRON_NODE_INTERFACE_DECL:
         case IRON_NODE_ENUM_DECL:
         case IRON_NODE_IMPORT_DECL:
+        /* -Wswitch-enum opt-out: pass 1 collects globals; type-level decls
+         * and everything non-declarative (expressions, statements reaching
+         * pass 1 by mistake) are legitimate no-ops. */
         default:
             /* Type-level declarations: HIR module has no type_decls section.
              * Object/interface/enum info is preserved via the AST program reference
@@ -1807,6 +1861,7 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                 mod->arena,
                 (size_t)total_params * sizeof(IronHIR_Param),
                 _Alignof(IronHIR_Param));
+            if (!final_params) iron_oom_abort("hir_lower.c:lower_lift_pending_hir LAMBDA final_params");
             /* _env placeholder — VarId set below after alloc */
             final_params[0].name   = "_env";
             final_params[0].type   = NULL; /* void* — emit_c handles NULL-typed params */
@@ -1916,6 +1971,7 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                     mod->arena,
                     (size_t)total_params * sizeof(IronHIR_Param),
                     _Alignof(IronHIR_Param));
+                if (!final_params) iron_oom_abort("hir_lower.c:lower_lift_pending_hir SPAWN final_params");
                 final_params[0].name   = "_env";
                 final_params[0].type   = NULL; /* void* */
                 final_params[0].var_id = IRON_HIR_VAR_INVALID;
@@ -1988,6 +2044,7 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                 mod->arena,
                 (size_t)total_pfor_params * sizeof(IronHIR_Param),
                 _Alignof(IronHIR_Param));
+            if (!params) iron_oom_abort("hir_lower.c:lower_lift_pending_hir PARALLEL_FOR params");
             int loop_var_idx = 0;
             if (pfor_cap_count > 0) {
                 /* _env as first param */

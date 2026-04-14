@@ -9,6 +9,16 @@
 #
 # Usage: ./run_integration.sh [path/to/iron]
 #   iron binary defaults to ./build/iron (relative to project root)
+#
+# Exit-code policy (Phase 66 REG-01):
+# - Exit 0: all tests passed.
+# - Exit 1 via FAIL counter: one or more tests failed but no crashes.
+# - Exit 1 via "ironc crashed": a signal-level exit from ironc (>= 128)
+#   is reported distinctly and fails the script immediately without
+#   incrementing the FAIL counter. This prevents the Phase 65/66 motivating
+#   incident where a SIGSEGV in ironc (find_first_last fixture, exit 139)
+#   was reported as "benchmark compilation failed" and hid for months.
+#   do not swallow SIGSEGV as test-failed noise.
 
 set -euo pipefail
 
@@ -53,9 +63,42 @@ for test_file in "${SCRIPT_DIR}"/*.iron; do
     build_stderr="${WORK_DIR}/${test_name}_build.err"
 
     # iron build derives the output name from the source file (without .iron)
-    # and places it in the current directory, so we cd into build_dir first
-    if ! (cd "${build_dir}" && "${IRON_BIN}" build "${test_file}") 2>"${build_stderr}"; then
-        echo "[FAIL] (build failed)"
+    # and places it in the current directory, so we cd into build_dir first.
+    #
+    # CRITICAL anti-pattern prevention (Phase 66 REG-01): do not swallow
+    # SIGSEGV (exit code 139) or other crash signals as generic "test failed"
+    # noise. The Phase 65/66 motivating incident was that the Benchmark
+    # workflow reported "find_first_last: Iron compilation failed" for a
+    # SIGSEGV in ironc, hiding the crash for months. Exit codes >= 128
+    # indicate a signal; treat those as a hard CI failure that cannot be
+    # explained away as a per-fixture issue.
+    set +e
+    (cd "${build_dir}" && "${IRON_BIN}" build "${test_file}") 2>"${build_stderr}"
+    ironc_exit=$?
+    set -e
+
+    if [ "${ironc_exit}" -ge 128 ]; then
+        # Signal-level exit: ironc crashed (SIGSEGV=139, SIGABRT=134, etc.).
+        # Do not count this as a per-fixture failure — abort the whole script
+        # so CI logs make it unambiguous that ironc crashed. This is the
+        # exact failure mode that hid find_first_last for months before
+        # Phase 66; the pre-Phase 66 runner would have reported this as
+        # "build failed" noise.
+        echo ""
+        echo "[CRASH] ironc crashed on fixture ${test_name} (exit=${ironc_exit})" >&2
+        echo "        Signal-level exit code — ironc hit a SIGSEGV or SIGABRT." >&2
+        echo "        This is NOT a test failure; it is a compiler crash that" >&2
+        echo "        the pre-Phase 66 CI would have swallowed as 'build failed'." >&2
+        echo "        do not swallow SIGSEGV as test-failed noise (find_first_last)." >&2
+        echo "        Stderr from ironc follows:" >&2
+        cat "${build_stderr}" >&2
+        exit 1
+    fi
+
+    if [ "${ironc_exit}" -ne 0 ]; then
+        # Normal non-zero exit: ironc emitted a compile error and terminated
+        # cleanly. Count it as a per-fixture build failure and continue.
+        echo "[FAIL] (build failed, exit=${ironc_exit})"
         cat "${build_stderr}" >&2
         FAIL=$((FAIL + 1))
         continue

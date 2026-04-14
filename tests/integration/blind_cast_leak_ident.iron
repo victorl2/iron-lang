@@ -1,0 +1,51 @@
+-- Regression: Iron_Ident cast in leak statement without kind check.
+--
+-- **Motivating Incident.** Phase 65 AUDIT-01 row 9 (M-severity) flagged
+-- src/analyzer/escape.c (leak-statement RC detection branch) for casting
+-- ls->expr to (Iron_Ident *) without a preceding kind check.
+-- expr_ident_name returns non-NULL for both Iron_Ident and the root of
+-- an Iron_FieldAccess chain, so the downstream checks `id->resolved_sym`
+-- and `id->resolved_type` were reading the FieldAccess::object field
+-- offset — silently wrong whenever the leak target was a chained
+-- expression like `leak wrapper.inner` rather than a bare identifier.
+--
+-- **Layout Diagram.**
+--   Iron_Ident:       [span][kind][resolved_type][name][resolved_sym][constraint_name]
+--   Iron_FieldAccess: [span][kind][resolved_type][object][field]
+--
+--   The shared prefix is {span, kind, resolved_type} (enforced by
+--   PROT-01 _Static_assert). `resolved_sym` in Iron_Ident overlaps
+--   `field` in Iron_FieldAccess — a char* reinterpret of the downstream
+--   object pointer. Reading `id->resolved_sym->type` then dereferences
+--   what is actually an Iron_Node pointer as an Iron_Symbol, producing
+--   wrong type-kind comparisons in the RC-detection pass.
+--
+-- **Fix Summary.** escape.c (leak handler) now checks
+-- ls->expr->kind == IRON_NODE_IDENT BEFORE the Iron_Ident cast and calls
+-- IRON_NODE_ASSERT_KIND on the guarded path. The non-ident path
+-- (field-access leak target that doesn't match any heap binding) falls
+-- through to the existing "not a heap-allocated value" diagnostic with
+-- is_rc=false, which is the correct error shape for a non-ident leak.
+-- PROT-04 walkthrough safety net (M-severity site), Phase 66 Plan 03.
+-- The remaining 25 M-severity AUDIT-01 rows are covered by Plan 05.
+--
+-- **Severity.** M. Affects `leak` statements whose target is a
+-- field-access chain rather than a bare identifier. Blast radius
+-- smaller than H sites because the wrong resolved_sym usually produced
+-- a downstream undefined-symbol error rather than a crash, but the
+-- wrong RC-type classification silently misclassified leak diagnostics.
+
+object Point {
+    var x: Int
+    var y: Int
+}
+
+func main() {
+    val p = heap Point(3, 4)
+    println("before leak: {p.x} {p.y}")
+    -- Positive path: leak on a bare ident that IS a heap binding.
+    -- Exercises the leak handler all the way through to
+    -- find_heap_for_name returning non-NULL; the new IRON_NODE_ASSERT_KIND
+    -- gate guards the negative path where is_rc detection runs.
+    leak p
+}

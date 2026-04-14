@@ -42,13 +42,15 @@ typedef struct {
  * Handles bare identifiers, field access chains, and index expressions. */
 static const char *expr_ident_name(Iron_Node *node) {
     if (!node) return NULL;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_IDENT:
             return ((Iron_Ident *)node)->name;
         case IRON_NODE_FIELD_ACCESS:
             return expr_ident_name(((Iron_FieldAccess *)node)->object);
         case IRON_NODE_INDEX:
             return expr_ident_name(((Iron_IndexExpr *)node)->object);
+        /* -Wswitch-enum opt-out: identifier-root extractor only handles the
+         * three kinds that can be aliased storage locations. */
         default:
             return NULL;
     }
@@ -64,14 +66,18 @@ static bool name_is_local(ConcurrencyCtx *ctx, const char *name) {
 
 static void emit_err(ConcurrencyCtx *ctx, int code, Iron_Span span,
                      const char *msg) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("concurrency.c:emit_err msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                   msg_copy, NULL);
 }
 
 static void emit_warn(ConcurrencyCtx *ctx, int code, Iron_Span span,
                       const char *msg) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("concurrency.c:emit_warn msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                   msg_copy, NULL);
 }
 
 /* ── Collect locally-defined names in a block ─────────────────────────────── */
@@ -106,7 +112,7 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
     if (arrlen(ctx->spawn_writes) + arrlen(ctx->spawn_reads) >= MAX_SPAWN_CAPTURES)
         return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
             /* Write: extract root name from assignment target */
@@ -169,6 +175,54 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
             collect_spawn_refs(ctx, fs->body);
             break;
         }
+        /* AUDIT-02 #12 fix: CALL / METHOD_CALL / MATCH / DEFER / FREE / LEAK
+         * were previously missed, so spawn-body analysis silently ignored
+         * reads/writes that occurred inside function calls, match arms, and
+         * defer/free/leak statements. */
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *ce = (Iron_CallExpr *)node;
+            collect_spawn_refs(ctx, ce->callee);
+            for (int i = 0; i < ce->arg_count; i++) {
+                collect_spawn_refs(ctx, ce->args[i]);
+            }
+            break;
+        }
+        case IRON_NODE_METHOD_CALL: {
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            collect_spawn_refs(ctx, mc->object);
+            for (int i = 0; i < mc->arg_count; i++) {
+                collect_spawn_refs(ctx, mc->args[i]);
+            }
+            break;
+        }
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            collect_spawn_refs(ctx, ms->subject);
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                if (mc && mc->body) collect_spawn_refs(ctx, mc->body);
+            }
+            if (ms->else_body) collect_spawn_refs(ctx, ms->else_body);
+            break;
+        }
+        case IRON_NODE_DEFER: {
+            Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+            collect_spawn_refs(ctx, ds->expr);
+            break;
+        }
+        case IRON_NODE_FREE: {
+            Iron_FreeStmt *fs = (Iron_FreeStmt *)node;
+            collect_spawn_refs(ctx, fs->expr);
+            break;
+        }
+        case IRON_NODE_LEAK: {
+            Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
+            collect_spawn_refs(ctx, ls->expr);
+            break;
+        }
+        /* -Wswitch-enum opt-out: collect_spawn_refs is a generic walker that
+         * only cares about statements that can read or write a variable; all
+         * remaining Iron_NodeKind values are legitimate no-ops here. */
         default:
             break;
     }
@@ -181,7 +235,7 @@ static void check_body_stmts(ConcurrencyCtx *ctx, Iron_Node **stmts, int count);
 
 static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
             if (!as->target) break;
@@ -232,6 +286,9 @@ static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
             break;
         }
         /* Val/var decls within the body are local — already collected. */
+        /* -Wswitch-enum opt-out: parallel-for mutation checker only cares
+         * about assignment / block / control-flow kinds; everything else
+         * (literals, expressions, decls) is safe. */
         default:
             break;
     }
@@ -252,7 +309,7 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node);
  * spawn/parallel-for blocks that need their own analysis. */
 static void walk_nested_in_parallel_body(ConcurrencyCtx *ctx, Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_BLOCK: {
             Iron_Block *blk = (Iron_Block *)node;
             for (int i = 0; i < blk->stmt_count; i++)
@@ -281,6 +338,8 @@ static void walk_nested_in_parallel_body(ConcurrencyCtx *ctx, Iron_Node *node) {
             if (ws->body) walk_nested_in_parallel_body(ctx, ws->body);
             break;
         }
+        /* -Wswitch-enum opt-out: only descends into nested control flow that
+         * could legitimately contain a spawn / parallel-for. */
         default:
             break;
     }
@@ -288,7 +347,7 @@ static void walk_nested_in_parallel_body(ConcurrencyCtx *ctx, Iron_Node *node) {
 
 static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             if (fs->is_parallel && fs->body) {
@@ -384,6 +443,8 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
             ctx->in_spawn = prev_in_spawn;
             break;
         }
+        /* -Wswitch-enum opt-out: top-level walker only recurses into control
+         * flow and spawn / parallel-for kinds. */
         default:
             break;
     }
@@ -422,7 +483,7 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
                 if (fd->body) analyze_function(&ctx, fd->body);
@@ -433,6 +494,8 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
                 if (md->body) analyze_function(&ctx, md->body);
                 break;
             }
+            /* -Wswitch-enum opt-out: concurrency analysis only runs on
+             * function and method bodies. */
             default:
                 break;
         }

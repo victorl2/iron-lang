@@ -1,0 +1,41 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_STMT_WHILE.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node AST
+-- walker in hir_to_lir.c used locally-shadowed typedef guesses for
+-- every IRON_NODE_* case it handled. The walker crashed on the IF
+-- case (see hir_to_lir_elif_mono_walker.iron for the original bug
+-- story); the same walker incompleteness class can resurface on any
+-- other node kind if a future edit re-introduces a layout assumption.
+-- Phase 66 added -Werror=switch-enum and _Static_assert on common
+-- prefixes as structural protections. This canary is the runtime
+-- regression net for IRON_NODE_WHILE: any walker case that fails to
+-- recurse into the condition or body silently drops sub-expressions
+-- from the lowered LIR, and this fixture turns red immediately.
+--
+-- **Layout Diagram.** Iron_WhileStmt carries
+--   { span, kind, condition, body }
+-- Walker cases that mis-read this layout (e.g., confusing it with
+-- Iron_IfStmt and indexing past `body` into garbage) produce the same
+-- class of silent SIGSEGV the Phase 37-02 bug caused.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. CI integration: runs in both Debug and Release via Phase
+-- 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- the Phase 37-02 SIGSEGV
+-- was deterministic on Linux Release for months. This canary closes
+-- the per-kind coverage gap for while-loop lowering.
+
+func sum_to(n: Int) -> Int {
+  var sum = 0
+  var i = 1
+  while i <= n {
+    sum = sum + i
+    i = i + 1
+  }
+  return sum
+}
+
+func main() {
+  println("sum: {sum_to(10)}")
+}

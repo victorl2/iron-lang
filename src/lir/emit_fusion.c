@@ -51,7 +51,9 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
      * - map: output elem type comes from the CALL's return type (.array.elem)
      * - filter: output elem = input elem (passes through)
      * - reduce/sum/forEach: scalar result, no intermediate elem */
+    /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
     const char **node_out_type = (const char **)calloc((size_t)chain->node_count, sizeof(const char *));
+    if (!node_out_type) iron_oom_abort("emit_fusion.c:emit_fused_chain node_out_type");
     for (int ni = 0; ni < chain->node_count; ni++) {
         FusionChainNode *node = &chain->nodes[ni];
         IronLIR_Instr *node_instr = NULL;
@@ -76,10 +78,22 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
 
     /* Determine the "current element type" entering each node.
      * Node 0 receives source_elem_c. Node N receives the previous node's output. */
+    /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
     const char **node_in_type = (const char **)calloc((size_t)chain->node_count, sizeof(const char *));
+    if (!node_in_type) iron_oom_abort("emit_fusion.c:emit_fused_chain node_in_type");
     for (int ni = 0; ni < chain->node_count; ni++) {
         node_in_type[ni] = (ni == 0) ? source_elem_c : node_out_type[ni - 1];
     }
+
+    /* FIX-03 / AUDIT-04 §8: matched-free tracking for per-map cur_var calloc
+     * buffers. Each `map` node in the fused chain calloc's a fresh 32-byte
+     * scratch buffer to hold the identifier name for the map's output
+     * variable (`_fuse_vN`). Pre-67-07 those buffers leaked every emission
+     * — one per map per fused chain, uncapped. This tracker collects every
+     * calloc'd cur_var buffer and frees them at function exit below.
+     * Separate flat/split trackers because each branch has its own loop. */
+    char **flat_cur_var_bufs  = NULL;
+    char **split_cur_var_bufs = NULL;
 
     /* ── A. Flat array fused loop ─────────────────────────────────────────── */
     if (!is_split) {
@@ -165,8 +179,13 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
                 iron_strbuf_appendf(sb, "%s _fuse_v%d = _fuse_fn_%d(_fuse_env_%d, %s);\n",
                     node_out_type[ni], ni, ni, ni, cur_var);
                 /* Update cur_var for next operation */
+                /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
+                /* FIX-03 / AUDIT-04 §8: track calloc'd buffer for matched
+                 * free at function exit (replaces pre-67-07 leak). */
                 char *new_var = (char *)calloc(32, 1);
+                if (!new_var) iron_oom_abort("emit_fusion.c:emit_fused_chain flat_cur_var");
                 snprintf(new_var, 32, "_fuse_v%d", ni);
+                arrput(flat_cur_var_bufs, new_var);
                 cur_var = new_var;
             } else if (strcmp(node->method, "filter") == 0) {
                 emit_indent(sb, inner_ind);
@@ -229,6 +248,14 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
             /* Fallback: can't resolve interface -- emit as normal call */
             free(node_out_type);
             free(node_in_type);
+            /* FIX-03 / AUDIT-04 §8: free any tracked cur_var buffers before
+             * early return. Both trackers are guaranteed empty at this
+             * point (flat branch is mutually exclusive with split; split
+             * branch has not yet entered its per-type loop) but the
+             * arrfree calls are harmless on NULL and keep the cleanup
+             * shape symmetric with the normal exit below. */
+            arrfree(flat_cur_var_bufs);
+            arrfree(split_cur_var_bufs);
             return;
         }
 
@@ -356,8 +383,13 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
                     emit_indent(sb, inner_ind);
                     iron_strbuf_appendf(sb, "%s _fuse_v%d = _fuse_fn_%d(_fuse_env_%d, %s);\n",
                         node_out_type[ni], ni, ni, ni, cur_var);
+                    /* FIX-02 / AUDIT-06 §15: NULL-check calloc */
+                    /* FIX-03 / AUDIT-04 §8: track calloc'd buffer for matched
+                     * free at function exit (replaces pre-67-07 leak). */
                     char *new_var = (char *)calloc(32, 1);
+                    if (!new_var) iron_oom_abort("emit_fusion.c:emit_fused_chain split_cur_var");
                     snprintf(new_var, 32, "_fuse_v%d", ni);
+                    arrput(split_cur_var_bufs, new_var);
                     cur_var = new_var;
                 } else if (strcmp(node->method, "filter") == 0) {
                     emit_indent(sb, inner_ind);
@@ -410,4 +442,21 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
 
     free(node_out_type);
     free(node_in_type);
+
+    /* FIX-03 / AUDIT-04 §8: matched free for per-map cur_var calloc buffers.
+     * Pre-67-07 each `map` node calloc'd a fresh 32-byte identifier scratch
+     * buffer and leaked it on function return. This replaces the leak with
+     * explicit free per tracked buffer, plus arrfree of the stb_ds tracker
+     * itself. Both trackers (flat/split) reach here — the flat branch
+     * populates flat_cur_var_bufs when !is_split, the split branch
+     * populates split_cur_var_bufs inside the per-type loop. At the normal
+     * exit path, free every buffer pushed into either tracker. */
+    for (int fi = 0; fi < (int)arrlen(flat_cur_var_bufs); fi++) {
+        free(flat_cur_var_bufs[fi]);
+    }
+    arrfree(flat_cur_var_bufs);
+    for (int si = 0; si < (int)arrlen(split_cur_var_bufs); si++) {
+        free(split_cur_var_bufs[si]);
+    }
+    arrfree(split_cur_var_bufs);
 }

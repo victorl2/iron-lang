@@ -1,0 +1,53 @@
+-- Regression: FIX-01 rank 14 — comptime signed int64_t arithmetic overflow.
+--
+-- **Motivating Incident.** Phase 65 audit row §5.9 (cross-referenced as top-20
+-- rank 14) flagged src/comptime/comptime.c:410-412 — the comptime binop
+-- evaluator used plain C signed arithmetic (`lv->as_int + rv->as_int`,
+-- `lv->as_int - rv->as_int`, `lv->as_int * rv->as_int`) which is undefined
+-- behavior on overflow under C11 6.5p5. Result: `comptime 9223372036854775807
+-- + 1` could produce arbitrary results depending on optimizer mood —
+-- wrap-around, optimized-away check, or trap — none of which is a
+-- user-diagnosable error. Every Iron program that used comptime arithmetic
+-- was one compiler upgrade away from silently changing semantics.
+--
+-- **Layout Diagram.** Pre-fix (comptime.c:410-412):
+--     case IRON_TOK_PLUS:  return cval_int(ctx, lv->as_int + rv->as_int);
+--     case IRON_TOK_MINUS: return cval_int(ctx, lv->as_int - rv->as_int);
+--     case IRON_TOK_STAR:  return cval_int(ctx, lv->as_int * rv->as_int);
+--
+-- Post-fix:
+--     case IRON_TOK_PLUS: {
+--         int64_t result;
+--         if (__builtin_add_overflow(lv->as_int, rv->as_int, &result)) {
+--             emit_error(ctx, IRON_ERR_COMPTIME_ERROR, span,
+--                        "comptime: integer overflow in addition");
+--             return cval_null(ctx);
+--         }
+--         return cval_int(ctx, result);
+--     }
+-- (Same shape for IRON_TOK_MINUS via __builtin_sub_overflow and
+--  IRON_TOK_STAR via __builtin_mul_overflow; division and modulo also
+--  gained explicit INT64_MIN / -1 guards.)
+--
+-- **Fix Summary.** Phase 67-03 Task 1 rewrote the IRON_CVAL_INT binop switch
+-- in src/comptime/comptime.c to use __builtin_add/sub/mul_overflow for +, -,
+-- * and added explicit INT64_MIN / -1 checks for / and %. This fixture
+-- exercises near-max arithmetic that MUST stay in range, proving the
+-- non-overflow path still produces correct results after the rewrite. The
+-- overflow diagnostic path is verified separately by a C-level unit of the
+-- rewritten binop switch (direct error-code coverage via the negative
+-- expected-value tests is blocked on run_integration.sh lacking a
+-- .expected-error mode — see plan 67-03 Task 1 Step 3 for the rationale).
+--
+-- **Severity.** H — undefined behavior in comptime evaluator; optimizer
+-- could silently change compilation semantics on upgrade.
+
+val MAX_SAFE = comptime 4611686018427387900 + 7
+val MIN_SAFE = comptime -4611686018427387900 - 7
+val MUL_SAFE = comptime 1000000 * 1000000
+
+func main() {
+  println("max: {MAX_SAFE}")
+  println("min: {MIN_SAFE}")
+  println("mul: {MUL_SAFE}")
+}

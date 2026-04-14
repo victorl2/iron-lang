@@ -1,0 +1,48 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_STMT_SPAWN.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because its locally-shadowed
+-- struct typedef omitted elif fields. The same walker-incompleteness
+-- class can re-emerge for any other statement kind. Spawn is a
+-- concurrency-primitive statement that carries a named-thread label
+-- plus a body block, and the body is expected to run on a separate
+-- stack. Walker cases that fail to recurse into the spawn body
+-- silently drop the task's work from the lowered LIR -- and because
+-- the main thread still waits for the spawn handle, the bug manifests
+-- as a hang or a zero-valued await result, not a compile error.
+--
+-- **Layout Diagram.** Iron_SpawnStmt carries
+--   { span, kind, label_string, body }
+-- Walker cases that fail to recurse into `body` produce an empty
+-- thread task that returns the default value and silently wrong
+-- output. Walker cases that mis-type `body` can also crash during
+-- LIR emission.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Uses a single spawn-with-await pattern (see
+-- tests/integration/spawn_await_return.iron for the canonical
+-- template) to produce a deterministic integer output. CI integration:
+-- runs in both Debug and Release via Phase 66-04's build-and-test-
+-- release job.
+--
+-- **Severity.** H (regression potential) -- spawn is exercised by
+-- every threaded Iron program, and a walker regression would produce
+-- silently wrong output under normal execution.
+
+func compute(n: Int) -> Int {
+  var sum = 0
+  var i = 0
+  while i < n {
+    sum = sum + i
+    i = i + 1
+  }
+  return sum
+}
+
+func main() {
+  val h = spawn("worker") {
+    return compute(10)
+  }
+  val r = await h
+  println("result: {r}")
+}

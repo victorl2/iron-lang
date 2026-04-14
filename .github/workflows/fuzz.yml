@@ -1,0 +1,109 @@
+name: Fuzz
+
+# Phase 68 Plan 06 (FUZZ-05): Nightly libFuzzer workflow.
+#
+# Runs all three Iron fuzz targets (fuzz_parser, fuzz_typecheck,
+# fuzz_hir_to_lir) for 10 minutes each on a scheduled nightly cron. This is
+# the standing regression net Plans 01-05 built the machinery for. On any
+# crash, crash-* files are uploaded as a workflow artifact and
+# scripts/fuzz_crash_to_fixture.sh is invoked with --open-issue to minimize
+# the input, compute a top-3-frame crash signature, and dedupe against
+# existing `fuzz-crash`-labeled GitHub issues.
+#
+# Notes (load-bearing — do NOT paraphrase when editing):
+#   - `on: schedule` only. NO push/pull_request triggers — fuzz is nightly
+#     and does NOT gate PRs. (workflow_dispatch lets maintainers kick it
+#     off ad-hoc via `gh workflow run fuzz.yml`.)
+#   - `permissions.issues: write` is essential; without it
+#     `gh issue create` in the harness step fails silently.
+#   - `strategy.fail-fast: false` — one target's crash must not cancel the
+#     other two matrix cells' 10-minute budgets.
+#   - `timeout-minutes: 20` gives each cell slack for build + fuzz + minimize
+#     + issue post on top of the 10-minute (-max_total_time=600) fuzz budget.
+#   - `-seed=1` is deterministic per CONTEXT.md; a crash tonight reproduces
+#     tomorrow with the same seed. Corpus growth across runs still provides
+#     coverage progression independent of the seed.
+#   - `-max_len=8192` matches the input-size cap defense-in-depth from the
+#     fuzz targets themselves (which enforce their own per-target caps).
+#   - `-timeout=10` is the FUZZ-01 hang-detection spec. Do NOT raise it.
+#   - `actions/upload-artifact@v4` only (@v3 is deprecated as of Jan 2025).
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fuzz:
+    strategy:
+      matrix:
+        target: [parser, typecheck, hir_to_lir]
+      fail-fast: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang gdb
+
+      - name: Configure (fuzzing, Debug, clang)
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DIRON_ENABLE_FUZZING=ON \
+            -G Ninja
+
+      - name: Build fuzz target + seed blobs
+        run: cmake --build build --target fuzz_${{ matrix.target }} iron_seed_blobs
+
+      - name: Run libFuzzer (10 min wall-clock)
+        id: fuzz_run
+        env:
+          ASAN_OPTIONS:  detect_leaks=0:abort_on_error=1:symbolize=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          mkdir -p crashes
+          set +e
+          ./build/tests/fuzz/fuzz_${{ matrix.target }} \
+            -seed=1 \
+            -max_total_time=600 \
+            -timeout=10 \
+            -max_len=8192 \
+            -dict=tests/fuzz/iron.dict \
+            -artifact_prefix=crashes/ \
+            build/tests/fuzz/corpus/${{ matrix.target }}
+          echo "fuzz_exit=$?" >> $GITHUB_OUTPUT
+
+      - name: Upload crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}-${{ github.run_id }}
+          path: crashes/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open issues for new crashes
+        if: steps.fuzz_run.outputs.fuzz_exit != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET:   ${{ matrix.target }}
+          RUN_ID:   ${{ github.run_id }}
+          SHA:      ${{ github.sha }}
+        run: |
+          chmod +x scripts/fuzz_crash_to_fixture.sh
+          scripts/fuzz_crash_to_fixture.sh \
+            --crash-dir crashes \
+            --target "$TARGET" \
+            --run-id "$RUN_ID" \
+            --sha "$SHA" \
+            --open-issue

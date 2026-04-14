@@ -78,6 +78,7 @@ static char *make_label(HIR_to_LIR_Ctx *ctx, const char *prefix) {
     snprintf(buf, sizeof(buf), "%s_%d", prefix, ctx->label_counter++);
     size_t len = strlen(buf) + 1;
     char *label = (char *)iron_arena_alloc(ctx->lir_arena, len, 1);
+    if (!label) iron_oom_abort("hir_to_lir.c:make_label");
     memcpy(label, buf, len);
     return label;
 }
@@ -210,7 +211,7 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
         IronLIR_Block *blk = fn->blocks[bi];
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *instr = blk->instrs[ii];
-            switch (instr->kind) {
+            switch ((int)(instr->kind)) {
             case IRON_LIR_JUMP: {
                 IronLIR_BlockId t = instr->jump.target;
                 arrput(blk->succs, t);
@@ -242,6 +243,9 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
                 }
                 break;
             }
+            /* -Wswitch-enum opt-out: CFG edge rebuild only cares about
+             * terminator kinds (JUMP / BRANCH / SWITCH); every other IronLIR
+             * opcode is a non-terminator and intentionally adds no edges. */
             default: break;
             }
         }
@@ -392,6 +396,18 @@ static bool hirlir_dominates(HirLir_DomEntry *idom, IronLIR_BlockId a, IronLIR_B
 
 /* ── Compute dominance frontiers ─────────────────────────────────────────── */
 /* Returns stb_ds array of arrays: df[block_index] = stb_ds array of BlockId */
+/* FIX-03 / AUDIT-04 §6: SAFETY — `df` is calloc'd at the top, populated by a
+ * straight-line nested-loop algorithm, then returned to the caller. There
+ * is NO early return between the calloc on the next line and the `return
+ * df;` at the bottom of the function: `grep -n return` on the post-
+ * Phase-67-07 source shows only two returns (`return NULL` on calloc
+ * failure and the final `return df`). The caller (`ssa_construct_func` at
+ * line ~2609) handles NULL via `hmfree(idom); return;` and cleans up df
+ * on the normal path via the arrfree+free loop at lines ~2747-2749. The
+ * "correct but fragile if early return" concern in the Phase 65 audit is
+ * NOT reachable in current code — adding a future early return here would
+ * need to also free df, but that's a future-code contract, not a leak
+ * today. Treatment: SAFETY-annotate, no code change needed. */
 static IronLIR_BlockId **compute_dominance_frontiers(IronLIR_Func *fn,
                                                        HirLir_DomEntry *idom) {
     int n = fn->block_count;
@@ -460,7 +476,7 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
 static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
                                      Iron_Node *node) {
     if (!node) return;
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
             register_mono_enum(ctx, seen, fd->resolved_return_type);
@@ -588,6 +604,114 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
             register_mono_enum(ctx, seen, id->resolved_type);
             break;
         }
+        /* AUDIT-02 #5 fix (the motivating bug class): these kinds were
+         * silently dropped by the default arm, so collect_mono_enums_node
+         * missed monomorphized enums produced inside for / defer / lambda
+         * bodies, index / slice / array-lit expressions, and construct /
+         * spawn / interp-string / heap / rc / is / await / comptime / free
+         * / leak containers. */
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            collect_mono_enums_node(ctx, seen, fs->iterable);
+            collect_mono_enums_node(ctx, seen, fs->body);
+            break;
+        }
+        case IRON_NODE_DEFER: {
+            Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+            collect_mono_enums_node(ctx, seen, ds->expr);
+            break;
+        }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            collect_mono_enums_node(ctx, seen, ss->body);
+            break;
+        }
+        case IRON_NODE_FREE: {
+            Iron_FreeStmt *fs = (Iron_FreeStmt *)node;
+            collect_mono_enums_node(ctx, seen, fs->expr);
+            break;
+        }
+        case IRON_NODE_LEAK: {
+            Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
+            collect_mono_enums_node(ctx, seen, ls->expr);
+            break;
+        }
+        case IRON_NODE_LAMBDA: {
+            Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
+            register_mono_enum(ctx, seen, le->resolved_type);
+            collect_mono_enums_node(ctx, seen, le->body);
+            break;
+        }
+        case IRON_NODE_INDEX: {
+            Iron_IndexExpr *ie = (Iron_IndexExpr *)node;
+            register_mono_enum(ctx, seen, ie->resolved_type);
+            collect_mono_enums_node(ctx, seen, ie->object);
+            collect_mono_enums_node(ctx, seen, ie->index);
+            break;
+        }
+        case IRON_NODE_SLICE: {
+            Iron_SliceExpr *se = (Iron_SliceExpr *)node;
+            register_mono_enum(ctx, seen, se->resolved_type);
+            collect_mono_enums_node(ctx, seen, se->object);
+            collect_mono_enums_node(ctx, seen, se->start);
+            collect_mono_enums_node(ctx, seen, se->end);
+            break;
+        }
+        case IRON_NODE_ARRAY_LIT: {
+            Iron_ArrayLit *al = (Iron_ArrayLit *)node;
+            register_mono_enum(ctx, seen, al->resolved_type);
+            for (int i = 0; i < al->element_count; i++)
+                collect_mono_enums_node(ctx, seen, al->elements[i]);
+            break;
+        }
+        case IRON_NODE_CONSTRUCT: {
+            Iron_ConstructExpr *ce = (Iron_ConstructExpr *)node;
+            register_mono_enum(ctx, seen, ce->resolved_type);
+            for (int i = 0; i < ce->arg_count; i++)
+                collect_mono_enums_node(ctx, seen, ce->args[i]);
+            break;
+        }
+        case IRON_NODE_HEAP: {
+            Iron_HeapExpr *he = (Iron_HeapExpr *)node;
+            register_mono_enum(ctx, seen, he->resolved_type);
+            collect_mono_enums_node(ctx, seen, he->inner);
+            break;
+        }
+        case IRON_NODE_RC: {
+            Iron_RcExpr *re = (Iron_RcExpr *)node;
+            register_mono_enum(ctx, seen, re->resolved_type);
+            collect_mono_enums_node(ctx, seen, re->inner);
+            break;
+        }
+        case IRON_NODE_IS: {
+            Iron_IsExpr *is = (Iron_IsExpr *)node;
+            register_mono_enum(ctx, seen, is->resolved_type);
+            collect_mono_enums_node(ctx, seen, is->expr);
+            break;
+        }
+        case IRON_NODE_AWAIT: {
+            Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
+            register_mono_enum(ctx, seen, ae->resolved_type);
+            collect_mono_enums_node(ctx, seen, ae->handle);
+            break;
+        }
+        case IRON_NODE_COMPTIME: {
+            Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
+            register_mono_enum(ctx, seen, ce->resolved_type);
+            collect_mono_enums_node(ctx, seen, ce->inner);
+            break;
+        }
+        case IRON_NODE_INTERP_STRING: {
+            Iron_InterpString *is = (Iron_InterpString *)node;
+            register_mono_enum(ctx, seen, is->resolved_type);
+            for (int i = 0; i < is->part_count; i++)
+                collect_mono_enums_node(ctx, seen, is->parts[i]);
+            break;
+        }
+        /* -Wswitch-enum opt-out: leaf literals (INT/FLOAT/BOOL/STRING/NULL)
+         * and structural helpers (PARAM / FIELD / MATCH_CASE / ENUM_VARIANT
+         * / TYPE_ANNOTATION / PATTERN / ERROR / etc.) never carry a
+         * monomorphized enum payload. */
         default:
             /* Other node kinds do not carry monomorphized enum types */
             break;
@@ -667,10 +791,12 @@ static void lower_type_decls_from_ast(HIR_to_LIR_Ctx *ctx) {
                 ctx->lir_arena,
                 (size_t)fd->param_count * sizeof(Iron_Type *),
                 _Alignof(Iron_Type *));
+            if (!param_types) iron_oom_abort("hir_to_lir.c:lower_type_decls_from_ast extern_param_types");
             lir_params = (IronLIR_Param *)iron_arena_alloc(
                 ctx->lir_arena,
                 (size_t)fd->param_count * sizeof(IronLIR_Param),
                 _Alignof(IronLIR_Param));
+            if (!lir_params) iron_oom_abort("hir_to_lir.c:lower_type_decls_from_ast extern_lir_params");
             for (int p = 0; p < fd->param_count; p++) {
                 Iron_Param *ap = (Iron_Param *)fd->params[p];
                 Iron_Type *pt = (fd->resolved_param_types && fd->resolved_param_types[p])
@@ -1009,16 +1135,31 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 Iron_Type *elem = obj_type->array.elem;
                 const char *elem_suffix = "int64_t";
                 if (elem) {
-                    switch (elem->kind) {
+                    switch ((int)(elem->kind)) {
                         case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
                         case IRON_TYPE_INT32:  elem_suffix = "int32_t";     break;
                         case IRON_TYPE_FLOAT:  elem_suffix = "double";      break;
                         case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
                         case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
+                        /* AUDIT-02 #6 fix: narrow/wide int and float kinds
+                         * previously fell through to the silent default,
+                         * mis-dispatching [Int8].method() etc. to
+                         * Iron_List_int64_t_*. */
+                        case IRON_TYPE_INT8:   elem_suffix = "int8_t";      break;
+                        case IRON_TYPE_INT16:  elem_suffix = "int16_t";     break;
+                        case IRON_TYPE_INT64:  elem_suffix = "int64_t";     break;
+                        case IRON_TYPE_UINT:   elem_suffix = "uint64_t";    break;
+                        case IRON_TYPE_UINT8:  elem_suffix = "uint8_t";     break;
+                        case IRON_TYPE_UINT16: elem_suffix = "uint16_t";    break;
+                        case IRON_TYPE_UINT32: elem_suffix = "uint32_t";    break;
+                        case IRON_TYPE_UINT64: elem_suffix = "uint64_t";    break;
+                        case IRON_TYPE_FLOAT32: elem_suffix = "float";      break;
+                        case IRON_TYPE_FLOAT64: elem_suffix = "double";     break;
                         case IRON_TYPE_OBJECT:
                             if (elem->object.decl) {
                                 size_t slen = 5 + strlen(elem->object.decl->name) + 1;
                                 char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix object");
                                 snprintf(s, slen, "Iron_%s", elem->object.decl->name);
                                 elem_suffix = s;
                             }
@@ -1027,6 +1168,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                             if (elem->interface.decl) {
                                 size_t slen = 5 + strlen(elem->interface.decl->name) + 1;
                                 char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix interface");
                                 snprintf(s, slen, "Iron_%s", elem->interface.decl->name);
                                 elem_suffix = s;
                             }
@@ -1041,16 +1183,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                             if (elem->enu.decl) {
                                 size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
                                 char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix enum");
                                 snprintf(s, slen, "Iron_%s", elem->enu.decl->name);
                                 elem_suffix = s;
                             }
                             break;
+                        /* -Wswitch-enum opt-out: composite types (ARRAY,
+                         * NULLABLE, FUNC, TUPLE) and meta kinds (VOID,
+                         * NULL, ERROR) are not supported as list elem
+                         * types yet; fall through to int64_t fallback. */
                         default: break;
                     }
                 }
                 const char *coll_method = expr->method_call.method;
                 size_t clen = 10 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
                 char *full_name = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
+                if (!full_name) iron_oom_abort("hir_to_lir.c:lower_expr list_method_full_name");
                 snprintf(full_name, clen, "Iron_List_%s_%s", elem_suffix, coll_method);
 
                 /* Build args and return early — skip the generic mangling path below */
@@ -1145,6 +1293,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * body carries an implicit self param (Phase 59 P05). */
         size_t mlen = strlen(type_name) + 1 + strlen(expr->method_call.method) + 1;
         char *mangled = (char *)iron_arena_alloc(ctx->lir_arena, mlen, 1);
+        if (!mangled) iron_oom_abort("hir_to_lir.c:lower_expr method_mangled_name");
         snprintf(mangled, mlen, "%s_%s", type_name, expr->method_call.method);
         /* Lowercase the entire type name portion (e.g. IO → io, Time → time) */
         for (size_t ci = 0; mangled[ci] && mangled[ci] != '_'; ci++) {
@@ -2127,6 +2276,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
                 ctx->lir_arena,
                 (size_t)param_count * sizeof(IronLIR_Param),
                 _Alignof(IronLIR_Param));
+            if (!lir_params) iron_oom_abort("hir_to_lir.c:flatten_func empty_body_lir_params");
             for (int p = 0; p < param_count; p++) {
                 lir_params[p].name = hir_func->params[p].name;
                 lir_params[p].type = hir_func->params[p].type;
@@ -2153,6 +2303,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
             ctx->lir_arena,
             (size_t)param_count * sizeof(IronLIR_Param),
             _Alignof(IronLIR_Param));
+        if (!lir_params) iron_oom_abort("hir_to_lir.c:flatten_func lir_params");
         for (int p = 0; p < param_count; p++) {
             lir_params[p].name = hir_func->params[p].name;
             lir_params[p].type = hir_func->params[p].type;
@@ -2208,6 +2359,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         param_val_ids = (IronLIR_ValueId *)iron_arena_alloc(
             ctx->lir_arena, (size_t)param_count * sizeof(IronLIR_ValueId),
             _Alignof(IronLIR_ValueId));
+        if (!param_val_ids) iron_oom_abort("hir_to_lir.c:flatten_func param_val_ids");
     }
     for (int p = 0; p < param_count; p++) {
         IronLIR_ValueId param_val_id = lir_func->next_value_id++;
@@ -2542,6 +2694,7 @@ static void ssa_construct_func(IronLIR_Func *fn) {
 
                 /* Create phi instruction — insert at front of y_blk */
                 IronLIR_Instr *phi_instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                if (!phi_instr) iron_oom_abort("hir_to_lir.c:ssa_construct_func phi_instr");
                 memset(phi_instr, 0, sizeof(*phi_instr));
                 phi_instr->kind = IRON_LIR_PHI;
                 phi_instr->type = alloca_type;

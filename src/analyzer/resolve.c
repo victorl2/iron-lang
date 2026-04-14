@@ -62,15 +62,16 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
 static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
     char msg[256];
     snprintf(msg, sizeof(msg), "undefined identifier '%s'", name);
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("resolve.c:emit_undefined msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                   IRON_ERR_UNDEFINED_VAR, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                   IRON_ERR_UNDEFINED_VAR, span, msg_copy, NULL);
 }
 
 /* ── Pass 1a: Collect top-level declarations ─────────────────────────────── */
 
 static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)node;
             /* Create an object type and attach to symbol */
@@ -154,6 +155,10 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             }
             break;
         }
+        /* -Wswitch-enum opt-out: collect_decl only processes top-level
+         * type/func/import declarations; method decls are handled in Pass 1b
+         * and every other Iron_NodeKind (expressions, statements, literals)
+         * is intentionally ignored at the top level. */
         default:
             /* Method decls handled in pass 1b; everything else ignored here */
             break;
@@ -229,9 +234,27 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    "'super' used outside of method", NULL);
                     return;
                 }
-                /* Check if owning type has extends_name */
+                /* Check if owning type has extends_name.
+                 *
+                 * PROT-04 rewrite (rank 10a, AUDIT-01): owner_sym can point
+                 * to a non-object declaration (enum method, interface method)
+                 * whose decl_node is Iron_EnumDecl or Iron_InterfaceDecl. The
+                 * previous code cast unconditionally to Iron_ObjectDecl and
+                 * silently misread extends_name at a foreign offset. Guard on
+                 * decl_node->kind before the cast; emit a clean diagnostic
+                 * for the non-object owner case. */
                 if (ctx->current_method->owner_sym &&
                     ctx->current_method->owner_sym->decl_node) {
+                    if (ctx->current_method->owner_sym->decl_node->kind !=
+                        IRON_NODE_OBJECT_DECL) {
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_SUPER_NO_PARENT, id->span,
+                                       "'super' is only valid inside methods of object types",
+                                       NULL);
+                        return;
+                    }
+                    IRON_NODE_ASSERT_KIND(ctx->current_method->owner_sym->decl_node,
+                                          IRON_NODE_OBJECT_DECL);
                     Iron_ObjectDecl *od =
                         (Iron_ObjectDecl *)ctx->current_method->owner_sym->decl_node;
                     if (!od->extends_name) {
@@ -246,7 +269,14 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                      * reported; silently skip here */
                     return;
                 }
-                /* Look up the parent type symbol */
+                /* Look up the parent type symbol.
+                 *
+                 * PROT-04 rewrite (rank 10b, AUDIT-01): the first guard above
+                 * already returned for non-object owner, so this cast is
+                 * structurally safe; still call IRON_NODE_ASSERT_KIND to
+                 * document the invariant and catch any future guard drift. */
+                IRON_NODE_ASSERT_KIND(ctx->current_method->owner_sym->decl_node,
+                                      IRON_NODE_OBJECT_DECL);
                 Iron_ObjectDecl *od =
                     (Iron_ObjectDecl *)ctx->current_method->owner_sym->decl_node;
                 Iron_Symbol *parent_sym =
@@ -603,12 +633,22 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 if (!esym || esym->sym_kind != IRON_SYM_ENUM) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "unknown enum '%s'", pat->enum_name);
+                    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN unknown-enum msg");
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
-                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                                   msg_copy, NULL);
                     break;
                 }
                 /* Validate variant exists in the enum */
+                /* PROT-03 row 22 (AUDIT-01 M-severity): IRON_SYM_ENUM's
+                 * decl_node should always be IRON_NODE_ENUM_DECL. The
+                 * upstream sym_kind check above guarantees the symbol
+                 * shape; assert kind on the decl_node before the cast so
+                 * any future drift (e.g., a builtin enum with NULL
+                 * decl_node, or a wrong-kind decl_node) aborts in Debug. */
+                if (!esym->decl_node) break;
+                IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
                 Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
                 bool found = false;
                 for (int i = 0; i < ed->variant_count; i++) {
@@ -622,9 +662,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                              pat->enum_name, pat->variant_name);
+                    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN no-variant msg");
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
-                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                                   msg_copy, NULL);
                     break;
                 }
             }
@@ -644,9 +686,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
                              "pattern binding '%s' shadows outer variable", bname);
+                    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN shadow msg");
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_BINDING_SHADOWS, pat->span,
-                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                                   msg_copy, NULL);
                 }
                 /* Define binding as immutable variable in arm scope */
                 define_sym(ctx, bname, IRON_SYM_VARIABLE, node, pat->span,
@@ -664,28 +708,71 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (!esym || esym->sym_kind != IRON_SYM_ENUM) {
                 Iron_Ident *ident_node = (Iron_Ident *)iron_arena_alloc(
                     ctx->arena, sizeof(Iron_Ident), _Alignof(Iron_Ident));
+                if (!ident_node) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT ident_node");
                 ident_node->kind = IRON_NODE_IDENT;
                 ident_node->span = ec->span;
                 ident_node->name = ec->enum_name;
                 ident_node->resolved_type = NULL;
                 ident_node->resolved_sym = esym;
                 const char *member = ec->variant_name;
+                /* PROT-04 rewrite (ranks 7 and 8, AUDIT-01): allocate a fresh
+                 * Iron_MethodCallExpr or Iron_FieldAccess node instead of
+                 * reinterpreting Iron_EnumConstruct in place. The old pattern
+                 * was layout-dependent UB: if any of the three struct types
+                 * grew or reordered fields, the reinterpret would silently
+                 * corrupt memory.
+                 *
+                 * Size fit: sizeof(Iron_MethodCallExpr) == sizeof(Iron_EnumConstruct)
+                 * (both have identical 7-member layouts — verified by planner
+                 * in src/parser/ast.h). sizeof(Iron_FieldAccess) <
+                 * sizeof(Iron_EnumConstruct) (5 vs 7 members). The two
+                 * _Static_asserts below fail the build immediately on any
+                 * future struct-size regression, which is exactly what PROT-04
+                 * is trying to prevent. */
+                IRON_NODE_ASSERT_KIND(ec, IRON_NODE_ENUM_CONSTRUCT);
                 if (ec->arg_count > 0) {
-                    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)ec;
-                    mc->kind      = IRON_NODE_METHOD_CALL;
-                    mc->object    = (Iron_Node *)ident_node;
-                    mc->method    = member;
-                    resolve_expr(ctx, (Iron_Node *)mc);
+                    _Static_assert(sizeof(Iron_MethodCallExpr) <= sizeof(Iron_EnumConstruct),
+                                   "enum-construct-to-method-call rewrite requires size fit");
+                    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)iron_arena_alloc(
+                        ctx->arena,
+                        sizeof(Iron_MethodCallExpr),
+                        _Alignof(Iron_MethodCallExpr));
+                    if (!mc) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT method_call");
+                    mc->span          = ec->span;
+                    mc->kind          = IRON_NODE_METHOD_CALL;
+                    mc->resolved_type = NULL;
+                    mc->object        = (Iron_Node *)ident_node;
+                    mc->method        = member;
+                    mc->args          = ec->args;       /* reuse the already-allocated arg array */
+                    mc->arg_count     = ec->arg_count;
+                    /* Copy the fresh layout over the original ec storage so
+                     * the AST's upstream parent pointer now sees the new
+                     * METHOD_CALL payload at the same Iron_Node* address. */
+                    *(Iron_MethodCallExpr *)ec = *mc;
+                    resolve_expr(ctx, (Iron_Node *)ec);
                 } else {
-                    Iron_FieldAccess *fa = (Iron_FieldAccess *)ec;
-                    fa->kind   = IRON_NODE_FIELD_ACCESS;
-                    fa->object = (Iron_Node *)ident_node;
-                    fa->field  = member;
-                    resolve_expr(ctx, (Iron_Node *)fa);
+                    _Static_assert(sizeof(Iron_FieldAccess) <= sizeof(Iron_EnumConstruct),
+                                   "enum-construct-to-field-access rewrite requires size fit");
+                    Iron_FieldAccess *fa = (Iron_FieldAccess *)iron_arena_alloc(
+                        ctx->arena,
+                        sizeof(Iron_FieldAccess),
+                        _Alignof(Iron_FieldAccess));
+                    if (!fa) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT field_access");
+                    fa->span          = ec->span;
+                    fa->kind          = IRON_NODE_FIELD_ACCESS;
+                    fa->resolved_type = NULL;
+                    fa->object        = (Iron_Node *)ident_node;
+                    fa->field         = member;
+                    *(Iron_FieldAccess *)ec = *fa;
+                    resolve_expr(ctx, (Iron_Node *)ec);
                 }
                 break;
             }
             /* Validate variant exists */
+            /* PROT-03 row 23 (AUDIT-01 M-severity): same pattern as row 22 —
+             * assert IRON_NODE_ENUM_DECL before casting esym->decl_node. */
+            if (!esym->decl_node) break;
+            IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
             Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
             bool found = false;
             for (int i = 0; i < ed->variant_count; i++) {
@@ -699,9 +786,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                          ec->enum_name, ec->variant_name);
+                const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT no-variant msg");
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNKNOWN_VARIANT, ec->span,
-                               iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                               msg_copy, NULL);
                 break;
             }
             /* Resolve arg expressions */
@@ -732,7 +821,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* Should not appear in isolation; handled at entry point */
             break;
 
-        default:
+        case IRON_NODE_COUNT:
+            /* sentinel — never a real node kind */
             break;
     }
 }
@@ -754,6 +844,18 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     /* Initialize type system */
     iron_types_init(arena);
 
+    /* FIX-03 / AUDIT-04 §4: SAFETY — the builtin symbol registration block
+     * below (lines ~849-~1010, print/println/len/min/max/clamp/abs/assert/
+     * range/...) allocates each Iron_Symbol via iron_symbol_create on the
+     * compilation arena, then stores it in ctx.global_scope->symbols (the
+     * stb_ds shmap covered by §3). The stb_ds shmap holds pointers whose
+     * BACKING storage is the compilation arena; when the arena is freed,
+     * the shmap's key bytes (duplicated by sh_new_strdup at scope.c:17)
+     * remain heap-owned and leak to process exit. The VALUES (Iron_Symbol*)
+     * are arena-owned and reclaimed at arena teardown. No dangling-pointer
+     * risk: shmap readers always run before arena teardown (resolve and
+     * typecheck share the same ctx lifetime). Same cross-arena coupling as
+     * §3; same tradeoff justification. */
     /* Register built-in functions in global scope.
      * print/println map to printf in codegen; register as func(String)->Void
      * so the resolver and type-checker accept them without errors.
@@ -923,7 +1025,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
 
-        switch (decl->kind) {
+        switch ((int)(decl->kind)) {
             case IRON_NODE_FUNC_DECL:
                 resolve_node(&ctx, decl);
                 break;
@@ -936,6 +1038,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             case IRON_NODE_IMPORT_DECL:
                 /* Bodies of these are handled during type checking passes */
                 break;
+            /* -Wswitch-enum opt-out: Pass 2 runs over top-level declarations;
+             * any stray expression/statement kinds reach the default and go
+             * through the generic resolve_node path. */
             default:
                 resolve_node(&ctx, decl);
                 break;

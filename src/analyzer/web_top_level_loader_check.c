@@ -78,9 +78,11 @@ static void emit_loader_error(WebLoaderCtx *ctx, const char *callee_name,
              "move the call inside a function (typically `main()` after `InitWindow`).",
              callee_name);
 
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("web_top_level_loader_check.c:emit_loader_error msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_DIAG_E0502_TOP_LEVEL_LOADER_ON_WEB, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                   msg_copy, NULL);
 }
 
 /* ── AST walker ──────────────────────────────────────────────────────────── */
@@ -91,7 +93,7 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node);
 static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
     if (!node) return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         /* ── Call expression: check callee name ─────────────────────────── */
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
@@ -166,6 +168,8 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
             break;
         }
         /* ── Default: leaf or unrecognised container — no-op ─────────────── */
+        /* -Wswitch-enum opt-out: web-top-level-loader BFS only needs to
+         * descend into kinds that can call an async loader. */
         default:
             break;
     }

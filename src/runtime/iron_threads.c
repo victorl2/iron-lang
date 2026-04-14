@@ -146,9 +146,10 @@ struct Iron_PoolWait {
  * Must be called with pool->lock held. */
 static void pool_queue_grow(Iron_Pool *pool) {
     int new_cap = pool->queue_capacity * 2;
+    /* FIX-02: replace silent-drop fallback with iron_oom_abort (AUDIT-06 §22). */
     Iron_WorkItem *new_q = (Iron_WorkItem *)malloc(
         (size_t)new_cap * sizeof(Iron_WorkItem));
-    if (!new_q) return; /* silently drop expansion on OOM */
+    if (!new_q) iron_oom_abort("iron_threads.c:pool_queue_grow");
 
     /* Copy items from circular buffer to linear new buffer */
     for (int i = 0; i < pool->queue_count; i++) {
@@ -213,8 +214,10 @@ static void pool_spawn_elastic_worker_locked(Iron_Pool *pool);
 Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
     if (thread_count < 1) thread_count = 1;
 
+    /* FIX-02: replace Phase 65 soft-NULL returns with iron_oom_abort — callers
+     * already dereference the result without a NULL guard. */
     Iron_Pool *pool = (Iron_Pool *)malloc(sizeof(Iron_Pool));
-    if (!pool) return NULL;
+    if (!pool) iron_oom_abort("iron_threads.c:Iron_pool_create pool");
 
     pool->name             = name;
     pool->thread_count     = thread_count;
@@ -233,10 +236,7 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
 
     pool->queue = (Iron_WorkItem *)malloc(
         (size_t)pool->queue_capacity * sizeof(Iron_WorkItem));
-    if (!pool->queue) {
-        free(pool);
-        return NULL;
-    }
+    if (!pool->queue) iron_oom_abort("iron_threads.c:Iron_pool_create queue");
 
     IRON_MUTEX_INIT(pool->lock);
     IRON_COND_INIT(pool->work_ready);
@@ -244,14 +244,15 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
 
     pool->threads = (iron_thread_t *)malloc(
         (size_t)thread_count * sizeof(iron_thread_t));
-    if (!pool->threads) {
-        free(pool->queue);
-        free(pool);
-        return NULL;
-    }
+    if (!pool->threads) iron_oom_abort("iron_threads.c:Iron_pool_create threads");
 
     for (int i = 0; i < thread_count; i++) {
-        IRON_THREAD_CREATE(pool->threads[i], pool_worker, pool);
+        /* FIX-02: IRON_THREAD_CREATE failure (non-OOM but still unrecoverable —
+         * EAGAIN from the scheduler) now routes through iron_oom_abort since the
+         * runtime has no panic channel. AUDIT-03 §32. */
+        if (IRON_THREAD_CREATE(pool->threads[i], pool_worker, pool) != 0) {
+            iron_oom_abort("iron_threads.c:Iron_pool_create IRON_THREAD_CREATE");
+        }
     }
 
     return pool;
@@ -346,17 +347,17 @@ void Iron_pool_destroy(Iron_Pool *pool) {
         int snapshot_count = 0;
 
         IRON_MUTEX_LOCK(pool->lock);
+        /* FIX-02: replace silent-skip fallback with iron_oom_abort. AUDIT-06 §23. */
         snapshot = (iron_thread_t *)malloc(
             (size_t)pool->thread_slots_cap * sizeof(iron_thread_t));
-        if (snapshot) {
-            for (int i = 0; i < pool->thread_slots_cap; i++) {
-                /* Empty-slot sentinel is (iron_thread_t)0 — works on all
-                 * three target platforms: HANDLE=NULL (Win32),
-                 * pthread_t=NULL pointer (macOS), pthread_t=0 (Linux glibc). */
-                if (pool->threads[i] != (iron_thread_t)0) {
-                    snapshot[snapshot_count++] = pool->threads[i];
-                    pool->threads[i] = (iron_thread_t)0;
-                }
+        if (!snapshot) iron_oom_abort("iron_threads.c:Iron_pool_destroy snapshot");
+        for (int i = 0; i < pool->thread_slots_cap; i++) {
+            /* Empty-slot sentinel is (iron_thread_t)0 — works on all
+             * three target platforms: HANDLE=NULL (Win32),
+             * pthread_t=NULL pointer (macOS), pthread_t=0 (Linux glibc). */
+            if (pool->threads[i] != (iron_thread_t)0) {
+                snapshot[snapshot_count++] = pool->threads[i];
+                pool->threads[i] = (iron_thread_t)0;
             }
         }
         IRON_MUTEX_UNLOCK(pool->lock);
@@ -428,7 +429,10 @@ static void pool_spawn_elastic_worker_locked(Iron_Pool *pool) {
     pool->thread_count++;
     /* We're still holding the lock; IRON_THREAD_CREATE is cheap and safe
      * to call under the lock on all supported platforms. */
-    IRON_THREAD_CREATE(pool->threads[slot], pool_worker_elastic, pool);
+    /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */
+    if (IRON_THREAD_CREATE(pool->threads[slot], pool_worker_elastic, pool) != 0) {
+        iron_oom_abort("iron_threads.c:pool_spawn_elastic_worker_locked IRON_THREAD_CREATE");
+    }
 }
 
 /* Elastic worker entry point — waits for work with a bounded idle timeout
@@ -534,8 +538,9 @@ Iron_Pool *Iron_elastic_pool_create(const char *name,
     if (max_threads < 1) max_threads = 1;
     if (idle_timeout_ms < 1) idle_timeout_ms = 1;
 
+    /* FIX-02: replace soft-NULL returns with iron_oom_abort (AUDIT-06 §22-24). */
     Iron_Pool *pool = (Iron_Pool *)malloc(sizeof(Iron_Pool));
-    if (!pool) return NULL;
+    if (!pool) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create pool");
 
     pool->name             = name;
     pool->thread_count     = 0;
@@ -554,10 +559,7 @@ Iron_Pool *Iron_elastic_pool_create(const char *name,
 
     pool->queue = (Iron_WorkItem *)malloc(
         (size_t)pool->queue_capacity * sizeof(Iron_WorkItem));
-    if (!pool->queue) {
-        free(pool);
-        return NULL;
-    }
+    if (!pool->queue) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create queue");
 
     IRON_MUTEX_INIT(pool->lock);
     IRON_COND_INIT(pool->work_ready);
@@ -567,14 +569,7 @@ Iron_Pool *Iron_elastic_pool_create(const char *name,
      * worker is spawned into it. */
     pool->threads = (iron_thread_t *)calloc(
         (size_t)pool->thread_slots_cap, sizeof(iron_thread_t));
-    if (!pool->threads) {
-        IRON_MUTEX_DESTROY(pool->lock);
-        IRON_COND_DESTROY(pool->work_ready);
-        IRON_COND_DESTROY(pool->work_done);
-        free(pool->queue);
-        free(pool);
-        return NULL;
-    }
+    if (!pool->threads) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create threads");
 
     return pool;
 }
@@ -599,8 +594,9 @@ void Iron_pool_mark_one_leaked(Iron_Pool *pool) {
 /* ── Iron_PoolWait impl (Phase 59 P01b) ──────────────────────────────────── */
 
 Iron_PoolWait *Iron_poolwait_create(void) {
+    /* FIX-02: replace soft-NULL return with iron_oom_abort. */
     Iron_PoolWait *w = (Iron_PoolWait *)calloc(1, sizeof(*w));
-    if (!w) return NULL;
+    if (!w) iron_oom_abort("iron_threads.c:Iron_poolwait_create");
     IRON_MUTEX_INIT(w->lock);
     IRON_COND_INIT(w->cond);
     w->completed         = false;
@@ -696,8 +692,9 @@ static void *handle_thread_fn(void *arg) {
 }
 
 Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
+    /* FIX-02: replace soft-NULL returns with iron_oom_abort. AUDIT-06 §24. */
     Iron_Handle *h = (Iron_Handle *)malloc(sizeof(Iron_Handle));
-    if (!h) return NULL;
+    if (!h) iron_oom_abort("iron_threads.c:Iron_handle_create handle");
 
     h->done      = false;
     h->result    = NULL;
@@ -706,15 +703,15 @@ Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
     IRON_COND_INIT(h->cond);
 
     HandleWrapper *w = (HandleWrapper *)malloc(sizeof(HandleWrapper));
-    if (!w) {
-        free(h);
-        return NULL;
-    }
+    if (!w) iron_oom_abort("iron_threads.c:Iron_handle_create wrapper");
     w->handle = h;
     w->fn     = fn;
     w->arg    = arg;
 
-    IRON_THREAD_CREATE(h->thread, handle_thread_fn, w);
+    /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */
+    if (IRON_THREAD_CREATE(h->thread, handle_thread_fn, w) != 0) {
+        iron_oom_abort("iron_threads.c:Iron_handle_create IRON_THREAD_CREATE");
+    }
     return h;
 }
 
@@ -752,8 +749,9 @@ void *iron_future_await(Iron_Handle *handle) {
 }
 
 Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *)) {
+    /* FIX-02: replace soft-NULL returns with iron_oom_abort. AUDIT-06 §24. */
     Iron_Handle *h = (Iron_Handle *)malloc(sizeof(Iron_Handle));
-    if (!h) return NULL;
+    if (!h) iron_oom_abort("iron_threads.c:iron_handle_create_self_ref handle");
 
     h->done      = false;
     h->result    = NULL;
@@ -762,15 +760,15 @@ Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *)) {
     IRON_COND_INIT(h->cond);
 
     HandleWrapper *w = (HandleWrapper *)malloc(sizeof(HandleWrapper));
-    if (!w) {
-        free(h);
-        return NULL;
-    }
+    if (!w) iron_oom_abort("iron_threads.c:iron_handle_create_self_ref wrapper");
     w->handle = h;
     w->fn     = fn;
     w->arg    = h;  /* self-referential: pass handle as arg */
 
-    IRON_THREAD_CREATE(h->thread, handle_thread_fn, w);
+    /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */
+    if (IRON_THREAD_CREATE(h->thread, handle_thread_fn, w) != 0) {
+        iron_oom_abort("iron_threads.c:iron_handle_create_self_ref IRON_THREAD_CREATE");
+    }
     return h;
 }
 
@@ -790,14 +788,12 @@ struct Iron_Channel {
 
 Iron_Channel *Iron_channel_create(int capacity) {
     if (capacity < 1) capacity = 1; /* unbuffered = capacity 1 */
+    /* FIX-02: replace soft-NULL returns with iron_oom_abort. */
     Iron_Channel *ch = (Iron_Channel *)malloc(sizeof(Iron_Channel));
-    if (!ch) return NULL;
+    if (!ch) iron_oom_abort("iron_threads.c:Iron_channel_create channel");
 
     ch->ring     = (void **)malloc((size_t)capacity * sizeof(void *));
-    if (!ch->ring) {
-        free(ch);
-        return NULL;
-    }
+    if (!ch->ring) iron_oom_abort("iron_threads.c:Iron_channel_create ring");
     ch->capacity = capacity;
     ch->head     = 0;
     ch->tail     = 0;
@@ -881,14 +877,12 @@ void Iron_channel_destroy(Iron_Channel *ch) {
 /* ── Iron_Mutex ──────────────────────────────────────────────────────────── */
 
 Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size) {
+    /* FIX-02: replace soft-NULL returns with iron_oom_abort. */
     Iron_Mutex *m = (Iron_Mutex *)malloc(sizeof(Iron_Mutex));
-    if (!m) return NULL;
+    if (!m) iron_oom_abort("iron_threads.c:Iron_mutex_create mutex");
 
     m->value = malloc(size);
-    if (!m->value) {
-        free(m);
-        return NULL;
-    }
+    if (!m->value) iron_oom_abort("iron_threads.c:Iron_mutex_create value");
     m->value_size = size;
     if (initial_value && size > 0) {
         memcpy(m->value, initial_value, size);

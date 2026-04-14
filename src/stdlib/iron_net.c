@@ -584,14 +584,39 @@ Iron_Result_Int_Error Iron_net_tcp_send_bytes(Iron_TcpSocket s,
 /* ── Iron-facing read/write that take Iron_String buffers ────────────── */
 
 Iron_Result_Int_Error Iron_tcpsocket_read(Iron_TcpSocket s, Iron_String buf, int64_t timeout) {
-    /* Iron_String is value-typed from the Iron side. The bytes live at
-     * iron_string_cstr(&buf) and the capacity is iron_string_byte_len(&buf).
-     * In practice Iron_String is immutable, so reads into it are only
-     * meaningful if the caller supplies a preallocated buffer — this path
-     * is here for API symmetry with the raw recv engine. */
-    const char *base = iron_string_cstr(&buf);
-    int64_t     cap  = (int64_t)iron_string_byte_len(&buf);
-    return Iron_net_tcp_recv_bytes(s, (uint8_t *)(uintptr_t)base, cap, timeout);
+    /* PROT-03 row 24 (AUDIT-01 M-severity): iron_string_cstr returns a
+     * const char * into the source Iron_String's SSO/heap buffer. The
+     * previous code cast away const to feed `base` directly into
+     * Iron_net_tcp_recv_bytes, which then wrote bytes into the source
+     * string's immutable storage — silent data corruption of an interned
+     * or SSO Iron_String. (Iron_String is value-typed and immutable from
+     * the Iron side; the wrapper exists for API symmetry with the raw
+     * recv engine, not for caller-visible byte transfer.)
+     *
+     * Fix: recv into a local mutable buffer sized to the requested
+     * capacity. The (count, error) return value is unchanged; the
+     * received bytes themselves are intentionally discarded because the
+     * caller has no value-level path to retrieve them. Callers that need
+     * the bytes must use Iron_net_tcp_recv_bytes directly with their own
+     * mutable buffer. */
+    int64_t cap = (int64_t)iron_string_byte_len(&buf);
+    if (cap <= 0) {
+        return Iron_net_tcp_recv_bytes(s, NULL, 0, timeout);
+    }
+    /* Cap the local buffer to a sane maximum to avoid unbounded stack
+     * use. 64 KiB matches the default TCP recv chunk size on Linux and
+     * is well below the typical 1 MiB stack budget. */
+    enum { LOCAL_RECV_MAX = 65536 };
+    int64_t local_cap = cap < (int64_t)LOCAL_RECV_MAX ? cap : (int64_t)LOCAL_RECV_MAX;
+    uint8_t *local_recv_buf = (uint8_t *)malloc((size_t)local_cap);
+    if (!local_recv_buf) {
+        Iron_Result_Int_Error oom = {0, iron_net_err_from_last()};
+        return oom;
+    }
+    Iron_Result_Int_Error result = Iron_net_tcp_recv_bytes(
+        s, local_recv_buf, local_cap, timeout);
+    free(local_recv_buf);
+    return result;
 }
 
 Iron_Result_Int_Error Iron_tcpsocket_write(Iron_TcpSocket s, Iron_String buf, int64_t timeout) {
@@ -1197,8 +1222,13 @@ static Iron_List_Iron_Address build_address_list_from_addrinfo(
     }
     if (n == 0) return list;
 
+    /* FIX-02: replace silent empty-list fallback with iron_oom_abort — the
+     * empty-list return is indistinguishable from "lookup succeeded with zero
+     * matching entries" and masks OOM. The sibling Iron_net_lookup_host path
+     * still surfaces NO_MEMORY via the NetError channel (designed fallible
+     * path), which is a separate contract. */
     list.items = (Iron_Address *)calloc((size_t)n, sizeof(Iron_Address));
-    if (!list.items) return list;
+    if (!list.items) iron_oom_abort("iron_net.c:build_address_list_from_addrinfo");
     list.capacity = n;
 
     for (struct addrinfo *p = ai; p; p = p->ai_next) {
@@ -1263,7 +1293,27 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
         return out;
     }
 
-    Iron_pool_submit_wait(Iron_io_pool, dns_worker_fn, job, job->wait);
+    /* FIX: use Iron_pool_submit (not _submit_wait) because dns_worker_fn
+     * manages job->wait directly — it calls Iron_poolwait_worker_finish
+     * itself (passing job + dns_abandoned_destructor so the abandoned
+     * path can tear everything down).
+     *
+     * If we used Iron_pool_submit_wait, pool_worker_elastic would ALSO
+     * call Iron_poolwait_worker_finish(item.wait, NULL, NULL) after
+     * dns_worker_fn returns. That second call is a race:
+     *   - Normal path: main may already have locked + read
+     *     w->completed=true and freed w via Iron_poolwait_destroy by the
+     *     time pool_worker_elastic runs its post-fn finish, so the
+     *     second call is a heap-use-after-free on w->lock/w->abandoned
+     *     (reproduced locally under Docker Ubuntu + ASan; observed in
+     *     CI as test #51 SegFault under build-and-test(ubuntu-latest)).
+     *   - Abandoned path: dns_abandoned_destructor runs inside the
+     *     first finish call, which frees w via Iron_poolwait_destroy.
+     *     The second finish call then UAF-accesses the freed w.
+     * Iron_pool_submit stores item.wait=NULL, so pool_worker_elastic's
+     * `if (item.wait)` branch is skipped and no second finish happens.
+     */
+    Iron_pool_submit(Iron_io_pool, dns_worker_fn, job);
 
     Iron_Deadline dl = Iron_deadline_from_timeout_ms(timeout_ms);
     bool completed = false;

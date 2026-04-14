@@ -87,7 +87,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
  * "Iron_Result_Option_Int_String" (valid C identifier). */
 static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) {
     if (!t) return "unknown";
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT:    return "Int";
         case IRON_TYPE_INT8:   return "Int8";
         case IRON_TYPE_INT16:  return "Int16";
@@ -113,6 +113,9 @@ static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) 
             }
             if (t->enu.decl) return t->enu.decl->name;
             return "Enum";
+        /* -Wswitch-enum opt-out: composite kinds (OBJECT, INTERFACE, ARRAY,
+         * NULLABLE, FUNC, TUPLE, POINTER, ERROR, NULL) flow through the
+         * iron_type_to_string fallback which already handles each variant. */
         default:
             /* Fallback: use iron_type_to_string but replace brackets with underscores */
             return iron_type_to_string(t, arena);
@@ -211,23 +214,33 @@ static void tc_define_pattern_bindings(TypeCtx *ctx,
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                        const char *msg, const char *suggestion) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("typecheck.c:emit_error msg");
+    const char *sug_copy = NULL;
+    if (suggestion) {
+        sug_copy = iron_arena_strdup(ctx->arena, suggestion, strlen(suggestion));
+        if (!sug_copy) iron_oom_abort("typecheck.c:emit_error suggestion");
+    }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                   suggestion ? iron_arena_strdup(ctx->arena, suggestion,
-                                                   strlen(suggestion)) : NULL);
+                   msg_copy, sug_copy);
 }
 
 static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
                          const char *msg, const char *suggestion) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("typecheck.c:emit_warning msg");
+    const char *sug_copy = NULL;
+    if (suggestion) {
+        sug_copy = iron_arena_strdup(ctx->arena, suggestion, strlen(suggestion));
+        if (!sug_copy) iron_oom_abort("typecheck.c:emit_warning suggestion");
+    }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                   suggestion ? iron_arena_strdup(ctx->arena, suggestion,
-                                                   strlen(suggestion)) : NULL);
+                   msg_copy, sug_copy);
 }
 
 static int type_bit_width(const Iron_Type *t) {
     if (!t) return 0;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT8:   case IRON_TYPE_UINT8:   return 8;
         case IRON_TYPE_INT16:  case IRON_TYPE_UINT16:  return 16;
         case IRON_TYPE_INT32:  case IRON_TYPE_UINT32:  return 32;
@@ -236,13 +249,15 @@ static int type_bit_width(const Iron_Type *t) {
         case IRON_TYPE_FLOAT32:                        return 32;
         case IRON_TYPE_FLOAT64: case IRON_TYPE_FLOAT:  return 64;
         case IRON_TYPE_BOOL:                           return 1;
+        /* -Wswitch-enum opt-out: predicate is numeric-only; non-numeric kinds
+         * return 0 meaning "no defined bit width". */
         default:                                       return 0;
     }
 }
 
 static bool value_fits_type(int64_t val, const Iron_Type *t) {
     if (!t) return false;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT8:   return val >= -128 && val <= 127;
         case IRON_TYPE_INT16:  return val >= -32768 && val <= 32767;
         case IRON_TYPE_INT32:  return val >= INT32_MIN && val <= INT32_MAX;
@@ -253,16 +268,21 @@ static bool value_fits_type(int64_t val, const Iron_Type *t) {
         case IRON_TYPE_UINT32: return val >= 0 && (uint64_t)val <= UINT32_MAX;
         case IRON_TYPE_UINT64: return val >= 0;
         case IRON_TYPE_UINT:   return val >= 0;
+        /* -Wswitch-enum opt-out: non-integer kinds are never passed an int
+         * literal to check; the predicate defaults to "fits" so non-int
+         * contexts don't emit spurious overflow diagnostics. */
         default:               return true;
     }
 }
 
 static bool is_narrow_integer(const Iron_Type *t) {
     if (!t) return false;
-    switch (t->kind) {
+    switch ((int)(t->kind)) {
         case IRON_TYPE_INT8:  case IRON_TYPE_INT16:  case IRON_TYPE_INT32:
         case IRON_TYPE_UINT8: case IRON_TYPE_UINT16: case IRON_TYPE_UINT32:
             return true;
+        /* -Wswitch-enum opt-out: predicate is strictly for sub-word integer
+         * kinds; every other Iron_TypeKind is non-narrow. */
         default:
             return false;
     }
@@ -446,6 +466,12 @@ static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
     Iron_Symbol *csym = iron_scope_lookup(ctx->global_scope, constraint_name);
     if (!csym || csym->sym_kind != IRON_SYM_INTERFACE) return true;
 
+    /* PROT-03 row 10 (AUDIT-01 M-severity): csym->decl_node may be NULL for
+     * builtin interfaces with no source decl; guard then assert kind before
+     * casting so a wrong-kind decl_node aborts in Debug instead of silently
+     * misreading memory. */
+    if (!csym->decl_node) return true;
+    IRON_NODE_ASSERT_KIND(csym->decl_node, IRON_NODE_INTERFACE_DECL);
     Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)csym->decl_node;
     if (!iface) return true;
 
@@ -506,6 +532,11 @@ static void check_generic_constraints(TypeCtx *ctx,
                       ? generic_param_count : concrete_count;
     for (int i = 0; i < check_count; i++) {
         if (!generic_params[i]) continue;
+        /* PROT-03 row 11 (AUDIT-01 M-severity): generic_params[] is a void**
+         * of Iron_Ident*; assert the kind before casting so any future drift
+         * (e.g., generic-param syntax growing constraints into a richer node)
+         * aborts in Debug. */
+        IRON_NODE_ASSERT_KIND(generic_params[i], IRON_NODE_IDENT);
         Iron_Ident *gp = (Iron_Ident *)generic_params[i];
         if (!gp->constraint_name) continue;
 
@@ -569,6 +600,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Type **elem_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, sizeof(Iron_Type *) * (size_t)n,
             _Alignof(Iron_Type *));
+        if (!elem_types) iron_oom_abort("typecheck.c:resolve_type_annotation tuple_elems");
         for (int i = 0; i < n; i++) {
             elem_types[i] = ann->tuple_elems
                 ? resolve_type_annotation(ctx, ann->tuple_elems[i])
@@ -587,6 +619,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         int param_count = ann->func_param_count;
         if (param_count > 0) {
             param_types = iron_arena_alloc(ctx->arena, sizeof(Iron_Type *) * param_count, _Alignof(Iron_Type *));
+            if (!param_types) iron_oom_abort("typecheck.c:resolve_type_annotation func_params");
             for (int i = 0; i < param_count; i++) {
                 param_types[i] = resolve_type_annotation(ctx, ann->func_params[i]);
             }
@@ -657,6 +690,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     Iron_Type **type_args = iron_arena_alloc(ctx->arena,
                         sizeof(Iron_Type *) * (size_t)ann->generic_arg_count,
                         _Alignof(Iron_Type *));
+                    if (!type_args) iron_oom_abort("typecheck.c:resolve_type_annotation type_args");
                     for (int i = 0; i < ann->generic_arg_count; i++) {
                         type_args[i] = resolve_type_annotation(ctx, ann->generic_args[i]);
                     }
@@ -670,6 +704,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     }
                     const char *mangled = iron_arena_strdup(ctx->arena,
                         iron_strbuf_get(&sb), sb.len);
+                    if (!mangled) iron_oom_abort("typecheck.c:resolve_type_annotation mangled");
                     iron_strbuf_free(&sb);
 
                     /* Cycle detection / caching: if this mangled name is already being
@@ -687,6 +722,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     /* Build monomorphized Iron_Type */
                     Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
                         _Alignof(Iron_Type));
+                    if (!mono) iron_oom_abort("typecheck.c:resolve_type_annotation mono");
                     memset(mono, 0, sizeof(*mono));
                     mono->kind = IRON_TYPE_ENUM;
                     mono->enu.decl = ed;
@@ -696,9 +732,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
 
                     /* Register mono BEFORE resolving payloads to break recursive cycles
                      * (e.g. Tree[T] → Branch(Tree[T], Tree[T]) → Tree[T] again). */
-                    shput(ctx->mono_registry,
-                          iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
-                          mono);
+                    const char *mono_key = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
+                    if (!mono_key) iron_oom_abort("typecheck.c:resolve_type_annotation mono_key");
+                    shput(ctx->mono_registry, mono_key, mono);
 
                     /* Substitute variant_payload_types:
                      * Bind generic param names to their CONCRETE type args in a temporary
@@ -711,6 +747,10 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
                         ctx->global_scope, IRON_SCOPE_BLOCK);
                     for (int i = 0; i < ed->generic_param_count; i++) {
+                        /* PROT-03 row 12 (AUDIT-01 M-severity): assert kind on
+                         * the generic-param node before the Iron_Ident cast. */
+                        if (ed->generic_params[i])
+                            IRON_NODE_ASSERT_KIND(ed->generic_params[i], IRON_NODE_IDENT);
                         Iron_Ident *param = (Iron_Ident *)ed->generic_params[i];
                         if (param) {
                             Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
@@ -729,6 +769,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
                         sizeof(Iron_Type **) * (size_t)ed->variant_count,
                         _Alignof(Iron_Type **));
+                    if (!vpt) iron_oom_abort("typecheck.c:resolve_type_annotation vpt");
                     memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
                     for (int j = 0; j < ed->variant_count; j++) {
                         Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
@@ -736,6 +777,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                         Iron_Type **row = iron_arena_alloc(ctx->arena,
                             sizeof(Iron_Type *) * (size_t)ev->payload_count,
                             _Alignof(Iron_Type *));
+                        if (!row) iron_oom_abort("typecheck.c:resolve_type_annotation vpt row");
                         for (int k = 0; k < ev->payload_count; k++) {
                             /* T is already bound to the concrete type arg in gen_scope,
                              * so no post-substitution is needed. */
@@ -751,12 +793,14 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                     /* Compute payload_is_boxed for monomorphized type */
                     bool **pib = iron_arena_alloc(ctx->arena,
                         sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                    if (!pib) iron_oom_abort("typecheck.c:resolve_type_annotation pib");
                     memset(pib, 0, sizeof(bool *) * (size_t)ed->variant_count);
                     for (int j = 0; j < ed->variant_count; j++) {
                         Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
                         if (ev->payload_count == 0) continue;
                         bool *pib_row = iron_arena_alloc(ctx->arena,
                             sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+                        if (!pib_row) iron_oom_abort("typecheck.c:resolve_type_annotation pib row");
                         memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
                         for (int k = 0; k < ev->payload_count; k++) {
                             if (vpt[j] && vpt[j][k]) {
@@ -1026,7 +1070,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
     Iron_Type *result = NULL;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_INT_LIT: {
             Iron_IntLit *n = (Iron_IntLit *)node;
             result = iron_type_make_primitive(IRON_TYPE_INT);
@@ -1276,7 +1320,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type *target_t = callee_sym->type;
                     if (target_t && ce->arg_count == 1) {
                         bool is_numeric_or_bool = false;
-                        switch (target_t->kind) {
+                        switch ((int)(target_t->kind)) {
                             case IRON_TYPE_INT:
                             case IRON_TYPE_INT8:
                             case IRON_TYPE_INT16:
@@ -1293,6 +1337,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             case IRON_TYPE_BOOL:
                                 is_numeric_or_bool = true;
                                 break;
+                            /* -Wswitch-enum opt-out: cast-target check accepts
+                             * only numeric + bool targets; every other kind
+                             * falls through leaving is_numeric_or_bool false
+                             * so non-primitive "casts" stay as ordinary calls. */
                             default:
                                 break;
                         }
@@ -1362,9 +1410,31 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             break;
                         }
                     }
-                    /* Treat as construction: validate args against fields */
+                    /* Treat as construction: validate args against fields.
+                     *
+                     * PROT-04 rewrite (rank 5, AUDIT-01): SYM_TYPE can point to
+                     * Iron_InterfaceDecl, Iron_EnumDecl, or NULL (builtin primitive
+                     * types). The previous code cast decl_node to Iron_ObjectDecl
+                     * unconditionally and silently misread interface/enum memory
+                     * (or NULL-deref'd for builtins). Guard on decl_node->kind
+                     * before the concrete cast and emit a diagnostic for the
+                     * non-object case instead of proceeding with a bogus cast. */
+                    if (!callee_sym->decl_node ||
+                        callee_sym->decl_node->kind != IRON_NODE_OBJECT_DECL) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "type '%s' is not constructible with call syntax",
+                                 callee_id->name);
+                        emit_error(ctx, IRON_ERR_NOT_CALLABLE, ce->span, msg, NULL);
+                        for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ce->resolved_type = result;
+                        callee_id->resolved_type = result;
+                        break;
+                    }
+                    IRON_NODE_ASSERT_KIND(callee_sym->decl_node, IRON_NODE_OBJECT_DECL);
                     Iron_ObjectDecl *od = (Iron_ObjectDecl *)callee_sym->decl_node;
-                    int field_count = od ? od->field_count : 0;
+                    int field_count = od->field_count;
 
                     if (ce->arg_count != field_count) {
                         char msg[256];
@@ -1373,7 +1443,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                  callee_id->name, field_count, ce->arg_count);
                         emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg, NULL);
                         for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
-                    } else if (od) {
+                    } else {
                         for (int i = 0; i < ce->arg_count; i++) {
                             Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
                             Iron_Field *fld = (Iron_Field *)od->fields[i];
@@ -1399,11 +1469,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         }
                     }
                     /* Check generic constraints on call-as-construction */
-                    if (od && od->generic_param_count > 0 && od->generic_params) {
+                    if (od->generic_param_count > 0 && od->generic_params) {
                         Iron_Type *concrete[16];
                         int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
                         for (int gi = 0; gi < gc; gi++) {
                             concrete[gi] = NULL;
+                            /* PROT-03 row 13 (AUDIT-01 M-severity): assert kind
+                             * on od->generic_params[gi] before the Iron_Ident cast. */
+                            if (od->generic_params[gi])
+                                IRON_NODE_ASSERT_KIND(od->generic_params[gi], IRON_NODE_IDENT);
                             Iron_Ident *gp = (Iron_Ident *)od->generic_params[gi];
                             if (!gp) continue;
                             for (int fi = 0; fi < od->field_count && fi < ce->arg_count; fi++) {
@@ -1528,12 +1602,19 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
                 Iron_Symbol *fn_sym = iron_scope_lookup(ctx->global_scope, fn_id->name);
                 if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION && fn_sym->decl_node) {
+                    /* PROT-03 row 14 (AUDIT-01 M-severity): IRON_SYM_FUNCTION's
+                     * decl_node should always be IRON_NODE_FUNC_DECL; assert it. */
+                    IRON_NODE_ASSERT_KIND(fn_sym->decl_node, IRON_NODE_FUNC_DECL);
                     Iron_FuncDecl *fd = (Iron_FuncDecl *)fn_sym->decl_node;
                     if (fd->generic_param_count > 0 && fd->generic_params) {
                         Iron_Type *concrete[16];
                         int gc = fd->generic_param_count < 16 ? fd->generic_param_count : 16;
                         for (int gi = 0; gi < gc; gi++) {
                             concrete[gi] = NULL;
+                            /* PROT-03 row 15 (AUDIT-01 M-severity): assert kind
+                             * on fd->generic_params[gi] before the Iron_Ident cast. */
+                            if (fd->generic_params[gi])
+                                IRON_NODE_ASSERT_KIND(fd->generic_params[gi], IRON_NODE_IDENT);
                             Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
                             if (!gp) continue;
                             for (int pi = 0; pi < fd->param_count && pi < ce->arg_count; pi++) {
@@ -1788,8 +1869,24 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
 
             if (sym->sym_kind == IRON_SYM_TYPE) {
+                /* PROT-04 rewrite (rank 6, AUDIT-01): sym->decl_node for a
+                 * SYM_TYPE may be InterfaceDecl, EnumDecl, or NULL for builtins.
+                 * Guard before the concrete Iron_ObjectDecl cast and bail with
+                 * a diagnostic for the non-object case. */
+                if (!sym->decl_node ||
+                    sym->decl_node->kind != IRON_NODE_OBJECT_DECL) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "type '%s' is not constructible", ce->type_name);
+                    emit_error(ctx, IRON_ERR_NOT_CALLABLE, ce->span, msg, NULL);
+                    for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+                IRON_NODE_ASSERT_KIND(sym->decl_node, IRON_NODE_OBJECT_DECL);
                 Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
-                int field_count = od ? od->field_count : 0;
+                int field_count = od->field_count;
 
                 if (ce->arg_count != field_count) {
                     char msg[256];
@@ -1798,7 +1895,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                              ce->type_name, field_count, ce->arg_count);
                     emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg, NULL);
                     for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
-                } else if (od) {
+                } else {
                     for (int i = 0; i < ce->arg_count; i++) {
                         Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
                         Iron_Field *fld = (Iron_Field *)od->fields[i];
@@ -1823,7 +1920,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
                 /* Check generic constraints on type construction */
-                if (od && od->generic_param_count > 0 && od->generic_params &&
+                if (od->generic_param_count > 0 && od->generic_params &&
                     ce->generic_arg_count > 0 && ce->generic_args) {
                     Iron_Type *concrete[16];
                     int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
@@ -1998,6 +2095,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ctx->arena,
                     (size_t)le->param_count * sizeof(Iron_Type *),
                     _Alignof(Iron_Type *));
+                if (!param_types) iron_oom_abort("typecheck.c:check_expr LAMBDA param_types");
                 for (int p = 0; p < le->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)le->params[p];
                     param_types[p] = resolve_type_annotation(ctx, ap->type_ann);
@@ -2056,6 +2154,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type **tup_elems = (Iron_Type **)iron_arena_alloc(
                         ctx->arena, sizeof(Iron_Type *) * (size_t)n,
                         _Alignof(Iron_Type *));
+                    if (!tup_elems) iron_oom_abort("typecheck.c:check_expr ARRAY_LIT tuple");
                     for (int i = 0; i < n; i++) {
                         Iron_Type *et = check_expr(ctx, al->elements[i]);
                         if (!et) et = iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -2184,6 +2283,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Type **inferred_args = iron_arena_alloc(ctx->arena,
                     sizeof(Iron_Type *) * (size_t)ed->generic_param_count,
                     _Alignof(Iron_Type *));
+                if (!inferred_args) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT inferred_args");
                 memset(inferred_args, 0,
                     sizeof(Iron_Type *) * (size_t)ed->generic_param_count);
 
@@ -2192,6 +2292,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
                     ctx->global_scope, IRON_SCOPE_BLOCK);
                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    /* PROT-03 row 16 (AUDIT-01 M-severity): assert kind on
+                     * ed->generic_params[gi] before the Iron_Ident cast. */
+                    if (ed->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                     Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                     if (param) {
                         Iron_Type *gpt = iron_type_make_generic_param(
@@ -2213,6 +2317,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* If expected is GENERIC_PARAM, map it to arg_t */
                     if (expected && expected->kind == IRON_TYPE_GENERIC_PARAM) {
                         for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                            /* PROT-03 row 17 (AUDIT-01 M-severity): assert kind
+                             * on ed->generic_params[gi] before the Iron_Ident cast. */
+                            if (ed->generic_params[gi])
+                                IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                             Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                             if (param && expected->generic_param.name &&
                                 strcmp(param->name, expected->generic_param.name) == 0) {
@@ -2236,6 +2344,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                                ? arg_t->enu.type_args[ta] : NULL;
                             if (exp_ta && exp_ta->kind == IRON_TYPE_GENERIC_PARAM && arg_ta) {
                                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                                    /* PROT-03 row 18 (AUDIT-01 M-severity): assert kind
+                                     * on ed->generic_params[gi] before the Iron_Ident cast. */
+                                    if (ed->generic_params[gi])
+                                        IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                                     Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                                     if (param && exp_ta->generic_param.name &&
                                         strcmp(param->name, exp_ta->generic_param.name) == 0) {
@@ -2264,6 +2376,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
                 const char *mangled = iron_arena_strdup(ctx->arena,
                     iron_strbuf_get(&sb), sb.len);
+                if (!mangled) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT mangled");
                 iron_strbuf_free(&sb);
 
                 /* Check mono_registry: if this mangled type was already built
@@ -2281,6 +2394,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 /* Create monomorphized type */
                 Iron_Type *mono = iron_arena_alloc(ctx->arena, sizeof(Iron_Type),
                     _Alignof(Iron_Type));
+                if (!mono) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT mono");
                 memset(mono, 0, sizeof(*mono));
                 mono->kind = IRON_TYPE_ENUM;
                 mono->enu.decl = ed;
@@ -2289,9 +2403,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 mono->enu.mangled_name = mangled;
 
                 /* Register in mono_registry before payload resolution (cycle detection). */
-                shput(ctx->mono_registry,
-                      iron_arena_strdup(ctx->arena, mangled, strlen(mangled)),
-                      mono);
+                const char *mono2_key = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
+                if (!mono2_key) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT mono2_key");
+                shput(ctx->mono_registry, mono2_key, mono);
 
                 /* Substitute variant_payload_types:
                  * Bind concrete inferred_args in gen_scope (not GENERIC_PARAMs)
@@ -2299,11 +2413,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Type ***vpt = iron_arena_alloc(ctx->arena,
                     sizeof(Iron_Type **) * (size_t)ed->variant_count,
                     _Alignof(Iron_Type **));
+                if (!vpt) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT vpt");
                 memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
                 Iron_Scope *saved_gen2 = ctx->global_scope;
                 Iron_Scope *gen2 = iron_scope_create(ctx->arena,
                     ctx->global_scope, IRON_SCOPE_BLOCK);
                 for (int gi = 0; gi < ed->generic_param_count; gi++) {
+                    /* PROT-03 unenumerated bonus (AUDIT-01 M-severity sibling
+                     * of rows 16-18): assert kind on ed->generic_params[gi]
+                     * before the Iron_Ident cast at the second gen-scope build
+                     * for variant payload type substitution. */
+                    if (ed->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(ed->generic_params[gi], IRON_NODE_IDENT);
                     Iron_Ident *param = (Iron_Ident *)ed->generic_params[gi];
                     if (param) {
                         Iron_Symbol *gsym = iron_symbol_create(ctx->arena,
@@ -2323,6 +2444,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type **row = iron_arena_alloc(ctx->arena,
                         sizeof(Iron_Type *) * (size_t)vev->payload_count,
                         _Alignof(Iron_Type *));
+                    if (!row) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT vpt row");
                     for (int kk = 0; kk < vev->payload_count; kk++) {
                         /* T is bound to concrete inferred_args[i] in gen2 scope,
                          * so no post-substitution needed. */
@@ -2336,12 +2458,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 /* Compute payload_is_boxed for monomorphized type (path 2) */
                 bool **pib2 = iron_arena_alloc(ctx->arena,
                     sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+                if (!pib2) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT pib2");
                 memset(pib2, 0, sizeof(bool *) * (size_t)ed->variant_count);
                 for (int vj2 = 0; vj2 < ed->variant_count; vj2++) {
                     Iron_EnumVariant *vev2 = (Iron_EnumVariant *)ed->variants[vj2];
                     if (vev2->payload_count == 0) continue;
                     bool *pib2_row = iron_arena_alloc(ctx->arena,
                         sizeof(bool) * (size_t)vev2->payload_count, _Alignof(bool));
+                    if (!pib2_row) iron_oom_abort("typecheck.c:check_expr ENUM_CONSTRUCT pib2 row");
                     memset(pib2_row, 0, sizeof(bool) * (size_t)vev2->payload_count);
                     for (int kk2 = 0; kk2 < vev2->payload_count; kk2++) {
                         if (vpt[vj2] && vpt[vj2][kk2]) {
@@ -2401,6 +2525,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        /* -Wswitch-enum opt-out: check_expr only handles expression node kinds;
+         * statement/declaration kinds reach this arm if an upstream caller
+         * passes them in by mistake and get an IRON_TYPE_ERROR result that
+         * surfaces as a type-mismatch downstream. */
         default:
             result = iron_type_make_primitive(IRON_TYPE_ERROR);
             break;
@@ -2440,7 +2568,7 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
 static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         case IRON_NODE_BLOCK: {
             Iron_Block *b = (Iron_Block *)node;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
@@ -2489,9 +2617,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg),
                              "tuple destructure expects %d binding(s) but found %d",
                              init_type->tuple.elem_count, vd->binding_count);
-                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, vd->span,
-                               iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                               NULL);
+                    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    if (!msg_copy) iron_oom_abort("typecheck.c:check_stmt VAL_DECL tuple-mismatch msg");
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, vd->span, msg_copy, NULL);
                 }
                 /* Bind each name to its element type (skip wildcards). */
                 int defined_count = vd->binding_count < init_type->tuple.elem_count
@@ -2704,7 +2832,15 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     }
                     /* Narrow literal in return (e.g., return 42 in Int32 func) */
                     if (is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
-                        ((Iron_IntLit *)rs->value)->resolved_type = ctx->current_return_type;
+                        /* PROT-04 rewrite (rank 11b, AUDIT-01 post-merge): the
+                         * is_int_literal_narrowing predicate has already confirmed
+                         * rs->value->kind == IRON_NODE_INT_LIT, but leaves no
+                         * structural proof. Assert the invariant explicitly so a
+                         * future predicate bug aborts in Debug rather than
+                         * silently writing to a foreign node layout. */
+                        IRON_NODE_ASSERT_KIND(rs->value, IRON_NODE_INT_LIT);
+                        Iron_IntLit *int_lit = (Iron_IntLit *)rs->value;
+                        int_lit->resolved_type = ctx->current_return_type;
                     }
                 }
             }
@@ -2774,6 +2910,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             else if (is_check_name) {
                 Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, is_check_name);
                 if (type_sym && type_sym->sym_kind == IRON_SYM_TYPE) {
+                    /* PROT-03 row 19 (AUDIT-01 M-severity): is_s->condition is
+                     * already classified as IRON_NODE_IS by classify_is_check
+                     * upstream; the assert documents the invariant and catches
+                     * future predicate drift. */
+                    IRON_NODE_ASSERT_KIND(is_s->condition, IRON_NODE_IS);
                     Iron_IsExpr *ie = (Iron_IsExpr *)is_s->condition;
                     if (ie->expr && ie->expr->kind == IRON_NODE_IDENT) {
                         const char *ident_name = ((Iron_Ident *)ie->expr)->name;
@@ -2845,6 +2986,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (ed && ed->has_payloads) {
                     bool *covered = iron_arena_alloc(ctx->arena,
                         sizeof(bool) * (size_t)ed->variant_count, _Alignof(bool));
+                    if (!covered) iron_oom_abort("typecheck.c:check_stmt MATCH covered payload");
                     memset(covered, 0, sizeof(bool) * (size_t)ed->variant_count);
                     bool has_catch_all = (ms->else_body != NULL);
                     for (int i = 0; i < ms->case_count; i++) {
@@ -2920,18 +3062,30 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                 }
                             }
                             (void)pos;  /* suppress unused-variable warning */
+                            const char *note_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                            if (!note_copy) iron_oom_abort("typecheck.c:check_stmt MATCH else-note");
                             iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE, 0,
-                                           ms->span,
-                                           iron_arena_strdup(ctx->arena, msg, strlen(msg)),
-                                           NULL);
+                                           ms->span, note_copy, NULL);
                         }
                     }
                 } else if (ed) {
                     /* Plain enum (no payloads): check ident/pattern-based variant coverage */
                     int vc = ed->variant_count;
-                    bool covered[256];
-                    if (vc > 256) vc = 256;
-                    for (int i = 0; i < vc; i++) covered[i] = false;
+                    /* FIX-04 / audit row 13 — replace the former fixed-size
+                     * `bool covered[256]` + `if (vc > 256) vc = 256;` silent
+                     * truncation with a dynamically-sized buffer so plain
+                     * enums with more than 256 variants are checked
+                     * correctly instead of having silently-unchecked tail
+                     * variants report spurious non-exhaustive match errors.
+                     * calloc + iron_oom_abort follows the FIX-01 Phase 67-02
+                     * pattern so OOM aborts are reportable via stderr grep.
+                     * vc is bounded by int so the cast to size_t is safe;
+                     * the max(1, vc) guard keeps calloc(0) well-defined. */
+                    size_t covered_n = (size_t)(vc > 0 ? vc : 1);
+                    bool *covered = (bool *)calloc(covered_n, sizeof(bool));
+                    if (!covered) {
+                        iron_oom_abort("typecheck.c match-exhaustiveness covered[]");
+                    }
 
                     for (int ci = 0; ci < ms->case_count; ci++) {
                         if (!ms->cases[ci]) continue;
@@ -3006,6 +3160,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                        "add the missing variants or an else clause");
                         }
                     }
+                    /* FIX-04 row 13 — release the dynamic covered[] buffer. */
+                    free(covered);
                 }
             } else if (!ms->else_body) {
                 /* Non-enum subject without else clause */
@@ -3059,15 +3215,28 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (ss->handle_name) {
                 /* Walk the spawn body to find IRON_NODE_RETURN and use its expr type */
                 Iron_Type *body_ret = iron_type_make_primitive(IRON_TYPE_INT);
-                Iron_Block *blk = (Iron_Block *)ss->body;
+                /* PROT-03 row 20 (AUDIT-01 M-severity): ss->body is normally an
+                 * IRON_NODE_BLOCK but error-recovery paths can leave it as a
+                 * non-block expression form; guard before the cast and assert
+                 * the kind so a wrong-kind shape aborts in Debug. */
+                Iron_Block *blk = NULL;
+                if (ss->body && ss->body->kind == IRON_NODE_BLOCK) {
+                    IRON_NODE_ASSERT_KIND(ss->body, IRON_NODE_BLOCK);
+                    blk = (Iron_Block *)ss->body;
+                }
                 if (blk) {
                     for (int i = 0; i < blk->stmt_count; i++) {
                         if (blk->stmts[i]->kind == IRON_NODE_RETURN) {
                             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)blk->stmts[i];
                             if (rs->value) {
-                                /* All expr nodes share the layout:
-                                 * { span, kind, resolved_type, ... } */
-                                Iron_IntLit *expr_node = (Iron_IntLit *)rs->value;
+                                /* PROT-04 rewrite (rank 11a, AUDIT-01): rs->value
+                                 * is a generic expression node (any kind). The
+                                 * previous code aliased Iron_IntLit solely to read
+                                 * resolved_type at the common prefix offset. Use
+                                 * Iron_ExprNode from ast.h (layout-locked by
+                                 * PROT-01 _Static_asserts) for type-safe prefix
+                                 * access. */
+                                Iron_ExprNode *expr_node = (Iron_ExprNode *)rs->value;
                                 if (expr_node->resolved_type) {
                                     body_ret = expr_node->resolved_type;
                                 }
@@ -3088,6 +3257,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        /* -Wswitch-enum opt-out: check_stmt handles every statement kind
+         * explicitly; any remaining Iron_NodeKind (expression kinds, helpers
+         * like PARAM / FIELD / TYPE_ANNOTATION) is treated as an expression-
+         * used-as-statement and routed through check_expr. */
         default:
             /* Expression used as statement */
             check_expr(ctx, node);
@@ -3119,6 +3292,7 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)fd->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
+        if (!param_types) iron_oom_abort("typecheck.c:check_func_decl param_types");
     }
     for (int i = 0; i < fd->param_count; i++) {
         Iron_Param *p = (Iron_Param *)fd->params[i];
@@ -3179,6 +3353,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)md->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
+        if (!param_types) iron_oom_abort("typecheck.c:check_method_decl param_types");
     }
     for (int i = 0; i < md->param_count; i++) {
         Iron_Param *p = (Iron_Param *)md->params[i];
@@ -3230,6 +3405,13 @@ static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
             Iron_Symbol *iface_sym = iron_scope_lookup(ctx->global_scope, iface_name);
             if (!iface_sym || iface_sym->sym_kind != IRON_SYM_INTERFACE) continue;
 
+            /* PROT-03 row 21 (AUDIT-01 M-severity): iface_sym->decl_node may
+             * be NULL or a non-INTERFACE_DECL in error-recovery paths; guard
+             * then assert kind before the cast so any wrong-kind decl_node
+             * aborts in Debug instead of misreading the interface's vtable. */
+            if (!iface_sym->decl_node ||
+                iface_sym->decl_node->kind != IRON_NODE_INTERFACE_DECL) continue;
+            IRON_NODE_ASSERT_KIND(iface_sym->decl_node, IRON_NODE_INTERFACE_DECL);
             Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)iface_sym->decl_node;
             if (!iface) continue;
 
@@ -3335,11 +3517,13 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         /* Allocate outer array of Iron_Type** pointers */
         Iron_Type ***vpt = iron_arena_alloc(ctx.arena,
             sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));
+        if (!vpt) iron_oom_abort("typecheck.c:iron_typecheck enum vpt");
         memset(vpt, 0, sizeof(Iron_Type **) * (size_t)ed->variant_count);
         ty->enu.variant_payload_types = vpt;
         /* Allocate payload_is_boxed parallel structure on the type */
         bool **pib_ty = iron_arena_alloc(ctx.arena,
             sizeof(bool *) * (size_t)ed->variant_count, _Alignof(bool *));
+        if (!pib_ty) iron_oom_abort("typecheck.c:iron_typecheck enum pib_ty");
         memset(pib_ty, 0, sizeof(bool *) * (size_t)ed->variant_count);
         ty->enu.payload_is_boxed = pib_ty;
         for (int j = 0; j < ed->variant_count; j++) {
@@ -3350,12 +3534,15 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             }
             Iron_Type **row = iron_arena_alloc(ctx.arena,
                 sizeof(Iron_Type *) * (size_t)ev->payload_count, _Alignof(Iron_Type *));
+            if (!row) iron_oom_abort("typecheck.c:iron_typecheck enum vpt row");
             /* Allocate boxing flags for this variant */
             ev->payload_is_boxed = iron_arena_alloc(ctx.arena,
                 sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            if (!ev->payload_is_boxed) iron_oom_abort("typecheck.c:iron_typecheck enum ev payload_is_boxed");
             memset(ev->payload_is_boxed, 0, sizeof(bool) * (size_t)ev->payload_count);
             bool *pib_row = iron_arena_alloc(ctx.arena,
                 sizeof(bool) * (size_t)ev->payload_count, _Alignof(bool));
+            if (!pib_row) iron_oom_abort("typecheck.c:iron_typecheck enum pib_row");
             memset(pib_row, 0, sizeof(bool) * (size_t)ev->payload_count);
             for (int k = 0; k < ev->payload_count; k++) {
                 row[k] = resolve_type_annotation(&ctx, ev->payload_type_anns[k]);
@@ -3385,6 +3572,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 param_types = (Iron_Type **)iron_arena_alloc(
                     ctx.arena, (size_t)fd->param_count * sizeof(Iron_Type *),
                     _Alignof(Iron_Type *));
+                if (!param_types) iron_oom_abort("typecheck.c:iron_typecheck FUNC_DECL param_types");
                 for (int j = 0; j < fd->param_count; j++) {
                     Iron_Param *p = (Iron_Param *)fd->params[j];
                     param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
@@ -3414,6 +3602,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     param_types = (Iron_Type **)iron_arena_alloc(
                         ctx.arena, (size_t)pc * sizeof(Iron_Type *),
                         _Alignof(Iron_Type *));
+                    if (!param_types) iron_oom_abort("typecheck.c:iron_typecheck METHOD_DECL param_types");
                     for (int j = 0; j < pc; j++) {
                         Iron_Param *p = (Iron_Param *)md->params[j];
                         param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
@@ -3441,4 +3630,17 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
 
     shfree(ctx.narrowed);
     shfree(ctx.spawn_result_types);
+    /* FIX-03 / AUDIT-04 §2: explicit shfree of the mono_registry stb_ds
+     * string-keyed hashmap. Pre-Phase-67 the registry was shput-filled in
+     * resolve_type_annotation (lines ~737, ~2408) but never freed — every
+     * compilation unit leaked the map plus all strdup'd mangled-name keys
+     * (sh_new_strdup was called at line ~3471 above). The map's VALUES are
+     * arena-allocated Iron_Type*, which the parser arena reclaims later,
+     * but the stb_ds backing buffer and the strdup'd keys are heap, and
+     * they outlived every consumer in the pre-67-07 codebase. This shfree
+     * closes that leak; paired with narrowed/spawn_result_types above it
+     * now runs immediately after every consumer of mono_registry has
+     * completed (check_func_decl / check_method_decl / check_interface_
+     * completeness are the only readers per grep at 715/2386). */
+    shfree(ctx.mono_registry);
 }

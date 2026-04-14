@@ -25,7 +25,7 @@ static void print_indent(PrintCtx *ctx) {
 
 /* Operator token kind → string */
 static const char *op_str(Iron_OpKind op) {
-    switch ((Iron_TokenKind)op) {
+    switch ((int)op) {
         case IRON_TOK_PLUS:          return "+";
         case IRON_TOK_MINUS:         return "-";
         case IRON_TOK_STAR:          return "*";
@@ -44,6 +44,22 @@ static const char *op_str(Iron_OpKind op) {
         case IRON_TOK_MINUS_ASSIGN:  return "-=";
         case IRON_TOK_STAR_ASSIGN:   return "*=";
         case IRON_TOK_SLASH_ASSIGN:  return "/=";
+        /* Bitwise operators (AUDIT-02 #1 fix — previously silently mapped to "?") */
+        case IRON_TOK_AMP:           return "&";
+        case IRON_TOK_PIPE:          return "|";
+        case IRON_TOK_CARET:         return "^";
+        case IRON_TOK_TILDE:         return "~";
+        case IRON_TOK_SHL:           return "<<";
+        case IRON_TOK_SHR:           return ">>";
+        case IRON_TOK_SHL_ASSIGN:    return "<<=";
+        case IRON_TOK_SHR_ASSIGN:    return ">>=";
+        case IRON_TOK_AMP_ASSIGN:    return "&=";
+        case IRON_TOK_PIPE_ASSIGN:   return "|=";
+        case IRON_TOK_CARET_ASSIGN:  return "^=";
+        /* -Wswitch-enum opt-out: op_str is operator-only; the ~60 non-operator
+         * Iron_TokenKind values (literals, keywords, punctuation, errors)
+         * are not valid Iron_OpKind values and intentionally fall through to
+         * "?" so malformed AST round-trips print something rather than crash. */
         default:                     return "?";
     }
 }
@@ -745,11 +761,10 @@ char *iron_print_ast(Iron_Node *root, Iron_Arena *arena) {
     const char *result = iron_strbuf_get(&sb);
     size_t      len    = sb.len;
     char       *out    = (char *)iron_arena_alloc(arena, len + 1, 1);
-    if (out) {
-        memcpy(out, result, len + 1);
-    }
+    if (!out) iron_oom_abort("printer.c:iron_print_ast");
+    memcpy(out, result, len + 1);
     iron_strbuf_free(&sb);
-    return out ? out : (char *)"";
+    return out;
 }
 
 void iron_print_ast_to_file(Iron_Node *root, FILE *out) {

@@ -1,0 +1,45 @@
+-- Regression: emit_c.c RC_ALLOC malloc without NULL check (FIX-01 rank 4).
+--
+-- **Motivating Incident.** Phase 65 CORRECTNESS-AUDIT.md §3 row 4 and §6 row
+-- 2 flagged src/lir/emit_c.c:3179-3192 (the IRON_LIR_RC_ALLOC codegen case)
+-- as the same pattern as rank 3 but for the `rc` keyword's reference-counted
+-- allocation path. Every Iron program that used `rc` had ironc emit a bare
+-- `T *_vN = malloc(sizeof(T)); *_vN = val;` sequence with zero NULL check,
+-- so every `rc`-using binary was one OOM away from silent SIGSEGV. The
+-- blast radius mirrors rank 3 — it covers every reference-counted object
+-- construction the compiler emits.
+--
+-- **Layout Diagram.** Pre-fix (emit_c.c:3179 case body):
+--     %s *_vN = (%s *)malloc(sizeof(%s));    <- line 3192
+--     *_vN    = inner_val;                    <- line 3198, may deref NULL
+--
+-- Post-fix:
+--     %s *_vN = (%s *)malloc(sizeof(%s));
+--     if (!_vN) iron_oom_abort("emit_c RC_ALLOC");
+--     *_vN    = inner_val;
+--
+-- Identical guard pattern to rank 3 except for the stderr location literal
+-- ("emit_c RC_ALLOC" vs "emit_c HEAP_ALLOC"), so a stderr grep after any
+-- OOM abort can immediately distinguish which allocation path failed.
+--
+-- **Fix Summary.** src/lir/emit_c.c IRON_LIR_RC_ALLOC case rewritten to
+-- emit a 3-line `if (!_vN) iron_oom_abort(...);` guard between the malloc
+-- call and the `*_vN =` dereference. Covers FIX-01 rank 4 from the Phase 65
+-- audit. Phase 67-02 Task 3. This fixture verifies the guard is present in
+-- the generated C and that a normal non-OOM `rc Config(5, 3000)` still
+-- compiles and runs correctly.
+--
+-- **Severity.** H — same blast radius as rank 3 but scoped to `rc`-using
+-- programs; pre-fix silent SIGSEGV on OOM, post-fix bisectable stderr
+-- diagnostic naming the exact allocation arm.
+
+object Config {
+  var max_retries: Int
+  var timeout_ms: Int
+}
+
+func main() {
+  val cfg = rc Config(5, 3000)
+  println("retries: {cfg.max_retries}")
+  println("timeout: {cfg.timeout_ms}")
+}

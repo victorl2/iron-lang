@@ -1,0 +1,65 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_EXPR_METHOD_CALL.
+--
+-- # KNOWN GAP: super.method() dispatch lands in a future phase (super
+--              wiring). Iron v0.1.4-alpha parses the `super` keyword
+--              but typecheck does not wire method-on-parent-type
+--              lookup (see Phase 66-03 PROT-04 rewrites where the
+--              super handler in resolve.c had to blind-cast to
+--              Iron_ObjectDecl). This canary exercises direct
+--              instance-method dispatch on an object without
+--              inheritance, which is the subset supported today.
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node
+-- walker crashed on if/elif/else lowering because of a locally-
+-- shadowed struct typedef. Method-call dispatch is especially risky
+-- because it carries a receiver expression plus an argument list,
+-- and the HIR walker must recurse into both -- plus the method name
+-- resolves at lower_expr time via the object's resolved type. Walker
+-- cases that handle METHOD_CALL but mis-recurse into the receiver or
+-- arg list silently drop sub-expressions from the lowered LIR.
+-- Phase 66 added PROT-04 blind-cast fixes for method-call sites
+-- (see tests/integration/bug_audit_heap_method_call.iron) and
+-- -Werror=switch-enum; this canary is the per-node-kind regression
+-- net for the METHOD_CALL dispatch path.
+--
+-- **Layout Diagram.** Iron_MethodCallExpr carries
+--   { span, kind, receiver, method_name, args[], arg_count,
+--     resolved_target, resolved_type }
+-- Walker cases that fail to recurse into `receiver` drop the
+-- callee's object; cases that skip args[] drop method parameters;
+-- cases that ignore resolved_target mis-dispatch at codegen time.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Exercises instance-method dispatch on an extends-less
+-- object (the subset supported today). super.method() is documented
+-- as a KNOWN GAP in the header above and tracked for a future phase.
+-- CI integration: runs in both Debug and Release via Phase 66-04's
+-- build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- method calls are the
+-- dominant expression form in object-oriented Iron code, so any
+-- walker regression would produce silently wrong output on every
+-- typical program.
+
+object Counter {
+  var value: Int
+}
+
+func Counter.bump() -> Int {
+  return self.value + 1
+}
+
+func Counter.triple() -> Int {
+  return self.value * 3
+}
+
+func Counter.add(x: Int) -> Int {
+  return self.value + x
+}
+
+func main() {
+  val c = Counter(10)
+  println("bump: {c.bump()}")      -- 11
+  println("triple: {c.triple()}")  -- 30
+  println("add: {c.add(7)}")       -- 17
+}

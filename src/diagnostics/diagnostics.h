@@ -190,4 +190,57 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_WEB_NESTED_MAIN_LOOP          702
 #define IRON_ERR_WEB_MAIN_LOOP_WRONG_FUNCTION  703
 
+/* ── Internal compiler error (ICE) helper (PROT-03) ──────────────────────────
+ * iron_ice is the canonical abort path for compiler-internal invariants that
+ * should never be reachable in a correct build. It prints a formatted message
+ * prefixed with "iron: internal compiler error: " to stderr and calls abort().
+ *
+ * Use iron_ice when:
+ *   - An AST node is the wrong kind after a sym_kind check that should have
+ *     guaranteed the correct kind (PROT-03 kind-assert failure path).
+ *   - A switch over an Iron_*Kind hits a case the compiler thought was
+ *     unreachable.
+ *   - An invariant that the type system should have enforced is violated at
+ *     runtime.
+ *
+ * Do NOT use iron_ice for user-facing errors — those go through iron_diag_emit
+ * with the Iron_DiagList surface. iron_ice is compiler-bug territory only.
+ *
+ * The function is declared noreturn. It takes a printf-style format string.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn, format(printf, 1, 2)))
+#endif
+void iron_ice(const char *fmt, ...);
+
+/* ── Out-of-memory abort helper (FIX-01, Phase 67) ──────────────────────────
+ * iron_oom_abort is the canonical abort path for unrecoverable OOM in
+ * contexts that have no error channel: runtime macros (IRON_LIST/MAP/SET),
+ * generated C code from emit_c.c (HEAP_ALLOC / RC_ALLOC / closure env /
+ * parallel-for ctx / boxed ADT), and compiler-internal allocation paths
+ * where malloc failure is treated as fatal.
+ *
+ * Prints "iron: out of memory at <where>\n" to stderr, flushes, and aborts.
+ * The `where` string should be a compile-time literal identifying the call
+ * site — typically a file:line or function name — so OOM aborts are
+ * bisectable from a stderr grep without attaching a debugger.
+ *
+ * Distinct from iron_ice: iron_ice reports internal compiler errors
+ * (unreachable code paths / invariant violations); iron_oom_abort reports
+ * a legitimate runtime failure that the codebase has no recovery channel
+ * for. Keep the two distinct so downstream telemetry can tell them apart.
+ *
+ * The function is declared noreturn. Callers do NOT need `break;` or a
+ * dummy return value after calling it.
+ *
+ * Definition lives in src/runtime/iron_oom.c (linked into iron_runtime
+ * static library so every generated user binary and every runtime unit
+ * test gets the symbol without pulling in iron_compiler's parser/ast
+ * transitive dependencies).
+ */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_oom_abort(const char *where);
+
 #endif /* IRON_DIAGNOSTICS_H */

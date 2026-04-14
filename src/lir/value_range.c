@@ -217,7 +217,7 @@ static void narrow_from_comparison(IronLIR_InstrKind cmp_kind,
         existing.is_top = false;
     }
 
-    switch (cmp_kind) {
+    switch ((int)(cmp_kind)) {
     case IRON_LIR_LT:
         /* x < C: true -> [min, C-1], false -> [C, max] */
         *true_range = (ValueRange){ .min = existing.min,
@@ -264,6 +264,9 @@ static void narrow_from_comparison(IronLIR_InstrKind cmp_kind,
         *true_range = existing;
         *false_range = range_const(const_val);
         break;
+    /* -Wswitch-enum opt-out: narrowing analyzer only recognizes comparison
+     * opcodes; every other LIR opcode is ignored and the true/false ranges
+     * default to TOP (no information). */
     default:
         *true_range = RANGE_TOP;
         *false_range = RANGE_TOP;
@@ -331,11 +334,14 @@ static void detect_branch_narrowing(IronLIR_Block *blk, IronLIR_Func *fn,
         var_vid = right_vid;
         const_val = left_instr->const_int.value;
         /* Flip: LT <-> GT, LTE <-> GTE */
-        switch (cond_instr->kind) {
+        switch ((int)(cond_instr->kind)) {
         case IRON_LIR_LT:  effective_cmp = IRON_LIR_GT;  break;
         case IRON_LIR_LTE: effective_cmp = IRON_LIR_GTE; break;
         case IRON_LIR_GT:  effective_cmp = IRON_LIR_LT;  break;
         case IRON_LIR_GTE: effective_cmp = IRON_LIR_LTE; break;
+        /* -Wswitch-enum opt-out: only directional comparisons flip; EQ and
+         * NEQ are symmetric so they keep their original opcode (default
+         * no-op). */
         default: break;
         }
         found_pair = true;
@@ -400,7 +406,7 @@ static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *modul
 
                 ValueRange range = RANGE_TOP;
 
-                switch (instr->kind) {
+                switch ((int)(instr->kind)) {
                 case IRON_LIR_CONST_INT:
                     range = range_const(instr->const_int.value);
                     break;
@@ -459,6 +465,9 @@ static void collect_return_ranges(ValueRangeAnalysis *vra, IronLIR_Module *modul
                     break;
                 }
 
+                /* -Wswitch-enum opt-out: range collector computes tight
+                 * intervals for CONST_INT and arithmetic opcodes; every
+                 * other LIR opcode defaults to RANGE_TOP (unknown). */
                 default:
                     range = RANGE_TOP;
                     break;
@@ -548,7 +557,7 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
 
             ValueRange range = RANGE_TOP;
 
-            switch (instr->kind) {
+            switch ((int)(instr->kind)) {
             case IRON_LIR_CONST_INT:
                 range = range_const(instr->const_int.value);
                 break;
@@ -625,6 +634,10 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
                 break;
             }
 
+            /* -Wswitch-enum opt-out: range propagator handles additive /
+             * multiplicative / constant opcodes; every other LIR opcode
+             * (DIV, MOD, comparisons, memory ops, terminators, etc.)
+             * conservatively produces RANGE_TOP. */
             default:
                 /* DIV, MOD, comparisons, etc. -> TOP (conservative) */
                 range = RANGE_TOP;
@@ -677,6 +690,7 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
                 } else {
                     const char *key_str = iron_arena_strdup(vra->arena,
                         key_buf, strlen(key_buf));
+                    if (!key_str) iron_oom_abort("value_range.c:analyze_function_ranges set_field_key");
                     shput(vra->field_ranges, key_str, val_range);
                 }
             }
@@ -709,6 +723,7 @@ static void analyze_function_ranges(ValueRangeAnalysis *vra, IronLIR_Func *fn) {
                     } else {
                         const char *key_str = iron_arena_strdup(vra->arena,
                             key_buf, strlen(key_buf));
+                        if (!key_str) iron_oom_abort("value_range.c:analyze_function_ranges construct_key");
                         shput(vra->field_ranges, key_str, val_range);
                     }
                 }

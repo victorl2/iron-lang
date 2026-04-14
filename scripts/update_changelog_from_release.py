@@ -40,6 +40,13 @@ CMAKE_PATH = REPO_ROOT / "CMakeLists.txt"
 
 TAG_RE = re.compile(r"^v?(\d+\.\d+\.\d+)(-[A-Za-z0-9.+-]+)?$")
 
+# Canonical release-tag scheme per docs/versioning.md (VER-01). The public
+# scheme wins: MAJOR starts at 1, three numeric segments, optional -alpha
+# suffix (dropped once a stable v1.x.y ships). This is stricter than TAG_RE
+# above — TAG_RE still parses legacy internal tags for backwards compat in
+# the parse_tag helper; _validate_tag_format below is the enforcement gate.
+_CANONICAL_TAG_REGEX = re.compile(r"^v[1-9][0-9]*\.[0-9]+\.[0-9]+(-alpha)?$")
+
 # Matches: project(iron VERSION X.Y.Z[.W] LANGUAGES C)
 CMAKE_PROJECT_RE = re.compile(
     r"^(project\(\s*iron\s+VERSION\s+)(\d+\.\d+\.\d+(?:\.\d+)?)(\b[^)]*\))",
@@ -68,6 +75,26 @@ def parse_tag(tag: str) -> tuple[str, str]:
     numeric = m.group(1)
     suffix = m.group(2) or ""
     return numeric, numeric + suffix
+
+
+def _validate_tag_format(tag: str) -> None:
+    """Enforce the canonical release-tag scheme from docs/versioning.md.
+
+    Called as the first action in main() before parse_tag() and before
+    fetch_release(), so the rejection path works offline and without a
+    configured gh CLI. Raises SystemExit(1) on mismatch; returns None on
+    success.
+
+    >>> _validate_tag_format("v1.4.0-alpha")
+    >>> _validate_tag_format("v2.0.0")
+    """
+    if _CANONICAL_TAG_REGEX.match(tag.strip()) is None:
+        raise SystemExit(
+            f"ERROR: release tag {tag!r} does not match canonical scheme "
+            f"'{_CANONICAL_TAG_REGEX.pattern}'. "
+            f"See docs/versioning.md for the canonical version scheme. "
+            f"Reject this release or delete the tag and re-tag with the correct format."
+        )
 
 
 def fetch_release(tag: str, repo: str | None) -> dict:
@@ -202,6 +229,7 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true", help="Print diff instead of writing")
     args = p.parse_args()
 
+    _validate_tag_format(args.tag)
     numeric, display_full = parse_tag(args.tag)
     release = fetch_release(args.tag, args.repo)
 

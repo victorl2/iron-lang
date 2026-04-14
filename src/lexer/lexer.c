@@ -250,7 +250,7 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
     size_t  buf_cap  = 256;
     size_t  buf_len  = 0;
     char   *buf      = (char *)iron_arena_alloc(l->arena, buf_cap, 1);
-    if (!buf) buf_cap = 0;
+    if (!buf) iron_oom_abort("lexer.c:iron_lex_string scratch");
 
     int has_interp = 0;
 
@@ -263,16 +263,7 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
      * the waste for now. */
     buf_len = 0;
     buf     = (char *)iron_arena_alloc(l->arena, 4096, 1);
-    if (!buf) {
-        /* OOM — return an error token. */
-        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
-                                        l->line, l->col);
-        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_UNTERMINATED_STRING, span,
-                       "out of memory", NULL);
-        return iron_make_token(l, IRON_TOK_ERROR, NULL,
-                               start_line, start_col, 0);
-    }
+    if (!buf) iron_oom_abort("lexer.c:iron_lex_string 4K scratch");
     size_t buf_max = 4096;
 
 #define PUSH_CHAR(ch) do { \
@@ -361,6 +352,7 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
     buf[buf_len] = '\0';
     /* Copy final string into arena (fresh minimal allocation). */
     const char *value = iron_arena_strdup(l->arena, buf, buf_len);
+    if (!value) iron_oom_abort("lexer.c:iron_lex_string value");
     uint32_t tok_len = (uint32_t)(l->pos - start_pos);
     Iron_TokenKind kind = has_interp ? IRON_TOK_INTERP_STRING : IRON_TOK_STRING;
     return iron_make_token(l, kind, value, start_line, start_col, tok_len);
@@ -422,6 +414,7 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             char decbuf[32];
             snprintf(decbuf, sizeof(decbuf), "%lld", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
+            if (!value) iron_oom_abort("lexer.c:iron_lex_number hex value");
             uint32_t tok_len = (uint32_t)(l->pos - start_pos);
             return iron_make_token(l, IRON_TOK_INTEGER, value,
                                    start_line, start_col, tok_len);
@@ -468,6 +461,7 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             char decbuf[32];
             snprintf(decbuf, sizeof(decbuf), "%lld", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
+            if (!value) iron_oom_abort("lexer.c:iron_lex_number binary value");
             uint32_t tok_len = (uint32_t)(l->pos - start_pos);
             return iron_make_token(l, IRON_TOK_INTEGER, value,
                                    start_line, start_col, tok_len);
@@ -508,6 +502,7 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
     }
 
     const char *value = iron_arena_strdup(l->arena, l->src + start_pos, tok_len);
+    if (!value) iron_oom_abort("lexer.c:iron_lex_number value");
     Iron_TokenKind kind = is_float ? IRON_TOK_FLOAT : IRON_TOK_INTEGER;
     return iron_make_token(l, kind, value, start_line, start_col, tok_len);
 }
@@ -530,6 +525,7 @@ static Iron_Token iron_lex_identifier(Iron_Lexer *l) {
 
     uint32_t tok_len = (uint32_t)(l->pos - start_pos);
     const char *text = iron_arena_strdup(l->arena, l->src + start_pos, tok_len);
+    if (!text) iron_oom_abort("lexer.c:iron_lex_identifier text");
 
     if (tok_len == 1 && text[0] == '_') {
         return iron_make_token(l, IRON_TOK_WILDCARD, text, start_line, start_col, tok_len);
@@ -630,6 +626,7 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 char msg[64];
                 snprintf(msg, sizeof(msg), "invalid character '!'");
                 const char *arena_msg = iron_arena_strdup(l->arena, msg, strlen(msg));
+                if (!arena_msg) iron_oom_abort("lexer.c:iron_lex_punctuation bang msg");
                 Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                                  start_line, start_col + 1);
                 iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
@@ -760,6 +757,7 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 snprintf(msg, sizeof(msg), "invalid character (0x%02x)", (unsigned char)c);
             }
             const char *arena_msg = iron_arena_strdup(l->arena, msg, strlen(msg));
+            if (!arena_msg) iron_oom_abort("lexer.c:iron_lex_punctuation invalid char msg");
             Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                              start_line, start_col + 1);
             iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,

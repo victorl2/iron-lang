@@ -349,7 +349,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **rt_strbuf_out, char **rt_string_out,
                            char **rt_rc_out, char **rt_builtin_out,
                            char **rt_threads_out, char **rt_collect_out,
-                           char **rt_netinit_out,
+                           char **rt_netinit_out, char **rt_oom_out,
                            char **sl_math_out, char **sl_io_out,
                            char **sl_time_out, char **sl_log_out,
                            char **sl_hint_out,
@@ -393,6 +393,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *rt_threads_out = make_path(base_dir, "runtime/iron_threads.c");
     *rt_collect_out = make_path(base_dir, "runtime/iron_collections.c");
     *rt_netinit_out = make_path(base_dir, "runtime/iron_net_init.c");
+    *rt_oom_out     = make_path(base_dir, "runtime/iron_oom.c");
     *sl_math_out    = make_path(base_dir, "stdlib/iron_math.c");
     *sl_io_out      = make_path(base_dir, "stdlib/iron_io.c");
     *sl_time_out    = make_path(base_dir, "stdlib/iron_time.c");
@@ -402,7 +403,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
-        !*rt_netinit_out ||
+        !*rt_netinit_out || !*rt_oom_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out) {
         return 1;
@@ -444,6 +445,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_threads_out;
     argv_buf[ai++] = *rt_collect_out;
     argv_buf[ai++] = *rt_netinit_out;
+    argv_buf[ai++] = *rt_oom_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -487,6 +489,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_threads_out;
     argv_buf[ai++] = *rt_collect_out;
     argv_buf[ai++] = *rt_netinit_out;
+    argv_buf[ai++] = *rt_oom_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -536,7 +539,7 @@ static void free_src_list(char *base_dir,
                            char *rt_stb, char *rt_arena, char *rt_strbuf,
                            char *rt_string, char *rt_rc, char *rt_builtin,
                            char *rt_threads, char *rt_collect,
-                           char *rt_netinit,
+                           char *rt_netinit, char *rt_oom,
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *sl_hint, char *sl_net,
                            char *rl_src, char *rl_i_flag,
@@ -546,7 +549,7 @@ static void free_src_list(char *base_dir,
     free(rt_stb); free(rt_arena); free(rt_strbuf);
     free(rt_string); free(rt_rc); free(rt_builtin);
     free(rt_threads); free(rt_collect);
-    free(rt_netinit);
+    free(rt_netinit); free(rt_oom);
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(sl_hint);
     free(sl_net);
@@ -563,6 +566,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rt_stb = NULL, *rt_arena = NULL, *rt_strbuf = NULL;
     char *rt_string = NULL, *rt_rc = NULL, *rt_builtin = NULL;
     char *rt_threads = NULL, *rt_collect = NULL, *rt_netinit = NULL;
+    char *rt_oom = NULL;
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *sl_hint = NULL, *sl_net = NULL;
     char *rl_src = NULL, *rl_i_flag = NULL;
@@ -577,7 +581,7 @@ static int invoke_clang(const char *c_file, const char *output,
                        &src_i_flag, &vendor_i_flag, &stdlib_i_flag,
                        &rt_stb, &rt_arena, &rt_strbuf,
                        &rt_string, &rt_rc, &rt_builtin,
-                       &rt_threads, &rt_collect, &rt_netinit,
+                       &rt_threads, &rt_collect, &rt_netinit, &rt_oom,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        &sl_hint, &sl_net,
                        opts, &rl_src, &rl_i_flag,
@@ -585,7 +589,7 @@ static int invoke_clang(const char *c_file, const char *output,
         free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                       rt_stb, rt_arena, rt_strbuf,
                       rt_string, rt_rc, rt_builtin,
-                      rt_threads, rt_collect, rt_netinit,
+                      rt_threads, rt_collect, rt_netinit, rt_oom,
                       sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                       rl_src, rl_i_flag,
                       rl_glfw_src, rl_glfw_i_flag);
@@ -617,7 +621,7 @@ static int invoke_clang(const char *c_file, const char *output,
     free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
-                  rt_threads, rt_collect, rt_netinit,
+                  rt_threads, rt_collect, rt_netinit, rt_oom,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   rl_src, rl_i_flag,
                   rl_glfw_src, rl_glfw_i_flag);
@@ -723,7 +727,7 @@ static int invoke_clang(const char *c_file, const char *output,
     free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
-                  rt_threads, rt_collect, rt_netinit,
+                  rt_threads, rt_collect, rt_netinit, rt_oom,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   rl_src, rl_i_flag,
                   rl_glfw_src, rl_glfw_i_flag);

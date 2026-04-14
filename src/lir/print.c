@@ -548,8 +548,8 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
-    default:
-        assert(false && "unhandled IronLIR_InstrKind in printer");
+    case IRON_LIR_INSTR_COUNT:
+        /* sentinel — never a real instruction kind */
         break;
     }
 }
@@ -618,6 +618,9 @@ char *iron_lir_print(const IronLIR_Module *module, bool show_annotations) {
         case IRON_LIR_TYPE_OBJECT:    kind_str = "type";      break;
         case IRON_LIR_TYPE_ENUM:      kind_str = "type";      break;
         case IRON_LIR_TYPE_INTERFACE: kind_str = "interface"; break;
+        /* -Wswitch-enum opt-out: IronLIR_TypeDeclKind currently has only
+         * OBJECT / ENUM / INTERFACE; any future kind maps to the generic
+         * "type" label. */
         default:                     kind_str = "type";      break;
         }
         iron_strbuf_appendf(&sb, "%s @%s = ", kind_str, td->name);

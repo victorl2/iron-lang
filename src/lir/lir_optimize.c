@@ -63,6 +63,7 @@ static void insert_store_before_terminator_instr(IronLIR_Block *block,
 static IronLIR_Instr *make_alloca_instr(IronLIR_Func *fn, Iron_Type *alloc_type,
                                         Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_alloca_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind             = IRON_LIR_ALLOCA;
     instr->type             = alloc_type;  /* alloca result "type" for load */
@@ -83,6 +84,7 @@ static IronLIR_Instr *make_alloca_instr(IronLIR_Func *fn, Iron_Type *alloc_type,
 static IronLIR_Instr *make_store_instr(IronLIR_Func *fn, IronLIR_ValueId ptr,
                                        IronLIR_ValueId value, Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_store_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind        = IRON_LIR_STORE;
     instr->span        = span;
@@ -184,6 +186,24 @@ static void phi_eliminate(IronLIR_Module *module) {
             }
 
             /* 3. Replace phi with a LOAD from the alloca */
+            /* PROT-03 rows 31 + 32 (AUDIT-01 M-severity): phi-to-load
+             * in-place rewrite. The previous IRON_LIR_PHI payload at
+             * phi->phi (24 bytes: two stb_ds pointers + count) is
+             * overwritten with the IRON_LIR_LOAD payload at phi->load
+             * (one ValueId). Both payloads share the same union slot in
+             * struct IronLIR_Instr (src/lir/lir.h), so the rewrite is
+             * structurally safe — the union grows to whichever variant
+             * is largest, and load is strictly smaller than phi. The
+             * _Static_assert below makes the union-fit invariant
+             * grep-visible. If a future change adds a larger variant to
+             * IronLIR_Instr's union AND shrinks phi to less than load,
+             * this rewrite would silently overflow into adjacent fields
+             * — the assert would still fire because it pins the
+             * load-size <= phi-size relationship explicitly. */
+            _Static_assert(sizeof(((IronLIR_Instr *)0)->load) <=
+                           sizeof(((IronLIR_Instr *)0)->phi),
+                           "phi-to-load in-place rewrite requires "
+                           "sizeof(load) <= sizeof(phi)");
             phi->kind     = IRON_LIR_LOAD;
             phi->load.ptr = alloca_id;
             /* phi->id and phi->type remain the same — the load produces the
@@ -205,6 +225,7 @@ static const char *make_param_mode_key(const char *func_name, int param_index,
     size_t idx_len = strlen(buf);
     size_t total = fn_len + 1 + idx_len + 1;
     char *key = (char *)iron_arena_alloc(arena, total, 1);
+    if (!key) iron_oom_abort("lir_optimize.c:make_param_mode_key");
     memcpy(key, func_name, fn_len);
     key[fn_len] = '\t';
     memcpy(key + fn_len + 1, buf, idx_len + 1);
@@ -298,7 +319,7 @@ static void analyze_array_param_modes(IronLIR_Module *module,
                     for (int ii = 0; ii < block->instr_count && !disqualified; ii++) {
                         IronLIR_Instr *instr = block->instrs[ii];
 
-                        switch (instr->kind) {
+                        switch ((int)(instr->kind)) {
                         case IRON_LIR_GET_INDEX:
                             break;
                         case IRON_LIR_SET_INDEX:
@@ -374,6 +395,10 @@ static void analyze_array_param_modes(IronLIR_Module *module,
                             if (hmgeti(aliases, instr->slice.array) >= 0)
                                 disqualified = true;
                             break;
+                        /* -Wswitch-enum opt-out: array-param-mode scanner
+                         * only inspects opcodes that can write, alias, or
+                         * escape an array; every other LIR opcode is a
+                         * non-disqualifying no-op. */
                         default:
                             break;
                         }
@@ -636,7 +661,7 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     } \
 } while (0)
 
-    switch (instr->kind) {
+    switch ((int)(instr->kind)) {
     case IRON_LIR_CONST_INT: case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL: case IRON_LIR_CONST_STRING:
     case IRON_LIR_CONST_NULL: case IRON_LIR_FUNC_REF:
@@ -784,6 +809,9 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     case IRON_LIR_POISON:
         break; /* no operands */
 
+    /* -Wswitch-enum opt-out: operand-replacement walker handles every opcode
+     * that carries a value operand; opcodes with no value operands (sentinel
+     * / never-reachable kinds) short-circuit through this arm. */
     default:
         break;
     }
@@ -799,7 +827,7 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
     *count = 0;
 #define PUSH(v) do { if ((v) != IRON_LIR_VALUE_INVALID && *count < MAX_OPERANDS) out[(*count)++] = (v); } while(0)
 
-    switch (instr->kind) {
+    switch ((int)(instr->kind)) {
     case IRON_LIR_CONST_INT:
     case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL:
@@ -973,6 +1001,9 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
     case IRON_LIR_POISON:
         break;
 
+    /* -Wswitch-enum opt-out: LIR operand collector handles every value-bearing
+     * opcode; opcodes with no value operands (and the INSTR_COUNT sentinel)
+     * intentionally produce an empty operand list. */
     default:
         break;
     }
@@ -1170,7 +1201,7 @@ static bool run_constant_folding(IronLIR_Module *module) {
                         int64_t R = right_def->const_int.value;
                         int64_t result = 0;
                         bool can_fold = true;
-                        switch (in->kind) {
+                        switch ((int)(in->kind)) {
                             case IRON_LIR_ADD: result = L + R; break;
                             case IRON_LIR_SUB: result = L - R; break;
                             case IRON_LIR_MUL: result = L * R; break;
@@ -1180,6 +1211,9 @@ static bool run_constant_folding(IronLIR_Module *module) {
                             case IRON_LIR_MOD:
                                 if (R == 0) { can_fold = false; break; }
                                 result = L % R; break;
+                            /* -Wswitch-enum opt-out: constant folder only
+                             * knows integer arithmetic; every other binop
+                             * opcode defers folding. */
                             default: can_fold = false; break;
                         }
                         if (can_fold) {
@@ -1206,13 +1240,16 @@ static bool run_constant_folding(IronLIR_Module *module) {
                         int64_t L = left_def->const_int.value;
                         int64_t R = right_def->const_int.value;
                         bool result = false;
-                        switch (in->kind) {
+                        switch ((int)(in->kind)) {
                             case IRON_LIR_EQ:  result = (L == R); break;
                             case IRON_LIR_NEQ: result = (L != R); break;
                             case IRON_LIR_LT:  result = (L < R);  break;
                             case IRON_LIR_LTE: result = (L <= R); break;
                             case IRON_LIR_GT:  result = (L > R);  break;
                             case IRON_LIR_GTE: result = (L >= R); break;
+                            /* -Wswitch-enum opt-out: only the comparison
+                             * opcodes fold to a constant bool; caller
+                             * already gated on is_comparison_binop. */
                             default: break;
                         }
                         in->kind = IRON_LIR_CONST_BOOL;
@@ -1366,7 +1403,7 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *in = blk->instrs[ii];
 
-            switch (in->kind) {
+            switch ((int)(in->kind)) {
             case IRON_LIR_CALL:
                 /* If an alloca address is passed as a call argument, it escapes */
                 for (int ai = 0; ai < in->call.arg_count; ai++) {
@@ -1400,6 +1437,9 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
                 }
                 break;
 
+            /* -Wswitch-enum opt-out: alloca-escape scanner only reacts to
+             * opcodes that can leak an alloca address; all other opcodes
+             * are safe no-ops here. */
             default:
                 break;
             }
@@ -1437,7 +1477,7 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
-                switch (in->kind) {
+                switch ((int)(in->kind)) {
                 case IRON_LIR_LOAD:
                     hmput(loaded, in->load.ptr, true);
                     break;
@@ -1449,6 +1489,9 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                 case IRON_LIR_SET_FIELD:
                     hmput(loaded, in->field.object, true);
                     break;
+                /* -Wswitch-enum opt-out: load-set scanner only needs to
+                 * track direct reads of allocas; all other opcodes are
+                 * intentional no-ops. */
                 default:
                     break;
                 }
@@ -1572,7 +1615,7 @@ static bool run_store_load_elim(IronLIR_Module *module) {
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
 
-                switch (in->kind) {
+                switch ((int)(in->kind)) {
                 case IRON_LIR_STORE:
                     /* Only track stores to known alloca slots that are not capture
                      * aliases. Capture alias allocas represent env struct fields that
@@ -1630,6 +1673,9 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                     }
                     break;
 
+                /* -Wswitch-enum opt-out: store-load forwarding only tracks
+                 * STORE / LOAD / CALL opcodes; everything else preserves
+                 * the current last_store map unchanged. */
                 default:
                     break;
                 }
@@ -1851,7 +1897,7 @@ void iron_lir_compute_value_block(IronLIR_Func *fn, IronLIR_OptimizeInfo *info) 
 /* Returns true if instruction kind mutates memory (STORE, SET_INDEX, SET_FIELD,
  * CALL, HEAP_ALLOC, RC_ALLOC, FREE).  Used to detect ordering hazards. */
 static bool instr_mutates_memory(IronLIR_InstrKind kind) {
-    switch (kind) {
+    switch ((int)(kind)) {
     case IRON_LIR_STORE:
     case IRON_LIR_SET_INDEX:
     case IRON_LIR_SET_FIELD:
@@ -1860,6 +1906,9 @@ static bool instr_mutates_memory(IronLIR_InstrKind kind) {
     case IRON_LIR_RC_ALLOC:
     case IRON_LIR_FREE:
         return true;
+    /* -Wswitch-enum opt-out: predicate is strictly memory-mutating opcodes;
+     * every other LIR opcode is intentionally pure from this predicate's
+     * perspective. */
     default:
         return false;
     }
@@ -2087,6 +2136,11 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
                     Iron_EnumDecl *ced = in->construct.type->enu.decl;
                     if (ced) {
                         for (int vi = 0; vi < ced->variant_count && eligible; vi++) {
+                            /* PROT-03 row 33 (AUDIT-01 M-severity): loop-bound
+                             * + non-NULL assert before the Iron_EnumVariant
+                             * cast in the inline-eligibility CONSTRUCT scan. */
+                            assert(vi >= 0 && vi < ced->variant_count);
+                            assert(ced->variants[vi] != NULL);
                             Iron_EnumVariant *cev = (Iron_EnumVariant *)ced->variants[vi];
                             if (in->construct.type->enu.payload_is_boxed[vi]) {
                                 for (int pk = 0; pk < cev->payload_count && eligible; pk++) {
@@ -2150,7 +2204,7 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
         IronLIR_Block *blk = fn->blocks[bi];
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *instr = blk->instrs[ii];
-            switch (instr->kind) {
+            switch ((int)(instr->kind)) {
             case IRON_LIR_JUMP: {
                 IronLIR_BlockId target = instr->jump.target;
                 arrput(blk->succs, target);
@@ -2182,6 +2236,8 @@ static void rebuild_cfg_edges(IronLIR_Func *fn) {
                 }
                 break;
             }
+            /* -Wswitch-enum opt-out: post-optimization CFG rebuild only
+             * cares about terminator opcodes; non-terminators add no edges. */
             default:
                 break;
             }
@@ -2535,13 +2591,15 @@ static bool is_loop_invariant(IronLIR_Func *fn, IronLIR_LoopInfo *loop, IronLIR_
     if (!def) return false;
 
     /* Constants are always invariant */
-    switch (def->kind) {
+    switch ((int)(def->kind)) {
     case IRON_LIR_CONST_INT:
     case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL:
     case IRON_LIR_CONST_STRING:
     case IRON_LIR_CONST_NULL:
         return true;
+    /* -Wswitch-enum opt-out: fast-path handles compile-time constants; all
+     * other opcodes fall through to the full loop-invariant analysis below. */
     default:
         break;
     }
@@ -2633,6 +2691,7 @@ static IronLIR_Instr *make_binop_instr(IronLIR_Func *fn, IronLIR_InstrKind kind,
                                        IronLIR_ValueId left, IronLIR_ValueId right,
                                        Iron_Type *type, Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_binop_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind         = kind;
     instr->type         = type;
@@ -2651,6 +2710,7 @@ static IronLIR_Instr *make_binop_instr(IronLIR_Func *fn, IronLIR_InstrKind kind,
 static IronLIR_Instr *make_load_instr(IronLIR_Func *fn, IronLIR_ValueId ptr,
                                       Iron_Type *type, Iron_Span span) {
     IronLIR_Instr *instr = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!instr) iron_oom_abort("lir_optimize.c:make_load_instr");
     memset(instr, 0, sizeof(*instr));
     instr->kind     = IRON_LIR_LOAD;
     instr->type     = type;
@@ -2828,6 +2888,7 @@ static bool run_strength_reduction(IronLIR_Module *module) {
                             if (inv_def && inv_def->kind == IRON_LIR_CONST_INT) {
                                 /* Create a fresh CONST_INT in entry block for the step */
                                 IronLIR_Instr *step_const = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                                if (!step_const) iron_oom_abort("lir_optimize.c:run_strength_reduction step_const");
                                 memset(step_const, 0, sizeof(*step_const));
                                 step_const->kind = IRON_LIR_CONST_INT;
                                 step_const->type = int_type;
@@ -2932,7 +2993,7 @@ static bool run_strength_reduction(IronLIR_Module *module) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
-    switch (kind) {
+    switch ((int)(kind)) {
     /* Pure — no side effects */
     case IRON_LIR_CONST_INT: case IRON_LIR_CONST_FLOAT:
     case IRON_LIR_CONST_BOOL: case IRON_LIR_CONST_STRING:
@@ -2953,6 +3014,10 @@ bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
     case IRON_LIR_MAKE_CLOSURE: case IRON_LIR_FUNC_REF:
         return true;
     /* Side-effecting — everything else */
+    /* -Wswitch-enum opt-out: predicate lists every side-effect-free opcode;
+     * all remaining opcodes (STORE, SET_*, CALL, HEAP_ALLOC, RC_ALLOC, FREE,
+     * SPAWN, PARALLEL_FOR, AWAIT, terminators, PHI, POISON, sentinel) are
+     * intentionally treated as side-effecting. */
     default:
         return false;
     }
@@ -3071,6 +3136,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
     if (non_void) {
         IronLIR_Instr *result_alloca = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+        if (!result_alloca) iron_oom_abort("lir_optimize.c:inline_call_site result_alloca");
         memset(result_alloca, 0, sizeof(*result_alloca));
         result_alloca->kind              = IRON_LIR_ALLOCA;
         result_alloca->type              = callee->return_type;
@@ -3100,6 +3166,7 @@ static void inline_call_site(IronLIR_Func *fn,
         IronLIR_Block *src_blk = callee->blocks[bi];
 
         IronLIR_Block *new_blk = ARENA_ALLOC(fn->arena, IronLIR_Block);
+        if (!new_blk) iron_oom_abort("lir_optimize.c:inline_call_site new_blk");
         memset(new_blk, 0, sizeof(*new_blk));
         new_blk->id    = fn->next_block_id++;
         new_blk->label = src_blk->label ? src_blk->label : "inline_body";
@@ -3110,6 +3177,7 @@ static void inline_call_site(IronLIR_Func *fn,
         for (int ii = 0; ii < src_blk->instr_count; ii++) {
             IronLIR_Instr *src    = src_blk->instrs[ii];
             IronLIR_Instr *cloned = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+            if (!cloned) iron_oom_abort("lir_optimize.c:inline_call_site cloned_instr");
             memcpy(cloned, src, sizeof(*src));
 
             /* Deep-copy stb_ds arrays owned by the instruction */
@@ -3205,12 +3273,14 @@ static void inline_call_site(IronLIR_Func *fn,
      * the continuation block (the LOAD is added here; JUMP added in step 8).
      */
     IronLIR_Block *merge = ARENA_ALLOC(fn->arena, IronLIR_Block);
+    if (!merge) iron_oom_abort("lir_optimize.c:inline_call_site merge_blk");
     memset(merge, 0, sizeof(*merge));
     merge->id    = fn->next_block_id++;
     merge->label = "inline_merge";
 
     if (non_void) {
         IronLIR_Instr *load_result = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+        if (!load_result) iron_oom_abort("lir_optimize.c:inline_call_site load_result");
         memset(load_result, 0, sizeof(*load_result));
         load_result->kind     = IRON_LIR_LOAD;
         load_result->type     = callee->return_type;
@@ -3241,6 +3311,7 @@ static void inline_call_site(IronLIR_Func *fn,
             if (instr->kind != IRON_LIR_RETURN) continue;
 
             IronLIR_Instr *jump_to_merge = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+            if (!jump_to_merge) iron_oom_abort("lir_optimize.c:inline_call_site jump_to_merge");
             memset(jump_to_merge, 0, sizeof(*jump_to_merge));
             jump_to_merge->kind        = IRON_LIR_JUMP;
             jump_to_merge->id          = IRON_LIR_VALUE_INVALID;
@@ -3249,6 +3320,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
             if (non_void && !instr->ret.is_void) {
                 IronLIR_Instr *store_ret = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                if (!store_ret) iron_oom_abort("lir_optimize.c:inline_call_site store_ret");
                 memset(store_ret, 0, sizeof(*store_ret));
                 store_ret->kind        = IRON_LIR_STORE;
                 store_ret->id          = IRON_LIR_VALUE_INVALID;
@@ -3278,6 +3350,7 @@ static void inline_call_site(IronLIR_Func *fn,
      *   [call_idx+1 .. end]         — post-call instrs -> go to cont block
      */
     IronLIR_Block *cont = ARENA_ALLOC(fn->arena, IronLIR_Block);
+    if (!cont) iron_oom_abort("lir_optimize.c:inline_call_site cont_blk");
     memset(cont, 0, sizeof(*cont));
     cont->id    = fn->next_block_id++;
     cont->label = "inline_cont";
@@ -3293,6 +3366,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
     /* JUMP from call_block to cloned callee entry */
     IronLIR_Instr *jump_to_entry = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!jump_to_entry) iron_oom_abort("lir_optimize.c:inline_call_site jump_to_entry");
     memset(jump_to_entry, 0, sizeof(*jump_to_entry));
     jump_to_entry->kind        = IRON_LIR_JUMP;
     jump_to_entry->id          = IRON_LIR_VALUE_INVALID;
@@ -3303,6 +3377,7 @@ static void inline_call_site(IronLIR_Func *fn,
 
     /* JUMP from merge to continuation */
     IronLIR_Instr *jump_to_cont = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!jump_to_cont) iron_oom_abort("lir_optimize.c:inline_call_site jump_to_cont");
     memset(jump_to_cont, 0, sizeof(*jump_to_cont));
     jump_to_cont->kind        = IRON_LIR_JUMP;
     jump_to_cont->id          = IRON_LIR_VALUE_INVALID;

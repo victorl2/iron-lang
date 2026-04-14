@@ -1,0 +1,43 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_STMT_ASSIGN
+-- (incl. compound assign += / -= / *=).
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node AST
+-- walker missed elif_conds[] recursion for Iron_IfStmt. The same
+-- walker-incompleteness class can re-emerge for any statement kind.
+-- Iron_Assign (plain assign) and the compound-assign forms lower to
+-- the same IRON_HIR_STMT_ASSIGN case in lower_stmt. Walker regressions
+-- that fail to recurse into the RHS expression silently drop the
+-- right-hand side from the lowered LIR -- meaning the target variable
+-- keeps its old value while the test still compiles. Phase 66 added
+-- -Werror=switch-enum to catch missing cases at compile time, and
+-- _Static_assert guards on the Iron_ExprNode common prefix. This
+-- canary is the runtime regression net for IRON_HIR_STMT_ASSIGN.
+--
+-- **Layout Diagram.** Iron_Assign carries
+--   { span, kind, target, value, op_kind }
+-- where op_kind is ASSIGN_SIMPLE / ASSIGN_ADD / ASSIGN_SUB / ASSIGN_MUL
+-- / ASSIGN_DIV / ASSIGN_MOD. Walker cases that fail to recurse into
+-- `value` drop the RHS expression; cases that ignore `op_kind` produce
+-- wrong semantics for compound assigns (e.g. treating += as =).
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. Exercises both simple assign and the three compound forms
+-- (+=, -=, *=) that this codebase uses. CI integration: runs in both
+-- Debug and Release via Phase 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential) -- a missing assign-case
+-- recursion would silently produce wrong numeric output, which is
+-- exactly the "passes compile, wrong runtime" failure mode the Phase
+-- 37-02 motivating bug caused.
+
+func main() {
+  var x = 10
+  x = x + 5           -- simple assign: 15
+  x += 7              -- compound add: 22
+  x *= 2              -- compound mul: 44
+  x -= 4              -- compound sub: 40
+  var y = x
+  y = y + x           -- simple assign, RHS uses captured local: 80
+  println("x: {x}")
+  println("y: {y}")
+}

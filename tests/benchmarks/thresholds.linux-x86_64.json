@@ -1,0 +1,38 @@
+{
+  "_comment": "Phase 69 Plan 05 (REG-03) initial linux-x86_64 thresholds. Values captured from the Phase 59 motivating-incident CI runs (GitHub Actions ubuntu-latest, runs 24282224300 and 24273837832) and the existing per-benchmark config.json `rationale` strings committed during the 2026-04-11 cross-platform reconciliation. This file currently only lists the four benchmarks that drifted across macOS-arm64 vs Linux-x86_64; the full per-benchmark audit can be captured in a follow-up commit once `scripts/bench_audit.sh --platform linux-x86_64 5` is re-run on an ubuntu-latest runner and this file is overwritten. DO NOT hand-edit individual benchmark entries after a real audit lands — regenerate via the script. Schema: each entry in `thresholds` has numeric max_ratio, mean_ratio, stddev_ratio, variance_pct, runs_n.",
+  "_generated_at": "2026-04-14T08:25:08Z",
+  "_commit_sha": "2121567",
+  "_platform": "linux-x86_64",
+  "_runs_per_benchmark": 5,
+  "_provenance": "phase-59-motivating-incident",
+  "thresholds": {
+    "find_first_last": {
+      "max_ratio": 1.40,
+      "mean_ratio": 1.25,
+      "stddev_ratio": 0.06,
+      "variance_pct": 4.8,
+      "runs_n": 5
+    },
+    "matrix_chain_mult": {
+      "max_ratio": 1.40,
+      "mean_ratio": 1.15,
+      "stddev_ratio": 0.23,
+      "variance_pct": 19.9,
+      "runs_n": 5
+    },
+    "merge_k_sorted_lists": {
+      "max_ratio": 1.50,
+      "mean_ratio": 1.32,
+      "stddev_ratio": 0.10,
+      "variance_pct": 7.5,
+      "runs_n": 5
+    },
+    "sieve_of_eratosthenes": {
+      "max_ratio": 1.70,
+      "mean_ratio": 1.50,
+      "stddev_ratio": 0.12,
+      "variance_pct": 7.9,
+      "runs_n": 5
+    }
+  }
+}

@@ -81,3 +81,55 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
+
+  build-and-test-release:
+    # REG-01 (Phase 66): Linux Release CI job — the missing signal that would
+    # have caught the Phase 65/66 motivating SIGSEGV months earlier. The
+    # existing build-and-test job runs Debug with ASan/UBSan and catches
+    # memory bugs; this job runs Release (no sanitizer instrumentation) and
+    # catches crashes that only reproduce under optimized builds on Linux
+    # x86_64 — exactly the class of bug that hit find_first_last.
+    #
+    # This job is intentionally a near-duplicate of the Debug job. If the
+    # Debug job changes, this job should change the same way (same compiler,
+    # same dep install, same test runner invocation). The only differences:
+    #   1. CMAKE_BUILD_TYPE=Release instead of Debug
+    #   2. No sanitizer env vars (Release has no ASan/UBSan instrumentation)
+    #   3. Sanitizer-verification step omitted (Release builds are not
+    #      instrumented, so re-running ctest under ASAN/UBSAN halt-on-error
+    #      flags would be a no-op)
+    # Compiler is clang (matches Debug job) so a Release-only failure is
+    # unambiguously a build-type issue, not a compiler-difference issue.
+    # gcc matrix deferred to a future CI-expansion phase.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang gdb
+
+      - name: Configure (Release, no sanitizers)
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
+
+      - name: Verify binaries exist
+        run: |
+          test -x build/iron && echo "iron binary OK"
+          test -x build/ironc && echo "ironc binary OK"
+
+      - name: Run integration tests
+        run: |
+          chmod +x tests/integration/run_integration.sh
+          tests/integration/run_integration.sh build/iron

@@ -22,6 +22,7 @@ const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
     size_t len   = strlen(name);
     size_t total = 5 + len + 1;
     char  *buf   = (char *)iron_arena_alloc(arena, total, 1);
+    if (!buf) iron_oom_abort("emit_helpers.c:emit_mangle_name");
     memcpy(buf, "Iron_", 5);
     memcpy(buf + 5, name, len + 1);
     return buf;
@@ -103,6 +104,7 @@ const char *emit_sanitize_label(const char *label, Iron_Arena *arena) {
 
     size_t len = strlen(label);
     char *buf = (char *)iron_arena_alloc(arena, len + 1, 1);
+    if (!buf) iron_oom_abort("emit_helpers.c:emit_sanitize_label");
     for (size_t i = 0; i <= len; i++) {
         buf[i] = (label[i] == '.') ? '_' : label[i];
     }
@@ -126,6 +128,7 @@ const char *emit_optional_struct_name(const Iron_Type *inner,
     }
     const char *result = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb),
                                            sb.len);
+    if (!result) iron_oom_abort("emit_helpers.c:emit_optional_struct_name");
     iron_strbuf_free(&sb);
     return result;
 }
@@ -178,6 +181,7 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             const char *result = iron_arena_strdup(ctx->arena,
                                                     iron_strbuf_get(&sb),
                                                     sb.len);
+            if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c RC");
             iron_strbuf_free(&sb);
             return result;
         }
@@ -209,6 +213,7 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             }
             const char *result = iron_arena_strdup(ctx->arena,
                                                     iron_strbuf_get(&sb), sb.len);
+            if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c ARRAY");
             iron_strbuf_free(&sb);
             return result;
         }
@@ -233,8 +238,9 @@ void emit_ensure_optional(EmitCtx *ctx, const Iron_Type *inner) {
         if (strcmp(ctx->emitted_optionals[i], struct_name) == 0) return;
     }
 
-    arrput(ctx->emitted_optionals,
-           iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name)));
+    char *struct_name_copy = iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name));
+    if (!struct_name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_optional struct_name");
+    arrput(ctx->emitted_optionals, struct_name_copy);
 
     const char *c_inner = emit_type_to_c(inner, ctx);
     iron_strbuf_appendf(&ctx->struct_bodies,
@@ -264,8 +270,9 @@ void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty) {
     /* Register BEFORE recursing / appending so a recursive tuple that
      * somehow references itself (not currently possible in the type
      * system, but cheap defense) breaks via the dedupe check. */
-    arrput(ctx->emitted_tuples,
-           iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name)));
+    char *struct_name_copy = iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name));
+    if (!struct_name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_tuple struct_name");
+    arrput(ctx->emitted_tuples, struct_name_copy);
 
     /* Recurse into nested tuple element types so their typedefs land
      * in struct_bodies FIRST. Non-tuple element typedefs are ensured
@@ -338,6 +345,7 @@ const char *emit_make_block_label(IronLIR_BlockId id, const char *raw_label,
     size_t san_len = strlen(san);
     /* Max digits for a 32-bit int = 10 + "b" prefix + "_" + NUL = 14 extra */
     char *buf = (char *)iron_arena_alloc(arena, san_len + 16, 1);
+    if (!buf) iron_oom_abort("emit_helpers.c:emit_make_block_label");
     snprintf(buf, san_len + 16, "%s_b%d", san, (int)id);
     return buf;
 }

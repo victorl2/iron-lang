@@ -68,9 +68,11 @@ static void emit_await_error(WebAwaitCtx *ctx, const char *fn_name,
              fn_name ? fn_name : "(anon)",
              chain_buf);
 
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("web_await_check.c:emit_await_error msg");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_DIAG_E0501_AWAIT_ON_WEB, span,
-                   iron_arena_strdup(ctx->arena, msg, strlen(msg)), NULL);
+                   msg_copy, NULL);
 }
 
 /* ── AST walker ──────────────────────────────────────────────────────────── */
@@ -83,7 +85,7 @@ static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
                       Iron_Node *node) {
     if (!node) return;
 
-    switch (node->kind) {
+    switch ((int)(node->kind)) {
         /* ── The target: flag every await expression ─────────────────────── */
         case IRON_NODE_AWAIT: {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
@@ -180,6 +182,10 @@ static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
             break;
         }
         /* ── Default: leaf or unrecognised container — no-op ─────────────── */
+        /* -Wswitch-enum opt-out: web-await BFS only needs to descend into
+         * expression / control-flow kinds that can contain an AWAIT. Leaf
+         * kinds (literals, idents, field accesses with no child expr) are
+         * intentional no-ops here. */
         default:
             break;
     }

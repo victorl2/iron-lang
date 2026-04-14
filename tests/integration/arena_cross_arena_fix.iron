@@ -1,0 +1,75 @@
+-- arena_cross_arena_fix.iron — regression for FIX-03 / AUDIT-04 §8.
+--
+-- **Motivating Incident.** The Phase 65 correctness audit flagged two
+-- calloc sites in src/lir/emit_fusion.c (the `char *new_var = calloc(32, 1)`
+-- in the flat branch and the matching site in the split branch) as
+-- "leaked, never freed". These are per-map scratch buffers used during
+-- fused .map()/.filter()/.reduce() chain emission: each `map` node in a
+-- chain calloc's a fresh 32-byte buffer to hold the generated C identifier
+-- name (`_fuse_vN`), then overwrites the `cur_var` pointer with the new
+-- buffer and continues walking the chain. Pre-67-07, every calloc'd
+-- buffer leaked the moment the next `map` overwrote `cur_var`, and the
+-- final `cur_var` leaked when the function returned. A deep fused chain
+-- with N maps leaked 32*N bytes per emission; the leak compounded every
+-- time ironc was invoked on a program with fused collection chains.
+--
+-- The leak was small enough (32 bytes per map) to fly under Valgrind in
+-- the integration CI without a dedicated stress test, but a ThreadSanitizer
+-- or AddressSanitizer run of a Phase 49 fusion-heavy program surfaces the
+-- leak block with a backtrace pointing at emit_fusion.c:173 or 366.
+--
+-- **Layout Diagram.**
+--
+--   Pre-fix (Phase 65 audit baseline):
+--     for (each map node in chain) {
+--         char *new_var = calloc(32, 1);      <-- leaked every iteration
+--         snprintf(new_var, 32, "_fuse_vN");
+--         cur_var = new_var;                  <-- prev cur_var leaked
+--     }
+--     // function returns; final new_var still leaked
+--
+--   Post-fix (Phase 67-07):
+--     char **cur_var_bufs = NULL;             <-- stb_ds tracker
+--     for (each map node in chain) {
+--         char *new_var = calloc(32, 1);
+--         snprintf(new_var, 32, "_fuse_vN");
+--         arrput(cur_var_bufs, new_var);      <-- tracked
+--         cur_var = new_var;
+--     }
+--     // function exit: free every buffer in cur_var_bufs, then arrfree
+--     for (int i = 0; i < arrlen(cur_var_bufs); i++) free(cur_var_bufs[i]);
+--     arrfree(cur_var_bufs);
+--
+-- **Fix Summary.** Phase 67-07 added two stb_ds trackers (one for the
+-- flat branch, one for the split branch) in emit_fused_chain, collected
+-- every calloc'd cur_var buffer into the appropriate tracker, and freed
+-- them explicitly at function exit. The early-return `if (!sp_entry)`
+-- branch also arrfree's both trackers to keep cleanup shape symmetric
+-- (both trackers are guaranteed empty at that point, but the
+-- defensive arrfree costs nothing and prevents a future edit from
+-- introducing a half-built-tracker leak).
+--
+-- This fixture exercises a 3-map fused chain on a flat array, which
+-- forces emit_fusion.c to calloc three cur_var buffers in the flat branch
+-- and guarantees all three are freed at function return. The post-fix
+-- binary produces the correct output (109); the pre-fix binary would have
+-- produced the same output but leaked 96 bytes per compile to the C
+-- heap. Correctness verification is by the integration test runner
+-- comparing stdout against .expected; leak verification is by running
+-- `ironc build --debug-build arena_cross_arena_fix.iron` under Valgrind
+-- or ASan and confirming zero leaks from emit_fusion.c (which cannot be
+-- automated in the baseline integration runner but is grep-auditable in
+-- any ad-hoc ASan run).
+--
+-- **Severity.** M — resource leak (not a crash, not security-sensitive,
+-- not exploitable from Iron source). Bounded by compilation size.
+
+func main() {
+    val arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    val result = arr
+        .map(func(x: Int) -> Int { return x + 1 })
+        .map(func(x: Int) -> Int { return x * 2 })
+        .filter(func(x: Int) -> Bool { return x > 10 })
+        .sum()
+    println("{result}")
+}

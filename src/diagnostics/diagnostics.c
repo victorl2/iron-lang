@@ -1,6 +1,8 @@
 #include "diagnostics/diagnostics.h"
+#include "parser/ast.h"
 #include "stb_ds.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,7 +65,7 @@ void iron_diag_emit(Iron_DiagList *list,
     switch (level) {
     case IRON_DIAG_ERROR:   list->error_count   += 1; break;
     case IRON_DIAG_WARNING: list->warning_count += 1; break;
-    default: break;
+    case IRON_DIAG_NOTE:    break; /* notes do not affect error/warning counts */
     }
 }
 
@@ -194,4 +196,38 @@ void iron_diaglist_free(Iron_DiagList *list) {
     list->count         = 0;
     list->error_count   = 0;
     list->warning_count = 0;
+}
+
+/* ── Internal compiler error (PROT-03) ───────────────────────────────────── */
+
+void iron_ice(const char *fmt, ...) {
+    fprintf(stderr, "iron: internal compiler error: ");
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    abort();
+}
+
+/* ── AST node kind assertion impl (PROT-03) ──────────────────────────────── */
+
+/* Forward declared in src/parser/ast.h. Lives here (not in ast.h) so the impl
+ * can call iron_ice without pulling the diagnostics surface into ast.h as a
+ * transitive dependency. ast.h already includes diagnostics.h for Iron_Span,
+ * so the declaration of iron_node_assert_kind_impl piggybacks on that include. */
+void iron_node_assert_kind_impl(const Iron_Node *node,
+                                Iron_NodeKind expected,
+                                const char *file,
+                                int line,
+                                const char *func) {
+    if (!node) {
+        iron_ice("iron_node_assert_kind: NULL node (expected kind %d) at %s:%d in %s",
+                 (int)expected, file, line, func);
+    }
+    if (node->kind != expected) {
+        iron_ice("iron_node_assert_kind: expected kind %d, got %d at %s:%d in %s",
+                 (int)expected, (int)node->kind, file, line, func);
+    }
 }

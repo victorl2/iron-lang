@@ -16,8 +16,23 @@
 #include "parser/ast.h"
 #include "vendor/stb_ds.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
+
+/* PROT-03 layout guard (Phase 66 Plan 05, AUDIT-01 row 27): emit_structs.c
+ * casts entries from `Iron_ObjectDecl::fields` (a `void**`) to `Iron_Field *`
+ * and from `Iron_Field::type_ann` (a `Iron_Node *`) to `Iron_TypeAnnotation *`.
+ * The invariant is established by the parser: every fields[] entry is
+ * allocated as an Iron_Field, and every f->type_ann (when non-NULL) is
+ * allocated as an Iron_TypeAnnotation. The _Static_asserts below make the
+ * layout assumption grep-visible — if a future change alters how fields[]
+ * is populated (e.g., heterogeneous entries) or shrinks Iron_Field /
+ * Iron_TypeAnnotation to a degenerate empty struct, the cast sites in this
+ * file must be revisited. The asserts also pin Iron_TypeAnnotation as a
+ * "real" Iron_Node derivative whose first member is Iron_NodeKind kind. */
+_Static_assert(sizeof(Iron_Field) > 0, "Iron_Field layout sanity check");
+_Static_assert(sizeof(Iron_TypeAnnotation) > 0, "Iron_TypeAnnotation layout sanity check");
 
 /* ── Topological sort for IR type declarations ─────────────────────────────── */
 
@@ -65,8 +80,17 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
 
         /* Visit value-type field dependencies */
         for (int i = 0; i < od->field_count; i++) {
+            /* PROT-03 row 27 (AUDIT-01 M-severity): loop-bound + non-NULL
+             * assert before the Iron_Field cast from the void** fields array
+             * in the topological-sort field walker. */
+            assert(i >= 0 && i < od->field_count);
+            assert(od->fields[i] != NULL);
             Iron_Field *f = (Iron_Field *)od->fields[i];
             if (!f->type_ann) continue;
+            /* PROT-03 row 28 (AUDIT-01 M-severity): assert kind on
+             * f->type_ann before the Iron_TypeAnnotation cast — TypeAnnotation
+             * IS an Iron_Node-derived sub-struct (first field is kind). */
+            IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
             Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
             if (ta->is_nullable) continue;
             int dep = find_ir_type_decl_idx(state->module, ta->name);
@@ -257,9 +281,16 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         }
 
         for (int i = 0; i < od->field_count; i++) {
+            /* PROT-03 row 29 (AUDIT-01 M-severity): loop-bound + non-NULL
+             * assert before the Iron_Field cast in the struct-body emitter. */
+            assert(i >= 0 && i < od->field_count);
+            assert(od->fields[i] != NULL);
             Iron_Field *f = (Iron_Field *)od->fields[i];
             const char *c_type = "int64_t";
             if (f->type_ann) {
+                /* PROT-03 row 29b (AUDIT-01 M-severity): assert kind on
+                 * f->type_ann before the Iron_TypeAnnotation cast. */
+                IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
                 if (ta->is_func) {
                     /* func() field: emit as Iron_Closure fat pointer */
@@ -272,6 +303,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     c_type = iron_arena_strdup(ctx->arena,
                                                iron_strbuf_get(&opt_sb),
                                                opt_sb.len);
+                    if (!c_type) iron_oom_abort("emit_structs.c:emit_object_struct_body optional_field");
                     iron_strbuf_free(&opt_sb);
                     /* Emit the optional struct if not already done */
                     iron_strbuf_appendf(&ctx->struct_bodies,
@@ -292,6 +324,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     }
                     c_type = iron_arena_strdup(ctx->arena,
                                                iron_strbuf_get(&list_sb), list_sb.len);
+                    if (!c_type) iron_oom_abort("emit_structs.c:emit_object_struct_body array_field");
                     iron_strbuf_free(&list_sb);
                 } else {
                     c_type = emit_annotation_to_c(ta->name, ctx);
@@ -313,8 +346,15 @@ int emit_estimate_type_size(Iron_ObjectDecl *od) {
     if (!od) return 8;
     int total = 0;
     for (int i = 0; i < od->field_count; i++) {
+        /* PROT-03 row 30 (AUDIT-01 M-severity): loop-bound + non-NULL assert
+         * before the Iron_Field cast in emit_estimate_type_size. */
+        assert(i >= 0 && i < od->field_count);
+        assert(od->fields[i] != NULL);
         Iron_Field *f = (Iron_Field *)od->fields[i];
         if (f->type_ann) {
+            /* PROT-03 row 30 (cont.): assert kind on f->type_ann before
+             * the Iron_TypeAnnotation cast. */
+            IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
             Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
             if (ta->is_array)       total += 24;  /* pointer + count + cap */
             else if (ta->is_func)   total += 16;  /* Iron_Closure */
@@ -358,6 +398,7 @@ void emit_type_decls(EmitCtx *ctx) {
         int *colors = (int *)iron_arena_alloc(ctx->arena,
                                                sizeof(int) * (size_t)module->type_decl_count,
                                                _Alignof(int));
+        if (!colors) iron_oom_abort("emit_structs.c:emit_type_decls topo_colors");
         memset(colors, 0, sizeof(int) * (size_t)module->type_decl_count);
 
         IrTopoState topo;
@@ -436,6 +477,7 @@ void emit_type_decls(EmitCtx *ctx) {
                         char ikey_buf[512];
                         snprintf(ikey_buf, sizeof(ikey_buf), "%s:%s", iface_mangled, impl->type_name);
                         const char *ikey_str = iron_arena_strdup(ctx->arena, ikey_buf, strlen(ikey_buf));
+                        if (!ikey_str) iron_oom_abort("emit_structs.c:emit_type_decls indirect_variant_key");
                         shput(ctx->indirect_variants, ikey_str, true);
                     }
                 }
@@ -603,6 +645,12 @@ void emit_type_decls(EmitCtx *ctx) {
                         iface_mangled, impl57->type_name);
 
                     for (int fi = 0; fi < od57->field_count; fi++) {
+                        /* PROT-03 unenumerated bonus (AUDIT-01 M-severity sibling
+                         * of rows 27/29/30): loop-bound + non-NULL assert before
+                         * the Iron_Field cast in the Phase 57 split-collection
+                         * from-Stor constructor emitter. */
+                        assert(fi >= 0 && fi < od57->field_count);
+                        assert(od57->fields[fi] != NULL);
                         Iron_Field *f57 = (Iron_Field *)od57->fields[fi];
 
                         /* Alive = any collection vid of this iface uses this field */
@@ -674,8 +722,9 @@ void emit_type_decls(EmitCtx *ctx) {
         /* Deduplicate: skip if already emitted (relevant for monomorphized enums
          * that may be registered multiple times from different use sites). */
         if (shgeti(ctx->mono_registry, mangled) >= 0) continue;
-        shput(ctx->mono_registry,
-              iron_arena_strdup(ctx->arena, mangled, strlen(mangled)), true);
+        const char *mangled_copy = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
+        if (!mangled_copy) iron_oom_abort("emit_structs.c:emit_type_decls mono_registry_key");
+        shput(ctx->mono_registry, mangled_copy, true);
 
         if (ed->has_payloads) {
             /* ADT enum: emit tagged-union struct layout into struct_bodies */
