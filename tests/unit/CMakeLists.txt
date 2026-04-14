@@ -242,3 +242,30 @@ target_include_directories(test_asset_path PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_asset_path unity)
 add_test(NAME test_asset_path COMMAND test_asset_path)
 set_tests_properties(test_asset_path PROPERTIES LABELS "unit;phase13")
+
+# ── Phase 69 Plan 04 (COV-05): coverage remediation tests ───────────────────
+# Each test targets one or more files that Phase 69 Plan 03 flagged below 50%
+# line coverage. Grouped by link-target (runtime / stdlib / compiler) to keep
+# the number of test binaries small.
+#
+# Runtime: src/runtime/iron_oom.c (0%) + src/runtime/iron_string.c (36%)
+add_executable(test_cov_runtime_string_oom test_cov_runtime_string_oom.c)
+target_link_libraries(test_cov_runtime_string_oom iron_runtime unity)
+add_test(NAME test_cov_runtime_string_oom COMMAND test_cov_runtime_string_oom)
+set_tests_properties(test_cov_runtime_string_oom PROPERTIES LABELS "unit;cov")
+
+# Stdlib: src/stdlib/iron_io.h (0%) + src/stdlib/iron_io.c (22%)
+add_executable(test_cov_stdlib_io test_cov_stdlib_io.c)
+target_link_libraries(test_cov_stdlib_io iron_stdlib iron_runtime unity)
+add_test(NAME test_cov_stdlib_io COMMAND test_cov_stdlib_io)
+set_tests_properties(test_cov_stdlib_io PROPERTIES LABELS "unit;cov")
+
+# Compiler printers + analyzer:
+#   src/parser/printer.c          (32%)
+#   src/hir/hir_print.c           (38%)
+#   src/lir/print.c               (43%)
+#   src/analyzer/web_await_check.c (49.66%)
+add_executable(test_cov_compiler_printers test_cov_compiler_printers.c)
+target_link_libraries(test_cov_compiler_printers iron_compiler iron_runtime unity)
+add_test(NAME test_cov_compiler_printers COMMAND test_cov_compiler_printers)
+set_tests_properties(test_cov_compiler_printers PROPERTIES LABELS "unit;cov")
