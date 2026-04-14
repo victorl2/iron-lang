@@ -46,8 +46,63 @@
  * ════════════════════════════════════════════════════════════════════ */
 
 /* ── Core math types (Plan 60-02) ─────────────────────────────────── */
-/* Iron_Vector2, Iron_Vector3, Iron_Vector4, Iron_Quaternion,
- * Iron_Matrix, Iron_Rectangle, Iron_Color — added by 60-02. */
+
+/* Layout-compatible mirror of raylib `Vector2` — 2 floats. */
+struct Iron_Vector2 {
+    float x;
+    float y;
+};
+
+/* Layout-compatible mirror of raylib `Vector3` — 3 floats. */
+struct Iron_Vector3 {
+    float x;
+    float y;
+    float z;
+};
+
+/* Layout-compatible mirror of raylib `Vector4` — 4 floats. */
+struct Iron_Vector4 {
+    float x;
+    float y;
+    float z;
+    float w;
+};
+
+/* Layout-compatible mirror of raylib `Quaternion` (which is a
+ * typedef for Vector4 in raylib.h). Same 4-float layout; a distinct
+ * Iron type name to preserve math-domain meaning in Iron signatures. */
+struct Iron_Quaternion {
+    float x;
+    float y;
+    float z;
+    float w;
+};
+
+/* Layout-compatible mirror of raylib `Matrix` — 16 floats, column-major.
+ * raylib.h orders the fields m0 m4 m8 m12 m1 m5 m9 m13 m2 m6 m10 m14
+ * m3 m7 m11 m15, which is the same order used here. */
+struct Iron_Matrix {
+    float m0, m4, m8, m12;
+    float m1, m5, m9, m13;
+    float m2, m6, m10, m14;
+    float m3, m7, m11, m15;
+};
+
+/* Layout-compatible mirror of raylib `Rectangle` — 4 floats. */
+struct Iron_Rectangle {
+    float x;
+    float y;
+    float width;
+    float height;
+};
+
+/* Layout-compatible mirror of raylib `Color` — 4 unsigned chars, RGBA8888. */
+struct Iron_Color {
+    unsigned char r;
+    unsigned char g;
+    unsigned char b;
+    unsigned char a;
+};
 
 /* ── Image / Texture / Font types (Plan 60-03) ────────────────────── */
 /* Iron_Image, Iron_Texture, Iron_RenderTexture, Iron_NPatchInfo,
