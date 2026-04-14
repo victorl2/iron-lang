@@ -43,6 +43,16 @@
 -- 61–72. Phase 60 Plan 02 defines the core math types (Vector*, Matrix,
 -- Rectangle, Color, Quaternion). Remaining types come in Plans 60-03,
 -- 60-04, 60-05. Enums come in Plan 60-07.
+--
+-- API-11 override: The original API-11 requirement ("existing files
+-- continue to compile unmodified") is explicitly relaxed in Phase 60
+-- to "existing files may be rewritten during the clean break." See
+-- .planning/phases/60-type-enum-foundation/60-CONTEXT.md, section
+-- "Backward Compatibility — Clean Break". The old raylib.iron
+-- symbols (Vec2, Key, InitWindow, ...) are gone; the three existing
+-- user files (examples/pong/pong.iron, tests/manual/game_raylib.iron,
+-- tests/integration/web/hello_raylib.iron) are being rewritten to
+-- the new canonical names in Plan 60-08.
 -- ──────────────────────────────────────────────────────────────────────
 
 -- ══════════════════════════════════════════════════════════════════════
@@ -922,3 +932,25 @@ object Window {}
 object Draw {}
 object Audio {}
 object Files {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Minimal color palette (Phase 60 rescue — full 26-color palette is
+-- Phase 66 TEX-14)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- These six constants exist ONLY to unblock the clean-break rewrite of
+-- examples/pong/pong.iron, tests/manual/game_raylib.iron, and
+-- tests/integration/web/hello_raylib.iron. Phase 66 TEX-14 replaces
+-- this block with the full 26-constant palette (LIGHTGRAY through
+-- RAYWHITE) per raylib.h.
+--
+-- Values are hand-copied from raylib.h LIGHTGRAY/BLACK/... defines
+-- (rcolor-palette.h internal table) — they are the canonical RGBA8888
+-- tuples raylib exposes.
+
+val RED      = Color(230, 41, 55, 255)
+val BLUE     = Color(0, 121, 241, 255)
+val GREEN    = Color(0, 228, 48, 255)
+val WHITE    = Color(255, 255, 255, 255)
+val BLACK    = Color(0, 0, 0, 255)
+val DARKGRAY = Color(80, 80, 80, 255)
