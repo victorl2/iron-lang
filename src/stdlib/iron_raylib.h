@@ -105,8 +105,66 @@ struct Iron_Color {
 };
 
 /* ── Image / Texture / Font types (Plan 60-03) ────────────────────── */
-/* Iron_Image, Iron_Texture, Iron_RenderTexture, Iron_NPatchInfo,
- * Iron_GlyphInfo, Iron_Font — added by 60-03. */
+
+/* CPU image. `_data` is an opaque pointer-as-int64 on the Iron side;
+ * on the C side we declare it as `void *` so offsetof matches the
+ * raylib `Image.data` field. Layout-compat relies on:
+ *   sizeof(int64_t) == sizeof(void *)        [holds on every 64-bit target]
+ * If Iron ever supports 32-bit targets, this assertion in
+ * iron_raylib_layout.c will fail and we revisit. */
+struct Iron_Image {
+    void *_data;
+    int width;
+    int height;
+    int mipmaps;
+    int format;
+};
+
+/* GPU texture — raylib.h `Texture { unsigned int id; int width; ... }`. */
+struct Iron_Texture {
+    unsigned int id;
+    int width;
+    int height;
+    int mipmaps;
+    int format;
+};
+
+/* Render texture — embedded Iron_Texture by value. */
+struct Iron_RenderTexture {
+    unsigned int id;
+    struct Iron_Texture texture;
+    struct Iron_Texture depth;
+};
+
+/* N-patch info — embedded Iron_Rectangle (from Plan 60-02) by value. */
+struct Iron_NPatchInfo {
+    struct Iron_Rectangle source;
+    int left;
+    int top;
+    int right;
+    int bottom;
+    int layout;
+};
+
+/* Glyph info — embedded Iron_Image by value. */
+struct Iron_GlyphInfo {
+    int value;
+    int offsetX;
+    int offsetY;
+    int advanceX;
+    struct Iron_Image image;
+};
+
+/* Font atlas — embedded Iron_Texture plus opaque Rectangle* / GlyphInfo*
+ * pointers mirrored as void * to preserve pointer-sized offsets. */
+struct Iron_Font {
+    int baseSize;
+    int glyphCount;
+    int glyphPadding;
+    struct Iron_Texture texture;
+    void *_recs;
+    void *_glyphs;
+};
 
 /* ── Camera / Mesh / Model types (Plan 60-04) ─────────────────────── */
 /* Iron_Camera2D, Iron_Camera3D, Iron_Mesh, Iron_Shader,
