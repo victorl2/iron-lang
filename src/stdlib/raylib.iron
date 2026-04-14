@@ -893,3 +893,32 @@ object FilePathList {
     val count: UInt32
     val _paths: Int
 }
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Namespace types (receivers for free functions — no instances)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- These empty `object`s exist solely as method receivers for raylib's
+-- free-function groups. No user code ever constructs a Window or Draw
+-- value; calls are always type-level:
+--
+--     Window.init(800, 600, "Demo")   -- not val w = Window(...)
+--     Draw.begin()
+--     Draw.end()
+--     Audio.init()
+--     Files.exists("path.txt")
+--
+-- The methods themselves are added in later phases:
+--   Phase 61 → Window.* (init, close, should_close, ...)
+--   Phase 61 → Draw.* (placeholder — actual 2D draw in Phase 63)
+--   Phase 63 → Draw.begin / Draw.end / Draw.clear / begin_mode_2d / ...
+--   Phase 68 → Audio.init, Audio.close, Audio.set_master_volume, ...
+--   Phase 72 → Files.exists, Files.read_text, Files.list_ex, ...
+--
+-- Phase 60 only DECLARES these. The methods are empty-body stubs added
+-- plan-by-plan as each subsequent phase lands.
+
+object Window {}
+object Draw {}
+object Audio {}
+object Files {}
