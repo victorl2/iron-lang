@@ -973,3 +973,15 @@ val DARKGRAY = Color(80, 80, 80, 255)
 -- ABI smoke test (temporary; remove when Phase 61 is complete).
 -- Proves Iron's FFI correctly marshals struct-by-value returns.
 func Window.abi_smoke_test() -> Vector2 {}
+
+-- Window lifecycle (WIN-01)
+--
+-- `Window.init` MUST be called before any other Window.* method
+-- except `Window.set_config_flags` / `Window.set_trace_log_level`
+-- (those are pre-init-only and live in Plan 61-04). Calling anything
+-- else before init is undefined behavior — raylib will crash or
+-- silently no-op. Iron does not enforce this at runtime; trust the
+-- user to follow the lifecycle.
+func Window.init(w: Int32, h: Int32, title: String) {}
+func Window.close() {}
+func Window.should_close() -> Bool {}

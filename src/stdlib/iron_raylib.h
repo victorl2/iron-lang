@@ -349,6 +349,11 @@ struct Iron_FilePathList {
  * DELETE this prototype after Phase 61 verification if not needed. */
 struct Iron_Vector2 Iron_window_abi_smoke_test(void);
 
+/* Window lifecycle (WIN-01) */
+void Iron_window_init(int32_t w, int32_t h, Iron_String title);
+void Iron_window_close(void);
+bool Iron_window_should_close(void);
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */

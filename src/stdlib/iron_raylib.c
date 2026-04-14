@@ -43,6 +43,24 @@ struct Iron_Vector2 Iron_window_abi_smoke_test(void) {
     return v;
 }
 
+/* Window lifecycle (WIN-01) */
+
+void Iron_window_init(int32_t w, int32_t h, Iron_String title) {
+    /* iron_string_cstr yields a NUL-terminated const char * into the
+     * Iron-owned string buffer. raylib copies the title into its own
+     * storage via strdup internally, so we do not need to keep the
+     * pointer alive past this call. */
+    InitWindow((int)w, (int)h, iron_string_cstr(&title));
+}
+
+void Iron_window_close(void) {
+    CloseWindow();
+}
+
+bool Iron_window_should_close(void) {
+    return WindowShouldClose();
+}
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
