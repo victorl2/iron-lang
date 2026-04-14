@@ -46,6 +46,53 @@
 -- ──────────────────────────────────────────────────────────────────────
 
 -- ══════════════════════════════════════════════════════════════════════
+-- TYPE-31 / TYPE-32 compliance audit (Plan 60-06)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- TYPE-31 — Positional constructors in C-struct field order:
+--   Every `object` below declares its `val` fields in the exact order
+--   raylib.h declares the corresponding C struct. Iron's positional
+--   constructor `Vector3(1.0, 2.0, 3.0)` therefore produces the same
+--   memory layout as the C literal `(Vector3){1.0f, 2.0f, 3.0f}`. This
+--   is enforced by the compile-time `_Static_assert` in
+--   iron_raylib_layout.c — any re-ordering fires a field offset
+--   mismatch and breaks the build.
+--
+-- TYPE-32 — Opaque pointer hiding:
+--   Every raylib C struct field of type `void *`, `<Type> *`, or
+--   `<Type> **` maps to an `_`-prefixed `val: Int` field on the Iron
+--   side. Users cannot accidentally dereference these from Iron code
+--   because Iron has no pointer primitive — the Int value is just a
+--   number, and no Iron operation will cast it back. Accessor helpers
+--   (`image.get_color(x, y)`, `mesh.vertex_at(i)`, `font.glyph_at(i)`,
+--   `wave.to_samples()`, etc.) land in the phases that bind the
+--   surrounding functionality:
+--
+--     Image._data         → Phase 66 accessors (image.get_color, ...)
+--     Mesh._vertices, etc → Phase 70 accessors (mesh.vertex_at, ...)
+--     Font._recs, _glyphs → Phase 67 accessors (font.glyph_at, ...)
+--     Shader._locs        → Phase 71 accessors (shader.location, ...)
+--     Material._maps      → Phase 70 accessors
+--     Model._* (5 fields) → Phase 70 accessors
+--     ModelAnimation._*   → Phase 70 accessors
+--     Wave._data          → Phase 68 (wave.to_samples)
+--     FilePathList._paths → Phase 72 (Files.list_ex iteration)
+--
+--   Kind 2 opaque fields (raylib-internal decoder/mixer state) get NO
+--   Iron accessors — they are passed through the FFI opaquely:
+--
+--     AudioStream._buffer
+--     AudioStream._processor
+--     Music._ctxData
+--
+--   Plain GPU handles are NOT opaque — they are integer IDs, so they
+--   keep their raylib field name without underscore:
+--
+--     Texture.id, RenderTexture.id, Shader.id, Mesh.vaoId
+--
+-- ══════════════════════════════════════════════════════════════════════
+
+-- ══════════════════════════════════════════════════════════════════════
 -- Core math types (TYPE-01..06)
 -- ══════════════════════════════════════════════════════════════════════
 
