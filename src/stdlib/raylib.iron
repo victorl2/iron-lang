@@ -607,3 +607,174 @@ object Font {
     val _recs: Int
     val _glyphs: Int
 }
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Camera / Mesh / Material / Model types (TYPE-13..22)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- NAMING INVERSION: Iron `Camera` is the 2D scene camera (raylib's
+-- C `Camera2D`). Iron `Camera3D` is the 3D scene camera (raylib's
+-- C `Camera3D` / `Camera` typedef). This inverts raylib's
+-- `typedef Camera3D Camera` convention.
+
+-- 2D scene camera — maps to raylib's C `Camera2D`. (TYPE-13)
+object Camera {
+    val offset: Vector2
+    val target: Vector2
+    val rotation: Float32
+    val zoom: Float32
+}
+
+-- 3D scene camera — maps to raylib's C `Camera3D`. `projection` is
+-- a CameraProjection enum ordinal (Plan 60-07). (TYPE-14)
+object Camera3D {
+    val position: Vector3
+    val target: Vector3
+    val up: Vector3
+    val fovy: Float32
+    val projection: Int32
+}
+
+-- Vertex transformation — embeds Vector3 / Quaternion / Vector3. (TYPE-19)
+object Transform {
+    val translation: Vector3
+    val rotation: Quaternion
+    val scale: Vector3
+}
+
+-- Skeletal bone metadata. raylib stores `char name[32]` inline.
+-- Iron flattens into 32 underscore-prefixed UInt8 fields. (TYPE-20)
+object BoneInfo {
+    val _name_00: UInt8
+    val _name_01: UInt8
+    val _name_02: UInt8
+    val _name_03: UInt8
+    val _name_04: UInt8
+    val _name_05: UInt8
+    val _name_06: UInt8
+    val _name_07: UInt8
+    val _name_08: UInt8
+    val _name_09: UInt8
+    val _name_10: UInt8
+    val _name_11: UInt8
+    val _name_12: UInt8
+    val _name_13: UInt8
+    val _name_14: UInt8
+    val _name_15: UInt8
+    val _name_16: UInt8
+    val _name_17: UInt8
+    val _name_18: UInt8
+    val _name_19: UInt8
+    val _name_20: UInt8
+    val _name_21: UInt8
+    val _name_22: UInt8
+    val _name_23: UInt8
+    val _name_24: UInt8
+    val _name_25: UInt8
+    val _name_26: UInt8
+    val _name_27: UInt8
+    val _name_28: UInt8
+    val _name_29: UInt8
+    val _name_30: UInt8
+    val _name_31: UInt8
+    val parent: Int32
+}
+
+-- Mesh vertex data. 14 opaque pointer fields plus plain `vaoId` GPU
+-- handle. `_vboId` is `unsigned int *` (array of GPU IDs), opaque. (TYPE-15)
+object Mesh {
+    val vertexCount: Int32
+    val triangleCount: Int32
+    val _vertices: Int
+    val _texcoords: Int
+    val _texcoords2: Int
+    val _normals: Int
+    val _tangents: Int
+    val _colors: Int
+    val _indices: Int
+    val _animVertices: Int
+    val _animNormals: Int
+    val _boneIds: Int
+    val _boneWeights: Int
+    val _boneMatrices: Int
+    val boneCount: Int32
+    val vaoId: UInt32
+    val _vboId: Int
+}
+
+-- GPU shader. `_locs` is `int *` (opaque). (TYPE-16)
+object Shader {
+    val id: UInt32
+    val _locs: Int
+}
+
+-- Material map. (TYPE-17)
+object MaterialMap {
+    val texture: Texture
+    val color: Color
+    val value: Float32
+}
+
+-- Material. `_maps` is opaque `MaterialMap *`. `_params_0.._params_3`
+-- flatten the inline `float params[4]`. (TYPE-18)
+object Material {
+    val shader: Shader
+    val _maps: Int
+    val _params_0: Float32
+    val _params_1: Float32
+    val _params_2: Float32
+    val _params_3: Float32
+}
+
+-- 3D model — embeds `transform: Matrix` plus 5 opaque pointer fields. (TYPE-21)
+object Model {
+    val transform: Matrix
+    val meshCount: Int32
+    val materialCount: Int32
+    val _meshes: Int
+    val _materials: Int
+    val _meshMaterial: Int
+    val boneCount: Int32
+    val _bones: Int
+    val _bindPose: Int
+}
+
+-- Skeletal animation. `_framePoses` mirrors C `Transform **`. (TYPE-22)
+object ModelAnimation {
+    val boneCount: Int32
+    val frameCount: Int32
+    val _bones: Int
+    val _framePoses: Int
+    val _name_00: UInt8
+    val _name_01: UInt8
+    val _name_02: UInt8
+    val _name_03: UInt8
+    val _name_04: UInt8
+    val _name_05: UInt8
+    val _name_06: UInt8
+    val _name_07: UInt8
+    val _name_08: UInt8
+    val _name_09: UInt8
+    val _name_10: UInt8
+    val _name_11: UInt8
+    val _name_12: UInt8
+    val _name_13: UInt8
+    val _name_14: UInt8
+    val _name_15: UInt8
+    val _name_16: UInt8
+    val _name_17: UInt8
+    val _name_18: UInt8
+    val _name_19: UInt8
+    val _name_20: UInt8
+    val _name_21: UInt8
+    val _name_22: UInt8
+    val _name_23: UInt8
+    val _name_24: UInt8
+    val _name_25: UInt8
+    val _name_26: UInt8
+    val _name_27: UInt8
+    val _name_28: UInt8
+    val _name_29: UInt8
+    val _name_30: UInt8
+    val _name_31: UInt8
+}
