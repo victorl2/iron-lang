@@ -677,7 +677,12 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      * (raylib's web backend, included transitively via platform dispatch),
      * not through rcore_desktop_glfw.c.
      */
-#define IRON_WEB_RAYLIB_SRC_COUNT 7
+    /* Phase 60 Plan 01: +2 slots for the Iron-side raylib shim TUs
+     * (iron_raylib.c wrappers + iron_raylib_layout.c ABI asserts).
+     * They live under stdlib/, not vendor/raylib/, but share the
+     * conditional-on-use_raylib lifecycle so they fit cleanly into
+     * the same allocation / free / emcc-append loops below. */
+#define IRON_WEB_RAYLIB_SRC_COUNT 9
     const char *rl_rel_paths[IRON_WEB_RAYLIB_SRC_COUNT] = {
         "vendor/raylib/rcore.c",
         "vendor/raylib/rshapes.c",
@@ -686,6 +691,8 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         "vendor/raylib/rmodels.c",
         "vendor/raylib/raudio.c",
         "vendor/raylib/utils.c",
+        "stdlib/iron_raylib.c",         /* Phase 60 Plan 01 shim */
+        "stdlib/iron_raylib_layout.c",  /* Phase 60 Plan 01 ABI asserts */
     };
     char *rl_abs_paths[IRON_WEB_RAYLIB_SRC_COUNT] = {0};
     char *rl_i_flag = NULL;
