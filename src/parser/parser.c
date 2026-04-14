@@ -2605,9 +2605,26 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
     Iron_Node **method_sigs = NULL;
     int method_count        = 0;
 
+    /* Phase 72 HARDEN-02: forward-progress guard + fuel counter for
+     * iron_parse_interface_decl's recovery loop. The invariant is the
+     * load-bearing fix: every error-branch iteration must advance p->pos
+     * or exit the loop, otherwise iron_parser_sync_stmt's stop-list can
+     * pin the cursor on a VAL/VAR/IF/WHILE/FOR/MATCH/RETURN/DEFER/FREE/
+     * LEAK/SPAWN token and spin forever (Phase 68 fuzz_parser /
+     * fuzz_typecheck / fuzz_hir_to_lir all converged on this shape within
+     * 1000 iterations at -seed=1). The MAX_INTERFACE_RECOVERY_ITERS fuel
+     * counter is defense-in-depth against any OTHER future regression in
+     * this same loop without requiring a fresh fuzz-bisect. */
+    const int MAX_INTERFACE_RECOVERY_ITERS = 1024;
+    int recovery_iters = 0;
+
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+
+        /* Phase 72 HARDEN-02: capture pre-iteration cursor so the error
+         * branches can detect and repair a non-advancing sync_stmt. */
+        int iter_start_pos = p->pos;
 
         /* Method signature: func name(params) [-> Type] — no body */
         if (!iron_check(p, IRON_TOK_FUNC)) {
@@ -2616,6 +2633,25 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
                            iron_token_span(p, iron_current(p)),
                            "expected method signature in interface", NULL);
             iron_parser_sync_stmt(p);
+            /* Phase 72 HARDEN-02: forward-progress invariant. sync_stmt
+             * returns without advancing p->pos when the current token is
+             * already in its stop-list (RBRACE caught above; VAL/VAR/IF/
+             * WHILE/FOR/MATCH/RETURN/DEFER/FREE/LEAK/SPAWN NOT caught).
+             * Force-advance one token so the outer `continue` cannot spin. */
+            if (p->pos == iter_start_pos &&
+                !iron_check(p, IRON_TOK_RBRACE) &&
+                !iron_check(p, IRON_TOK_EOF)) {
+                iron_advance(p);
+            }
+            recovery_iters++;
+            if (recovery_iters >= MAX_INTERFACE_RECOVERY_ITERS) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "parser internal error: iron_parse_interface_decl exceeded recovery fuel",
+                               NULL);
+                break;
+            }
             continue;
         }
         Iron_Token *fsig_start = iron_current(p);
@@ -2624,6 +2660,22 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         /* Method name: must be a regular identifier */
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_parser_sync_stmt(p);
+            /* Phase 72 HARDEN-02: same forward-progress invariant applied
+             * to the post-`func` method-name branch. */
+            if (p->pos == iter_start_pos &&
+                !iron_check(p, IRON_TOK_RBRACE) &&
+                !iron_check(p, IRON_TOK_EOF)) {
+                iron_advance(p);
+            }
+            recovery_iters++;
+            if (recovery_iters >= MAX_INTERFACE_RECOVERY_ITERS) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "parser internal error: iron_parse_interface_decl exceeded recovery fuel",
+                               NULL);
+                break;
+            }
             continue;
         }
         Iron_Token *sig_name = iron_advance(p);
