@@ -265,9 +265,74 @@ struct Iron_ModelAnimation {
 };
 
 /* ── 3D helpers / audio / file types (Plan 60-05) ─────────────────── */
-/* Iron_Ray, Iron_RayCollision, Iron_BoundingBox, Iron_Wave,
- * Iron_AudioStream, Iron_Sound, Iron_Music, Iron_FilePathList —
- * added by 60-05. */
+
+/* Ray — origin + direction. */
+struct Iron_Ray {
+    struct Iron_Vector3 position;
+    struct Iron_Vector3 direction;
+};
+
+/* RayCollision — `hit` is a stdbool.h `bool` (1 byte).
+ * C compiler inserts padding before `distance` to 4-byte alignment,
+ * so offsetof(distance) is typically 4. The _Static_assert in
+ * iron_raylib_layout.c verifies this matches Iron's `Bool` layout. */
+struct Iron_RayCollision {
+    bool                 hit;
+    float                distance;
+    struct Iron_Vector3  point;
+    struct Iron_Vector3  normal;
+};
+
+/* BoundingBox — min + max corners. */
+struct Iron_BoundingBox {
+    struct Iron_Vector3 min;
+    struct Iron_Vector3 max;
+};
+
+/* Wave — 4 unsigned ints + opaque data pointer. */
+struct Iron_Wave {
+    unsigned int frameCount;
+    unsigned int sampleRate;
+    unsigned int sampleSize;
+    unsigned int channels;
+    void        *_data;
+};
+
+/* AudioStream — 2 opaque raylib-internal pointers + 3 unsigned ints.
+ * Note: the C field types are `rAudioBuffer *` and
+ * `rAudioProcessor *`. We use `void *` in the Iron mirror because
+ * the opaque types have no definition visible to Iron, and `void *`
+ * has the same size/alignment as any pointer on every target. */
+struct Iron_AudioStream {
+    void        *_buffer;
+    void        *_processor;
+    unsigned int sampleRate;
+    unsigned int sampleSize;
+    unsigned int channels;
+};
+
+/* Sound — embedded AudioStream by value. */
+struct Iron_Sound {
+    struct Iron_AudioStream stream;
+    unsigned int            frameCount;
+};
+
+/* Music — embedded AudioStream, metadata, `looping` bool, and opaque
+ * ctxData pointer. */
+struct Iron_Music {
+    struct Iron_AudioStream stream;
+    unsigned int            frameCount;
+    bool                    looping;
+    int                     ctxType;
+    void                   *_ctxData;
+};
+
+/* FilePathList — `_paths` mirrors raylib's `char **paths`. */
+struct Iron_FilePathList {
+    unsigned int capacity;
+    unsigned int count;
+    void        *_paths;
+};
 
 /* ════════════════════════════════════════════════════════════════════
  * Shim wrapper function prototypes — added by Phases 61–72.
