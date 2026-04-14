@@ -1,11 +1,19 @@
+-- hello_raylib.iron: PHASE 60 clean-break placeholder for the web
+-- integration test. Restored to a working Hello World in Phase 61.
+
 import raylib
 
 func main() {
-    InitWindow(800, 600, "Hello Raylib Web")
-    while not WindowShouldClose() {
-        BeginDrawing()
-        ClearBackground(WHITE)
-        EndDrawing()
-    }
-    CloseWindow()
+    -- Phase 60 type surface only:
+    val title: String = "Hello Raylib Web — Phase 60 placeholder"
+    val bg: Color = WHITE
+    val fg: Color = BLACK
+
+    -- PHASE 61: Window.init(800, 600, title)
+    -- PHASE 61: while not Window.should_close() { Draw.begin(); Draw.clear(bg); Draw.end() }
+    -- PHASE 61: Window.close()
+
+    val _unused_0 = title
+    val _unused_1 = bg
+    val _unused_2 = fg
 }
