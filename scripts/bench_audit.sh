@@ -21,13 +21,19 @@
 # The CSV is consumed by Plan 03 Task 2 to write 'rationale' strings into
 # every benchmark config.json.
 #
-# Usage: bash scripts/bench_audit.sh [runs]
-#   runs: number of audit rounds (default 5)
+# Usage: bash scripts/bench_audit.sh [--platform {linux-x86_64|macos-arm64|auto}] [runs]
+#   --platform: CI-runner tag for the output CSV (default: auto via uname).
+#               Phase 69 Plan 05 (REG-03) added this so the next benchmark
+#               drift incident is a 5-minute re-run instead of a 30-minute
+#               debug session. The CSV gains a leading `platform` column
+#               so per-platform thresholds can be split into separate
+#               tests/benchmarks/thresholds.<platform>.json files.
+#   runs:       number of audit rounds (default 5)
 #
 # Outputs:
 #   /tmp/58-audit-run-{1..5}.json  per-run JSON results
 #   /tmp/58-audit.csv              aggregated CSV with columns:
-#     problem, runs_total, runs_used, ratio_min, ratio_max,
+#     platform, problem, runs_total, runs_used, ratio_min, ratio_max,
 #     ratio_mean, ratio_stddev, variance_pct, iron_ms_mean, c_ms_mean,
 #     pass_count, current_max_ratio,
 #     ratio_r1, ratio_r2, ratio_r3, ratio_r4, ratio_r5  (raw per-run ratios)
@@ -37,7 +43,65 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUNNER="$REPO_ROOT/tests/benchmarks/run_benchmarks.sh"
-RUNS="${1:-5}"
+
+# Argument parsing: --platform flag is optional, runs is positional.
+# Backwards-compat: `bash scripts/bench_audit.sh 5` still works (positional runs=5).
+PLATFORM="auto"
+RUNS=5
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --help|-h)
+            sed -n '1,39p' "${BASH_SOURCE[0]}"
+            exit 0
+            ;;
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
+        --platform=*)
+            PLATFORM="${1#--platform=}"
+            shift
+            ;;
+        *)
+            if [[ "$1" =~ ^[0-9]+$ ]]; then
+                RUNS="$1"
+                shift
+            else
+                echo "ERROR: unknown arg: $1" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+# Resolve --platform auto via uname.
+detect_platform() {
+    local os arch
+    os="$(uname -s)"
+    arch="$(uname -m)"
+    case "$os-$arch" in
+        Linux-x86_64)  echo "linux-x86_64" ;;
+        Darwin-arm64)  echo "macos-arm64" ;;
+        Darwin-x86_64) echo "macos-x86_64" ;;
+        Linux-aarch64) echo "linux-arm64" ;;
+        *)             echo "unknown-$(echo "$os-$arch" | tr '[:upper:]' '[:lower:]')" ;;
+    esac
+}
+
+if [ "$PLATFORM" = "auto" ]; then
+    PLATFORM="$(detect_platform)"
+fi
+
+case "$PLATFORM" in
+    linux-x86_64|macos-arm64|macos-x86_64|linux-arm64|unknown-*) ;;
+    *)
+        echo "ERROR: invalid --platform: $PLATFORM" >&2
+        echo "  valid values: linux-x86_64, macos-arm64, macos-x86_64, linux-arm64, auto" >&2
+        exit 1
+        ;;
+esac
+
+echo "Platform: $PLATFORM"
 
 if [ ! -x "$RUNNER" ]; then
     echo "ERROR: $RUNNER not found or not executable"
@@ -86,12 +150,13 @@ echo "=== Aggregating $RUNS runs into /tmp/58-audit.csv ==="
 #    Rationale: machine-level noise on ~15ms-runtime benchmarks produces
 #    single-run outliers that distort a naive 5-sample mean; trimming min+max
 #    removes those outliers while keeping enough samples for a useful stddev.
-python3 - "$RUNS" <<'PYEOF'
+python3 - "$RUNS" "$PLATFORM" <<'PYEOF'
 import json
 import math
 import sys
 
 RUNS = int(sys.argv[1])
+platform_tag = sys.argv[2]
 runs_data = []
 for i in range(1, RUNS + 1):
     path = f"/tmp/58-audit-run-{i}.json"
@@ -136,6 +201,7 @@ def trimmed_mean_std(values):
 with open("/tmp/58-audit.csv", "w") as out:
     # Header: trimmed-aware statistics + raw per-run ratios for auditability.
     header_cols = [
+        "platform",
         "problem", "runs_total", "runs_used",
         "ratio_min", "ratio_max",
         "ratio_mean", "ratio_stddev", "variance_pct",
@@ -167,6 +233,7 @@ with open("/tmp/58-audit.csv", "w") as out:
         pass_count = sum(1 for s in statuses if s == "pass")
 
         row = [
+            platform_tag,
             name, str(n_total), str(n_used),
             f"{r_min:.3f}", f"{r_max:.3f}",
             f"{r_mean:.3f}", f"{r_stddev:.3f}", f"{variance_pct:.2f}",
@@ -186,6 +253,7 @@ PYEOF
 
 echo ""
 echo "=== Audit complete ==="
+echo "Platform:          $PLATFORM"
 echo "Raw per-run data:  /tmp/58-audit-run-{1..$RUNS}.json"
 echo "Aggregated CSV:    /tmp/58-audit.csv"
 echo ""
