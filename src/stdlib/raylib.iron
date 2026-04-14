@@ -778,3 +778,71 @@ object ModelAnimation {
     val _name_30: UInt8
     val _name_31: UInt8
 }
+
+-- ══════════════════════════════════════════════════════════════════════
+-- 3D helpers / audio / file types (TYPE-23..30)
+-- ══════════════════════════════════════════════════════════════════════
+
+-- Ray for raycasting — origin + normalized direction. (TYPE-23)
+object Ray {
+    val position: Vector3
+    val direction: Vector3
+}
+
+-- Ray hit information — `hit` is a Bool (C bool, 1 byte + padding).
+-- `distance` / `point` / `normal` follow after padding. (TYPE-24)
+object RayCollision {
+    val hit: Bool
+    val distance: Float32
+    val point: Vector3
+    val normal: Vector3
+}
+
+-- Axis-aligned bounding box. (TYPE-25)
+object BoundingBox {
+    val min: Vector3
+    val max: Vector3
+}
+
+-- CPU-side audio wave data. `_data` is raylib's `void *data`. (TYPE-26)
+object Wave {
+    val frameCount: UInt32
+    val sampleRate: UInt32
+    val sampleSize: UInt32
+    val channels: UInt32
+    val _data: Int
+}
+
+-- Audio stream — both `_buffer` and `_processor` are raylib-internal
+-- opaque pointers (Kind 2 — NO Iron accessors). sampleRate/sampleSize/
+-- channels are plain UInt32. (TYPE-27)
+object AudioStream {
+    val _buffer: Int
+    val _processor: Int
+    val sampleRate: UInt32
+    val sampleSize: UInt32
+    val channels: UInt32
+}
+
+-- Sound effect — embeds AudioStream by value. (TYPE-28)
+object Sound {
+    val stream: AudioStream
+    val frameCount: UInt32
+}
+
+-- Music stream — embeds AudioStream plus metadata plus an opaque
+-- `_ctxData` pointer (Kind 2 — NO Iron accessors). (TYPE-29)
+object Music {
+    val stream: AudioStream
+    val frameCount: UInt32
+    val looping: Bool
+    val ctxType: Int32
+    val _ctxData: Int
+}
+
+-- File path list — `_paths` is `char **` (opaque double-indirect). (TYPE-30)
+object FilePathList {
+    val capacity: UInt32
+    val count: UInt32
+    val _paths: Int
+}
