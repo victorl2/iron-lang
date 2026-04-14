@@ -1,41 +1,45 @@
--- game_raylib.iron: Manual raylib smoke test
--- Opens a window, draws text and a frame counter.
+-- game_raylib.iron: Manual raylib smoke test — Phase 60 placeholder.
+--
+-- PHASE 60 NOTE (Plan 60-08): This file was rewritten during the
+-- clean-break. Its original body used module-function style calls
+-- (raylib dot init underscore window / raylib dot draw underscore
+-- text / etc.) which never worked against any raylib.iron (old or
+-- new). This placeholder exercises Phase 60's type/enum surface to
+-- prove the import path is healthy; full game code returns in
+-- Phase 73 as part of the showcase.
+--
 -- Run manually: ctest --test-dir build -L manual
 -- NOT included in CI (requires display and raylib).
 
 import raylib
 
-object Ball {
-  var x: Float
-  var y: Float
-  var speed: Float
-}
-
 func main() {
-  raylib.init_window(800, 600, "Iron Language Test")
-  raylib.set_target_fps(60)
+    -- Phase 60 type surface exercised (no function calls):
+    val title: String = "Iron Language Test — Phase 60 placeholder"
+    val ball_pos: Vector2 = Vector2(Float32(400.0), Float32(300.0))
+    val ball_velocity: Vector2 = Vector2(Float32(2.0), Float32(0.0))
+    val fg: Color = WHITE
+    val bg: Color = BLACK
+    val highlight: Color = RED
+    val accent: Color = GREEN
+    val up_key: KeyboardKey = KeyboardKey.UP
+    val down_key: KeyboardKey = KeyboardKey.DOWN
 
-  var frame = 0
-  var ball = Ball(400.0, 300.0, 2.0)
+    -- PHASE 61: Window.init(800, 600, title)
+    -- PHASE 61: Window.set_target_fps(60)
+    -- PHASE 61: while not Window.should_close() { ... }
+    -- PHASE 63: Draw.begin() / Draw.clear(bg) / Draw.end()
+    -- PHASE 62: if Input.is_key_down(down_key) { ... }
+    -- PHASE 61: Window.close()
 
-  while not raylib.window_should_close() {
-    frame = frame + 1
-
-    -- Update: simple vertical bounce
-    ball.y = ball.y + ball.speed
-    if ball.y > 550.0 {
-      ball.speed = 0.0 - ball.speed
-    }
-    if ball.y < 50.0 {
-      ball.speed = 0.0 - ball.speed
-    }
-
-    raylib.begin_drawing()
-    raylib.clear_background(raylib.RAYWHITE)
-    raylib.draw_text("Iron Language Test", 200, 250, 30, raylib.DARKGRAY)
-    raylib.draw_text("Frame: {frame}", 200, 300, 20, raylib.GRAY)
-    raylib.end_drawing()
-  }
-
-  raylib.close_window()
+    -- Keep the values alive so the typechecker doesn't warn about unused locals:
+    val _unused_0 = title
+    val _unused_1 = ball_pos
+    val _unused_2 = ball_velocity
+    val _unused_3 = fg
+    val _unused_4 = bg
+    val _unused_5 = highlight
+    val _unused_6 = accent
+    val _unused_7 = up_key
+    val _unused_8 = down_key
 }
