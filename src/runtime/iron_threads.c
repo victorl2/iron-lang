@@ -144,13 +144,25 @@ struct Iron_PoolWait {
 };
 
 /* Expand the circular-buffer work queue to double its capacity.
- * Must be called with pool->lock held. */
-static void pool_queue_grow(Iron_Pool *pool) {
+ * Must be called with pool->lock held. Returns iron_error_none() on success
+ * and IRON_ERR_POOL_FULL on grow-malloc failure — the caller (normally
+ * iron_pool_submit_impl) propagates the typed error up through
+ * Iron_pool_submit_or_error. Legacy Iron_pool_submit / Iron_pool_submit_wait
+ * delegate to the same impl and abort on non-zero returns to preserve the
+ * Phase 67-06 "abort on any failure" posture for codegen-emitted callers.
+ *
+ * HARDEN-01 degraded-mode site (was iron_oom_abort at this line in 834ee04).
+ * The pool remains operational at its current capacity if the grow fails —
+ * the submit caller just sees IRON_ERR_POOL_FULL. */
+static Iron_Error pool_queue_grow(Iron_Pool *pool) {
     int new_cap = pool->queue_capacity * 2;
-    /* FIX-02: replace silent-drop fallback with iron_oom_abort (AUDIT-06 §22). */
     Iron_WorkItem *new_q = (Iron_WorkItem *)malloc(
         (size_t)new_cap * sizeof(Iron_WorkItem));
-    if (!new_q) iron_oom_abort("iron_threads.c:pool_queue_grow");
+    if (!new_q) {
+        return iron_error_new(
+            IRON_ERR_POOL_FULL,
+            "pool_queue_grow: malloc failed on queue doubling");
+    }
 
     /* Copy items from circular buffer to linear new buffer */
     for (int i = 0; i < pool->queue_count; i++) {
@@ -161,6 +173,7 @@ static void pool_queue_grow(Iron_Pool *pool) {
     pool->queue_head     = 0;
     pool->queue_tail     = pool->queue_count;
     pool->queue_capacity = new_cap;
+    return iron_error_none();
 }
 
 /* Worker thread entry point (fixed-size pools) */
@@ -208,7 +221,16 @@ static void *pool_worker(void *arg) {
 
 /* Forward decl: elastic worker + spawn helper (defined below). */
 static void *pool_worker_elastic(void *arg);
-static void pool_spawn_elastic_worker_locked(Iron_Pool *pool);
+static Iron_Error pool_spawn_elastic_worker_locked(Iron_Pool *pool);
+
+/* Forward decl: shared submit implementation used by both legacy
+ * Iron_pool_submit / Iron_pool_submit_wait (abort on error) and the new
+ * Iron_pool_submit_or_error (propagate error). Defined immediately after the
+ * legacy submit entry points below. */
+static Iron_Error iron_pool_submit_impl(Iron_Pool *pool,
+                                         void (*fn)(void *),
+                                         void *arg,
+                                         Iron_PoolWait *wait);
 
 /* ── Iron_Pool public API ────────────────────────────────────────────────── */
 
@@ -300,18 +322,37 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
     return r.pool;
 }
 
-void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
-    if (!pool || !fn) return;
+/* Shared submit implementation. Returns iron_error_none() on success,
+ * IRON_ERR_POOL_FULL if queue grow fails, or IRON_ERR_THREAD_LIMIT if an
+ * elastic worker spawn fails. Caller decides whether to abort (legacy
+ * void-returning submit wrappers) or propagate (Iron_pool_submit_or_error).
+ *
+ * The elastic-spawn failure path rolls back the just-enqueued item (pending,
+ * queue_tail, queue_count) while still under pool->lock so no worker can
+ * observe the phantom entry. This is race-free because the roll-back
+ * precedes the IRON_COND_SIGNAL(work_ready) that would notify a parked
+ * worker. */
+static Iron_Error iron_pool_submit_impl(Iron_Pool *pool,
+                                         void (*fn)(void *),
+                                         void *arg,
+                                         Iron_PoolWait *wait) {
+    /* Legacy silently-drops NULL pool/fn; preserve that semantic for
+     * every submit entry point. */
+    if (!pool || !fn) return iron_error_none();
 
     IRON_MUTEX_LOCK(pool->lock);
 
     if (pool->queue_count == pool->queue_capacity) {
-        pool_queue_grow(pool);
+        Iron_Error grow_err = pool_queue_grow(pool);
+        if (!iron_error_is_ok(grow_err)) {
+            IRON_MUTEX_UNLOCK(pool->lock);
+            return grow_err;
+        }
     }
 
     pool->queue[pool->queue_tail].fn   = fn;
     pool->queue[pool->queue_tail].arg  = arg;
-    pool->queue[pool->queue_tail].wait = NULL;
+    pool->queue[pool->queue_tail].wait = wait;
     pool->queue_tail  = (pool->queue_tail + 1) % pool->queue_capacity;
     pool->queue_count++;
     pool->pending++;
@@ -322,40 +363,64 @@ void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
     if (pool->is_elastic
         && pool->idle_threads == 0
         && pool->thread_count < pool->max_threads) {
-        pool_spawn_elastic_worker_locked(pool);
+        Iron_Error spawn_err = pool_spawn_elastic_worker_locked(pool);
+        if (!iron_error_is_ok(spawn_err)) {
+            /* Roll back the just-enqueued item so the caller sees the
+             * failure cleanly. Leaving it in the queue with no live worker
+             * to run it would drift pending / queue_count. The rewind is
+             * race-free because we are still holding pool->lock and we
+             * have not yet signalled work_ready, so no parked worker can
+             * observe the phantom entry. */
+            pool->pending--;
+            pool->queue_tail = (pool->queue_tail - 1 + pool->queue_capacity)
+                               % pool->queue_capacity;
+            pool->queue_count--;
+            IRON_MUTEX_UNLOCK(pool->lock);
+            return spawn_err;
+        }
     }
 
     IRON_COND_SIGNAL(pool->work_ready);
     IRON_MUTEX_UNLOCK(pool->lock);
+    return iron_error_none();
+}
+
+void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
+    /* Legacy wrapper — delegates to the shared impl and aborts on any
+     * typed error to preserve Phase 67-06 "abort on any failure"
+     * semantics for callers that cannot handle a non-zero return:
+     * src/lir/emit_c.c:4052 + :4257 (codegen-emitted user parallel code),
+     * src/stdlib/iron_net.c:1316 (DNS worker submission). Callers who can
+     * handle scheduler pressure or pool-full conditions use
+     * Iron_pool_submit_or_error directly. */
+    Iron_Error err = iron_pool_submit_impl(pool, fn, arg, NULL);
+    if (!iron_error_is_ok(err)) {
+        iron_oom_abort("iron_threads.c:Iron_pool_submit legacy wrapper");
+    }
 }
 
 void Iron_pool_submit_wait(Iron_Pool *pool,
                            void (*fn)(void *),
                            void *arg,
                            Iron_PoolWait *wait) {
-    if (!pool || !fn) return;
-
-    IRON_MUTEX_LOCK(pool->lock);
-
-    if (pool->queue_count == pool->queue_capacity) {
-        pool_queue_grow(pool);
+    /* Legacy wrapper — see Iron_pool_submit above. No public _or_error
+     * variant for submit_wait in Phase 71; a future milestone can add
+     * Iron_pool_submit_wait_or_error if needed. */
+    Iron_Error err = iron_pool_submit_impl(pool, fn, arg, wait);
+    if (!iron_error_is_ok(err)) {
+        iron_oom_abort("iron_threads.c:Iron_pool_submit_wait legacy wrapper");
     }
+}
 
-    pool->queue[pool->queue_tail].fn   = fn;
-    pool->queue[pool->queue_tail].arg  = arg;
-    pool->queue[pool->queue_tail].wait = wait;
-    pool->queue_tail  = (pool->queue_tail + 1) % pool->queue_capacity;
-    pool->queue_count++;
-    pool->pending++;
-
-    if (pool->is_elastic
-        && pool->idle_threads == 0
-        && pool->thread_count < pool->max_threads) {
-        pool_spawn_elastic_worker_locked(pool);
-    }
-
-    IRON_COND_SIGNAL(pool->work_ready);
-    IRON_MUTEX_UNLOCK(pool->lock);
+Iron_Error Iron_pool_submit_or_error(Iron_Pool *pool,
+                                      void (*fn)(void *),
+                                      void *arg) {
+    /* HARDEN-01 typed-error submit entry point. Returns iron_error_none()
+     * on success, IRON_ERR_POOL_FULL on queue grow failure, or
+     * IRON_ERR_THREAD_LIMIT on elastic-spawn scheduler-pressure failure.
+     * Callers migrate to this variant when they can meaningfully recover
+     * from transient pressure (backpressure, retry, surface to user). */
+    return iron_pool_submit_impl(pool, fn, arg, NULL);
 }
 
 void Iron_pool_barrier(Iron_Pool *pool) {
@@ -389,25 +454,54 @@ void Iron_pool_destroy(Iron_Pool *pool) {
         int snapshot_count = 0;
 
         IRON_MUTEX_LOCK(pool->lock);
-        /* FIX-02: replace silent-skip fallback with iron_oom_abort. AUDIT-06 §23. */
+        /* HARDEN-01 degraded-mode site (was iron_oom_abort here in 834ee04).
+         * If we cannot allocate the snapshot array we skip the join phase
+         * and leave the still-live workers to retire naturally. Aborting
+         * during shutdown is the worst time to abort — a crash in the
+         * host process on the way out is observably worse than leaking a
+         * handful of workers. The workers see pool->shutdown=true under
+         * the broadcast above and exit their wait loop; the OS reclaims
+         * them at process teardown if this is the final shutdown. */
         snapshot = (iron_thread_t *)malloc(
             (size_t)pool->thread_slots_cap * sizeof(iron_thread_t));
-        if (!snapshot) iron_oom_abort("iron_threads.c:Iron_pool_destroy snapshot");
-        for (int i = 0; i < pool->thread_slots_cap; i++) {
-            /* Empty-slot sentinel is (iron_thread_t)0 — works on all
-             * three target platforms: HANDLE=NULL (Win32),
-             * pthread_t=NULL pointer (macOS), pthread_t=0 (Linux glibc). */
-            if (pool->threads[i] != (iron_thread_t)0) {
-                snapshot[snapshot_count++] = pool->threads[i];
-                pool->threads[i] = (iron_thread_t)0;
+        if (snapshot) {
+            for (int i = 0; i < pool->thread_slots_cap; i++) {
+                /* Empty-slot sentinel is (iron_thread_t)0 — works on all
+                 * three target platforms: HANDLE=NULL (Win32),
+                 * pthread_t=NULL pointer (macOS), pthread_t=0 (Linux glibc). */
+                if (pool->threads[i] != (iron_thread_t)0) {
+                    snapshot[snapshot_count++] = pool->threads[i];
+                    pool->threads[i] = (iron_thread_t)0;
+                }
             }
+        } else {
+            /* Count live workers for the diagnostic. Do NOT clear the
+             * slots here — leaving them set lets the non-join path skip
+             * cleanly, and the OS will reclaim them at process exit. */
+            for (int i = 0; i < pool->thread_slots_cap; i++) {
+                if (pool->threads[i] != (iron_thread_t)0) {
+                    snapshot_count++;
+                }
+            }
+            pool->leaked_count += snapshot_count;
         }
         IRON_MUTEX_UNLOCK(pool->lock);
 
-        for (int i = 0; i < snapshot_count; i++) {
-            IRON_THREAD_JOIN(snapshot[i]);
+        if (snapshot) {
+            for (int i = 0; i < snapshot_count; i++) {
+                IRON_THREAD_JOIN(snapshot[i]);
+            }
+            free(snapshot);
+        } else {
+            /* Degraded-mode diagnostic. fprintf is not async-signal-safe
+             * but Iron_pool_destroy runs on the shutdown thread which is
+             * not inside a signal handler. */
+            fprintf(stderr,
+                    "iron: pool_destroy snapshot alloc failed — "
+                    "leaking %d live workers (degraded-mode shutdown)\n",
+                    snapshot_count);
+            fflush(stderr);
         }
-        free(snapshot);
     } else {
         for (int i = 0; i < pool->thread_count; i++) {
             IRON_THREAD_JOIN(pool->threads[i]);
@@ -454,8 +548,19 @@ int Iron_pool_leaked_count(const Iron_Pool *p) {
 /* ── Elastic Iron_Pool impl (Phase 59 P01b) ──────────────────────────────── */
 
 /* Spawn one elastic worker into the first NULL slot of pool->threads[].
- * Caller must hold pool->lock. Increments pool->thread_count on success. */
-static void pool_spawn_elastic_worker_locked(Iron_Pool *pool) {
+ * Caller must hold pool->lock. Increments pool->thread_count on success.
+ *
+ * Returns iron_error_none() on success (or on benign no-op when there is no
+ * free slot — elastic math guarantees one, but we treat the absent slot as
+ * a quiet skip). Returns IRON_ERR_THREAD_LIMIT if the underlying
+ * IRON_THREAD_CREATE returns non-zero (scheduler pressure / EAGAIN). On the
+ * failure path the speculative thread_count++ is rolled back and the slot
+ * is re-zeroed so it can be reused by a future spawn.
+ *
+ * HARDEN-01 scheduler-pressure site (was iron_oom_abort at this line in
+ * 834ee04) — this is the 4th and final scheduler-pressure `IRON_THREAD_CREATE`
+ * site identified in the 21-site audit; the first three landed in Plan 02. */
+static Iron_Error pool_spawn_elastic_worker_locked(Iron_Pool *pool) {
     int slot = -1;
     /* Empty-slot sentinel: (iron_thread_t)0 on all target platforms
      * (Win32 HANDLE=NULL, macOS pthread_t=NULL pointer, glibc pthread_t=0). */
@@ -465,16 +570,29 @@ static void pool_spawn_elastic_worker_locked(Iron_Pool *pool) {
             break;
         }
     }
-    if (slot < 0) return;  /* no free slot — elastic math guarantees one */
+    if (slot < 0) {
+        /* No free slot — elastic math guarantees one, treat as benign
+         * no-op. Not an error; the submit proceeds and will be picked up
+         * by an already-running worker. */
+        return iron_error_none();
+    }
 
     /* Reserve the slot so a racing submit doesn't double-spawn into it. */
     pool->thread_count++;
     /* We're still holding the lock; IRON_THREAD_CREATE is cheap and safe
      * to call under the lock on all supported platforms. */
-    /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */
     if (IRON_THREAD_CREATE(pool->threads[slot], pool_worker_elastic, pool) != 0) {
-        iron_oom_abort("iron_threads.c:pool_spawn_elastic_worker_locked IRON_THREAD_CREATE");
+        /* Roll back the speculative count and re-zero the slot. The
+         * caller (iron_pool_submit_impl) propagates IRON_ERR_THREAD_LIMIT
+         * up through Iron_pool_submit_or_error; legacy submit wrappers
+         * abort on non-zero return to preserve Phase 67-06 semantics. */
+        pool->thread_count--;
+        memset(&pool->threads[slot], 0, sizeof(iron_thread_t));
+        return iron_error_new(
+            IRON_ERR_THREAD_LIMIT,
+            "pool_spawn_elastic_worker_locked: IRON_THREAD_CREATE returned non-zero (scheduler pressure / EAGAIN)");
     }
+    return iron_error_none();
 }
 
 /* Elastic worker entry point — waits for work with a bounded idle timeout
