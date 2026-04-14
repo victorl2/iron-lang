@@ -61,6 +61,35 @@ jobs:
             -G Ninja
           cmake --build build
 
+      - name: Load platform-specific benchmark thresholds
+        id: thresholds
+        run: |
+          set -u
+          # Phase 69 Plan 05 (REG-03): load tests/benchmarks/thresholds.<platform>.json
+          # if available. Ubuntu runners resolve to tests/benchmarks/thresholds.linux-x86_64.json,
+          # macOS runners resolve to tests/benchmarks/thresholds.macos-arm64.json. Soft
+          # fallback to hardcoded thresholds in per-benchmark config.json files if the
+          # platform file is absent. Runtime enforcement via run_benchmarks.sh
+          # --thresholds-file is deferred to a follow-up phase; this step only exports
+          # the path as metadata so future phases can consume it without another
+          # workflow edit.
+          if [ "${{ matrix.os }}" = "ubuntu-24.04" ]; then
+            PLATFORM="linux-x86_64"
+          elif [ "${{ matrix.os }}" = "macos-26" ]; then
+            PLATFORM="macos-arm64"
+          else
+            PLATFORM="unknown"
+          fi
+          THRESHOLDS_FILE="tests/benchmarks/thresholds.${PLATFORM}.json"
+          if [ -f "$THRESHOLDS_FILE" ]; then
+            echo "Using platform thresholds: $THRESHOLDS_FILE"
+            echo "IRON_BENCH_THRESHOLDS_FILE=$THRESHOLDS_FILE" >> "$GITHUB_ENV"
+            python3 -c "import json; d=json.load(open('$THRESHOLDS_FILE')); print(f'  platform={d.get(\"_platform\", \"?\")} benchmarks={len(d.get(\"thresholds\", {}))}')"
+          else
+            echo "No platform thresholds file at $THRESHOLDS_FILE — falling back to hardcoded thresholds in tests/benchmarks/problems/*/config.json"
+            echo "IRON_BENCH_THRESHOLDS_FILE=" >> "$GITHUB_ENV"
+          fi
+
       - name: Run benchmarks
         run: |
           if [ "${{ matrix.group }}" = "parallel" ]; then
