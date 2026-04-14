@@ -11,6 +11,7 @@
  */
 
 #include "iron_runtime.h"
+#include "runtime/iron_errors.h"  /* IRON_ERR_THREAD_LIMIT (HARDEN-01) */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -211,13 +212,14 @@ static void pool_spawn_elastic_worker_locked(Iron_Pool *pool);
 
 /* ── Iron_Pool public API ────────────────────────────────────────────────── */
 
-Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
+Iron_Pool_OrError Iron_pool_create_or_error(const char *name, int thread_count) {
     if (thread_count < 1) thread_count = 1;
 
-    /* FIX-02: replace Phase 65 soft-NULL returns with iron_oom_abort — callers
-     * already dereference the result without a NULL guard. */
+    /* HARDEN-01: OOM sites still iron_oom_abort on malloc NULL. True OOM stays
+     * a hard abort by design — only scheduler pressure (pthread_create EAGAIN)
+     * surfaces as a typed error. See 71-CONTEXT.md §decisions. */
     Iron_Pool *pool = (Iron_Pool *)malloc(sizeof(Iron_Pool));
-    if (!pool) iron_oom_abort("iron_threads.c:Iron_pool_create pool");
+    if (!pool) iron_oom_abort("iron_threads.c:Iron_pool_create_or_error pool");
 
     pool->name             = name;
     pool->thread_count     = thread_count;
@@ -236,7 +238,7 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
 
     pool->queue = (Iron_WorkItem *)malloc(
         (size_t)pool->queue_capacity * sizeof(Iron_WorkItem));
-    if (!pool->queue) iron_oom_abort("iron_threads.c:Iron_pool_create queue");
+    if (!pool->queue) iron_oom_abort("iron_threads.c:Iron_pool_create_or_error queue");
 
     IRON_MUTEX_INIT(pool->lock);
     IRON_COND_INIT(pool->work_ready);
@@ -244,18 +246,58 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
 
     pool->threads = (iron_thread_t *)malloc(
         (size_t)thread_count * sizeof(iron_thread_t));
-    if (!pool->threads) iron_oom_abort("iron_threads.c:Iron_pool_create threads");
+    if (!pool->threads) iron_oom_abort("iron_threads.c:Iron_pool_create_or_error threads");
 
+    /* HARDEN-01 scheduler-pressure site: was iron_oom_abort on any
+     * IRON_THREAD_CREATE failure. New behavior: signal shutdown so the
+     * already-spawned workers exit their wait loop, join them, free all
+     * allocated memory, and return IRON_ERR_THREAD_LIMIT. Zero leaked
+     * threads, zero leaked allocations — caller can retry. */
     for (int i = 0; i < thread_count; i++) {
-        /* FIX-02: IRON_THREAD_CREATE failure (non-OOM but still unrecoverable —
-         * EAGAIN from the scheduler) now routes through iron_oom_abort since the
-         * runtime has no panic channel. AUDIT-03 §32. */
         if (IRON_THREAD_CREATE(pool->threads[i], pool_worker, pool) != 0) {
-            iron_oom_abort("iron_threads.c:Iron_pool_create IRON_THREAD_CREATE");
+            /* Partial teardown — tell the `i` workers already spawned to
+             * exit. They are parked in IRON_COND_WAIT(work_ready, lock) with
+             * queue_count==0 and shutdown==false. Setting shutdown under the
+             * lock + broadcasting work_ready wakes them and they return NULL
+             * from pool_worker. */
+            if (i > 0) {
+                IRON_MUTEX_LOCK(pool->lock);
+                pool->shutdown = true;
+                IRON_COND_BROADCAST(pool->work_ready);
+                IRON_MUTEX_UNLOCK(pool->lock);
+                for (int j = 0; j < i; j++) {
+                    IRON_THREAD_JOIN(pool->threads[j]);
+                }
+            }
+            free(pool->threads);
+            free(pool->queue);
+            IRON_MUTEX_DESTROY(pool->lock);
+            IRON_COND_DESTROY(pool->work_ready);
+            IRON_COND_DESTROY(pool->work_done);
+            free(pool);
+            return (Iron_Pool_OrError){
+                .pool = NULL,
+                .err  = iron_error_new(
+                    IRON_ERR_THREAD_LIMIT,
+                    "Iron_pool_create_or_error: pthread_create returned EAGAIN (scheduler pressure)"),
+            };
         }
     }
 
-    return pool;
+    return (Iron_Pool_OrError){ .pool = pool, .err = iron_error_none() };
+}
+
+Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
+    /* Legacy wrapper — delegates to Iron_pool_create_or_error and aborts on
+     * any typed error to preserve Phase 67-06 "abort on any failure"
+     * semantics for callers (emit_c.c codegen, iron_threads_init global pool,
+     * test_runtime_threads) that cannot handle a NULL return. Callers who
+     * can handle scheduler pressure use Iron_pool_create_or_error directly. */
+    Iron_Pool_OrError r = Iron_pool_create_or_error(name, thread_count);
+    if (!iron_error_is_ok(r.err)) {
+        iron_oom_abort("iron_threads.c:Iron_pool_create legacy wrapper");
+    }
+    return r.pool;
 }
 
 void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
@@ -691,10 +733,10 @@ static void *handle_thread_fn(void *arg) {
     return NULL;
 }
 
-Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
-    /* FIX-02: replace soft-NULL returns with iron_oom_abort. AUDIT-06 §24. */
+Iron_Handle_OrError Iron_handle_create_or_error(void (*fn)(void *), void *arg) {
+    /* HARDEN-01: OOM sites still iron_oom_abort on malloc NULL. */
     Iron_Handle *h = (Iron_Handle *)malloc(sizeof(Iron_Handle));
-    if (!h) iron_oom_abort("iron_threads.c:Iron_handle_create handle");
+    if (!h) iron_oom_abort("iron_threads.c:Iron_handle_create_or_error handle");
 
     h->done      = false;
     h->result    = NULL;
@@ -703,16 +745,40 @@ Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
     IRON_COND_INIT(h->cond);
 
     HandleWrapper *w = (HandleWrapper *)malloc(sizeof(HandleWrapper));
-    if (!w) iron_oom_abort("iron_threads.c:Iron_handle_create wrapper");
+    if (!w) iron_oom_abort("iron_threads.c:Iron_handle_create_or_error wrapper");
     w->handle = h;
     w->fn     = fn;
     w->arg    = arg;
 
-    /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */
+    /* HARDEN-01 scheduler-pressure site: was iron_oom_abort. New behavior:
+     * free the wrapper (the worker thread was never spawned so nothing else
+     * holds a reference to it), destroy mutex/cond, free the handle, return
+     * IRON_ERR_THREAD_LIMIT. Caller can retry. */
     if (IRON_THREAD_CREATE(h->thread, handle_thread_fn, w) != 0) {
-        iron_oom_abort("iron_threads.c:Iron_handle_create IRON_THREAD_CREATE");
+        free(w);
+        IRON_MUTEX_DESTROY(h->lock);
+        IRON_COND_DESTROY(h->cond);
+        free(h);
+        return (Iron_Handle_OrError){
+            .handle = NULL,
+            .err    = iron_error_new(
+                IRON_ERR_THREAD_LIMIT,
+                "Iron_handle_create_or_error: pthread_create returned EAGAIN (scheduler pressure)"),
+        };
     }
-    return h;
+    return (Iron_Handle_OrError){ .handle = h, .err = iron_error_none() };
+}
+
+Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
+    /* Legacy wrapper — delegates to Iron_handle_create_or_error and aborts
+     * on any typed error to preserve Phase 67-06 abort-on-failure semantics
+     * for codegen-emitted user code in src/lir/emit_c.c and for tests that
+     * link against the legacy signature. */
+    Iron_Handle_OrError r = Iron_handle_create_or_error(fn, arg);
+    if (!iron_error_is_ok(r.err)) {
+        iron_oom_abort("iron_threads.c:Iron_handle_create legacy wrapper");
+    }
+    return r.handle;
 }
 
 void Iron_handle_wait(Iron_Handle *handle) {
@@ -748,10 +814,10 @@ void *iron_future_await(Iron_Handle *handle) {
     return result;
 }
 
-Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *)) {
-    /* FIX-02: replace soft-NULL returns with iron_oom_abort. AUDIT-06 §24. */
+Iron_Handle_OrError iron_handle_create_self_ref_or_error(void (*fn)(void *)) {
+    /* HARDEN-01: OOM sites still iron_oom_abort on malloc NULL. */
     Iron_Handle *h = (Iron_Handle *)malloc(sizeof(Iron_Handle));
-    if (!h) iron_oom_abort("iron_threads.c:iron_handle_create_self_ref handle");
+    if (!h) iron_oom_abort("iron_threads.c:iron_handle_create_self_ref_or_error handle");
 
     h->done      = false;
     h->result    = NULL;
@@ -760,16 +826,34 @@ Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *)) {
     IRON_COND_INIT(h->cond);
 
     HandleWrapper *w = (HandleWrapper *)malloc(sizeof(HandleWrapper));
-    if (!w) iron_oom_abort("iron_threads.c:iron_handle_create_self_ref wrapper");
+    if (!w) iron_oom_abort("iron_threads.c:iron_handle_create_self_ref_or_error wrapper");
     w->handle = h;
     w->fn     = fn;
     w->arg    = h;  /* self-referential: pass handle as arg */
 
-    /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */
+    /* HARDEN-01 scheduler-pressure site: was iron_oom_abort. */
     if (IRON_THREAD_CREATE(h->thread, handle_thread_fn, w) != 0) {
-        iron_oom_abort("iron_threads.c:iron_handle_create_self_ref IRON_THREAD_CREATE");
+        free(w);
+        IRON_MUTEX_DESTROY(h->lock);
+        IRON_COND_DESTROY(h->cond);
+        free(h);
+        return (Iron_Handle_OrError){
+            .handle = NULL,
+            .err    = iron_error_new(
+                IRON_ERR_THREAD_LIMIT,
+                "iron_handle_create_self_ref_or_error: pthread_create returned EAGAIN (scheduler pressure)"),
+        };
     }
-    return h;
+    return (Iron_Handle_OrError){ .handle = h, .err = iron_error_none() };
+}
+
+Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *)) {
+    /* Legacy wrapper — delegates and aborts on typed error. */
+    Iron_Handle_OrError r = iron_handle_create_self_ref_or_error(fn);
+    if (!iron_error_is_ok(r.err)) {
+        iron_oom_abort("iron_threads.c:iron_handle_create_self_ref legacy wrapper");
+    }
+    return r.handle;
 }
 
 /* ── Iron_Channel ────────────────────────────────────────────────────────── */
