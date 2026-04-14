@@ -26,6 +26,7 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer (requires Debug build)" OFF)
+option(IRON_ENABLE_FUZZING "Build libFuzzer fuzz targets (requires clang)" OFF)
 
 if(MSVC)
     add_compile_options(/W3 /WX)
@@ -40,6 +41,14 @@ else()
     if(IRON_ENABLE_SANITIZERS)
         add_compile_options(-fsanitize=address,undefined)
         add_link_options(-fsanitize=address,undefined)
+    endif()
+    if(IRON_ENABLE_FUZZING)
+        if(NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
+            message(FATAL_ERROR
+                "IRON_ENABLE_FUZZING=ON requires clang (-fsanitize=fuzzer is a "
+                "clang-only feature). Re-configure with -DCMAKE_C_COMPILER=clang. "
+                "Linux: sudo apt-get install clang. macOS: clang ships with Xcode CLT.")
+        endif()
     endif()
 endif()
 
@@ -141,6 +150,14 @@ if(NOT WIN32)
 else()
   # ws2_32 + iphlpapi for Winsock 2 + GetAdaptersAddresses (future Phase 59 UDP/DNS)
   target_link_libraries(iron_stdlib iron_runtime ws2_32 iphlpapi)
+endif()
+
+# ── Fuzz targets (opt-in) ──────────────────────────────────────────────────
+# Gated behind -DIRON_ENABLE_FUZZING=ON to keep normal developer builds
+# hermetic. Not part of ctest — fuzz binaries are invoked directly from
+# .github/workflows/fuzz.yml (see Phase 68 CONTEXT.md).
+if(IRON_ENABLE_FUZZING)
+    add_subdirectory(tests/fuzz)
 endif()
 
 # ── Tests ──────────────────────────────────────────────────────────────────
