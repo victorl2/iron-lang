@@ -276,8 +276,68 @@ _Static_assert(offsetof(struct Iron_ModelAnimation, _framePoses) == offsetof(Mod
 _Static_assert(offsetof(struct Iron_ModelAnimation, name)        == offsetof(ModelAnimation, name),        "Iron_ModelAnimation.name offset mismatch");
 
 /* ── 3D helpers / audio / file types (Plan 60-05) ─────────────────── */
-/* Static-assertion groups for Ray, RayCollision, BoundingBox, Wave,
- * AudioStream, Sound, Music, FilePathList. */
+
+/* Ray — size + 2 offsets. */
+_Static_assert(sizeof(struct Iron_Ray) == sizeof(Ray),
+               "Iron_Ray size must equal Ray");
+_Static_assert(offsetof(struct Iron_Ray, position)  == offsetof(Ray, position),  "Iron_Ray.position offset mismatch");
+_Static_assert(offsetof(struct Iron_Ray, direction) == offsetof(Ray, direction), "Iron_Ray.direction offset mismatch");
+
+/* RayCollision — size + 4 offsets. The `hit` field is a C bool (1
+ * byte); offsetof(distance) verifies both the bool size and its
+ * trailing alignment padding. */
+_Static_assert(sizeof(struct Iron_RayCollision) == sizeof(RayCollision),
+               "Iron_RayCollision size must equal RayCollision");
+_Static_assert(offsetof(struct Iron_RayCollision, hit)      == offsetof(RayCollision, hit),      "Iron_RayCollision.hit offset mismatch");
+_Static_assert(offsetof(struct Iron_RayCollision, distance) == offsetof(RayCollision, distance), "Iron_RayCollision.distance offset mismatch");
+_Static_assert(offsetof(struct Iron_RayCollision, point)    == offsetof(RayCollision, point),    "Iron_RayCollision.point offset mismatch");
+_Static_assert(offsetof(struct Iron_RayCollision, normal)   == offsetof(RayCollision, normal),   "Iron_RayCollision.normal offset mismatch");
+
+/* BoundingBox — size + 2 offsets. */
+_Static_assert(sizeof(struct Iron_BoundingBox) == sizeof(BoundingBox),
+               "Iron_BoundingBox size must equal BoundingBox");
+_Static_assert(offsetof(struct Iron_BoundingBox, min) == offsetof(BoundingBox, min), "Iron_BoundingBox.min offset mismatch");
+_Static_assert(offsetof(struct Iron_BoundingBox, max) == offsetof(BoundingBox, max), "Iron_BoundingBox.max offset mismatch");
+
+/* Wave — size + 5 offsets. */
+_Static_assert(sizeof(struct Iron_Wave) == sizeof(Wave),
+               "Iron_Wave size must equal Wave");
+_Static_assert(offsetof(struct Iron_Wave, frameCount) == offsetof(Wave, frameCount), "Iron_Wave.frameCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Wave, sampleRate) == offsetof(Wave, sampleRate), "Iron_Wave.sampleRate offset mismatch");
+_Static_assert(offsetof(struct Iron_Wave, sampleSize) == offsetof(Wave, sampleSize), "Iron_Wave.sampleSize offset mismatch");
+_Static_assert(offsetof(struct Iron_Wave, channels)   == offsetof(Wave, channels),   "Iron_Wave.channels offset mismatch");
+_Static_assert(offsetof(struct Iron_Wave, _data)      == offsetof(Wave, data),       "Iron_Wave._data offset mismatch");
+
+/* AudioStream — size + 5 offsets. */
+_Static_assert(sizeof(struct Iron_AudioStream) == sizeof(AudioStream),
+               "Iron_AudioStream size must equal AudioStream");
+_Static_assert(offsetof(struct Iron_AudioStream, _buffer)    == offsetof(AudioStream, buffer),    "Iron_AudioStream._buffer offset mismatch");
+_Static_assert(offsetof(struct Iron_AudioStream, _processor) == offsetof(AudioStream, processor), "Iron_AudioStream._processor offset mismatch");
+_Static_assert(offsetof(struct Iron_AudioStream, sampleRate) == offsetof(AudioStream, sampleRate), "Iron_AudioStream.sampleRate offset mismatch");
+_Static_assert(offsetof(struct Iron_AudioStream, sampleSize) == offsetof(AudioStream, sampleSize), "Iron_AudioStream.sampleSize offset mismatch");
+_Static_assert(offsetof(struct Iron_AudioStream, channels)   == offsetof(AudioStream, channels),   "Iron_AudioStream.channels offset mismatch");
+
+/* Sound — size + 2 offsets. */
+_Static_assert(sizeof(struct Iron_Sound) == sizeof(Sound),
+               "Iron_Sound size must equal Sound");
+_Static_assert(offsetof(struct Iron_Sound, stream)     == offsetof(Sound, stream),     "Iron_Sound.stream offset mismatch");
+_Static_assert(offsetof(struct Iron_Sound, frameCount) == offsetof(Sound, frameCount), "Iron_Sound.frameCount offset mismatch");
+
+/* Music — size + 5 offsets. */
+_Static_assert(sizeof(struct Iron_Music) == sizeof(Music),
+               "Iron_Music size must equal Music");
+_Static_assert(offsetof(struct Iron_Music, stream)     == offsetof(Music, stream),     "Iron_Music.stream offset mismatch");
+_Static_assert(offsetof(struct Iron_Music, frameCount) == offsetof(Music, frameCount), "Iron_Music.frameCount offset mismatch");
+_Static_assert(offsetof(struct Iron_Music, looping)    == offsetof(Music, looping),    "Iron_Music.looping offset mismatch");
+_Static_assert(offsetof(struct Iron_Music, ctxType)    == offsetof(Music, ctxType),    "Iron_Music.ctxType offset mismatch");
+_Static_assert(offsetof(struct Iron_Music, _ctxData)   == offsetof(Music, ctxData),    "Iron_Music._ctxData offset mismatch");
+
+/* FilePathList — size + 3 offsets. */
+_Static_assert(sizeof(struct Iron_FilePathList) == sizeof(FilePathList),
+               "Iron_FilePathList size must equal FilePathList");
+_Static_assert(offsetof(struct Iron_FilePathList, capacity) == offsetof(FilePathList, capacity), "Iron_FilePathList.capacity offset mismatch");
+_Static_assert(offsetof(struct Iron_FilePathList, count)    == offsetof(FilePathList, count),    "Iron_FilePathList.count offset mismatch");
+_Static_assert(offsetof(struct Iron_FilePathList, _paths)   == offsetof(FilePathList, paths),    "Iron_FilePathList._paths offset mismatch");
 
 /* ════════════════════════════════════════════════════════════════════
  * Enum ordinal assertions — populated by Plan 60-07.
