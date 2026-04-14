@@ -86,15 +86,28 @@ int iron_gen_blob_decode_into_arena(const uint8_t *data, size_t size,
             if (off + value_len > size) return -1;
         }
 
-        const char *value = NULL;
-        if (value_len > 0) {
-            /* Arena-allocate so the decoded token has arena-lifetime
-             * storage (Pitfall 2: never store raw pointers in blobs). */
-            value = iron_arena_strdup(arena,
-                                       (const char *)(data + off),
-                                       value_len);
-            if (!value) return -1;
-        }
+        /* Arena-allocate so the decoded token has arena-lifetime storage
+         * (Pitfall 2: never store raw pointers in blobs).
+         *
+         * Note on empty strings: the Plan 02 wire format encodes both
+         * `value == NULL` (punctuation/operator tokens) and
+         * `value == ""` (empty string literal, empty IDENT, etc.) with
+         * `value_len == 0`, so the round-trip cannot distinguish them.
+         * The parser assumes value-bearing kinds (IRON_TOK_STRING,
+         * IRON_TOK_INTEGER, IRON_TOK_FLOAT, IRON_TOK_INTERP_STRING,
+         * IRON_TOK_IDENT, keyword kinds) have non-NULL `t->value` and
+         * unconditionally calls `strlen(t->value)` in iron_parse_primary
+         * — a NULL would SEGV. No code path in the parser or analyzer
+         * reads `t->value` for punctuation kinds, so the safe fix is to
+         * always produce an arena-allocated empty string `""` when
+         * `value_len == 0`. Discovered by fuzz_typecheck Plan 04 on the
+         * seeded `capture_13_capture_in_match.iron` blob, which contains
+         * a `var result = ""` empty-string literal that round-tripped
+         * through NULL and crashed the parser. */
+        const char *value = iron_arena_strdup(arena,
+                                               (const char *)(data + off),
+                                               value_len);
+        if (!value) return -1;
         off += value_len;
 
         tokens[i].kind  = (Iron_TokenKind)kind;
