@@ -587,10 +587,18 @@
       <div class="sidebar-section">
         <h3>Memory</h3>
         <a href="#memory">Memory Management</a>
-        <a href="#stack">Stack</a>
-        <a href="#heap">Heap &amp; Auto-Free</a>
+        <a href="#memory-model">The Four Strategies</a>
+        <a href="#stack">Stack &mdash; Default</a>
+        <a href="#heap">Heap</a>
+        <a href="#auto-free">Auto-Free</a>
+        <a href="#escape-analysis">Escape Analysis</a>
+        <a href="#free">Explicit <code>free</code></a>
+        <a href="#leak">Intentional <code>leak</code></a>
         <a href="#rc">Reference Counting</a>
         <a href="#defer">Defer</a>
+        <a href="#memory-diagnostics">Compiler Diagnostics</a>
+        <a href="#memory-decision">Choosing a Strategy</a>
+        <a href="#no-pointers">No Pointers</a>
       </div>
       <div class="sidebar-section">
         <h3>Concurrency</h3>
@@ -1030,67 +1038,377 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 
       <!-- Memory Management -->
       <h2 id="memory">Memory Management</h2>
-      <p>Iron gives you explicit control over memory with compiler-assisted safety. No garbage collector, no borrow checker.</p>
+      <p>Iron gives you explicit control over memory with compiler-assisted safety. There is <strong>no garbage collector</strong> and <strong>no borrow checker</strong>. Instead, the compiler runs a dedicated escape-analysis pass that classifies every heap allocation and inserts free calls for you when it can prove they are safe. When it can't, it tells you &mdash; with a specific error code &mdash; so you can choose what to do.</p>
 
-      <h3 id="stack">Stack &mdash; Default</h3>
-      <p>No keyword needed. Values live on the stack and are freed when the scope ends. Stack values <strong>can never escape their block</strong>.</p>
-      <div class="code-block"><pre><span class="kw">val</span> pos = <span class="fn">vec2</span>(<span class="nu">10.0</span>, <span class="nu">20.0</span>)   <span class="cm">-- stack, freed at scope exit</span>
-
-<span class="cm">-- COMPILE ERROR: stack value cannot escape</span>
-<span class="kw">func</span> <span class="fn">make_grid</span>() -> [<span class="ty">Vec2</span>; <span class="nu">16</span>] {
-  <span class="kw">var</span> grid = [<span class="ty">Vec2</span>; <span class="nu">16</span>]
-  <span class="kw">return</span> grid    <span class="cm">-- ERROR</span>
-}
-
-<span class="cm">-- correct: use heap to return</span>
-<span class="kw">func</span> <span class="fn">make_grid</span>() -> [<span class="ty">Vec2</span>; <span class="nu">16</span>] {
-  <span class="kw">val</span> grid = <span class="kw">heap</span> [<span class="ty">Vec2</span>; <span class="nu">16</span>]
-  <span class="kw">return</span> grid    <span class="cm">-- ok</span>
-}</pre></div>
-
-      <h3 id="heap">Heap &amp; Auto-Free</h3>
-      <p>Use <code>heap</code> to allocate on the heap. Values that don't escape their block are automatically freed.</p>
-      <div class="code-block"><pre><span class="kw">val</span> enemies = <span class="kw">heap</span> [<span class="ty">Enemy</span>; <span class="nu">64</span>]
-<span class="kw">val</span> boss = <span class="kw">heap</span> <span class="ty">Enemy</span>(<span class="fn">Vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">1000</span>)
-
-<span class="kw">func</span> <span class="fn">process</span>() {
-  <span class="kw">val</span> data = <span class="kw">heap</span> [<span class="ty">UInt8</span>; <span class="nu">4096</span>]
-  <span class="fn">parse</span>(data)
-  <span class="cm">-- auto-freed here, data doesn't escape</span>
-}</pre></div>
-      <p>Escaped values produce a compiler <strong>warning</strong>. Silence with <code>leak</code> for intentional permanent allocations, or use <code>free</code> for explicit cleanup.</p>
+      <h3 id="memory-model">The Four Allocation Strategies</h3>
+      <p>Every value in an Iron program lives in exactly one of four places. You pick the strategy at the allocation site; everything else is enforced by the compiler.</p>
 
       <table class="doc-table">
         <thead>
-          <tr><th>Situation</th><th>Result</th></tr>
+          <tr><th>Strategy</th><th>Keyword</th><th>Lifetime</th><th>Use when&hellip;</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>heap</code> without <code>free</code>, value doesn't escape</td><td>Auto-freed, no warning</td></tr>
-          <tr><td><code>heap</code> without <code>free</code>, value escapes</td><td><strong>Warning</strong>: possible memory leak</td></tr>
-          <tr><td><code>heap</code> with <code>leak</code></td><td>No warning, intentional</td></tr>
-          <tr><td><code>free</code> on a non-heap value</td><td><strong>Compile error</strong></td></tr>
-          <tr><td><code>leak</code> on a non-heap or <code>rc</code> value</td><td><strong>Compile error</strong></td></tr>
+          <tr><td>Stack</td><td><em>(default)</em></td><td>Freed at end of declaring block</td><td>Value never leaves its scope</td></tr>
+          <tr><td>Heap, auto-freed</td><td><code>heap</code></td><td>Freed at end of declaring block</td><td>Value is large, but still scope-local</td></tr>
+          <tr><td>Heap, manual</td><td><code>heap</code> + <code>free</code>/<code>leak</code></td><td>You control it</td><td>Value escapes its scope</td></tr>
+          <tr><td>Reference counted</td><td><code>rc</code></td><td>Freed when last reference dies</td><td>Value has shared ownership</td></tr>
         </tbody>
       </table>
 
-      <h3 id="rc">Reference Counting &mdash; <code>rc</code></h3>
-      <p>For shared ownership. Automatically freed when the last reference dies.</p>
-      <div class="code-block"><pre><span class="kw">val</span> sprite = <span class="kw">rc</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>)  <span class="cm">-- ref count = 1</span>
-<span class="kw">var</span> other = sprite                         <span class="cm">-- ref count = 2</span>
-other = <span class="kw">null</span>                               <span class="cm">-- ref count = 1</span>
-<span class="cm">-- when last ref dies, texture is freed automatically</span></pre></div>
+      <p><code>defer</code> is not an allocation strategy &mdash; it is a <em>cleanup scheduler</em> that works with any of the four to release non-memory resources like files, sockets, or windows.</p>
 
-      <h3 id="defer">Defer</h3>
-      <p>Runs at scope exit (LIFO order). Used for deterministic resource cleanup.</p>
-      <div class="code-block"><pre><span class="kw">val</span> window = <span class="fn">init_window</span>(<span class="nu">800</span>, <span class="nu">600</span>, <span class="st">"Game"</span>)
-<span class="kw">defer</span> <span class="fn">close_window</span>(window)
+      <h3 id="stack">Stack &mdash; Default</h3>
+      <p>No keyword. Values are laid out on the stack of the function that declares them and freed when their declaring block exits. This is the fastest allocation path and the one you should reach for first.</p>
+      <div class="code-block"><pre><span class="kw">val</span> pos      = <span class="fn">vec2</span>(<span class="nu">10.0</span>, <span class="nu">20.0</span>)   <span class="cm">-- 16 bytes on the stack</span>
+<span class="kw">val</span> health   = <span class="nu">100</span>                   <span class="cm">-- 8 bytes on the stack</span>
+<span class="kw">val</span> inventory: [<span class="ty">Item</span>; <span class="nu">8</span>]              <span class="cm">-- 8 items, inline on the stack</span>
 
-<span class="kw">val</span> file = <span class="fn">open_file</span>(<span class="st">"save.dat"</span>)
-<span class="kw">defer</span> <span class="fn">close_file</span>(file)</pre></div>
+<span class="kw">func</span> <span class="fn">distance</span>(a: <span class="ty">Vec2</span>, b: <span class="ty">Vec2</span>) -> <span class="ty">Float</span> {
+  <span class="kw">val</span> dx = a.x - b.x    <span class="cm">-- stack</span>
+  <span class="kw">val</span> dy = a.y - b.y    <span class="cm">-- stack</span>
+  <span class="kw">return</span> <span class="fn">sqrt</span>(dx * dx + dy * dy)
+}</pre></div>
+
+      <p>Stack values <strong>cannot escape their declaring block</strong>. Attempting to return one or store it somewhere that outlives the current scope is a compile error. If a value needs to outlive its block, allocate it with <code>heap</code>.</p>
+
+      <div class="code-block"><pre><span class="cm">-- COMPILE ERROR: stack value cannot escape</span>
+<span class="kw">func</span> <span class="fn">make_grid</span>() -> [<span class="ty">Vec2</span>; <span class="nu">16</span>] {
+  <span class="kw">var</span> grid: [<span class="ty">Vec2</span>; <span class="nu">16</span>]
+  <span class="kw">return</span> grid                  <span class="cm">-- ERROR: stack escape</span>
+}
+
+<span class="cm">-- OK: escape to heap</span>
+<span class="kw">func</span> <span class="fn">make_grid</span>() -> [<span class="ty">Vec2</span>; <span class="nu">16</span>] {
+  <span class="kw">val</span> grid = <span class="kw">heap</span> [<span class="ty">Vec2</span>; <span class="nu">16</span>]
+  <span class="kw">return</span> grid                  <span class="cm">-- ok: caller owns it</span>
+}
+
+<span class="cm">-- OK: build in caller's scope, fill via parameter</span>
+<span class="kw">var</span> grid: [<span class="ty">Vec2</span>; <span class="nu">16</span>]
+<span class="fn">fill_grid</span>(grid)</pre></div>
+
+      <h3 id="heap">Heap &mdash; <code>heap</code></h3>
+      <p>Prefix any constructor or array literal with <code>heap</code> to allocate it dynamically.</p>
+      <div class="code-block"><pre><span class="cm">-- single object</span>
+<span class="kw">val</span> boss = <span class="kw">heap</span> <span class="ty">Enemy</span>(<span class="fn">Vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">1000</span>)
+
+<span class="cm">-- fixed-size array</span>
+<span class="kw">val</span> enemies = <span class="kw">heap</span> [<span class="ty">Enemy</span>; <span class="nu">64</span>]
+
+<span class="cm">-- call that returns a heap value</span>
+<span class="kw">val</span> atlas = <span class="kw">heap</span> <span class="fn">load_texture</span>(<span class="st">"atlas.png"</span>)
+
+<span class="cm">-- large buffer for scratch work</span>
+<span class="kw">val</span> scratch = <span class="kw">heap</span> [<span class="ty">UInt8</span>; <span class="nu">65536</span>]</pre></div>
+
+      <p><code>heap</code> on its own doesn't decide <em>when</em> the allocation is freed &mdash; that depends on whether the value escapes its declaring block. The compiler figures that out for you.</p>
+
+      <h3 id="auto-free">Auto-Free &mdash; Block-Scoped</h3>
+      <p>Heap values that <strong>do not escape</strong> their declaring block are freed automatically at block exit. You do not write a <code>defer free</code> for them; the compiler emits the free for you.</p>
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">parse_packet</span>(bytes: [<span class="ty">UInt8</span>]) {
+  <span class="kw">val</span> buf = <span class="kw">heap</span> [<span class="ty">UInt8</span>; <span class="nu">4096</span>]
+  <span class="fn">decode_into</span>(buf, bytes)
+  <span class="fn">log_packet</span>(buf)
+  <span class="cm">-- buf auto-freed here, end of function block</span>
+}</pre></div>
+
+      <p>Auto-free respects <strong>any</strong> block, not just function bodies. A heap allocation inside an <code>if</code>, <code>while</code>, or <code>for</code> body is freed at the end of that body &mdash; which means loop bodies free and reallocate each iteration instead of accumulating:</p>
+
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">main</span>() {
+  <span class="cm">-- reallocated and auto-freed every iteration</span>
+  <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">5</span>) {
+    <span class="kw">val</span> d = <span class="kw">heap</span> <span class="ty">Data</span>(i, <span class="st">"item"</span>)
+    <span class="fn">println</span>(<span class="st">"data: {d.value}"</span>)
+    <span class="cm">-- d auto-freed here</span>
+  }
+
+  <span class="cm">-- conditional: only allocated if the branch runs</span>
+  <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">6</span>) {
+    <span class="kw">if</span> i &gt; <span class="nu">2</span> {
+      <span class="kw">val</span> p = <span class="kw">heap</span> <span class="ty">Point</span>(i, i * <span class="nu">2</span>)
+      <span class="fn">println</span>(<span class="st">"point: {p.x},{p.y}"</span>)
+      <span class="cm">-- p auto-freed here, end of if body</span>
+    }
+  }
+
+  <span class="cm">-- nested: innermost block owns it</span>
+  <span class="kw">for</span> a <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">3</span>) {
+    <span class="kw">for</span> b <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">3</span>) {
+      <span class="kw">if</span> a == b {
+        <span class="kw">val</span> d = <span class="kw">heap</span> <span class="ty">Data</span>(a + b, <span class="st">"diag"</span>)
+        <span class="fn">println</span>(<span class="st">"diag: {d.value}"</span>)
+        <span class="cm">-- freed at end of innermost if</span>
+      }
+    }
+  }
+}</pre></div>
 
       <div class="callout">
-        <p><strong>No pointers.</strong> There are no pointer types in the language. The compiler handles all reference-to-pointer translation when generating C code.</p>
+        <p><strong>Mental model:</strong> auto-free makes <code>heap</code> feel almost like a stack allocation with no size limit. Reach for it whenever a value is too large to stack-allocate but is still scope-local &mdash; decoding buffers, temporary work arrays, short-lived objects.</p>
       </div>
+
+      <h3 id="escape-analysis">Escape Analysis &mdash; What "Escape" Means</h3>
+      <p>A heap value "escapes" when the compiler determines it might outlive its declaring block. Iron's analysis is <strong>intra-procedural</strong> (per-function) and <strong>conservative</strong> &mdash; it errs on the side of flagging things that might escape, never the reverse. A heap binding is marked as escaping if any of the following happens inside the function that declared it:</p>
+
+      <table class="doc-table">
+        <thead>
+          <tr><th>Situation</th><th>Escapes?</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>return</code> the value from the function</td><td>Yes</td></tr>
+          <tr><td>Assign it to a variable (may target outer scope)</td><td>Yes</td></tr>
+          <tr><td>Pass it as a function argument</td><td>Yes &mdash; the callee might keep a reference</td></tr>
+          <tr><td>Pass it as a method-call argument</td><td>Yes &mdash; same reason</td></tr>
+          <tr><td>Read its fields, index into it, print it</td><td>No</td></tr>
+          <tr><td>Call a method on it (<code>x.do()</code>)</td><td>No &mdash; the receiver is not an argument</td></tr>
+          <tr><td>Access its fields to compute another value</td><td>No</td></tr>
+        </tbody>
+      </table>
+
+      <div class="code-block"><pre><span class="cm">-- #1 return escape</span>
+<span class="kw">func</span> <span class="fn">create_boss</span>() -> <span class="ty">Enemy</span> {
+  <span class="kw">val</span> boss = <span class="kw">heap</span> <span class="ty">Enemy</span>(<span class="fn">Vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">1000</span>)
+  <span class="kw">return</span> boss            <span class="cm">-- E0207: escapes without 'free' or 'leak'</span>
+}
+
+<span class="cm">-- #2 assignment escape</span>
+<span class="kw">func</span> <span class="fn">swap_in</span>(<span class="kw">var</span> slot: <span class="ty">Enemy?</span>) {
+  <span class="kw">val</span> e = <span class="kw">heap</span> <span class="ty">Enemy</span>(<span class="fn">Vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">100</span>)
+  slot = e                <span class="cm">-- E0207: escapes via assignment</span>
+}
+
+<span class="cm">-- #3 function-argument escape (conservative)</span>
+<span class="kw">func</span> <span class="fn">enqueue</span>() {
+  <span class="kw">val</span> e = <span class="kw">heap</span> <span class="ty">Enemy</span>(<span class="fn">Vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">100</span>)
+  <span class="fn">register</span>(e)            <span class="cm">-- E0207: callee might retain 'e'</span>
+}
+
+<span class="cm">-- NO escape: method call on the value is fine</span>
+<span class="kw">func</span> <span class="fn">use_locally</span>() {
+  <span class="kw">val</span> e = <span class="kw">heap</span> <span class="ty">Enemy</span>(<span class="fn">Vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">100</span>)
+  e.<span class="fn">take_damage</span>(<span class="nu">10</span>)       <span class="cm">-- ok</span>
+  <span class="fn">println</span>(<span class="st">"hp: {e.hp}"</span>)  <span class="cm">-- ok</span>
+  <span class="cm">-- e auto-freed here</span>
+}</pre></div>
+
+      <p>When the compiler detects an escape without a matching <code>free</code> or <code>leak</code>, it emits <strong>E0207</strong>:</p>
+      <div class="code-block"><pre><span class="cm">error[E0207]: heap value 'boss' escapes its declaring scope
+       without 'free' or 'leak'; possible memory leak</span></pre></div>
+
+      <p>The fix is one of three decisions: free it before the scope ends, mark it <code>leak</code>, or switch to <code>rc</code> if the value is genuinely shared.</p>
+
+      <h3 id="free">Explicit <code>free</code></h3>
+      <p><code>free</code> releases a heap allocation at a specific point instead of waiting for auto-free. Use it when a value is escaping and you want to manage its lifetime yourself, or when you want to release a large buffer early inside a long block.</p>
+
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">run_level</span>() {
+  <span class="kw">val</span> boss = <span class="kw">heap</span> <span class="ty">Enemy</span>(<span class="fn">Vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">1000</span>)
+  <span class="fn">fight</span>(boss)
+  <span class="kw">free</span> boss               <span class="cm">-- explicit cleanup</span>
+
+  <span class="cm">-- lots more work below doesn't hold onto 'boss' memory</span>
+  <span class="fn">run_puzzles</span>()
+  <span class="fn">run_minigame</span>()
+}</pre></div>
+
+      <p>Combining <code>free</code> with escape &mdash; silencing E0207 by releasing the value on the last path that uses it:</p>
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">compute_checksum</span>(path: <span class="ty">String</span>) -> <span class="ty">UInt32</span> {
+  <span class="kw">val</span> buf = <span class="kw">heap</span> [<span class="ty">UInt8</span>; <span class="nu">1</span> &lt;&lt; <span class="nu">20</span>]   <span class="cm">-- 1 MiB scratch</span>
+  <span class="kw">val</span> n   = <span class="fn">read_file_into</span>(path, buf)
+  <span class="kw">val</span> sum = <span class="fn">crc32</span>(buf, n)
+  <span class="kw">free</span> buf                <span class="cm">-- release before return</span>
+  <span class="kw">return</span> sum
+}</pre></div>
+
+      <p>Calling <code>free</code> on a value the compiler doesn't recognize as a heap binding is a compile error:</p>
+      <div class="code-block"><pre><span class="kw">val</span> pos = <span class="fn">vec2</span>(<span class="nu">10.0</span>, <span class="nu">20.0</span>)
+<span class="kw">free</span> pos                  <span class="cm">-- E0212: 'free' on 'pos': not a heap-allocated value</span></pre></div>
+
+      <h3 id="leak"><code>leak</code> &mdash; Intentional Permanent Allocation</h3>
+      <p><code>leak</code> says: <em>yes, this allocation escapes; yes, it lives until the process ends; that's the design</em>. It silences E0207 and documents intent at the allocation site.</p>
+
+      <div class="code-block"><pre><span class="cm">-- texture atlas loaded once, used for the whole program</span>
+<span class="kw">val</span> atlas = <span class="kw">heap</span> <span class="fn">load_texture</span>(<span class="st">"atlas.png"</span>)
+<span class="kw">leak</span> atlas
+
+<span class="cm">-- precomputed lookup table, never freed</span>
+<span class="kw">val</span> sin_table = <span class="kw">heap</span> [<span class="ty">Float</span>; <span class="nu">360</span>]
+<span class="fn">precompute_sin</span>(sin_table)
+<span class="kw">leak</span> sin_table
+
+<span class="cm">-- global config loaded from disk at startup</span>
+<span class="kw">val</span> config = <span class="kw">heap</span> <span class="fn">load_config</span>(<span class="st">"settings.ini"</span>)
+<span class="kw">leak</span> config</pre></div>
+
+      <p>Leaked values are still usable after <code>leak</code> &mdash; the keyword only affects the lifetime policy. It is not a hint to delete the variable or drop its fields.</p>
+
+      <p><code>leak</code> refuses to apply where it would be misleading:</p>
+      <div class="code-block"><pre><span class="kw">val</span> count = <span class="nu">5</span>
+<span class="kw">leak</span> count                <span class="cm">-- E0213: not a heap-allocated value</span>
+
+<span class="kw">val</span> tex = <span class="kw">rc</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>)
+<span class="kw">leak</span> tex                  <span class="cm">-- E0214: rc values manage their own lifetime</span></pre></div>
+
+      <h3 id="rc">Reference Counting &mdash; <code>rc</code></h3>
+      <p><code>rc</code> wraps a heap allocation in a reference-counted handle. Copying the variable increments the count; dropping a handle decrements it. When the last handle goes away the value is freed. Use <code>rc</code> when ownership is genuinely shared &mdash; the same texture referenced by many sprites, a config shared by every subsystem, a graph where several nodes point at the same child.</p>
+
+      <div class="code-block"><pre><span class="kw">val</span> sprite = <span class="kw">rc</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>)  <span class="cm">-- ref count = 1</span>
+<span class="kw">var</span> other  = sprite                         <span class="cm">-- ref count = 2</span>
+other = <span class="kw">null</span>                                <span class="cm">-- ref count = 1</span>
+<span class="cm">-- when the last handle drops, the texture is freed</span></pre></div>
+
+      <p><code>rc</code> values are <strong>exempt from escape analysis</strong>: they already have well-defined shared lifetime, so returning them, storing them in objects, and passing them to functions all compile without E0207 and without <code>free</code>/<code>leak</code>.</p>
+
+      <div class="code-block"><pre><span class="kw">object</span> <span class="ty">Config</span> {
+  <span class="kw">var</span> name:  <span class="ty">String</span>
+  <span class="kw">var</span> value: <span class="ty">Int</span>
+}
+
+<span class="kw">func</span> <span class="fn">load_shared_config</span>() -> <span class="kw">rc</span> <span class="ty">Config</span> {
+  <span class="kw">return</span> <span class="kw">rc</span> <span class="ty">Config</span>(<span class="st">"app"</span>, <span class="nu">42</span>)    <span class="cm">-- ok, no warning</span>
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+  <span class="kw">val</span> cfg = <span class="fn">load_shared_config</span>()
+  <span class="fn">init_audio</span>(cfg)
+  <span class="fn">init_video</span>(cfg)
+  <span class="fn">init_net</span>(cfg)
+  <span class="cm">-- cfg dropped here, ref count hits 0, Config freed</span>
+}</pre></div>
+
+      <p>Using <code>rc</code> in an object field declares that the field participates in shared ownership:</p>
+      <div class="code-block"><pre><span class="kw">object</span> <span class="ty">Sprite</span> {
+  <span class="kw">var</span> pos:     <span class="ty">Vec2</span>
+  <span class="kw">val</span> texture: <span class="kw">rc</span> <span class="ty">Texture</span>     <span class="cm">-- shared across many sprites</span>
+}
+
+<span class="kw">val</span> hero_tex = <span class="kw">rc</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>)
+<span class="kw">val</span> a = <span class="ty">Sprite</span>(<span class="fn">vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>),  hero_tex)
+<span class="kw">val</span> b = <span class="ty">Sprite</span>(<span class="fn">vec2</span>(<span class="nu">50.0</span>, <span class="nu">0.0</span>), hero_tex)
+<span class="cm">-- texture freed only when a, b, and hero_tex are all gone</span></pre></div>
+
+      <h3 id="defer">Defer &mdash; Scheduled Cleanup</h3>
+      <p><code>defer</code> schedules a statement to run at scope exit, in <strong>LIFO order</strong>, from <em>every</em> exit path including early returns. It is the tool for deterministic cleanup of resources that aren't just memory &mdash; file handles, window handles, sockets, mutex unlocks, transactions.</p>
+
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">main</span>() {
+  <span class="kw">defer</span> <span class="fn">println</span>(<span class="st">"3"</span>)
+  <span class="kw">defer</span> <span class="fn">println</span>(<span class="st">"2"</span>)
+  <span class="kw">defer</span> <span class="fn">println</span>(<span class="st">"1"</span>)
+}
+<span class="cm">-- prints: 1, 2, 3  (LIFO)</span></pre></div>
+
+      <p>Defers run on <strong>every</strong> path out of their declaring scope &mdash; normal return, early return, or fall-through &mdash; and each <code>defer</code> only fires if control actually reached its declaration:</p>
+
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">process</span>(x: <span class="ty">Int</span>) -> <span class="ty">String</span> {
+  <span class="kw">defer</span> <span class="fn">println</span>(<span class="st">"cleanup A"</span>)
+  <span class="kw">if</span> x &lt; <span class="nu">0</span> {
+    <span class="kw">return</span> <span class="st">"negative"</span>          <span class="cm">-- runs: cleanup A</span>
+  }
+  <span class="kw">defer</span> <span class="fn">println</span>(<span class="st">"cleanup B"</span>)
+  <span class="kw">if</span> x == <span class="nu">0</span> {
+    <span class="kw">return</span> <span class="st">"zero"</span>              <span class="cm">-- runs: cleanup B, cleanup A</span>
+  }
+  <span class="kw">defer</span> <span class="fn">println</span>(<span class="st">"cleanup C"</span>)
+  <span class="kw">return</span> <span class="st">"positive"</span>            <span class="cm">-- runs: cleanup C, cleanup B, cleanup A</span>
+}</pre></div>
+
+      <p>Typical resource patterns:</p>
+      <div class="code-block"><pre><span class="kw">func</span> <span class="fn">run_game</span>() {
+  <span class="kw">val</span> window = <span class="fn">init_window</span>(<span class="nu">800</span>, <span class="nu">600</span>, <span class="st">"Game"</span>)
+  <span class="kw">defer</span> <span class="fn">close_window</span>(window)
+
+  <span class="kw">val</span> save = <span class="fn">open_file</span>(<span class="st">"save.dat"</span>)
+  <span class="kw">defer</span> <span class="fn">close_file</span>(save)
+
+  <span class="kw">val</span> audio = <span class="fn">init_audio</span>()
+  <span class="kw">defer</span> <span class="fn">shutdown_audio</span>(audio)
+
+  <span class="fn">main_loop</span>(window, save, audio)
+  <span class="cm">-- at end of function, defers fire in reverse order:</span>
+  <span class="cm">--   shutdown_audio, close_file, close_window</span>
+}</pre></div>
+
+      <p><code>defer</code> works at any block level. A <code>defer</code> inside a loop body fires at the end of each iteration:</p>
+      <div class="code-block"><pre><span class="kw">for</span> path <span class="kw">in</span> files {
+  <span class="kw">val</span> f = <span class="fn">open_file</span>(path)
+  <span class="kw">defer</span> <span class="fn">close_file</span>(f)      <span class="cm">-- fires at end of each iteration</span>
+  <span class="fn">process_file</span>(f)
+}</pre></div>
+
+      <div class="callout">
+        <p><strong>Heap memory usually doesn't need <code>defer</code>.</strong> Auto-free already handles non-escaping heap allocations, and <code>free</code> is more explicit when you need it. Reach for <code>defer</code> for non-memory resources, or when symmetry with <code>init_x</code> / <code>close_x</code> pairs makes the code clearer.</p>
+      </div>
+
+      <h3 id="memory-diagnostics">Compiler Diagnostics</h3>
+      <p>Every memory-related error has a stable code. You can search for these in your terminal output or in the compiler source to understand exactly what triggered them.</p>
+
+      <table class="doc-table">
+        <thead>
+          <tr><th>Code</th><th>Trigger</th><th>Severity</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>E0207</code></td><td><code>heap</code> value escapes its declaring block without a matching <code>free</code> or <code>leak</code></td><td>Error</td></tr>
+          <tr><td><code>E0212</code></td><td><code>free</code> applied to a value that is not a <code>heap</code> binding</td><td>Error</td></tr>
+          <tr><td><code>E0213</code></td><td><code>leak</code> applied to a value that is not a <code>heap</code> binding</td><td>Error</td></tr>
+          <tr><td><code>E0214</code></td><td><code>leak</code> applied to an <code>rc</code> value (rc manages its own lifetime)</td><td>Error</td></tr>
+        </tbody>
+      </table>
+
+      <p>Summary of what the compiler does with each combination:</p>
+
+      <table class="doc-table">
+        <thead>
+          <tr><th>Situation</th><th>Outcome</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>heap</code>, value does not escape</td><td>Auto-freed at block exit</td></tr>
+          <tr><td><code>heap</code> + <code>free</code>, regardless of escape</td><td>Freed at the <code>free</code> site, no warning</td></tr>
+          <tr><td><code>heap</code> + <code>leak</code>, value escapes</td><td>Never freed; no warning (intentional)</td></tr>
+          <tr><td><code>heap</code>, value escapes, no <code>free</code>/<code>leak</code></td><td><strong>E0207</strong></td></tr>
+          <tr><td><code>free</code> on a non-heap value</td><td><strong>E0212</strong></td></tr>
+          <tr><td><code>leak</code> on a non-heap value</td><td><strong>E0213</strong></td></tr>
+          <tr><td><code>leak</code> on an <code>rc</code> value</td><td><strong>E0214</strong></td></tr>
+          <tr><td><code>rc</code> value anywhere</td><td>Exempt from escape analysis</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="memory-decision">Choosing a Strategy</h3>
+      <p>When you are about to write an allocation, ask these questions in order:</p>
+
+      <ol>
+        <li><strong>Can this live on the stack?</strong> It's small, its lifetime is the current block, and you never need to return it &mdash; just declare it with <code>val</code>/<code>var</code>. Stop.</li>
+        <li><strong>Is it too large for the stack, but still scope-local?</strong> Prefix it with <code>heap</code>. Auto-free handles it.</li>
+        <li><strong>Does it need to escape the block (return, store, pass)?</strong> Use <code>heap</code> and decide who owns it:
+          <ul>
+            <li>If the caller owns it, return it and <code>free</code> it at the caller side.</li>
+            <li>If it lives for the whole program, use <code>leak</code>.</li>
+            <li>If ownership is genuinely shared, use <code>rc</code>.</li>
+          </ul>
+        </li>
+        <li><strong>Is it a non-memory resource (file, window, socket, lock)?</strong> Use <code>defer</code> right after acquiring it.</li>
+      </ol>
+
+      <div class="callout">
+        <p><strong>Default to stack. Promote to heap when you must. Only use <code>rc</code> for real shared ownership.</strong> Reference counting is cheap but not free &mdash; every copy and drop costs an atomic increment or decrement.</p>
+      </div>
+
+      <h3 id="no-pointers">No Pointers</h3>
+      <p>There are no pointer types in Iron. You never write <code>*T</code> or <code>&amp;x</code>, and there is no dereference operator. The compiler decides when to lower a value to a C pointer based on mutability and type:</p>
+
+      <table class="doc-table">
+        <thead>
+          <tr><th>Iron</th><th>Generated C</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>player: Player</code></td><td><code>const Player *player</code></td></tr>
+          <tr><td><code>var player: Player</code></td><td><code>Player *player</code></td></tr>
+          <tr><td><code>x: Int</code></td><td><code>int64_t x</code> (copied)</td></tr>
+          <tr><td><code>data: [UInt8; 64]</code></td><td><code>const uint8_t *data</code></td></tr>
+          <tr><td><code>heap Enemy(&hellip;)</code></td><td><code>malloc</code>-backed, freed by the compiler, <code>free</code>, or scope exit</td></tr>
+          <tr><td><code>rc Texture(&hellip;)</code></td><td>Heap-backed handle with refcount header</td></tr>
+        </tbody>
+      </table>
+
+      <p>The consequence is that you can't hand-craft unusual aliasing patterns &mdash; but you also can't write dangling-pointer bugs or forget to dereference. If you need raw pointer interop for FFI, that happens inside the C backend, not in Iron source.</p>
 
       <!-- Concurrency -->
       <h2 id="concurrency">Concurrency</h2>
