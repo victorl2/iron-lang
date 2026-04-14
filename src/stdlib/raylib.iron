@@ -526,3 +526,84 @@ enum NPatchLayout {
     THREE_PATCH_VERTICAL   = 1,
     THREE_PATCH_HORIZONTAL = 2,
 }
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Image / Texture / Font types (TYPE-07..12)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Integer width note: raylib uses C `int` (32-bit) and `unsigned int`
+-- (32-bit) for scalar fields. Iron's `Int` is `int64_t` which would
+-- destroy struct layout, so these objects use `Int32` and `UInt32`
+-- explicitly. Opaque pointers (raylib's `void *` / `Type *`) are stored
+-- as `Int` because pointers are 8 bytes on every 64-bit target Iron
+-- supports, matching `int64_t`.
+
+-- CPU-side image pixel data — `_data` is raylib's `void *data` pointer,
+-- hidden behind the underscore convention. `format` carries a
+-- `PixelFormat` enum value (defined in Plan 60-07); stored as Int32
+-- here and tightened to the enum type in a follow-up cleanup. (TYPE-07)
+object Image {
+    val _data: Int
+    val width: Int32
+    val height: Int32
+    val mipmaps: Int32
+    val format: Int32
+}
+
+-- GPU texture — `id` is the OpenGL texture name (a plain GPU handle,
+-- not an opaque pointer, so no underscore). `format` is a PixelFormat
+-- ordinal carried as Int32. (TYPE-08)
+-- Note: raylib's Texture2D and TextureCubemap are C typedefs for
+-- Texture. Iron has a single `Texture` type for all three; functions
+-- that distinguish cubemaps vs 2D handle it via parameter/doc text.
+object Texture {
+    val id: UInt32
+    val width: Int32
+    val height: Int32
+    val mipmaps: Int32
+    val format: Int32
+}
+
+-- Framebuffer object wrapping a color and depth texture. Embedded
+-- Texture fields are stored by value — Iron's nested-object layout
+-- MUST match C's struct-by-value embedding. The _Static_assert in
+-- iron_raylib_layout.c enforces this. (TYPE-09)
+object RenderTexture {
+    val id: UInt32
+    val texture: Texture
+    val depth: Texture
+}
+
+-- 9-patch layout info — source Rectangle is embedded by value.
+-- `layout` carries an `NPatchLayout` enum ordinal (Plan 60-07). (TYPE-10)
+object NPatchInfo {
+    val source: Rectangle
+    val left: Int32
+    val top: Int32
+    val right: Int32
+    val bottom: Int32
+    val layout: Int32
+}
+
+-- Per-glyph font metadata — `image` is a full Image struct embedded
+-- by value (not a pointer). (TYPE-11)
+object GlyphInfo {
+    val value: Int32
+    val offsetX: Int32
+    val offsetY: Int32
+    val advanceX: Int32
+    val image: Image
+}
+
+-- Font atlas — `texture` is a Texture embedded by value. `_recs` and
+-- `_glyphs` are `Rectangle *` / `GlyphInfo *` pointers hidden behind
+-- the underscore convention. Access via font.glyph_at(i) / font.rec_at(i)
+-- helpers to be added in Phase 67. (TYPE-12)
+object Font {
+    val baseSize: Int32
+    val glyphCount: Int32
+    val glyphPadding: Int32
+    val texture: Texture
+    val _recs: Int
+    val _glyphs: Int
+}
