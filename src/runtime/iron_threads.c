@@ -574,15 +574,21 @@ static void *pool_worker_elastic(void *arg) {
     }
 }
 
-Iron_Pool *Iron_elastic_pool_create(const char *name,
-                                    int max_threads,
-                                    int idle_timeout_ms) {
+Iron_ElasticPool_OrError Iron_elastic_pool_create_or_error(const char *name,
+                                                            int max_threads,
+                                                            int idle_timeout_ms) {
     if (max_threads < 1) max_threads = 1;
     if (idle_timeout_ms < 1) idle_timeout_ms = 1;
 
-    /* FIX-02: replace soft-NULL returns with iron_oom_abort (AUDIT-06 §22-24). */
+    /* HARDEN-01 Plan 03: pure malloc-NULL OOM sites — no IRON_THREAD_CREATE in
+     * this function (workers are spawned lazily by Iron_pool_submit via
+     * pool_spawn_elastic_worker_locked, which is Plan 04 territory). Every
+     * failure below is a true malloc NULL and still routes through
+     * iron_oom_abort; the _or_error variant exists for API uniformity so
+     * callers that want to branch on Iron_Error can use the same pattern
+     * across all creation functions. */
     Iron_Pool *pool = (Iron_Pool *)malloc(sizeof(Iron_Pool));
-    if (!pool) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create pool");
+    if (!pool) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create_or_error pool");
 
     pool->name             = name;
     pool->thread_count     = 0;
@@ -601,7 +607,7 @@ Iron_Pool *Iron_elastic_pool_create(const char *name,
 
     pool->queue = (Iron_WorkItem *)malloc(
         (size_t)pool->queue_capacity * sizeof(Iron_WorkItem));
-    if (!pool->queue) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create queue");
+    if (!pool->queue) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create_or_error queue");
 
     IRON_MUTEX_INIT(pool->lock);
     IRON_COND_INIT(pool->work_ready);
@@ -611,9 +617,24 @@ Iron_Pool *Iron_elastic_pool_create(const char *name,
      * worker is spawned into it. */
     pool->threads = (iron_thread_t *)calloc(
         (size_t)pool->thread_slots_cap, sizeof(iron_thread_t));
-    if (!pool->threads) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create threads");
+    if (!pool->threads) iron_oom_abort("iron_threads.c:Iron_elastic_pool_create_or_error threads");
 
-    return pool;
+    return (Iron_ElasticPool_OrError){ .pool = pool, .err = iron_error_none() };
+}
+
+Iron_Pool *Iron_elastic_pool_create(const char *name,
+                                    int max_threads,
+                                    int idle_timeout_ms) {
+    /* Legacy wrapper — delegates to Iron_elastic_pool_create_or_error and
+     * aborts on any typed error. Preserves byte-identical signature so
+     * iron_threads_init's Iron_io_pool init and test_runtime_elastic_pool
+     * callers continue linking unchanged. */
+    Iron_ElasticPool_OrError r = Iron_elastic_pool_create_or_error(
+        name, max_threads, idle_timeout_ms);
+    if (!iron_error_is_ok(r.err)) {
+        iron_oom_abort("iron_threads.c:Iron_elastic_pool_create legacy wrapper");
+    }
+    return r.pool;
 }
 
 void Iron_pool_mark_one_leaked(Iron_Pool *pool) {
@@ -635,17 +656,30 @@ void Iron_pool_mark_one_leaked(Iron_Pool *pool) {
 
 /* ── Iron_PoolWait impl (Phase 59 P01b) ──────────────────────────────────── */
 
-Iron_PoolWait *Iron_poolwait_create(void) {
-    /* FIX-02: replace soft-NULL return with iron_oom_abort. */
+Iron_PoolWait_OrError Iron_poolwait_create_or_error(void) {
+    /* HARDEN-01 Plan 03: pure malloc-NULL OOM site — calloc NULL still routes
+     * through iron_oom_abort. _or_error variant provides API uniformity. */
     Iron_PoolWait *w = (Iron_PoolWait *)calloc(1, sizeof(*w));
-    if (!w) iron_oom_abort("iron_threads.c:Iron_poolwait_create");
+    if (!w) iron_oom_abort("iron_threads.c:Iron_poolwait_create_or_error");
     IRON_MUTEX_INIT(w->lock);
     IRON_COND_INIT(w->cond);
     w->completed         = false;
     w->abandoned         = false;
     w->result            = NULL;
     w->result_destructor = NULL;
-    return w;
+    return (Iron_PoolWait_OrError){ .wait = w, .err = iron_error_none() };
+}
+
+Iron_PoolWait *Iron_poolwait_create(void) {
+    /* Legacy wrapper — delegates to Iron_poolwait_create_or_error and aborts
+     * on any typed error. Preserves byte-identical signature so
+     * src/stdlib/iron_net.c:1289 Iron_poolwait_create() caller continues
+     * linking unchanged. */
+    Iron_PoolWait_OrError r = Iron_poolwait_create_or_error();
+    if (!iron_error_is_ok(r.err)) {
+        iron_oom_abort("iron_threads.c:Iron_poolwait_create legacy wrapper");
+    }
+    return r.wait;
 }
 
 void Iron_poolwait_destroy(Iron_PoolWait *w) {
@@ -870,14 +904,18 @@ struct Iron_Channel {
     bool            closed;
 };
 
-Iron_Channel *Iron_channel_create(int capacity) {
+Iron_Channel_OrError Iron_channel_create_or_error(int capacity) {
     if (capacity < 1) capacity = 1; /* unbuffered = capacity 1 */
-    /* FIX-02: replace soft-NULL returns with iron_oom_abort. */
+
+    /* HARDEN-01 Plan 03: pure malloc-NULL OOM sites — no IRON_THREAD_CREATE in
+     * channel construction. OOM stays abort; _or_error variant exists for API
+     * uniformity so callers that branch on Iron_Error can use the same
+     * pattern across every creation function. */
     Iron_Channel *ch = (Iron_Channel *)malloc(sizeof(Iron_Channel));
-    if (!ch) iron_oom_abort("iron_threads.c:Iron_channel_create channel");
+    if (!ch) iron_oom_abort("iron_threads.c:Iron_channel_create_or_error channel");
 
     ch->ring     = (void **)malloc((size_t)capacity * sizeof(void *));
-    if (!ch->ring) iron_oom_abort("iron_threads.c:Iron_channel_create ring");
+    if (!ch->ring) iron_oom_abort("iron_threads.c:Iron_channel_create_or_error ring");
     ch->capacity = capacity;
     ch->head     = 0;
     ch->tail     = 0;
@@ -887,7 +925,19 @@ Iron_Channel *Iron_channel_create(int capacity) {
     IRON_MUTEX_INIT(ch->lock);
     IRON_COND_INIT(ch->not_full);
     IRON_COND_INIT(ch->not_empty);
-    return ch;
+    return (Iron_Channel_OrError){ .channel = ch, .err = iron_error_none() };
+}
+
+Iron_Channel *Iron_channel_create(int capacity) {
+    /* Legacy wrapper — delegates to Iron_channel_create_or_error and aborts
+     * on any typed error. Preserves byte-identical signature so
+     * tests/unit/test_runtime_threads.c lines 116/132/160/169 link
+     * unchanged. */
+    Iron_Channel_OrError r = Iron_channel_create_or_error(capacity);
+    if (!iron_error_is_ok(r.err)) {
+        iron_oom_abort("iron_threads.c:Iron_channel_create legacy wrapper");
+    }
+    return r.channel;
 }
 
 void Iron_channel_send(Iron_Channel *ch, void *item) {
@@ -960,19 +1010,33 @@ void Iron_channel_destroy(Iron_Channel *ch) {
 
 /* ── Iron_Mutex ──────────────────────────────────────────────────────────── */
 
-Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size) {
-    /* FIX-02: replace soft-NULL returns with iron_oom_abort. */
+Iron_Mutex_OrError Iron_mutex_create_or_error(void *initial_value, size_t size) {
+    /* HARDEN-01 Plan 03: pure malloc-NULL OOM sites. OOM stays abort;
+     * _or_error variant exists for API uniformity. The m->value = malloc(size)
+     * call preserves the pre-existing quirk where malloc(0) may return NULL
+     * on some platforms — that behavior is unchanged from the legacy body. */
     Iron_Mutex *m = (Iron_Mutex *)malloc(sizeof(Iron_Mutex));
-    if (!m) iron_oom_abort("iron_threads.c:Iron_mutex_create mutex");
+    if (!m) iron_oom_abort("iron_threads.c:Iron_mutex_create_or_error mutex");
 
     m->value = malloc(size);
-    if (!m->value) iron_oom_abort("iron_threads.c:Iron_mutex_create value");
+    if (!m->value) iron_oom_abort("iron_threads.c:Iron_mutex_create_or_error value");
     m->value_size = size;
     if (initial_value && size > 0) {
         memcpy(m->value, initial_value, size);
     }
     IRON_MUTEX_INIT(m->lock);
-    return m;
+    return (Iron_Mutex_OrError){ .mutex = m, .err = iron_error_none() };
+}
+
+Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size) {
+    /* Legacy wrapper — delegates to Iron_mutex_create_or_error and aborts on
+     * any typed error. Preserves byte-identical signature so
+     * tests/unit/test_runtime_threads.c lines 185/216 link unchanged. */
+    Iron_Mutex_OrError r = Iron_mutex_create_or_error(initial_value, size);
+    if (!iron_error_is_ok(r.err)) {
+        iron_oom_abort("iron_threads.c:Iron_mutex_create legacy wrapper");
+    }
+    return r.mutex;
 }
 
 void *Iron_mutex_lock(Iron_Mutex *m) {
