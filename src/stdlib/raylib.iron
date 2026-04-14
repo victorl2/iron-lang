@@ -1,68 +1,120 @@
 -- raylib.iron — Iron bindings for raylib 5.5
--- Ships with the Iron compiler; loaded when user writes: import raylib
+--
+-- Ships with the Iron compiler; loaded when user writes `import raylib`.
+--
+-- ──────────────────────────────────────────────────────────────────────
+-- Convention notes (see .planning/phases/60-type-enum-foundation/60-CONTEXT.md)
+-- ──────────────────────────────────────────────────────────────────────
+--
+-- 1. Snake_case method names. Example: `window.should_close()`,
+--    `texture.set_filter(.bilinear)`. Matches iron_net.iron and math.iron.
+--
+-- 2. Type name suffixes: dropped by default. `Texture` (not Texture2D),
+--    `RenderTexture`, `Font`, `Sound`. Where a 2D vs 3D pair truly exists
+--    as distinct raylib types, the 3D version gets the suffix — `Camera`
+--    is the 2D scene camera, `Camera3D` is the 3D scene camera. THIS
+--    INVERTS raylib's C convention where `Camera = Camera3D` typedef.
+--
+-- 3. Vectors keep numeric suffixes (Vector2/3/4) because they are
+--    distinct math types, not 2D/3D variants of each other.
+--
+-- 4. Quaternion is a separate type alias for Vector4 to preserve
+--    math-domain meaning. Same layout, different name.
+--
+-- 5. Opaque pointers (Image.data, Mesh vertex pointers, Font glyphs,
+--    audio buffers, etc.) are stored as `_`-prefixed `val: Int` fields.
+--    The underscore signals "raw pointer, do not touch". Iron has no
+--    language-level privacy; this is a convention.
+--
+-- 6. Resource lifecycle is MANUAL. Every `Type.load(...)` returns a
+--    handle; the user MUST call `handle.unload()` to release. Forgetting
+--    to unload leaks until process exit. There is no automatic cleanup.
+--
+-- 7. Every raylib type in this file has its C layout verified at build
+--    time by `_Static_assert` in src/stdlib/iron_raylib_layout.c. Drift
+--    is impossible to ship.
+--
+-- 8. Float fields use `Float32` (NOT `Float`) because raylib's C types
+--    use `float`. Iron's `Float` maps to `double` which would shift
+--    every field offset.
+--
+-- ──────────────────────────────────────────────────────────────────────
+-- Phase 60 scope: types + enums only. Function bindings land in Phases
+-- 61–72. Phase 60 Plan 02 defines the core math types (Vector*, Matrix,
+-- Rectangle, Color, Quaternion). Remaining types come in Plans 60-03,
+-- 60-04, 60-05. Enums come in Plan 60-07.
+-- ──────────────────────────────────────────────────────────────────────
 
--- Types (match C struct layout exactly)
--- Note: Vec2 uses Float32 (not Float) because raylib's Vector2 uses C `float`.
--- Iron's Float maps to double which would cause wrong struct layout.
-object Vec2 {
-  var x: Float32
-  var y: Float32
+-- ══════════════════════════════════════════════════════════════════════
+-- Core math types (TYPE-01..06)
+-- ══════════════════════════════════════════════════════════════════════
+
+-- 2D vector — matches C `struct Vector2 { float x; float y; }` (TYPE-01).
+object Vector2 {
+    val x: Float32
+    val y: Float32
 }
 
+-- 3D vector — matches C `struct Vector3 { float x; float y; float z; }` (TYPE-02).
+object Vector3 {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+}
+
+-- 4D vector — matches C `struct Vector4 { float x; float y; float z; float w; }` (TYPE-03).
+object Vector4 {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+    val w: Float32
+}
+
+-- Quaternion — separate Iron type alias for Vector4, same C layout.
+-- Reads as a rotation in math signatures, while `Vector4` reads as a
+-- generic 4-vec. Both are layout-verified against C `Vector4`. (TYPE-03).
+object Quaternion {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+    val w: Float32
+}
+
+-- 4x4 column-major matrix — matches C `struct Matrix` from raylib.h
+-- line 239. raylib's matrix stores floats in the order m0 m4 m8 m12
+-- m1 m5 m9 m13 m2 m6 m10 m14 m3 m7 m11 m15, and that is exactly the
+-- order in the Iron struct. (TYPE-04)
+object Matrix {
+    val m0: Float32
+    val m4: Float32
+    val m8: Float32
+    val m12: Float32
+    val m1: Float32
+    val m5: Float32
+    val m9: Float32
+    val m13: Float32
+    val m2: Float32
+    val m6: Float32
+    val m10: Float32
+    val m14: Float32
+    val m3: Float32
+    val m7: Float32
+    val m11: Float32
+    val m15: Float32
+}
+
+-- Axis-aligned rectangle — matches C `struct Rectangle` (TYPE-05).
+object Rectangle {
+    val x: Float32
+    val y: Float32
+    val width: Float32
+    val height: Float32
+}
+
+-- 32-bit RGBA color — matches C `struct Color` (TYPE-06).
 object Color {
-  var r: UInt8
-  var g: UInt8
-  var b: UInt8
-  var a: UInt8
+    val r: UInt8
+    val g: UInt8
+    val b: UInt8
+    val a: UInt8
 }
-
--- Color constants
-val RED      = Color(230, 41, 55, 255)
-val BLUE     = Color(0, 121, 241, 255)
-val GREEN    = Color(0, 228, 48, 255)
-val DARKGRAY = Color(80, 80, 80, 255)
-val WHITE    = Color(255, 255, 255, 255)
-val BLACK    = Color(0, 0, 0, 255)
-val YELLOW   = Color(253, 249, 0, 255)
-val ORANGE   = Color(255, 161, 0, 255)
-
--- Key codes — explicit ordinal values match raylib KEY_* constants exactly.
--- This is what makes is_key_down(.RIGHT) pass the correct integer to C.
-enum Key {
-  SPACE     = 32,
-  ESCAPE    = 256,
-  ENTER     = 257,
-  BACKSPACE = 259,
-  RIGHT     = 262,
-  LEFT      = 263,
-  DOWN      = 264,
-  UP        = 265,
-  A = 65, B = 66, C = 67, D = 68, E = 69, F = 70,
-  G = 71, H = 72, I = 73, J = 74, K = 75, L = 76,
-  M = 77, N = 78, O = 79, P = 80, Q = 81, R = 82,
-  S = 83, T = 84, U = 85, V = 86, W = 87, X = 88,
-  Y = 89, Z = 90,
-}
-
--- Window management
-extern func InitWindow(w: Int, h: Int, title: String)
-extern func CloseWindow()
-extern func WindowShouldClose() -> Bool
-extern func SetTargetFPS(fps: Int)
-extern func GetFrameTime() -> Float32
-
--- Drawing
-extern func ClearBackground(color: Color)
-extern func BeginDrawing()
-extern func EndDrawing()
-extern func DrawText(text: String, x: Int, y: Int, size: Int, color: Color)
-extern func DrawRectangle(x: Int, y: Int, w: Int, h: Int, color: Color)
-extern func DrawCircle(x: Int, y: Int, radius: Float32, color: Color)
-extern func DrawLine(x1: Int, y1: Int, x2: Int, y2: Int, color: Color)
-
--- Input — Key enum used here (not Int) per user decision
-extern func IsKeyDown(key: Key) -> Bool
-extern func IsKeyPressed(key: Key) -> Bool
-extern func GetMouseX() -> Int
-extern func GetMouseY() -> Int
-extern func IsMouseButtonPressed(button: Int) -> Bool
