@@ -954,3 +954,22 @@ val GREEN    = Color(0, 228, 48, 255)
 val WHITE    = Color(255, 255, 255, 255)
 val BLACK    = Color(0, 0, 0, 255)
 val DARKGRAY = Color(80, 80, 80, 255)
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Window & System (Phase 61)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Phase 61 binds raylib's `rcore.c` window / system functions to the
+-- `Window` namespace type declared in Plan 60-06. Every empty-body
+-- stub below lowers to `Iron_window_<name>(...)` in C, implemented by
+-- src/stdlib/iron_raylib.c. Shim-only pattern per 60-CONTEXT.md.
+--
+-- Phase 61 Plan 01 locks in the pattern with lifecycle + state queries
+-- and runs a one-off ABI smoke test (Window.abi_smoke_test) that MUST
+-- return Vector2(3.5, 4.5). If it does, struct-by-value returns work
+-- and the rest of the phase can proceed. If it does not, the plan
+-- blocks and switches to an out-param pattern.
+
+-- ABI smoke test (temporary; remove when Phase 61 is complete).
+-- Proves Iron's FFI correctly marshals struct-by-value returns.
+func Window.abi_smoke_test() -> Vector2 {}

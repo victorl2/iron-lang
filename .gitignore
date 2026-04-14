@@ -60,3 +60,4 @@ compile_commands.json
 *.dll
 *.exe
 *.dSYM/
+*.pch

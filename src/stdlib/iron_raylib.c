@@ -33,6 +33,16 @@
  * ════════════════════════════════════════════════════════════════════ */
 
 /* ── Window & System (Phase 61) ───────────────────────────────────── */
+
+/* Phase 61 struct-by-value return ABI smoke test. Hardcodes a
+ * Vector2{3.5f, 4.5f} literal and returns it. Iron code calls this
+ * and checks both fields match; any mismatch means Iron's struct-
+ * return ABI is broken and we must switch to an out-param pattern. */
+struct Iron_Vector2 Iron_window_abi_smoke_test(void) {
+    struct Iron_Vector2 v = { 3.5f, 4.5f };
+    return v;
+}
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */

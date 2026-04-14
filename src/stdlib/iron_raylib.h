@@ -341,6 +341,14 @@ struct Iron_FilePathList {
  * ════════════════════════════════════════════════════════════════════ */
 
 /* ── Window & System (Phase 61) ───────────────────────────────────── */
+
+/* Phase 61 ABI smoke test — proves Iron's FFI can return a struct by
+ * value from a shim. If the smoke test passes, the rest of Phase 61
+ * can freely use struct-return wrappers for GetWindowPosition /
+ * GetWindowScaleDPI / GetMonitorPosition / GetClipboardImage.
+ * DELETE this prototype after Phase 61 verification if not needed. */
+struct Iron_Vector2 Iron_window_abi_smoke_test(void);
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
