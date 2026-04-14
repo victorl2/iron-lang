@@ -405,13 +405,42 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         if (iron_match(p, IRON_TOK_LPAREN)) {
             Iron_Node **params = NULL;
             int param_count = 0;
+            /* Phase 72 HARDEN-02: forward-progress guard for the func-type
+             * parameter list recovery loop. iron_expect(COMMA) emits a
+             * diagnostic without advancing on mismatch, and on an invalid
+             * first-type-annotation token iron_parse_type_annotation()
+             * returns iron_make_error() without advancing either — so
+             * without this guard the loop spins forever emitting
+             * "expected ,"/"expected type name" diagnostics until the
+             * parser arena OOMs under ASAN instrumentation. */
+            const int MAX_FUNC_PARAM_ITERS = 1024;
+            int func_param_iters = 0;
             while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
+                int func_iter_start_pos = p->pos;
                 if (param_count > 0) {
                     iron_expect(p, IRON_TOK_COMMA);
                 }
                 Iron_Node *param_type = iron_parse_type_annotation(p);
                 arrput(params, param_type);
                 param_count++;
+                /* Phase 72 HARDEN-02: forward-progress invariant. If
+                 * neither iron_expect(COMMA) nor iron_parse_type_annotation
+                 * moved the cursor, consume one token to guarantee loop
+                 * termination. */
+                if (p->pos == func_iter_start_pos &&
+                    !iron_check(p, IRON_TOK_RPAREN) &&
+                    !iron_check(p, IRON_TOK_EOF)) {
+                    iron_advance(p);
+                }
+                func_param_iters++;
+                if (func_param_iters >= MAX_FUNC_PARAM_ITERS) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, iron_current(p)),
+                                   "parser internal error: iron_parse_type_annotation func-param exceeded recovery fuel",
+                                   NULL);
+                    break;
+                }
             }
             iron_expect(p, IRON_TOK_RPAREN);
             /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `params` array ownership
@@ -2511,9 +2540,30 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
     Iron_Node **fields = NULL;
     int field_count    = 0;
 
+    /* Phase 72 HARDEN-02: forward-progress guard + fuel counter for
+     * iron_parse_object_decl's field-parsing recovery loop. Mirror of the
+     * iron_parse_interface_decl fix (Plan 72-01 Task 2). The Plan 72-02
+     * fuzz re-run at -runs=10000 -seed=1 against all 3 Phase 68 fuzz
+     * targets converged on a timeout-* artifact in this exact function:
+     * a malformed object body encounters a sync_stmt stop-list token
+     * (val/var/if/while/for/match/return/...) that pins p->pos, and the
+     * error-branch `continue` at the bottom of the loop spins forever,
+     * emitting a diagnostic string per iteration (which exhausts the
+     * parser arena under ASAN instrumentation, yielding out-of-memory or
+     * libFuzzer -timeout=10 depending on build flags). Fix pattern is
+     * identical to Plan 01: capture p->pos at each iteration, force-
+     * advance if sync_stmt didn't, and bound the iteration count at
+     * MAX_OBJECT_RECOVERY_ITERS=1024 as defense-in-depth. */
+    const int MAX_OBJECT_RECOVERY_ITERS = 1024;
+    int object_recovery_iters = 0;
+
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+
+        /* Phase 72 HARDEN-02: capture pre-iteration cursor for the
+         * forward-progress invariant below. */
+        int iter_start_pos = p->pos;
 
         bool is_var = false;
         Iron_Token *field_start = iron_current(p);
@@ -2529,6 +2579,22 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
                            iron_token_span(p, iron_current(p)),
                            "expected field declaration (val or var)", NULL);
             iron_parser_sync_stmt(p);
+            /* Phase 72 HARDEN-02: force forward progress if sync_stmt
+             * pinned the cursor, and tick the fuel counter. */
+            if (p->pos == iter_start_pos &&
+                !iron_check(p, IRON_TOK_RBRACE) &&
+                !iron_check(p, IRON_TOK_EOF)) {
+                iron_advance(p);
+            }
+            object_recovery_iters++;
+            if (object_recovery_iters >= MAX_OBJECT_RECOVERY_ITERS) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "parser internal error: iron_parse_object_decl exceeded recovery fuel",
+                               NULL);
+                break;
+            }
             continue;
         }
 
@@ -2538,6 +2604,22 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
                            iron_token_span(p, iron_current(p)),
                            "expected field name", NULL);
             iron_parser_sync_stmt(p);
+            /* Phase 72 HARDEN-02: same forward-progress invariant applied
+             * to the second error branch. */
+            if (p->pos == iter_start_pos &&
+                !iron_check(p, IRON_TOK_RBRACE) &&
+                !iron_check(p, IRON_TOK_EOF)) {
+                iron_advance(p);
+            }
+            object_recovery_iters++;
+            if (object_recovery_iters >= MAX_OBJECT_RECOVERY_ITERS) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "parser internal error: iron_parse_object_decl exceeded recovery fuel",
+                               NULL);
+                break;
+            }
             continue;
         }
         Iron_Token *fname = iron_advance(p);
