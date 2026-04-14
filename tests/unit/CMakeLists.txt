@@ -118,6 +118,15 @@ target_link_libraries(test_alloc_map_put_oom iron_runtime unity)
 add_test(NAME test_alloc_map_put_oom COMMAND test_alloc_map_put_oom)
 set_tests_properties(test_alloc_map_put_oom PROPERTIES LABELS "unit")
 
+# ── Phase 71 Plan 05: HARDEN-01 non-abort path regression tests ─────────────
+# Exercises the Iron_*_or_error variants under OOM (child SIGABRTs) and
+# under RLIMIT_NPROC scheduler pressure (child exits cleanly with
+# IRON_ERR_THREAD_LIMIT). Linux-only for the scheduler-pressure case.
+add_executable(test_runtime_thread_pressure test_runtime_thread_pressure.c)
+target_link_libraries(test_runtime_thread_pressure iron_runtime unity)
+add_test(NAME test_runtime_thread_pressure COMMAND test_runtime_thread_pressure)
+set_tests_properties(test_runtime_thread_pressure PROPERTIES LABELS "unit")
+
 # ── Stdlib unit test ─────────────────────────────────────────────────────────
 add_executable(test_stdlib test_stdlib.c)
 target_link_libraries(test_stdlib iron_stdlib iron_runtime unity)
