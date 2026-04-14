@@ -1,11 +1,23 @@
 -- Pong — Phase 12 reference game for the Iron WASM worker
 --
--- Two paddles, ball with reflection, per-player score, win condition,
--- and a title/play/game-over state machine driven from a single
--- top-level while(!WindowShouldClose()) loop that captures at least
--- four locals (ball_x, ball_y, ball_vx, ball_vy, paddle positions, scores).
+-- PHASE 60 NOTE (Plan 60-08): This file was rewritten during the
+-- clean-break (API-11 override) to use canonical Phase 60 names:
+--   Vec2    → Vector2  (not used in pong's placeholder body)
+--   Key.X   → KeyboardKey.X
+-- Most raylib function calls (Window/Input/Draw) are commented out
+-- with `-- PHASE 6N:` markers because those functions are defined in
+-- Phases 61/62/63 — Phase 60 only defines types and enums, no
+-- functions. When Phases 61-63 land, uncomment the marked lines one
+-- phase at a time and the file will run again. The full gameplay
+-- implementation is preserved in git history; Phase 73 reintegrates
+-- it as the canonical showcase game.
 --
--- Builds on both `--target=native` and `--target=web` from the same source.
+-- Original intent: two paddles, ball with reflection, per-player
+-- score, win condition, and a title/play/game-over state machine
+-- driven from a single top-level while(!WindowShouldClose()) loop
+-- that captures at least four locals (ball_x, ball_y, ball_vx,
+-- ball_vy, paddle positions, scores). Builds on both
+-- `--target=native` and `--target=web` from the same source.
 
 import raylib
 
@@ -32,153 +44,62 @@ func int_to_str(n: Int) -> String {
 }
 
 func main() {
-    -- Screen dimensions + tunables (local to main so the LIR main-loop split
-    -- sees them as captures alongside the mutable game state).
-    val SCREEN_W: Int = 800
-    val SCREEN_H: Int = 600
-    val PADDLE_W: Int = 12
-    val PADDLE_H: Int = 80
-    val PADDLE_SPEED: Int = 6
-    val BALL_SIZE: Int = 12
-    val BALL_SPEED: Int = 5
-    val WIN_SCORE: Int = 5
+    -- PHASE 60 PLACEHOLDER: pong.iron body removed pending Phase 61-63
+    -- function bindings. See git history for the original implementation.
+    -- Phase 61 restores Window.init / Window.close / Window.should_close.
+    -- Phase 62 restores input (KeyboardKey.SPACE / W / S / UP / DOWN).
+    -- Phase 63 restores the Draw.* methods (begin / clear / end /
+    -- DrawRectangle / DrawLine / DrawText). Phase 73 reintegrates the
+    -- full game loop and GameState machine.
+    --
+    -- The placeholder below exercises Phase 60's type + enum surface
+    -- (Vector2, Color, KeyboardKey, GameState, int_to_str) so the file
+    -- parses AND links AND produces a working binary under the new
+    -- raylib.iron — this is the canonical end-to-end validation test
+    -- for the Phase 60 clean break.
 
-    InitWindow(SCREEN_W, SCREEN_H, "Iron Pong")
-    SetTargetFPS(60)
+    val title: String = "Iron Pong — Phase 60 clean-break placeholder"
+    val bg: Color = BLACK
+    val fg: Color = WHITE
+    val accent: Color = RED
+    val divider: Color = DARKGRAY
+    val ball_origin: Vector2 = Vector2(Float32(400.0), Float32(300.0))
+    val start_key: KeyboardKey = KeyboardKey.SPACE
+    val left_up: KeyboardKey = KeyboardKey.W
+    val left_down: KeyboardKey = KeyboardKey.S
+    val right_up: KeyboardKey = KeyboardKey.UP
+    val right_down: KeyboardKey = KeyboardKey.DOWN
+    val initial_state: GameState = GameState.TITLE
+    val score_str: String = int_to_str(0)
 
-    -- Captured locals — the Phase 5 LIR main-loop split pass lifts these
-    -- into a FrameState struct for web so writes persist frame-over-frame.
-    var state: GameState = GameState.TITLE
-    var ball_x: Int = SCREEN_W / 2
-    var ball_y: Int = SCREEN_H / 2
-    var ball_vx: Int = BALL_SPEED
-    var ball_vy: Int = BALL_SPEED
-    var left_y: Int = SCREEN_H / 2 - PADDLE_H / 2
-    var right_y: Int = SCREEN_H / 2 - PADDLE_H / 2
-    var left_score: Int = 0
-    var right_score: Int = 0
+    -- PHASE 61: Window.init(800, 600, title)
+    -- PHASE 61: Window.set_target_fps(60)
+    -- PHASE 61: while not Window.should_close() { ... }
+    -- PHASE 62: if Input.is_key_pressed(start_key) { state = GameState.PLAYING }
+    -- PHASE 62: if Input.is_key_down(left_up) { left_y = left_y - PADDLE_SPEED }
+    -- PHASE 63: Draw.begin()
+    -- PHASE 63: Draw.clear(bg)
+    -- PHASE 63: DrawLine(SCREEN_W / 2, 0, SCREEN_W / 2, SCREEN_H, divider)
+    -- PHASE 63: DrawRectangle(0, left_y, PADDLE_W, PADDLE_H, fg)
+    -- PHASE 63: DrawText(score_str, SCREEN_W / 4, 20, 40, fg)
+    -- PHASE 63: DrawText("GAME OVER", ..., accent)
+    -- PHASE 63: Draw.end()
+    -- PHASE 61: Window.close()
 
-    while not WindowShouldClose() {
-        -- Per-frame update dispatch on game state
-        if state == GameState.TITLE {
-            -- Wait for SPACE to start
-            if IsKeyPressed(Key.SPACE) {
-                state = GameState.PLAYING
-            }
-        }
-        if state == GameState.PLAYING {
-            -- Left paddle: W / S
-            if IsKeyDown(Key.W) { left_y = left_y - PADDLE_SPEED }
-            if IsKeyDown(Key.S) { left_y = left_y + PADDLE_SPEED }
-            -- Right paddle: UP / DOWN arrows
-            if IsKeyDown(Key.UP)   { right_y = right_y - PADDLE_SPEED }
-            if IsKeyDown(Key.DOWN) { right_y = right_y + PADDLE_SPEED }
-
-            -- Clamp paddles to screen
-            if left_y < 0 { left_y = 0 }
-            if left_y > SCREEN_H - PADDLE_H { left_y = SCREEN_H - PADDLE_H }
-            if right_y < 0 { right_y = 0 }
-            if right_y > SCREEN_H - PADDLE_H { right_y = SCREEN_H - PADDLE_H }
-
-            -- Ball update
-            ball_x = ball_x + ball_vx
-            ball_y = ball_y + ball_vy
-
-            -- Top/bottom wall reflection
-            if ball_y < 0 {
-                ball_y = 0
-                ball_vy = -ball_vy
-            }
-            if ball_y > SCREEN_H - BALL_SIZE {
-                ball_y = SCREEN_H - BALL_SIZE
-                ball_vy = -ball_vy
-            }
-
-            -- Left paddle collision (x range + y range)
-            if ball_x < PADDLE_W and ball_x > 0 {
-                if ball_y + BALL_SIZE > left_y and ball_y < left_y + PADDLE_H {
-                    ball_x = PADDLE_W
-                    ball_vx = -ball_vx
-                }
-            }
-            -- Right paddle collision
-            if ball_x + BALL_SIZE > SCREEN_W - PADDLE_W and ball_x + BALL_SIZE < SCREEN_W {
-                if ball_y + BALL_SIZE > right_y and ball_y < right_y + PADDLE_H {
-                    ball_x = SCREEN_W - PADDLE_W - BALL_SIZE
-                    ball_vx = -ball_vx
-                }
-            }
-
-            -- Scoring
-            if ball_x < 0 {
-                right_score = right_score + 1
-                ball_x = SCREEN_W / 2
-                ball_y = SCREEN_H / 2
-                ball_vx = BALL_SPEED
-                ball_vy = BALL_SPEED
-            }
-            if ball_x > SCREEN_W {
-                left_score = left_score + 1
-                ball_x = SCREEN_W / 2
-                ball_y = SCREEN_H / 2
-                ball_vx = -BALL_SPEED
-                ball_vy = BALL_SPEED
-            }
-
-            -- Win condition
-            if left_score >= WIN_SCORE { state = GameState.GAME_OVER }
-            if right_score >= WIN_SCORE { state = GameState.GAME_OVER }
-        }
-        if state == GameState.GAME_OVER {
-            -- SPACE restarts
-            if IsKeyPressed(Key.SPACE) {
-                state = GameState.PLAYING
-                left_score = 0
-                right_score = 0
-                ball_x = SCREEN_W / 2
-                ball_y = SCREEN_H / 2
-                ball_vx = BALL_SPEED
-                ball_vy = BALL_SPEED
-            }
-        }
-
-        -- Render
-        BeginDrawing()
-        ClearBackground(BLACK)
-
-        -- Center line
-        DrawLine(SCREEN_W / 2, 0, SCREEN_W / 2, SCREEN_H, DARKGRAY)
-
-        -- Paddles
-        DrawRectangle(0, left_y, PADDLE_W, PADDLE_H, WHITE)
-        DrawRectangle(SCREEN_W - PADDLE_W, right_y, PADDLE_W, PADDLE_H, WHITE)
-
-        -- Ball (only draw during play / game over to avoid flashing on title)
-        if state == GameState.PLAYING {
-            DrawRectangle(ball_x, ball_y, BALL_SIZE, BALL_SIZE, WHITE)
-        }
-        if state == GameState.GAME_OVER {
-            DrawRectangle(ball_x, ball_y, BALL_SIZE, BALL_SIZE, WHITE)
-        }
-
-        -- Scores
-        val left_str = int_to_str(left_score)
-        val right_str = int_to_str(right_score)
-        DrawText(left_str, SCREEN_W / 4, 20, 40, WHITE)
-        DrawText(right_str, 3 * SCREEN_W / 4, 20, 40, WHITE)
-
-        -- State-specific overlay text
-        if state == GameState.TITLE {
-            DrawText("IRON PONG", SCREEN_W / 2 - 100, SCREEN_H / 2 - 40, 40, WHITE)
-            DrawText("Press SPACE to start", SCREEN_W / 2 - 120, SCREEN_H / 2 + 20, 20, DARKGRAY)
-        }
-        if state == GameState.GAME_OVER {
-            DrawText("GAME OVER", SCREEN_W / 2 - 100, SCREEN_H / 2 - 40, 40, RED)
-            DrawText("Press SPACE to restart", SCREEN_W / 2 - 130, SCREEN_H / 2 + 20, 20, DARKGRAY)
-        }
-
-        EndDrawing()
-    }
-
-    CloseWindow()
+    -- Keep the placeholder locals alive so the typechecker doesn't warn
+    -- about unused values (and so the compiler does not DCE them away,
+    -- which would make this file a silent no-op).
+    val _unused_0 = title
+    val _unused_1 = bg
+    val _unused_2 = fg
+    val _unused_3 = accent
+    val _unused_4 = divider
+    val _unused_5 = ball_origin
+    val _unused_6 = start_key
+    val _unused_7 = left_up
+    val _unused_8 = left_down
+    val _unused_9 = right_up
+    val _unused_10 = right_down
+    val _unused_11 = initial_state
+    val _unused_12 = score_str
 }
