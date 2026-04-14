@@ -1,0 +1,208 @@
+name: Coverage
+
+# Phase 69 Plan 02 (COV-03): llvm-cov coverage workflow.
+#
+# Runs scripts/coverage.sh on every push to main + every PR targeting main.
+# The push trigger updates the rolling main-branch baseline artifact. The
+# PR trigger computes a per-file delta against the most recent successful
+# main-branch run and posts a markdown comment on the PR.
+#
+# NEVER gates PRs. Soft warning only. 50% line-coverage floor (COV-05) is
+# per-file retrospective, not enforced in CI in Phase 69.
+#
+# Notes (load-bearing — do NOT paraphrase when editing):
+#   - `permissions.pull-requests: write` is essential for `gh pr comment`.
+#   - `permissions.actions: read` is essential for `gh api` to list prior
+#     workflow runs when resolving the baseline artifact.
+#   - `actions/upload-artifact@v4` only (@v3 is deprecated as of Jan 2025).
+#   - `<!-- coverage-report-bot -->` comment tag is how the edit-or-create
+#     dedup finds its own previous comment on the PR.
+#   - `continue-on-error: true` on the delta-post step ensures a PR-comment
+#     failure does not mark the workflow run as failed (coverage signal
+#     should never block merging).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'scripts/coverage.sh'
+      - '.github/workflows/coverage.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'scripts/coverage.sh'
+      - '.github/workflows/coverage.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang llvm
+          # Sanity-check that llvm-profdata and llvm-cov landed on PATH
+          command -v llvm-profdata
+          command -v llvm-cov
+
+      - name: Run coverage.sh
+        id: cov_run
+        run: |
+          bash scripts/coverage.sh
+
+      - name: Upload coverage report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.sha }}
+          path: build-cov/coverage/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fetch baseline summary.json (PR only)
+        if: github.event_name == 'pull_request'
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          mkdir -p /tmp/coverage-baseline
+          # Find the most recent successful coverage.yml run on main.
+          RUN_ID=$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/coverage.yml/runs?branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].id // empty')
+          if [ -z "$RUN_ID" ]; then
+            echo "baseline_found=false" >> "$GITHUB_OUTPUT"
+            echo "No prior main-branch coverage run found — first invocation."
+            exit 0
+          fi
+          echo "Resolved baseline run id: $RUN_ID"
+          BASELINE_SHA=$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
+            --jq '.head_sha')
+          # Download its artifact (named coverage-report-<sha>)
+          gh run download "$RUN_ID" \
+            --name "coverage-report-${BASELINE_SHA}" \
+            --dir /tmp/coverage-baseline 2>/dev/null
+          if [ -f /tmp/coverage-baseline/summary.json ]; then
+            echo "baseline_found=true" >> "$GITHUB_OUTPUT"
+            echo "Baseline summary.json downloaded ($(wc -c < /tmp/coverage-baseline/summary.json) bytes)"
+          else
+            echo "baseline_found=false" >> "$GITHUB_OUTPUT"
+            echo "Baseline artifact missing summary.json — treating as first run."
+          fi
+
+      - name: Compute delta + post PR comment (PR only)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASELINE_FOUND: ${{ steps.baseline.outputs.baseline_found }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+
+          PR_SUMMARY="build-cov/coverage/summary.json"
+          BASELINE_SUMMARY="/tmp/coverage-baseline/summary.json"
+
+          if [ ! -f "$PR_SUMMARY" ]; then
+            echo "PR summary.json missing — skipping comment"
+            exit 0
+          fi
+
+          COMMENT_FILE=/tmp/coverage-comment.md
+          {
+            echo "<!-- coverage-report-bot -->"
+            echo "## Coverage Report"
+            echo ""
+            echo "Commit: \`${COMMIT_SHA:0:7}\`"
+            echo "Run: [${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID})"
+            echo "HTML artifact: \`coverage-report-${COMMIT_SHA}\` (in the workflow run)"
+            echo ""
+          } > "$COMMENT_FILE"
+
+          if [ "$BASELINE_FOUND" != "true" ]; then
+            echo "First coverage run — no baseline to compare against." >> "$COMMENT_FILE"
+            echo "" >> "$COMMENT_FILE"
+            python3 - "$PR_SUMMARY" >> "$COMMENT_FILE" <<'PYEOF'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          t = d.get("totals", {})
+          print(f"**Totals:** line {t.get('line', 0)}% · branch {t.get('branch', 0)}% · files {len(d.get('files', {}))}")
+          PYEOF
+          else
+            python3 - "$BASELINE_SUMMARY" "$PR_SUMMARY" >> "$COMMENT_FILE" <<'PYEOF'
+          import json, sys
+          base = json.load(open(sys.argv[1]))
+          pr = json.load(open(sys.argv[2]))
+
+          base_files = base.get("files", {})
+          pr_files = pr.get("files", {})
+          base_totals = base.get("totals", {})
+          pr_totals = pr.get("totals", {})
+
+          line_delta = pr_totals.get("line", 0) - base_totals.get("line", 0)
+          branch_delta = pr_totals.get("branch", 0) - base_totals.get("branch", 0)
+
+          arrow = lambda d: ("↑" if d > 0 else ("↓" if d < 0 else "·"))
+          print(f"**Totals:** line {pr_totals.get('line', 0)}% ({arrow(line_delta)}{line_delta:+.2f}) · branch {pr_totals.get('branch', 0)}% ({arrow(branch_delta)}{branch_delta:+.2f})")
+          print("")
+
+          diffs = []
+          all_keys = set(base_files) | set(pr_files)
+          for k in all_keys:
+              b = base_files.get(k, {}).get("line", 0)
+              p = pr_files.get(k, {}).get("line", 0)
+              d = round(p - b, 2)
+              if d != 0:
+                  diffs.append((k, b, p, d))
+          diffs.sort(key=lambda x: abs(x[3]), reverse=True)
+
+          if not diffs:
+              print("No per-file deltas.")
+          else:
+              print("| File | main % | PR % | Δ |")
+              print("|---|---:|---:|---:|")
+              shown = 0
+              for k, b, p, d in diffs[:20]:
+                  mark = arrow(d)
+                  print(f"| `{k}` | {b:.2f} | {p:.2f} | {mark}{d:+.2f} |")
+                  shown += 1
+              if len(diffs) > shown:
+                  print("")
+                  print(f"*… and {len(diffs) - shown} more files with non-zero delta*")
+          PYEOF
+          fi
+
+          # Edit-or-create the bot comment (find by <!-- coverage-report-bot --> tag)
+          EXISTING=$(gh api "/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.body | startswith("<!-- coverage-report-bot -->")) | .id' \
+            | head -1)
+
+          if [ -n "$EXISTING" ]; then
+            echo "Editing existing comment id=$EXISTING"
+            gh api "/repos/${REPO}/issues/comments/${EXISTING}" \
+              -X PATCH \
+              -f body="$(cat $COMMENT_FILE)"
+          else
+            echo "Creating new PR comment"
+            gh pr comment "$PR_NUMBER" --body-file "$COMMENT_FILE"
+          fi
