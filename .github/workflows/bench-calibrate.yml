@@ -1,0 +1,66 @@
+name: Bench Calibrate
+
+# Phase 73 Plan 01 (HARDEN-03): on-demand linux-x86_64 benchmark calibration.
+# Runs scripts/bench_audit.sh --platform linux-x86_64 5 on a fresh ubuntu-24.04
+# runner (~18 min wall-clock: 5 rounds of 139 benchmarks) and uploads the
+# aggregated CSV /tmp/58-audit.csv as a named workflow artifact. The artifact
+# is harvested by the Plan 01 Task 2 executor via `gh run download --name ...`
+# and converted into tests/benchmarks/thresholds.linux-x86_64.json using the
+# locked 15% safety margin rule.
+#
+# Why workflow_dispatch and not on-push:
+#   - 18 min per run is too expensive for every PR
+#   - REG-03's "5-minute re-calibration" promise means maintainers re-run this
+#     ad-hoc when benchmark drift is detected, not on a schedule
+#   - No crash/regression artifacts; just aggregated threshold data
+#
+# Do NOT add `on: schedule` or `on: push` triggers. `workflow_dispatch` only.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  calibrate:
+    name: Calibrate (linux-x86_64, 5 rounds)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang jq
+
+      - name: Build compiler (Release)
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -G Ninja
+          cmake --build build
+
+      - name: Run 5-round bench audit
+        run: |
+          set -u
+          bash scripts/bench_audit.sh --platform linux-x86_64 5
+          echo "--- /tmp/58-audit.csv head ---"
+          head -5 /tmp/58-audit.csv
+          echo "--- /tmp/58-audit.csv row count ---"
+          wc -l /tmp/58-audit.csv
+
+      - name: Upload audit CSV artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-audit-linux-x86_64-5round-${{ github.run_id }}
+          path: |
+            /tmp/58-audit.csv
+            /tmp/58-audit-run-1.json
+            /tmp/58-audit-run-2.json
+            /tmp/58-audit-run-3.json
+            /tmp/58-audit-run-4.json
+            /tmp/58-audit-run-5.json
+          if-no-files-found: error
+          retention-days: 30
