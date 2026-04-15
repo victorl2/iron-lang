@@ -384,6 +384,34 @@ void Iron_window_set_size(int32_t w, int32_t h);
 void Iron_window_set_opacity(float opacity);
 void Iron_window_set_focused(void);
 
+/* Screen and window geometry (WIN-05) */
+int32_t Iron_window_get_screen_width(void);
+int32_t Iron_window_get_screen_height(void);
+int32_t Iron_window_get_render_width(void);
+int32_t Iron_window_get_render_height(void);
+struct Iron_Vector2 Iron_window_get_window_position(void);
+struct Iron_Vector2 Iron_window_get_window_scale_dpi(void);
+
+/* Monitor enumeration (WIN-06) */
+int32_t Iron_window_get_monitor_count(void);
+int32_t Iron_window_get_current_monitor(void);
+struct Iron_Vector2 Iron_window_get_monitor_position(int32_t monitor);
+int32_t Iron_window_get_monitor_width(int32_t monitor);
+int32_t Iron_window_get_monitor_height(int32_t monitor);
+int32_t Iron_window_get_monitor_physical_width(int32_t monitor);
+int32_t Iron_window_get_monitor_physical_height(int32_t monitor);
+int32_t Iron_window_get_monitor_refresh_rate(int32_t monitor);
+Iron_String Iron_window_get_monitor_name(int32_t monitor);
+
+/* Clipboard (WIN-07) */
+Iron_String Iron_window_get_clipboard_text(void);
+void Iron_window_set_clipboard_text(Iron_String text);
+struct Iron_Image Iron_window_get_clipboard_image(void);
+
+/* Screenshot (WIN-09) */
+void Iron_window_take_screenshot(Iron_String filename);
+struct Iron_Image Iron_window_load_image_from_screen(void);
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */

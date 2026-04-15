@@ -1027,3 +1027,42 @@ func Window.set_max_size(w: Int32, h: Int32) {}
 func Window.set_size(w: Int32, h: Int32) {}
 func Window.set_opacity(opacity: Float32) {}
 func Window.set_focused() {}
+
+-- Screen and window geometry (WIN-05)
+func Window.get_screen_width() -> Int32 {}
+func Window.get_screen_height() -> Int32 {}
+func Window.get_render_width() -> Int32 {}
+func Window.get_render_height() -> Int32 {}
+func Window.get_window_position() -> Vector2 {}
+func Window.get_window_scale_dpi() -> Vector2 {}
+
+-- Monitor enumeration (WIN-06)
+func Window.get_monitor_count() -> Int32 {}
+func Window.get_current_monitor() -> Int32 {}
+func Window.get_monitor_position(monitor: Int32) -> Vector2 {}
+func Window.get_monitor_width(monitor: Int32) -> Int32 {}
+func Window.get_monitor_height(monitor: Int32) -> Int32 {}
+func Window.get_monitor_physical_width(monitor: Int32) -> Int32 {}
+func Window.get_monitor_physical_height(monitor: Int32) -> Int32 {}
+func Window.get_monitor_refresh_rate(monitor: Int32) -> Int32 {}
+func Window.get_monitor_name(monitor: Int32) -> String {}
+
+-- Clipboard (WIN-07)
+--
+-- `get_clipboard_text` and `get_clipboard_image` copy the data into
+-- Iron-managed storage, so the returned values are stable across
+-- subsequent raylib calls. `get_clipboard_image` may return an
+-- Image with _data=0 / width=0 / height=0 if the system clipboard
+-- contains no image — user code should check dimensions before use.
+func Window.get_clipboard_text() -> String {}
+func Window.set_clipboard_text(text: String) {}
+func Window.get_clipboard_image() -> Image {}
+
+-- Screenshot (WIN-09)
+-- `take_screenshot` writes a PNG to `filename`. raylib infers format
+-- from the extension — use `.png` for PNG, `.bmp` for BMP, etc.
+-- `load_image_from_screen` returns the current framebuffer as a
+-- CPU-side Image; must be called between Draw.begin/end once Phase
+-- 63 lands those. Caller owns the returned Image.
+func Window.take_screenshot(filename: String) {}
+func Window.load_image_from_screen() -> Image {}

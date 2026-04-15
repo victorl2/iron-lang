@@ -136,6 +136,113 @@ void Iron_window_set_focused(void) {
     SetWindowFocused();
 }
 
+/* Screen and window geometry (WIN-05) */
+
+int32_t Iron_window_get_screen_width(void)  { return (int32_t)GetScreenWidth();  }
+int32_t Iron_window_get_screen_height(void) { return (int32_t)GetScreenHeight(); }
+int32_t Iron_window_get_render_width(void)  { return (int32_t)GetRenderWidth();  }
+int32_t Iron_window_get_render_height(void) { return (int32_t)GetRenderHeight(); }
+
+struct Iron_Vector2 Iron_window_get_window_position(void) {
+    Vector2 rl = GetWindowPosition();
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(out));
+    return out;
+}
+
+struct Iron_Vector2 Iron_window_get_window_scale_dpi(void) {
+    Vector2 rl = GetWindowScaleDPI();
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(out));
+    return out;
+}
+
+/* Monitor enumeration (WIN-06) */
+
+int32_t Iron_window_get_monitor_count(void)   { return (int32_t)GetMonitorCount();   }
+int32_t Iron_window_get_current_monitor(void) { return (int32_t)GetCurrentMonitor(); }
+
+struct Iron_Vector2 Iron_window_get_monitor_position(int32_t monitor) {
+    Vector2 rl = GetMonitorPosition((int)monitor);
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(out));
+    return out;
+}
+
+int32_t Iron_window_get_monitor_width(int32_t monitor) {
+    return (int32_t)GetMonitorWidth((int)monitor);
+}
+int32_t Iron_window_get_monitor_height(int32_t monitor) {
+    return (int32_t)GetMonitorHeight((int)monitor);
+}
+int32_t Iron_window_get_monitor_physical_width(int32_t monitor) {
+    return (int32_t)GetMonitorPhysicalWidth((int)monitor);
+}
+int32_t Iron_window_get_monitor_physical_height(int32_t monitor) {
+    return (int32_t)GetMonitorPhysicalHeight((int)monitor);
+}
+int32_t Iron_window_get_monitor_refresh_rate(int32_t monitor) {
+    return (int32_t)GetMonitorRefreshRate((int)monitor);
+}
+
+/* GetMonitorName returns a GLFW-internal buffer pointer that may be
+ * clobbered on subsequent calls. Copy into Iron-managed string via
+ * iron_string_from_cstr for stable lifetime. */
+Iron_String Iron_window_get_monitor_name(int32_t monitor) {
+    const char *name = GetMonitorName((int)monitor);
+    if (name == NULL) {
+        return iron_string_from_literal("", 0);
+    }
+    return iron_string_from_cstr(name, strlen(name));
+}
+
+/* Clipboard (WIN-07) */
+
+/* GetClipboardText returns a GLFW-internal pointer that may be
+ * overwritten on the next clipboard call. Copy into Iron-managed
+ * string. Same safety pattern as GetMonitorName. */
+Iron_String Iron_window_get_clipboard_text(void) {
+    const char *text = GetClipboardText();
+    if (text == NULL) {
+        return iron_string_from_literal("", 0);
+    }
+    return iron_string_from_cstr(text, strlen(text));
+}
+
+void Iron_window_set_clipboard_text(Iron_String text) {
+    SetClipboardText(iron_string_cstr(&text));
+}
+
+/* GetClipboardImage — first >16-byte struct-by-value return in
+ * Phase 61. Iron_Image is byte-compatible with raylib Image
+ * (Plan 60-03 _Static_assert grid). memcpy into Iron_Image and
+ * return by value. */
+struct Iron_Image Iron_window_get_clipboard_image(void) {
+    Image rl = GetClipboardImage();
+    struct Iron_Image out;
+    memcpy(&out, &rl, sizeof(out));
+    return out;
+}
+
+/* Screenshot (WIN-09) */
+
+void Iron_window_take_screenshot(Iron_String filename) {
+    TakeScreenshot(iron_string_cstr(&filename));
+}
+
+/* Screen-to-Image (WIN-09 second clause) — captures the current
+ * framebuffer into a CPU-side Image by value. Must be called
+ * between Draw.begin() and Draw.end() in the frame loop once
+ * Phase 63 lands those; Phase 61's FFI wrapper just proves the
+ * binding works. Caller owns the returned Image and is responsible
+ * for unloading it when done. */
+struct Iron_Image Iron_window_load_image_from_screen(void) {
+    Image rl = LoadImageFromScreen();
+    struct Iron_Image out;
+    memcpy(&out, &rl, sizeof(out));
+    return out;
+}
+
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
