@@ -938,18 +938,20 @@ object Files {}
 -- These five namespace `object`s receive the keyboard / mouse /
 -- gamepad / touch / gesture method bindings added in Plans 62-01..04.
 --
--- COLLISION NOTE: `enum Gesture {}` already exists at line ~551 from
--- Plan 60-07. Iron must allow `enum Gesture` and `object Gesture` to
--- coexist at module scope for the singular naming to work. Plan 62-01
--- declares the empty `object Gesture {}` here as the collision check.
--- If `ironc build examples/pong/pong.iron` reports a duplicate-name
--- error, rename `object Gesture` → `object Gestures` (plural) here
--- AND in Plan 62-04's gesture method bindings.
+-- COLLISION NOTE — RESOLVED (Plan 62-01, 2026-04-14):
+-- `enum Gesture {}` already exists at line ~551 from Plan 60-07.
+-- Plan 62-01 attempted to declare `object Gesture {}` alongside it;
+-- ironc rejected with `E0201: duplicate type declaration`, proving
+-- Iron's module scope does NOT allow an `enum` and an `object` to
+-- share a name. The fallback name `object Gestures {}` (plural —
+-- matches raylib's internal rgestures.c module) was adopted in
+-- Plan 62-01 and will be extended in Plan 62-04. The Iron-side
+-- `enum Gesture` is unchanged; only the namespace is plural.
 object Keyboard {}
 object Mouse {}
 object Gamepad {}
 object Touch {}
-object Gesture {}
+object Gestures {}
 
 -- ══════════════════════════════════════════════════════════════════════
 -- Minimal color palette (Phase 60 rescue — full 26-color palette is

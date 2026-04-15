@@ -80,8 +80,18 @@ func main() {
     -- Poll should_close once to exercise the symbol, then tear down.
     -- A real game loop would live here.
     val _should: Bool = Window.should_close()
-    -- PHASE 62: if Input.is_key_pressed(start_key) { state = GameState.PLAYING }
-    -- PHASE 62: if Input.is_key_down(left_up) { left_y = left_y - PADDLE_SPEED }
+
+    -- Phase 62: poll the keyboard once to exercise the bindings.
+    -- A real game loop with input would live here, but Phase 63 owns
+    -- Draw.* and a render-free input loop has no observable behavior
+    -- beyond proving the symbols link. Each call returns Bool; we
+    -- bind to placeholder locals so the typechecker keeps them alive.
+    val _kb_start: Bool      = Keyboard.is_pressed(start_key)
+    val _kb_left_up: Bool    = Keyboard.is_down(left_up)
+    val _kb_left_down: Bool  = Keyboard.is_down(left_down)
+    val _kb_right_up: Bool   = Keyboard.is_down(right_up)
+    val _kb_right_down: Bool = Keyboard.is_down(right_down)
+
     -- PHASE 63: Draw.begin()
     -- PHASE 63: Draw.clear(bg)
     -- PHASE 63: DrawLine(SCREEN_W / 2, 0, SCREEN_W / 2, SCREEN_H, divider)
@@ -100,11 +110,9 @@ func main() {
     val _unused_3 = accent
     val _unused_4 = divider
     val _unused_5 = ball_origin
-    val _unused_6 = start_key
-    val _unused_7 = left_up
-    val _unused_8 = left_down
-    val _unused_9 = right_up
-    val _unused_10 = right_down
+    -- _unused_6..10 removed: start_key / left_up / left_down /
+    -- right_up / right_down are now consumed by the Keyboard.*
+    -- calls above (Plan 62-01).
     val _unused_11 = initial_state
     val _unused_12 = score_str
 }
