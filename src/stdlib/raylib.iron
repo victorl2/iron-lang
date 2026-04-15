@@ -1181,3 +1181,32 @@ func Keyboard.is_up(key: KeyboardKey) -> Bool {}
 func Keyboard.get_pressed() -> KeyboardKey {}
 func Keyboard.get_char_pressed() -> Int32 {}
 func Keyboard.set_exit_key(key: KeyboardKey) {}
+
+-- Mouse (INPUT-04, INPUT-05, INPUT-06, INPUT-07)
+--
+-- `is_button_pressed` / `_down` / `_released` / `_up` take a typed
+-- MouseButton — left, right, middle, side, extra, forward, back.
+--
+-- `get_position` / `get_delta` / `get_wheel_move_v` return a Vector2
+-- by value — first per-frame-called struct returns in the stdlib.
+-- `get_x` / `get_y` return Int32 for quick axis reads; `get_wheel_move`
+-- returns a Float32 combining both wheel axes (whichever is larger).
+--
+-- `set_position` / `set_offset` / `set_scale` override raylib's
+-- internal mouse coordinate transform. `set_cursor` picks a shape
+-- from MouseCursor (arrow, ibeam, crosshair, pointing_hand, resize_*,
+-- not_allowed).
+func Mouse.is_button_pressed(button: MouseButton) -> Bool {}
+func Mouse.is_button_down(button: MouseButton) -> Bool {}
+func Mouse.is_button_released(button: MouseButton) -> Bool {}
+func Mouse.is_button_up(button: MouseButton) -> Bool {}
+func Mouse.get_x() -> Int32 {}
+func Mouse.get_y() -> Int32 {}
+func Mouse.get_position() -> Vector2 {}
+func Mouse.get_delta() -> Vector2 {}
+func Mouse.set_position(x: Int32, y: Int32) {}
+func Mouse.set_offset(offset_x: Int32, offset_y: Int32) {}
+func Mouse.set_scale(scale_x: Float32, scale_y: Float32) {}
+func Mouse.get_wheel_move() -> Float32 {}
+func Mouse.get_wheel_move_v() -> Vector2 {}
+func Mouse.set_cursor(cursor: MouseCursor) {}
