@@ -320,6 +320,64 @@ void Iron_keyboard_set_exit_key(int32_t key) {
     SetExitKey((int)key);
 }
 
+/* Mouse (INPUT-04, INPUT-05, INPUT-06, INPUT-07) */
+
+bool Iron_mouse_is_button_pressed(int32_t button)  { return IsMouseButtonPressed((int)button);  }
+bool Iron_mouse_is_button_down(int32_t button)     { return IsMouseButtonDown((int)button);     }
+bool Iron_mouse_is_button_released(int32_t button) { return IsMouseButtonReleased((int)button); }
+bool Iron_mouse_is_button_up(int32_t button)       { return IsMouseButtonUp((int)button);       }
+
+int32_t Iron_mouse_get_x(void) { return (int32_t)GetMouseX(); }
+int32_t Iron_mouse_get_y(void) { return (int32_t)GetMouseY(); }
+
+/* Struct-by-value Vector2 returns — Phase 61 pattern. The
+ * _Static_assert grid in iron_raylib_layout.c guarantees
+ * Iron_Vector2 is byte-identical to raylib's Vector2, so the
+ * field-copy is only a style convention. */
+struct Iron_Vector2 Iron_mouse_get_position(void) {
+    Vector2 v = GetMousePosition();
+    struct Iron_Vector2 out;
+    out.x = v.x;
+    out.y = v.y;
+    return out;
+}
+
+struct Iron_Vector2 Iron_mouse_get_delta(void) {
+    Vector2 v = GetMouseDelta();
+    struct Iron_Vector2 out;
+    out.x = v.x;
+    out.y = v.y;
+    return out;
+}
+
+void Iron_mouse_set_position(int32_t x, int32_t y) {
+    SetMousePosition((int)x, (int)y);
+}
+
+void Iron_mouse_set_offset(int32_t offset_x, int32_t offset_y) {
+    SetMouseOffset((int)offset_x, (int)offset_y);
+}
+
+void Iron_mouse_set_scale(float scale_x, float scale_y) {
+    SetMouseScale(scale_x, scale_y);
+}
+
+float Iron_mouse_get_wheel_move(void) {
+    return GetMouseWheelMove();
+}
+
+struct Iron_Vector2 Iron_mouse_get_wheel_move_v(void) {
+    Vector2 v = GetMouseWheelMoveV();
+    struct Iron_Vector2 out;
+    out.x = v.x;
+    out.y = v.y;
+    return out;
+}
+
+void Iron_mouse_set_cursor(int32_t cursor) {
+    SetMouseCursor((int)cursor);
+}
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
