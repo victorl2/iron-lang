@@ -444,6 +444,22 @@ int32_t Iron_keyboard_get_pressed(void);     /* returns KeyboardKey ordinal or 0
 int32_t Iron_keyboard_get_char_pressed(void); /* returns unicode codepoint or 0 — NOT an enum */
 void    Iron_keyboard_set_exit_key(int32_t key);
 
+/* Mouse (INPUT-04, INPUT-05, INPUT-06, INPUT-07) */
+bool                 Iron_mouse_is_button_pressed(int32_t button);
+bool                 Iron_mouse_is_button_down(int32_t button);
+bool                 Iron_mouse_is_button_released(int32_t button);
+bool                 Iron_mouse_is_button_up(int32_t button);
+int32_t              Iron_mouse_get_x(void);
+int32_t              Iron_mouse_get_y(void);
+struct Iron_Vector2  Iron_mouse_get_position(void);
+struct Iron_Vector2  Iron_mouse_get_delta(void);
+void                 Iron_mouse_set_position(int32_t x, int32_t y);
+void                 Iron_mouse_set_offset(int32_t offset_x, int32_t offset_y);
+void                 Iron_mouse_set_scale(float scale_x, float scale_y);
+float                Iron_mouse_get_wheel_move(void);
+struct Iron_Vector2  Iron_mouse_get_wheel_move_v(void);
+void                 Iron_mouse_set_cursor(int32_t cursor);
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
