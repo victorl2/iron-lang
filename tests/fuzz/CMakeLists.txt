@@ -132,11 +132,23 @@ set(_FUZZ_CORPUS_DIR      "${CMAKE_CURRENT_BINARY_DIR}/corpus")
 # Uses cmake -E copy_directory for the parser corpus (not symlinks — Pitfall 6
 # in 68-RESEARCH.md explains why symlinks break on Windows and across
 # `git clone`). Marginal disk cost (~5 MB per build dir).
+#
+# ASAN_OPTIONS=detect_leaks=0 is load-bearing: iron_seed_blobs is built with
+# -fsanitize=address,undefined and parses every .iron file in tests/integration
+# through the full pipeline. The parser's documented batch-compiler tradeoff
+# (see src/parser/parser.c:15-49 "FIX-03 / AUDIT-04 §1: SAFETY") deliberately
+# leaks stb_ds backing buffers at process exit for 17 arrput-into-AST transfer
+# sites — Iron_Parse_Pattern in match-statement bodies is one of them. Without
+# this env override, LSan turns every seed-tool invocation on a Linux runner
+# (where LSan is on by default) into a non-zero exit and blocks the fuzz build
+# at the POST_BUILD step. Mirrors the runtime detect_leaks=0 already set in
+# .github/workflows/fuzz.yml for the libFuzzer step.
 add_custom_command(TARGET iron_seed_blobs POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/parser"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/typecheck"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/hir_to_lir"
-    COMMAND $<TARGET_FILE:iron_seed_blobs>
+    COMMAND ${CMAKE_COMMAND} -E env "ASAN_OPTIONS=detect_leaks=0"
+            $<TARGET_FILE:iron_seed_blobs>
             "${_FUZZ_INTEGRATION_DIR}"
             "${_FUZZ_CORPUS_DIR}"
     COMMENT "Seeding fuzz corpora from tests/integration/*.iron")
