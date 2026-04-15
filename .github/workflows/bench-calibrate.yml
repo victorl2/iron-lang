@@ -1,18 +1,32 @@
 name: Bench Calibrate
 
 # Phase 73 Plan 01 (HARDEN-03): on-demand linux-x86_64 benchmark calibration.
-# Runs scripts/bench_audit.sh --platform linux-x86_64 5 on a fresh ubuntu-24.04
-# runner (~18 min wall-clock: 5 rounds of 139 benchmarks) and uploads the
-# aggregated CSV /tmp/58-audit.csv as a named workflow artifact. The artifact
-# is harvested by the Plan 01 Task 2 executor via `gh run download --name ...`
-# and converted into tests/benchmarks/thresholds.linux-x86_64.json using the
-# locked 15% safety margin rule.
+#
+# Structure (Option B, post-73-01-first-run revision):
+# A 2-cell matrix splits the 139-benchmark suite into `sequential` (everything
+# not starting with parallel_/concurrency_/spawn_) and `parallel` (the rest),
+# each running on its own ubuntu-24.04 runner. A follow-up `merge` job
+# downloads both per-group CSVs, concatenates them into a single canonical
+# /tmp/58-audit.csv, and uploads it as the unified artifact consumers depend
+# on.
+#
+# Why Option B (matrix split) instead of a single-runner serial sweep:
+#   - The first 73-01 attempt (workflow run 24429160755) was cancelled by
+#     timeout-minutes: 30 with [run 1/5] still in progress. The plan's
+#     73-CONTEXT.md estimate of "~18 min total for 5 rounds" was off by
+#     10-30x because it conflated benchmark.yml's matrix-split wall-clock
+#     (two concurrent runners) with bench_audit.sh's single-runner serial
+#     sweep of all 139 benchmarks.
+#   - Splitting sequential vs parallel groups across two concurrent runners
+#     restores the same "~two halves in parallel" cost model benchmark.yml
+#     already uses for every PR. Per-cell wall-clock fits comfortably under
+#     the GH Actions 6-hour job ceiling.
 #
 # Why workflow_dispatch and not on-push:
-#   - 18 min per run is too expensive for every PR
-#   - REG-03's "5-minute re-calibration" promise means maintainers re-run this
-#     ad-hoc when benchmark drift is detected, not on a schedule
-#   - No crash/regression artifacts; just aggregated threshold data
+#   - Even split, ~2-5 hours of CI per re-calibration is too expensive for
+#     every PR.
+#   - REG-03's "5-minute re-calibration" promise means maintainers re-run
+#     this ad-hoc when benchmark drift is detected, not on a schedule.
 #
 # Do NOT add `on: schedule` or `on: push` triggers. `workflow_dispatch` only.
 
@@ -21,9 +35,24 @@ on:
 
 jobs:
   calibrate:
-    name: Calibrate (linux-x86_64, 5 rounds)
+    name: Calibrate linux-x86_64 (${{ matrix.group }}, 5 rounds)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # 5h 30m budget per matrix cell. Observed in run 24429160755: round 1
+    # of the combined 139-benchmark sweep did not finish in 30 min on
+    # ubuntu-24.04 (>30 min, <= 60 min). Sequential group is ~70% of the
+    # benchmarks; 5 rounds of sequential could approach 5 hours wall-clock
+    # in the worst case. Parallel group is smaller and expected to finish
+    # in well under 2 hours. The 330-minute ceiling leaves ~30 min headroom
+    # under the GH Actions 6-hour hard limit.
+    timeout-minutes: 330
+    strategy:
+      # If one group fails, still let the other finish so we harvest
+      # whatever data we can — the merge job gates on both succeeding and
+      # will not run on partial data, but the raw per-group artifacts are
+      # still valuable for post-mortem.
+      fail-fast: false
+      matrix:
+        group: [sequential, parallel]
 
     steps:
       - uses: actions/checkout@v4
@@ -41,26 +70,81 @@ jobs:
             -G Ninja
           cmake --build build
 
-      - name: Run 5-round bench audit
+      - name: Run 5-round bench audit (${{ matrix.group }} group)
         run: |
           set -u
-          bash scripts/bench_audit.sh --platform linux-x86_64 5
-          echo "--- /tmp/58-audit.csv head ---"
-          head -5 /tmp/58-audit.csv
-          echo "--- /tmp/58-audit.csv row count ---"
-          wc -l /tmp/58-audit.csv
+          bash scripts/bench_audit.sh \
+            --platform linux-x86_64 \
+            --group ${{ matrix.group }} \
+            5
+          echo "--- /tmp/58-audit-${{ matrix.group }}.csv head ---"
+          head -5 /tmp/58-audit-${{ matrix.group }}.csv
+          echo "--- /tmp/58-audit-${{ matrix.group }}.csv row count ---"
+          wc -l /tmp/58-audit-${{ matrix.group }}.csv
 
-      - name: Upload audit CSV artifact
+      - name: Upload per-group audit artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bench-audit-linux-x86_64-5round-${{ github.run_id }}
+          name: bench-audit-linux-x86_64-5round-${{ matrix.group }}-${{ github.run_id }}
           path: |
-            /tmp/58-audit.csv
-            /tmp/58-audit-run-1.json
-            /tmp/58-audit-run-2.json
-            /tmp/58-audit-run-3.json
-            /tmp/58-audit-run-4.json
-            /tmp/58-audit-run-5.json
+            /tmp/58-audit-${{ matrix.group }}.csv
+            /tmp/58-audit-${{ matrix.group }}-run-1.json
+            /tmp/58-audit-${{ matrix.group }}-run-2.json
+            /tmp/58-audit-${{ matrix.group }}-run-3.json
+            /tmp/58-audit-${{ matrix.group }}-run-4.json
+            /tmp/58-audit-${{ matrix.group }}-run-5.json
+          if-no-files-found: error
+          retention-days: 30
+
+  merge:
+    name: Merge sequential + parallel CSVs
+    needs: calibrate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Download sequential artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-audit-linux-x86_64-5round-sequential-${{ github.run_id }}
+          path: seq/
+
+      - name: Download parallel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-audit-linux-x86_64-5round-parallel-${{ github.run_id }}
+          path: par/
+
+      - name: Merge CSVs into unified /tmp/58-audit.csv
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/merged
+          # Both per-group CSVs share the exact same header (produced by the
+          # same bench_audit.sh Python heredoc). Merge = header from either
+          # one + non-header rows from both. The two groups are disjoint by
+          # construction (is_parallel_benchmark partitions on name prefix),
+          # so there's no row-key collision to resolve.
+          head -1 seq/58-audit-sequential.csv > /tmp/merged/58-audit.csv
+          tail -n +2 seq/58-audit-sequential.csv >> /tmp/merged/58-audit.csv
+          tail -n +2 par/58-audit-parallel.csv >> /tmp/merged/58-audit.csv
+          echo "--- merged /tmp/merged/58-audit.csv head ---"
+          head -5 /tmp/merged/58-audit.csv
+          echo "--- row count ---"
+          wc -l /tmp/merged/58-audit.csv
+          # Sanity: expect at least 130 data rows (139 benchmarks minus a
+          # handful that may have been skipped for build reasons).
+          data_rows=$(( $(wc -l < /tmp/merged/58-audit.csv) - 1 ))
+          echo "data rows: $data_rows"
+          if [ "$data_rows" -lt 130 ]; then
+            echo "ERROR: merged CSV has $data_rows data rows, expected >= 130" >&2
+            exit 1
+          fi
+
+      - name: Upload merged audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-audit-linux-x86_64-5round-${{ github.run_id }}
+          path: /tmp/merged/58-audit.csv
           if-no-files-found: error
           retention-days: 30
