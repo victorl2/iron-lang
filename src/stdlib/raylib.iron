@@ -1136,3 +1136,46 @@ func Window.open_url(url: String) {}
 -- a Float (raylib C `double`) so sub-millisecond precision is available.
 -- On very short waits, raylib may busy-wait rather than sleep.
 func Window.wait_time(seconds: Float) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Input (Phase 62)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Phase 62 binds raylib's `rcore.c` input-section functions to five
+-- namespace types: Keyboard (this plan), Mouse (62-02), Gamepad
+-- (62-03), Touch / Gesture / file-drop (62-04). Every empty-body
+-- stub below lowers to `Iron_<namespace>_<name>(...)` in C,
+-- implemented by src/stdlib/iron_raylib.c. Same shim-only pattern
+-- as Phase 61.
+--
+-- All enum parameters are typed Iron enums (KeyboardKey, MouseButton,
+-- GamepadButton, GamepadAxis, MouseCursor, Gesture). The shim casts
+-- them to / from raylib's `int` / `unsigned int` at the FFI boundary.
+
+-- Keyboard (INPUT-01, INPUT-02, INPUT-03)
+--
+-- `is_pressed` fires once on the frame the key transitions up→down.
+-- `is_pressed_repeat` fires on the OS key-repeat schedule (held key).
+-- `is_down` is true while the key is held; `is_released` fires once
+-- on the down→up transition; `is_up` is true while the key is NOT held.
+--
+-- `get_pressed` drains the key-press queue and returns the next
+-- KeyboardKey, or `KeyboardKey.NULL` when the queue is empty. Call
+-- it repeatedly until you get NULL to read every queued press.
+--
+-- `get_char_pressed` drains the unicode-codepoint queue (used for
+-- text input) and returns Int32 codepoints — NOT a KeyboardKey
+-- enum, because codepoints span the full Unicode range and have
+-- no symbolic enum.
+--
+-- `set_exit_key` overrides raylib's default ESC-quits-the-app
+-- behavior. Pass any KeyboardKey value, or pass `KeyboardKey.NULL`
+-- to disable the exit key entirely.
+func Keyboard.is_pressed(key: KeyboardKey) -> Bool {}
+func Keyboard.is_pressed_repeat(key: KeyboardKey) -> Bool {}
+func Keyboard.is_down(key: KeyboardKey) -> Bool {}
+func Keyboard.is_released(key: KeyboardKey) -> Bool {}
+func Keyboard.is_up(key: KeyboardKey) -> Bool {}
+func Keyboard.get_pressed() -> KeyboardKey {}
+func Keyboard.get_char_pressed() -> Int32 {}
+func Keyboard.set_exit_key(key: KeyboardKey) {}

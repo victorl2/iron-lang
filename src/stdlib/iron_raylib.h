@@ -433,6 +433,17 @@ void Iron_window_open_url(Iron_String url);
 void Iron_window_wait_time(double seconds);
 
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
+
+/* Keyboard (INPUT-01, INPUT-02, INPUT-03) */
+bool    Iron_keyboard_is_pressed(int32_t key);
+bool    Iron_keyboard_is_pressed_repeat(int32_t key);
+bool    Iron_keyboard_is_down(int32_t key);
+bool    Iron_keyboard_is_released(int32_t key);
+bool    Iron_keyboard_is_up(int32_t key);
+int32_t Iron_keyboard_get_pressed(void);     /* returns KeyboardKey ordinal or 0 (NULL) */
+int32_t Iron_keyboard_get_char_pressed(void); /* returns unicode codepoint or 0 — NOT an enum */
+void    Iron_keyboard_set_exit_key(int32_t key);
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */

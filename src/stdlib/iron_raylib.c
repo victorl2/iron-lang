@@ -289,6 +289,37 @@ void Iron_window_wait_time(double seconds) {
 }
 
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
+
+/* Keyboard (INPUT-01, INPUT-02, INPUT-03) */
+
+bool Iron_keyboard_is_pressed(int32_t key)        { return IsKeyPressed((int)key);        }
+bool Iron_keyboard_is_pressed_repeat(int32_t key) { return IsKeyPressedRepeat((int)key);  }
+bool Iron_keyboard_is_down(int32_t key)           { return IsKeyDown((int)key);           }
+bool Iron_keyboard_is_released(int32_t key)       { return IsKeyReleased((int)key);       }
+bool Iron_keyboard_is_up(int32_t key)             { return IsKeyUp((int)key);             }
+
+/* GetKeyPressed returns 0 when the queue is empty, or a KEY_* ordinal
+ * (32..348) otherwise. Iron's KeyboardKey enum defines NULL=0 and every
+ * KEY_* in that range, so a direct (int32_t) cast at the FFI boundary
+ * is safe — Iron-side, the user receives a typed KeyboardKey value
+ * because the `func Keyboard.get_pressed() -> KeyboardKey` stub
+ * declares the return type. This shim returns int32_t and Iron's
+ * emit_c layer treats KeyboardKey as its underlying integer type. */
+int32_t Iron_keyboard_get_pressed(void) {
+    return (int32_t)GetKeyPressed();
+}
+
+/* GetCharPressed returns a Unicode codepoint (e.g. 'A' = 65, 'é' = 233)
+ * or 0 when the queue is empty. NOT a KeyboardKey enum value — keep
+ * as Int32 on the Iron side. */
+int32_t Iron_keyboard_get_char_pressed(void) {
+    return (int32_t)GetCharPressed();
+}
+
+void Iron_keyboard_set_exit_key(int32_t key) {
+    SetExitKey((int)key);
+}
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
