@@ -964,15 +964,12 @@ val DARKGRAY = Color(80, 80, 80, 255)
 -- stub below lowers to `Iron_window_<name>(...)` in C, implemented by
 -- src/stdlib/iron_raylib.c. Shim-only pattern per 60-CONTEXT.md.
 --
--- Phase 61 Plan 01 locks in the pattern with lifecycle + state queries
--- and runs a one-off ABI smoke test (Window.abi_smoke_test) that MUST
--- return Vector2(3.5, 4.5). If it does, struct-by-value returns work
--- and the rest of the phase can proceed. If it does not, the plan
--- blocks and switches to an out-param pattern.
-
--- ABI smoke test (temporary; remove when Phase 61 is complete).
--- Proves Iron's FFI correctly marshals struct-by-value returns.
-func Window.abi_smoke_test() -> Vector2 {}
+-- Phase 61 Plan 01 locked in the pattern with lifecycle + state queries.
+-- Subsequent plans (61-02..04) completed state toggles, runtime properties,
+-- screen geometry, monitor enumeration, clipboard, screenshot, config
+-- flags, trace log, event waiting, cursor, frame loop, URL, wait_time.
+-- Struct-by-value returns validated via GetWindowPosition, GetMonitorPosition,
+-- GetWindowScaleDPI, GetClipboardImage, and LoadImageFromScreen.
 
 -- Window lifecycle (WIN-01)
 --
@@ -1066,3 +1063,58 @@ func Window.get_clipboard_image() -> Image {}
 -- 63 lands those. Caller owns the returned Image.
 func Window.take_screenshot(filename: String) {}
 func Window.load_image_from_screen() -> Image {}
+
+-- Config flags and trace log (WIN-10)
+--
+-- `set_config_flags` MUST be called BEFORE `Window.init`. raylib reads
+-- these flags inside InitWindow to configure the GLFW window and GL
+-- context. Calling set_config_flags after init is a no-op. Iron does
+-- not enforce this — trust the user to follow the lifecycle.
+func Window.set_config_flags(flags: ConfigFlags) {}
+func Window.set_trace_log_level(level: TraceLogLevel) {}
+
+-- Event waiting (WIN-08)
+--
+-- When event-waiting is ENABLED, raylib's main loop blocks in
+-- EndDrawing waiting for user input rather than polling. This drops
+-- CPU usage in idle apps but eliminates frame-based updates. Default
+-- is disabled (active polling loop).
+func Window.enable_event_waiting() {}
+func Window.disable_event_waiting() {}
+
+-- Cursor control (WIN-11)
+--
+-- `enable_cursor` unlocks the cursor (it moves freely over the window);
+-- `disable_cursor` locks the cursor to window center (FPS-game mode).
+-- `show_cursor` / `hide_cursor` control visibility without locking.
+-- `set_mouse_cursor` picks a cursor shape from MouseCursor enum.
+func Window.show_cursor() {}
+func Window.hide_cursor() {}
+func Window.is_cursor_hidden() -> Bool {}
+func Window.enable_cursor() {}
+func Window.disable_cursor() {}
+func Window.is_cursor_on_screen() -> Bool {}
+func Window.set_mouse_cursor(cursor: MouseCursor) {}
+
+-- Frame loop (WIN-12)
+--
+-- `set_target_fps(60)` caps the frame rate; raylib internally calls
+-- WaitTime to sleep the remainder of each frame. `get_fps` returns
+-- the current measured rate. `get_frame_time` is the delta time of
+-- the last frame in SECONDS as a Float32 (raylib C `float`). `get_time`
+-- is the elapsed time since `Window.init` as a Float (raylib C `double`).
+-- Note the Float32/Float split — frame_time is single-precision.
+func Window.set_target_fps(fps: Int32) {}
+func Window.get_fps() -> Int32 {}
+func Window.get_frame_time() -> Float32 {}
+func Window.get_time() -> Float {}
+
+-- URL opener (WIN-13)
+func Window.open_url(url: String) {}
+
+-- Wait (FILE-07)
+--
+-- Halts program execution for the specified number of seconds. Takes
+-- a Float (raylib C `double`) so sub-millisecond precision is available.
+-- On very short waits, raylib may busy-wait rather than sleep.
+func Window.wait_time(seconds: Float) {}

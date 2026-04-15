@@ -35,15 +35,6 @@
 
 /* ── Window & System (Phase 61) ───────────────────────────────────── */
 
-/* Phase 61 struct-by-value return ABI smoke test. Hardcodes a
- * Vector2{3.5f, 4.5f} literal and returns it. Iron code calls this
- * and checks both fields match; any mismatch means Iron's struct-
- * return ABI is broken and we must switch to an out-param pattern. */
-struct Iron_Vector2 Iron_window_abi_smoke_test(void) {
-    struct Iron_Vector2 v = { 3.5f, 4.5f };
-    return v;
-}
-
 /* Window lifecycle (WIN-01) */
 
 void Iron_window_init(int32_t w, int32_t h, Iron_String title) {
@@ -241,6 +232,60 @@ struct Iron_Image Iron_window_load_image_from_screen(void) {
     struct Iron_Image out;
     memcpy(&out, &rl, sizeof(out));
     return out;
+}
+
+/* Config flags + trace log + event waiting (WIN-08, WIN-10) */
+
+void Iron_window_set_config_flags(uint32_t flags) {
+    SetConfigFlags((unsigned int)flags);
+}
+
+void Iron_window_set_trace_log_level(int32_t level) {
+    SetTraceLogLevel((int)level);
+}
+
+void Iron_window_enable_event_waiting(void)  { EnableEventWaiting();  }
+void Iron_window_disable_event_waiting(void) { DisableEventWaiting(); }
+
+/* Cursor (WIN-11) */
+
+void Iron_window_show_cursor(void)         { ShowCursor();              }
+void Iron_window_hide_cursor(void)         { HideCursor();              }
+bool Iron_window_is_cursor_hidden(void)    { return IsCursorHidden();   }
+void Iron_window_enable_cursor(void)       { EnableCursor();            }
+void Iron_window_disable_cursor(void)      { DisableCursor();           }
+bool Iron_window_is_cursor_on_screen(void) { return IsCursorOnScreen(); }
+
+void Iron_window_set_mouse_cursor(int32_t cursor) {
+    SetMouseCursor((int)cursor);
+}
+
+/* Frame loop (WIN-12) */
+
+void Iron_window_set_target_fps(int32_t fps) {
+    SetTargetFPS((int)fps);
+}
+
+int32_t Iron_window_get_fps(void) {
+    return (int32_t)GetFPS();
+}
+
+float Iron_window_get_frame_time(void) {
+    return GetFrameTime();
+}
+
+double Iron_window_get_time(void) {
+    return GetTime();
+}
+
+/* URL (WIN-13) */
+void Iron_window_open_url(Iron_String url) {
+    OpenURL(iron_string_cstr(&url));
+}
+
+/* Wait (FILE-07) */
+void Iron_window_wait_time(double seconds) {
+    WaitTime(seconds);
 }
 
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */

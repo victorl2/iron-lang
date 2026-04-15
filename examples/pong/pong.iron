@@ -72,9 +72,14 @@ func main() {
     val initial_state: GameState = GameState.TITLE
     val score_str: String = int_to_str(0)
 
-    -- PHASE 61: Window.init(800, 600, title)
-    -- PHASE 61: Window.set_target_fps(60)
-    -- PHASE 61: while not Window.should_close() { ... }
+    -- Phase 61: init/target_fps/close the window. The frame-loop body
+    -- (Input polling, Draw.begin/end) lands in Phases 62 and 63;
+    -- for Phase 61 we just prove the Window.* bindings link and run.
+    Window.init(800, 600, title)
+    Window.set_target_fps(60)
+    -- Poll should_close once to exercise the symbol, then tear down.
+    -- A real game loop would live here.
+    val _should: Bool = Window.should_close()
     -- PHASE 62: if Input.is_key_pressed(start_key) { state = GameState.PLAYING }
     -- PHASE 62: if Input.is_key_down(left_up) { left_y = left_y - PADDLE_SPEED }
     -- PHASE 63: Draw.begin()
@@ -84,7 +89,7 @@ func main() {
     -- PHASE 63: DrawText(score_str, SCREEN_W / 4, 20, 40, fg)
     -- PHASE 63: DrawText("GAME OVER", ..., accent)
     -- PHASE 63: Draw.end()
-    -- PHASE 61: Window.close()
+    Window.close()
 
     -- Keep the placeholder locals alive so the typechecker doesn't warn
     -- about unused values (and so the compiler does not DCE them away,

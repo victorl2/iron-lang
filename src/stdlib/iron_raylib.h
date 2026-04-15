@@ -342,13 +342,6 @@ struct Iron_FilePathList {
 
 /* ── Window & System (Phase 61) ───────────────────────────────────── */
 
-/* Phase 61 ABI smoke test — proves Iron's FFI can return a struct by
- * value from a shim. If the smoke test passes, the rest of Phase 61
- * can freely use struct-return wrappers for GetWindowPosition /
- * GetWindowScaleDPI / GetMonitorPosition / GetClipboardImage.
- * DELETE this prototype after Phase 61 verification if not needed. */
-struct Iron_Vector2 Iron_window_abi_smoke_test(void);
-
 /* Window lifecycle (WIN-01) */
 void Iron_window_init(int32_t w, int32_t h, Iron_String title);
 void Iron_window_close(void);
@@ -411,6 +404,33 @@ struct Iron_Image Iron_window_get_clipboard_image(void);
 /* Screenshot (WIN-09) */
 void Iron_window_take_screenshot(Iron_String filename);
 struct Iron_Image Iron_window_load_image_from_screen(void);
+
+/* Config flags + trace log + event waiting (WIN-08, WIN-10) */
+void Iron_window_set_config_flags(uint32_t flags);
+void Iron_window_set_trace_log_level(int32_t level);
+void Iron_window_enable_event_waiting(void);
+void Iron_window_disable_event_waiting(void);
+
+/* Cursor (WIN-11) */
+void Iron_window_show_cursor(void);
+void Iron_window_hide_cursor(void);
+bool Iron_window_is_cursor_hidden(void);
+void Iron_window_enable_cursor(void);
+void Iron_window_disable_cursor(void);
+bool Iron_window_is_cursor_on_screen(void);
+void Iron_window_set_mouse_cursor(int32_t cursor);
+
+/* Frame loop (WIN-12) */
+void    Iron_window_set_target_fps(int32_t fps);
+int32_t Iron_window_get_fps(void);
+float   Iron_window_get_frame_time(void);
+double  Iron_window_get_time(void);
+
+/* URL (WIN-13) */
+void Iron_window_open_url(Iron_String url);
+
+/* Wait (FILE-07) */
+void Iron_window_wait_time(double seconds);
 
 /* ── Input (Phase 62) ─────────────────────────────────────────────── */
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */

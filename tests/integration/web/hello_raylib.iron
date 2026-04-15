@@ -9,9 +9,11 @@ func main() {
     val bg: Color = WHITE
     val fg: Color = BLACK
 
-    -- PHASE 61: Window.init(800, 600, title)
-    -- PHASE 61: while not Window.should_close() { Draw.begin(); Draw.clear(bg); Draw.end() }
-    -- PHASE 61: Window.close()
+    -- Phase 61: init/close. Draw.* body lands in Phase 63.
+    Window.init(800, 600, title)
+    val _should: Bool = Window.should_close()
+    -- PHASE 63: Draw.begin(); Draw.clear(bg); Draw.end()
+    Window.close()
 
     val _unused_0 = title
     val _unused_1 = bg
