@@ -933,6 +933,24 @@ object Draw {}
 object Audio {}
 object Files {}
 
+-- ── Phase 62 input namespaces ──────────────────────────────────────
+--
+-- These five namespace `object`s receive the keyboard / mouse /
+-- gamepad / touch / gesture method bindings added in Plans 62-01..04.
+--
+-- COLLISION NOTE: `enum Gesture {}` already exists at line ~551 from
+-- Plan 60-07. Iron must allow `enum Gesture` and `object Gesture` to
+-- coexist at module scope for the singular naming to work. Plan 62-01
+-- declares the empty `object Gesture {}` here as the collision check.
+-- If `ironc build examples/pong/pong.iron` reports a duplicate-name
+-- error, rename `object Gesture` → `object Gestures` (plural) here
+-- AND in Plan 62-04's gesture method bindings.
+object Keyboard {}
+object Mouse {}
+object Gamepad {}
+object Touch {}
+object Gesture {}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- Minimal color palette (Phase 60 rescue — full 26-color palette is
 -- Phase 66 TEX-14)
