@@ -460,6 +460,19 @@ float                Iron_mouse_get_wheel_move(void);
 struct Iron_Vector2  Iron_mouse_get_wheel_move_v(void);
 void                 Iron_mouse_set_cursor(int32_t cursor);
 
+/* Gamepad (INPUT-08, INPUT-09, INPUT-10) */
+bool         Iron_gamepad_is_available(int32_t gamepad);
+const char * Iron_gamepad_get_name(int32_t gamepad);
+bool         Iron_gamepad_is_button_pressed(int32_t gamepad, int32_t button);
+bool         Iron_gamepad_is_button_down(int32_t gamepad, int32_t button);
+bool         Iron_gamepad_is_button_released(int32_t gamepad, int32_t button);
+bool         Iron_gamepad_is_button_up(int32_t gamepad, int32_t button);
+int32_t      Iron_gamepad_get_button_pressed(void);   /* returns GamepadButton ordinal or 0 (UNKNOWN) */
+int32_t      Iron_gamepad_get_axis_count(int32_t gamepad);
+float        Iron_gamepad_get_axis_movement(int32_t gamepad, int32_t axis);
+int32_t      Iron_gamepad_set_mappings(const char * mappings);
+void         Iron_gamepad_set_vibration(int32_t gamepad, float left_motor, float right_motor, float duration);
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
