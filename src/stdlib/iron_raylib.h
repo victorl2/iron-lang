@@ -511,6 +511,22 @@ int32_t              Iron_filepathlist_count(struct Iron_FilePathList list);
 const char *         Iron_filepathlist_get(struct Iron_FilePathList list, int32_t index);
 
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
+
+/* Frame + stack modes (DRAW2D-01..06) */
+void Iron_draw_begin(void);
+void Iron_draw_end(void);
+void Iron_draw_clear(struct Iron_Color color);
+void Iron_draw_begin_mode_2d(struct Iron_Camera camera);
+void Iron_draw_end_mode_2d(void);
+void Iron_draw_begin_texture_mode(struct Iron_RenderTexture target);
+void Iron_draw_end_texture_mode(void);
+void Iron_draw_begin_shader_mode(struct Iron_Shader shader);
+void Iron_draw_end_shader_mode(void);
+void Iron_draw_begin_blend_mode(int32_t mode);
+void Iron_draw_end_blend_mode(void);
+void Iron_draw_begin_scissor_mode(int32_t x, int32_t y, int32_t w, int32_t h);
+void Iron_draw_end_scissor_mode(void);
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
