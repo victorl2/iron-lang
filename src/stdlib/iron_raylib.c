@@ -561,6 +561,74 @@ const char * Iron_filepathlist_get(struct Iron_FilePathList list, int32_t index)
 }
 
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
+
+/* Frame (DRAW2D-01) — dense one-liner style matches iron_raylib.c:68-72. */
+
+void Iron_draw_begin(void) { BeginDrawing(); }
+void Iron_draw_end(void)   { EndDrawing();   }
+
+/* Clear (DRAW2D-02) — first Color struct-by-value input.
+ * Iron_Color is byte-compatible with raylib Color (Phase 60-02
+ * _Static_assert grid verified size + per-field offsets). memcpy
+ * avoids any strict-aliasing warnings; the compiler elides it.
+ * Pattern copied from iron_raylib.c:88-96 (Iron_window_set_icon). */
+void Iron_draw_clear(struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    ClearBackground(rl);
+}
+
+/* Camera2D mode (DRAW2D-03) — first Camera2D struct-by-value input.
+ * Iron type is named `Camera` (no 2D suffix); raylib C type is
+ * `Camera2D`. Phase 60-04 `_Static_assert(sizeof(struct Iron_Camera)
+ * == sizeof(Camera2D))` locks this mapping. */
+void Iron_draw_begin_mode_2d(struct Iron_Camera camera) {
+    Camera2D rl;
+    memcpy(&rl, &camera, sizeof(Camera2D));
+    BeginMode2D(rl);
+}
+
+void Iron_draw_end_mode_2d(void) { EndMode2D(); }
+
+/* Texture mode (DRAW2D-04) — first RenderTexture struct-by-value
+ * input. raylib's RenderTexture2D is a typedef alias for
+ * RenderTexture; both names produce identical layout. */
+void Iron_draw_begin_texture_mode(struct Iron_RenderTexture target) {
+    RenderTexture2D rl;
+    memcpy(&rl, &target, sizeof(RenderTexture2D));
+    BeginTextureMode(rl);
+}
+
+void Iron_draw_end_texture_mode(void) { EndTextureMode(); }
+
+/* Shader mode (DRAW2D-05, part 1) — first Shader struct-by-value input.
+ * Iron_Shader is 16 bytes (id:4 + 4 pad + _locs:8); raylib Shader is
+ * 16 bytes (id:4 + 4 pad + int *locs:8). memcpy is safe. */
+void Iron_draw_begin_shader_mode(struct Iron_Shader shader) {
+    Shader rl;
+    memcpy(&rl, &shader, sizeof(Shader));
+    BeginShaderMode(rl);
+}
+
+void Iron_draw_end_shader_mode(void) { EndShaderMode(); }
+
+/* Blend mode (DRAW2D-05, part 2) — typed BlendMode enum input.
+ * Iron lowers BlendMode to int32_t at the FFI boundary (same as
+ * every other enum in Phase 62). Cast to raylib's `int`. */
+void Iron_draw_begin_blend_mode(int32_t mode) {
+    BeginBlendMode((int)mode);
+}
+
+void Iron_draw_end_blend_mode(void) { EndBlendMode(); }
+
+/* Scissor mode (DRAW2D-06) — four Int32 scalars. Pattern copied
+ * from iron_raylib.c:102-104 (Iron_window_set_position). */
+void Iron_draw_begin_scissor_mode(int32_t x, int32_t y, int32_t w, int32_t h) {
+    BeginScissorMode((int)x, (int)y, (int)w, (int)h);
+}
+
+void Iron_draw_end_scissor_mode(void) { EndScissorMode(); }
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
