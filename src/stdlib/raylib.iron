@@ -1210,3 +1210,34 @@ func Mouse.set_scale(scale_x: Float32, scale_y: Float32) {}
 func Mouse.get_wheel_move() -> Float32 {}
 func Mouse.get_wheel_move_v() -> Vector2 {}
 func Mouse.set_cursor(cursor: MouseCursor) {}
+
+-- Gamepad (INPUT-08, INPUT-09, INPUT-10)
+--
+-- `is_available` / `get_name` query connection state. Up to 4
+-- gamepads are addressable via index 0..3.
+--
+-- `is_button_pressed` / `_down` / `_released` / `_up` take a
+-- GamepadButton — 18 values covering face / trigger / middle /
+-- thumb buttons. `get_button_pressed` drains the button-press
+-- queue and returns a typed GamepadButton, or GamepadButton.unknown
+-- when empty.
+--
+-- `get_axis_count` / `get_axis_movement` read analog axes — 6
+-- values per gamepad (LeftX/Y, RightX/Y, LeftTrigger, RightTrigger).
+-- Movement is Float32 in [-1.0, +1.0] for sticks, [0.0, 1.0] for
+-- triggers.
+--
+-- `set_vibration` drives both motors with duration in seconds;
+-- `set_mappings` installs a SDL_GameControllerDB-format mapping
+-- string and returns the count of new mappings registered.
+func Gamepad.is_available(gamepad: Int32) -> Bool {}
+func Gamepad.get_name(gamepad: Int32) -> String {}
+func Gamepad.is_button_pressed(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.is_button_down(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.is_button_released(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.is_button_up(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.get_button_pressed() -> GamepadButton {}
+func Gamepad.get_axis_count(gamepad: Int32) -> Int32 {}
+func Gamepad.get_axis_movement(gamepad: Int32, axis: GamepadAxis) -> Float32 {}
+func Gamepad.set_mappings(mappings: String) -> Int32 {}
+func Gamepad.set_vibration(gamepad: Int32, left_motor: Float32, right_motor: Float32, duration: Float32) {}
