@@ -1063,6 +1063,51 @@ struct Iron_Vector2 Iron_draw_get_spline_point_bezier_cubic(
     return out;
 }
 
+/* Deferred / whole-spline array shims (DRAW2D-08 last, DRAW2D-15 whole-spline)
+ * — ARRAY ABI confirmed by Plan 63-03 Task 1 probe. ironc passes
+ * Iron_List_Iron_Vector2 BY VALUE (items/count/capacity wrapper, 24
+ * bytes). Forward points.items as `const Vector2 *`; the
+ * _Static_assert grid in Phase 60-02 makes the reinterpret safe. The
+ * shim trusts the caller-supplied `count` rather than points.count
+ * per the plan's explicit-count convention (mirrors raylib's C
+ * signature). */
+
+void Iron_draw_line_strip(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawLineStrip((const Vector2 *)points.items, (int)count, c);
+}
+
+void Iron_draw_spline_linear(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawSplineLinear((const Vector2 *)points.items, (int)count, thick, c);
+}
+
+void Iron_draw_spline_basis(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawSplineBasis((const Vector2 *)points.items, (int)count, thick, c);
+}
+
+void Iron_draw_spline_catmull_rom(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawSplineCatmullRom((const Vector2 *)points.items, (int)count, thick, c);
+}
+
+void Iron_draw_spline_bezier_quadratic(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawSplineBezierQuadratic((const Vector2 *)points.items, (int)count, thick, c);
+}
+
+void Iron_draw_spline_bezier_cubic(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawSplineBezierCubic((const Vector2 *)points.items, (int)count, thick, c);
+}
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */

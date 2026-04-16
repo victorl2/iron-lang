@@ -1548,3 +1548,27 @@ func Draw.get_spline_point_basis(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vect
 func Draw.get_spline_point_catmull_rom(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}
 func Draw.get_spline_point_bezier_quadratic(p1: Vector2, c2: Vector2, p3: Vector2, t: Float32) -> Vector2 {}
 func Draw.get_spline_point_bezier_cubic(p1: Vector2, c2: Vector2, c3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}
+
+-- Whole-spline primitives (DRAW2D-15 — array variants) and deferred
+-- DrawLineStrip (DRAW2D-08 last variant).
+--
+-- Draw a continuous smooth curve through an array of Vector2 control
+-- points. Raylib tessellates the curve internally. Point count
+-- minimums vary by spline type:
+--   spline_linear         : min 2 points (polyline)
+--   spline_basis          : min 4 points
+--   spline_catmull_rom    : min 4 points
+--   spline_bezier_quadratic : min 3 points; pattern [p1, c2, p3, c4, p5, c6, ...]
+--                           (alternating anchor / control points)
+--   spline_bezier_cubic   : min 4 points; pattern [p1, c2, c3, p4, c5, c6, p7, ...]
+--                           (anchor + 2 controls + next anchor, repeating)
+--
+-- `count` must equal the array length; mismatch causes raylib to read
+-- past the array. ABI confirmed by Plan 63-03 Task 1 probe — `[Vector2]`
+-- lowers to Iron_List_Iron_Vector2 struct-by-value at the FFI boundary.
+func Draw.line_strip(points: [Vector2], count: Int32, color: Color) {}
+func Draw.spline_linear(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_basis(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_catmull_rom(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_bezier_quadratic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_bezier_cubic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}

@@ -619,6 +619,21 @@ struct Iron_Vector2 Iron_draw_get_spline_point_catmull_rom(struct Iron_Vector2 p
 struct Iron_Vector2 Iron_draw_get_spline_point_bezier_quadratic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 p3, float t);
 struct Iron_Vector2 Iron_draw_get_spline_point_bezier_cubic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 c3, struct Iron_Vector2 p4, float t);
 
+/* Deferred DRAW2D-08 variant (DrawLineStrip) and DRAW2D-15 whole-spline
+ * primitives — array input via Iron_List_Iron_Vector2 BY VALUE (ABI
+ * confirmed by Plan 63-03 Task 1 probe, matches triangle_fan/strip
+ * shim pattern above). ironc lowers `[Vector2]` parameters to the
+ * Iron_List_Iron_Vector2 struct wrapper (items/count/capacity, 24
+ * bytes) and passes it by value; the shim forwards `.items` as
+ * `const Vector2 *` leveraging Phase 60-02's
+ * _Static_assert(sizeof(struct Iron_Vector2) == sizeof(Vector2)). */
+void Iron_draw_line_strip(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color);
+void Iron_draw_spline_linear(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
+void Iron_draw_spline_basis(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
+void Iron_draw_spline_catmull_rom(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
+void Iron_draw_spline_bezier_quadratic(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
+void Iron_draw_spline_bezier_cubic(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
