@@ -1241,3 +1241,70 @@ func Gamepad.get_axis_count(gamepad: Int32) -> Int32 {}
 func Gamepad.get_axis_movement(gamepad: Int32, axis: GamepadAxis) -> Float32 {}
 func Gamepad.set_mappings(mappings: String) -> Int32 {}
 func Gamepad.set_vibration(gamepad: Int32, left_motor: Float32, right_motor: Float32, duration: Float32) {}
+
+-- Touch (INPUT-11)
+--
+-- Raylib tracks up to N simultaneous touch points. `get_point_count`
+-- returns the active count; indices 0..N-1 are valid for the other
+-- accessors. `get_position(0)` / `get_x` / `get_y` cover the most
+-- common single-touch case without requiring a loop.
+func Touch.get_x() -> Int32 {}
+func Touch.get_y() -> Int32 {}
+func Touch.get_position(index: Int32) -> Vector2 {}
+func Touch.get_point_id(index: Int32) -> Int32 {}
+func Touch.get_point_count() -> Int32 {}
+
+-- Gestures (INPUT-12) — namespace is PLURAL (see collision note on line ~941)
+--
+-- Raylib's gesture module sits on top of the touch module. Before
+-- calling `is_detected` / `get_detected`, enable the gestures you
+-- care about via `set_enabled(Gesture.tap)`. `set_enabled` and
+-- `is_detected` both accept a typed Gesture enum. For multi-gesture
+-- bitmasks, Iron's bitwise-OR on enum values (Phase 59) produces
+-- another Gesture value — e.g., `Gesture.tap | Gesture.swipe_left`.
+-- If Iron's type system requires an explicit enum construction for
+-- the OR-result, Phase 73 API polish will smooth the ergonomics;
+-- the parameter type stays `Gesture` regardless (per CONTEXT.md
+-- decisions and the phase goal "typed Iron enum parameters — no
+-- raw ints").
+--
+-- `get_detected` returns the most-recently-detected Gesture as a
+-- typed enum — Gesture.none when no gesture is active.
+--
+-- Drag / pinch vectors are Vector2 (x/y deltas); angles are Float32
+-- in degrees; hold duration is Float32 in seconds.
+func Gestures.set_enabled(flags: Gesture) {}
+func Gestures.is_detected(gesture: Gesture) -> Bool {}
+func Gestures.get_detected() -> Gesture {}
+func Gestures.get_hold_duration() -> Float32 {}
+func Gestures.get_drag_vector() -> Vector2 {}
+func Gestures.get_drag_angle() -> Float32 {}
+func Gestures.get_pinch_vector() -> Vector2 {}
+func Gestures.get_pinch_angle() -> Float32 {}
+
+-- File drop (INPUT-13)
+--
+-- Dropped files land in an internal raylib queue. `is_dropped` is
+-- true once after any drop event and stays true until the next
+-- load/unload cycle. `load_dropped` returns a FilePathList the user
+-- must pass to `unload_dropped` when done (Iron-side value-type,
+-- but the backing paths array is owned by raylib's internal heap).
+func Files.is_dropped() -> Bool {}
+func Files.load_dropped() -> FilePathList {}
+func Files.unload_dropped(list: FilePathList) {}
+
+-- FilePathList accessors (INPUT-13 iteration clause)
+--
+-- Iterate a FilePathList in a typed Iron loop:
+--   val files = Files.load_dropped()
+--   var i = 0
+--   while i < files.count() {
+--       print(files.get(i))
+--       i = i + 1
+--   }
+--   Files.unload_dropped(files)
+--
+-- `get(i)` bounds-checks against `count` on the C side and returns
+-- an empty string for out-of-range indices.
+func FilePathList.count() -> Int32 {}
+func FilePathList.get(index: Int32) -> String {}
