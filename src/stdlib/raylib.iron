@@ -1449,3 +1449,65 @@ func Draw.ellipse_lines(cx: Int32, cy: Int32, rh: Float32, rv: Float32, color: C
 -- partial angles produce ring-sectors. `ring_lines` is the outline.
 func Draw.ring(center: Vector2, inner: Float32, outer: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
 func Draw.ring_lines(center: Vector2, inner: Float32, outer: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+
+-- Rectangle primitives (DRAW2D-12)
+--
+-- Twelve variants covering every DrawRectangle* raylib exposes.
+-- `rectangle` takes Int32 position + Int32 size; `rectangle_v` takes
+-- two Vector2 (position + size); `rectangle_rec` takes a Rectangle
+-- value (Float32 x/y/w/h); `rectangle_pro` adds origin + rotation.
+-- Gradients: `gradient_v` (top→bottom), `gradient_h` (left→right),
+-- `gradient_ex` (4 corner colors with Rectangle). Outlines:
+-- `lines` (Int32), `lines_ex` (Rectangle + thickness). Rounded:
+-- `rounded` (fill), `rounded_lines` (outline at full width),
+-- `rounded_lines_ex` (outline with custom thickness).
+func Draw.rectangle(x: Int32, y: Int32, w: Int32, h: Int32, color: Color) {}
+func Draw.rectangle_v(position: Vector2, size: Vector2, color: Color) {}
+func Draw.rectangle_rec(rec: Rectangle, color: Color) {}
+func Draw.rectangle_pro(rec: Rectangle, origin: Vector2, rotation: Float32, color: Color) {}
+func Draw.rectangle_gradient_v(x: Int32, y: Int32, w: Int32, h: Int32, top: Color, bottom: Color) {}
+func Draw.rectangle_gradient_h(x: Int32, y: Int32, w: Int32, h: Int32, left: Color, right: Color) {}
+func Draw.rectangle_gradient_ex(rec: Rectangle, tl: Color, bl: Color, tr: Color, br: Color) {}
+func Draw.rectangle_lines(x: Int32, y: Int32, w: Int32, h: Int32, color: Color) {}
+func Draw.rectangle_lines_ex(rec: Rectangle, thick: Float32, color: Color) {}
+func Draw.rectangle_rounded(rec: Rectangle, roundness: Float32, segments: Int32, color: Color) {}
+func Draw.rectangle_rounded_lines(rec: Rectangle, roundness: Float32, segments: Int32, color: Color) {}
+func Draw.rectangle_rounded_lines_ex(rec: Rectangle, roundness: Float32, segments: Int32, thick: Float32, color: Color) {}
+
+-- Triangle primitives (DRAW2D-13)
+--
+-- Two fixed-point variants — `triangle` fills, `triangle_lines`
+-- outlines. Both take 3 Vector2 vertices + Color. Vertex order
+-- matters for raylib's winding: raylib uses counter-clockwise
+-- culling by default, so vertices must be in CCW order to be
+-- visible.
+--
+-- `triangle_fan` and `triangle_strip` (array variants) are declared
+-- below; Plan 63-03 Task 1 array-ABI probe confirmed ironc lowers
+-- `[Vector2]` parameters to `Iron_List_Iron_Vector2` struct-by-value
+-- (items/count/capacity wrapper). The shim forwards `points.items`
+-- to raylib as `const Vector2 *`.
+func Draw.triangle(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) {}
+func Draw.triangle_lines(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) {}
+
+-- Polygon primitives (DRAW2D-14)
+--
+-- Regular polygons (equilateral). Parameters: Vector2 center,
+-- Int32 sides (3 = triangle, 4 = square, 6 = hexagon, ...),
+-- Float32 radius (to vertices), Float32 rotation (degrees).
+-- `poly_lines_ex` adds thickness.
+func Draw.poly(center: Vector2, sides: Int32, r: Float32, rotation: Float32, color: Color) {}
+func Draw.poly_lines(center: Vector2, sides: Int32, r: Float32, rotation: Float32, color: Color) {}
+func Draw.poly_lines_ex(center: Vector2, sides: Int32, r: Float32, rotation: Float32, thick: Float32, color: Color) {}
+
+-- Triangle array variants (DRAW2D-13 — array ABI validated by Plan 63-03 Task 1)
+--
+-- `triangle_fan(points, count, color)` draws a triangle fan from
+-- the first point to every subsequent pair; `triangle_strip` draws
+-- consecutive-3-point triangles sharing edges. Both take a
+-- [Vector2] array and a separate count (redundant with array length
+-- but matches raylib's C signature). The shim casts Iron's array
+-- representation (Iron_List_Iron_Vector2.items) to `const Vector2 *`
+-- at the FFI boundary.
+func Draw.triangle_fan(points: [Vector2], count: Int32, color: Color) {}
+func Draw.triangle_strip(points: [Vector2], count: Int32, color: Color) {}
