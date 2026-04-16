@@ -111,11 +111,11 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **DRAW2D-04**: User can begin/end render-to-texture — `beginTextureMode(target)`, `endTextureMode` taking `RenderTexture2D`
 - [x] **DRAW2D-05**: User can begin/end shader mode and blend mode — `beginShaderMode(shader)`, `endShaderMode`, `beginBlendMode(mode)`, `endBlendMode`
 - [x] **DRAW2D-06**: User can begin/end scissor mode — `beginScissorMode(x, y, w, h)`, `endScissorMode`
-- [ ] **DRAW2D-07**: User can draw pixels — `drawPixel(x, y, color)`, `drawPixelV(position, color)`
+- [x] **DRAW2D-07**: User can draw pixels — `drawPixel(x, y, color)`, `drawPixelV(position, color)`
 - [ ] **DRAW2D-08**: User can draw lines in every variant — basic, V (Vector2 endpoints), Ex (thickness), Strip (multi-point), Bezier
-- [ ] **DRAW2D-09**: User can draw circles in every variant — `drawCircle, drawCircleSector, drawCircleSectorLines, drawCircleGradient, drawCircleV, drawCircleLines, drawCircleLinesV`
-- [ ] **DRAW2D-10**: User can draw ellipses in every variant — `drawEllipse, drawEllipseLines`
-- [ ] **DRAW2D-11**: User can draw rings — `drawRing, drawRingLines`
+- [x] **DRAW2D-09**: User can draw circles in every variant — `drawCircle, drawCircleSector, drawCircleSectorLines, drawCircleGradient, drawCircleV, drawCircleLines, drawCircleLinesV`
+- [x] **DRAW2D-10**: User can draw ellipses in every variant — `drawEllipse, drawEllipseLines`
+- [x] **DRAW2D-11**: User can draw rings — `drawRing, drawRingLines`
 - [ ] **DRAW2D-12**: User can draw rectangles in every variant — `drawRectangle, drawRectangleV, drawRectangleRec, drawRectanglePro, drawRectangleGradientV/H/Ex, drawRectangleLines, drawRectangleLinesEx, drawRectangleRounded, drawRectangleRoundedLines, drawRectangleRoundedLinesEx`
 - [ ] **DRAW2D-13**: User can draw triangles — `drawTriangle, drawTriangleLines, drawTriangleFan, drawTriangleStrip`
 - [ ] **DRAW2D-14**: User can draw regular polygons — `drawPoly, drawPolyLines, drawPolyLinesEx`
@@ -346,11 +346,11 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | DRAW2D-04 | Phase 63 | Complete |
 | DRAW2D-05 | Phase 63 | Complete |
 | DRAW2D-06 | Phase 63 | Complete |
-| DRAW2D-07 | Phase 63 | Pending |
+| DRAW2D-07 | Phase 63 | Complete |
 | DRAW2D-08 | Phase 63 | Pending |
-| DRAW2D-09 | Phase 63 | Pending |
-| DRAW2D-10 | Phase 63 | Pending |
-| DRAW2D-11 | Phase 63 | Pending |
+| DRAW2D-09 | Phase 63 | Complete |
+| DRAW2D-10 | Phase 63 | Complete |
+| DRAW2D-11 | Phase 63 | Complete |
 | DRAW2D-12 | Phase 63 | Pending |
 | DRAW2D-13 | Phase 63 | Pending |
 | DRAW2D-14 | Phase 63 | Pending |

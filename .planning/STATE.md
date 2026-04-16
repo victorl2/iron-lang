@@ -3,14 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-04-16T22:49:44Z"
-last_activity: 2026-04-16 — Phase 63 Plan 01 COMPLETE. 13 Draw.* frame + stack-mode stubs/shims landed. 4 new struct-by-value INPUT ABIs validated (Color/Camera2D/RenderTexture/Shader). Draw.end() keyword probe resolved — singular name legal. DRAW2D-01..06 closed. clang -c iron_raylib.c + iron_raylib_layout.c both exit 0 with zero warnings.
+stopped_at: Completed 63-02-PLAN.md
+last_updated: "2026-04-16T22:57:47Z"
+last_activity: "2026-04-16 — Phase 63 Plan 02 executed on local. 17 Iron_draw_* prototypes + 17 shim implementations + 17 Iron func Draw.* stubs added for pixel/line/circle/ellipse/ring primitives. Vector2-by-value INPUT ABI validated across 10 shim sites — first-ever validation of this ABI direction. DrawCircleGradient two-Color variant bound via double memcpy. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile. DRAW2D-07, 09, 10, 11 closed. DRAW2D-08 4/5 (DrawLineStrip deferred to Plan 63-04 pending array ABI probe)."
 progress:
   total_phases: 14
   completed_phases: 2
   total_plans: 20
-  completed_plans: 17
-  percent: 85
+  completed_plans: 18
+  percent: 90
 ---
 
 # State
@@ -25,20 +26,20 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 ## Current Position
 
 Phase: 63 — 2D Drawing (IN PROGRESS)
-Plan: 02 of 4 — NEXT
-Status: Phase 63 Plan 01 COMPLETE (13 Draw.* frame + stack-mode stubs/shims landed, 4 new struct-by-value INPUT ABIs validated: Color/Camera2D/RenderTexture/Shader; DRAW2D-01..06 closed). Phase 62 COMPLETE (4/4 plans, INPUT-01..13 closed). Phase 61 plans (61-01..04) still on branch without SUMMARY.md files; state tech-debt. Phase 60 remains 8/8 closed. Local synced from silvaserver.local 2026-04-16 via rsync after stale-state rollback; git branch `remote/pr-28` now tracks the remote work tree (42 commits ahead of main: Phase 60/61/62 + Phase 63 Plan 01 done + Phase 63 Plans 02/03/04 planned).
-Last activity: 2026-04-16 — Phase 63 Plan 01 executed on local (branch remote/pr-28). 13 Iron_draw_* prototypes + 13 shim implementations + 13 Iron func Draw.* stubs landed across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron. Draw.end() keyword-collision probe resolved: `end` is not reserved, singular name legal. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile — Phase 60 _Static_assert grid held for all 4 new struct-by-value INPUT types.
+Plan: 03 of 4 — NEXT
+Status: Phase 63 Plan 02 COMPLETE (17 Draw.* pixel/line/circle/ellipse/ring stubs/shims landed; Vector2-by-value INPUT ABI validated across 10 shim sites — first-ever validation of this ABI direction; DrawCircleGradient two-Color variant bound via double memcpy; DRAW2D-07/09/10/11 closed; DRAW2D-08 partially closed — 4 of 5 line primitives bound; DrawLineStrip deferred to Plan 63-04 pending [Vector2] array ABI probe). Phase 63 Plan 01 also COMPLETE. Phase 62 COMPLETE (4/4 plans, INPUT-01..13 closed). Phase 61 plans (61-01..04) still on branch without SUMMARY.md files; state tech-debt. Phase 60 remains 8/8 closed. Local synced from silvaserver.local 2026-04-16 via rsync after stale-state rollback; git branch `remote/pr-28` now tracks the remote work tree (44 commits ahead of main: Phase 60/61/62 + Phase 63 Plans 01/02 done + Phase 63 Plans 03/04 planned).
+Last activity: 2026-04-16 — Phase 63 Plan 02 executed on local. 17 Iron_draw_* prototypes + 17 shim implementations + 17 Iron func Draw.* stubs added across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron for pixel/line/circle/ellipse/ring primitives. Vector2-by-value INPUT validated across 10 shims (pixel_v, line_v, line_ex, line_bezier, circle_sector, circle_sector_lines, circle_v, circle_lines_v, ring, ring_lines). Three shims (line_v, line_ex, line_bezier) memcpy TWO Vector2 params. DrawCircleGradient bound with double-Color memcpy. DrawLineStrip intentionally deferred. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile — Phase 60 _Static_assert grid held.
 
-Progress: [████████░░] 85%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 - Milestone requirements: 183
 - Phases defined: 14
 - Phases complete: 1 (Phase 60 — Type & Enum Foundation)
-- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 63 — 2D Drawing, Plan 01 complete)
+- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 63 — 2D Drawing, Plans 01 + 02 complete)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 66 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..06)
+- Requirements complete: 70 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..07, DRAW2D-09..11; DRAW2D-08 partial — 4 of 5 primitives bound)
 
 ### Plan execution log
 
@@ -54,6 +55,7 @@ Progress: [████████░░] 85%
 | 60-08 | 4     | ~4 min   | 5     | 2164bcd, 5223072, 790e285, 36c060a          |
 | 62-01 | 3     | ~4 min   | 4     | 0d14923, d213075, 728046a                   |
 | 63-01 | 3     | ~3 min   | 3     | e2739f6, ec632e5, 7768040                   |
+| 63-02 | 2     | ~3 min   | 3     | 20b4f53, cc494a2                            |
 
 ## Accumulated Context
 
@@ -112,6 +114,13 @@ Progress: [████████░░] 85%
 - **63-01 decision:** 4-scalar `BeginScissorMode` wrapper takes 4 int32_t and casts each to `(int)` inside the shim body. Same pattern as Iron_window_set_position from Phase 61. No Iron-side bounds-check on the scalars — raylib internally clamps negative scissor rects (threat T-63-02 accepted, not mitigated).
 - **63-01 decision:** `memcpy(&rl, &<param>, sizeof(<raylib_type>))` uniform pattern used for all 4 struct-inputs to avoid strict-aliasing warnings under `-Wall -Wextra`. Compiler elides the copy for trivially copyable structs. Template carried over from Iron_window_set_icon (Phase 61) and Iron_set_shapes_texture (Phase 62).
 - **63-01 note:** No ironc invocation in Tasks 2 or 3 — memory discipline preserved per HANDOFF.md (ironc is ~10 GB/run). End-to-end pong.iron validation is deferred to Plan 63-04. Only Task 1's 1-shot keyword probe ran ironc.
+- **63-02 (2026-04-16):** 17 Draw.* pixel/line/circle/ellipse/ring primitive bindings landed — iron_raylib.h got 17 new `Iron_draw_*` prototypes (bringing total to 30), iron_raylib.c got 17 shim implementations (+134 lines), raylib.iron got 17 `func Draw.*` empty-body stubs (+60 lines, total `func Draw.` count now 30). Breakdown: 2 pixel (pixel/pixel_v) + 4 line (line/line_v/line_ex/line_bezier — DrawLineStrip deferred) + 7 circle (circle/circle_sector/circle_sector_lines/circle_gradient/circle_v/circle_lines/circle_lines_v) + 2 ellipse (ellipse/ellipse_lines) + 2 ring (ring/ring_lines). clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile. DRAW2D-07, 09, 10, 11 closed; DRAW2D-08 4/5 closed.
+- **63-02 CRITICAL RESULT — Vector2-by-value INPUT ABI validated across 10 shim sites first-try:** Before Plan 63-02, Phase 60 had proven Vector2 layout (Iron_Vector2 byte-identical to raylib Vector2 via _Static_assert) and Phases 61/62 had used Vector2 only as RETURN values. Plan 63-02 was the first consumer of Vector2 as an INPUT parameter. 10 shims (pixel_v, line_v, line_ex, line_bezier, circle_sector, circle_sector_lines, circle_v, circle_lines_v, ring, ring_lines) use `memcpy(&stack_local, &input_param, sizeof(Vector2))` — 3 of them (line_v, line_ex, line_bezier) memcpy TWO Vector2 params into separate locals. Phase 60 `_Static_assert(sizeof(Iron_Vector2)==sizeof(Vector2))` grid held. Zero layout drift, zero warnings. Phase 66/67/69 primitives that take Vector2/Vector3 INPUT can now reuse this pattern with confidence.
+- **63-02 CRITICAL RESULT — two-Color shim variant bound cleanly:** DrawCircleGradient takes two Color params (inner, outer) for radial gradient. Shim `Iron_draw_circle_gradient(cx, cy, r, Iron_Color inner, Iron_Color outer)` uses double memcpy (Color i, o; memcpy(&i, &inner, sizeof(Color)); memcpy(&o, &outer, sizeof(Color))). Compiled clean first try. Future gradient primitives (DrawRectangleGradient in Plan 63-03, DrawRectangleGradientEx) will follow the same pattern.
+- **63-02 decision:** Parameter naming on Draw.ring / Draw.ring_lines kept as `inner: Float32` / `outer: Float32` per plan's verbatim template. The plan offered an optional rename to `inner_r` / `outer_r` to mirror the shim-side C names, but Iron parameter names are function-scoped — no collision with Draw.circle_gradient's `inner: Color, outer: Color`. Shorter form preferred; rename can still be applied retrospectively if readers find the inconsistency confusing (requires synchronized updates to Iron stubs + C prototypes + C shim bodies).
+- **63-02 decision:** Executed the plan's 17-function per-function grep list verbatim despite the plan's prose saying "16 new / 29 total Iron_draw_". The per-function enumeration (2 pixel + 4 line + 7 circle + 2 ellipse + 2 ring = 17) was always authoritative; the "16"/"29" figures were arithmetic typos. Final counts: 17 new, 30 total Iron_draw_* / func Draw.* — documented as Rule 1 auto-fix in the Plan 63-02 SUMMARY.
+- **63-02 decision:** DrawLineStrip left DEFERRED to Plan 63-04 per plan-split contract. Both iron_raylib.h and iron_raylib.c carry a `/* DrawLineStrip deferred to Plan 63-04 (array ABI) */` comment in the line-primitives section so future readers see the gap explicitly. Plan 63-04 opens with an Iron `[Vector2]` array ABI micro-probe before committing to the line_strip shim signature.
+- **63-02 decision:** No ironc invocation in either task — memory discipline per HANDOFF.md. Verification via `clang -c iron_raylib.c` + `clang -c iron_raylib_layout.c` only. End-to-end pong.iron validation remains Plan 63-04's territory.
 
 ## Phase Dependency Map
 
@@ -142,7 +151,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-16T22:49:44Z
-Stopped at: Completed 63-01-PLAN.md
-Next action: Execute Phase 63 Plan 02 (shapes/primitives) via `/gsd:execute-phase 63` — DrawRectangle, DrawCircle, DrawLine, DrawTriangle family plus Rectangle/Vector2 struct-by-value reuse the same `memcpy(&rl, &color, sizeof(Color))` template proven by 63-01. Plans 63-03 (text) and 63-04 (pong end-to-end restore) follow. Parallel Phases 65/68/72 also still open.
-Resume file: .planning/phases/63-2d-drawing/63-01-SUMMARY.md
+Last session: 2026-04-16T22:57:47Z
+Stopped at: Completed 63-02-PLAN.md
+Next action: Execute Phase 63 Plan 03 (rectangles + triangles + polygons) via `/gsd:execute-phase 63`. The two major ABI patterns — Color-by-value and Vector2-by-value INPUT — are now proven; Plan 63-03 adds Rectangle-by-value INPUT (Phase 60 `_Static_assert(sizeof(Iron_Rectangle)==sizeof(Rectangle))` already pins it) and multi-Vector2 chains (triangles = 3 Vector2 params). Plan 63-04 closes Phase 63 with the `[Vector2]` array ABI probe (for DrawLineStrip + DrawLineStripConcave + DrawTriangleFan) and pong/hello_raylib/game_raylib re-enablement. Parallel Phases 65/68/72 also still open.
+Resume file: .planning/phases/63-2d-drawing/63-02-SUMMARY.md

@@ -341,7 +341,7 @@ Plans:
 | 60. Type & Enum Foundation | 8/8 | Complete    | 2026-04-14 |
 | 61. Window & System | 0/4 | Complete    | 2026-04-15 |
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
-| 63. 2D Drawing | 1/4 | In Progress|  |
+| 63. 2D Drawing | 2/4 | In Progress|  |
 | 64. Collision | 0/? | Not started | - |
 | 65. raymath | 0/? | Not started | - |
 | 66. Textures & Images | 0/? | Not started | - |
