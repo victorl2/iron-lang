@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 63-03-PLAN.md
-last_updated: "2026-04-16T23:10:18Z"
-last_activity: 2026-04-16 — Phase 63 Plan 03 executed on local. 19 Iron_draw_* prototypes + 19 shim implementations + 19 Iron func Draw.* stubs added for rectangle/triangle/polygon primitives. Task 1 probe confirmed Iron [Vector2] array ABI — ironc lowers to Iron_List_Iron_Vector2 struct-BY-VALUE (items: Iron_Vector2 *, count/capacity: int64_t). Iron_List_Iron_Vector2 typedef added to iron_raylib.h under IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED guard (mirrors iron_net.h Iron_List_Iron_Address pattern). Rectangle struct-by-value INPUT validated across 7 shims (rec/pro/gradient_ex/lines_ex/rounded/rounded_lines/rounded_lines_ex). 4-color quadruple memcpy validated (DrawRectangleGradientEx). triangle_fan/triangle_strip shims forward points.items as const Vector2 *. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile. DRAW2D-12/13/14 fully closed.
+stopped_at: Completed 63-04-PLAN.md
+last_updated: "2026-04-16T23:26:38Z"
+last_activity: "2026-04-16 — Phase 63 Plan 04 executed on local. Phase 63 COMPLETE. 16 new Draw.* bindings (5 spline-segment + 5 spline-evaluator with FIRST Vector2 RETURN in Draw namespace + 6 array-input whole-spline/line_strip using Branch B / Iron_List_Iron_Vector2 struct by-value). All 3 consumer files (pong.iron / game_raylib.iron / hello_raylib.iron) re-enabled — zero PHASE 63 markers remain. 2 mislabeled DrawText markers in pong re-labeled to PHASE 67. Rule 3 compiler fix in src/lir/emit_structs.c: emit_mono_list_decls() now scans foreign-method-stub + extern-decl parameter/return types for Iron_List_<T> typedef emission (fixes end-to-end pong build). Canonical ironc build validated: pong.iron → 2,658,464-byte Mach-O arm64 executable that runs and initializes raylib 5.5 on macOS. DRAW2D-08 (full) / 15 / 16 closed."
 progress:
   total_phases: 14
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 20
-  completed_plans: 15
-  percent: 75
+  completed_plans: 16
+  percent: 80
 ---
 
 # State
@@ -25,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 63 — 2D Drawing (IN PROGRESS)
-Plan: 04 of 4 — NEXT
-Status: Phase 63 Plan 03 COMPLETE (19 Draw.* rectangle/triangle/polygon stubs/shims landed; Rectangle struct-by-value INPUT ABI validated across 7 shim sites — first-ever validation of this ABI direction; 4-color quadruple-memcpy variant bound for DrawRectangleGradientEx; Iron [Vector2] array ABI probe confirmed outcome A — ironc lowers to Iron_List_Iron_Vector2 struct-BY-VALUE, triangle_fan/triangle_strip shims forward points.items as const Vector2 *; DRAW2D-12/13/14 fully closed). Phase 63 Plan 01, 02 also COMPLETE. Phase 62 COMPLETE (4/4 plans, INPUT-01..13 closed). Phase 61 plans (61-01..04) still on branch without SUMMARY.md files; state tech-debt. Phase 60 remains 8/8 closed. Local synced from silvaserver.local 2026-04-16 via rsync after stale-state rollback; git branch `remote/pr-28` now tracks the remote work tree.
-Last activity: 2026-04-16 — Phase 63 Plan 03 executed on local. 19 Iron_draw_* prototypes + 19 shim implementations + 19 Iron func Draw.* stubs added across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron for rectangle/triangle/polygon primitives. Task 1 probe (temporary `func Draw.probe_array(points: [Vector2], count: Int32) {}` stub added, ironc run, observed, removed) confirmed Iron's `[Vector2]` foreign-method ABI: ironc lowers to `Iron_List_Iron_Vector2` struct passed BY VALUE (items/count/capacity wrapper, 24 bytes). Iron_List_Iron_Vector2 typedef added to iron_raylib.h under IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED guard (mirrors iron_net.h Iron_List_Iron_Address pattern). Rectangle struct-by-value INPUT validated across 7 shims. DrawRectangleGradientEx bound via quadruple-memcpy (tl/bl/tr/br). Triangle_fan/Triangle_strip shims forward `points.items` as `const Vector2 *`. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile — Phase 60 _Static_assert grid held.
+Phase: 63 — 2D Drawing (COMPLETE)
+Plan: 04 of 4 — DONE
+Status: Phase 63 COMPLETE (all 4/4 plans closed, 65 Draw.* bindings land; DRAW2D-01..16 all closed). Plan 63-04 bound the last 16 Draw.* surfaces: 5 spline-segment (fixed-point-count) + 5 spline-evaluator (FIRST Vector2 RETURN in the Draw namespace, 5 call sites via memcpy-out) + 6 array-input (DrawLineStrip + 5 whole-splines using Branch B — Iron_List_Iron_Vector2 struct BY VALUE as confirmed by 63-03's probe outcome A). All 3 consumer files (pong.iron / game_raylib.iron / hello_raylib.iron) re-enabled with real Draw.* calls; zero `-- PHASE 63:` markers survive anywhere in the repo. 2 mislabeled DrawText markers in pong re-labeled to `-- PHASE 67:` (TEXT-07/08 is Phase 67 territory). Rule 3 compiler fix landed in src/lir/emit_structs.c (emit_mono_list_decls now scans foreign-method-stub + extern-decl param/return types for Iron_List_<T> typedef emission — a compiler-wide improvement that resolved the 8 'unknown type name Iron_List_Iron_Vector2' errors triggered by the canonical pong build). Canonical `./build/ironc build examples/pong/pong.iron` produces a runnable 2,658,464-byte Mach-O arm64 executable; attempted runtime exec confirms raylib 5.5 initializes cleanly with DESKTOP/GLFW backend on macOS. Phase 63 is end-to-end validated. Phase 62 COMPLETE (4/4 plans, INPUT-01..13 closed). Phase 61 plans (61-01..04) still on branch without SUMMARY.md files; state tech-debt. Phase 60 remains 8/8 closed. Local synced from silvaserver.local 2026-04-16 via rsync after stale-state rollback; git branch `remote/pr-28` now tracks the remote work tree.
+Last activity: 2026-04-16 — Phase 63 Plan 04 executed on local. 16 Iron_draw_* prototypes + 16 shim implementations + 16 Iron `func Draw.*` stubs added across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron. Task 1 landed 10 shims (5 spline-segment + 5 spline-evaluator) with the first Vector2-RETURN pattern in Draw namespace — memcpy-out template from Iron_window_get_window_position (iron_raylib.c:137-142). Task 2 landed 6 array-input shims in Branch B mode (Iron_List_Iron_Vector2 struct by-value, matching 63-03 probe outcome A). Task 3 rewrote the 3 consumer files (7 PHASE 63 markers in pong → 5 real Draw.* calls + 2 PHASE 67 re-labels; game_raylib/hello_raylib get single-frame Draw bodies). Task 4 ran the canonical end-to-end build: failed first attempt on Iron_List_Iron_Vector2 typedef gap, fixed in src/lir/emit_structs.c by extending emit_mono_list_decls() with 2 new scan passes (extern_decls + foreign-method-stub funcs for IRON_TYPE_ARRAY params/returns). Second attempt succeeded. `./build/ironc build examples/pong/pong.iron` produces Mach-O arm64 executable; game_raylib.iron also builds clean (hello_raylib.iron's web target skipped — no emcc). ironc invoked 2x per HANDOFF.md memory budget. clang -c iron_raylib.c + iron_raylib_layout.c both exit 0 with zero warnings — Phase 60 _Static_assert grid held through all 392 asserts. Phase 63 COMPLETE.
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 - Milestone requirements: 183
 - Phases defined: 14
-- Phases complete: 1 (Phase 60 — Type & Enum Foundation)
-- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 63 — 2D Drawing, Plans 01 + 02 + 03 complete)
+- Phases complete: 2 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing)
+- Phases in flight: 2 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 73 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..07, DRAW2D-09..14; DRAW2D-08 partial — 4 of 5 primitives bound)
+- Requirements complete: 76 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16 — all 16 Phase 63 requirements closed)
 
 ### Plan execution log
 
@@ -57,6 +57,7 @@ Progress: [████████░░] 75%
 | 63-01 | 3     | ~3 min   | 3     | e2739f6, ec632e5, 7768040                   |
 | 63-02 | 2     | ~3 min   | 3     | 20b4f53, cc494a2                            |
 | 63-03 | 3     | ~5 min   | 3     | 4875f67, 10184c3                            |
+| 63-04 | 4     | ~10 min  | 7     | d2bbf93, 47ebf92, 9fe20da, 6dbd5d9          |
 
 ## Accumulated Context
 
@@ -130,6 +131,15 @@ Progress: [████████░░] 75%
 - **63-03 decision:** Triangle array variant shim signature uses struct BY VALUE, not by pointer. Plan 63-03's pre-execution template offered both Variant 1 (`const struct Iron_Vector2 *points`) and Variant 2 (`struct Iron_List_Iron_Vector2 *points`). Task 1 probe proved ironc emits BY-VALUE passing — neither template variant matched exactly. Shim signature is `void Iron_draw_triangle_fan(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color);` (struct-by-value typedef, no pointer, no `struct` keyword because Iron_List_Iron_Vector2 is typedef'd).
 - **63-03 decision:** Task 1 produced ZERO net file changes (probe added and removed in the same task) — no Task 1 commit. Probe result documented in 63-03-SUMMARY.md. This matches the plan's design: "Probe stub added temporarily, observed, and REMOVED from all three files after results are recorded in SUMMARY". Only Tasks 2 and 3 have commits (4875f67, 10184c3).
 - **63-03 decision:** ironc invoked ONCE (Task 1 probe build) per HANDOFF.md memory discipline (ironc is ~10 GB/run). Tasks 2-3 verified via `clang -c iron_raylib.c` + `clang -c iron_raylib_layout.c` only. End-to-end pong.iron validation remains Plan 63-04's territory.
+- **63-04 (2026-04-16):** 16 Draw.* spline + array-input bindings landed closing DRAW2D-08 (DrawLineStrip full) / 15 (5 whole-splines + 5 spline-segments) / 16 (5 evaluators). iron_raylib.h +29 lines (16 prototypes), iron_raylib.c +154 lines (16 shim implementations including 5 Vector2-RETURN memcpy-out forms), raylib.iron +60 lines (16 `func Draw.*` empty stubs). Total Phase 63 count: **65** Draw.* bindings / 65 Iron_draw_* prototypes / 65 shims — parity verified. All 3 consumer files (pong.iron / game_raylib.iron / hello_raylib.iron) rewritten with real Draw.* calls; 7 PHASE 63 markers in pong (5 real + 2 mislabeled DrawText) rewritten to 5 Draw.* calls + 2 `-- PHASE 67:` re-labels. game_raylib and hello_raylib each got a single-frame Draw.begin/clear/rectangle/end body. **Zero PHASE 63 markers remain in the repo.** Canonical `./build/ironc build examples/pong/pong.iron` produces a 2,658,464-byte Mach-O 64-bit arm64 executable that runs end-to-end and initializes raylib 5.5 successfully on macOS. `./build/ironc build tests/manual/game_raylib.iron` also builds clean. ironc invoked 2x per HANDOFF.md budget.
+- **63-04 CRITICAL RESULT — Vector2 RETURN path validated in the Draw namespace (5 evaluators):** Before Plan 63-04, only Phase 61 had Vector2-returning shims (Iron_window_get_window_position, Iron_mouse_get_position, etc.). Plan 63-04 introduced the FIRST 5 Vector2-RETURN shims to the Draw namespace — Iron_draw_get_spline_point_{linear,basis,catmull_rom,bezier_quadratic,bezier_cubic}. All use the memcpy-out template from Phase 61: `Vector2 rl = GetSplinePoint<T>(...); struct Iron_Vector2 out; memcpy(&out, &rl, sizeof(Vector2)); return out;`. Phase 60-02 `_Static_assert(sizeof(struct Iron_Vector2) == sizeof(Vector2))` grid held — byte-identity validated. Generalizable to Vector3/Vector4/Quaternion/Rectangle/Matrix returns in Phase 65 (raymath), Phase 69 (3D Draw), Phase 70 (Models).
+- **63-04 CRITICAL RESULT — Rule 3 compiler fix in src/lir/emit_structs.c (emit_mono_list_decls foreign-method-stub scan):** Canonical pong.iron build FAILED on first attempt with 8 clang errors: `unknown type name 'Iron_List_Iron_Vector2'`. Root cause: ironc's `emit_mono_list_decls()` only emitted the Iron_List_<T> typedef when it found an ARRAY_LIT of the element type OR when `ctx->monomorphic_collections` registered it. pong.iron never creates a `[Vector2]` literal, so neither trigger fired — yet 8 forward-declared foreign-method-stub prototypes (2 from 63-03's triangle_fan/strip + 6 from 63-04's line_strip + 5 whole-splines) referenced the missing typedef. Fix: extended `emit_mono_list_decls()` with 2 new scan passes (via shared macro `PLAN_63_04_EMIT_LIST_FOR`): Scan A iterates `module->extern_decls`, Scan B iterates `module->funcs` where `fn->is_extern && !fn->extern_c_name` (foreign-method stubs — the path that Iron uses for `func Draw.triangle_fan(points: [Vector2], ...)`). For both, any `IRON_TYPE_ARRAY` param/return with `IRON_TYPE_OBJECT` element emits the typedef + IRON_LIST_DECL + IRON_LIST_IMPL, deduped via the existing stb_ds map. **Compiler-wide improvement:** all future stdlib modules with `[T]` foreign-method params auto-emit the typedef; no more per-module `IRON_LIST_<T>_STRUCT_DEFINED` guards needed in `iron_raylib.h`/`iron_net.h` (historical guards remain but are now belt-and-suspenders).
+- **63-04 decision:** Ran **Branch B** of Task 2, NOT Branch A. The plan's literal Branch A signature (`const struct Iron_Vector2 *points`) would have mismatched ironc's actual emitted call-site code (which passes `Iron_List_Iron_Vector2` by value — confirmed by 63-03's probe outcome A / ARRAY_PARAM_LIST). The plan explicitly anticipated this: 'BRANCH B: substitute const struct Iron_Vector2 * with whatever struct-wrapper signature the 63-03 probe revealed.' Applied the 63-03 triangle_fan/strip template verbatim (Iron_List_Iron_Vector2 by value, forward points.items as const Vector2 *).
+- **63-04 decision:** `bezier_quadratic` on the Iron side normalizes raylib's short C symbol `GetSplinePointBezierQuad`. Symmetric with the draw side's long form (`DrawSplineSegmentBezierQuadratic` and `DrawSplineBezierQuadratic`). Shim body casts to the short C name internally; users see `bezier_quadratic` throughout.
+- **63-04 decision:** Float32 `t` parameter documented explicitly in the stub docstring. Iron's default Float is double (IEEE 754 binary64); raylib expects float (binary32). A bare `0.5` literal at a user call site would fail type-check ("field t expects Float32, got Float"); users MUST write `Float32(0.5)`. Documented as Phase 73 polish candidate (literal-suffix syntax or auto-narrow).
+- **63-04 decision:** Rule 1 deviation — plan's literal rewrite text at lines 692-693 of 63-04-PLAN.md contained the substring `re-marked from PHASE 63`, which would violate its own acceptance criterion `grep -c 'PHASE 63' examples/pong/pong.iron returns exactly 0`. Rephrased both inline annotations to `was mislabeled (TEXT-07 is Phase 67 territory)` — semantic equivalence preserved, grep now returns 0.
+- **63-04 decision:** hello_raylib.iron canonical ironc build SKIPPED per HANDOFF.md + missing emcc toolchain — hello_raylib is the web target only, requires emscripten. pong.iron + game_raylib.iron native builds cover the full native pipeline.
+- **63-04 decision:** Compiler fix landed INSIDE this plan rather than being spun out. Rationale: without the fix, the canonical pong build fails; the failure is directly caused by this plan's bindings (plus 63-03's triangle_fan/strip); the fix is <100 lines in one file (src/lir/emit_structs.c); the fix is compiler-wide-beneficial. Qualifies as Rule 3 (blocking issue auto-fix), not Rule 4 (architectural change).
 
 ## Phase Dependency Map
 
@@ -151,8 +161,8 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Pending Decisions
 
-- **API-11 override pending commit:** RESOLVED 2026-04-14 by Plan 60-08. REQUIREMENTS.md line 240 rewritten with override text and `[x]` checkbox; traceability table row updated from `API-11 | Phase 73 | Pending` to `API-11 | Phase 60 (Plan 08, override) | Complete`. The three consumer files (pong.iron, game_raylib.iron, hello_raylib.iron) were rewritten to use canonical Phase 60 names (Vector2, Color via rescue palette, KeyboardKey) with placeholder main bodies annotated with `-- PHASE 6N:` markers for Phase 61/62/63 restoration.
-- None blocking. Phase 60 is COMPLETE; Phase 61 (Window & System) can start immediately.
+- **API-11 override pending commit:** RESOLVED 2026-04-14 by Plan 60-08. REQUIREMENTS.md line 240 rewritten with override text and `[x]` checkbox; traceability table row updated from `API-11 | Phase 73 | Pending` to `API-11 | Phase 60 (Plan 08, override) | Complete`. The three consumer files (pong.iron, game_raylib.iron, hello_raylib.iron) were rewritten to use canonical Phase 60 names (Vector2, Color via rescue palette, KeyboardKey) with placeholder main bodies annotated with `-- PHASE 6N:` markers for Phase 61/62/63 restoration. Phase 63 Plan 04 (2026-04-16) completed the final leg by re-enabling all three files with real Draw.* calls — zero PHASE 6N markers for Phase 63 remain.
+- None blocking. Phase 60, 62, 63 are COMPLETE; Phases 64 / 65 / 66 / 68 / 72 can all start in parallel.
 
 ## Blockers
 
@@ -160,7 +170,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-16T23:10:18Z
-Stopped at: Completed 63-03-PLAN.md
-Next action: Execute Phase 63 Plan 04 (splines + consumer re-enablement) via `/gsd:execute-phase 63`. The three major ABI patterns — Color-by-value, Vector2-by-value INPUT, and Rectangle-by-value INPUT — are now all proven. The Iron `[Vector2]` array ABI is SOLVED (outcome A, Iron_List_Iron_Vector2 struct-by-value, typedef landed in iron_raylib.h under IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED guard). Plan 63-04 binds the remaining DrawLineStrip + 5× DrawSpline<T> using the proven pattern, then re-enables pong.iron/game_raylib.iron/hello_raylib.iron via end-to-end ironc build. Parallel Phases 65/68/72 also still open.
-Resume file: .planning/phases/63-2d-drawing/63-03-SUMMARY.md
+Last session: 2026-04-16T23:26:38Z
+Stopped at: Completed 63-04-PLAN.md
+Next action: Phase 63 is COMPLETE — choose next phase. Candidates now unblocked: Phase 64 (Collision, depends only on Phase 63), Phase 66 (Textures, depends on Phase 63's begin_texture_mode + Vector2 source-rects), Phase 67 (Text & Fonts, depends on Phase 63's Draw namespace; will pick up the 2 DrawText markers re-labeled from pong.iron into PHASE 67). Parallel phases still open: Phase 65 (raymath, depends only on 60), Phase 68 (Audio, independent after 60), Phase 72 (File I/O, independent after 60). Recommended: start Phase 64 next (smallest scope, builds on patterns established in 63) or Phase 66 (unblocks Phase 67 + Phase 71 shaders). The canonical end-to-end pong.iron compile is now proven; future phases can add new Draw/Texture/Text bindings with confidence that the full pipeline works.
+Resume file: .planning/phases/63-2d-drawing/63-04-SUMMARY.md

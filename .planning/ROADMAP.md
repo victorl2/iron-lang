@@ -44,7 +44,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 60: Type & Enum Foundation** — Bind all 30 raylib types and 22 enums with exact C layout (completed 2026-04-14)
 - [x] **Phase 61: Window & System** — Full window/monitor/clipboard/screenshot/FPS/timing bindings from `rcore.c` (completed 2026-04-15)
 - [x] **Phase 62: Input — Keyboard, Mouse, Gamepad, Touch, Gestures** — All ~40 input functions with typed enum params (completed 2026-04-16)
-- [ ] **Phase 63: 2D Drawing** — Every shape/spline/gradient draw primitive plus draw-mode begin/end
+- [x] **Phase 63: 2D Drawing** — Every shape/spline/gradient draw primitive plus draw-mode begin/end (completed 2026-04-16)
 - [ ] **Phase 64: Collision (2D + 3D)** — All 2D shape and 3D ray/box/sphere collision tests
 - [ ] **Phase 65: raymath** — All 143 raymath helpers as idiomatic methods on Vector2/3/4, Matrix, Quaternion
 - [ ] **Phase 66: Textures & Images** — Full image + texture + render-texture + n-patch + color palette bindings
@@ -341,7 +341,7 @@ Plans:
 | 60. Type & Enum Foundation | 8/8 | Complete    | 2026-04-14 |
 | 61. Window & System | 0/4 | Complete    | 2026-04-15 |
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
-| 63. 2D Drawing | 3/4 | In Progress|  |
+| 63. 2D Drawing | 4/4 | Complete   | 2026-04-16 |
 | 64. Collision | 0/? | Not started | - |
 | 65. raymath | 0/? | Not started | - |
 | 66. Textures & Images | 0/? | Not started | - |

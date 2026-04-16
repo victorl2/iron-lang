@@ -112,15 +112,15 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **DRAW2D-05**: User can begin/end shader mode and blend mode — `beginShaderMode(shader)`, `endShaderMode`, `beginBlendMode(mode)`, `endBlendMode`
 - [x] **DRAW2D-06**: User can begin/end scissor mode — `beginScissorMode(x, y, w, h)`, `endScissorMode`
 - [x] **DRAW2D-07**: User can draw pixels — `drawPixel(x, y, color)`, `drawPixelV(position, color)`
-- [ ] **DRAW2D-08**: User can draw lines in every variant — basic, V (Vector2 endpoints), Ex (thickness), Strip (multi-point), Bezier
+- [x] **DRAW2D-08**: User can draw lines in every variant — basic, V (Vector2 endpoints), Ex (thickness), Strip (multi-point), Bezier
 - [x] **DRAW2D-09**: User can draw circles in every variant — `drawCircle, drawCircleSector, drawCircleSectorLines, drawCircleGradient, drawCircleV, drawCircleLines, drawCircleLinesV`
 - [x] **DRAW2D-10**: User can draw ellipses in every variant — `drawEllipse, drawEllipseLines`
 - [x] **DRAW2D-11**: User can draw rings — `drawRing, drawRingLines`
 - [x] **DRAW2D-12**: User can draw rectangles in every variant — `drawRectangle, drawRectangleV, drawRectangleRec, drawRectanglePro, drawRectangleGradientV/H/Ex, drawRectangleLines, drawRectangleLinesEx, drawRectangleRounded, drawRectangleRoundedLines, drawRectangleRoundedLinesEx`
 - [x] **DRAW2D-13**: User can draw triangles — `drawTriangle, drawTriangleLines, drawTriangleFan, drawTriangleStrip`
 - [x] **DRAW2D-14**: User can draw regular polygons — `drawPoly, drawPolyLines, drawPolyLinesEx`
-- [ ] **DRAW2D-15**: User can draw splines — all 5 spline types (Linear, BasisB, CatmullRom, BezierQuadratic, BezierCubic) plus segment variants
-- [ ] **DRAW2D-16**: User can evaluate spline points — `getSplinePoint*` for all 5 spline types
+- [x] **DRAW2D-15**: User can draw splines — all 5 spline types (Linear, BasisB, CatmullRom, BezierQuadratic, BezierCubic) plus segment variants
+- [x] **DRAW2D-16**: User can evaluate spline points — `getSplinePoint*` for all 5 spline types
 
 ### Collision (`rshapes.c` collision + `rmodels.c` 3D collision — ~15 functions)
 
@@ -347,15 +347,15 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | DRAW2D-05 | Phase 63 | Complete |
 | DRAW2D-06 | Phase 63 | Complete |
 | DRAW2D-07 | Phase 63 | Complete |
-| DRAW2D-08 | Phase 63 | Pending |
+| DRAW2D-08 | Phase 63 | Complete |
 | DRAW2D-09 | Phase 63 | Complete |
 | DRAW2D-10 | Phase 63 | Complete |
 | DRAW2D-11 | Phase 63 | Complete |
 | DRAW2D-12 | Phase 63 | Complete |
 | DRAW2D-13 | Phase 63 | Complete |
 | DRAW2D-14 | Phase 63 | Complete |
-| DRAW2D-15 | Phase 63 | Pending |
-| DRAW2D-16 | Phase 63 | Pending |
+| DRAW2D-15 | Phase 63 | Complete |
+| DRAW2D-16 | Phase 63 | Complete |
 | COLL-01 | Phase 64 | Pending |
 | COLL-02 | Phase 64 | Pending |
 | MATH-01 | Phase 65 | Pending |
