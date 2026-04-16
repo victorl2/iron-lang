@@ -629,6 +629,144 @@ void Iron_draw_begin_scissor_mode(int32_t x, int32_t y, int32_t w, int32_t h) {
 
 void Iron_draw_end_scissor_mode(void) { EndScissorMode(); }
 
+/* Pixel primitives (DRAW2D-07) */
+
+void Iron_draw_pixel(int32_t x, int32_t y, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawPixel((int)x, (int)y, rl);
+}
+
+void Iron_draw_pixel_v(struct Iron_Vector2 position, struct Iron_Color color) {
+    Vector2 p;
+    Color c;
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawPixelV(p, c);
+}
+
+/* Line primitives (DRAW2D-08) — DrawLineStrip deferred to Plan 63-04 */
+
+void Iron_draw_line(int32_t x1, int32_t y1, int32_t x2, int32_t y2, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawLine((int)x1, (int)y1, (int)x2, (int)y2, rl);
+}
+
+void Iron_draw_line_v(struct Iron_Vector2 start, struct Iron_Vector2 end, struct Iron_Color color) {
+    Vector2 s, e;
+    Color c;
+    memcpy(&s, &start, sizeof(Vector2));
+    memcpy(&e, &end,   sizeof(Vector2));
+    memcpy(&c, &color, sizeof(Color));
+    DrawLineV(s, e, c);
+}
+
+void Iron_draw_line_ex(struct Iron_Vector2 start, struct Iron_Vector2 end, float thick, struct Iron_Color color) {
+    Vector2 s, e;
+    Color c;
+    memcpy(&s, &start, sizeof(Vector2));
+    memcpy(&e, &end,   sizeof(Vector2));
+    memcpy(&c, &color, sizeof(Color));
+    DrawLineEx(s, e, thick, c);
+}
+
+void Iron_draw_line_bezier(struct Iron_Vector2 start, struct Iron_Vector2 end, float thick, struct Iron_Color color) {
+    Vector2 s, e;
+    Color c;
+    memcpy(&s, &start, sizeof(Vector2));
+    memcpy(&e, &end,   sizeof(Vector2));
+    memcpy(&c, &color, sizeof(Color));
+    DrawLineBezier(s, e, thick, c);
+}
+
+/* Circle primitives (DRAW2D-09) */
+
+void Iron_draw_circle(int32_t cx, int32_t cy, float r, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawCircle((int)cx, (int)cy, r, rl);
+}
+
+void Iron_draw_circle_sector(struct Iron_Vector2 center, float r, float start, float end, int32_t segments, struct Iron_Color color) {
+    Vector2 ct;
+    Color cl;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&cl, &color,  sizeof(Color));
+    DrawCircleSector(ct, r, start, end, (int)segments, cl);
+}
+
+void Iron_draw_circle_sector_lines(struct Iron_Vector2 center, float r, float start, float end, int32_t segments, struct Iron_Color color) {
+    Vector2 ct;
+    Color cl;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&cl, &color,  sizeof(Color));
+    DrawCircleSectorLines(ct, r, start, end, (int)segments, cl);
+}
+
+/* Two-color variant — memcpy twice for the inner/outer gradient stops. */
+void Iron_draw_circle_gradient(int32_t cx, int32_t cy, float r,
+                               struct Iron_Color inner, struct Iron_Color outer) {
+    Color i, o;
+    memcpy(&i, &inner, sizeof(Color));
+    memcpy(&o, &outer, sizeof(Color));
+    DrawCircleGradient((int)cx, (int)cy, r, i, o);
+}
+
+void Iron_draw_circle_v(struct Iron_Vector2 center, float r, struct Iron_Color color) {
+    Vector2 ct;
+    Color cl;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&cl, &color,  sizeof(Color));
+    DrawCircleV(ct, r, cl);
+}
+
+void Iron_draw_circle_lines(int32_t cx, int32_t cy, float r, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawCircleLines((int)cx, (int)cy, r, rl);
+}
+
+void Iron_draw_circle_lines_v(struct Iron_Vector2 center, float r, struct Iron_Color color) {
+    Vector2 ct;
+    Color cl;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&cl, &color,  sizeof(Color));
+    DrawCircleLinesV(ct, r, cl);
+}
+
+/* Ellipse primitives (DRAW2D-10) */
+
+void Iron_draw_ellipse(int32_t cx, int32_t cy, float rh, float rv, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawEllipse((int)cx, (int)cy, rh, rv, rl);
+}
+
+void Iron_draw_ellipse_lines(int32_t cx, int32_t cy, float rh, float rv, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawEllipseLines((int)cx, (int)cy, rh, rv, rl);
+}
+
+/* Ring primitives (DRAW2D-11) */
+
+void Iron_draw_ring(struct Iron_Vector2 center, float inner_r, float outer_r, float start, float end, int32_t segments, struct Iron_Color color) {
+    Vector2 ct;
+    Color cl;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&cl, &color,  sizeof(Color));
+    DrawRing(ct, inner_r, outer_r, start, end, (int)segments, cl);
+}
+
+void Iron_draw_ring_lines(struct Iron_Vector2 center, float inner_r, float outer_r, float start, float end, int32_t segments, struct Iron_Color color) {
+    Vector2 ct;
+    Color cl;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&cl, &color,  sizeof(Color));
+    DrawRingLines(ct, inner_r, outer_r, start, end, (int)segments, cl);
+}
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */

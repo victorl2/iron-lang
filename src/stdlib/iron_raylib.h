@@ -527,6 +527,33 @@ void Iron_draw_end_blend_mode(void);
 void Iron_draw_begin_scissor_mode(int32_t x, int32_t y, int32_t w, int32_t h);
 void Iron_draw_end_scissor_mode(void);
 
+/* Pixel primitives (DRAW2D-07) */
+void Iron_draw_pixel(int32_t x, int32_t y, struct Iron_Color color);
+void Iron_draw_pixel_v(struct Iron_Vector2 position, struct Iron_Color color);
+
+/* Line primitives (DRAW2D-08) — DrawLineStrip deferred to Plan 63-04 (array ABI) */
+void Iron_draw_line(int32_t x1, int32_t y1, int32_t x2, int32_t y2, struct Iron_Color color);
+void Iron_draw_line_v(struct Iron_Vector2 start, struct Iron_Vector2 end, struct Iron_Color color);
+void Iron_draw_line_ex(struct Iron_Vector2 start, struct Iron_Vector2 end, float thick, struct Iron_Color color);
+void Iron_draw_line_bezier(struct Iron_Vector2 start, struct Iron_Vector2 end, float thick, struct Iron_Color color);
+
+/* Circle primitives (DRAW2D-09) */
+void Iron_draw_circle(int32_t cx, int32_t cy, float r, struct Iron_Color color);
+void Iron_draw_circle_sector(struct Iron_Vector2 center, float r, float start, float end, int32_t segments, struct Iron_Color color);
+void Iron_draw_circle_sector_lines(struct Iron_Vector2 center, float r, float start, float end, int32_t segments, struct Iron_Color color);
+void Iron_draw_circle_gradient(int32_t cx, int32_t cy, float r, struct Iron_Color inner, struct Iron_Color outer);
+void Iron_draw_circle_v(struct Iron_Vector2 center, float r, struct Iron_Color color);
+void Iron_draw_circle_lines(int32_t cx, int32_t cy, float r, struct Iron_Color color);
+void Iron_draw_circle_lines_v(struct Iron_Vector2 center, float r, struct Iron_Color color);
+
+/* Ellipse primitives (DRAW2D-10) */
+void Iron_draw_ellipse(int32_t cx, int32_t cy, float rh, float rv, struct Iron_Color color);
+void Iron_draw_ellipse_lines(int32_t cx, int32_t cy, float rh, float rv, struct Iron_Color color);
+
+/* Ring primitives (DRAW2D-11) */
+void Iron_draw_ring(struct Iron_Vector2 center, float inner_r, float outer_r, float start, float end, int32_t segments, struct Iron_Color color);
+void Iron_draw_ring_lines(struct Iron_Vector2 center, float inner_r, float outer_r, float start, float end, int32_t segments, struct Iron_Color color);
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
