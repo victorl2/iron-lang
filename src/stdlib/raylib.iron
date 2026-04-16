@@ -1511,3 +1511,40 @@ func Draw.poly_lines_ex(center: Vector2, sides: Int32, r: Float32, rotation: Flo
 -- at the FFI boundary.
 func Draw.triangle_fan(points: [Vector2], count: Int32, color: Color) {}
 func Draw.triangle_strip(points: [Vector2], count: Int32, color: Color) {}
+
+-- Spline segment primitives (DRAW2D-15 — fixed-point-count variants)
+--
+-- Five spline families — linear (2 control pts per segment), basis
+-- (4), catmull_rom (4), bezier_quadratic (3 = p1 + c2 control + p3),
+-- bezier_cubic (4 = p1 + c2 + c3 control + p4). `thick` is line
+-- thickness in pixels; `color` is the stroke color.
+--
+-- Use these for single-segment draws. For continuous splines through
+-- multiple control points, use the whole-spline variants below
+-- (Draw.spline_linear / spline_basis / ... — pending array ABI).
+func Draw.spline_segment_linear(p1: Vector2, p2: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_basis(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_catmull_rom(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_bezier_quadratic(p1: Vector2, c2: Vector2, p3: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_bezier_cubic(p1: Vector2, c2: Vector2, c3: Vector2, p4: Vector2, thick: Float32, color: Color) {}
+
+-- Spline evaluators (DRAW2D-16)
+--
+-- Return the Vector2 at parameter t on the named spline curve.
+-- t ∈ [0.0, 1.0] traces the curve from first to last control point;
+-- values outside the range extrapolate.
+--
+-- IMPORTANT: `t` MUST be Float32 on the Iron side. Iron's default
+-- Float is double; raylib expects `float`. Users MUST write
+-- `Float32(0.5)` at call sites — not a bare `0.5` literal (which
+-- is Float=double and would truncate silently at the FFI boundary).
+--
+-- Iron method names normalize raylib's C-name `BezierQuad` to
+-- `bezier_quadratic` for symmetry with the draw side's
+-- `DrawSplineBezierQuadratic` (and the segment evaluator
+-- `spline_segment_bezier_quadratic` above).
+func Draw.get_spline_point_linear(start: Vector2, end: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_basis(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_catmull_rom(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_bezier_quadratic(p1: Vector2, c2: Vector2, p3: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_bezier_cubic(p1: Vector2, c2: Vector2, c3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}

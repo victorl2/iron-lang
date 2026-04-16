@@ -940,6 +940,129 @@ void Iron_draw_triangle_strip(Iron_List_Iron_Vector2 points, int32_t count, stru
     DrawTriangleStrip((const Vector2 *)points.items, (int)count, c);
 }
 
+/* Spline segment primitives (DRAW2D-15 — fixed-point-count variants) */
+
+void Iron_draw_spline_segment_linear(struct Iron_Vector2 p1, struct Iron_Vector2 p2, float thick, struct Iron_Color color) {
+    Vector2 a, b;
+    Color c;
+    memcpy(&a, &p1,    sizeof(Vector2));
+    memcpy(&b, &p2,    sizeof(Vector2));
+    memcpy(&c, &color, sizeof(Color));
+    DrawSplineSegmentLinear(a, b, thick, c);
+}
+
+void Iron_draw_spline_segment_basis(struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float thick, struct Iron_Color color) {
+    Vector2 a, b, cc, d;
+    Color col;
+    memcpy(&a,   &p1,    sizeof(Vector2));
+    memcpy(&b,   &p2,    sizeof(Vector2));
+    memcpy(&cc,  &p3,    sizeof(Vector2));
+    memcpy(&d,   &p4,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    DrawSplineSegmentBasis(a, b, cc, d, thick, col);
+}
+
+void Iron_draw_spline_segment_catmull_rom(struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float thick, struct Iron_Color color) {
+    Vector2 a, b, cc, d;
+    Color col;
+    memcpy(&a,   &p1,    sizeof(Vector2));
+    memcpy(&b,   &p2,    sizeof(Vector2));
+    memcpy(&cc,  &p3,    sizeof(Vector2));
+    memcpy(&d,   &p4,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    DrawSplineSegmentCatmullRom(a, b, cc, d, thick, col);
+}
+
+void Iron_draw_spline_segment_bezier_quadratic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 p3, float thick, struct Iron_Color color) {
+    Vector2 a, b, cc;
+    Color col;
+    memcpy(&a,   &p1,    sizeof(Vector2));
+    memcpy(&b,   &c2,    sizeof(Vector2));
+    memcpy(&cc,  &p3,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    DrawSplineSegmentBezierQuadratic(a, b, cc, thick, col);
+}
+
+void Iron_draw_spline_segment_bezier_cubic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 c3, struct Iron_Vector2 p4, float thick, struct Iron_Color color) {
+    Vector2 a, b, cc, d;
+    Color col;
+    memcpy(&a,   &p1,    sizeof(Vector2));
+    memcpy(&b,   &c2,    sizeof(Vector2));
+    memcpy(&cc,  &c3,    sizeof(Vector2));
+    memcpy(&d,   &p4,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    DrawSplineSegmentBezierCubic(a, b, cc, d, thick, col);
+}
+
+/* Spline evaluators (DRAW2D-16) — Vector2 RETURN via memcpy-out.
+ * Pattern matches iron_raylib.c:137-142 (Iron_window_get_window_position).
+ * Iron-side method name normalizes raylib's `BezierQuad` to
+ * `bezier_quadratic` for symmetry with the draw side. */
+
+struct Iron_Vector2 Iron_draw_get_spline_point_linear(
+        struct Iron_Vector2 start, struct Iron_Vector2 end, float t) {
+    Vector2 s, e;
+    memcpy(&s, &start, sizeof(Vector2));
+    memcpy(&e, &end,   sizeof(Vector2));
+    Vector2 rl = GetSplinePointLinear(s, e, t);
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_draw_get_spline_point_basis(
+        struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float t) {
+    Vector2 a, b, c, d;
+    memcpy(&a, &p1, sizeof(Vector2));
+    memcpy(&b, &p2, sizeof(Vector2));
+    memcpy(&c, &p3, sizeof(Vector2));
+    memcpy(&d, &p4, sizeof(Vector2));
+    Vector2 rl = GetSplinePointBasis(a, b, c, d, t);
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_draw_get_spline_point_catmull_rom(
+        struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float t) {
+    Vector2 a, b, c, d;
+    memcpy(&a, &p1, sizeof(Vector2));
+    memcpy(&b, &p2, sizeof(Vector2));
+    memcpy(&c, &p3, sizeof(Vector2));
+    memcpy(&d, &p4, sizeof(Vector2));
+    Vector2 rl = GetSplinePointCatmullRom(a, b, c, d, t);
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_draw_get_spline_point_bezier_quadratic(
+        struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 p3, float t) {
+    Vector2 a, b, c;
+    memcpy(&a, &p1, sizeof(Vector2));
+    memcpy(&b, &c2, sizeof(Vector2));
+    memcpy(&c, &p3, sizeof(Vector2));
+    /* raylib's C symbol is GetSplinePointBezierQuad (short name); Iron
+     * normalizes the method to bezier_quadratic for symmetry. */
+    Vector2 rl = GetSplinePointBezierQuad(a, b, c, t);
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_draw_get_spline_point_bezier_cubic(
+        struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 c3, struct Iron_Vector2 p4, float t) {
+    Vector2 a, b, c, d;
+    memcpy(&a, &p1, sizeof(Vector2));
+    memcpy(&b, &c2, sizeof(Vector2));
+    memcpy(&c, &c3, sizeof(Vector2));
+    memcpy(&d, &p4, sizeof(Vector2));
+    Vector2 rl = GetSplinePointBezierCubic(a, b, c, d, t);
+    struct Iron_Vector2 out;
+    memcpy(&out, &rl, sizeof(Vector2));
+    return out;
+}
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */

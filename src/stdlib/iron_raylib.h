@@ -603,6 +603,22 @@ typedef struct Iron_List_Iron_Vector2 {
 void Iron_draw_triangle_fan(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color);
 void Iron_draw_triangle_strip(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color);
 
+/* Spline segment primitives (DRAW2D-15 — fixed-point-count variants) */
+void Iron_draw_spline_segment_linear(struct Iron_Vector2 p1, struct Iron_Vector2 p2, float thick, struct Iron_Color color);
+void Iron_draw_spline_segment_basis(struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float thick, struct Iron_Color color);
+void Iron_draw_spline_segment_catmull_rom(struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float thick, struct Iron_Color color);
+void Iron_draw_spline_segment_bezier_quadratic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 p3, float thick, struct Iron_Color color);
+void Iron_draw_spline_segment_bezier_cubic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 c3, struct Iron_Vector2 p4, float thick, struct Iron_Color color);
+
+/* Spline evaluators (DRAW2D-16) — Vector2 RETURN. Iron-side name
+ * normalizes raylib's C name `BezierQuad` to `bezier_quadratic`
+ * for symmetry with the draw side's `DrawSplineBezierQuadratic`. */
+struct Iron_Vector2 Iron_draw_get_spline_point_linear(struct Iron_Vector2 start, struct Iron_Vector2 end, float t);
+struct Iron_Vector2 Iron_draw_get_spline_point_basis(struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float t);
+struct Iron_Vector2 Iron_draw_get_spline_point_catmull_rom(struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3, struct Iron_Vector2 p4, float t);
+struct Iron_Vector2 Iron_draw_get_spline_point_bezier_quadratic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 p3, float t);
+struct Iron_Vector2 Iron_draw_get_spline_point_bezier_cubic(struct Iron_Vector2 p1, struct Iron_Vector2 c2, struct Iron_Vector2 c3, struct Iron_Vector2 p4, float t);
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
