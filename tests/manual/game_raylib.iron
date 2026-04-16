@@ -30,7 +30,8 @@ func main() {
     Window.set_target_fps(60)
     val _should: Bool = Window.should_close()
     -- PHASE 63: Draw.begin() / Draw.clear(bg) / Draw.end()
-    -- PHASE 62: if Input.is_key_down(down_key) { ... }
+    -- Phase 62: poll the keyboard once to exercise the down_key binding.
+    val _kb_down: Bool = Keyboard.is_down(down_key)
     Window.close()
 
     -- Keep the values alive so the typechecker doesn't warn about unused locals:
@@ -42,5 +43,4 @@ func main() {
     val _unused_5 = highlight
     val _unused_6 = accent
     val _unused_7 = up_key
-    val _unused_8 = down_key
 }
