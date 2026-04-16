@@ -767,6 +767,179 @@ void Iron_draw_ring_lines(struct Iron_Vector2 center, float inner_r, float outer
     DrawRingLines(ct, inner_r, outer_r, start, end, (int)segments, cl);
 }
 
+/* Rectangle primitives (DRAW2D-12) */
+
+void Iron_draw_rectangle(int32_t x, int32_t y, int32_t w, int32_t h, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawRectangle((int)x, (int)y, (int)w, (int)h, rl);
+}
+
+void Iron_draw_rectangle_v(struct Iron_Vector2 position, struct Iron_Vector2 size, struct Iron_Color color) {
+    Vector2 p, s;
+    Color c;
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&s, &size,     sizeof(Vector2));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawRectangleV(p, s, c);
+}
+
+/* Rectangle struct-by-value INPUT — first use of this type. Phase 60-02
+ * _Static_assert(sizeof(struct Iron_Rectangle) == sizeof(Rectangle)) pins layout. */
+void Iron_draw_rectangle_rec(struct Iron_Rectangle rec, struct Iron_Color color) {
+    Rectangle r;
+    Color c;
+    memcpy(&r, &rec,   sizeof(Rectangle));
+    memcpy(&c, &color, sizeof(Color));
+    DrawRectangleRec(r, c);
+}
+
+void Iron_draw_rectangle_pro(struct Iron_Rectangle rec, struct Iron_Vector2 origin, float rotation, struct Iron_Color color) {
+    Rectangle r;
+    Vector2 o;
+    Color c;
+    memcpy(&r, &rec,    sizeof(Rectangle));
+    memcpy(&o, &origin, sizeof(Vector2));
+    memcpy(&c, &color,  sizeof(Color));
+    DrawRectanglePro(r, o, rotation, c);
+}
+
+void Iron_draw_rectangle_gradient_v(int32_t x, int32_t y, int32_t w, int32_t h,
+                                    struct Iron_Color top, struct Iron_Color bottom) {
+    Color t, b;
+    memcpy(&t, &top,    sizeof(Color));
+    memcpy(&b, &bottom, sizeof(Color));
+    DrawRectangleGradientV((int)x, (int)y, (int)w, (int)h, t, b);
+}
+
+void Iron_draw_rectangle_gradient_h(int32_t x, int32_t y, int32_t w, int32_t h,
+                                    struct Iron_Color left, struct Iron_Color right) {
+    Color l, r;
+    memcpy(&l, &left,  sizeof(Color));
+    memcpy(&r, &right, sizeof(Color));
+    DrawRectangleGradientH((int)x, (int)y, (int)w, (int)h, l, r);
+}
+
+/* 4-color variant — quadruple memcpy. Argument order in raylib is
+ * topLeft / bottomLeft / topRight / bottomRight (per raylib.h:104). */
+void Iron_draw_rectangle_gradient_ex(struct Iron_Rectangle rec,
+                                     struct Iron_Color tl, struct Iron_Color bl,
+                                     struct Iron_Color tr, struct Iron_Color br) {
+    Rectangle r;
+    Color a, b, c, d;
+    memcpy(&r, &rec, sizeof(Rectangle));
+    memcpy(&a, &tl,  sizeof(Color));
+    memcpy(&b, &bl,  sizeof(Color));
+    memcpy(&c, &tr,  sizeof(Color));
+    memcpy(&d, &br,  sizeof(Color));
+    DrawRectangleGradientEx(r, a, b, c, d);
+}
+
+void Iron_draw_rectangle_lines(int32_t x, int32_t y, int32_t w, int32_t h, struct Iron_Color color) {
+    Color rl;
+    memcpy(&rl, &color, sizeof(Color));
+    DrawRectangleLines((int)x, (int)y, (int)w, (int)h, rl);
+}
+
+void Iron_draw_rectangle_lines_ex(struct Iron_Rectangle rec, float thick, struct Iron_Color color) {
+    Rectangle r;
+    Color c;
+    memcpy(&r, &rec,   sizeof(Rectangle));
+    memcpy(&c, &color, sizeof(Color));
+    DrawRectangleLinesEx(r, thick, c);
+}
+
+void Iron_draw_rectangle_rounded(struct Iron_Rectangle rec, float roundness, int32_t segments, struct Iron_Color color) {
+    Rectangle r;
+    Color c;
+    memcpy(&r, &rec,   sizeof(Rectangle));
+    memcpy(&c, &color, sizeof(Color));
+    DrawRectangleRounded(r, roundness, (int)segments, c);
+}
+
+void Iron_draw_rectangle_rounded_lines(struct Iron_Rectangle rec, float roundness, int32_t segments, struct Iron_Color color) {
+    Rectangle r;
+    Color c;
+    memcpy(&r, &rec,   sizeof(Rectangle));
+    memcpy(&c, &color, sizeof(Color));
+    DrawRectangleRoundedLines(r, roundness, (int)segments, c);
+}
+
+void Iron_draw_rectangle_rounded_lines_ex(struct Iron_Rectangle rec, float roundness, int32_t segments, float thick, struct Iron_Color color) {
+    Rectangle r;
+    Color c;
+    memcpy(&r, &rec,   sizeof(Rectangle));
+    memcpy(&c, &color, sizeof(Color));
+    DrawRectangleRoundedLinesEx(r, roundness, (int)segments, thick, c);
+}
+
+/* Triangle primitives (DRAW2D-13) — 2 fixed-point variants */
+
+void Iron_draw_triangle(struct Iron_Vector2 v1, struct Iron_Vector2 v2, struct Iron_Vector2 v3, struct Iron_Color color) {
+    Vector2 a, b, c;
+    Color col;
+    memcpy(&a,   &v1,    sizeof(Vector2));
+    memcpy(&b,   &v2,    sizeof(Vector2));
+    memcpy(&c,   &v3,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    DrawTriangle(a, b, c, col);
+}
+
+void Iron_draw_triangle_lines(struct Iron_Vector2 v1, struct Iron_Vector2 v2, struct Iron_Vector2 v3, struct Iron_Color color) {
+    Vector2 a, b, c;
+    Color col;
+    memcpy(&a,   &v1,    sizeof(Vector2));
+    memcpy(&b,   &v2,    sizeof(Vector2));
+    memcpy(&c,   &v3,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    DrawTriangleLines(a, b, c, col);
+}
+
+/* Polygon primitives (DRAW2D-14) */
+
+void Iron_draw_poly(struct Iron_Vector2 center, int32_t sides, float r, float rotation, struct Iron_Color color) {
+    Vector2 ct;
+    Color c;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&c,  &color,  sizeof(Color));
+    DrawPoly(ct, (int)sides, r, rotation, c);
+}
+
+void Iron_draw_poly_lines(struct Iron_Vector2 center, int32_t sides, float r, float rotation, struct Iron_Color color) {
+    Vector2 ct;
+    Color c;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&c,  &color,  sizeof(Color));
+    DrawPolyLines(ct, (int)sides, r, rotation, c);
+}
+
+void Iron_draw_poly_lines_ex(struct Iron_Vector2 center, int32_t sides, float r, float rotation, float thick, struct Iron_Color color) {
+    Vector2 ct;
+    Color c;
+    memcpy(&ct, &center, sizeof(Vector2));
+    memcpy(&c,  &color,  sizeof(Color));
+    DrawPolyLinesEx(ct, (int)sides, r, rotation, thick, c);
+}
+
+/* Triangle array variants (DRAW2D-13 — array ABI confirmed by Task 1 probe).
+ * ironc passes Iron_List_Iron_Vector2 BY VALUE (items/count/capacity wrapper,
+ * 24 bytes). We forward points.items as `const Vector2 *` — Phase 60-02's
+ * _Static_assert(sizeof(struct Iron_Vector2) == sizeof(Vector2)) pins the
+ * element layout byte-identical, so the reinterpret is safe. The shim trusts
+ * the caller-supplied `count` rather than points.count per the plan's
+ * explicit-count convention (mirrors raylib's C signature). */
+void Iron_draw_triangle_fan(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawTriangleFan((const Vector2 *)points.items, (int)count, c);
+}
+
+void Iron_draw_triangle_strip(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawTriangleStrip((const Vector2 *)points.items, (int)count, c);
+}
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */

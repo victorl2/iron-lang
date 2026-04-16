@@ -554,6 +554,55 @@ void Iron_draw_ellipse_lines(int32_t cx, int32_t cy, float rh, float rv, struct 
 void Iron_draw_ring(struct Iron_Vector2 center, float inner_r, float outer_r, float start, float end, int32_t segments, struct Iron_Color color);
 void Iron_draw_ring_lines(struct Iron_Vector2 center, float inner_r, float outer_r, float start, float end, int32_t segments, struct Iron_Color color);
 
+/* Rectangle primitives (DRAW2D-12) — 12 functions */
+void Iron_draw_rectangle(int32_t x, int32_t y, int32_t w, int32_t h, struct Iron_Color color);
+void Iron_draw_rectangle_v(struct Iron_Vector2 position, struct Iron_Vector2 size, struct Iron_Color color);
+void Iron_draw_rectangle_rec(struct Iron_Rectangle rec, struct Iron_Color color);
+void Iron_draw_rectangle_pro(struct Iron_Rectangle rec, struct Iron_Vector2 origin, float rotation, struct Iron_Color color);
+void Iron_draw_rectangle_gradient_v(int32_t x, int32_t y, int32_t w, int32_t h, struct Iron_Color top, struct Iron_Color bottom);
+void Iron_draw_rectangle_gradient_h(int32_t x, int32_t y, int32_t w, int32_t h, struct Iron_Color left, struct Iron_Color right);
+void Iron_draw_rectangle_gradient_ex(struct Iron_Rectangle rec, struct Iron_Color tl, struct Iron_Color bl, struct Iron_Color tr, struct Iron_Color br);
+void Iron_draw_rectangle_lines(int32_t x, int32_t y, int32_t w, int32_t h, struct Iron_Color color);
+void Iron_draw_rectangle_lines_ex(struct Iron_Rectangle rec, float thick, struct Iron_Color color);
+void Iron_draw_rectangle_rounded(struct Iron_Rectangle rec, float roundness, int32_t segments, struct Iron_Color color);
+void Iron_draw_rectangle_rounded_lines(struct Iron_Rectangle rec, float roundness, int32_t segments, struct Iron_Color color);
+void Iron_draw_rectangle_rounded_lines_ex(struct Iron_Rectangle rec, float roundness, int32_t segments, float thick, struct Iron_Color color);
+
+/* Triangle primitives (DRAW2D-13) — 2 fixed-point variants; 2 array
+ * variants (DrawTriangleFan / DrawTriangleStrip) follow below after
+ * the Iron_List_Iron_Vector2 struct declaration. Plan 63-03 Task 1
+ * probe outcome A: ironc lowers `[Vector2]` parameters to
+ * `Iron_List_Iron_Vector2` struct-by-value (items/count/capacity
+ * wrapper, 24 bytes). */
+void Iron_draw_triangle(struct Iron_Vector2 v1, struct Iron_Vector2 v2, struct Iron_Vector2 v3, struct Iron_Color color);
+void Iron_draw_triangle_lines(struct Iron_Vector2 v1, struct Iron_Vector2 v2, struct Iron_Vector2 v3, struct Iron_Color color);
+
+/* Polygon primitives (DRAW2D-14) — 3 functions */
+void Iron_draw_poly(struct Iron_Vector2 center, int32_t sides, float r, float rotation, struct Iron_Color color);
+void Iron_draw_poly_lines(struct Iron_Vector2 center, int32_t sides, float r, float rotation, struct Iron_Color color);
+void Iron_draw_poly_lines_ex(struct Iron_Vector2 center, int32_t sides, float r, float rotation, float thick, struct Iron_Color color);
+
+/* Iron's [Vector2] lowers to Iron_List_Iron_Vector2 in C (ARRAY_PARAM_LIST
+ * mode, confirmed by Plan 63-03 Task 1 probe). Layout-compatible with
+ * the compiler-emitted IRON_LIST_DECL expansion. Same guard pattern as
+ * iron_net.h's Iron_List_Iron_Address block. */
+#ifndef IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED
+#define IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED
+typedef struct Iron_List_Iron_Vector2 {
+    struct Iron_Vector2 *items;
+    int64_t              count;
+    int64_t              capacity;
+} Iron_List_Iron_Vector2;
+#endif
+
+/* Triangle array variants (DRAW2D-13 — array ABI confirmed by Task 1 probe).
+ * ironc passes Iron_List_Iron_Vector2 by VALUE (not by pointer), so the
+ * shim receives the items/count/capacity wrapper directly. Reinterpret
+ * .items (Iron_Vector2 * byte-identical to raylib Vector2 per Phase 60-02
+ * _Static_assert) as `const Vector2 *` before forwarding to raylib. */
+void Iron_draw_triangle_fan(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color);
+void Iron_draw_triangle_strip(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color);
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
