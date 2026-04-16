@@ -116,9 +116,9 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **DRAW2D-09**: User can draw circles in every variant — `drawCircle, drawCircleSector, drawCircleSectorLines, drawCircleGradient, drawCircleV, drawCircleLines, drawCircleLinesV`
 - [x] **DRAW2D-10**: User can draw ellipses in every variant — `drawEllipse, drawEllipseLines`
 - [x] **DRAW2D-11**: User can draw rings — `drawRing, drawRingLines`
-- [ ] **DRAW2D-12**: User can draw rectangles in every variant — `drawRectangle, drawRectangleV, drawRectangleRec, drawRectanglePro, drawRectangleGradientV/H/Ex, drawRectangleLines, drawRectangleLinesEx, drawRectangleRounded, drawRectangleRoundedLines, drawRectangleRoundedLinesEx`
-- [ ] **DRAW2D-13**: User can draw triangles — `drawTriangle, drawTriangleLines, drawTriangleFan, drawTriangleStrip`
-- [ ] **DRAW2D-14**: User can draw regular polygons — `drawPoly, drawPolyLines, drawPolyLinesEx`
+- [x] **DRAW2D-12**: User can draw rectangles in every variant — `drawRectangle, drawRectangleV, drawRectangleRec, drawRectanglePro, drawRectangleGradientV/H/Ex, drawRectangleLines, drawRectangleLinesEx, drawRectangleRounded, drawRectangleRoundedLines, drawRectangleRoundedLinesEx`
+- [x] **DRAW2D-13**: User can draw triangles — `drawTriangle, drawTriangleLines, drawTriangleFan, drawTriangleStrip`
+- [x] **DRAW2D-14**: User can draw regular polygons — `drawPoly, drawPolyLines, drawPolyLinesEx`
 - [ ] **DRAW2D-15**: User can draw splines — all 5 spline types (Linear, BasisB, CatmullRom, BezierQuadratic, BezierCubic) plus segment variants
 - [ ] **DRAW2D-16**: User can evaluate spline points — `getSplinePoint*` for all 5 spline types
 
@@ -351,9 +351,9 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | DRAW2D-09 | Phase 63 | Complete |
 | DRAW2D-10 | Phase 63 | Complete |
 | DRAW2D-11 | Phase 63 | Complete |
-| DRAW2D-12 | Phase 63 | Pending |
-| DRAW2D-13 | Phase 63 | Pending |
-| DRAW2D-14 | Phase 63 | Pending |
+| DRAW2D-12 | Phase 63 | Complete |
+| DRAW2D-13 | Phase 63 | Complete |
+| DRAW2D-14 | Phase 63 | Complete |
 | DRAW2D-15 | Phase 63 | Pending |
 | DRAW2D-16 | Phase 63 | Pending |
 | COLL-01 | Phase 64 | Pending |

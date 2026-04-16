@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 63-02-PLAN.md
-last_updated: "2026-04-16T22:57:47Z"
-last_activity: "2026-04-16 — Phase 63 Plan 02 executed on local. 17 Iron_draw_* prototypes + 17 shim implementations + 17 Iron func Draw.* stubs added for pixel/line/circle/ellipse/ring primitives. Vector2-by-value INPUT ABI validated across 10 shim sites — first-ever validation of this ABI direction. DrawCircleGradient two-Color variant bound via double memcpy. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile. DRAW2D-07, 09, 10, 11 closed. DRAW2D-08 4/5 (DrawLineStrip deferred to Plan 63-04 pending array ABI probe)."
+stopped_at: Completed 63-03-PLAN.md
+last_updated: "2026-04-16T23:10:18Z"
+last_activity: 2026-04-16 — Phase 63 Plan 03 executed on local. 19 Iron_draw_* prototypes + 19 shim implementations + 19 Iron func Draw.* stubs added for rectangle/triangle/polygon primitives. Task 1 probe confirmed Iron [Vector2] array ABI — ironc lowers to Iron_List_Iron_Vector2 struct-BY-VALUE (items: Iron_Vector2 *, count/capacity: int64_t). Iron_List_Iron_Vector2 typedef added to iron_raylib.h under IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED guard (mirrors iron_net.h Iron_List_Iron_Address pattern). Rectangle struct-by-value INPUT validated across 7 shims (rec/pro/gradient_ex/lines_ex/rounded/rounded_lines/rounded_lines_ex). 4-color quadruple memcpy validated (DrawRectangleGradientEx). triangle_fan/triangle_strip shims forward points.items as const Vector2 *. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile. DRAW2D-12/13/14 fully closed.
 progress:
   total_phases: 14
   completed_phases: 2
   total_plans: 20
-  completed_plans: 18
-  percent: 90
+  completed_plans: 15
+  percent: 75
 ---
 
 # State
@@ -26,20 +26,20 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 ## Current Position
 
 Phase: 63 — 2D Drawing (IN PROGRESS)
-Plan: 03 of 4 — NEXT
-Status: Phase 63 Plan 02 COMPLETE (17 Draw.* pixel/line/circle/ellipse/ring stubs/shims landed; Vector2-by-value INPUT ABI validated across 10 shim sites — first-ever validation of this ABI direction; DrawCircleGradient two-Color variant bound via double memcpy; DRAW2D-07/09/10/11 closed; DRAW2D-08 partially closed — 4 of 5 line primitives bound; DrawLineStrip deferred to Plan 63-04 pending [Vector2] array ABI probe). Phase 63 Plan 01 also COMPLETE. Phase 62 COMPLETE (4/4 plans, INPUT-01..13 closed). Phase 61 plans (61-01..04) still on branch without SUMMARY.md files; state tech-debt. Phase 60 remains 8/8 closed. Local synced from silvaserver.local 2026-04-16 via rsync after stale-state rollback; git branch `remote/pr-28` now tracks the remote work tree (44 commits ahead of main: Phase 60/61/62 + Phase 63 Plans 01/02 done + Phase 63 Plans 03/04 planned).
-Last activity: 2026-04-16 — Phase 63 Plan 02 executed on local. 17 Iron_draw_* prototypes + 17 shim implementations + 17 Iron func Draw.* stubs added across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron for pixel/line/circle/ellipse/ring primitives. Vector2-by-value INPUT validated across 10 shims (pixel_v, line_v, line_ex, line_bezier, circle_sector, circle_sector_lines, circle_v, circle_lines_v, ring, ring_lines). Three shims (line_v, line_ex, line_bezier) memcpy TWO Vector2 params. DrawCircleGradient bound with double-Color memcpy. DrawLineStrip intentionally deferred. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile — Phase 60 _Static_assert grid held.
+Plan: 04 of 4 — NEXT
+Status: Phase 63 Plan 03 COMPLETE (19 Draw.* rectangle/triangle/polygon stubs/shims landed; Rectangle struct-by-value INPUT ABI validated across 7 shim sites — first-ever validation of this ABI direction; 4-color quadruple-memcpy variant bound for DrawRectangleGradientEx; Iron [Vector2] array ABI probe confirmed outcome A — ironc lowers to Iron_List_Iron_Vector2 struct-BY-VALUE, triangle_fan/triangle_strip shims forward points.items as const Vector2 *; DRAW2D-12/13/14 fully closed). Phase 63 Plan 01, 02 also COMPLETE. Phase 62 COMPLETE (4/4 plans, INPUT-01..13 closed). Phase 61 plans (61-01..04) still on branch without SUMMARY.md files; state tech-debt. Phase 60 remains 8/8 closed. Local synced from silvaserver.local 2026-04-16 via rsync after stale-state rollback; git branch `remote/pr-28` now tracks the remote work tree.
+Last activity: 2026-04-16 — Phase 63 Plan 03 executed on local. 19 Iron_draw_* prototypes + 19 shim implementations + 19 Iron func Draw.* stubs added across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron for rectangle/triangle/polygon primitives. Task 1 probe (temporary `func Draw.probe_array(points: [Vector2], count: Int32) {}` stub added, ironc run, observed, removed) confirmed Iron's `[Vector2]` foreign-method ABI: ironc lowers to `Iron_List_Iron_Vector2` struct passed BY VALUE (items/count/capacity wrapper, 24 bytes). Iron_List_Iron_Vector2 typedef added to iron_raylib.h under IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED guard (mirrors iron_net.h Iron_List_Iron_Address pattern). Rectangle struct-by-value INPUT validated across 7 shims. DrawRectangleGradientEx bound via quadruple-memcpy (tl/bl/tr/br). Triangle_fan/Triangle_strip shims forward `points.items` as `const Vector2 *`. clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile — Phase 60 _Static_assert grid held.
 
-Progress: [█████████░] 90%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 - Milestone requirements: 183
 - Phases defined: 14
 - Phases complete: 1 (Phase 60 — Type & Enum Foundation)
-- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 63 — 2D Drawing, Plans 01 + 02 complete)
+- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 63 — 2D Drawing, Plans 01 + 02 + 03 complete)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 70 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..07, DRAW2D-09..11; DRAW2D-08 partial — 4 of 5 primitives bound)
+- Requirements complete: 73 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..07, DRAW2D-09..14; DRAW2D-08 partial — 4 of 5 primitives bound)
 
 ### Plan execution log
 
@@ -56,6 +56,7 @@ Progress: [█████████░] 90%
 | 62-01 | 3     | ~4 min   | 4     | 0d14923, d213075, 728046a                   |
 | 63-01 | 3     | ~3 min   | 3     | e2739f6, ec632e5, 7768040                   |
 | 63-02 | 2     | ~3 min   | 3     | 20b4f53, cc494a2                            |
+| 63-03 | 3     | ~5 min   | 3     | 4875f67, 10184c3                            |
 
 ## Accumulated Context
 
@@ -121,6 +122,14 @@ Progress: [█████████░] 90%
 - **63-02 decision:** Executed the plan's 17-function per-function grep list verbatim despite the plan's prose saying "16 new / 29 total Iron_draw_". The per-function enumeration (2 pixel + 4 line + 7 circle + 2 ellipse + 2 ring = 17) was always authoritative; the "16"/"29" figures were arithmetic typos. Final counts: 17 new, 30 total Iron_draw_* / func Draw.* — documented as Rule 1 auto-fix in the Plan 63-02 SUMMARY.
 - **63-02 decision:** DrawLineStrip left DEFERRED to Plan 63-04 per plan-split contract. Both iron_raylib.h and iron_raylib.c carry a `/* DrawLineStrip deferred to Plan 63-04 (array ABI) */` comment in the line-primitives section so future readers see the gap explicitly. Plan 63-04 opens with an Iron `[Vector2]` array ABI micro-probe before committing to the line_strip shim signature.
 - **63-02 decision:** No ironc invocation in either task — memory discipline per HANDOFF.md. Verification via `clang -c iron_raylib.c` + `clang -c iron_raylib_layout.c` only. End-to-end pong.iron validation remains Plan 63-04's territory.
+- **63-03 (2026-04-16):** 19 Draw.* rectangle/triangle/polygon bindings landed — iron_raylib.h got 19 new `Iron_draw_*` prototypes + Iron_List_Iron_Vector2 typedef (under IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED guard, mirroring iron_net.h:269-276's Iron_List_Iron_Address block). iron_raylib.c got 19 shim implementations (+173 lines). raylib.iron got 19 `func Draw.*` empty stubs (+62 lines, total `func Draw.` count now 49). Breakdown: 12 rectangle (DRAW2D-12 full — rectangle/V/Rec/Pro, 3 gradients including 4-color ex, lines/linesEx, 3 rounded variants) + 2 fixed-point triangle (triangle/triangle_lines) + 3 polygon (poly/poly_lines/poly_lines_ex) + 2 array triangle (triangle_fan/triangle_strip using Iron_List_Iron_Vector2 by-value). clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile. DRAW2D-12/13/14 fully closed.
+- **63-03 CRITICAL RESULT — Iron [Vector2] array ABI SOLVED first-try:** Plan 63-03 Task 1 was a dedicated probe of ironc's foreign-method-stub array lowering — the only genuine unknown in all of Phase 63 per RESEARCH.md Pattern 4 + Pitfall 5. Probe stub `func Draw.probe_array(points: [Vector2], count: Int32) {}` landed temporarily in raylib.iron, a 3-element probe caller exercised it, ironc was invoked ONCE, the emitted C was inspected, and the probe was removed (zero file-change net effect, result documented in SUMMARY only — no Task 1 commit). **Outcome: A (ARRAY_PARAM_LIST mode, struct BY VALUE).** ironc emits `void Iron_draw_probe_array(Iron_List_Iron_Vector2 points, int32_t count);` — the `Iron_List_<T>` struct (items: Iron_Vector2 *, count/capacity: int64_t, 24 bytes total) is passed BY VALUE at the call site via `Iron_draw_probe_array(_v16, ((int64_t)3LL))`. The Iron_List_Iron_Vector2 wrapper is what crosses the FFI boundary — the shim forwards `points.items` reinterpreted as `const Vector2 *` (Phase 60-02 _Static_assert(sizeof(struct Iron_Vector2) == sizeof(Vector2)) makes the reinterpret byte-safe). **All 9 array-taking raylib functions** (DrawLineStrip, DrawTriangleFan/Strip, 5× DrawSpline<T>) can now be bound with this proven pattern — no descoping to Phase 73 needed.
+- **63-03 CRITICAL RESULT — Rectangle struct-by-value INPUT ABI validated across 7 shim sites:** Before Plan 63-03, Phase 60 had proven Rectangle layout (_Static_assert(sizeof(Iron_Rectangle)==sizeof(Rectangle)) + 4 per-field offsets) but nothing had consumed Iron_Rectangle as an INPUT parameter. Plan 63-03 landed 7 shims taking Iron_Rectangle by value: rectangle_rec, rectangle_pro, rectangle_gradient_ex, rectangle_lines_ex, rectangle_rounded, rectangle_rounded_lines, rectangle_rounded_lines_ex. Every one uses `Rectangle r; memcpy(&r, &rec, sizeof(Rectangle));` to cross the FFI. Clang compile zero warnings first try — Phase 60-02 `_Static_assert` grid held. Phase 64 collision, Phase 66 texture source-rects, Phase 67 text bounds can all reuse this pattern with confidence.
+- **63-03 CRITICAL RESULT — 4-color quadruple-memcpy variant validated (DrawRectangleGradientEx):** Extends Plan 63-02's two-Color gradient pattern (DrawCircleGradient) to 4-corner gradients. Shim `Iron_draw_rectangle_gradient_ex(Iron_Rectangle rec, Iron_Color tl, bl, tr, br)` uses 5 memcpys total (1 Rectangle + 4 Color). Argument order follows raylib.h:104 — topLeft / bottomLeft / topRight / bottomRight.
+- **63-03 decision:** Added `Iron_List_Iron_Vector2` typedef to `iron_raylib.h` under `IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED` include guard. Pattern copied verbatim from `iron_net.h:269-276` (`Iron_List_Iron_Address` block). The guard prevents double-definition when `emit_c.c`'s Phase 3 struct emission also declares the same type in generated user code — any consumer that both `import raylib` and uses `[Vector2]` would otherwise see two incompatible type definitions. Same trap / same mitigation as `Iron_Vector3` etc. documented in iron_raylib.h's top-of-file comment.
+- **63-03 decision:** Triangle array variant shim signature uses struct BY VALUE, not by pointer. Plan 63-03's pre-execution template offered both Variant 1 (`const struct Iron_Vector2 *points`) and Variant 2 (`struct Iron_List_Iron_Vector2 *points`). Task 1 probe proved ironc emits BY-VALUE passing — neither template variant matched exactly. Shim signature is `void Iron_draw_triangle_fan(Iron_List_Iron_Vector2 points, int32_t count, struct Iron_Color color);` (struct-by-value typedef, no pointer, no `struct` keyword because Iron_List_Iron_Vector2 is typedef'd).
+- **63-03 decision:** Task 1 produced ZERO net file changes (probe added and removed in the same task) — no Task 1 commit. Probe result documented in 63-03-SUMMARY.md. This matches the plan's design: "Probe stub added temporarily, observed, and REMOVED from all three files after results are recorded in SUMMARY". Only Tasks 2 and 3 have commits (4875f67, 10184c3).
+- **63-03 decision:** ironc invoked ONCE (Task 1 probe build) per HANDOFF.md memory discipline (ironc is ~10 GB/run). Tasks 2-3 verified via `clang -c iron_raylib.c` + `clang -c iron_raylib_layout.c` only. End-to-end pong.iron validation remains Plan 63-04's territory.
 
 ## Phase Dependency Map
 
@@ -151,7 +160,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-16T22:57:47Z
-Stopped at: Completed 63-02-PLAN.md
-Next action: Execute Phase 63 Plan 03 (rectangles + triangles + polygons) via `/gsd:execute-phase 63`. The two major ABI patterns — Color-by-value and Vector2-by-value INPUT — are now proven; Plan 63-03 adds Rectangle-by-value INPUT (Phase 60 `_Static_assert(sizeof(Iron_Rectangle)==sizeof(Rectangle))` already pins it) and multi-Vector2 chains (triangles = 3 Vector2 params). Plan 63-04 closes Phase 63 with the `[Vector2]` array ABI probe (for DrawLineStrip + DrawLineStripConcave + DrawTriangleFan) and pong/hello_raylib/game_raylib re-enablement. Parallel Phases 65/68/72 also still open.
-Resume file: .planning/phases/63-2d-drawing/63-02-SUMMARY.md
+Last session: 2026-04-16T23:10:18Z
+Stopped at: Completed 63-03-PLAN.md
+Next action: Execute Phase 63 Plan 04 (splines + consumer re-enablement) via `/gsd:execute-phase 63`. The three major ABI patterns — Color-by-value, Vector2-by-value INPUT, and Rectangle-by-value INPUT — are now all proven. The Iron `[Vector2]` array ABI is SOLVED (outcome A, Iron_List_Iron_Vector2 struct-by-value, typedef landed in iron_raylib.h under IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED guard). Plan 63-04 binds the remaining DrawLineStrip + 5× DrawSpline<T> using the proven pattern, then re-enables pong.iron/game_raylib.iron/hello_raylib.iron via end-to-end ironc build. Parallel Phases 65/68/72 also still open.
+Resume file: .planning/phases/63-2d-drawing/63-03-SUMMARY.md
