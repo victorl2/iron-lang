@@ -473,6 +473,43 @@ float        Iron_gamepad_get_axis_movement(int32_t gamepad, int32_t axis);
 int32_t      Iron_gamepad_set_mappings(const char * mappings);
 void         Iron_gamepad_set_vibration(int32_t gamepad, float left_motor, float right_motor, float duration);
 
+/* Touch (INPUT-11) */
+int32_t              Iron_touch_get_x(void);
+int32_t              Iron_touch_get_y(void);
+struct Iron_Vector2  Iron_touch_get_position(int32_t index);
+int32_t              Iron_touch_get_point_id(int32_t index);
+int32_t              Iron_touch_get_point_count(void);
+
+/* Gestures (INPUT-12) — raylib uses `unsigned int` bitmask for SetGesturesEnabled
+ * and IsGestureDetected; Iron-side stubs take the typed Gesture enum (which
+ * lowers to int32_t at the FFI boundary, consistent with every other enum
+ * parameter in the Phase 61/62 shim surface). The shim casts int32_t to
+ * unsigned int. Multi-gesture masks are built by OR-ing Gesture ordinals
+ * at the Iron call site — Iron's bitwise-OR on enum values (Phase 59
+ * Bitwise Operators landed the underlying support; enum OR ergonomics may
+ * need Phase 73 polish but the type is still `Gesture`, not raw int).
+ *
+ * Namespace is PLURAL (`Gestures`) — locked by Plan 62-01 after ironc's
+ * E0201 collision between `object Gesture {}` and `enum Gesture {}`. The
+ * Iron-side enum `Gesture` is unchanged; only the namespace is plural. */
+void                 Iron_gestures_set_enabled(int32_t flags);
+bool                 Iron_gestures_is_detected(int32_t gesture);
+int32_t              Iron_gestures_get_detected(void);  /* returns Gesture ordinal or 0 (NONE) */
+float                Iron_gestures_get_hold_duration(void);
+struct Iron_Vector2  Iron_gestures_get_drag_vector(void);
+float                Iron_gestures_get_drag_angle(void);
+struct Iron_Vector2  Iron_gestures_get_pinch_vector(void);
+float                Iron_gestures_get_pinch_angle(void);
+
+/* File drop (INPUT-13) */
+bool                 Iron_files_is_dropped(void);
+struct Iron_FilePathList Iron_files_load_dropped(void);
+void                 Iron_files_unload_dropped(struct Iron_FilePathList files);
+
+/* FilePathList accessors (INPUT-13 iteration clause) */
+int32_t              Iron_filepathlist_count(struct Iron_FilePathList list);
+const char *         Iron_filepathlist_get(struct Iron_FilePathList list, int32_t index);
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
