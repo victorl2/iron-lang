@@ -378,6 +378,67 @@ void Iron_mouse_set_cursor(int32_t cursor) {
     SetMouseCursor((int)cursor);
 }
 
+/* Gamepad (INPUT-08, INPUT-09, INPUT-10) */
+
+bool Iron_gamepad_is_available(int32_t gamepad) {
+    return IsGamepadAvailable((int)gamepad);
+}
+
+/* Returns raylib's internal gamepad-name string. The pointer is
+ * stable for the lifetime of the raylib session; Iron's runtime
+ * copies on the receiving side via the same helper used by
+ * Iron_window_get_monitor_name. Returns NULL / empty string when
+ * the gamepad index is out of range (raylib returns a literal
+ * "UNKNOWN" string in practice — pass it through unmodified). */
+const char * Iron_gamepad_get_name(int32_t gamepad) {
+    return GetGamepadName((int)gamepad);
+}
+
+bool Iron_gamepad_is_button_pressed(int32_t gamepad, int32_t button) {
+    return IsGamepadButtonPressed((int)gamepad, (int)button);
+}
+
+bool Iron_gamepad_is_button_down(int32_t gamepad, int32_t button) {
+    return IsGamepadButtonDown((int)gamepad, (int)button);
+}
+
+bool Iron_gamepad_is_button_released(int32_t gamepad, int32_t button) {
+    return IsGamepadButtonReleased((int)gamepad, (int)button);
+}
+
+bool Iron_gamepad_is_button_up(int32_t gamepad, int32_t button) {
+    return IsGamepadButtonUp((int)gamepad, (int)button);
+}
+
+/* GetGamepadButtonPressed returns 0 (UNKNOWN) when the queue is
+ * empty, or a GamepadButton ordinal 1..17 otherwise. Every ordinal
+ * in that range is defined in Iron's GamepadButton enum (Plan
+ * 60-07). The Iron-side stub declares the return type as
+ * GamepadButton; this shim returns int32_t and Iron's codegen
+ * applies the typed cast at the call site. */
+int32_t Iron_gamepad_get_button_pressed(void) {
+    return (int32_t)GetGamepadButtonPressed();
+}
+
+int32_t Iron_gamepad_get_axis_count(int32_t gamepad) {
+    return (int32_t)GetGamepadAxisCount((int)gamepad);
+}
+
+float Iron_gamepad_get_axis_movement(int32_t gamepad, int32_t axis) {
+    return GetGamepadAxisMovement((int)gamepad, (int)axis);
+}
+
+/* Returns the count of newly registered mappings (raylib's own
+ * SDL_GameControllerDB parser tallies them). Iron-side stub keeps
+ * this as Int32; users may ignore the return. */
+int32_t Iron_gamepad_set_mappings(const char * mappings) {
+    return (int32_t)SetGamepadMappings(mappings);
+}
+
+void Iron_gamepad_set_vibration(int32_t gamepad, float left_motor, float right_motor, float duration) {
+    SetGamepadVibration((int)gamepad, left_motor, right_motor, duration);
+}
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
