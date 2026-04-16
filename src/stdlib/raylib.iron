@@ -1389,3 +1389,63 @@ func Draw.end_blend_mode() {}
 -- coordinates; origin is the top-left of the render target.
 func Draw.begin_scissor_mode(x: Int32, y: Int32, w: Int32, h: Int32) {}
 func Draw.end_scissor_mode() {}
+
+-- Pixel primitives (DRAW2D-07)
+--
+-- Set one pixel to a color. `pixel` uses integer coordinates; `pixel_v`
+-- uses a Vector2 (with Float32 components). Equivalent to DrawPixel /
+-- DrawPixelV in raylib.
+func Draw.pixel(x: Int32, y: Int32, color: Color) {}
+func Draw.pixel_v(position: Vector2, color: Color) {}
+
+-- Line primitives (DRAW2D-08)
+--
+-- `line` takes 4 integer endpoint coordinates; `line_v` takes two
+-- Vector2 endpoints; `line_ex` adds a float thickness; `line_bezier`
+-- draws a cubic-bezier-interpolated line between two endpoints.
+--
+-- NOTE: `DrawLineStrip(points, count, color)` — the Iron-side
+-- `Draw.line_strip(points: [Vector2], ...)` — is DEFERRED to Plan
+-- 63-04, which probes Iron's `[Vector2]` array ABI via a micro-
+-- smoke-test before committing to a shim signature.
+func Draw.line(x1: Int32, y1: Int32, x2: Int32, y2: Int32, color: Color) {}
+func Draw.line_v(start: Vector2, end: Vector2, color: Color) {}
+func Draw.line_ex(start: Vector2, end: Vector2, thick: Float32, color: Color) {}
+func Draw.line_bezier(start: Vector2, end: Vector2, thick: Float32, color: Color) {}
+
+-- Circle primitives (DRAW2D-09)
+--
+-- Seven variants:
+--   `circle(cx, cy, r, color)`            — filled circle, Int32 center
+--   `circle_sector(center, r, s, e, seg)` — filled pie slice, Vector2 center,
+--                                           `s` / `e` are degrees, `seg` is
+--                                           tessellation step count
+--   `circle_sector_lines(...)`            — outline of the sector
+--   `circle_gradient(cx, cy, r, i, o)`    — filled with radial gradient;
+--                                           `i` is inner color, `o` is outer
+--   `circle_v(center, r, color)`          — filled, Vector2 center
+--   `circle_lines(cx, cy, r, color)`      — outline, Int32 center
+--   `circle_lines_v(center, r, color)`    — outline, Vector2 center
+func Draw.circle(cx: Int32, cy: Int32, r: Float32, color: Color) {}
+func Draw.circle_sector(center: Vector2, r: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+func Draw.circle_sector_lines(center: Vector2, r: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+func Draw.circle_gradient(cx: Int32, cy: Int32, r: Float32, inner: Color, outer: Color) {}
+func Draw.circle_v(center: Vector2, r: Float32, color: Color) {}
+func Draw.circle_lines(cx: Int32, cy: Int32, r: Float32, color: Color) {}
+func Draw.circle_lines_v(center: Vector2, r: Float32, color: Color) {}
+
+-- Ellipse primitives (DRAW2D-10)
+--
+-- Both take Int32 center + Float32 horizontal/vertical radii.
+-- `ellipse` is filled; `ellipse_lines` is outline.
+func Draw.ellipse(cx: Int32, cy: Int32, rh: Float32, rv: Float32, color: Color) {}
+func Draw.ellipse_lines(cx: Int32, cy: Int32, rh: Float32, rv: Float32, color: Color) {}
+
+-- Ring primitives (DRAW2D-11)
+--
+-- Annulus with optional sector. Parameters: Vector2 center,
+-- inner radius, outer radius, start/end angles (degrees), segment
+-- count, color. Ring with start=0, end=360 is a full annulus;
+-- partial angles produce ring-sectors. `ring_lines` is the outline.
+func Draw.ring(center: Vector2, inner: Float32, outer: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+func Draw.ring_lines(center: Vector2, inner: Float32, outer: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
