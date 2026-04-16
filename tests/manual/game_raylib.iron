@@ -29,17 +29,21 @@ func main() {
     Window.init(800, 600, title)
     Window.set_target_fps(60)
     val _should: Bool = Window.should_close()
-    -- PHASE 63: Draw.begin() / Draw.clear(bg) / Draw.end()
+    -- Phase 63: render a single frame to exercise the Draw namespace.
+    Draw.begin()
+    Draw.clear(bg)
+    Draw.rectangle(100, 100, 50, 50, fg)
+    Draw.end()
     -- Phase 62: poll the keyboard once to exercise the down_key binding.
     val _kb_down: Bool = Keyboard.is_down(down_key)
     Window.close()
 
-    -- Keep the values alive so the typechecker doesn't warn about unused locals:
+    -- Keep the values alive so the typechecker doesn't warn about unused locals.
+    -- fg / bg are now consumed by Draw.clear / Draw.rectangle above (Plan 63-04),
+    -- so their _unused_* bindings were removed. Numbering preserved with gaps.
     val _unused_0 = title
     val _unused_1 = ball_pos
     val _unused_2 = ball_velocity
-    val _unused_3 = fg
-    val _unused_4 = bg
     val _unused_5 = highlight
     val _unused_6 = accent
     val _unused_7 = up_key

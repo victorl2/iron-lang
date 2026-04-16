@@ -9,13 +9,19 @@ func main() {
     val bg: Color = WHITE
     val fg: Color = BLACK
 
-    -- Phase 61: init/close. Draw.* body lands in Phase 63.
+    -- Phase 61: init/close. Phase 63 renders one frame below.
     Window.init(800, 600, title)
     val _should: Bool = Window.should_close()
-    -- PHASE 63: Draw.begin(); Draw.clear(bg); Draw.end()
+    -- Phase 63: render a single frame to exercise the Draw namespace.
+    Draw.begin()
+    Draw.clear(bg)
+    Draw.rectangle(10, 10, 20, 20, fg)
+    Draw.end()
     Window.close()
 
+    -- bg and fg are consumed by Draw.clear / Draw.rectangle above
+    -- (Plan 63-04); title is still consumed by Window.init above.
+    -- Keep _unused_0 defensively in case Iron's DCE treats the
+    -- init-time reference as eligible for elimination.
     val _unused_0 = title
-    val _unused_1 = bg
-    val _unused_2 = fg
 }

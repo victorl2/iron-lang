@@ -92,13 +92,19 @@ func main() {
     val _kb_right_up: Bool   = Keyboard.is_down(right_up)
     val _kb_right_down: Bool = Keyboard.is_down(right_down)
 
-    -- PHASE 63: Draw.begin()
-    -- PHASE 63: Draw.clear(bg)
-    -- PHASE 63: DrawLine(SCREEN_W / 2, 0, SCREEN_W / 2, SCREEN_H, divider)
-    -- PHASE 63: DrawRectangle(0, left_y, PADDLE_W, PADDLE_H, fg)
-    -- PHASE 63: DrawText(score_str, SCREEN_W / 4, 20, 40, fg)
-    -- PHASE 63: DrawText("GAME OVER", ..., accent)
-    -- PHASE 63: Draw.end()
+    -- Phase 63: render a single frame to exercise the Draw namespace.
+    -- A real game loop with animated paddles / ball would live here;
+    -- the placeholder draws one frame using the locals already
+    -- declared above (bg, divider, fg). Paddle coordinates are
+    -- hardcoded because left_y / SCREEN_W / PADDLE_W etc. are not
+    -- declared in this placeholder body.
+    Draw.begin()
+    Draw.clear(bg)
+    Draw.line(400, 0, 400, 600, divider)
+    Draw.rectangle(0, 250, 10, 100, fg)
+    -- PHASE 67: DrawText(score_str, 200, 20, 40, fg)      -- was mislabeled (TEXT-07 is Phase 67 territory)
+    -- PHASE 67: DrawText("GAME OVER", 300, 280, 40, accent) -- was mislabeled (TEXT-08 is Phase 67 territory)
+    Draw.end()
     Window.close()
 
     -- Keep the placeholder locals alive so the typechecker doesn't warn
