@@ -439,6 +439,127 @@ void Iron_gamepad_set_vibration(int32_t gamepad, float left_motor, float right_m
     SetGamepadVibration((int)gamepad, left_motor, right_motor, duration);
 }
 
+/* Touch (INPUT-11) */
+
+int32_t Iron_touch_get_x(void) { return (int32_t)GetTouchX(); }
+int32_t Iron_touch_get_y(void) { return (int32_t)GetTouchY(); }
+
+struct Iron_Vector2 Iron_touch_get_position(int32_t index) {
+    Vector2 v = GetTouchPosition((int)index);
+    struct Iron_Vector2 out;
+    out.x = v.x;
+    out.y = v.y;
+    return out;
+}
+
+int32_t Iron_touch_get_point_id(int32_t index) {
+    return (int32_t)GetTouchPointId((int)index);
+}
+
+int32_t Iron_touch_get_point_count(void) {
+    return (int32_t)GetTouchPointCount();
+}
+
+/* Gestures (INPUT-12) */
+
+/* raylib's SetGesturesEnabled / IsGestureDetected take `unsigned int`
+ * bitmasks. Iron's Gesture enum values are powers of two (1, 2, 4,
+ * 8, 16, 32, 64, 128, 256, 512); passing a single enum value or an
+ * OR-ed combination both work. Iron does not yet expose bitwise OR
+ * on enum values ergonomically (Phase 73 polish), so users cast to
+ * UInt32 for multi-gesture masks. */
+void Iron_gestures_set_enabled(int32_t flags) {
+    SetGesturesEnabled((unsigned int)flags);
+}
+
+bool Iron_gestures_is_detected(int32_t gesture) {
+    return IsGestureDetected((unsigned int)gesture);
+}
+
+/* GetGestureDetected returns NONE (0) or one power-of-two in [1, 512].
+ * Iron's Gesture enum covers all 11 values; Iron-side stub declares
+ * the return type as `Gesture` and Iron's codegen treats this int32_t
+ * as the typed enum. */
+int32_t Iron_gestures_get_detected(void) {
+    return (int32_t)GetGestureDetected();
+}
+
+float Iron_gestures_get_hold_duration(void) {
+    return GetGestureHoldDuration();
+}
+
+struct Iron_Vector2 Iron_gestures_get_drag_vector(void) {
+    Vector2 v = GetGestureDragVector();
+    struct Iron_Vector2 out;
+    out.x = v.x;
+    out.y = v.y;
+    return out;
+}
+
+float Iron_gestures_get_drag_angle(void) {
+    return GetGestureDragAngle();
+}
+
+struct Iron_Vector2 Iron_gestures_get_pinch_vector(void) {
+    Vector2 v = GetGesturePinchVector();
+    struct Iron_Vector2 out;
+    out.x = v.x;
+    out.y = v.y;
+    return out;
+}
+
+float Iron_gestures_get_pinch_angle(void) {
+    return GetGesturePinchAngle();
+}
+
+/* File drop (INPUT-13) */
+
+bool Iron_files_is_dropped(void) {
+    return IsFileDropped();
+}
+
+/* Struct-by-value FilePathList return — Phase 60 `_Static_assert`
+ * grid proves Iron_FilePathList is byte-compatible with raylib's
+ * FilePathList (capacity/count/paths at offsets 0/4/8, total 16 bytes). */
+struct Iron_FilePathList Iron_files_load_dropped(void) {
+    FilePathList src = LoadDroppedFiles();
+    struct Iron_FilePathList out;
+    out.capacity = src.capacity;
+    out.count = src.count;
+    out._paths = (void *)src.paths;
+    return out;
+}
+
+void Iron_files_unload_dropped(struct Iron_FilePathList list) {
+    FilePathList fl;
+    fl.capacity = list.capacity;
+    fl.count = list.count;
+    fl.paths = (char **)list._paths;
+    UnloadDroppedFiles(fl);
+}
+
+/* FilePathList accessors (INPUT-13 iteration clause).
+ *
+ * `count` is a plain field read — exposed as a method for API
+ * symmetry with other namespaces.
+ *
+ * `get(i)` returns the i-th path as a `const char *`; Iron's
+ * runtime copies into an Iron-owned String on the receiving side
+ * (same helper used by Iron_window_get_clipboard_text /
+ * Iron_window_get_monitor_name). Bounds check against `count`
+ * defensively — OOB returns an empty string literal instead of
+ * segfaulting. */
+int32_t Iron_filepathlist_count(struct Iron_FilePathList list) {
+    return (int32_t)list.count;
+}
+
+const char * Iron_filepathlist_get(struct Iron_FilePathList list, int32_t index) {
+    if (index < 0 || (uint32_t)index >= list.count || list._paths == NULL) {
+        return "";
+    }
+    return ((const char **)list._paths)[index];
+}
+
 /* ── 2D Drawing (Phase 63) ────────────────────────────────────────── */
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
