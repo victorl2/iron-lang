@@ -1308,3 +1308,84 @@ func Files.unload_dropped(list: FilePathList) {}
 -- an empty string for out-of-range indices.
 func FilePathList.count() -> Int32 {}
 func FilePathList.get(index: Int32) -> String {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- 2D Drawing (Phase 63)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Phase 63 binds raylib's `rshapes.c` + `rcore.c` draw-mode and
+-- primitive-draw functions to the `Draw` namespace declared in
+-- Plan 60-06. Every empty-body stub below lowers to
+-- `Iron_draw_<name>(...)` in C, implemented by
+-- src/stdlib/iron_raylib.c. Same shim-only pattern as Phase 61/62.
+--
+-- NAMING: the `draw_` prefix from raylib C names (DrawRectangle,
+-- DrawCircle, ...) is DROPPED on the Iron side — the `Draw`
+-- namespace already signals the intent. `Draw.rectangle`, not
+-- `Draw.draw_rectangle`. The `_v` / `_ex` / `_pro` / `_lines`
+-- variant suffixes are KEPT because they disambiguate shapes with
+-- the same base name.
+--
+-- Plan 63-01 (this file): frame + 6 stack modes (DRAW2D-01..06).
+-- Plans 63-02/03/04 extend with primitives, splines, and re-enable
+-- consumer files.
+
+-- Frame (DRAW2D-01)
+--
+-- `begin` / `end` bracket every draw. Raylib buffers draw calls
+-- internally and flushes at `end`; skipping `end` produces a black
+-- screen and eventual buffer exhaustion. Iron has no `defer` so
+-- balance the pair by discipline.
+func Draw.begin() {}
+func Draw.end() {}
+
+-- Clear (DRAW2D-02)
+--
+-- Clears the color buffer to the given Color. Call once at the top
+-- of every frame, immediately after `Draw.begin()`.
+func Draw.clear(color: Color) {}
+
+-- 2D camera mode (DRAW2D-03)
+--
+-- `begin_mode_2d(camera)` pushes a Camera2D transform onto raylib's
+-- modelview stack; every subsequent draw is affected by
+-- camera.offset / camera.target / camera.rotation / camera.zoom
+-- until the matching `end_mode_2d()`. `Camera` is Iron's name for
+-- raylib's `Camera2D` type (Plan 60-04 decision).
+func Draw.begin_mode_2d(camera: Camera) {}
+func Draw.end_mode_2d() {}
+
+-- Texture mode (DRAW2D-04)
+--
+-- `begin_texture_mode(target)` redirects all subsequent draws into
+-- the given RenderTexture's framebuffer instead of the main screen.
+-- Users load the RenderTexture via Phase 66 (TEX-09); Phase 63
+-- exposes only the mode-stack bracket. Flip-Y is handled by raylib
+-- internally for cross-target (native/web) consistency.
+func Draw.begin_texture_mode(target: RenderTexture) {}
+func Draw.end_texture_mode() {}
+
+-- Shader + blend modes (DRAW2D-05)
+--
+-- `begin_shader_mode(shader)` pushes a GLSL shader onto the draw
+-- stack; every subsequent fragment runs through it until
+-- `end_shader_mode()`. Users load shaders via Phase 71 (SHADER-01).
+--
+-- `begin_blend_mode(mode)` selects one of the 8 BlendMode values
+-- (ALPHA, ADDITIVE, MULTIPLIED, ADD_COLORS, SUBTRACT_COLORS,
+-- ALPHA_PREMULTIPLY, CUSTOM, CUSTOM_SEPARATE). CUSTOM and
+-- CUSTOM_SEPARATE require a prior `rlSetBlendFactors` setup — rlgl
+-- is out of scope for v2.0.0-alpha (REQUIREMENTS.md), so prefer
+-- the first 6 values in this milestone.
+func Draw.begin_shader_mode(shader: Shader) {}
+func Draw.end_shader_mode() {}
+func Draw.begin_blend_mode(mode: BlendMode) {}
+func Draw.end_blend_mode() {}
+
+-- Scissor mode (DRAW2D-06)
+--
+-- `begin_scissor_mode(x, y, w, h)` clips every subsequent draw to
+-- the given rectangle until `end_scissor_mode()`. Pixel-space
+-- coordinates; origin is the top-left of the render target.
+func Draw.begin_scissor_mode(x: Int32, y: Int32, w: Int32, h: Int32) {}
+func Draw.end_scissor_mode() {}
