@@ -2404,117 +2404,115 @@ func Audio.get_master_volume() -> Float32 {}
 func Wave.load(filePath: String) -> Wave {}
 func Wave.load_from_memory(fileType: String, data: [UInt8],
                             dataSize: Int32) -> Wave {}
-func wave.is_valid() -> Bool {}
-func wave.unload() {}
-func wave.export(filePath: String) -> Bool {}
-func wave.export_as_code(filePath: String) -> Bool {}
+func Wave.is_valid(wave: Wave) -> Bool {}
+func Wave.unload(wave: Wave) {}
+func Wave.export(wave: Wave, filePath: String) -> Bool {}
+func Wave.export_as_code(wave: Wave, filePath: String) -> Bool {}
 
--- ── AUDIO-03 Wave manipulation (4 methods; wave.to_sound in 68-03) ──
--- wave.copy returns a fresh Wave by value.
--- wave.crop and wave.format use mutating-return-by-value: raylib
+-- ── AUDIO-03 Wave manipulation (4 methods; Wave.to_sound in 68-03) ──
+-- Wave.copy returns a fresh Wave by value.
+-- Wave.crop and Wave.format use mutating-return-by-value: raylib
 -- mutates an internal copy, shim returns the mutated Wave as a fresh
 -- value. Iron sees value semantics (no aliasing). Phase 66-03 template.
--- wave.load_samples returns [Float32] — first ABI-FLOAT32 RETURN
+-- Wave.load_samples returns [Float32] — first ABI-FLOAT32 RETURN
 -- consumer. Shim calls UnloadWaveSamples internally; no user-facing
 -- unload_samples method.
-func wave.copy() -> Wave {}
-func wave.crop(initFrame: Int32, finalFrame: Int32) -> Wave {}
-func wave.format(sampleRate: Int32, sampleSize: Int32, channels: Int32) -> Wave {}
-func wave.load_samples() -> [Float32] {}
+--
+-- ── Static-call convention ──────────────────────────────────────────
+-- Phase 68 stubs use the `Namespace.method(receiver: Namespace, ...)`
+-- static form (matches Phase 66 Image.* / Phase 67 Font.* precedent).
+-- The plan drafts initially used lowercase `wave.X` / `sound.X` /
+-- `music.X` receiver-bound form, but ironc does not resolve those —
+-- they fail with E0200 `method declared on undeclared type`. Converted
+-- across AUDIO-02..11 during Plan 68-05 execution. C shim mangling is
+-- unchanged (Iron_wave_is_valid / Iron_sound_play / Iron_music_seek)
+-- since ironc lowercases the namespace.
+func Wave.copy(wave: Wave) -> Wave {}
+func Wave.crop(wave: Wave, initFrame: Int32, finalFrame: Int32) -> Wave {}
+func Wave.format(wave: Wave, sampleRate: Int32, sampleSize: Int32, channels: Int32) -> Wave {}
+func Wave.load_samples(wave: Wave) -> [Float32] {}
 
--- ── AUDIO-03 bridge: wave.to_sound() ────────────────────────────────
+-- ── AUDIO-03 bridge: Wave.to_sound() ────────────────────────────────
 -- Aliased with Sound.from_wave(wave). ironc name-mangles the two Iron
 -- entry points to distinct C symbols (Iron_wave_to_sound vs
 -- Iron_sound_from_wave), so iron_raylib.c ships a trivial forwarding
 -- stub — one raylib-facing shim body, two Iron entry points. Use
 -- whichever reads better at the call site.
-func wave.to_sound() -> Sound {}
+func Wave.to_sound(wave: Wave) -> Sound {}
 
 -- ── AUDIO-05 Sound load/unload + alias (6 methods) ─────────────────
 -- Alias ownership is made visible at call sites via two distinct
 -- methods on the same Sound type:
---   sound.unload()       — owns + frees sample data.
---   alias.unload_alias() — releases ONLY the AudioStream envelope;
---                           sample data stays bound to the primary
---                           Sound until its unload().
+--   Sound.unload(s)       — owns + frees sample data.
+--   Sound.unload_alias(a) — releases ONLY the AudioStream envelope;
+--                            sample data stays bound to the primary
+--                            Sound until its unload().
 -- The source Sound MUST outlive every alias; otherwise aliases
 -- dangle and playback reads freed memory.
 --
--- Sound.from_wave(wave) and wave.to_sound() are aliases — both map
--- (via a forwarding stub in iron_raylib.c) to LoadSoundFromWave.
+-- Sound.from_wave(wave) and Wave.to_sound(wave) are aliases — both
+-- map (via a forwarding stub in iron_raylib.c) to LoadSoundFromWave.
 -- Use whichever reads better at the call site.
---
--- Receiver naming: alias.unload_alias() uses `alias` as the receiver
--- semantic — it's still a Sound-typed object, but the name signals
--- "this is the weak-reference form". Iron dispatches by type, not
--- receiver name; any Sound can call alias.unload_alias(). Per Phase
--- 68 CONTEXT decision: `self` is reserved (E0101), all other
--- receiver names are permitted and chosen for documentation value.
 func Sound.load(filePath: String) -> Sound {}
 func Sound.from_wave(wave: Wave) -> Sound {}
 func Sound.alias(source: Sound) -> Sound {}
-func sound.is_valid() -> Bool {}
-func sound.unload() {}
-func alias.unload_alias() {}
+func Sound.is_valid(sound: Sound) -> Bool {}
+func Sound.unload(sound: Sound) {}
+func Sound.unload_alias(alias: Sound) {}
 
 -- ── AUDIO-06 Sound management (5 methods) ──────────────────────────
 -- Playback state transitions. raylib is a no-op when the audio device
 -- is not ready; wrap call sites with Audio.is_ready() for graceful
 -- headless / CI degradation.
-func sound.play() {}
-func sound.stop() {}
-func sound.pause() {}
-func sound.resume() {}
-func sound.is_playing() -> Bool {}
+func Sound.play(sound: Sound) {}
+func Sound.stop(sound: Sound) {}
+func Sound.pause(sound: Sound) {}
+func Sound.resume(sound: Sound) {}
+func Sound.is_playing(sound: Sound) -> Bool {}
 
 -- ── AUDIO-07 Sound configure (3 methods) ───────────────────────────
 -- Volume 0..1 (clamped by raylib), pitch multiplier (1.0 = original
 -- pitch), pan 0..1 (0 = full-left, 0.5 = centre, 1 = full-right).
-func sound.set_volume(volume: Float32) {}
-func sound.set_pitch(pitch: Float32) {}
-func sound.set_pan(pan: Float32) {}
+func Sound.set_volume(sound: Sound, volume: Float32) {}
+func Sound.set_pitch(sound: Sound, pitch: Float32) {}
+func Sound.set_pan(sound: Sound, pan: Float32) {}
 
 -- ── AUDIO-08 Sound update (1 method, ABI-FLOAT32 INPUT) ────────────
 -- First live ABI-FLOAT32 INPUT consumer in the raylib binding. Mirror
--- of Plan 68-02's wave.load_samples ABI-FLOAT32 RETURN path. The shim
+-- of Plan 68-02's Wave.load_samples ABI-FLOAT32 RETURN path. The shim
 -- passes data.items directly to raylib's UpdateSound as a const void *.
 -- sampleCount is the number of individual samples (NOT frames) —
 -- raylib reinterprets based on sound.stream.sampleSize (16-bit short
 -- or 32-bit float). Callers must match the sample format declared
 -- at Sound load time.
-func sound.update(data: [Float32], sampleCount: Int32) {}
+func Sound.update(sound: Sound, data: [Float32], sampleCount: Int32) {}
 
 -- ── AUDIO-09 Music load/unload (4 methods) ─────────────────────────
 -- raylib drops the `Stream` suffix in IsMusicValid / UnloadMusicStream
 -- / LoadMusicStream at the Iron surface: Music is a stream by
 -- definition, no need to repeat the word. The Is-predicate naming
 -- asymmetry in raylib (IsMusicValid BUT IsMusicStreamPlaying) is
--- flattened on the Iron side to music.is_valid() + music.is_playing()
+-- flattened on the Iron side to Music.is_valid() + Music.is_playing()
 -- — both predicates without the _stream_ infix. Each shim internally
 -- dispatches to the correctly-named raylib function.
 --
 -- 2nd live ABI-UINT8 INPUT consumer: Music.load_from_memory. Same
 -- Iron_List_uint8_t pattern as Plan 68-02's Wave.load_from_memory.
---
--- Music.looping is raylib-writable as a public struct field. Iron
--- declares it `val` (object Music block above). Whether
--- `m.looping = true` compiles depends on ironc's val-field write
--- semantics — see the Music.looping research note below AUDIO-11.
 func Music.load(filePath: String) -> Music {}
 func Music.load_from_memory(fileType: String, data: [UInt8], dataSize: Int32) -> Music {}
-func music.is_valid() -> Bool {}
-func music.unload() {}
+func Music.is_valid(music: Music) -> Bool {}
+func Music.unload(music: Music) {}
 
 -- Music.looping write-through — Path B fallback.
 -- raylib exposes `bool looping` as a writable public C struct field,
 -- but Iron's `object Music` (above) declares it `val` (read-only at
--- the Iron surface). music.set_looping(b) returns a fresh Music with
--- the looping field updated, using the mutating-return-by-value
--- pattern established for wave.crop / wave.format (Phase 66-03).
+-- the Iron surface). Music.set_looping(m, b) returns a fresh Music
+-- with the looping field updated, using the mutating-return-by-value
+-- pattern established for Wave.crop / Wave.format (Phase 66-03).
 --
 -- USAGE:
---   val m2 = m.set_looping(true)
---   m2.update()
+--   val m2 = Music.set_looping(m, true)
+--   Music.update(m2)
 --
 -- Rationale for shipping this shim even when direct field-write is
 -- plausibly legal: ironc's assignment typecheck blocks val targets
@@ -2522,31 +2520,31 @@ func music.unload() {}
 -- writes (IRON_NODE_FIELD_ACCESS) — so `m.looping = true` likely
 -- compiles after an ironc rebuild. But the setter is the portable
 -- form that works in all paths; see 68-04 SUMMARY for details.
-func music.set_looping(looping: Bool) -> Music {}
+func Music.set_looping(music: Music, looping: Bool) -> Music {}
 
 -- ── AUDIO-10 Music management (6 methods) ──────────────────────────
 -- Playback state transitions plus the per-frame update hook.
 --
--- music.update() MUST be called every frame from the user's main
+-- Music.update(m) MUST be called every frame from the user's main
 -- loop to feed raylib's audio buffer. Typical pattern:
 --
 --   while !Window.should_close() {
---       music.update()
+--       Music.update(m)
 --       Draw.begin()
 --       -- game/render logic
 --       Draw.end()
 --   }
 --
--- music.is_playing() flattens raylib's IsMusicStreamPlaying name (the
+-- Music.is_playing() flattens raylib's IsMusicStreamPlaying name (the
 -- shim dispatches to the correctly-named raylib function internally).
 -- raylib is a no-op when the audio device is not ready; wrap calls
 -- with Audio.is_ready() for graceful headless / CI degradation.
-func music.play() {}
-func music.is_playing() -> Bool {}
-func music.update() {}
-func music.stop() {}
-func music.pause() {}
-func music.resume() {}
+func Music.play(music: Music) {}
+func Music.is_playing(music: Music) -> Bool {}
+func Music.update(music: Music) {}
+func Music.stop(music: Music) {}
+func Music.pause(music: Music) {}
+func Music.resume(music: Music) {}
 
 -- ── AUDIO-11 Music configure + query (6 methods) ───────────────────
 -- All time / volume / pitch / pan values are Float32.
@@ -2554,9 +2552,37 @@ func music.resume() {}
 -- volume and pan are 0..1 (clamped inside raylib).
 -- pitch is a multiplier (1.0 = original speed, 2.0 = double speed,
 -- 0.5 = half speed — resampling artifacts are raylib's problem).
-func music.seek(position: Float32) {}
-func music.set_volume(volume: Float32) {}
-func music.set_pitch(pitch: Float32) {}
-func music.set_pan(pan: Float32) {}
-func music.get_time_length() -> Float32 {}
-func music.get_time_played() -> Float32 {}
+func Music.seek(music: Music, position: Float32) {}
+func Music.set_volume(music: Music, volume: Float32) {}
+func Music.set_pitch(music: Music, pitch: Float32) {}
+func Music.set_pan(music: Music, pan: Float32) {}
+func Music.get_time_length(music: Music) -> Float32 {}
+func Music.get_time_played(music: Music) -> Float32 {}
+
+-- ── AUDIO-12 AudioStream standard (14 methods) ─────────────────────
+-- Raw PCM streaming: generate buffers on demand via AudioStream.update
+-- (2nd live ABI-FLOAT32 INPUT consumer after Sound.update in Plan 68-03)
+-- OR via a callback (set_callback / attach_processor below — 5 more
+-- methods consuming Plan 68-01 Task 3's 16-slot trampoline registry).
+--
+-- frame_count is the number of FRAMES (interleaved for multi-channel).
+-- raylib is a no-op when the audio device is not ready; wrap calls
+-- with Audio.is_ready() for graceful headless / CI degradation.
+--
+-- AudioStream.set_buffer_size_default is namespace-level (no receiver):
+-- it sets the default buffer size applied to every subsequently-loaded
+-- AudioStream. Call BEFORE AudioStream.load().
+func AudioStream.load(sampleRate: UInt32, sampleSize: UInt32, channels: UInt32) -> AudioStream {}
+func AudioStream.is_valid(stream: AudioStream) -> Bool {}
+func AudioStream.unload(stream: AudioStream) {}
+func AudioStream.update(stream: AudioStream, data: [Float32], frameCount: Int32) {}
+func AudioStream.is_processed(stream: AudioStream) -> Bool {}
+func AudioStream.play(stream: AudioStream) {}
+func AudioStream.pause(stream: AudioStream) {}
+func AudioStream.resume(stream: AudioStream) {}
+func AudioStream.is_playing(stream: AudioStream) -> Bool {}
+func AudioStream.stop(stream: AudioStream) {}
+func AudioStream.set_volume(stream: AudioStream, volume: Float32) {}
+func AudioStream.set_pitch(stream: AudioStream, pitch: Float32) {}
+func AudioStream.set_pan(stream: AudioStream, pan: Float32) {}
+func AudioStream.set_buffer_size_default(size: Int32) {}

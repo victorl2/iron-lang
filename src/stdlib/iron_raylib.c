@@ -5103,6 +5103,111 @@ float Iron_music_get_time_played(struct Iron_Music music) {
     return GetMusicTimePlayed(rl);
 }
 
+/* ── AUDIO-12 AudioStream standard (14 shims; 5 callback shims below) ─ */
+/*
+ * 24 B AudioStream struct-by-value crossing. memcpy INPUT (Iron_AudioStream
+ * → raylib AudioStream) before every raylib call; memcpy OUTPUT on load.
+ * 2nd live ABI-FLOAT32 INPUT consumer (stream.update) — shim forwards
+ * data.items (float *) as raylib's `const void *` (UpdateAudioStream
+ * reinterprets based on stream.sampleSize).  frame_count is the number
+ * of FRAMES (not samples — interleaved for multi-channel audio).
+ *
+ * ironc mangles Iron methods `AudioStream.X(stream: AudioStream, ...)` as
+ * Iron_audiostream_X (lowercase namespace — matches existing Font.*,
+ * Image.*, Texture.* precedent).
+ */
+
+struct Iron_AudioStream Iron_audiostream_load(uint32_t sample_rate,
+                                               uint32_t sample_size,
+                                               uint32_t channels) {
+    AudioStream rl = LoadAudioStream((unsigned int)sample_rate,
+                                      (unsigned int)sample_size,
+                                      (unsigned int)channels);
+    struct Iron_AudioStream out;
+    memcpy(&out, &rl, sizeof(struct Iron_AudioStream));
+    return out;
+}
+
+bool Iron_audiostream_is_valid(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    return (bool)(IsAudioStreamValid(rl) != 0);
+}
+
+void Iron_audiostream_unload(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    UnloadAudioStream(rl);
+}
+
+void Iron_audiostream_update(struct Iron_AudioStream stream,
+                              Iron_List_float data,
+                              int32_t frame_count) {
+    /* 2nd live ABI-FLOAT32 INPUT consumer after sound.update (Plan 68-03).
+     * frame_count is the number of FRAMES (interleaved for multi-channel). */
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    UpdateAudioStream(rl, data.items, (int)frame_count);
+}
+
+bool Iron_audiostream_is_processed(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    return (bool)(IsAudioStreamProcessed(rl) != 0);
+}
+
+void Iron_audiostream_play(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    PlayAudioStream(rl);
+}
+
+void Iron_audiostream_pause(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    PauseAudioStream(rl);
+}
+
+void Iron_audiostream_resume(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    ResumeAudioStream(rl);
+}
+
+bool Iron_audiostream_is_playing(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    return (bool)(IsAudioStreamPlaying(rl) != 0);
+}
+
+void Iron_audiostream_stop(struct Iron_AudioStream stream) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    StopAudioStream(rl);
+}
+
+void Iron_audiostream_set_volume(struct Iron_AudioStream stream, float volume) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    SetAudioStreamVolume(rl, volume);
+}
+
+void Iron_audiostream_set_pitch(struct Iron_AudioStream stream, float pitch) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    SetAudioStreamPitch(rl, pitch);
+}
+
+void Iron_audiostream_set_pan(struct Iron_AudioStream stream, float pan) {
+    AudioStream rl;
+    memcpy(&rl, &stream, sizeof(AudioStream));
+    SetAudioStreamPan(rl, pan);
+}
+
+void Iron_audiostream_set_buffer_size_default(int32_t size) {
+    SetAudioStreamBufferSizeDefault((int)size);
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

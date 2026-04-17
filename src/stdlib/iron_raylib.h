@@ -1620,6 +1620,32 @@ void  Iron_music_set_pan(struct Iron_Music music, float pan);
 float Iron_music_get_time_length(struct Iron_Music music);
 float Iron_music_get_time_played(struct Iron_Music music);
 
+/* ── AUDIO-12 AudioStream standard (14 shims; 5 callback shims below) ─ */
+/* 24 B AudioStream struct-by-value crossing (Phase 60-05 _Static_assert
+ * layout pin; well under Phase 64's 120 B ceiling).  2nd live
+ * ABI-FLOAT32 INPUT consumer (stream.update), symmetric with
+ * Plan 68-03's sound.update + Plan 68-02's wave.load_samples RETURN.
+ * AudioStream.set_buffer_size_default is namespace-level (no receiver);
+ * ironc mangles it as Iron_audiostream_set_buffer_size_default. */
+struct Iron_AudioStream Iron_audiostream_load(uint32_t sample_rate,
+                                               uint32_t sample_size,
+                                               uint32_t channels);
+bool Iron_audiostream_is_valid(struct Iron_AudioStream stream);
+void Iron_audiostream_unload(struct Iron_AudioStream stream);
+void Iron_audiostream_update(struct Iron_AudioStream stream,
+                              Iron_List_float data,
+                              int32_t frame_count);
+bool Iron_audiostream_is_processed(struct Iron_AudioStream stream);
+void Iron_audiostream_play(struct Iron_AudioStream stream);
+void Iron_audiostream_pause(struct Iron_AudioStream stream);
+void Iron_audiostream_resume(struct Iron_AudioStream stream);
+bool Iron_audiostream_is_playing(struct Iron_AudioStream stream);
+void Iron_audiostream_stop(struct Iron_AudioStream stream);
+void Iron_audiostream_set_volume(struct Iron_AudioStream stream, float volume);
+void Iron_audiostream_set_pitch(struct Iron_AudioStream stream, float pitch);
+void Iron_audiostream_set_pan(struct Iron_AudioStream stream, float pan);
+void Iron_audiostream_set_buffer_size_default(int32_t size);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
