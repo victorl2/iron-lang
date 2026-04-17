@@ -48,6 +48,12 @@ typedef struct {
 
     /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
     const _Atomic bool *cancel_flag;
+
+    /* WR-02 / HARD-09 defensive: emitted a one-time NOTE when the
+     * MAX_UNINIT_VARS=256 tracking cap was hit and further uninit vars
+     * were silently dropped. Prevents silent false-negatives on huge
+     * functions. */
+    bool          cap_warned;
 } InitCheckCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -249,6 +255,19 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
                 ctx->uninit_vars[ctx->uninit_count] = vd->name;
                 ctx->assigned[ctx->uninit_count] = false;
                 ctx->uninit_count++;
+            } else if (vd->name && !ctx->cap_warned) {
+                /* WR-02: emit a one-time NOTE when the tracking cap is hit
+                 * so users know definite-assignment analysis is no longer
+                 * sound past this point in the function. NOTE-level does
+                 * not bump error_count; read-before-write bugs may still
+                 * exist past the cap but will not be flagged. */
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                               IRON_ERR_POSSIBLY_UNINITIALIZED, vd->span,
+                               "definite-assignment tracking cap reached "
+                               "(256 vars per function); further uninit "
+                               "vars are not checked",
+                               NULL);
+                ctx->cap_warned = true;
             }
         } else {
             /* Init expression may reference other uninit vars */
@@ -502,6 +521,7 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
 static void check_function(InitCheckCtx *ctx, Iron_FuncDecl *fn) {
     ctx->uninit_count = 0;
     ctx->has_return = false;
+    ctx->cap_warned = false;  /* WR-02: reset per function. */
     memset(ctx->assigned, 0, sizeof(ctx->assigned));
 
     /* Parameters are always initialized -- do NOT register them. */
@@ -535,6 +555,7 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.uninit_count = 0;
             ctx.has_return = false;
             ctx.cancel_flag = cancel_flag;
+            ctx.cap_warned = false;  /* WR-02: per-function cap note. */
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             check_function(&ctx, (Iron_FuncDecl *)decl);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
@@ -546,6 +567,7 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.uninit_count = 0;
             ctx.has_return = false;
             ctx.cancel_flag = cancel_flag;
+            ctx.cap_warned = false;  /* WR-02: per-method cap note. */
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             if (md->body) {
                 check_stmt_init(&ctx, md->body);
