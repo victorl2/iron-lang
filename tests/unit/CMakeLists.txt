@@ -79,6 +79,18 @@ target_link_libraries(test_analyze_buffer_basic iron_compiler unity)
 add_test(NAME test_analyze_buffer_basic COMMAND test_analyze_buffer_basic)
 set_tests_properties(test_analyze_buffer_basic PROPERTIES LABELS "unit;phase-m0-invariant")
 
+# ── Phase 01 M0 Plan 02 (HARD-04): ErrorNode-tolerance invariant ───────────
+add_executable(test_analyzer_errornode test_analyzer_errornode.c)
+target_link_libraries(test_analyzer_errornode iron_compiler unity)
+add_test(NAME test_analyzer_errornode COMMAND test_analyzer_errornode)
+set_tests_properties(test_analyzer_errornode PROPERTIES LABELS "unit;phase-m0-invariant")
+
+# ── Phase 01 M0 Plan 02 (HARD-03): no-short-circuit invariant ──────────────
+add_executable(test_analyzer_no_short_circuit test_analyzer_no_short_circuit.c)
+target_link_libraries(test_analyzer_no_short_circuit iron_compiler unity)
+add_test(NAME test_analyzer_no_short_circuit COMMAND test_analyzer_no_short_circuit)
+set_tests_properties(test_analyzer_no_short_circuit PROPERTIES LABELS "unit;phase-m0-invariant")
+
 # ── Runtime unit tests ───────────────────────────────────────────────────────
 add_executable(test_runtime_string test_runtime_string.c)
 target_link_libraries(test_runtime_string iron_runtime unity)
