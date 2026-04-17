@@ -20,6 +20,8 @@ test_*
 /texture_smoke
 /text_smoke
 /text_smoke.c
+/abi_float32_probe
+/abi_float32_probe.c
 /pong
 /arena_split_collection
 /audit_for_array_of_structs

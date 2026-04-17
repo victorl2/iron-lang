@@ -813,12 +813,19 @@ typedef struct Iron_List_bool       { bool        *items; int64_t count; int64_t
 typedef struct Iron_List_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_List_Iron_String;
 typedef struct Iron_List_Iron_Closure { Iron_Closure *items; int64_t count; int64_t capacity; } Iron_List_Iron_Closure;
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 pre-instantiated struct
- * typedefs.  Iron_Float32 = C float (4 bytes).  uint8_t keeps the plain
- * C suffix matching the int32_t / int64_t precedent.  These typedefs are
- * visible to iron_collections.c so that IRON_LIST_IMPL(float, Iron_Float32)
- * / IRON_LIST_IMPL(uint8_t, uint8_t) expand into well-formed bodies. */
-typedef struct Iron_List_Iron_Float32 { float   *items; int64_t count; int64_t capacity; } Iron_List_Iron_Float32;
-typedef struct Iron_List_uint8_t      { uint8_t *items; int64_t count; int64_t capacity; } Iron_List_uint8_t;
+ * typedefs.
+ *
+ * Suffix convention matches ironc's emit_type_to_c (src/lir/emit_helpers.c:151):
+ *   Float32 → "float"   →  Iron_List_float
+ *   UInt8   → "uint8_t" →  Iron_List_uint8_t
+ *
+ * RESEARCH.md Pitfall #1 flagged the risk that mangle_generic might emit a
+ * different suffix for Float32; the probe tests/manual/abi_float32_probe.iron
+ * confirmed the suffix is plain `float`.  These typedefs are visible to
+ * iron_collections.c so that IRON_LIST_IMPL(float, float) and
+ * IRON_LIST_IMPL(uint8_t, uint8_t) expand into well-formed bodies. */
+typedef struct Iron_List_float   { float   *items; int64_t count; int64_t capacity; } Iron_List_float;
+typedef struct Iron_List_uint8_t { uint8_t *items; int64_t count; int64_t capacity; } Iron_List_uint8_t;
 
 typedef struct Iron_Map_Iron_String_int64_t    { Iron_String *keys; int64_t     *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_int64_t;
 typedef struct Iron_Map_Iron_String_Iron_String { Iron_String *keys; Iron_String *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_Iron_String;
@@ -836,19 +843,19 @@ IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)
 IRON_LIST_DECL(Iron_Closure, Iron_Closure)
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 primitive list types.
- * Iron_Float32 = C float (4 bytes). Suffix is `Iron_Float32` so the mangled
- * name matches gen_types.c mangle_generic for Iron's Float32 type.
- * uint8_t keeps the plain C suffix (matches int32_t / int64_t convention). */
-IRON_LIST_DECL(float,       Iron_Float32)
+ * Suffix matches ironc's emit_type_to_c output (emit_helpers.c:151):
+ * Float32 → "float", UInt8 → "uint8_t".  See probe
+ * tests/manual/abi_float32_probe.iron for end-to-end validation. */
+IRON_LIST_DECL(float,       float)
 IRON_LIST_DECL(uint8_t,     uint8_t)
 
 /* Collection method declarations for common numeric types */
 IRON_LIST_COLL_DECL(int64_t, int64_t)
 IRON_LIST_COLL_DECL(int32_t, int32_t)
 IRON_LIST_COLL_DECL(double,  double)
-/* Phase 68 (Plan 68-01): map/filter/reduce/forEach/sum for Iron_Float32 +
+/* Phase 68 (Plan 68-01): map/filter/reduce/forEach/sum for float +
  * uint8_t — keeps parity with int32_t/int64_t/double. */
-IRON_LIST_COLL_DECL(float,   Iron_Float32)
+IRON_LIST_COLL_DECL(float,   float)
 IRON_LIST_COLL_DECL(uint8_t, uint8_t)
 
 IRON_MAP_DECL(Iron_String, int64_t,     Iron_String, int64_t)
