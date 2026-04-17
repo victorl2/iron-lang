@@ -24,6 +24,23 @@ if(IRON_BUILD_LSP)
     add_test(NAME test_lsp_frame COMMAND test_lsp_frame)
     set_tests_properties(test_lsp_frame PROPERTIES
         LABELS "unit;phase-m1-invariant")
+
+    # Phase 2 Plan 02 Task 02: yyjson-to-Iron_Arena wrapper.
+    # Compiles yyjson.c into this test executable with warnings silenced,
+    # matching the ironls target's treatment of the vendored TU.
+    add_executable(test_lsp_json test_lsp_json.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    target_include_directories(test_lsp_json PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lsp_json iron_compiler iron_runtime unity)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+        PROPERTIES COMPILE_FLAGS "-Wno-error -w")
+    add_test(NAME test_lsp_json COMMAND test_lsp_json)
+    set_tests_properties(test_lsp_json PROPERTIES
+        LABELS "unit;phase-m1-invariant")
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()
