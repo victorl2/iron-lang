@@ -1085,6 +1085,69 @@ struct Iron_Image Iron_image_color_replace(struct Iron_Image img, struct Iron_Co
                                             struct Iron_Color replace);
 /* ImageKernelConvolution DEFERRED: requires [Float32] FFI runtime support (Pitfall 7 variant) */
 
+/* TEX-07 Image CPU draw (Plan 66-03 Task 2 — 21 shims).
+ *
+ * Chain-style CPU-side image composition. Every shim uses Pattern 2:
+ * memcpy Iron_Image in, call ImageDrawFoo(&dst, ...) so raylib mutates
+ * dst in place, memcpy mutated dst out as fresh Iron_Image return.
+ * Lets users compose raster scenes without a live GPU context:
+ *   canvas.clear_background(BLACK).draw_rectangle(...).draw_text(...).draw_pixel(...)
+ *
+ * Array-input draws (draw_triangle_fan, draw_triangle_strip) reuse the
+ * Iron_List_Iron_Vector2 by-value ABI from Phase 63-03 / 63-04 (the
+ * Task 1 probe-GREEN ARRAY_PARAM_LIST mode).
+ *
+ * ImageDrawTextEx DEFERRED to Phase 67: requires Font type.
+ */
+struct Iron_Image Iron_image_clear_background(struct Iron_Image img, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_pixel(struct Iron_Image img, int32_t pos_x, int32_t pos_y,
+                                         struct Iron_Color color);
+struct Iron_Image Iron_image_draw_pixel_v(struct Iron_Image img, struct Iron_Vector2 position,
+                                           struct Iron_Color color);
+struct Iron_Image Iron_image_draw_line(struct Iron_Image img, int32_t start_x, int32_t start_y,
+                                        int32_t end_x, int32_t end_y, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_line_v(struct Iron_Image img, struct Iron_Vector2 start,
+                                          struct Iron_Vector2 finish, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_line_ex(struct Iron_Image img, struct Iron_Vector2 start,
+                                           struct Iron_Vector2 finish, int32_t thick,
+                                           struct Iron_Color color);
+struct Iron_Image Iron_image_draw_circle(struct Iron_Image img, int32_t center_x, int32_t center_y,
+                                          int32_t radius, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_circle_v(struct Iron_Image img, struct Iron_Vector2 center,
+                                            int32_t radius, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_circle_lines(struct Iron_Image img, int32_t center_x, int32_t center_y,
+                                                int32_t radius, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_circle_lines_v(struct Iron_Image img, struct Iron_Vector2 center,
+                                                  int32_t radius, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_rectangle(struct Iron_Image img, int32_t pos_x, int32_t pos_y,
+                                             int32_t width, int32_t height, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_rectangle_v(struct Iron_Image img, struct Iron_Vector2 position,
+                                               struct Iron_Vector2 size, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_rectangle_rec(struct Iron_Image img, struct Iron_Rectangle rec,
+                                                 struct Iron_Color color);
+struct Iron_Image Iron_image_draw_rectangle_lines(struct Iron_Image img, struct Iron_Rectangle rec,
+                                                   int32_t thick, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_triangle(struct Iron_Image img, struct Iron_Vector2 v1,
+                                            struct Iron_Vector2 v2, struct Iron_Vector2 v3,
+                                            struct Iron_Color color);
+struct Iron_Image Iron_image_draw_triangle_ex(struct Iron_Image img, struct Iron_Vector2 v1,
+                                               struct Iron_Vector2 v2, struct Iron_Vector2 v3,
+                                               struct Iron_Color c1, struct Iron_Color c2,
+                                               struct Iron_Color c3);
+struct Iron_Image Iron_image_draw_triangle_lines(struct Iron_Image img, struct Iron_Vector2 v1,
+                                                  struct Iron_Vector2 v2, struct Iron_Vector2 v3,
+                                                  struct Iron_Color color);
+struct Iron_Image Iron_image_draw_triangle_fan(struct Iron_Image img, Iron_List_Iron_Vector2 points,
+                                                int32_t point_count, struct Iron_Color color);
+struct Iron_Image Iron_image_draw_triangle_strip(struct Iron_Image img, Iron_List_Iron_Vector2 points,
+                                                  int32_t point_count, struct Iron_Color color);
+struct Iron_Image Iron_image_draw(struct Iron_Image img, struct Iron_Image src_img,
+                                   struct Iron_Rectangle src_rec, struct Iron_Rectangle dst_rec,
+                                   struct Iron_Color tint);
+struct Iron_Image Iron_image_draw_text(struct Iron_Image img, Iron_String text, int32_t pos_x,
+                                        int32_t pos_y, int32_t font_size, struct Iron_Color color);
+/* ImageDrawTextEx DEFERRED to Phase 67: requires Font type */
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

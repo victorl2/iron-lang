@@ -1355,6 +1355,49 @@ func Image.color_contrast(img: Image, contrast: Float32) -> Image {}
 func Image.color_brightness(img: Image, brightness: Int32) -> Image {}
 func Image.color_replace(img: Image, color: Color, replace: Color) -> Image {}
 
+-- ──────────────────────────────────────────────────────────────────────
+-- Image CPU draw (Plan 66-03 — TEX-07, 21 bindings)
+-- ──────────────────────────────────────────────────────────────────────
+--
+-- Chain-style CPU-side image composition. Every method takes Image by
+-- value, returns a fresh Image by value. Raylib mutates an internal
+-- `dst` copy; the shim memcpys it back out as the return value.
+--
+--   canvas
+--     .clear_background(BLACK)
+--     .draw_rectangle(8, 8, 48, 16, RED)
+--     .draw_text("hello", 12, 12, 10, WHITE)
+--
+-- `draw_text` uses raylib's default font — requires Window.init() to
+-- have loaded it first (Pitfall 4).
+--
+-- `draw_triangle_fan` / `draw_triangle_strip` reuse the Iron_List_Iron_Vector2
+-- by-value ABI proven in Phase 63-03 (triangle_fan/strip / line_strip).
+--
+-- ImageDrawTextEx DEFERRED to Phase 67 (requires Font type).
+
+func Image.clear_background(img: Image, color: Color) -> Image {}
+func Image.draw_pixel(img: Image, pos_x: Int32, pos_y: Int32, color: Color) -> Image {}
+func Image.draw_pixel_v(img: Image, position: Vector2, color: Color) -> Image {}
+func Image.draw_line(img: Image, start_x: Int32, start_y: Int32, end_x: Int32, end_y: Int32, color: Color) -> Image {}
+func Image.draw_line_v(img: Image, start: Vector2, finish: Vector2, color: Color) -> Image {}
+func Image.draw_line_ex(img: Image, start: Vector2, finish: Vector2, thick: Int32, color: Color) -> Image {}
+func Image.draw_circle(img: Image, center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
+func Image.draw_circle_v(img: Image, center: Vector2, radius: Int32, color: Color) -> Image {}
+func Image.draw_circle_lines(img: Image, center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
+func Image.draw_circle_lines_v(img: Image, center: Vector2, radius: Int32, color: Color) -> Image {}
+func Image.draw_rectangle(img: Image, pos_x: Int32, pos_y: Int32, width: Int32, height: Int32, color: Color) -> Image {}
+func Image.draw_rectangle_v(img: Image, position: Vector2, size: Vector2, color: Color) -> Image {}
+func Image.draw_rectangle_rec(img: Image, rec: Rectangle, color: Color) -> Image {}
+func Image.draw_rectangle_lines(img: Image, rec: Rectangle, thick: Int32, color: Color) -> Image {}
+func Image.draw_triangle(img: Image, v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
+func Image.draw_triangle_ex(img: Image, v1: Vector2, v2: Vector2, v3: Vector2, c1: Color, c2: Color, c3: Color) -> Image {}
+func Image.draw_triangle_lines(img: Image, v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
+func Image.draw_triangle_fan(img: Image, points: [Vector2], point_count: Int32, color: Color) -> Image {}
+func Image.draw_triangle_strip(img: Image, points: [Vector2], point_count: Int32, color: Color) -> Image {}
+func Image.draw(img: Image, src: Image, src_rec: Rectangle, dst_rec: Rectangle, tint: Color) -> Image {}
+func Image.draw_text(img: Image, text: String, pos_x: Int32, pos_y: Int32, font_size: Int32, color: Color) -> Image {}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════

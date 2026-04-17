@@ -3307,6 +3307,316 @@ struct Iron_Image Iron_image_color_replace(struct Iron_Image img, struct Iron_Co
     return out;
 }
 
+/*
+ * TEX-07 Image CPU draw (Plan 66-03 Task 2 — 21 shims).
+ *
+ * Every shim uses Pattern 2: memcpy Iron_Image in, call
+ * ImageDrawFoo(&dst, ...) so raylib mutates dst in place, memcpy
+ * mutated dst back out. Vector2/Rectangle/Color parameters memcpy'd
+ * alongside the Image. Array draws (triangle_fan/triangle_strip)
+ * reuse the Iron_List_Iron_Vector2 by-value ABI from Phase 63-03.
+ *
+ * ImageDrawTextEx DEFERRED to Phase 67: requires Font type.
+ * ImageDrawText uses the raylib default font — Pitfall 4 requires
+ * Window.init() to have loaded the default font before the call.
+ */
+
+struct Iron_Image Iron_image_clear_background(struct Iron_Image img, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageClearBackground(&src, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_pixel(struct Iron_Image img, int32_t pos_x, int32_t pos_y,
+                                         struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawPixel(&src, (int)pos_x, (int)pos_y, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_pixel_v(struct Iron_Image img, struct Iron_Vector2 position,
+                                           struct Iron_Color color) {
+    Image src;
+    Vector2 p;
+    Color col;
+    memcpy(&src, &img,      sizeof(Image));
+    memcpy(&p,   &position, sizeof(Vector2));
+    memcpy(&col, &color,    sizeof(Color));
+    ImageDrawPixelV(&src, p, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_line(struct Iron_Image img, int32_t start_x, int32_t start_y,
+                                        int32_t end_x, int32_t end_y, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawLine(&src, (int)start_x, (int)start_y, (int)end_x, (int)end_y, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_line_v(struct Iron_Image img, struct Iron_Vector2 start,
+                                          struct Iron_Vector2 finish, struct Iron_Color color) {
+    Image src;
+    Vector2 a, b;
+    Color col;
+    memcpy(&src, &img,    sizeof(Image));
+    memcpy(&a,   &start,  sizeof(Vector2));
+    memcpy(&b,   &finish, sizeof(Vector2));
+    memcpy(&col, &color,  sizeof(Color));
+    ImageDrawLineV(&src, a, b, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_line_ex(struct Iron_Image img, struct Iron_Vector2 start,
+                                           struct Iron_Vector2 finish, int32_t thick,
+                                           struct Iron_Color color) {
+    Image src;
+    Vector2 a, b;
+    Color col;
+    memcpy(&src, &img,    sizeof(Image));
+    memcpy(&a,   &start,  sizeof(Vector2));
+    memcpy(&b,   &finish, sizeof(Vector2));
+    memcpy(&col, &color,  sizeof(Color));
+    ImageDrawLineEx(&src, a, b, (int)thick, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_circle(struct Iron_Image img, int32_t center_x, int32_t center_y,
+                                          int32_t radius, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawCircle(&src, (int)center_x, (int)center_y, (int)radius, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_circle_v(struct Iron_Image img, struct Iron_Vector2 center,
+                                            int32_t radius, struct Iron_Color color) {
+    Image src;
+    Vector2 p;
+    Color col;
+    memcpy(&src, &img,    sizeof(Image));
+    memcpy(&p,   &center, sizeof(Vector2));
+    memcpy(&col, &color,  sizeof(Color));
+    ImageDrawCircleV(&src, p, (int)radius, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_circle_lines(struct Iron_Image img, int32_t center_x, int32_t center_y,
+                                                int32_t radius, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawCircleLines(&src, (int)center_x, (int)center_y, (int)radius, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_circle_lines_v(struct Iron_Image img, struct Iron_Vector2 center,
+                                                  int32_t radius, struct Iron_Color color) {
+    Image src;
+    Vector2 p;
+    Color col;
+    memcpy(&src, &img,    sizeof(Image));
+    memcpy(&p,   &center, sizeof(Vector2));
+    memcpy(&col, &color,  sizeof(Color));
+    ImageDrawCircleLinesV(&src, p, (int)radius, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_rectangle(struct Iron_Image img, int32_t pos_x, int32_t pos_y,
+                                             int32_t width, int32_t height, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawRectangle(&src, (int)pos_x, (int)pos_y, (int)width, (int)height, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_rectangle_v(struct Iron_Image img, struct Iron_Vector2 position,
+                                               struct Iron_Vector2 size, struct Iron_Color color) {
+    Image src;
+    Vector2 p, s;
+    Color col;
+    memcpy(&src, &img,      sizeof(Image));
+    memcpy(&p,   &position, sizeof(Vector2));
+    memcpy(&s,   &size,     sizeof(Vector2));
+    memcpy(&col, &color,    sizeof(Color));
+    ImageDrawRectangleV(&src, p, s, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_rectangle_rec(struct Iron_Image img, struct Iron_Rectangle rec,
+                                                 struct Iron_Color color) {
+    Image src;
+    Rectangle r;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&r,   &rec,   sizeof(Rectangle));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawRectangleRec(&src, r, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_rectangle_lines(struct Iron_Image img, struct Iron_Rectangle rec,
+                                                   int32_t thick, struct Iron_Color color) {
+    Image src;
+    Rectangle r;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&r,   &rec,   sizeof(Rectangle));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawRectangleLines(&src, r, (int)thick, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_triangle(struct Iron_Image img, struct Iron_Vector2 v1,
+                                            struct Iron_Vector2 v2, struct Iron_Vector2 v3,
+                                            struct Iron_Color color) {
+    Image src;
+    Vector2 a, b, c;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&a,   &v1,    sizeof(Vector2));
+    memcpy(&b,   &v2,    sizeof(Vector2));
+    memcpy(&c,   &v3,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawTriangle(&src, a, b, c, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_triangle_ex(struct Iron_Image img, struct Iron_Vector2 v1,
+                                               struct Iron_Vector2 v2, struct Iron_Vector2 v3,
+                                               struct Iron_Color c1, struct Iron_Color c2,
+                                               struct Iron_Color c3) {
+    Image src;
+    Vector2 a, b, c;
+    Color ca, cb, cc;
+    memcpy(&src, &img, sizeof(Image));
+    memcpy(&a,   &v1,  sizeof(Vector2));
+    memcpy(&b,   &v2,  sizeof(Vector2));
+    memcpy(&c,   &v3,  sizeof(Vector2));
+    memcpy(&ca,  &c1,  sizeof(Color));
+    memcpy(&cb,  &c2,  sizeof(Color));
+    memcpy(&cc,  &c3,  sizeof(Color));
+    ImageDrawTriangleEx(&src, a, b, c, ca, cb, cc);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_triangle_lines(struct Iron_Image img, struct Iron_Vector2 v1,
+                                                  struct Iron_Vector2 v2, struct Iron_Vector2 v3,
+                                                  struct Iron_Color color) {
+    Image src;
+    Vector2 a, b, c;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&a,   &v1,    sizeof(Vector2));
+    memcpy(&b,   &v2,    sizeof(Vector2));
+    memcpy(&c,   &v3,    sizeof(Vector2));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawTriangleLines(&src, a, b, c, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_triangle_fan(struct Iron_Image img, Iron_List_Iron_Vector2 points,
+                                                int32_t point_count, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawTriangleFan(&src, (Vector2 *)points.items, (int)point_count, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_triangle_strip(struct Iron_Image img, Iron_List_Iron_Vector2 points,
+                                                  int32_t point_count, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageDrawTriangleStrip(&src, (Vector2 *)points.items, (int)point_count, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw(struct Iron_Image img, struct Iron_Image src_img,
+                                   struct Iron_Rectangle src_rec, struct Iron_Rectangle dst_rec,
+                                   struct Iron_Color tint) {
+    Image dst, sc;
+    Rectangle sr, dr;
+    Color col;
+    memcpy(&dst, &img,     sizeof(Image));
+    memcpy(&sc,  &src_img, sizeof(Image));
+    memcpy(&sr,  &src_rec, sizeof(Rectangle));
+    memcpy(&dr,  &dst_rec, sizeof(Rectangle));
+    memcpy(&col, &tint,    sizeof(Color));
+    ImageDraw(&dst, sc, sr, dr, col);
+    struct Iron_Image out;
+    memcpy(&out, &dst, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_text(struct Iron_Image img, Iron_String text, int32_t pos_x,
+                                        int32_t pos_y, int32_t font_size, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    const char *ctext = iron_string_cstr(&text);
+    /* Pitfall 4: default font requires Window.init() before this runs. */
+    ImageDrawText(&src, ctext ? ctext : "", (int)pos_x, (int)pos_y, (int)font_size, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
