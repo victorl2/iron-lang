@@ -1591,16 +1591,19 @@ func Draw.spline_bezier_cubic(points: [Vector2], count: Int32, thick: Float32, c
 -- src/hir/hir_to_lir.c:1096-1297. Collision.* namespace holds the
 -- 4 pair-based tests with no natural receiver.
 
--- Rectangle receiver (4 functions)
-func Rectangle.collides(self: Rectangle, other: Rectangle) -> Bool {}
-func Rectangle.intersection(self: Rectangle, other: Rectangle) -> Rectangle {}
-func Rectangle.contains_point(self: Rectangle, point: Vector2) -> Bool {}
-func Rectangle.collides_circle(self: Rectangle, center: Vector2, radius: Float32) -> Bool {}
+-- Rectangle receiver (4 functions). Receiver param is named `rect`
+-- per iron_net.iron convention (TcpSocket uses `s`, TcpListener uses
+-- `l`); `self` is a reserved word in Iron's parser.
+func Rectangle.collides(rect: Rectangle, other: Rectangle) -> Bool {}
+func Rectangle.intersection(rect: Rectangle, other: Rectangle) -> Rectangle {}
+func Rectangle.contains_point(rect: Rectangle, point: Vector2) -> Bool {}
+func Rectangle.collides_circle(rect: Rectangle, center: Vector2, radius: Float32) -> Bool {}
 
--- Vector2 receiver (3 functions)
-func Vector2.inside_triangle(self: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
-func Vector2.inside_polygon(self: Vector2, points: [Vector2]) -> Bool {}
-func Vector2.on_line(self: Vector2, p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
+-- Vector2 receiver (3 functions). Receiver param is named `point`
+-- (idiomatic for a point-in-shape query).
+func Vector2.inside_triangle(point: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
+func Vector2.inside_polygon(point: Vector2, points: [Vector2]) -> Bool {}
+func Vector2.on_line(point: Vector2, p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
 
 -- Collision namespace (4 pair-based 2D tests)
 func Collision.circles(c1: Vector2, r1: Float32, c2: Vector2, r2: Float32) -> Bool {}

@@ -1,0 +1,47 @@
+-- tests/manual/collision_smoke.iron
+--
+-- Phase 64 Plan 01 smoke test. Exercises every Phase 64 2D binding
+-- (11 functions across Rectangle / Vector2 / Collision receivers) in
+-- a single main() body, enough to force ironc to emit the tuple
+-- typedef Iron_Tuple_Bool_Vector2 and link against the 11 shims
+-- in src/stdlib/iron_raylib.c.
+--
+-- This file does NOT initialize a window or render — raylib's
+-- collision functions are pure math, no GPU state required. A
+-- successful `./build/ironc build` here proves the FULL pipeline
+-- (including tuple-return lowering) works for the 11 2D bindings.
+
+import raylib
+
+func main() -> Int32 {
+    -- Rectangle receiver (4 functions)
+    val a: Rectangle = Rectangle(Float32(0.0), Float32(0.0), Float32(100.0), Float32(100.0))
+    val b: Rectangle = Rectangle(Float32(50.0), Float32(50.0), Float32(100.0), Float32(100.0))
+    val hit_rr: Bool = a.collides(b)
+    val inter: Rectangle = a.intersection(b)
+    val center: Vector2 = Vector2(Float32(75.0), Float32(75.0))
+    val hit_pt: Bool = a.contains_point(center)
+    val hit_rc: Bool = a.collides_circle(center, Float32(10.0))
+
+    -- Vector2 receiver (3 functions)
+    val p: Vector2 = Vector2(Float32(50.0), Float32(50.0))
+    val t1: Vector2 = Vector2(Float32(0.0), Float32(0.0))
+    val t2: Vector2 = Vector2(Float32(100.0), Float32(0.0))
+    val t3: Vector2 = Vector2(Float32(50.0), Float32(100.0))
+    val hit_tri: Bool = p.inside_triangle(t1, t2, t3)
+
+    val poly: [Vector2] = [t1, t2, t3]
+    val hit_poly: Bool = p.inside_polygon(poly)
+
+    val hit_line: Bool = p.on_line(t1, t2, Int32(1))
+
+    -- Collision namespace (4 pair-based 2D tests)
+    val hit_cc: Bool = Collision.circles(t1, Float32(50.0), t2, Float32(50.0))
+    val hit_cl: Bool = Collision.circle_line(p, Float32(10.0), t1, t2)
+    val hit_pc: Bool = Collision.point_circle(p, center, Float32(30.0))
+
+    -- Tuple-return: Collision.lines returns (Bool, Vector2)
+    val (hit_ll, ipt): (Bool, Vector2) = Collision.lines(t1, t2, t3, Vector2(Float32(200.0), Float32(200.0)))
+
+    return Int32(0)
+}
