@@ -1256,6 +1256,56 @@ func Color.to_pixel_data(data: Int, c: Color, format: PixelFormat) {}
 func Color.pixel_data_size(width: Int32, height: Int32, format: PixelFormat) -> Int32 {}
 
 -- ══════════════════════════════════════════════════════════════════════
+-- Image I/O + Generation + Extraction (Plan 66-02)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Closes TEX-01 (file-path load/unload/valid), narrowed TEX-02 (from
+-- Texture / from Screen / animated-from-file), TEX-03 (9 procedural
+-- generators), narrowed TEX-04 (file export), TEX-06 (colors / palette
+-- / alpha border / pixel color).
+--
+-- Deferred to a follow-up phase (memory-buffer surface blocked by the
+-- [UInt8] FFI gap per Phase 66 RESEARCH Pitfall 7):
+--   LoadImageRaw, LoadImageFromMemory, LoadImageAnimFromMemory,
+--   ExportImageToMemory.
+--
+-- Receiver naming: `img` for Image receivers, `tex` for Texture
+-- receivers. Never `self` (E0101 reserved).
+--
+-- TEX-06 is the first reverse-direction `-> [Color]` in raylib.iron —
+-- Task 1 probe confirmed GREEN (emit_structs.c:309-312 auto-emits
+-- Iron_List_Iron_Color via the foreign-method-stub return scan).
+
+-- Image load/unload/valid (TEX-01) + narrowed TEX-02
+func Image.load(path: String) -> Image {}
+func Image.unload(img: Image) {}
+func Image.is_valid(img: Image) -> Bool {}
+func Image.load_anim(path: String) -> Image {}
+func Image.from_texture(tex: Texture) -> Image {}
+func Image.from_screen() -> Image {}
+
+-- Image generation (TEX-03)
+func Image.color(width: Int32, height: Int32, color: Color) -> Image {}
+func Image.gradient_linear(width: Int32, height: Int32, direction: Int32, start: Color, finish: Color) -> Image {}
+func Image.gradient_radial(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
+func Image.gradient_square(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
+func Image.checked(width: Int32, height: Int32, checks_x: Int32, checks_y: Int32, c1: Color, c2: Color) -> Image {}
+func Image.white_noise(width: Int32, height: Int32, factor: Float32) -> Image {}
+func Image.perlin_noise(width: Int32, height: Int32, offset_x: Int32, offset_y: Int32, scale: Float32) -> Image {}
+func Image.cellular(width: Int32, height: Int32, tile_size: Int32) -> Image {}
+func Image.text(width: Int32, height: Int32, text: String) -> Image {}
+
+-- Image export (narrowed TEX-04)
+func Image.export(img: Image, path: String) -> Bool {}
+func Image.export_as_code(img: Image, path: String) -> Bool {}
+
+-- Image data extraction (TEX-06) — reverse-direction `-> [Color]`
+func Image.load_colors(img: Image) -> [Color] {}
+func Image.load_palette(img: Image, max_palette_size: Int32) -> [Color] {}
+func Image.get_alpha_border(img: Image, threshold: Float32) -> Rectangle {}
+func Image.get_color(img: Image, x: Int32, y: Int32) -> Color {}
+
+-- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════
 --

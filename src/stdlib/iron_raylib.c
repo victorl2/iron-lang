@@ -25,6 +25,7 @@
  *     byte-for-byte layout compatibility at build time via _Static_assert.
  */
 
+#include <stdlib.h>
 #include <string.h>
 #include "iron_raylib.h"
 #include "raylib.h"
@@ -2777,6 +2778,250 @@ void Iron_color_to_pixel_data(int64_t data, struct Iron_Color c, int32_t format)
 
 int32_t Iron_color_pixel_data_size(int32_t width, int32_t height, int32_t format) {
     return (int32_t)GetPixelDataSize((int)width, (int)height, (int)format);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+ * Image I/O + Generation + Extraction (Plan 66-02 — TEX-01, narrowed
+ * TEX-02, TEX-03, narrowed TEX-04, TEX-06).
+ *
+ * DEFERRED to a later phase per RESEARCH Pitfall 7 ([UInt8] FFI gap):
+ *   LoadImageRaw, LoadImageFromMemory, LoadImageAnimFromMemory,
+ *   ExportImageToMemory — all four take or return a raw unsigned-char
+ *   buffer that Iron cannot yet express as a function parameter.
+ *
+ * Shim template (every Image-out function follows this shape):
+ *   1. memcpy Iron args (Image / Color / Rectangle) into raylib locals,
+ *   2. call the raylib function,
+ *   3. memcpy the returned raylib struct back into an Iron mirror out,
+ *   4. return by value.
+ *
+ * String arguments cross the FFI via iron_string_cstr(&s) (Phase 61
+ * precedent used ~10 times in this file).
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* TEX-01 + narrowed TEX-02 (file-path load + screen/texture sources) */
+struct Iron_Image Iron_image_load(Iron_String path) {
+    const char *cpath = iron_string_cstr(&path);
+    Image src = LoadImage(cpath ? cpath : "");
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+void Iron_image_unload(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    UnloadImage(src);
+}
+
+bool Iron_image_is_valid(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    return (bool)(IsImageValid(src) != 0);
+}
+
+/* LoadImageAnim writes the animation frame count into an `int *frames`
+ * out-param. Iron has no out-ref mechanism; the frame count is
+ * discarded here. Callers needing it must wait for [UInt8]-FFI phase
+ * when an out-tuple variant can land alongside. */
+struct Iron_Image Iron_image_load_anim(Iron_String path) {
+    const char *cpath = iron_string_cstr(&path);
+    int frames = 0;
+    Image src = LoadImageAnim(cpath ? cpath : "", &frames);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_from_texture(struct Iron_Texture tex) {
+    Texture t;
+    memcpy(&t, &tex, sizeof(Texture));
+    Image src = LoadImageFromTexture(t);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_from_screen(void) {
+    Image src = LoadImageFromScreen();
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+/* TEX-03 procedural generators (9 functions) */
+struct Iron_Image Iron_image_color(int32_t width, int32_t height, struct Iron_Color color) {
+    Color col;
+    memcpy(&col, &color, sizeof(Color));
+    Image src = GenImageColor((int)width, (int)height, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_gradient_linear(int32_t width, int32_t height, int32_t direction,
+                                              struct Iron_Color start, struct Iron_Color finish) {
+    Color a, b;
+    memcpy(&a, &start,  sizeof(Color));
+    memcpy(&b, &finish, sizeof(Color));
+    Image src = GenImageGradientLinear((int)width, (int)height, (int)direction, a, b);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_gradient_radial(int32_t width, int32_t height, float density,
+                                              struct Iron_Color inner, struct Iron_Color outer) {
+    Color i, o;
+    memcpy(&i, &inner, sizeof(Color));
+    memcpy(&o, &outer, sizeof(Color));
+    Image src = GenImageGradientRadial((int)width, (int)height, density, i, o);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_gradient_square(int32_t width, int32_t height, float density,
+                                              struct Iron_Color inner, struct Iron_Color outer) {
+    Color i, o;
+    memcpy(&i, &inner, sizeof(Color));
+    memcpy(&o, &outer, sizeof(Color));
+    Image src = GenImageGradientSquare((int)width, (int)height, density, i, o);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_checked(int32_t width, int32_t height, int32_t checks_x, int32_t checks_y,
+                                      struct Iron_Color c1, struct Iron_Color c2) {
+    Color a, b;
+    memcpy(&a, &c1, sizeof(Color));
+    memcpy(&b, &c2, sizeof(Color));
+    Image src = GenImageChecked((int)width, (int)height, (int)checks_x, (int)checks_y, a, b);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_white_noise(int32_t width, int32_t height, float factor) {
+    Image src = GenImageWhiteNoise((int)width, (int)height, factor);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_perlin_noise(int32_t width, int32_t height, int32_t offset_x,
+                                           int32_t offset_y, float scale) {
+    Image src = GenImagePerlinNoise((int)width, (int)height,
+                                     (int)offset_x, (int)offset_y, scale);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_cellular(int32_t width, int32_t height, int32_t tile_size) {
+    Image src = GenImageCellular((int)width, (int)height, (int)tile_size);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+/* GenImageText(width, height, text) — grayscale bitmap from text using
+ * the default font. Requires Window.init() first (default font isn't
+ * loaded until the raylib context is up; RESEARCH Pitfall 4). */
+struct Iron_Image Iron_image_text(int32_t width, int32_t height, Iron_String text) {
+    const char *ctext = iron_string_cstr(&text);
+    Image src = GenImageText((int)width, (int)height, ctext ? ctext : "");
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+/* narrowed TEX-04 (file export — ExportImageToMemory deferred) */
+bool Iron_image_export(struct Iron_Image img, Iron_String path) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    const char *cpath = iron_string_cstr(&path);
+    return (bool)(ExportImage(src, cpath ? cpath : "") != 0);
+}
+
+bool Iron_image_export_as_code(struct Iron_Image img, Iron_String path) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    const char *cpath = iron_string_cstr(&path);
+    return (bool)(ExportImageAsCode(src, cpath ? cpath : "") != 0);
+}
+
+/* TEX-06 data extraction — `-> [Color]` reverse-direction Iron_List.
+ *
+ * Task 1 probe GREEN path: emit_structs.c:309-312 auto-emits the
+ * Iron_List_Iron_Color typedef + IRON_LIST_DECL + IRON_LIST_IMPL into
+ * the consumer TU via the foreign-method-stub return scan. These shims
+ * malloc their own items buffer (direct calloc, same pattern as
+ * iron_net.c:build_address_list_from_addrinfo) so standalone
+ * `clang -c iron_raylib.c` compiles without depending on the
+ * compiler-emitted _create_with_capacity helper. raylib's
+ * LoadImageColors / LoadImagePalette allocate the returned Color*; we
+ * memcpy-own the data then call UnloadImageColors / UnloadImagePalette
+ * so Iron holds the single authoritative copy. */
+Iron_List_Iron_Color Iron_image_load_colors(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    Color *colors = LoadImageColors(src);
+    int64_t count = (int64_t)src.width * src.height;
+    Iron_List_Iron_Color out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (count > 0) {
+        out.items    = (struct Iron_Color *)calloc((size_t)count, sizeof(struct Iron_Color));
+        out.capacity = count;
+        if (colors && out.items) {
+            memcpy(out.items, colors, (size_t)count * sizeof(struct Iron_Color));
+            out.count = count;
+        }
+    }
+    UnloadImageColors(colors);
+    return out;
+}
+
+Iron_List_Iron_Color Iron_image_load_palette(struct Iron_Image img, int32_t max_palette_size) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    int color_count = 0;
+    Color *colors = LoadImagePalette(src, (int)max_palette_size, &color_count);
+    Iron_List_Iron_Color out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (color_count > 0) {
+        out.items    = (struct Iron_Color *)calloc((size_t)color_count, sizeof(struct Iron_Color));
+        out.capacity = color_count;
+        if (colors && out.items) {
+            memcpy(out.items, colors, (size_t)color_count * sizeof(struct Iron_Color));
+            out.count = color_count;
+        }
+    }
+    UnloadImagePalette(colors);
+    return out;
+}
+
+struct Iron_Rectangle Iron_image_get_alpha_border(struct Iron_Image img, float threshold) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    Rectangle r = GetImageAlphaBorder(src, threshold);
+    struct Iron_Rectangle out;
+    memcpy(&out, &r, sizeof(struct Iron_Rectangle));
+    return out;
+}
+
+struct Iron_Color Iron_image_get_color(struct Iron_Image img, int32_t x, int32_t y) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    Color c = GetImageColor(src, (int)x, (int)y);
+    struct Iron_Color out;
+    memcpy(&out, &c, sizeof(struct Iron_Color));
+    return out;
 }
 
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */

@@ -967,6 +967,72 @@ struct Iron_Color   Iron_color_from_pixel_data(int64_t data, int32_t format);
 void                Iron_color_to_pixel_data(int64_t data, struct Iron_Color c, int32_t format);
 int32_t             Iron_color_pixel_data_size(int32_t width, int32_t height, int32_t format);
 
+/* Iron's [Color] lowers to Iron_List_Iron_Color in C (ARRAY_PARAM_LIST
+ * mode, confirmed by Plan 66-02 Task 1 probe — emit_structs.c:309-312
+ * foreign-method-stub return scan auto-emits this typedef + IRON_LIST_DECL
+ * + IRON_LIST_IMPL into the consumer TU). Guarded the same way as
+ * IRON_LIST_IRON_VECTOR2 so `clang -c iron_raylib.c` compiles standalone
+ * — the compiler's own emit_structs.c scan produces an identical typedef
+ * in the consumer TU, and this header's guard prevents a redefinition. */
+#ifndef IRON_LIST_IRON_COLOR_STRUCT_DEFINED
+#define IRON_LIST_IRON_COLOR_STRUCT_DEFINED
+typedef struct Iron_List_Iron_Color {
+    struct Iron_Color *items;
+    int64_t            count;
+    int64_t            capacity;
+} Iron_List_Iron_Color;
+#endif
+
+/* Image load/unload/valid (TEX-01) + narrowed TEX-02 (Plan 66-02).
+ *
+ * DEFERRED to a follow-up phase per RESEARCH Pitfall 7 ([UInt8] FFI
+ * blocker): LoadImageRaw, LoadImageFromMemory, LoadImageAnimFromMemory,
+ * ExportImageToMemory. All four take or return a raw byte buffer which
+ * Iron cannot yet express as a function parameter / return type.
+ *
+ * Image.load_anim (below) drops raylib's `int *frames` out-param — Iron
+ * has no out-ref mechanism. Callers needing the frame count should
+ * re-bind to the raw raylib call once [UInt8] FFI lands. */
+struct Iron_Image Iron_image_load(Iron_String path);
+void              Iron_image_unload(struct Iron_Image img);
+bool              Iron_image_is_valid(struct Iron_Image img);
+struct Iron_Image Iron_image_load_anim(Iron_String path);
+struct Iron_Image Iron_image_from_texture(struct Iron_Texture tex);
+struct Iron_Image Iron_image_from_screen(void);
+
+/* Image generation (TEX-03). raylib's GenImageText signature is
+ * (width, height, text) — no color arg; output is a grayscale bitmap
+ * rendered with the default font (requires Window.init() first per
+ * RESEARCH Pitfall 4). */
+struct Iron_Image Iron_image_color(int32_t width, int32_t height, struct Iron_Color color);
+struct Iron_Image Iron_image_gradient_linear(int32_t width, int32_t height, int32_t direction,
+                                              struct Iron_Color start, struct Iron_Color finish);
+struct Iron_Image Iron_image_gradient_radial(int32_t width, int32_t height, float density,
+                                              struct Iron_Color inner, struct Iron_Color outer);
+struct Iron_Image Iron_image_gradient_square(int32_t width, int32_t height, float density,
+                                              struct Iron_Color inner, struct Iron_Color outer);
+struct Iron_Image Iron_image_checked(int32_t width, int32_t height, int32_t checks_x, int32_t checks_y,
+                                      struct Iron_Color c1, struct Iron_Color c2);
+struct Iron_Image Iron_image_white_noise(int32_t width, int32_t height, float factor);
+struct Iron_Image Iron_image_perlin_noise(int32_t width, int32_t height, int32_t offset_x,
+                                           int32_t offset_y, float scale);
+struct Iron_Image Iron_image_cellular(int32_t width, int32_t height, int32_t tile_size);
+struct Iron_Image Iron_image_text(int32_t width, int32_t height, Iron_String text);
+
+/* Image export (narrowed TEX-04). */
+bool Iron_image_export(struct Iron_Image img, Iron_String path);
+bool Iron_image_export_as_code(struct Iron_Image img, Iron_String path);
+
+/* Image data extraction (TEX-06). load_colors / load_palette return
+ * Iron_List_Iron_Color — first reverse-direction Iron list in this TU.
+ * The shims malloc the items buffer and rely on raylib's
+ * UnloadImageColors / UnloadImagePalette to free the raylib-side
+ * source; Iron owns the copy after memcpy. */
+Iron_List_Iron_Color Iron_image_load_colors(struct Iron_Image img);
+Iron_List_Iron_Color Iron_image_load_palette(struct Iron_Image img, int32_t max_palette_size);
+struct Iron_Rectangle Iron_image_get_alpha_border(struct Iron_Image img, float threshold);
+struct Iron_Color     Iron_image_get_color(struct Iron_Image img, int32_t x, int32_t y);
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
