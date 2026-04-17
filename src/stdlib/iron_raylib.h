@@ -1485,6 +1485,14 @@ bool  Iron_audio_is_ready(void);
 void  Iron_audio_set_master_volume(float volume);
 float Iron_audio_get_master_volume(void);
 
+/* ── AUDIO-02 Wave load/unload + AUDIO-04 export (6 shims) ─────────── */
+struct Iron_Wave Iron_wave_load(Iron_String file_name);
+struct Iron_Wave Iron_wave_load_from_memory(Iron_String file_type, Iron_List_uint8_t file_data, int32_t data_size);
+bool             Iron_wave_is_valid(struct Iron_Wave wave);
+void             Iron_wave_unload(struct Iron_Wave wave);
+bool             Iron_wave_export(struct Iron_Wave wave, Iron_String file_name);
+bool             Iron_wave_export_as_code(struct Iron_Wave wave, Iron_String file_name);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

@@ -2393,3 +2393,18 @@ func Audio.close() {}
 func Audio.is_ready() -> Bool {}
 func Audio.set_master_volume(volume: Float32) {}
 func Audio.get_master_volume() -> Float32 {}
+
+-- ── AUDIO-02 Wave load/unload + AUDIO-04 export (6 methods) ─────────
+-- `_device` suffix dropped — namespace implies device scope.
+-- ABI-UINT8 consumer: Wave.load_from_memory takes [UInt8] data (new
+-- in Phase 68 — matches Plan 68-01 Task 1 runtime plumbing).
+-- Note: Wave.load returns Wave with frameCount=0 on failure + prints
+-- TRACELOG warning. Callers MUST check with wave.is_valid() before
+-- passing to Sound.from_wave / wave.to_sound.
+func Wave.load(filePath: String) -> Wave {}
+func Wave.load_from_memory(fileType: String, data: [UInt8],
+                            dataSize: Int32) -> Wave {}
+func wave.is_valid() -> Bool {}
+func wave.unload() {}
+func wave.export(filePath: String) -> Bool {}
+func wave.export_as_code(filePath: String) -> Bool {}

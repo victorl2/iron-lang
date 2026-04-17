@@ -4630,6 +4630,64 @@ float Iron_audio_get_master_volume(void) {
     return GetMasterVolume();
 }
 
+/* ── AUDIO-02 Wave load/unload + AUDIO-04 export (6 shims) ─────────── */
+/*
+ * Wave is 24 B (4 x uint32_t + void *_data). Struct-by-value in+out
+ * uses Phase 66-04 RenderTexture template: memcpy into Wave local for
+ * INPUT-by-value shims, memcpy out of Wave local for RETURN-by-value.
+ *
+ * ABI-UINT8 consumer: Wave.load_from_memory takes [UInt8] data —
+ * first real consumer of Plan 68-01 Task 1's IRON_LIST_DECL(uint8_t,
+ * uint8_t). Shim forwards file_data.items directly (already uint8_t *).
+ *
+ * Note: LoadWave returns Wave with frameCount=0 on failure + prints
+ * TRACELOG warning. Users MUST call wave.is_valid() before wave.to_sound().
+ */
+
+struct Iron_Wave Iron_wave_load(Iron_String file_name) {
+    Wave rl = LoadWave(iron_string_cstr(&file_name));
+    struct Iron_Wave out;
+    memcpy(&out, &rl, sizeof(struct Iron_Wave));
+    return out;
+}
+
+struct Iron_Wave Iron_wave_load_from_memory(Iron_String file_type,
+                                             Iron_List_uint8_t file_data,
+                                             int32_t data_size) {
+    /* Pass Iron_List_uint8_t.items directly — raylib takes
+     * `const unsigned char *fileData`. items is already uint8_t *. */
+    Wave rl = LoadWaveFromMemory(iron_string_cstr(&file_type),
+                                  file_data.items,
+                                  (int)data_size);
+    struct Iron_Wave out;
+    memcpy(&out, &rl, sizeof(struct Iron_Wave));
+    return out;
+}
+
+bool Iron_wave_is_valid(struct Iron_Wave wave) {
+    Wave rl;
+    memcpy(&rl, &wave, sizeof(Wave));
+    return (bool)(IsWaveValid(rl) != 0);
+}
+
+void Iron_wave_unload(struct Iron_Wave wave) {
+    Wave rl;
+    memcpy(&rl, &wave, sizeof(Wave));
+    UnloadWave(rl);
+}
+
+bool Iron_wave_export(struct Iron_Wave wave, Iron_String file_name) {
+    Wave rl;
+    memcpy(&rl, &wave, sizeof(Wave));
+    return (bool)(ExportWave(rl, iron_string_cstr(&file_name)) != 0);
+}
+
+bool Iron_wave_export_as_code(struct Iron_Wave wave, Iron_String file_name) {
+    Wave rl;
+    memcpy(&rl, &wave, sizeof(Wave));
+    return (bool)(ExportWaveAsCode(rl, iron_string_cstr(&file_name)) != 0);
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
