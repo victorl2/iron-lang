@@ -1444,6 +1444,48 @@ func Texture.draw_pro(tex: Texture, source: Rectangle, dest: Rectangle, origin: 
 func Texture.draw_n_patch(tex: Texture, n_patch_info: NPatchInfo, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
 
 -- ══════════════════════════════════════════════════════════════════════
+-- Text & Fonts (Phase 67) — Font loading surface (TEXT-01..06, Plan 67-01)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Font loading, lifecycle, and data probes. Font struct-by-value crossing
+-- the FFI (48 B) proven at Phase 60-03 _Static_assert grid; memcpy
+-- patterns reuse Phase 66-04 Texture/RenderTexture templates.
+--
+-- Instance methods follow the existing stdlib convention:
+-- `func TypeName.method(receiver: TypeName, ...)` with explicit receiver
+-- parameter — matching Texture.unload / RenderTexture.unload and every
+-- other instance method in raylib.iron. (The plan's initial draft used
+-- lowercase receivers `func font.is_valid()`, but the analyzer resolves
+-- method type_names via global scope lookup — lowercase `font` is not a
+-- declared type and would fail with E0101 / "method declared on
+-- undeclared type". Rule 1 auto-fix applied.)
+--
+-- PITFALLS (see 67-RESEARCH.md for full detail):
+-- • Font.default requires Window.init() first — raylib loads the default
+--   atlas inside InitWindow via rtext.c:LoadFontDefault.
+-- • Font.load returns a Font with baseSize=0 on failure; no exception.
+--   Callers MUST check with Font.is_valid before drawing.
+-- • Font.unload invalidates the Font's _recs / _glyphs pointers (and the
+--   embedded texture); do not use the value after unload.
+--
+-- DEFERRED (awaiting [UInt8] FFI / Iron_List_uint8_t in iron_runtime.h):
+-- • Font.from_memory — takes `[UInt8] fileData`. Same blocker as Phase 66
+--   LoadImageFromMemory / LoadImageAnimFromMemory (5 existing deferrals).
+-- • Font.load_data — takes `[UInt8] fileData`, returns `[GlyphInfo]`.
+--   Re-bind once Iron_List_uint8_t lands alongside the above.
+
+-- TEXT-01..03 static constructors
+func Font.default() -> Font {}
+func Font.load(filePath: String) -> Font {}
+func Font.load_ex(filePath: String, fontSize: Int32, codepoints: [Int32]) -> Font {}
+func Font.from_image(image: Image, keyColor: Color, firstChar: Int32) -> Font {}
+
+-- TEXT-02 / TEXT-04 / TEXT-06 lifecycle + validity + export
+func Font.is_valid(font: Font) -> Bool {}
+func Font.unload(font: Font) {}
+func Font.export_as_code(font: Font, filePath: String) -> Bool {}
+
+-- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════
 --

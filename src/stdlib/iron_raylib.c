@@ -3823,7 +3823,91 @@ void Iron_texture_draw_n_patch(struct Iron_Texture tex, struct Iron_NPatchInfo n
     DrawTextureNPatch(t, n, d, o, rotation, c);
 }
 
-/* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Text & Fonts (Phase 67) ──────────────────────────────────────────
+ *
+ * Font loading + lifecycle (TEXT-01..04, TEXT-06). See 67-RESEARCH.md.
+ *
+ * Pattern 1 (RETURN by value): LoadFont / LoadFontEx / LoadFontFromImage /
+ *   GetFontDefault all return raylib Font (48 B). Shim memcpys into
+ *   Iron_Font. Byte-identity enforced by Phase 60-03 _Static_assert grid.
+ * Pattern 2 (INPUT by value): IsFontValid / UnloadFont / ExportFontAsCode
+ *   take raylib Font by value. Shim memcpys Iron_Font into raylib Font
+ *   local.
+ * Pattern 3 (Iron_List_int32_t INPUT): Font.load_ex takes [Int32]
+ *   codepoints. Iron_List_int32_t is pre-declared in iron_runtime.h:826 —
+ *   pass (int *)items to raylib.
+ *
+ * Pitfall 1: GetFontDefault requires Window.init() to have loaded the
+ *   default atlas via rtext.c:LoadFontDefault. Documented in raylib.iron.
+ * Pitfall 5: LoadFont returns Font with baseSize=0 on failure — users
+ *   must call font.is_valid() before drawing.
+ *
+ * Font.from_memory DEFERRED: [UInt8] FFI blocker — Iron_List_uint8_t not
+ *   pre-declared. Matches 5 existing Phase 66 [UInt8] deferrals.
+ * Font.load_data DEFERRED: same [UInt8] FFI blocker (raw fileData input).
+ *   Unblocks when Iron_List_uint8_t lands in iron_runtime.h.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+struct Iron_Font Iron_font_default(void) {
+    Font rl = GetFontDefault();
+    struct Iron_Font out;
+    memcpy(&out, &rl, sizeof(struct Iron_Font));
+    return out;
+}
+
+struct Iron_Font Iron_font_load(Iron_String file_name) {
+    const char *cpath = iron_string_cstr(&file_name);
+    Font rl = LoadFont(cpath ? cpath : "");
+    struct Iron_Font out;
+    memcpy(&out, &rl, sizeof(struct Iron_Font));
+    return out;
+}
+
+struct Iron_Font Iron_font_load_ex(Iron_String file_name, int32_t font_size,
+                                    Iron_List_int32_t codepoints) {
+    const char *cpath = iron_string_cstr(&file_name);
+    /* codepoints.items is int32_t * (pre-declared in iron_runtime.h:826);
+     * raylib's LoadFontEx expects int *. Same type on all 64-bit targets
+     * Iron supports. */
+    Font rl = LoadFontEx(cpath ? cpath : "", (int)font_size,
+                         (int *)codepoints.items, (int)codepoints.count);
+    struct Iron_Font out;
+    memcpy(&out, &rl, sizeof(struct Iron_Font));
+    return out;
+}
+
+struct Iron_Font Iron_font_from_image(struct Iron_Image image, struct Iron_Color key,
+                                       int32_t first_char) {
+    Image img;
+    Color col;
+    memcpy(&img, &image, sizeof(Image));
+    memcpy(&col, &key,   sizeof(Color));
+    Font rl = LoadFontFromImage(img, col, (int)first_char);
+    struct Iron_Font out;
+    memcpy(&out, &rl, sizeof(struct Iron_Font));
+    return out;
+}
+
+bool Iron_font_is_valid(struct Iron_Font font) {
+    Font rl;
+    memcpy(&rl, &font, sizeof(Font));
+    return (bool)(IsFontValid(rl) != 0);
+}
+
+void Iron_font_unload(struct Iron_Font font) {
+    Font rl;
+    memcpy(&rl, &font, sizeof(Font));
+    UnloadFont(rl);
+}
+
+bool Iron_font_export_as_code(struct Iron_Font font, Iron_String file_name) {
+    Font rl;
+    memcpy(&rl, &font, sizeof(Font));
+    const char *cpath = iron_string_cstr(&file_name);
+    return (bool)(ExportFontAsCode(rl, cpath ? cpath : "") != 0);
+}
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

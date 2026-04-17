@@ -1201,6 +1201,34 @@ void Iron_texture_draw_n_patch(struct Iron_Texture tex, struct Iron_NPatchInfo n
                                 float rotation, struct Iron_Color tint);
 
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
+/*
+ * Font loading surface (TEXT-01..04, TEXT-06). All shims use Phase 66-04
+ * Texture/RenderTexture templates (struct-by-value RETURN + INPUT via
+ * memcpy). Font is 48 B — under the -Wlarge-by-value-copy 64 B threshold
+ * verified by Phase 60-03 _Static_assert grid.
+ *
+ * Pitfall 1 (Phase 67 RESEARCH): Font.default() requires Window.init() to
+ * have bootstrapped the default font via raylib rtext.c LoadFontDefault.
+ * Pitfall 5: LoadFont returns Font with baseSize=0 on failure — users must
+ * call font.is_valid() before drawing.
+ *
+ * Font.from_memory DEFERRED: [UInt8] FFI blocker — Iron_List_uint8_t not
+ * pre-declared in iron_runtime.h (iron_runtime.h:824-830 lists only
+ * int64_t/int32_t/double/bool/Iron_String/Iron_Closure). Unblocks when a
+ * runtime task adds IRON_LIST_DECL(uint8_t, uint8_t). See Phase 66
+ * Pitfall 9 + 67-RESEARCH.md Open Question 2.
+ * Font.load_data DEFERRED: same [UInt8] FFI blocker (raw fileData input).
+ */
+struct Iron_Font Iron_font_default(void);
+struct Iron_Font Iron_font_load(Iron_String file_name);
+struct Iron_Font Iron_font_load_ex(Iron_String file_name, int32_t font_size,
+                                    Iron_List_int32_t codepoints);
+struct Iron_Font Iron_font_from_image(struct Iron_Image image, struct Iron_Color key,
+                                       int32_t first_char);
+bool             Iron_font_is_valid(struct Iron_Font font);
+void             Iron_font_unload(struct Iron_Font font);
+bool             Iron_font_export_as_code(struct Iron_Font font, Iron_String file_name);
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
