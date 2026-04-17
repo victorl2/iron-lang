@@ -2421,3 +2421,38 @@ func wave.copy() -> Wave {}
 func wave.crop(initFrame: Int32, finalFrame: Int32) -> Wave {}
 func wave.format(sampleRate: Int32, sampleSize: Int32, channels: Int32) -> Wave {}
 func wave.load_samples() -> [Float32] {}
+
+-- ── AUDIO-03 bridge: wave.to_sound() ────────────────────────────────
+-- Aliased with Sound.from_wave(wave). ironc name-mangles the two Iron
+-- entry points to distinct C symbols (Iron_wave_to_sound vs
+-- Iron_sound_from_wave), so iron_raylib.c ships a trivial forwarding
+-- stub — one raylib-facing shim body, two Iron entry points. Use
+-- whichever reads better at the call site.
+func wave.to_sound() -> Sound {}
+
+-- ── AUDIO-05 Sound load/unload + alias (6 methods) ─────────────────
+-- Alias ownership is made visible at call sites via two distinct
+-- methods on the same Sound type:
+--   sound.unload()       — owns + frees sample data.
+--   alias.unload_alias() — releases ONLY the AudioStream envelope;
+--                           sample data stays bound to the primary
+--                           Sound until its unload().
+-- The source Sound MUST outlive every alias; otherwise aliases
+-- dangle and playback reads freed memory.
+--
+-- Sound.from_wave(wave) and wave.to_sound() are aliases — both map
+-- (via a forwarding stub in iron_raylib.c) to LoadSoundFromWave.
+-- Use whichever reads better at the call site.
+--
+-- Receiver naming: alias.unload_alias() uses `alias` as the receiver
+-- semantic — it's still a Sound-typed object, but the name signals
+-- "this is the weak-reference form". Iron dispatches by type, not
+-- receiver name; any Sound can call alias.unload_alias(). Per Phase
+-- 68 CONTEXT decision: `self` is reserved (E0101), all other
+-- receiver names are permitted and chosen for documentation value.
+func Sound.load(filePath: String) -> Sound {}
+func Sound.from_wave(wave: Wave) -> Sound {}
+func Sound.alias(source: Sound) -> Sound {}
+func sound.is_valid() -> Bool {}
+func sound.unload() {}
+func alias.unload_alias() {}

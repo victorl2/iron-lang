@@ -4757,6 +4757,87 @@ Iron_List_float Iron_wave_load_samples(struct Iron_Wave wave) {
     return out;
 }
 
+/* ── AUDIO-05 Sound load/unload + alias (6 shims) ──────────────────── */
+/*
+ * Sound is 32 B (embeds AudioStream by value + frameCount). Well under
+ * the Phase 64 validated 120 B struct-by-value ceiling. All shims use
+ * the INPUT-by-value memcpy template established in Phase 61 (Window)
+ * and Phase 66 (Image/Texture).
+ *
+ * Alias ownership discipline (CONTEXT.md line 103-107 + header above):
+ *   - Sound.alias(source) produces a Sound sharing source's samples.
+ *   - sound.unload() frees sample data — all aliases then dangle.
+ *   - alias.unload_alias() releases only the AudioStream envelope;
+ *     sample data survives until the source's sound.unload().
+ *   - Users MUST keep the source Sound alive until every alias is
+ *     released via alias.unload_alias(). This is surfaced as two
+ *     distinct methods on the same Iron Sound type — no runtime tag,
+ *     no silent dispatch.
+ */
+
+struct Iron_Sound Iron_sound_load(Iron_String file_name) {
+    Sound rl = LoadSound(iron_string_cstr(&file_name));
+    struct Iron_Sound out;
+    memcpy(&out, &rl, sizeof(struct Iron_Sound));
+    return out;
+}
+
+struct Iron_Sound Iron_sound_from_wave(struct Iron_Wave wave) {
+    /* Shared with AUDIO-03 wave.to_sound — raylib.iron exposes both
+     * entry points (Sound.from_wave + wave.to_sound); ironc mangles
+     * them to distinct C symbols (Path B in the plan's aliasing
+     * strategy), so Iron_wave_to_sound below forwards here. */
+    Wave w;
+    memcpy(&w, &wave, sizeof(Wave));
+    Sound rl = LoadSoundFromWave(w);
+    struct Iron_Sound out;
+    memcpy(&out, &rl, sizeof(struct Iron_Sound));
+    return out;
+}
+
+struct Iron_Sound Iron_sound_alias(struct Iron_Sound source) {
+    /* LoadSoundAlias shares the source's sample data. The returned
+     * Sound does NOT own samples — call alias.unload_alias() to
+     * release the audio-stream envelope only. The source must
+     * outlive every alias, or aliases dangle. */
+    Sound rl;
+    memcpy(&rl, &source, sizeof(Sound));
+    Sound dup = LoadSoundAlias(rl);
+    struct Iron_Sound out;
+    memcpy(&out, &dup, sizeof(struct Iron_Sound));
+    return out;
+}
+
+bool Iron_sound_is_valid(struct Iron_Sound sound) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    return (bool)(IsSoundValid(rl) != 0);
+}
+
+void Iron_sound_unload(struct Iron_Sound sound) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    UnloadSound(rl);
+}
+
+void Iron_sound_unload_alias(struct Iron_Sound alias) {
+    Sound rl;
+    memcpy(&rl, &alias, sizeof(Sound));
+    UnloadSoundAlias(rl);
+}
+
+/* ── AUDIO-03 bridge: wave.to_sound() forwards to Iron_sound_from_wave */
+/*
+ * Pattern-2 forwarding stub. Iron exposes both wave.to_sound() and
+ * Sound.from_wave(wave) as alias entry points; ironc name-mangles
+ * them to distinct C symbols (Iron_wave_to_sound vs
+ * Iron_sound_from_wave). Keeping one shim body avoids divergent
+ * semantics; the forwarder is a pure call-through.
+ */
+struct Iron_Sound Iron_wave_to_sound(struct Iron_Wave wave) {
+    return Iron_sound_from_wave(wave);
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

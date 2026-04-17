@@ -1499,6 +1499,34 @@ struct Iron_Wave Iron_wave_crop(struct Iron_Wave wave, int32_t init_frame, int32
 struct Iron_Wave Iron_wave_format(struct Iron_Wave wave, int32_t sample_rate, int32_t sample_size, int32_t channels);
 Iron_List_float  Iron_wave_load_samples(struct Iron_Wave wave);
 
+/* ── AUDIO-05 Sound load/unload + alias (6 shims) ──────────────────── */
+/*
+ * Alias ownership asymmetry is visible in the shim naming:
+ *   Iron_sound_from_wave    = primary constructor (owns sample data
+ *                              once raylib internally copies wave's
+ *                              samples into the Sound's AudioStream).
+ *   Iron_sound_alias        = shared-sample alias (DOES NOT own data).
+ *   Iron_sound_unload       = frees samples; ALL aliases dangle after.
+ *   Iron_sound_unload_alias = frees only the AudioStream envelope;
+ *                              sample data untouched (stays bound to
+ *                              the primary Sound until its unload).
+ *
+ * Iron entry-point aliasing: Sound.from_wave(wave) and wave.to_sound()
+ * are spec-language aliases (AUDIO-05 + AUDIO-03 bridge). ironc's
+ * name-mangle emits distinct C symbols for each (Iron_sound_from_wave
+ * vs Iron_wave_to_sound — Path B), so a forwarding stub below bridges
+ * the second entry point to the primary shim.
+ */
+struct Iron_Sound Iron_sound_load(Iron_String file_name);
+struct Iron_Sound Iron_sound_from_wave(struct Iron_Wave wave);
+struct Iron_Sound Iron_sound_alias(struct Iron_Sound source);
+bool              Iron_sound_is_valid(struct Iron_Sound sound);
+void              Iron_sound_unload(struct Iron_Sound sound);
+void              Iron_sound_unload_alias(struct Iron_Sound alias);
+
+/* ── AUDIO-03 bridge: wave.to_sound() — forwards to Iron_sound_from_wave */
+struct Iron_Sound Iron_wave_to_sound(struct Iron_Wave wave);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
