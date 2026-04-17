@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: in-progress
-stopped_at: Completed 66-03-PLAN.md
-last_updated: "2026-04-17T14:10:50.738Z"
-last_activity: "2026-04-17 — Phase 66 Plan 03 executed on local. 48 Image.* bindings (TEX-05 27 mutating transforms + TEX-07 21 CPU draws). Pattern 2 mutating-transform-return-by-value template applied at scale (48 shim sites, zero deviations). 2 deferrals: ImageKernelConvolution pending [Float32] FFI; ImageDrawTextEx pending Font type (Phase 67). Phase 66 cumulative 9/14 requirements complete (64%)."
+status: completed
+stopped_at: Completed 66-04-PLAN.md
+last_updated: "2026-04-17T14:18:28Z"
+last_activity: 2026-04-17 — Phase 66 Plan 04 executed on local. 18 Texture.* / RenderTexture.* / Image.to_texture bindings (TEX-08/09/10/11/12 all closed). First RenderTexture 44 B by-value RETURN + first NPatchInfo 36 B by-value INPUT validated zero-warning. Texture.update opaque void* via Int→intptr_t cast extends Plan 66-01 probe. Phase 66 cumulative 14/14 requirements complete (100%) pending Plan 66-05 end-to-end smoke.
 progress:
   total_phases: 14
   completed_phases: 5
   total_plans: 31
-  completed_plans: 25
-  percent: 81
+  completed_plans: 26
+  percent: 84
 ---
 
 # State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 66 — Textures & Images (IN PROGRESS — 3/5 plans complete)
-Plan: 66-03 COMPLETE; next up is 66-04 (Texture load/update/config/draw — TEX-08..12)
-Status: Phase 66 Plan 03 complete (2 tasks — Task 1 commit `6398263` (TEX-05 27 transforms), Task 2 commit `17bfb9c` (TEX-07 21 CPU draws), ~5 min total). 48 Image.* functions bound in one mechanical execution of the Pattern 2 mutating-transform-return-by-value template: 27 TEX-05 (copy, from_rectangle, from_channel, format, to_pot, crop, alpha_crop/clear/mask/premultiply, blur_gaussian, resize/resize_nn/resize_canvas, mipmaps, dither, flip_vertical/horizontal, rotate/rotate_cw/rotate_ccw, color_tint/invert/grayscale/contrast/brightness/replace) + 21 TEX-07 (clear_background, draw_pixel/_v, draw_line/_v/_ex, draw_circle/_v/_lines/_lines_v, draw_rectangle/_v/_rec/_lines, draw_triangle/_ex/_lines/_fan/_strip, draw (blit), draw_text). Chain-style image composition now usable: `Image.color(64,64,BLACK).flip_vertical().color_tint(RED).crop(Rectangle(0,0,32,32))`. Iron_List_Iron_Vector2 by-value ABI reused for draw_triangle_fan/strip (third TU-local consumer after 63-03 and 63-04). 2 DEFERRED: ImageKernelConvolution ([Float32] FFI absent in iron_runtime.h:824-830 primitives) and ImageDrawTextEx (Font — Phase 67). clang -c iron_raylib.c + iron_raylib_layout.c exit 0 zero warnings; _Static_assert grid unchanged at 413 entries; ironc NOT invoked this plan (Plan 66-05 owns smoke). Zero deviations — plan executed exactly as written. Cumulative Phase 66: 9/14 requirements complete (TEX-01, TEX-02, TEX-03, TEX-04, TEX-05, TEX-06, TEX-07, TEX-13, TEX-14 — 64%).
-Last activity: 2026-04-17 — Phase 66 Plan 03 executed on local. 48 Image.* bindings (TEX-05 + TEX-07 closed). Pattern 2 mutating-transform-return-by-value applied at scale (48 shim sites, zero deviations). 2 deferred (ImageKernelConvolution pending [Float32], ImageDrawTextEx pending Font / Phase 67).
+Phase: 66 — Textures & Images (IN PROGRESS — 4/5 plans complete)
+Plan: 66-04 COMPLETE; next up is 66-05 (Smoke + ABI sweep end-to-end ironc build)
+Status: Phase 66 Plan 04 complete (2 tasks — Task 1 commit `e21ddc4` (TEX-08/09/10/11 12 shims), Task 2 commit `e05cf10` (TEX-12 6 draw shims), ~3 min total). 18 Texture-surface functions bound in one mechanical execution of the Texture-by-value INPUT + Rectangle/Vector2/Color memcpy template: 4 TEX-08 (Texture.load + Image.to_texture + unload + is_valid), 4 TEX-09 (Texture.load_cubemap + RenderTexture.load/unload/is_valid), 2 TEX-10 (Texture.update + update_rec via Int→intptr_t cast), 3 TEX-11 (Texture.set_filter/set_wrap/gen_mipmaps), 6 TEX-12 (draw, draw_v, draw_ex, draw_rec, draw_pro, draw_n_patch). FIRST RenderTexture 44 B by-value RETURN across the FFI — zero -Wlarge-by-value-copy warnings (clang's 64 B threshold). FIRST NPatchInfo 36 B by-value INPUT across the FFI — zero warnings. Texture.update opaque void* ARG via int64_t → (void *)(intptr_t) cast extends Plan 66-01's Color.from_pixel_data read-side probe to the write-side (UpdateTexture). TextureCubemap / RenderTexture2D typedef-alias resolution via shared Iron_Texture / Iron_RenderTexture mirror structs (Pitfall 8 validated). clang -c iron_raylib.c + iron_raylib_layout.c exit 0 zero warnings; _Static_assert grid unchanged at 413 entries; ironc NOT invoked this plan (Plan 66-05 owns smoke). Zero deviations — plan executed exactly as written. Cumulative Phase 66: **14/14 requirements complete** (TEX-01..14 all closed; 100%) pending Plan 66-05 end-to-end ironc smoke validation.
+Last activity: 2026-04-17 — Phase 66 Plan 04 executed on local. 18 Texture / RenderTexture / Image.to_texture bindings (TEX-08/09/10/11/12 all closed). First RenderTexture 44 B by-value RETURN + first NPatchInfo 36 B by-value INPUT validated zero-warning. Phase 66 cumulative 14/14 requirements complete (100%) pending Plan 66-05 end-to-end smoke.
 
-Progress: [████████░░] 81%
+Progress: [████████░░] 84%
 
 ## Performance Metrics
 
@@ -39,7 +39,7 @@ Progress: [████████░░] 81%
 - Phases complete: 4 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D; Phase 65 — raymath)
 - Phases in flight: 2 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 95 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01..08 all closed — 143/143 raymath functions bound; TEX-01 + TEX-02 + TEX-03 + TEX-04 + TEX-05 + TEX-06 + TEX-07 + TEX-13 + TEX-14 — 69 Image.* bindings + 18 Color-math bindings + 26-color canonical palette; 4 memory-buffer functions DEFERRED pending [UInt8] FFI; ImageKernelConvolution DEFERRED pending [Float32] FFI; ImageDrawTextEx DEFERRED to Phase 67)
+- Requirements complete: 100 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01..08 all closed — 143/143 raymath functions bound; **TEX-01..14 all closed** — 69 Image.* + 18 Texture/RenderTexture/Image.to_texture + 18 Color-math bindings + 26-color canonical palette; 4 memory-buffer functions DEFERRED pending [UInt8] FFI; ImageKernelConvolution DEFERRED pending [Float32] FFI; ImageDrawTextEx DEFERRED to Phase 67)
 
 ### Plan execution log
 
@@ -67,6 +67,7 @@ Progress: [████████░░] 81%
 | 66-01 | 2     | ~7 min   | 5     | 6c80d43, ffcae94                            |
 | 66-02 | 2     | ~5 min   | 4     | 3f6953f (Task 1 probe = 0 commits)          |
 | 66-03 | 2     | ~5 min   | 4     | 6398263, 17bfb9c                            |
+| 66-04 | 2     | ~3 min   | 4     | e21ddc4, e05cf10                            |
 
 ## Accumulated Context
 
@@ -211,6 +212,13 @@ Progress: [████████░░] 81%
 - **66-03 decision — Image.from_rectangle over raylib's ImageFromImage:** Claude's Discretion per 66-CONTEXT.md. raylib's C name reads poorly as an instance method (`image.from_image(rec)` — source vs destination ambiguous?). `image.from_rectangle(rec)` is self-documenting; the shim forwards to raylib's real `ImageFromImage(src, r)`.
 - **66-03 decision — `finish` parameter name for line endpoints** (draw_line_v / draw_line_ex). Consistent with Plan 63-02's draw_line_v. `end` is not reserved (probed 63-01) but reads poorly alongside `Draw.end()`. Readability over raylib-name fidelity.
 - **66-03 note — Zero deviations from plan:** Both tasks landed on first compile with zero -Wall -Wextra warnings. The planner's "this plan is mechanical application with zero new ABI territory" assessment proved accurate. No Rule 1/2/3 auto-fixes required. The planner's pre-execution instruction to check iron_runtime.h for float-list pre-declarations correctly anticipated the ImageKernelConvolution deferral.
+- **66-04 (2026-04-17):** 18 Texture + RenderTexture + Image.to_texture bindings landed (TEX-08 load/unload/valid + Image.to_texture; TEX-09 cubemap + RenderTexture load/unload/valid; TEX-10 update/update_rec; TEX-11 set_filter/set_wrap/gen_mipmaps; TEX-12 6 draw variants including n_patch). **FIRST RenderTexture 44 B by-value RETURN** across the FFI via Iron_render_texture_load — zero -Wlarge-by-value-copy warnings (clang's 64 B threshold). **FIRST NPatchInfo 36 B by-value INPUT** across the FFI via Iron_texture_draw_n_patch — zero warnings. clang -c iron_raylib.c + iron_raylib_layout.c exit 0 on macOS arm64; `_Static_assert` grid unchanged at 413 entries; ironc NOT invoked (Plan 66-05 owns smoke). Phase 66 cumulative **14/14 requirements complete** (100%).
+- **66-04 decision — Image.to_texture in Image namespace (receiver-semantics naming):** raylib's C name is LoadTextureFromImage (factory). Iron convention names factories by their receiver's input, so `image.to_texture()` reads as `image → texture`. Shim `Iron_image_to_texture` mirrors the Iron method receiver even though raylib calls LoadTextureFromImage. Same design rationale as Plan 66-03's Image.from_rectangle.
+- **66-04 decision — Texture.set_filter / set_wrap return nothing:** raylib's SetTextureFilter / SetTextureWrap consume Texture by value and mutate GPU state keyed by the texture's `id` handle. Iron-side struct holds no mutable state the user needs back. Only `gen_mipmaps` needs return-by-value because GenTextureMipmaps(Texture *) mutates the passed-in struct's `mipmaps` field. Keeps the API minimal — config methods are fire-and-forget, transform methods return.
+- **66-04 decision — Texture.load_cubemap returns Iron Texture (not TextureCubemap):** raylib.h:1414 declares `RLAPI TextureCubemap LoadTextureCubemap(Image, int)` where `typedef Texture2D TextureCubemap;` (Pitfall 8 from 66-RESEARCH.md). Iron's Texture mirror handles both; consumers distinguish cubemap vs 2D by parameter context. Matches Plan 60-03's decision to collapse Texture/Texture2D/TextureCubemap.
+- **66-04 decision — Texture.update(pixels: Int) uses opaque Int → (void*)(intptr_t) cast:** raylib's `void *pixels` accepts any pixel format (U8/U16/F32 depending on internal format). [UInt8] / [Float32] FFI paths both blocked. Int-as-opaque-pointer unblocks ALL pixel formats without waiting for typed list support — users compute raw pointer via Color.from_pixel_data probe pattern. Extends Plan 66-01's read-side probe to write-side.
+- **66-04 decision — RenderTexture.unload / is_valid take full 44 B struct by value:** raylib's UnloadRenderTexture / IsRenderTextureValid both consume RenderTexture2D by value. 44 B is strictly under 64 B `-Wlarge-by-value-copy` threshold — no pointer optimization needed. Keeps API symmetric with Texture load/unload/is_valid.
+- **66-04 note — Zero deviations from plan:** Both tasks landed on first compile with zero `-Wall -Wextra` warnings. Planner's claim that "every ABI pattern was proven in Plans 66-01..03" validated — the 9 Texture-by-value INPUT sites and 1 NPatchInfo-by-value INPUT site all applied existing templates unchanged.
 
 ```
 60 (Types + Enums)  ← foundation; all others depend on it

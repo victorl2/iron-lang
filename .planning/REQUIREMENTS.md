@@ -136,11 +136,11 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **TEX-05**: User can transform an image in place — `image.toPOT, image.format, image.toPOT, image.crop, image.alphaCrop, image.alphaClear, image.alphaMask, image.alphaPremultiply, image.blurGaussian, image.kernelConvolution, image.resize, image.resizeNN, image.resizeCanvas, image.mipmaps, image.dither, image.flipVertical/Horizontal, image.rotate, image.rotateCW/CCW, image.colorTint, image.colorInvert, image.colorGrayscale, image.colorContrast, image.colorBrightness, image.colorReplace`
 - [x] **TEX-06**: User can extract image data — `image.loadColors, image.loadPalette, image.getAlphaBorder, image.getColor`
 - [x] **TEX-07**: User can draw onto an `Image` (CPU-side) — `image.drawPixel, image.drawLine, image.drawCircle, image.drawRectangle, image.draw, image.drawText` (full set of `ImageDraw*` functions)
-- [ ] **TEX-08**: User can load a `Texture2D` from a file or `Image` — `Texture.load(path), image.toTexture()` — and unload via `texture.unload()`
-- [ ] **TEX-09**: User can load cubemaps and `RenderTexture2D` — `Texture.loadCubemap(image, layout), RenderTexture.load(width, height)` and unload them
-- [ ] **TEX-10**: User can update texture data — `texture.update(pixels), texture.updateRec(rec, pixels)`
-- [ ] **TEX-11**: User can configure texture filter and wrap — `texture.setFilter(TextureFilter), texture.setWrap(TextureWrap), texture.genMipmaps()`
-- [ ] **TEX-12**: User can draw a texture in every variant — `drawTexture, drawTextureV, drawTextureEx, drawTextureRec, drawTexturePro, drawTextureNPatch` invoked as methods on `Texture` where idiomatic
+- [x] **TEX-08**: User can load a `Texture2D` from a file or `Image` — `Texture.load(path), image.toTexture()` — and unload via `texture.unload()`
+- [x] **TEX-09**: User can load cubemaps and `RenderTexture2D` — `Texture.loadCubemap(image, layout), RenderTexture.load(width, height)` and unload them
+- [x] **TEX-10**: User can update texture data — `texture.update(pixels), texture.updateRec(rec, pixels)`
+- [x] **TEX-11**: User can configure texture filter and wrap — `texture.setFilter(TextureFilter), texture.setWrap(TextureWrap), texture.genMipmaps()`
+- [x] **TEX-12**: User can draw a texture in every variant — `drawTexture, drawTextureV, drawTextureEx, drawTextureRec, drawTexturePro, drawTextureNPatch` invoked as methods on `Texture` where idiomatic
 - [x] **TEX-13**: User can manipulate `Color` values — `colorIsEqual, fade, colorToInt, colorNormalize, colorFromNormalized, colorToHSV, colorFromHSV, colorTint, colorBrightness, colorContrast, colorAlpha, colorAlphaBlend, colorLerp, getColor, getPixelColor, setPixelColor, getPixelDataSize` — exposed as methods/constructors on `Color`
 - [x] **TEX-14**: All raylib `Color` palette constants are present (LIGHTGRAY, GRAY, DARKGRAY, YELLOW, GOLD, ORANGE, PINK, RED, MAROON, GREEN, LIME, DARKGREEN, SKYBLUE, BLUE, DARKBLUE, PURPLE, VIOLET, DARKPURPLE, BEIGE, BROWN, DARKBROWN, WHITE, BLACK, BLANK, MAGENTA, RAYWHITE)
 
@@ -373,11 +373,11 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | TEX-05 | Phase 66 | Complete |
 | TEX-06 | Phase 66 | Complete |
 | TEX-07 | Phase 66 | Complete |
-| TEX-08 | Phase 66 | Pending |
-| TEX-09 | Phase 66 | Pending |
-| TEX-10 | Phase 66 | Pending |
-| TEX-11 | Phase 66 | Pending |
-| TEX-12 | Phase 66 | Pending |
+| TEX-08 | Phase 66 | Complete |
+| TEX-09 | Phase 66 | Complete |
+| TEX-10 | Phase 66 | Complete |
+| TEX-11 | Phase 66 | Complete |
+| TEX-12 | Phase 66 | Complete |
 | TEX-13 | Phase 66 | Complete |
 | TEX-14 | Phase 66 | Complete |
 | TEXT-01 | Phase 67 | Pending |
