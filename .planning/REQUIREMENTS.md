@@ -210,7 +210,7 @@ raymath functions become **methods on Vector2/Vector3/Vector4/Matrix/Quaternion*
 - [x] **MATH-02**: `Vector2` has methods for **all** raymath `Vector2*` operations: `zero, one, add, addValue, subtract, subtractValue, length, lengthSqr, dotProduct, distance, distanceSqr, angle, lineAngle, scale, multiply, negate, divide, normalize, transform, lerp, reflect, min, max, clamp, clampValue, equals, refract, rotate, moveTowards, invert`
 - [x] **MATH-03**: `Vector3` has methods for **all** raymath `Vector3*` operations: `zero, one, add, addValue, subtract, subtractValue, scale, multiply, crossProduct, perpendicular, length, lengthSqr, dotProduct, distance, distanceSqr, angle, negate, divide, normalize, project, reject, orthoNormalize, transform, rotateByQuaternion, rotateByAxisAngle, moveTowards, lerp, cubicHermite, reflect, min, max, barycenter, unproject, toFloatV, invert, clamp, clampValue, equals, refract, distanceSqr`
 - [x] **MATH-04**: `Vector4` has methods for **all** raymath `Vector4*` operations: `zero, one, add, addValue, subtract, subtractValue, length, lengthSqr, dotProduct, distance, distanceSqr, scale, multiply, negate, divide, normalize, min, max, lerp, moveTowards, invert, equals`
-- [ ] **MATH-05**: `Matrix` has methods for **all** raymath `Matrix*` operations: `determinant, trace, transpose, invert, identity, add, subtract, multiply, translate, rotate, rotateX, rotateY, rotateZ, rotateXYZ, rotateZYX, scale, frustum, perspective, ortho, lookAt, toFloatV, decompose`
+- [x] **MATH-05**: `Matrix` has methods for **all** raymath `Matrix*` operations: `determinant, trace, transpose, invert, identity, add, subtract, multiply, translate, rotate, rotateX, rotateY, rotateZ, rotateXYZ, rotateZYX, scale, frustum, perspective, ortho, lookAt, toFloatV, decompose`
 - [x] **MATH-06**: `Quaternion` (alias for `Vector4`) has methods for **all** raymath `Quaternion*` operations: `add, addValue, subtract, subtractValue, identity, length, normalize, invert, multiply, scale, divide, lerp, nlerp, slerp, cubicHermiteSpline, fromVector3ToVector3, fromMatrix, toMatrix, fromAxisAngle, toAxisAngle, fromEuler, toEuler, transform, equals`
 - [x] **MATH-07**: All 143 raymath functions are individually testable via Iron code; each function in raymath.h has at least one Iron-side test that exercises it with non-trivial values
 - [x] **MATH-08**: Math operations preserve C ABI — Iron `Float32` round-trips through raymath without precision loss or alignment issues
@@ -362,7 +362,7 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | MATH-02 | Phase 65 | Complete |
 | MATH-03 | Phase 65 | Complete |
 | MATH-04 | Phase 65 | Complete |
-| MATH-05 | Phase 65 | Pending |
+| MATH-05 | Phase 65 | Complete |
 | MATH-06 | Phase 65 | Complete |
 | MATH-07 | Phase 65 | Complete |
 | MATH-08 | Phase 65 | Complete |
