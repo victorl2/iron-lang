@@ -161,7 +161,11 @@ Plans:
   1. User can write `rectA.collides(rectB)`, `circleA.collides(circleB)`, `point.insideRect(rect)`, `point.insidePolygon(poly)`, `lineA.intersects(lineB)`, and `rectA.intersection(rectB)` for every 2D combination raylib exposes, and the boolean/rect results match raylib's C-side answers.
   2. User can write `ray.hitSphere(center, radius)`, `ray.hitBox(box)`, `ray.hitMesh(mesh, transform)`, `ray.hitTriangle(p1, p2, p3)`, `ray.hitQuad(p1, p2, p3, p4)`, `boxA.collides(boxB)`, `box.collidesSphere(center, radius)`, `sphereA.collidesSphere(sphereB)` and get back `Bool` or `RayCollision` values with correct hit data.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 64-01-PLAN.md — 2D collision (COLL-01): 11 functions across Rectangle / Vector2 / Collision receivers, including tuple-return Collision.lines and [Vector2] array input via Iron_List_Iron_Vector2
+- [ ] 64-02-PLAN.md — 3D collision (COLL-02): 8 functions across BoundingBox / Ray / Collision.spheres, including RayCollision struct-by-value return (5 sites) and first Mesh (120B) + Matrix (64B) pass-by-value
 
 ---
 
@@ -342,7 +346,7 @@ Plans:
 | 61. Window & System | 0/4 | Complete    | 2026-04-15 |
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
 | 63. 2D Drawing | 4/4 | Complete    | 2026-04-17 |
-| 64. Collision | 0/? | Not started | - |
+| 64. Collision | 0/2 | Not started | - |
 | 65. raymath | 0/? | Not started | - |
 | 66. Textures & Images | 0/? | Not started | - |
 | 67. Text & Fonts | 0/? | Not started | - |
