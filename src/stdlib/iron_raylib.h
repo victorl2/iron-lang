@@ -1148,6 +1148,34 @@ struct Iron_Image Iron_image_draw_text(struct Iron_Image img, Iron_String text, 
                                         int32_t pos_y, int32_t font_size, struct Iron_Color color);
 /* ImageDrawTextEx DEFERRED to Phase 67: requires Font type */
 
+/* TEX-08/09/10/11 Texture + RenderTexture (Plan 66-04 Task 1 — 12 shims).
+ *
+ * First Texture-by-value INPUT at scale (config methods) and first
+ * RenderTexture-by-value RETURN (44 B — under Phase 64's 120 B ceiling,
+ * zero `-Wlarge-by-value-copy` warnings). Opaque void* ARG for texture
+ * updates extends Plan 66-01's Color.from_pixel_data probe (Int →
+ * (void *)(intptr_t) cast). TextureCubemap / RenderTexture2D are plain
+ * typedef aliases of Texture / RenderTexture in raylib.h, so the Iron
+ * mirror is shared (Pitfall 8).
+ *
+ * Memory ownership: Texture.unload / RenderTexture.unload hand the
+ * Iron_Texture / Iron_RenderTexture struct to raylib by value; raylib
+ * frees its own GPU-side handle. Iron does not own the pixel buffer.
+ */
+struct Iron_Texture Iron_texture_load(Iron_String path);
+struct Iron_Texture Iron_image_to_texture(struct Iron_Image img);
+void                Iron_texture_unload(struct Iron_Texture tex);
+bool                Iron_texture_is_valid(struct Iron_Texture tex);
+struct Iron_Texture       Iron_texture_load_cubemap(struct Iron_Image img, int32_t layout);
+struct Iron_RenderTexture Iron_render_texture_load(int32_t width, int32_t height);
+void                      Iron_render_texture_unload(struct Iron_RenderTexture rt);
+bool                      Iron_render_texture_is_valid(struct Iron_RenderTexture rt);
+void Iron_texture_update(struct Iron_Texture tex, int64_t pixels);
+void Iron_texture_update_rec(struct Iron_Texture tex, struct Iron_Rectangle rec, int64_t pixels);
+void                Iron_texture_set_filter(struct Iron_Texture tex, int32_t filter);
+void                Iron_texture_set_wrap(struct Iron_Texture tex, int32_t wrap);
+struct Iron_Texture Iron_texture_gen_mipmaps(struct Iron_Texture tex);
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

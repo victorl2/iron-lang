@@ -3617,6 +3617,127 @@ struct Iron_Image Iron_image_draw_text(struct Iron_Image img, Iron_String text, 
     return out;
 }
 
+/* ════════════════════════════════════════════════════════════════════
+ * TEX-08/09/10/11 Texture + RenderTexture (Plan 66-04 Task 1 — 12 shims).
+ *
+ * First RenderTexture-by-value RETURN (44 B, under -Wlarge-by-value-copy
+ * 64 B threshold). Opaque void* ARG for texture updates via int64_t →
+ * (void *)(intptr_t) cast (Pattern 4 from Plan 66-01 probe).
+ * TextureCubemap / RenderTexture2D are plain typedef aliases of
+ * Texture / RenderTexture in raylib.h (Pitfall 8) — the memcpy shares
+ * the same Iron mirror structs.
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* TEX-08: Texture load/unload/valid (4 shims). */
+
+struct Iron_Texture Iron_texture_load(Iron_String path) {
+    const char *cpath = iron_string_cstr(&path);
+    Texture2D t = LoadTexture(cpath ? cpath : "");
+    struct Iron_Texture out;
+    memcpy(&out, &t, sizeof(struct Iron_Texture));
+    return out;
+}
+
+struct Iron_Texture Iron_image_to_texture(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    Texture2D t = LoadTextureFromImage(src);
+    struct Iron_Texture out;
+    memcpy(&out, &t, sizeof(struct Iron_Texture));
+    return out;
+}
+
+void Iron_texture_unload(struct Iron_Texture tex) {
+    Texture t;
+    memcpy(&t, &tex, sizeof(Texture));
+    UnloadTexture(t);
+}
+
+bool Iron_texture_is_valid(struct Iron_Texture tex) {
+    Texture t;
+    memcpy(&t, &tex, sizeof(Texture));
+    return (bool)(IsTextureValid(t) != 0);
+}
+
+/* TEX-09: Cubemap + RenderTexture load/unload/valid (4 shims).
+ * First RenderTexture-by-value RETURN at 44 B. */
+
+struct Iron_Texture Iron_texture_load_cubemap(struct Iron_Image img, int32_t layout) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    TextureCubemap tc = LoadTextureCubemap(src, (int)layout);
+    struct Iron_Texture out;
+    /* TextureCubemap is typedef of Texture — Pitfall 8 */
+    memcpy(&out, &tc, sizeof(struct Iron_Texture));
+    return out;
+}
+
+struct Iron_RenderTexture Iron_render_texture_load(int32_t width, int32_t height) {
+    RenderTexture2D rt = LoadRenderTexture((int)width, (int)height);
+    struct Iron_RenderTexture out;
+    /* 44 B memcpy — first RenderTexture by-value return */
+    memcpy(&out, &rt, sizeof(struct Iron_RenderTexture));
+    return out;
+}
+
+void Iron_render_texture_unload(struct Iron_RenderTexture rt) {
+    RenderTexture2D t;
+    memcpy(&t, &rt, sizeof(RenderTexture));
+    UnloadRenderTexture(t);
+}
+
+bool Iron_render_texture_is_valid(struct Iron_RenderTexture rt) {
+    RenderTexture2D t;
+    memcpy(&t, &rt, sizeof(RenderTexture));
+    return (bool)(IsRenderTextureValid(t) != 0);
+}
+
+/* TEX-10: Texture update via opaque Int → void* cast (2 shims).
+ * Extends Plan 66-01's Color.from_pixel_data probe. */
+
+void Iron_texture_update(struct Iron_Texture tex, int64_t pixels) {
+    Texture t;
+    memcpy(&t, &tex, sizeof(Texture));
+    const void *px = (const void *)(intptr_t)pixels;
+    UpdateTexture(t, px);
+}
+
+void Iron_texture_update_rec(struct Iron_Texture tex, struct Iron_Rectangle rec, int64_t pixels) {
+    Texture t;
+    Rectangle r;
+    memcpy(&t, &tex, sizeof(Texture));
+    memcpy(&r, &rec, sizeof(Rectangle));
+    const void *px = (const void *)(intptr_t)pixels;
+    UpdateTextureRec(t, r, px);
+}
+
+/* TEX-11: Config — filter / wrap / mipmaps (3 shims).
+ * set_filter / set_wrap take Texture by value; raylib mutates GPU state
+ * on the texture's `id` (handle) so Iron-side struct is not returned.
+ * gen_mipmaps uses the mutating-pointer pattern: memcpy in, raylib
+ * mutates &t in place, memcpy mutated struct out. */
+
+void Iron_texture_set_filter(struct Iron_Texture tex, int32_t filter) {
+    Texture t;
+    memcpy(&t, &tex, sizeof(Texture));
+    SetTextureFilter(t, (int)filter);
+}
+
+void Iron_texture_set_wrap(struct Iron_Texture tex, int32_t wrap) {
+    Texture t;
+    memcpy(&t, &tex, sizeof(Texture));
+    SetTextureWrap(t, (int)wrap);
+}
+
+struct Iron_Texture Iron_texture_gen_mipmaps(struct Iron_Texture tex) {
+    Texture t;
+    memcpy(&t, &tex, sizeof(Texture));
+    GenTextureMipmaps(&t);
+    struct Iron_Texture out;
+    memcpy(&out, &t, sizeof(struct Iron_Texture));
+    return out;
+}
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

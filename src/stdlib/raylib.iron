@@ -1398,6 +1398,36 @@ func Image.draw_triangle_strip(img: Image, points: [Vector2], point_count: Int32
 func Image.draw(img: Image, src: Image, src_rec: Rectangle, dst_rec: Rectangle, tint: Color) -> Image {}
 func Image.draw_text(img: Image, text: String, pos_x: Int32, pos_y: Int32, font_size: Int32, color: Color) -> Image {}
 
+-- Texture + RenderTexture load/update/config (Plan 66-04 — TEX-08/09/10/11, 12 bindings)
+--
+-- First Texture-by-value INPUT at scale in config methods; first
+-- RenderTexture-by-value RETURN (44 B, under Phase 64's 120 B ceiling).
+-- Opaque void* args via Int → (void *)(intptr_t) cast (Pattern 4 from
+-- Plan 66-01 Color.from_pixel_data probe). TextureCubemap and
+-- RenderTexture2D are raylib typedef aliases of Texture / RenderTexture
+-- so the Iron mirror is shared across load_cubemap and RenderTexture.
+
+-- TEX-08 Texture load/unload/valid
+func Texture.load(path: String) -> Texture {}
+func Image.to_texture(img: Image) -> Texture {}
+func Texture.unload(tex: Texture) {}
+func Texture.is_valid(tex: Texture) -> Bool {}
+
+-- TEX-09 Cubemap + RenderTexture
+func Texture.load_cubemap(img: Image, layout: CubemapLayout) -> Texture {}
+func RenderTexture.load(width: Int32, height: Int32) -> RenderTexture {}
+func RenderTexture.unload(rt: RenderTexture) {}
+func RenderTexture.is_valid(rt: RenderTexture) -> Bool {}
+
+-- TEX-10 Texture update (opaque void* via Int pointer cast)
+func Texture.update(tex: Texture, pixels: Int) {}
+func Texture.update_rec(tex: Texture, rec: Rectangle, pixels: Int) {}
+
+-- TEX-11 Config (filter / wrap / mipmaps)
+func Texture.set_filter(tex: Texture, filter: TextureFilter) {}
+func Texture.set_wrap(tex: Texture, wrap: TextureWrap) {}
+func Texture.gen_mipmaps(tex: Texture) -> Texture {}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════
