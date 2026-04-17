@@ -157,7 +157,7 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **TEXT-09**: User can set text line spacing — `setTextLineSpacing`
 - [x] **TEXT-10**: User can measure text — `measureText, measureTextEx` returning `Vector2` for width/height
 - [x] **TEXT-11**: User can look up glyphs by codepoint — `getGlyphIndex, getGlyphInfo, getGlyphAtlasRec`
-- [ ] **TEXT-12**: User can manipulate UTF-8 / codepoints — `loadUTF8, unloadUTF8, loadCodepoints, unloadCodepoints, getCodepointCount, getCodepoint, getCodepointNext, getCodepointPrevious, codepointToUTF8`
+- [x] **TEXT-12**: User can manipulate UTF-8 / codepoints — `loadUTF8, unloadUTF8, loadCodepoints, unloadCodepoints, getCodepointCount, getCodepoint, getCodepointNext, getCodepointPrevious, codepointToUTF8`
 - [ ] **TEXT-13**: User can manipulate text strings — `textCopy, textIsEqual, textLength, textFormat, textSubtext, textReplace, textInsert, textJoin, textSplit, textAppend, textFindIndex, textToUpper, textToLower, textToPascal, textToSnake, textToCamel, textToInteger, textToFloat` — note: where Iron's native String methods already cover these, expose as no-op aliases or shadow
 
 ### Audio (`raudio.c` — ~35 functions)
@@ -391,7 +391,7 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | TEXT-09 | Phase 67 | Complete |
 | TEXT-10 | Phase 67 | Complete |
 | TEXT-11 | Phase 67 | Complete |
-| TEXT-12 | Phase 67 | Pending |
+| TEXT-12 | Phase 67 | Complete |
 | TEXT-13 | Phase 67 | Pending |
 | AUDIO-01 | Phase 68 | Pending |
 | AUDIO-02 | Phase 68 | Pending |
