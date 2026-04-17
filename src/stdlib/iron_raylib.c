@@ -1118,6 +1118,30 @@ void Iron_draw_spline_bezier_cubic(Iron_List_Iron_Vector2 points, int32_t count,
     DrawSplineBezierCubic((const Vector2 *)points.items, (int)count, thick, c);
 }
 
+/* Phase 67 extension: default-font draws (TEXT-07, TEXT-08 default variant).
+ *
+ * Pitfall 1 (67-RESEARCH.md): both DrawFPS and DrawText read raylib's
+ * embedded default font, which is populated by rtext.c:LoadFontDefault
+ * during InitWindow. Calling either shim before Window.init() dereferences
+ * a null atlas pointer. Flagged in raylib.iron above each method.
+ *
+ * Iron_String carries text as a length-prefixed payload;
+ * iron_string_cstr() returns a NUL-terminated view (no allocation for
+ * typical string literals).
+ */
+
+void Iron_draw_fps(int32_t pos_x, int32_t pos_y) {
+    DrawFPS((int)pos_x, (int)pos_y);
+}
+
+void Iron_draw_text(Iron_String text, int32_t pos_x, int32_t pos_y,
+                     int32_t font_size, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawText(iron_string_cstr(&text), (int)pos_x, (int)pos_y,
+             (int)font_size, c);
+}
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* 2D collision (COLL-01) — 11 functions. */
 
@@ -4011,6 +4035,26 @@ void Iron_font_unload_data(Iron_List_Iron_GlyphInfo glyphs) {
     /* Cast-safe: Iron_GlyphInfo is byte-identical to raylib GlyphInfo
      * per Phase 60-03 _Static_assert grid. */
     UnloadFontData((GlyphInfo *)glyphs.items, (int)glyphs.count);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Plan 67-02 Task 1: Text.* namespace utilities ────────────────────
+ *
+ * TEXT-09 (default-font measure) + TEXT-10 (line spacing). Both are
+ * default-font-only; custom-font measure lives on Font.measure_ex in
+ * Plan 67-02 Task 2. SetTextLineSpacing mutates raylib's internal
+ * gTextLineSpacing state — affects every subsequent multi-line draw
+ * (default or custom font).
+ *
+ * Pitfall 1: MeasureText reads the default atlas; requires Window.init.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+int32_t Iron_text_measure(Iron_String text, int32_t font_size) {
+    return (int32_t)MeasureText(iron_string_cstr(&text), (int)font_size);
+}
+
+void Iron_text_set_line_spacing(int32_t spacing) {
+    SetTextLineSpacing((int)spacing);
 }
 
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */

@@ -649,6 +649,16 @@ void Iron_draw_spline_catmull_rom(Iron_List_Iron_Vector2 points, int32_t count, 
 void Iron_draw_spline_bezier_quadratic(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
 void Iron_draw_spline_bezier_cubic(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
 
+/* Phase 67 extension: default-font draws (TEXT-07, TEXT-08 default variant).
+ * Live in the Phase 63 Draw.* namespace because they consume the default
+ * font that raylib's rcore initializes during InitWindow; `Draw.text` is
+ * the default-font counterpart to `Font.draw_ex`. Pitfall 1: both require
+ * Window.init() first — otherwise raylib dereferences a null default-font
+ * pointer (rtext.c:130, LoadFontDefault runs during InitWindow only). */
+void Iron_draw_fps(int32_t pos_x, int32_t pos_y);
+void Iron_draw_text(Iron_String text, int32_t pos_x, int32_t pos_y,
+                     int32_t font_size, struct Iron_Color color);
+
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
 /* 2D collision (COLL-01) — 11 functions. See src/vendor/raylib/raylib.h:1304-1315. */
 
@@ -1307,6 +1317,19 @@ struct Iron_Image Iron_image_draw_text_ex(struct Iron_Image img, struct Iron_Fon
                                            Iron_String text, struct Iron_Vector2 position,
                                            float font_size, float spacing,
                                            struct Iron_Color tint);
+
+/* ── Plan 67-02 additions (Task 1) — Text.* namespace ──────────────
+ *
+ * Default-font measure (MeasureText) + SetTextLineSpacing multiline gap.
+ * Both are default-font-only; the custom-font `measure_ex` lives on
+ * Font.* and lands alongside the Task 2 Font instance methods.
+ *
+ * MeasureText/SetTextLineSpacing share Pitfall 1 with DrawText/DrawFPS:
+ * they require Window.init() to have populated raylib's default atlas.
+ */
+
+int32_t Iron_text_measure(Iron_String text, int32_t font_size);
+void    Iron_text_set_line_spacing(int32_t spacing);
 
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

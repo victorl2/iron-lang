@@ -962,6 +962,12 @@ object Draw {}
 object Audio {}
 object Files {}
 
+-- Phase 67 text-utility namespace. Receives measure + line-spacing
+-- default-font methods in Plan 67-02 (Text.measure, Text.set_line_spacing)
+-- and the codepoint/UTF-8 + string-manipulation helpers in Plan 67-03.
+-- Pure static-dispatch target — no fields.
+object Text {}
+
 -- ── Phase 62 input namespaces ──────────────────────────────────────
 --
 -- These five namespace `object`s receive the keyboard / mouse /
@@ -1502,6 +1508,19 @@ func Font.export_as_code(font: Font, filePath: String) -> Bool {}
 -- RETURN and first [GlyphInfo] INPUT in the raylib binding.
 func Font.gen_image_atlas(glyphs: [GlyphInfo], fontSize: Int32, padding: Int32, packMethod: Int32) -> (Image, [Rectangle]) {}
 func Font.unload_data(glyphs: [GlyphInfo]) {}
+
+-- ── Plan 67-02 Task 1: Text.* default-font utilities (TEXT-09, TEXT-10 default)
+--
+-- Text.measure: width in pixels of `text` at `fontSize` using raylib's
+-- embedded default font. Requires Window.init() (same Pitfall 1 as
+-- Draw.text above). For custom-font measurement use Font.measure_ex
+-- (Plan 67-02 Task 2 below).
+--
+-- Text.set_line_spacing: vertical gap in pixels between lines when
+-- raylib draws multi-line text. Applies to every draw (default and
+-- custom font) that follows. Mutates raylib's internal global state.
+func Text.measure(text: String, fontSize: Int32) -> Int32 {}
+func Text.set_line_spacing(spacing: Int32) {}
 
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
@@ -2139,6 +2158,19 @@ func Draw.spline_basis(points: [Vector2], count: Int32, thick: Float32, color: C
 func Draw.spline_catmull_rom(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
 func Draw.spline_bezier_quadratic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
 func Draw.spline_bezier_cubic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+
+-- ── Phase 67 extension: default-font draws (TEXT-07, TEXT-08 default)
+--
+-- Render raylib's FPS overlay (top-left unless positioned) and
+-- default-font text. Both read raylib's embedded default atlas, which
+-- is populated by InitWindow via rtext.c:LoadFontDefault.
+--
+-- Pitfall 1 (Plan 67-RESEARCH): these REQUIRE Window.init() first;
+-- calling them before an OpenGL context + default font are live
+-- dereferences a null atlas pointer. For custom-font draws use
+-- Font.draw_ex / Font.draw_pro below.
+func Draw.fps(posX: Int32, posY: Int32) {}
+func Draw.text(text: String, posX: Int32, posY: Int32, fontSize: Int32, color: Color) {}
 
 -- ══════════════════════════════════════════════════════════════════════
 -- Collision (Phase 64)
