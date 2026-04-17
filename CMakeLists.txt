@@ -250,6 +250,42 @@ target_compile_definitions(ironc PRIVATE
     IRON_BINARY_NAME="ironc"
 )
 
+# ── ironls language server executable (Phase 2 M1 LSP Core) ──────────────────
+# Second binary next to ironc/iron. Links iron_compiler as a PUBLIC static
+# lib so the LSP analyzer output never diverges from the compiler's. Platform
+# posture follows the compiler: Linux + macOS in v1; Windows is hard-failed
+# with a friendly FATAL_ERROR until the compiler's MSVC issues clear.
+option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
+
+if(IRON_BUILD_LSP AND WIN32)
+    message(FATAL_ERROR
+        "ironls is not supported on Windows in v1 -- re-enable when the "
+        "compiler's Windows build clears the existing MSVC issues. Configure "
+        "with -DIRON_BUILD_LSP=OFF to skip the LSP binary.")
+endif()
+
+if(IRON_BUILD_LSP)
+    add_executable(ironls
+        src/lsp/main.c
+        src/vendor/yyjson/yyjson.c
+    )
+    target_include_directories(ironls PRIVATE src src/vendor)
+    target_link_libraries(ironls iron_compiler iron_runtime iron_stdlib m pthread)
+    target_compile_definitions(ironls PRIVATE
+        IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
+        IRON_VERSION_STRING="${IRON_VERSION_FULL}"
+        IRON_GIT_HASH="${IRON_GIT_HASH}"
+        IRON_BUILD_DATE="${IRON_BUILD_DATE}"
+        IRON_BINARY_NAME="ironls"
+    )
+    # yyjson is a third-party vendored C library; silence the specific
+    # warnings it emits under our -Wall -Wextra -Werror -Wpedantic discipline.
+    # The drop-in is reviewed at vendoring time (see Plan 02-01 SUMMARY); we
+    # do not want it to hold back our own -Werror posture.
+    set_source_files_properties(src/vendor/yyjson/yyjson.c PROPERTIES
+        COMPILE_FLAGS "-Wno-error -w")
+endif()
+
 # ── iron package manager executable ─────────────────────────────────────────
 # iron does NOT link iron_compiler or iron_runtime -- clean process boundary.
 # It only spawns ironc as a subprocess.
@@ -524,7 +560,11 @@ set_tests_properties(benchmark_smoke PROPERTIES
     LABELS "benchmark")
 
 # ---- Install rules ----
-install(TARGETS ironc iron DESTINATION bin)
+if(IRON_BUILD_LSP)
+    install(TARGETS ironc iron ironls DESTINATION bin)
+else()
+    install(TARGETS ironc iron DESTINATION bin)
+endif()
 
 # Install runtime C source files (needed by ironc at compile time)
 install(DIRECTORY src/runtime/ DESTINATION lib/runtime FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
