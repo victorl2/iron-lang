@@ -91,6 +91,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_EXPECTED_RPAREN     104
 #define IRON_ERR_EXPECTED_COLON      105
 #define IRON_ERR_EXPECTED_ARROW      106
+#define IRON_ERR_PARSE_DEPTH_EXCEEDED 107  /* HARD-08: recursion-depth guard (Plan 04) */
 
 /* Semantic errors */
 #define IRON_ERR_UNDEFINED_VAR        200
@@ -205,6 +206,13 @@ void iron_diaglist_free(Iron_DiagList *list);
  * Emitted when `Self` appears as a return-type annotation in a top-level
  * free function or any other non-method context. */
 #define IRON_ERR_SELF_OUTSIDE_CONTEXT       259   /* SELF outside method/iface */
+
+/* Cancellation meta-diagnostic — emitted by iron_analyze_buffer on cancel.
+ * Level is IRON_DIAG_NOTE so it does NOT bump error_count and does NOT change
+ * exit-code semantics for CLI. HARD-05 (Plan 03).
+ * RENUMBERED 240→290 (F3 Phase 8 rebase): 240 now owned by IRON_ERR_PURE_IO
+ * (Phase 84 MUTTIER). */
+#define IRON_ERR_CANCELLED            290
 
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
