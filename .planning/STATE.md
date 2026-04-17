@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 65-01-PLAN.md
-last_updated: "2026-04-17T11:52:04.526Z"
-last_activity: 2026-04-17 — Phase 65 Plan 01 executed on local. raymath.h included under RAYMATH_STATIC_INLINE (AFTER raylib.h due to RL_VECTOR2_TYPE guard dependency — plan's written order reversed). 6 RMath.* scalar helpers + 30 Vector2.* method bindings + 3 Float32 module constants landed. raymath_smoke.iron runs end-to-end printing "ALL MATH-08 ASSERTS PASS" exit 0. MATH-01 + MATH-02 closed. **Namespace renamed Math -> RMath** to avoid Iron_math_* prefix collision with iron_math.h / math.iron. Commits 52b6a01, aafb795, de8461f.
+stopped_at: Completed 65-02-PLAN.md
+last_updated: "2026-04-17T12:03:43.599Z"
+last_activity: 2026-04-17 — Phase 65 Plan 02 executed on local. 37 Vector3.* method bindings landed (not 38 as plan prose said — raymath.h has 39 Vector3 RMAPI functions minus 2 deferred = 37). Cross-type args (Vector3+Quaternion, Vector3+Matrix+Matrix) validated; Vector3.unproject exercises two 64 B Matrix by value zero-warning. raymath_smoke.iron extended with 37 call sites + 13 ABI asserts; build exits 0, runtime prints ALL MATH-08 ASSERTS PASS. MATH-03 closed for 37 of 39 functions (remaining 2 land in 65-03 and 65-04). Commits 5117fed, 47947b9.
 progress:
   total_phases: 14
   completed_phases: 4
   total_plans: 26
-  completed_plans: 19
-  percent: 73
+  completed_plans: 20
+  percent: 77
 ---
 
 # State
@@ -25,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 65 — raymath (IN PROGRESS, 1/4 plans complete)
-Plan: 65-02 next (Vector3, 40 functions, MATH-03)
-Status: Phase 65 Plan 01 complete. raymath.h integrated into iron_raylib.c under `#define RAYMATH_STATIC_INLINE` — include order raylib.h FIRST then raymath.h (plan's written order reversed, Rule 3 deviation: raymath.h guards its Vector2/3/4/Matrix typedefs with `#if !defined(RL_VECTOR2_TYPE)` etc., and those guards are set only by raylib.h line 167; reversed order triggered 8 clang redefinition errors). Namespace renamed Math → RMath (Rule 3 deviation: emit_c.c:6710 maintains prefix skip-list `Iron_math_`/`Iron_io_`/... that suppresses auto-prototype emission; with Math/Iron_math_* the first ironc build failed with 5 undeclared-function errors + 1 signature clash against pre-existing `Iron_math_lerp(double,...)` in iron_math.h; RMath lowers to Iron_rmath_* which is outside the skip-list and outside the iron_math.h namespace). 36 call sites (6 RMath.* + 30 Vector2.*) in tests/manual/raymath_smoke.iron pass 15 MATH-08 ABI round-trip assertions end-to-end — Mach-O arm64 2,661,744-byte binary exits 0 printing "ALL MATH-08 ASSERTS PASS". DEG2RAD/RAD2DEG/EPSILON Float32 constants landed (Pitfall 9 fallback NOT triggered). Matrix-by-value as function arg (Vector2.transform) zero-warning under -Wall -Wextra. ironc invoked 1x this plan (Task 3 smoke). _Static_assert grid unchanged at 392. MATH-01 + MATH-02 closed (18 requirements complete: 6 RMath.* + 30 Vector2.* = 36 bindings from this plan, adding to 78 milestone requirements already closed, so total is 80 after MATH-01/02 are formally checked off).
-Last activity: 2026-04-17 — Phase 65 Plan 01 executed on local. raymath.h wired in under RAYMATH_STATIC_INLINE; RMath namespace (not Math — iron_math.h collision) + 30 Vector2.* methods + smoke test landed; MATH-01 + MATH-02 closed.
+Phase: 65 — raymath (IN PROGRESS, 2/4 plans complete)
+Plan: 65-03 next (Vector4 + Matrix + Float3/Float16, MATH-04/MATH-05)
+Status: Phase 65 Plan 02 complete. 37 Vector3.* raymath method bindings landed (NOT 38 — plan prose miscounted; raymath.h has 39 Vector3 RMAPI functions minus 2 deferred = 37: Vector3.to_float_v carries to Plan 65-03, Vector3.ortho_normalize carries to Plan 65-04). Three new cross-type args validated zero-warning: Vector3+Quaternion (rotate_by_quaternion), Vector3+Matrix (transform), Vector3+Matrix+Matrix (unproject — first Phase 65 shim with TWO Matrix 64 B args in one signature; still no -Wlarge-by-value-copy since threshold fires at strictly >64). 4-Vector3 (barycenter) and 5-arg (cubic_hermite with 4 Vector3 + float) compile clean. Vector3Equals int→Bool coercion matches Vector2Equals template. raymath_smoke.iron extended with 37 Vector3 call sites + 13 new ABI asserts (28 total) — canonical `./build/ironc build` exits 0, `./raymath_smoke` prints "ALL MATH-08 ASSERTS PASS" exit 0. ironc invoked 1x this plan (Task 2 smoke). _Static_assert grid unchanged at 392. E0101 zero recurrences (all stubs use v/v1/source/p). Pitfall 9 not triggered. MATH-03 closed for 37 of 39 Vector3 functions.
+Last activity: 2026-04-17 — Phase 65 Plan 02 executed on local. 37 Vector3.* methods bound; cross-type args (Quaternion, Matrix×2) clean; smoke test exits 0 with ALL MATH-08 ASSERTS PASS; MATH-03 closed for 37 of 39 functions.
 
-Progress: [███████░░░] 73%
+Progress: [████████░░] 77%
 
 ## Performance Metrics
 
 - Milestone requirements: 183
 - Phases defined: 14
 - Phases complete: 3 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D)
-- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 65 — raymath, Plan 01/4 complete)
+- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 65 — raymath, Plan 02/4 complete)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 80 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01, MATH-02 — Plan 65-01 closes raymath scalars + Vector2 bindings)
+- Requirements complete: 81 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01, MATH-02, MATH-03 — Plan 65-02 closes Vector3 raymath bindings, 37 of 39 Vector3 functions)
 
 ### Plan execution log
 
@@ -61,6 +61,7 @@ Progress: [███████░░░] 73%
 | 64-01 | 2     | ~5 min   | 5     | 84ca4c0, d6b55d3                            |
 | 64-02 | 2     | ~3 min   | 4     | fb9b46b, 0863e53                            |
 | 65-01 | 3     | ~9 min   | 5     | 52b6a01, aafb795, de8461f                   |
+| 65-02 | 2     | ~4 min   | 4     | 5117fed, 47947b9                            |
 
 ## Accumulated Context
 
@@ -165,6 +166,13 @@ Progress: [███████░░░] 73%
 - **65-01 note — DEG2RAD/RAD2DEG/EPSILON constants landed first try:** Single-precision-representable Float32 literals (0.017453293, 57.29578, 0.000001) accepted by `Float32(...)` cast without narrowing warnings. RESEARCH.md Pitfall 9's fallback of deferring these constants to Phase 73 was NOT triggered.
 - **65-01 note — Matrix-by-value as function ARGUMENT (Vector2.transform) zero-warning:** `Iron_vector2_transform(struct Iron_Vector2 self, struct Iron_Matrix mat)` passes a 64 B Matrix as the second arg. clang -Wall -Wextra does NOT fire `-Wlarge-by-value-copy` (default threshold is strictly > 64 bytes). RESEARCH.md Pitfall 6 prediction confirmed; matches Phase 64-02's Mesh+Matrix-as-arg precedent. Vector3/Vector4/Quaternion transform methods in Plans 65-02/03/04 will reuse the two-locals memcpy pattern established here.
 - **65-01 note — consumer files unaffected:** pong.iron / game_raylib.iron / hello_raylib.iron have zero `PHASE 65` markers — raymath is unused by the existing demo consumers. Consistent with Phases 63-64. Only `tests/manual/raymath_smoke.iron` was added (new file).
+- **65-02 (2026-04-17):** Phase 65 Plan 02 landed MATH-03 for 37 of 39 Vector3 raymath functions. iron_raylib.c +~330 lines (37 Iron_vector3_* shim implementations appended after the Vector2 block). iron_raylib.h +37 C prototypes under the Phase 65 marker. raylib.iron +39 lines (37 Vector3.* method stubs + 2 explicit `-- DEFERRED` comments preserving the carry-forward for to_float_v → 65-03 and ortho_normalize → 65-04). raymath_smoke.iron extended with 37 Vector3 call sites (Vector3 + Matrix constructors for mat_id3, Quaternion for q_id) and 13 new MATH-08 ABI asserts — total call sites now 73, total asserts 28. Canonical `./build/ironc build` exits 0; `./raymath_smoke` prints "ALL MATH-08 ASSERTS PASS" exit 0. ironc invoked 1x this plan (Task 2 smoke). _Static_assert grid unchanged at 392.
+- **65-02 count reconciliation — raymath Vector3 RMAPI count is 39, not 40:** Plan 65-02's prose (and RESEARCH.md + CONTEXT.md) claimed "40 Vector3 functions" but actual raymath.h lines 621-1140 enumerate exactly 39 RMAPI Vector3 functions. Subtract 2 deferred (Vector3.to_float_v → Plan 65-03 for Float3 return type, Vector3.ortho_normalize → Plan 65-04 for out-param tuple) = 37 bound in this plan. The plan's explicit 37-stub list was correct; the "40/38" numbers in the prose were an off-by-one carryforward from CONTEXT.md. **Implication:** total Phase 65 function count is 141 not 143 (6 + 30 + 39 + 22 + 24 + 26), pending Plan 65-03/04 verification of Vector4 (22) and Matrix (24) counts against raymath.h. MATH-07/08 sweep in Plan 65-04 should report the verified total, not the CONTEXT.md estimate.
+- **65-02 note — multiple Matrix args in one signature pass clean:** `Iron_vector3_unproject(struct Iron_Vector3 self, struct Iron_Matrix projection, struct Iron_Matrix view)` passes TWO 64 B Matrix by value in a single signature (128 B across both Matrix args). clang -Wall -Wextra exits 0 with zero `-Wlarge-by-value-copy` warnings. Confirms the default threshold really is a per-parameter check (each arg compared independently to 64 B) and that "equal to 64" does not trigger. Pattern is now proven for Plan 65-03 Matrix.multiply (2 Matrix args → 1 Matrix return).
+- **65-02 note — cross-type arg pattern (Quaternion) validated on the Iron side:** `v3.rotate_by_quaternion(q_id)` compiles and the ABI assert `pass_v3rotqx === Float32(3.0)` passes at runtime (identity quaternion × (3, 4, 0) = (3, 4, 0)). First Phase 65 shim to mix Vector3 and Quaternion as struct-by-value args. Pattern is now proven for Plan 65-04 Quaternion.transform (Quaternion + Matrix) and symmetric Vector3/Vector4 cross-type cases.
+- **65-02 note — 4-Vector3 and 5-arg shims (barycenter, cubic_hermite) compile clean:** Largest arity in Phase 65 before tuple returns. No clang diagnostics about argument count, stack usage, or parameter alignment. Local variables named to avoid collision with parameter names (`pp/aa/bb/cc` for barycenter, `v1/t1/vv2/t2` for cubic_hermite). Pattern scales to any future Phase 65 function with ≤5 struct-by-value args.
+- **65-02 note — E0101 `self` zero recurrences:** All 37 Vector3 stubs use `v/v1/source/p` as Iron-side receiver names. CONTEXT.md + Plan 65-01's guidance held — no deviation triggered.
+- **65-02 note — consumer files unaffected (continuing streak):** pong.iron / game_raylib.iron / hello_raylib.iron have zero `PHASE 65` markers. Phase 65 is the fifth consecutive milestone phase (63, 64, 65-01, 65-02 so far) to complete without touching the 3 consumer files.
 
 ## Phase Dependency Map
 
@@ -195,8 +203,8 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-17T11:52:04.521Z
-Stopped at: Completed 65-01-PLAN.md
+Last session: 2026-04-17T12:03:43.595Z
+Stopped at: Completed 65-02-PLAN.md
 Stopped at: Completed 64-02-PLAN.md
 Next action: Phase 64 is COMPLETE. Start any of these parallel-safe phases next: Phase 65 (raymath — depends only on Phase 60; Matrix-by-value template now proven from 64-02's Iron_ray_hit_mesh), Phase 66 (Textures — depends on Phase 63 + Rectangle pass-by-value from 64-01), Phase 68 (Audio — independent), Phase 70 (Models — Mesh pass-by-value template proven from 64-02), Phase 72 (File I/O — independent). Phase 73 (API polish + showcase) runs LAST as a cross-cutting sweep depending on all prior phases. ALL ABI surfaces needed by v2.0.0-alpha are now proven: Vector2/3 pass-by-value INPUT and RETURN (Phase 63), Rectangle/Color/Camera2D/RenderTexture/Shader pass-by-value INPUT (Phase 63), tuple returns auto-emit (64-01), Mesh 120 B / Matrix 64 B pass-by-value ARGUMENT (64-02), RayCollision 32 B struct-by-value RETURN (64-02), `[T]` array ABI for foreign-method stubs (63-03). No blockers remain.
 Resume file: None

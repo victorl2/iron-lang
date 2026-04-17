@@ -353,7 +353,7 @@ Plans:
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
 | 63. 2D Drawing | 4/4 | Complete    | 2026-04-17 |
 | 64. Collision | 2/2 | Complete    | 2026-04-17 |
-| 65. raymath | 1/4 | In Progress | - |
+| 65. raymath | 2/4 | In Progress|  |
 | 66. Textures & Images | 0/? | Not started | - |
 | 67. Text & Fonts | 0/? | Not started | - |
 | 68. Audio System | 0/? | Not started | - |
