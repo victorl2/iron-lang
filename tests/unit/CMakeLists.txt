@@ -103,6 +103,12 @@ target_link_libraries(test_arena_scoping_stress iron_compiler unity)
 add_test(NAME test_arena_scoping_stress COMMAND test_arena_scoping_stress)
 set_tests_properties(test_arena_scoping_stress PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 120)
 
+# ── Phase 01 M0 Plan 04 (HARD-07): pthread_once thread-safe types init ─────
+add_executable(test_types_init_once test_types_init_once.c)
+target_link_libraries(test_types_init_once iron_compiler unity pthread)
+add_test(NAME test_types_init_once COMMAND test_types_init_once)
+set_tests_properties(test_types_init_once PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 60)
+
 # ── Runtime unit tests ───────────────────────────────────────────────────────
 add_executable(test_runtime_string test_runtime_string.c)
 target_link_libraries(test_runtime_string iron_runtime unity)
