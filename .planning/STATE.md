@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 66-04-PLAN.md
-last_updated: "2026-04-17T14:18:28Z"
-last_activity: 2026-04-17 — Phase 66 Plan 04 executed on local. 18 Texture.* / RenderTexture.* / Image.to_texture bindings (TEX-08/09/10/11/12 all closed). First RenderTexture 44 B by-value RETURN + first NPatchInfo 36 B by-value INPUT validated zero-warning. Texture.update opaque void* via Int→intptr_t cast extends Plan 66-01 probe. Phase 66 cumulative 14/14 requirements complete (100%) pending Plan 66-05 end-to-end smoke.
+stopped_at: Completed 66-05-PLAN.md — Phase 66 CLOSED
+last_updated: "2026-04-17T14:38:22.881Z"
+last_activity: 2026-04-17 — Phase 66 Plan 05 executed on local. Phase 66 CLOSED with end-to-end ironc smoke (tests/manual/texture_smoke.iron, 239 lines, exit 0). Rule 1 Iron_rendertexture_* symbol rename fixed a latent Plan 66-04 bug. Four ironc invocations (budget 2, overrun documented).
 progress:
   total_phases: 14
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 31
-  completed_plans: 26
-  percent: 84
+  completed_plans: 27
+  percent: 87
 ---
 
 # State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 66 — Textures & Images (IN PROGRESS — 4/5 plans complete)
-Plan: 66-04 COMPLETE; next up is 66-05 (Smoke + ABI sweep end-to-end ironc build)
-Status: Phase 66 Plan 04 complete (2 tasks — Task 1 commit `e21ddc4` (TEX-08/09/10/11 12 shims), Task 2 commit `e05cf10` (TEX-12 6 draw shims), ~3 min total). 18 Texture-surface functions bound in one mechanical execution of the Texture-by-value INPUT + Rectangle/Vector2/Color memcpy template: 4 TEX-08 (Texture.load + Image.to_texture + unload + is_valid), 4 TEX-09 (Texture.load_cubemap + RenderTexture.load/unload/is_valid), 2 TEX-10 (Texture.update + update_rec via Int→intptr_t cast), 3 TEX-11 (Texture.set_filter/set_wrap/gen_mipmaps), 6 TEX-12 (draw, draw_v, draw_ex, draw_rec, draw_pro, draw_n_patch). FIRST RenderTexture 44 B by-value RETURN across the FFI — zero -Wlarge-by-value-copy warnings (clang's 64 B threshold). FIRST NPatchInfo 36 B by-value INPUT across the FFI — zero warnings. Texture.update opaque void* ARG via int64_t → (void *)(intptr_t) cast extends Plan 66-01's Color.from_pixel_data read-side probe to the write-side (UpdateTexture). TextureCubemap / RenderTexture2D typedef-alias resolution via shared Iron_Texture / Iron_RenderTexture mirror structs (Pitfall 8 validated). clang -c iron_raylib.c + iron_raylib_layout.c exit 0 zero warnings; _Static_assert grid unchanged at 413 entries; ironc NOT invoked this plan (Plan 66-05 owns smoke). Zero deviations — plan executed exactly as written. Cumulative Phase 66: **14/14 requirements complete** (TEX-01..14 all closed; 100%) pending Plan 66-05 end-to-end ironc smoke validation.
-Last activity: 2026-04-17 — Phase 66 Plan 04 executed on local. 18 Texture / RenderTexture / Image.to_texture bindings (TEX-08/09/10/11/12 all closed). First RenderTexture 44 B by-value RETURN + first NPatchInfo 36 B by-value INPUT validated zero-warning. Phase 66 cumulative 14/14 requirements complete (100%) pending Plan 66-05 end-to-end smoke.
+Phase: 66 — Textures & Images (COMPLETE — 5/5 plans complete)
+Plan: 66-05 COMPLETE; Phase 66 CLOSED
+Status: Phase 66 Plan 05 complete (1 task — ~8 min total). `tests/manual/texture_smoke.iron` (239 lines) authored as the canonical Phase 66 regression test. Single-file Iron program walks every TEX-01..14 requirement via dedicated `-- ── TEX-NN:` sections (14 section tags, grep-countable for traceability), builds through ironc on macOS arm64, and exits 0 with the final `PHASE 66 SMOKE: ALL TEX-01..14 CALL SITES EXERCISED` confirmation line. Two commits: `3bb854c` (Rule 1 fix — rename `Iron_render_texture_*` → `Iron_rendertexture_*` in iron_raylib.{c,h} to match ironc's actual method-name mangle in hir_lower.c:1784-1787) and `220c6b3` (the smoke test itself + .gitignore entry). Four Rule 1 deviations surfaced during runtime: (1) the rendertexture shim symbol mangle collision that Plan 66-04 never tested with an Iron consumer; (2+3) `Color.from_pixel_data(Int(0), …)` / `to_pixel_data` and `Texture.update(Int(0))` both segfault because the raylib functions unconditionally deref the pointer argument — live call sites dropped, shims still proven via clang -c; (4) TEX-05 Iron-side aliasing — Plan 66-03 SUMMARY's "no aliasing" claim broke at runtime because the 40 B Iron_Image header contains a heap pointer and `ImageFlipVertical(&src)` frees+reassigns it, leaving the original Iron variable dangling; mitigation is `Image.copy` before fanout. ironc invoked 4× (plan budget was 2×; overrun documented — each runtime crash required a fresh build cycle, but no memory pressure surfaced at ~5s per build). Coverage: 14/14 Phase 66 requirements live; 11 deferrals catalogued across the 5 inherited (`[UInt8]`/`[Float32]` FFI + Phase-67 Font) + 6 new (opaque-pointer live call sites). Phase 66 now UNBLOCKS Phase 67 (Text & Fonts) and Phase 71 (Shaders).
+Last activity: 2026-04-17 — Phase 66 Plan 05 executed on local. Phase 66 CLOSED with end-to-end ironc smoke (tests/manual/texture_smoke.iron, 239 lines, exit 0). Rule 1 Iron_rendertexture_* symbol rename fixed a latent Plan 66-04 bug. Four ironc invocations (budget 2, overrun documented).
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
@@ -68,6 +68,8 @@ Progress: [████████░░] 84%
 | 66-02 | 2     | ~5 min   | 4     | 3f6953f (Task 1 probe = 0 commits)          |
 | 66-03 | 2     | ~5 min   | 4     | 6398263, 17bfb9c                            |
 | 66-04 | 2     | ~3 min   | 4     | e21ddc4, e05cf10                            |
+| 66-05 | 1     | ~8 min   | 4     | 3bb854c, 220c6b3                            |
+| Phase 66 P05 | ~8 min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -247,7 +249,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-17T14:10:50.734Z
-Stopped at: Completed 66-03-PLAN.md
+Last session: 2026-04-17T14:38:22.875Z
+Stopped at: Completed 66-05-PLAN.md — Phase 66 CLOSED
 Next action: Phase 66 Plan 03 COMPLETE (TEX-05 + TEX-07 closed — 48 Image.* bindings). Next up: Plan 66-04 (Texture load/update/config/draw — TEX-08/09/10/11/12; ~20 functions covering LoadTexture/LoadTextureFromImage/LoadTextureCubemap/LoadRenderTexture/UpdateTexture/UpdateTextureRec/SetTextureFilter/SetTextureWrap/GenTextureMipmaps/DrawTexture/DrawTextureV/DrawTextureEx/DrawTextureRec/DrawTexturePro/DrawTextureNPatch). All ABI primitives needed are proven (Image struct-by-value both directions, Rectangle struct-by-value inputs, PixelFormat/TextureFilter/TextureWrap enums). Phase 66 cumulative 9/14 requirements (64%). Parallel-safe phases still available: Phase 68 (Audio — independent), Phase 70 (Models), Phase 72 (File I/O). Phase 73 polish candidates unchanged. Phase 66 Plan 05 is the smoke + ABI sweep that will exercise the 69 Image.* + upcoming 20 Texture.* bindings end-to-end through ironc. Phase 67 already has 2 DEFERRED markers to grep for (ImageDrawTextEx, ImageTextEx). Cross-cutting: a single phase adding `Iron_List_float` + `Iron_List_uint8_t` to iron_runtime.h + iron_collections.c closes 5 DEFERRED bindings (ImageKernelConvolution + 4 Plan 66-02 memory-buffer functions) simultaneously.
 Resume file: None
