@@ -141,8 +141,8 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [ ] **TEX-10**: User can update texture data — `texture.update(pixels), texture.updateRec(rec, pixels)`
 - [ ] **TEX-11**: User can configure texture filter and wrap — `texture.setFilter(TextureFilter), texture.setWrap(TextureWrap), texture.genMipmaps()`
 - [ ] **TEX-12**: User can draw a texture in every variant — `drawTexture, drawTextureV, drawTextureEx, drawTextureRec, drawTexturePro, drawTextureNPatch` invoked as methods on `Texture` where idiomatic
-- [ ] **TEX-13**: User can manipulate `Color` values — `colorIsEqual, fade, colorToInt, colorNormalize, colorFromNormalized, colorToHSV, colorFromHSV, colorTint, colorBrightness, colorContrast, colorAlpha, colorAlphaBlend, colorLerp, getColor, getPixelColor, setPixelColor, getPixelDataSize` — exposed as methods/constructors on `Color`
-- [ ] **TEX-14**: All raylib `Color` palette constants are present (LIGHTGRAY, GRAY, DARKGRAY, YELLOW, GOLD, ORANGE, PINK, RED, MAROON, GREEN, LIME, DARKGREEN, SKYBLUE, BLUE, DARKBLUE, PURPLE, VIOLET, DARKPURPLE, BEIGE, BROWN, DARKBROWN, WHITE, BLACK, BLANK, MAGENTA, RAYWHITE)
+- [x] **TEX-13**: User can manipulate `Color` values — `colorIsEqual, fade, colorToInt, colorNormalize, colorFromNormalized, colorToHSV, colorFromHSV, colorTint, colorBrightness, colorContrast, colorAlpha, colorAlphaBlend, colorLerp, getColor, getPixelColor, setPixelColor, getPixelDataSize` — exposed as methods/constructors on `Color`
+- [x] **TEX-14**: All raylib `Color` palette constants are present (LIGHTGRAY, GRAY, DARKGRAY, YELLOW, GOLD, ORANGE, PINK, RED, MAROON, GREEN, LIME, DARKGREEN, SKYBLUE, BLUE, DARKBLUE, PURPLE, VIOLET, DARKPURPLE, BEIGE, BROWN, DARKBROWN, WHITE, BLACK, BLANK, MAGENTA, RAYWHITE)
 
 ### Text & Fonts (`rtext.c` — ~30 functions)
 
@@ -378,8 +378,8 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | TEX-10 | Phase 66 | Pending |
 | TEX-11 | Phase 66 | Pending |
 | TEX-12 | Phase 66 | Pending |
-| TEX-13 | Phase 66 | Pending |
-| TEX-14 | Phase 66 | Pending |
+| TEX-13 | Phase 66 | Complete |
+| TEX-14 | Phase 66 | Complete |
 | TEXT-01 | Phase 67 | Pending |
 | TEXT-02 | Phase 67 | Pending |
 | TEXT-03 | Phase 67 | Pending |
