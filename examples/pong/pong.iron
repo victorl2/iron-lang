@@ -81,6 +81,16 @@ func main() {
     -- A real game loop would live here.
     val _should: Bool = Window.should_close()
 
+    -- PHASE 68: bounce sound — initialize audio device + load bounce.wav.
+    -- The placeholder body has no real hit detection, so we exercise
+    -- bounce.play() once inside the render block below (proof that the
+    -- Sound.* bindings link and the raylib audio backend accepts the
+    -- call). Phase 73 will move bounce.play() to the real paddle/wall/
+    -- score handlers. Guard all audio calls with Sound.is_valid() so
+    -- missing-asset-at-runtime (CI / headless) is non-fatal.
+    Audio.init()
+    val bounce: Sound = Sound.load("tests/assets/bounce.wav")
+
     -- Phase 62: poll the keyboard once to exercise the bindings.
     -- A real game loop with input would live here, but Phase 63 owns
     -- Draw.* and a render-free input loop has no observable behavior
@@ -104,7 +114,18 @@ func main() {
     Draw.rectangle(0, 250, 10, 100, fg)
     Draw.text(Text.format_i("%d", Int32(0)), Int32(200), Int32(20), Int32(40), fg)
     Draw.text("GAME OVER", Int32(300), Int32(280), Int32(40), accent)
+    -- PHASE 68: play bounce on each paddle/wall/score hit.  The
+    -- placeholder body below fires three calls on the single render
+    -- pass — real game loop will move these to the actual collision
+    -- / score handlers.  Sound.is_valid() guards missing-asset case.
+    if Sound.is_valid(bounce) {
+        Sound.play(bounce)
+    }
     Draw.end()
+
+    -- PHASE 68: audio teardown — unload Sound first, then close device.
+    Sound.unload(bounce)
+    Audio.close()
     Window.close()
 
     -- Keep the placeholder locals alive so the typechecker doesn't warn
