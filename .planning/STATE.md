@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: in_progress
-stopped_at: Completed 65-03-PLAN.md
-last_updated: "2026-04-17T12:16:13.731Z"
-last_activity: 2026-04-17 — Phase 65 Plan 03 executed on local. 22 Vector4.* + 21 Matrix.* + 2 ToFloatV raymath bindings landed. Float3 (12 B) and Float16 (64 B) types added — first post-Phase-60 type-grid growth (_Static_assert count 392 → 413). First 64 B struct-by-value RETURN in codebase (Matrix) validated zero -Wlarge-by-value-copy warnings. Float32→double widening in frustum/perspective/ortho shims. Smoke test exits 0 with ALL MATH-08 ASSERTS PASS (43-term all_pass). MATH-04 closed (22/22), MATH-05 21/22 (Decompose → 65-04), MATH-03 fully closed (to_float_v landed). Commits 24592fd, 760b0ca, 04b736c.
+status: completed
+stopped_at: Completed 65-04-PLAN.md — Phase 65 COMPLETE
+last_updated: "2026-04-17T12:31:06.055Z"
+last_activity: 2026-04-17 — Phase 65 Plan 03 executed on local. 22 Vector4 + 21 Matrix + 2 ToFloatV bindings; Float3/Float16 types landed; first 64 B struct-by-value RETURN zero-warning; smoke test exits 0 with ALL MATH-08 ASSERTS PASS. MATH-04 closed; MATH-05 21/22; MATH-03 fully closed.
 progress:
   total_phases: 14
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 26
-  completed_plans: 21
-  percent: 77
+  completed_plans: 22
+  percent: 81
 ---
 
 # State
@@ -36,10 +36,10 @@ Progress: [████████░░] 81%
 
 - Milestone requirements: 183
 - Phases defined: 14
-- Phases complete: 3 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D)
-- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 65 — raymath, Plan 03/4 complete)
+- Phases complete: 4 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D; Phase 65 — raymath)
+- Phases in flight: 2 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 83 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01, MATH-02, MATH-03 fully closed (39/39 Vector3), MATH-04 (22/22 Vector4), MATH-05 21/22 (Matrix.decompose → 65-04))
+- Requirements complete: 86 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01..08 all closed — 143/143 raymath functions bound)
 
 ### Plan execution log
 
@@ -63,6 +63,7 @@ Progress: [████████░░] 81%
 | 65-01 | 3     | ~9 min   | 5     | 52b6a01, aafb795, de8461f                   |
 | 65-02 | 2     | ~4 min   | 4     | 5117fed, 47947b9                            |
 | 65-03 | 3     | ~5 min   | 5     | 24592fd, 760b0ca, 04b736c                   |
+| 65-04 | 3     | ~6 min   | 4     | b0c1ea2, e226a63                            |
 
 ## Accumulated Context
 
@@ -182,6 +183,12 @@ Progress: [████████░░] 81%
 - **65-03 count reconciliation:** raymath has 22 Matrix RMAPI functions (grep confirmed), not 24 as CONTEXT.md originally estimated. MatrixDecompose is the 22nd and carries to Plan 65-04 (3-tuple out-param). Plan's suspicion that MatrixAddValue/SubtractValue might exist was resolved GREEN — they do NOT exist in raymath 5.5 (only Vector2/3/4 have AddValue/SubtractValue; Matrix add/subtract are Matrix-Matrix only). Cumulative Phase 65 count after this plan: 118 of 143 raymath functions bound. Remaining 25 in Plan 65-04: 26 Quaternion − 1 Quaternion.to_axis_angle-as-2-tuple + MatrixDecompose (3-tuple) + Vector3.ortho_normalize (2-tuple).
 - **65-03 _Static_assert baseline correction:** Pre-Plan-65-03 baseline was **392** (not 390 as Plan 65-03 text cited). Target after +21 new asserts is **413** (not 411). RESEARCH.md Pattern 5 had the correct estimate (~411); plan prose was one off. No impact on implementation.
 - **65-03 note — consumer files unaffected (continuing streak):** pong.iron / game_raylib.iron / hello_raylib.iron have zero `PHASE 65` markers. Phase 65 is the sixth consecutive plan (63-01..04, 64-01..02, 65-01..03) to complete without touching the 3 consumer files.
+- **65-04 (2026-04-17):** Phase 65 Plan 04 closes MATH-06 (24/24 Quaternion — raymath 5.5 has exactly 24 Quaternion RMAPI functions; plan text's "26" was pre-emptive), MATH-07 (143/143 raymath functions exercised by raymath_smoke.iron), MATH-08 (54 ABI asserts span every return shape). iron_raylib.h +83 lines (3 guarded tuple typedefs IRON_TUPLE_VECTOR3_VECTOR3/FLOAT32/QUATERNION_VECTOR3_STRUCT_DEFINED + 27 prototypes). iron_raylib.c +264 lines (24 Iron_quaternion_* shims + Iron_matrix_decompose 3-tuple + Iron_vector3_ortho_normalize 2-tuple-mutate-both + Iron_quaternion_to_axis_angle 2-tuple). raylib.iron +33 lines (24 Quaternion.* stubs + Matrix.decompose + Vector3.ortho_normalize). raymath_smoke.iron +65 lines (24 Quaternion call sites + 3 tuple destructures + 11 new MATH-08 asserts; all_pass folds 54-term AND). Canonical `./build/ironc build tests/manual/raymath_smoke.iron` exits 0 in ~3s; `./raymath_smoke` prints ALL MATH-08 ASSERTS PASS exit 0. ironc invoked 2x this plan (Task 1 probe + Task 3 smoke). Commits b0c1ea2, e226a63. **Phase 65 COMPLETE.**
+- **65-04 CRITICAL RESULT — first 3-tuple return in Iron codebase validated first try (Branch A / GREEN):** Task 1 probe confirmed `emit_helpers.c:260-294` arity-agnostic loop generalizes from 2-tuple (Phase 64-01 Iron_Tuple_Bool_Vector2) to 3-tuple. Canonical typedef name is **`Iron_Tuple_Vector3_Quaternion_Vector3`** — Iron_ prefix stripped from object element types per Phase 64-01 convention; 3 fields named v0/v1/v2. `.iron-build/probe_matrix_decompose.c:831` showed the exact expected output: `typedef struct { Iron_Vector3 v0; Iron_Quaternion v1; Iron_Vector3 v2; } Iron_Tuple_Vector3_Quaternion_Vector3;`. Branch B fallback (`object MatrixDecomposition {}`) not needed. **Pattern now proven for any future N-tuple return the Iron codebase needs.**
+- **65-04 count reconciliation — Quaternion surface is 24 functions, not 26:** `grep -cE '^RMAPI [A-Za-z0-9_]+ Quaternion[A-Z]' src/vendor/raylib/raymath.h` returns 24. Plan 65-04 prose at multiple places claimed "26 Quaternion functions" — pre-emptive miscount. Actual 24: Add, AddValue, Subtract, SubtractValue, Identity, Length, Normalize, Invert, Multiply, Scale, Divide, Lerp, Nlerp, Slerp, CubicHermiteSpline, FromVector3ToVector3, FromMatrix, ToMatrix, FromAxisAngle, ToAxisAngle, FromEuler, ToEuler, Transform, Equals. MATH-06 fully closed at 24/24. Phase 65 total: **6 + 30 + 39 + 22 + 22 + 24 = 143** — matches the project's "143 raymath functions" claim exactly (fixing CONTEXT.md line estimates of 6+30+40+22+24+26=148).
+- **65-04 note — 2 new Iron language limitations discovered (both Phase 73 polish candidates):** (a) `print(Float32)` fails E0217 (expected String); Iron lacks Float32→String formatters. Workaround: branch on `RMath.float_equals` + return Int32. (b) Chained-method tuple destructure `val (a,b,c) = Matrix.identity().decompose()` fails E0202; tuple-type inference doesn't propagate through chain. Workaround: `val m = Matrix.identity(); val (a,b,c) = m.decompose()`. Both are 1-line concessions, not blockers.
+- **65-04 note — E0101 `self` zero recurrences (continuing streak):** All 24 Quaternion stubs use `q`, `q1`, `q2`, `from`, `to`, `axis`, `mat`, `pitch`, `yaw`, `roll`, `out_tangent1`, `in_tangent2`. C-side shim params keep `self` (C does not reserve it). Phase 64-01/02/03/65-01/02/03/04 all clean.
+- **65-04 note — consumer files unaffected (continuing streak, 7 plans):** pong.iron / game_raylib.iron / hello_raylib.iron have zero `PHASE 65` markers. Phase 65 is the seventh consecutive plan (63-01..04, 64-01..02, 65-01..04) to complete without touching the 3 consumer files.
 
 ## Phase Dependency Map
 
@@ -204,7 +211,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 ## Pending Decisions
 
 - **API-11 override pending commit:** RESOLVED 2026-04-14 by Plan 60-08. REQUIREMENTS.md line 240 rewritten with override text and `[x]` checkbox; traceability table row updated from `API-11 | Phase 73 | Pending` to `API-11 | Phase 60 (Plan 08, override) | Complete`. The three consumer files (pong.iron, game_raylib.iron, hello_raylib.iron) were rewritten to use canonical Phase 60 names (Vector2, Color via rescue palette, KeyboardKey) with placeholder main bodies annotated with `-- PHASE 6N:` markers for Phase 61/62/63 restoration. Phase 63 Plan 04 (2026-04-16) completed the final leg by re-enabling all three files with real Draw.* calls — zero PHASE 6N markers for Phase 63 remain.
-- None blocking. Phases 60, 62, 63, 64 are COMPLETE; Phases 65 / 66 / 68 / 70 / 72 can all start in parallel.
+- None blocking. Phases 60, 62, 63, 64, 65 are COMPLETE; Phases 66 / 68 / 70 / 72 can all start in parallel.
 
 ## Blockers
 
@@ -212,8 +219,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-17T12:16:13.727Z
-Stopped at: Completed 65-03-PLAN.md
-Stopped at: Completed 64-02-PLAN.md
-Next action: Phase 64 is COMPLETE. Start any of these parallel-safe phases next: Phase 65 (raymath — depends only on Phase 60; Matrix-by-value template now proven from 64-02's Iron_ray_hit_mesh), Phase 66 (Textures — depends on Phase 63 + Rectangle pass-by-value from 64-01), Phase 68 (Audio — independent), Phase 70 (Models — Mesh pass-by-value template proven from 64-02), Phase 72 (File I/O — independent). Phase 73 (API polish + showcase) runs LAST as a cross-cutting sweep depending on all prior phases. ALL ABI surfaces needed by v2.0.0-alpha are now proven: Vector2/3 pass-by-value INPUT and RETURN (Phase 63), Rectangle/Color/Camera2D/RenderTexture/Shader pass-by-value INPUT (Phase 63), tuple returns auto-emit (64-01), Mesh 120 B / Matrix 64 B pass-by-value ARGUMENT (64-02), RayCollision 32 B struct-by-value RETURN (64-02), `[T]` array ABI for foreign-method stubs (63-03). No blockers remain.
+Last session: 2026-04-17T12:30:31.352Z
+Stopped at: Completed 65-04-PLAN.md — Phase 65 COMPLETE
+Next action: Phase 65 is COMPLETE (4/4 plans, all 143 raymath functions bound, MATH-01..08 all closed). Start any of these parallel-safe phases next: Phase 66 (Textures — depends on Phase 63 + 60; Rectangle pass-by-value from 64-01), Phase 68 (Audio — independent), Phase 70 (Models — Mesh pass-by-value from 64-02 + raymath Matrix.multiply/invert/decompose from 65 all proven), Phase 72 (File I/O — independent). Phase 73 (API polish + showcase) runs LAST as a cross-cutting sweep depending on all prior phases. Phase 73 polish candidates discovered in 65-04: (a) Float32→String formatter (print of numeric values), (b) chained-method tuple destructure inference. ALL ABI surfaces needed by v2.0.0-alpha are now proven: Vector2/3/4 and Rectangle/Color/Camera2D/RenderTexture/Shader struct-by-value INPUT and RETURN (Phase 63/64/65); Matrix 64 B struct-by-value INPUT and RETURN (Phase 64/65); Quaternion 16 B struct-by-value (Phase 65); Mesh 120 B struct-by-value (Phase 64); 2-tuple auto-emit (Phase 64); 3-tuple auto-emit (Phase 65); `[T]` array ABI for foreign-method stubs (63-03); Float3 (12 B) / Float16 (64 B) struct-by-value RETURN (Phase 65-03). No blockers remain.
 Resume file: None

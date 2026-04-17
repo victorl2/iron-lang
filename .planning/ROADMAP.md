@@ -46,7 +46,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 62: Input — Keyboard, Mouse, Gamepad, Touch, Gestures** — All ~40 input functions with typed enum params (completed 2026-04-16)
 - [x] **Phase 63: 2D Drawing** — Every shape/spline/gradient draw primitive plus draw-mode begin/end (completed 2026-04-16)
 - [x] **Phase 64: Collision (2D + 3D)** — All 2D shape and 3D ray/box/sphere collision tests (completed 2026-04-17)
-- [ ] **Phase 65: raymath** — All 143 raymath helpers as idiomatic methods on Vector2/3/4, Matrix, Quaternion
+- [x] **Phase 65: raymath** — All 143 raymath helpers as idiomatic methods on Vector2/3/4, Matrix, Quaternion (completed 2026-04-17)
 - [ ] **Phase 66: Textures & Images** — Full image + texture + render-texture + n-patch + color palette bindings
 - [ ] **Phase 67: Text & Fonts** — Custom font loading, glyph access, codepoint utilities, draw/measure text
 - [ ] **Phase 68: Audio System** — Device init, Wave, Sound, Music, AudioStream (fully independent of graphics)
@@ -190,7 +190,7 @@ Plans:
 - [x] 65-01-PLAN.md — Scalars + Vector2 (MATH-01, MATH-02): RAYMATH_STATIC_INLINE inclusion + object RMath {} namespace (renamed from Math — iron_math.h collision) + DEG2RAD/RAD2DEG/EPSILON + 30 Vector2 methods + create tests/manual/raymath_smoke.iron (36 call sites) ✓ 2026-04-17
 - [x] 65-02-PLAN.md — Vector3 (MATH-03): 37 Vector3 methods including cross-type Vector3.rotate_by_quaternion / Vector3.unproject; to_float_v + ortho_normalize deferred to 65-03/65-04 ✓ 2026-04-17
 - [x] 65-03-PLAN.md — Vector4 + Matrix + Float3/Float16 (MATH-04, MATH-05): 22 Vector4 + 21 Matrix (Decompose→65-04) + Float3/Float16 types with 21 new _Static_assert entries (grid 392→413); first 64 B Matrix struct-by-value return zero -Wlarge-by-value-copy ✓ 2026-04-17
-- [ ] 65-04-PLAN.md — Quaternion + MATH-07/08 sweep (MATH-06, MATH-07, MATH-08): 26 Quaternion methods + 3-tuple MatrixDecompose probe + QuaternionToAxisAngle + Vector3OrthoNormalize tuples; final raymath_smoke.iron prints ALL MATH-08 ASSERTS PASS
+- [x] 65-04-PLAN.md — Quaternion + MATH-07/08 sweep (MATH-06, MATH-07, MATH-08): 24 Quaternion methods (raymath 5.5 has 24 not 26 as originally thought) + 3-tuple MatrixDecompose probed Branch A GREEN via emit_helpers.c:260-294 (canonical Iron_Tuple_Vector3_Quaternion_Vector3) + QuaternionToAxisAngle 2-tuple + Vector3OrthoNormalize 2-tuple; raymath_smoke.iron 54 MATH-08 asserts print ALL MATH-08 ASSERTS PASS; 143/143 raymath functions bound ✓ 2026-04-17
 
 ---
 
@@ -353,7 +353,7 @@ Plans:
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
 | 63. 2D Drawing | 4/4 | Complete    | 2026-04-17 |
 | 64. Collision | 2/2 | Complete    | 2026-04-17 |
-| 65. raymath | 3/4 | In Progress|  |
+| 65. raymath | 4/4 | Complete   | 2026-04-17 |
 | 66. Textures & Images | 0/? | Not started | - |
 | 67. Text & Fonts | 0/? | Not started | - |
 | 68. Audio System | 0/? | Not started | - |
