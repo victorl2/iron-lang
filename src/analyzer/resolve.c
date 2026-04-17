@@ -901,44 +901,42 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * future struct-size regression, which is exactly what PROT-04
                  * is trying to prevent. */
                 IRON_NODE_ASSERT_KIND(ec, IRON_NODE_ENUM_CONSTRUCT);
+                /* WR-08: the _Static_asserts below prove the target layout
+                 * fits in the source storage, so we populate the ec payload
+                 * directly rather than round-tripping through a separate
+                 * arena allocation. Local copies of the ec fields we need
+                 * (span, args, arg_count) are captured before the cast-
+                 * assignment to avoid aliasing issues when the target
+                 * struct's layout overlaps the source fields. */
                 if (ec->arg_count > 0) {
                     _Static_assert(sizeof(Iron_MethodCallExpr) <= sizeof(Iron_EnumConstruct),
                                    "enum-construct-to-method-call rewrite requires size fit");
-                    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)iron_arena_alloc(
-                        ctx->arena,
-                        sizeof(Iron_MethodCallExpr),
-                        _Alignof(Iron_MethodCallExpr));
-                    if (!mc) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT method_call) */ return; }
-                    mc->span          = ec->span;
-                    mc->kind          = IRON_NODE_METHOD_CALL;
-                    mc->resolved_type = NULL;
-                    mc->object        = (Iron_Node *)ident_node;
-                    mc->method        = member;
-                    mc->args          = ec->args;       /* reuse the already-allocated arg array */
-                    mc->arg_count     = ec->arg_count;
-                    /* Copy the fresh layout over the original ec storage so
-                     * the AST's upstream parent pointer now sees the new
-                     * METHOD_CALL payload at the same Iron_Node* address. */
-                    *(Iron_MethodCallExpr *)ec = *mc;
+                    Iron_Span    ec_span   = ec->span;
+                    Iron_Node  **ec_args   = ec->args;
+                    int          ec_argc   = ec->arg_count;
+                    Iron_MethodCallExpr *mc_slot = (Iron_MethodCallExpr *)ec;
+                    mc_slot->span          = ec_span;
+                    mc_slot->kind          = IRON_NODE_METHOD_CALL;
+                    mc_slot->resolved_type = NULL;
+                    mc_slot->object        = (Iron_Node *)ident_node;
+                    mc_slot->method        = member;
+                    mc_slot->args          = ec_args;
+                    mc_slot->arg_count     = ec_argc;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 } else {
                     _Static_assert(sizeof(Iron_FieldAccess) <= sizeof(Iron_EnumConstruct),
                                    "enum-construct-to-field-access rewrite requires size fit");
-                    Iron_FieldAccess *fa = (Iron_FieldAccess *)iron_arena_alloc(
-                        ctx->arena,
-                        sizeof(Iron_FieldAccess),
-                        _Alignof(Iron_FieldAccess));
-                    if (!fa) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT field_access) */ return; }
-                    fa->span          = ec->span;
-                    fa->kind          = IRON_NODE_FIELD_ACCESS;
-                    fa->resolved_type = NULL;
-                    fa->object        = (Iron_Node *)ident_node;
-                    fa->field         = member;
+                    Iron_Span    ec_span   = ec->span;
+                    Iron_FieldAccess *fa_slot = (Iron_FieldAccess *)ec;
+                    fa_slot->span          = ec_span;
+                    fa_slot->kind          = IRON_NODE_FIELD_ACCESS;
+                    fa_slot->resolved_type = NULL;
+                    fa_slot->object        = (Iron_Node *)ident_node;
+                    fa_slot->field         = member;
                     /* Phase 83-02: defensive default so downstream passes
                      * do not read uninitialized state if this rewrite is
                      * ever exercised before typecheck. */
-                    fa->is_pub_access = false;
-                    *(Iron_FieldAccess *)ec = *fa;
+                    fa_slot->is_pub_access = false;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 }
                 break;
