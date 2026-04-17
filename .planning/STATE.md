@@ -4,7 +4,7 @@ milestone: v2.0
 milestone_name: milestone
 status: completed
 stopped_at: Completed 66-05-PLAN.md — Phase 66 CLOSED
-last_updated: "2026-04-17T14:38:22.881Z"
+last_updated: "2026-04-17T14:43:39.393Z"
 last_activity: 2026-04-17 — Phase 66 Plan 05 executed on local. Phase 66 CLOSED with end-to-end ironc smoke (tests/manual/texture_smoke.iron, 239 lines, exit 0). Rule 1 Iron_rendertexture_* symbol rename fixed a latent Plan 66-04 bug. Four ironc invocations (budget 2, overrun documented).
 progress:
   total_phases: 14
