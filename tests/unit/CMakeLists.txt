@@ -115,6 +115,12 @@ target_link_libraries(test_parser_recursion_guard iron_compiler unity)
 add_test(NAME test_parser_recursion_guard COMMAND test_parser_recursion_guard)
 set_tests_properties(test_parser_recursion_guard PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 60)
 
+# ── Phase 01 M0 Plan 05 (HARD-02): LSP-mode comptime FS-gating invariant ───
+add_executable(test_analyze_buffer_mode_lsp test_analyze_buffer_mode_lsp.c)
+target_link_libraries(test_analyze_buffer_mode_lsp iron_compiler unity)
+add_test(NAME test_analyze_buffer_mode_lsp COMMAND test_analyze_buffer_mode_lsp)
+set_tests_properties(test_analyze_buffer_mode_lsp PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 30)
+
 # ── Runtime unit tests ───────────────────────────────────────────────────────
 add_executable(test_runtime_string test_runtime_string.c)
 target_link_libraries(test_runtime_string iron_runtime unity)
