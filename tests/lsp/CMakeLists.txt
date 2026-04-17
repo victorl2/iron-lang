@@ -4,3 +4,5 @@
 # references this directory).
 
 add_subdirectory(parity)
+add_subdirectory(unit)
+add_subdirectory(smoke)
