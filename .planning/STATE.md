@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: in_progress
+status: completed
 stopped_at: Completed 67-04-PLAN.md (Phase 67 CLOSED)
-last_updated: "2026-04-17T20:18:57.465Z"
-last_activity: 2026-04-17 — Phase 67 CLOSED (Plan 04 executed on local). 19 Iron_text_* TEXT-13 string utilities + tests/manual/text_smoke.iron canonical regression + examples/pong/pong.iron Phase 67 markers restored via Draw.text + Text.format_i. 4 deviations (all Rule 3 blocking-issue auto-fixes: emit_structs.c Scan B tuple extension, 26 Text.* {} bodies from 67-02/03, TEXT-09 multi-line split, stale Phase 66 DEFERRED markers retrofitted). ironc end-to-end builds exit 0 on both consumer files.
+last_updated: "2026-04-17T20:26:20.612Z"
+last_activity: 2026-04-17 — Phase 67 CLOSED. Plan 04 executed on local. 19 Iron_text_* TEXT-13 shims + text_smoke canonical regression + pong.iron Phase 67 markers restored. 4 deviations (all Rule 3 blocking-issue auto-fixes — Scan B tuple extension, 26 Text.* {} bodies, TEXT-09 multi-line split, stale Phase 66 markers retrofitted). ironc end-to-end builds exit 0 on both text_smoke.iron and pong.iron.
 progress:
   total_phases: 14
   completed_phases: 7
