@@ -1378,6 +1378,9 @@ struct Iron_GlyphInfo  Iron_font_get_glyph_info(struct Iron_Font font, int32_t c
 struct Iron_Rectangle  Iron_font_get_glyph_atlas_rec(struct Iron_Font font,
                                                       int32_t codepoint);
 
+/* ── UTF-8 / codepoint (TEXT-12) — Task 1 probe: [Int32] RETURN ─── */
+Iron_List_int32_t Iron_text_load_codepoints(Iron_String text);
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

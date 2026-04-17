@@ -4176,6 +4176,46 @@ struct Iron_Rectangle Iron_font_get_glyph_atlas_rec(struct Iron_Font font, int32
     return out;
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Plan 67-03 Task 1: PROBE — [Int32] RETURN via Text.load_codepoints
+ *
+ * Pattern 4 (novel for primitive elements): raylib returns int *cps +
+ * count via out-param. Shim calloc-s a fresh Iron_List_int32_t, memcpys
+ * the codepoints in, calls UnloadCodepoints to free raylib's original
+ * buffer.
+ *
+ * Template source: Iron_image_load_colors at iron_raylib.c:2979-3010
+ * (Phase 66-02 — [Color] RETURN via Iron_List_Iron_Color). The Int32
+ * variant uses calloc with sizeof(int32_t) instead of sizeof(Iron_Color).
+ *
+ * Iron_List_int32_t is pre-declared at iron_runtime.h:826 — no macro
+ * expansion needed on the runtime side. This probe confirms the
+ * foreign-method-stub return-type scan at emit_structs.c:300-313 (Scan B)
+ * behaves correctly for primitive-element lists. Because Scan B's
+ * PLAN_63_04_EMIT_LIST_FOR macro only fires for IRON_TYPE_OBJECT
+ * elements, primitive [Int32] bypasses Scan B entirely and relies on
+ * the runtime pre-declaration — exactly the contract we want.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+Iron_List_int32_t Iron_text_load_codepoints(Iron_String text) {
+    int count = 0;
+    int *cps = LoadCodepoints(iron_string_cstr(&text), &count);
+    Iron_List_int32_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (count > 0) {
+        out.items    = (int32_t *)calloc((size_t)count, sizeof(int32_t));
+        out.capacity = count;
+        if (cps && out.items) {
+            memcpy(out.items, cps, (size_t)count * sizeof(int32_t));
+            out.count = count;
+        }
+    }
+    UnloadCodepoints(cps);
+    return out;
+}
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

@@ -1570,6 +1570,19 @@ func Font.get_glyph_index(font: Font, codepoint: Int32) -> Int32 {}
 func Font.get_glyph_info(font: Font, codepoint: Int32) -> GlyphInfo {}
 func Font.get_glyph_atlas_rec(font: Font, codepoint: Int32) -> Rectangle {}
 
+-- ── UTF-8 / codepoint utilities (TEXT-12) — Plan 67-03 ────────────────
+--
+-- Task 1 probe: [Int32] RETURN from a foreign-method stub. Iron_List_int32_t
+-- is pre-declared in iron_runtime.h:826, so no compiler scan extension is
+-- needed — the primitive-element list bypasses emit_structs.c Scan B
+-- (which only fires for IRON_TYPE_OBJECT elements) and relies on the
+-- runtime pre-declaration that's already in every TU.
+
+-- Text.load_codepoints: extract codepoints from a UTF-8 string. Shim
+-- owns raylib's buffer lifecycle (calls UnloadCodepoints after memcpy) —
+-- no user-facing unload needed.
+func Text.load_codepoints(text: String) -> [Int32]
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════
