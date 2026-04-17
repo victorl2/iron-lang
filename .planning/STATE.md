@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 64-02-PLAN.md
-last_updated: "2026-04-17T01:59:30.728Z"
-last_activity: 2026-04-17 — Phase 64 Plan 02 executed on local. 8 Iron_*_* 3D collision shims (2 BoundingBox + 5 Ray + 1 Collision) added to src/stdlib/iron_raylib.{h,c}. tests/manual/collision_smoke.iron extended with 7 runtime 3D call sites. Canonical ironc build validates all 19 Phase 64 bindings end-to-end. COLL-02 closed. Phase 64 COMPLETE.
+status: in_progress
+stopped_at: Completed 65-01-PLAN.md
+last_updated: "2026-04-17T11:52:04.526Z"
+last_activity: 2026-04-17 — Phase 65 Plan 01 executed on local. raymath.h included under RAYMATH_STATIC_INLINE (AFTER raylib.h due to RL_VECTOR2_TYPE guard dependency — plan's written order reversed). 6 RMath.* scalar helpers + 30 Vector2.* method bindings + 3 Float32 module constants landed. raymath_smoke.iron runs end-to-end printing "ALL MATH-08 ASSERTS PASS" exit 0. MATH-01 + MATH-02 closed. **Namespace renamed Math -> RMath** to avoid Iron_math_* prefix collision with iron_math.h / math.iron. Commits 52b6a01, aafb795, de8461f.
 progress:
   total_phases: 14
   completed_phases: 4
-  total_plans: 22
-  completed_plans: 18
-  percent: 82
+  total_plans: 26
+  completed_plans: 19
+  percent: 73
 ---
 
 # State
@@ -25,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 65 — raymath (READY TO DISCUSS)
-Plan: Not started
-Status: Phase 64 is COMPLETE. Plan 64-02 closes COLL-02 (8 3D collision bindings: 2 BoundingBox.* + 5 Ray.hit_* + 1 Collision.spheres). Combined with Plan 64-01 (11 2D bindings, COLL-01 closed), Phase 64 delivers 19 collision bindings total. **First Mesh 120-byte pass-by-value + first Matrix 64-byte pass-by-value as a function argument + 5 RayCollision 32-byte struct-by-value returns ALL worked first try** with ZERO `-Wlarge-by-value-copy` warnings on clang -Wall -Wextra. The C ABI handles large-struct passing silently (AAPCS64 indirect pointer on arm64, SysV stack on x86-64) — memcpy template from Phase 63 spline evaluators scaled uniformly from 8 B (Vector2) to 120 B (Mesh). Phase 60-05's RayCollision _Static_assert grid (bool at offset 0, 3-byte padding, float distance at offset 4, Vector3 point at 8, Vector3 normal at 20) held across 5 memcpy-out sites. Rule 1 auto-fix (recurrence): plan's `self: BoundingBox` / `self: Ray` caused E0101 parser errors (self reserved); renamed to `box` / `ray` per iron_net convention (matches 64-01's rect/point). Iron_boundingbox_* lowercase-concat mangling confirmed (BoundingBox → `boundingbox`, no underscore). Ray.hit_mesh runtime exercise deferred to Phase 70 (instantiating a Mesh from Iron requires opaque-pointer null syntax not yet available; Task 1 clang -c validates the shim + ABI). `./build/ironc build tests/manual/collision_smoke.iron` exits 0 zero errors/warnings, produces 2,659,632-byte Mach-O arm64 executable that runs end-to-end validating all 19 Phase 64 bindings. _Static_assert grid unchanged at 392 (no new types). ironc invoked 1x in this plan (Task 2 smoke only); Phase 64 total 3 invocations (64-01 probe + 64-01 smoke + 64-02 smoke). pong.iron / game_raylib.iron / hello_raylib.iron unaffected — zero PHASE 64 markers exist. Phases 65 (raymath) + 70 (Models) now fully unblocked — Matrix-by-value and Mesh-by-value templates proven. Phase 63 COMPLETE. Phase 62 COMPLETE. Phase 60 8/8 closed.
-Last activity: 2026-04-17 — Phase 64 Plan 02 executed on local. 8 Iron_*_* 3D collision shims (2 BoundingBox + 5 Ray + 1 Collision) added to src/stdlib/iron_raylib.{h,c}. tests/manual/collision_smoke.iron extended with 7 runtime 3D call sites. Canonical ironc build validates all 19 Phase 64 bindings end-to-end. COLL-02 closed. Phase 64 COMPLETE.
+Phase: 65 — raymath (IN PROGRESS, 1/4 plans complete)
+Plan: 65-02 next (Vector3, 40 functions, MATH-03)
+Status: Phase 65 Plan 01 complete. raymath.h integrated into iron_raylib.c under `#define RAYMATH_STATIC_INLINE` — include order raylib.h FIRST then raymath.h (plan's written order reversed, Rule 3 deviation: raymath.h guards its Vector2/3/4/Matrix typedefs with `#if !defined(RL_VECTOR2_TYPE)` etc., and those guards are set only by raylib.h line 167; reversed order triggered 8 clang redefinition errors). Namespace renamed Math → RMath (Rule 3 deviation: emit_c.c:6710 maintains prefix skip-list `Iron_math_`/`Iron_io_`/... that suppresses auto-prototype emission; with Math/Iron_math_* the first ironc build failed with 5 undeclared-function errors + 1 signature clash against pre-existing `Iron_math_lerp(double,...)` in iron_math.h; RMath lowers to Iron_rmath_* which is outside the skip-list and outside the iron_math.h namespace). 36 call sites (6 RMath.* + 30 Vector2.*) in tests/manual/raymath_smoke.iron pass 15 MATH-08 ABI round-trip assertions end-to-end — Mach-O arm64 2,661,744-byte binary exits 0 printing "ALL MATH-08 ASSERTS PASS". DEG2RAD/RAD2DEG/EPSILON Float32 constants landed (Pitfall 9 fallback NOT triggered). Matrix-by-value as function arg (Vector2.transform) zero-warning under -Wall -Wextra. ironc invoked 1x this plan (Task 3 smoke). _Static_assert grid unchanged at 392. MATH-01 + MATH-02 closed (18 requirements complete: 6 RMath.* + 30 Vector2.* = 36 bindings from this plan, adding to 78 milestone requirements already closed, so total is 80 after MATH-01/02 are formally checked off).
+Last activity: 2026-04-17 — Phase 65 Plan 01 executed on local. raymath.h wired in under RAYMATH_STATIC_INLINE; RMath namespace (not Math — iron_math.h collision) + 30 Vector2.* methods + smoke test landed; MATH-01 + MATH-02 closed.
 
-Progress: [████████░░] 82%
+Progress: [███████░░░] 73%
 
 ## Performance Metrics
 
 - Milestone requirements: 183
 - Phases defined: 14
 - Phases complete: 3 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D)
-- Phases in flight: 2 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt)
+- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 65 — raymath, Plan 01/4 complete)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 78 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02 — Plan 64-02 closes 3D collision, Phase 64 complete)
+- Requirements complete: 80 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01, MATH-02 — Plan 65-01 closes raymath scalars + Vector2 bindings)
 
 ### Plan execution log
 
@@ -60,7 +60,7 @@ Progress: [████████░░] 82%
 | 63-04 | 4     | ~10 min  | 7     | d2bbf93, 47ebf92, 9fe20da, 6dbd5d9          |
 | 64-01 | 2     | ~5 min   | 5     | 84ca4c0, d6b55d3                            |
 | 64-02 | 2     | ~3 min   | 4     | fb9b46b, 0863e53                            |
-| Phase 64 P02 | ~3 min | 2 tasks | 4 files |
+| 65-01 | 3     | ~9 min   | 5     | 52b6a01, aafb795, de8461f                   |
 
 ## Accumulated Context
 
@@ -159,6 +159,12 @@ Progress: [████████░░] 82%
 - **64-02 decision — Rule 1 auto-fix (recurrence):** Plan literal text used `self: BoundingBox` / `self: Ray` as receiver params. Per 64-01's Rule 1 fix, `self` is a reserved word in Iron's parser (E0101). Renamed Iron stubs to `box` (BoundingBox receiver, 2 stubs) and `ray` (Ray receiver, 5 stubs). Semantically idiomatic — matches 64-01's `rect`/`point` convention. C-side shim param names keep `self` (C does not reserve it; consistent with 64-01's 11 shims).
 - **64-02 decision — Ray.hit_mesh smoke-test deferral:** The smoke test does NOT call `ray.hit_mesh(mesh, transform)` at runtime. Instantiating a Mesh from Iron syntax requires knowing the 16-field constructor order including 12 opaque pointer fields that would need null initialization; Iron does not yet have null-pointer-literal syntax for opaque Int fields in constructor position. Task 1 clang -c compile-verifies the shim body and the ABI layout; end-to-end runtime exercise lands in Phase 70 (Models) where LoadModel/LoadModelFromMesh populate Mesh structs correctly.
 - **64-02 note:** Plan 64-02 maintains the pong.iron / game_raylib.iron / hello_raylib.iron unaffected status established by 64-01. Zero PHASE 64 markers exist in any consumer file — collision is unused by the existing demo consumers. Phase 64 is the second consecutive Phase-60-foundation-era phase that completes without touching the 3 consumer files. **Next unblocked phases:** 65 (raymath, Matrix-by-value template proven), 70 (Models, Mesh-by-value template proven), 66 (Textures, already unblocked by 63 + 64-01 Rectangle), 68 (Audio, independent), 72 (File I/O, independent).
+- **65-01 (2026-04-17):** Phase 65 Plan 01 landed MATH-01 + MATH-02 — 36 raymath bindings (6 scalar RMath.* + 30 Vector2.* methods). `#define RAYMATH_STATIC_INLINE` + `#include "raymath.h"` wired into iron_raylib.c AFTER `#include "raylib.h"` (Rule 3 deviation: raymath.h guards its Vector2/3/4/Matrix typedefs with `#if !defined(RL_VECTOR2_TYPE)` etc., and those guards are set by raylib.h line 167; reversed order triggered 8 redefinition errors). iron_raylib.c +310 lines (36 shim implementations). iron_raylib.h +36 C prototypes under the Phase 65 marker. raylib.iron +45 lines (`object RMath {}` + 6 RMath.* stubs + 30 Vector2.* stubs + 3 Float32 module-level constants DEG2RAD/RAD2DEG/EPSILON). `./build/ironc build tests/manual/raymath_smoke.iron` exits 0 producing a 2,661,744-byte Mach-O arm64 executable; runtime prints "ALL MATH-08 ASSERTS PASS" and exits 0, validating 36 call sites with 15 MATH-08 ABI round-trip assertions. _Static_assert grid unchanged at 392 (no new types). ironc invoked 1x (Task 3 smoke). MATH-01 + MATH-02 closed.
+- **65-01 CRITICAL DISCOVERY — `Iron_math_` C-symbol prefix is reserved by iron_math.h:** emit_c.c:6710 maintains a hard-coded `k_header_declared_prefixes` array that skips auto-prototype emission for symbols starting with `Iron_string_`, `Iron_list_`, `Iron_array_`, `Iron_math_`, `Iron_io_`, `Iron_time_`, `Iron_log_`, `Iron_hint_`. The assumption is that the corresponding `stdlib/iron_*.h` header (always auto-included into generated C, see emit_c.c:5707-5719) declares those symbols. Plan 65-01's original Iron-side namespace was `object Math {}` with shims named `Iron_math_clamp/lerp/normalize/wrap/remap/float_equals`. First ironc build failed with 5 undeclared-function errors (the prefix-skip dropped the prototypes but iron_math.h doesn't declare these names) + 1 signature collision (`Iron_math_lerp(double, double, double)` ALREADY declared in iron_math.h:31, backing math.iron's `Math.lerp(a: Float, b: Float, t: Float)`). **Resolution:** renamed Iron-side namespace `Math` → `RMath` (raylib-math), lowering to `Iron_rmath_*` which is outside the skip-list and doesn't collide with iron_math.h. `R` prefix matches raylib's own convention (raylib/raymath/rlgl). The rename is permanent; Plans 65-02/03/04 will NOT add scalar helpers to raymath Math namespace (Vector3/4/Matrix/Quaternion are receiver methods, no Math.* conflict). **Implication for future phases:** any NEW stdlib-binding phase that wants to add `func Math.xyz` must either (a) add the declaration to iron_math.h and forward the implementation from iron_math.c, or (b) use a distinct namespace like RMath. This prefix reservation is now permanently recorded for every downstream planner.
+- **65-01 CRITICAL DISCOVERY — raymath.h include order requires raylib.h FIRST:** raymath.h (lines 115-158) wraps its Vector2/3/4/Quaternion/Matrix typedefs in `#if !defined(RL_VECTOR2_TYPE)` / `RL_VECTOR3_TYPE` / ... guards. raylib.h SETS these guards at lines 165-171 BEFORE declaring its own typedefs (at lines 214-244). The only collision-free include order is: raylib.h first (sets guards + declares), then `#define RAYMATH_STATIC_INLINE`, then raymath.h (sees guards → skips typedef duplicates → only defines the 143 RMAPI functions). Reversed order produces 8 clang `typedef redefinition` errors. This contradicts the plan's written "raymath BEFORE raylib" order which was based on the true-but-incomplete observation that "raylib.h does NOT include raymath.h" — raylib.h doesn't INCLUDE raymath.h but it SETS macros raymath.h reads, establishing a one-way dependency. Plans 65-02/03/04 inherit this order with no re-edit.
+- **65-01 note — DEG2RAD/RAD2DEG/EPSILON constants landed first try:** Single-precision-representable Float32 literals (0.017453293, 57.29578, 0.000001) accepted by `Float32(...)` cast without narrowing warnings. RESEARCH.md Pitfall 9's fallback of deferring these constants to Phase 73 was NOT triggered.
+- **65-01 note — Matrix-by-value as function ARGUMENT (Vector2.transform) zero-warning:** `Iron_vector2_transform(struct Iron_Vector2 self, struct Iron_Matrix mat)` passes a 64 B Matrix as the second arg. clang -Wall -Wextra does NOT fire `-Wlarge-by-value-copy` (default threshold is strictly > 64 bytes). RESEARCH.md Pitfall 6 prediction confirmed; matches Phase 64-02's Mesh+Matrix-as-arg precedent. Vector3/Vector4/Quaternion transform methods in Plans 65-02/03/04 will reuse the two-locals memcpy pattern established here.
+- **65-01 note — consumer files unaffected:** pong.iron / game_raylib.iron / hello_raylib.iron have zero `PHASE 65` markers — raymath is unused by the existing demo consumers. Consistent with Phases 63-64. Only `tests/manual/raymath_smoke.iron` was added (new file).
 
 ## Phase Dependency Map
 
@@ -189,8 +195,8 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-17T01:55:00Z
-Stopped at: Phase 64 complete, continuing auto-chain into Phase 65 (raymath)
+Last session: 2026-04-17T11:52:04.521Z
+Stopped at: Completed 65-01-PLAN.md
 Stopped at: Completed 64-02-PLAN.md
 Next action: Phase 64 is COMPLETE. Start any of these parallel-safe phases next: Phase 65 (raymath — depends only on Phase 60; Matrix-by-value template now proven from 64-02's Iron_ray_hit_mesh), Phase 66 (Textures — depends on Phase 63 + Rectangle pass-by-value from 64-01), Phase 68 (Audio — independent), Phase 70 (Models — Mesh pass-by-value template proven from 64-02), Phase 72 (File I/O — independent). Phase 73 (API polish + showcase) runs LAST as a cross-cutting sweep depending on all prior phases. ALL ABI surfaces needed by v2.0.0-alpha are now proven: Vector2/3 pass-by-value INPUT and RETURN (Phase 63), Rectangle/Color/Camera2D/RenderTexture/Shader pass-by-value INPUT (Phase 63), tuple returns auto-emit (64-01), Mesh 120 B / Matrix 64 B pass-by-value ARGUMENT (64-02), RayCollision 32 B struct-by-value RETURN (64-02), `[T]` array ABI for foreign-method stubs (63-03). No blockers remain.
 Resume file: None

@@ -206,8 +206,8 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 
 raymath functions become **methods on Vector2/Vector3/Vector4/Matrix/Quaternion** where the receiver is natural. Free functions only when no sensible receiver exists (`Lerp(a, b, t)`, `Clamp(v, lo, hi)`, `Wrap(v, lo, hi)`, `Normalize(v, lo, hi)`).
 
-- [ ] **MATH-01**: Scalar utilities — `Lerp, Clamp, Normalize, Wrap, FloatEquals, Remap` exist as freestanding functions
-- [ ] **MATH-02**: `Vector2` has methods for **all** raymath `Vector2*` operations: `zero, one, add, addValue, subtract, subtractValue, length, lengthSqr, dotProduct, distance, distanceSqr, angle, lineAngle, scale, multiply, negate, divide, normalize, transform, lerp, reflect, min, max, clamp, clampValue, equals, refract, rotate, moveTowards, invert`
+- [x] **MATH-01**: Scalar utilities — `Lerp, Clamp, Normalize, Wrap, FloatEquals, Remap` exist as freestanding functions
+- [x] **MATH-02**: `Vector2` has methods for **all** raymath `Vector2*` operations: `zero, one, add, addValue, subtract, subtractValue, length, lengthSqr, dotProduct, distance, distanceSqr, angle, lineAngle, scale, multiply, negate, divide, normalize, transform, lerp, reflect, min, max, clamp, clampValue, equals, refract, rotate, moveTowards, invert`
 - [ ] **MATH-03**: `Vector3` has methods for **all** raymath `Vector3*` operations: `zero, one, add, addValue, subtract, subtractValue, scale, multiply, crossProduct, perpendicular, length, lengthSqr, dotProduct, distance, distanceSqr, angle, negate, divide, normalize, project, reject, orthoNormalize, transform, rotateByQuaternion, rotateByAxisAngle, moveTowards, lerp, cubicHermite, reflect, min, max, barycenter, unproject, toFloatV, invert, clamp, clampValue, equals, refract, distanceSqr`
 - [ ] **MATH-04**: `Vector4` has methods for **all** raymath `Vector4*` operations: `zero, one, add, addValue, subtract, subtractValue, length, lengthSqr, dotProduct, distance, distanceSqr, scale, multiply, negate, divide, normalize, min, max, lerp, moveTowards, invert, equals`
 - [ ] **MATH-05**: `Matrix` has methods for **all** raymath `Matrix*` operations: `determinant, trace, transpose, invert, identity, add, subtract, multiply, translate, rotate, rotateX, rotateY, rotateZ, rotateXYZ, rotateZYX, scale, frustum, perspective, ortho, lookAt, toFloatV, decompose`
@@ -358,8 +358,8 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | DRAW2D-16 | Phase 63 | Complete |
 | COLL-01 | Phase 64 | Complete |
 | COLL-02 | Phase 64 | Complete |
-| MATH-01 | Phase 65 | Pending |
-| MATH-02 | Phase 65 | Pending |
+| MATH-01 | Phase 65 | Complete |
+| MATH-02 | Phase 65 | Complete |
 | MATH-03 | Phase 65 | Pending |
 | MATH-04 | Phase 65 | Pending |
 | MATH-05 | Phase 65 | Pending |

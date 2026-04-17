@@ -187,7 +187,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 65-01-PLAN.md — Scalars + Vector2 (MATH-01, MATH-02): RAYMATH_STATIC_INLINE inclusion + object Math {} namespace + DEG2RAD/RAD2DEG/EPSILON + 30 Vector2 methods + create tests/manual/raymath_smoke.iron (36 call sites)
+- [x] 65-01-PLAN.md — Scalars + Vector2 (MATH-01, MATH-02): RAYMATH_STATIC_INLINE inclusion + object RMath {} namespace (renamed from Math — iron_math.h collision) + DEG2RAD/RAD2DEG/EPSILON + 30 Vector2 methods + create tests/manual/raymath_smoke.iron (36 call sites) ✓ 2026-04-17
 - [ ] 65-02-PLAN.md — Vector3 (MATH-03): 38 Vector3 methods including cross-type Vector3.rotate_by_quaternion / Vector3.unproject; to_float_v + ortho_normalize deferred to 65-03/65-04
 - [ ] 65-03-PLAN.md — Vector4 + Matrix + Float3/Float16 (MATH-04, MATH-05): 22 Vector4 + ~22 Matrix (Decompose→65-04) + Float3/Float16 types with ~21 new _Static_assert entries; first 64 B Matrix struct-by-value return
 - [ ] 65-04-PLAN.md — Quaternion + MATH-07/08 sweep (MATH-06, MATH-07, MATH-08): 26 Quaternion methods + 3-tuple MatrixDecompose probe + QuaternionToAxisAngle + Vector3OrthoNormalize tuples; final raymath_smoke.iron prints ALL MATH-08 ASSERTS PASS
@@ -353,7 +353,7 @@ Plans:
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
 | 63. 2D Drawing | 4/4 | Complete    | 2026-04-17 |
 | 64. Collision | 2/2 | Complete    | 2026-04-17 |
-| 65. raymath | 0/? | Not started | - |
+| 65. raymath | 1/4 | In Progress | - |
 | 66. Textures & Images | 0/? | Not started | - |
 | 67. Text & Fonts | 0/? | Not started | - |
 | 68. Audio System | 0/? | Not started | - |
