@@ -167,6 +167,14 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
             scan_node(ctx, (Iron_Node *)fs->body);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* ── Default: leaf or unrecognised container — no-op ─────────────── */
         /* -Wswitch-enum opt-out: web-top-level-loader BFS only needs to
          * descend into kinds that can call an async loader. */

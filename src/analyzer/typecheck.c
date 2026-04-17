@@ -574,6 +574,9 @@ static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
      * casting so a wrong-kind decl_node aborts in Debug instead of silently
      * misreading memory. */
     if (!csym->decl_node) return true;
+    /* HARD-10 KEEP (audit row typecheck.c:474): csym->sym_kind is filtered to
+     * IRON_SYM_INTERFACE above (line 467) which is only set by the resolver
+     * for IRON_NODE_INTERFACE_DECL symbols — structural invariant. */
     IRON_NODE_ASSERT_KIND(csym->decl_node, IRON_NODE_INTERFACE_DECL);
     Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)csym->decl_node;
     if (!iface) return true;
@@ -1626,7 +1629,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         callee_id->resolved_type = result;
                         break;
                     }
-                    IRON_NODE_ASSERT_KIND(callee_sym->decl_node, IRON_NODE_OBJECT_DECL);
+                    /* HARD-10 REPLACE (audit row typecheck.c:1435):
+                     * callee_sym->decl_node can be IRON_NODE_ERROR after parse
+                     * recovery — early-return with a diagnostic instead of aborting. */
+                    if (!callee_sym->decl_node ||
+                        callee_sym->decl_node->kind != IRON_NODE_OBJECT_DECL) {
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                                       IRON_ERR_UNDEFINED_VAR, ce->span,
+                                       "skipping partially-parsed object construction",
+                                       NULL);
+                        for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ce->resolved_type = result;
+                        callee_id->resolved_type = result;
+                        break;
+                    }
                     Iron_ObjectDecl *od = (Iron_ObjectDecl *)callee_sym->decl_node;
                     int field_count = od->field_count;
 
@@ -1890,9 +1907,16 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
                 Iron_Symbol *fn_sym = iron_scope_lookup(ctx->global_scope, fn_id->name);
                 if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION && fn_sym->decl_node) {
-                    /* PROT-03 row 14 (AUDIT-01 M-severity): IRON_SYM_FUNCTION's
-                     * decl_node should always be IRON_NODE_FUNC_DECL; assert it. */
-                    IRON_NODE_ASSERT_KIND(fn_sym->decl_node, IRON_NODE_FUNC_DECL);
+                    /* HARD-10 REPLACE (audit row typecheck.c:1607):
+                     * fn_sym->decl_node can be IRON_NODE_ERROR after parse
+                     * recovery — skip generic constraint check gracefully. */
+                    if (fn_sym->decl_node->kind != IRON_NODE_FUNC_DECL) {
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                                       IRON_ERR_UNDEFINED_VAR, ce->span,
+                                       "skipping generic-constraint check on partially-parsed function",
+                                       NULL);
+                        goto skip_generic_constraints;
+                    }
                     Iron_FuncDecl *fd = (Iron_FuncDecl *)fn_sym->decl_node;
                     if (fd->generic_param_count > 0 && fd->generic_params) {
                         Iron_Type *concrete[16];
@@ -1927,6 +1951,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
             }
+            skip_generic_constraints: ;
 
             result = callee_type->func.return_type
                      ? callee_type->func.return_type
@@ -2517,7 +2542,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ce->resolved_type = result;
                     break;
                 }
-                IRON_NODE_ASSERT_KIND(sym->decl_node, IRON_NODE_OBJECT_DECL);
+                /* HARD-10 REPLACE (audit row typecheck.c:1887):
+                 * guard above at line 1898 already handles IRON_NODE_ERROR /
+                 * non-OBJECT_DECL cases gracefully — the former assert is now
+                 * redundant and its role has been promoted to the explicit
+                 * guard, so no runtime abort can fire here. */
                 Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
                 int field_count = od->field_count;
 
@@ -3157,6 +3186,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             result = enum_type;
             break;
         }
+
+        /* HARD-04: graceful poison return on parser ErrorNode — downstream
+         * passes see IRON_TYPE_ERROR and propagate it silently. */
+        case IRON_NODE_ERROR:
+            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            break;
 
         /* -Wswitch-enum opt-out: check_expr only handles expression node kinds;
          * statement/declaration kinds reach this arm if an upstream caller
@@ -4249,6 +4284,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        /* HARD-04: graceful no-op on parser ErrorNode — no further analysis. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* -Wswitch-enum opt-out: check_stmt handles every statement kind
          * explicitly; any remaining Iron_NodeKind (expression kinds, helpers
          * like PARAM / FIELD / TYPE_ANNOTATION) is treated as an expression-
@@ -4494,7 +4537,9 @@ static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
              * aborts in Debug instead of misreading the interface's vtable. */
             if (!iface_sym->decl_node ||
                 iface_sym->decl_node->kind != IRON_NODE_INTERFACE_DECL) continue;
-            IRON_NODE_ASSERT_KIND(iface_sym->decl_node, IRON_NODE_INTERFACE_DECL);
+            /* HARD-10 REPLACE (audit row typecheck.c:3414):
+             * guard above already rejects IRON_NODE_ERROR / non-INTERFACE_DECL;
+             * former assert removed — kind check is the authoritative guard. */
             Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)iface_sym->decl_node;
             if (!iface) continue;
 

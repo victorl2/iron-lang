@@ -743,7 +743,16 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * any future drift (e.g., a builtin enum with NULL
                  * decl_node, or a wrong-kind decl_node) aborts in Debug. */
                 if (!esym->decl_node) break;
-                IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
+                /* HARD-10 REPLACE (audit row resolve.c:651):
+                 * decl_node can be IRON_NODE_ERROR after parse recovery.
+                 * Skip variant resolution gracefully instead of aborting. */
+                if (esym->decl_node->kind != IRON_NODE_ENUM_DECL) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                                   IRON_ERR_UNDEFINED_VAR, pat->span,
+                                   "skipping pattern variant check on partially-parsed enum",
+                                   NULL);
+                    break;
+                }
                 Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
                 bool found = false;
                 for (int i = 0; i < ed->variant_count; i++) {
@@ -871,7 +880,16 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* PROT-03 row 23 (AUDIT-01 M-severity): same pattern as row 22 —
              * assert IRON_NODE_ENUM_DECL before casting esym->decl_node. */
             if (!esym->decl_node) break;
-            IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
+            /* HARD-10 REPLACE (audit row resolve.c:775):
+             * decl_node can be IRON_NODE_ERROR after parse recovery.
+             * Skip variant validation gracefully. */
+            if (esym->decl_node->kind != IRON_NODE_ENUM_DECL) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                               IRON_ERR_UNDEFINED_VAR, ec->span,
+                               "skipping enum-construct check on partially-parsed enum",
+                               NULL);
+                break;
+            }
             Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
             bool found = false;
             for (int i = 0; i < ed->variant_count; i++) {
