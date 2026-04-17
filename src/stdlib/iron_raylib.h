@@ -1588,6 +1588,24 @@ void              Iron_music_unload(struct Iron_Music music);
  */
 struct Iron_Music Iron_music_set_looping(struct Iron_Music music, bool looping);
 
+/* ── AUDIO-10 Music management (6 shims) ───────────────────────────── */
+/*
+ * Naming asymmetry preserved in the shims: raylib has IsMusicValid
+ * (no Stream) but IsMusicStreamPlaying (with Stream). Iron flattens
+ * both to music.is_valid + music.is_playing. Each shim dispatches
+ * to the correctly-named raylib function internally.
+ *
+ * music.update() must be called every frame by user code in the main
+ * loop to feed raylib's audio buffer. raylib is a no-op when the
+ * audio device is not ready.
+ */
+void Iron_music_play(struct Iron_Music music);
+bool Iron_music_is_playing(struct Iron_Music music);
+void Iron_music_update(struct Iron_Music music);
+void Iron_music_stop(struct Iron_Music music);
+void Iron_music_pause(struct Iron_Music music);
+void Iron_music_resume(struct Iron_Music music);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

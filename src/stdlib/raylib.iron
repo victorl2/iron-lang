@@ -2523,3 +2523,27 @@ func music.unload() {}
 -- compiles after an ironc rebuild. But the setter is the portable
 -- form that works in all paths; see 68-04 SUMMARY for details.
 func music.set_looping(looping: Bool) -> Music {}
+
+-- ── AUDIO-10 Music management (6 methods) ──────────────────────────
+-- Playback state transitions plus the per-frame update hook.
+--
+-- music.update() MUST be called every frame from the user's main
+-- loop to feed raylib's audio buffer. Typical pattern:
+--
+--   while !Window.should_close() {
+--       music.update()
+--       Draw.begin()
+--       -- game/render logic
+--       Draw.end()
+--   }
+--
+-- music.is_playing() flattens raylib's IsMusicStreamPlaying name (the
+-- shim dispatches to the correctly-named raylib function internally).
+-- raylib is a no-op when the audio device is not ready; wrap calls
+-- with Audio.is_ready() for graceful headless / CI degradation.
+func music.play() {}
+func music.is_playing() -> Bool {}
+func music.update() {}
+func music.stop() {}
+func music.pause() {}
+func music.resume() {}

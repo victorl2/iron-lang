@@ -5000,6 +5000,62 @@ struct Iron_Music Iron_music_set_looping(struct Iron_Music music, bool looping) 
     return out;
 }
 
+/* ── AUDIO-10 Music management (6 shims) ───────────────────────────── */
+/*
+ * INPUT-by-value memcpy template (Phase 61 / Plan 68-02..03 precedent).
+ * All six shims follow the same shape: memcpy Iron_Music → local Music,
+ * dispatch to raylib with the local, return is void (or Bool for the
+ * is_playing predicate).
+ *
+ * Naming asymmetry: raylib uses IsMusicStreamPlaying (with Stream
+ * infix) but IsMusicValid (without). Iron flattens both to
+ * music.is_valid + music.is_playing. This shim binds is_playing to
+ * the with-Stream raylib function; the is_valid shim (Iron_music_is_valid
+ * above) binds to the without-Stream raylib function. Iron surface
+ * stays symmetric.
+ *
+ * music.update must be called every frame from the user's main loop
+ * to feed raylib's audio buffer. raylib's internals are no-ops when
+ * the audio device is not ready, so guarding with Audio.is_ready() is
+ * optional but recommended for clarity in headless environments.
+ */
+
+void Iron_music_play(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    PlayMusicStream(rl);
+}
+
+bool Iron_music_is_playing(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    return (bool)(IsMusicStreamPlaying(rl) != 0);
+}
+
+void Iron_music_update(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    UpdateMusicStream(rl);
+}
+
+void Iron_music_stop(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    StopMusicStream(rl);
+}
+
+void Iron_music_pause(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    PauseMusicStream(rl);
+}
+
+void Iron_music_resume(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    ResumeMusicStream(rl);
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
