@@ -1581,7 +1581,7 @@ func Font.get_glyph_atlas_rec(font: Font, codepoint: Int32) -> Rectangle {}
 -- Text.load_codepoints: extract codepoints from a UTF-8 string. Shim
 -- owns raylib's buffer lifecycle (calls UnloadCodepoints after memcpy) —
 -- no user-facing unload needed.
-func Text.load_codepoints(text: String) -> [Int32]
+func Text.load_codepoints(text: String) -> [Int32] {}
 
 -- Task 2 probe: Iron String allocation from raylib's 6-byte static
 -- char buffer (CodepointToUTF8 writes into `static char utf8[6]` at
@@ -1593,31 +1593,31 @@ func Text.load_codepoints(text: String) -> [Int32]
 -- Text.codepoint_to_utf8: convert a single codepoint to its UTF-8 byte
 -- sequence (1-4 bytes for valid codepoints). Shim copies raylib's
 -- 6-byte static buffer into a fresh Iron String.
-func Text.codepoint_to_utf8(codepoint: Int32) -> String
+func Text.codepoint_to_utf8(codepoint: Int32) -> String {}
 
 -- Text.load_utf8: build a UTF-8 string from an array of codepoints.
 -- Shim owns raylib's caller-must-free char* (LoadUTF8 allocates;
 -- UnloadUTF8 frees) — no user-facing unload.
-func Text.load_utf8(codepoints: [Int32]) -> String
+func Text.load_utf8(codepoints: [Int32]) -> String {}
 
 -- Text.codepoint_count: count codepoints (not bytes) in a UTF-8 string.
-func Text.codepoint_count(text: String) -> Int32
+func Text.codepoint_count(text: String) -> Int32 {}
 
 -- Text.codepoint_at: read codepoint at byte-offset. Returns
 -- (codepoint, byteSize). Invalid UTF-8 returns (0x3F, 1) — the '?'
 -- fallback (raylib convention).
-func Text.codepoint_at(text: String, offset: Int32) -> (Int32, Int32)
+func Text.codepoint_at(text: String, offset: Int32) -> (Int32, Int32) {}
 
 -- Text.codepoint_next: read next codepoint from byte-offset. Returns
 -- (codepoint, byteSize). Typical iteration pattern:
 --   val (cp, step) = Text.codepoint_next(s, pos); pos = pos + step
-func Text.codepoint_next(text: String, offset: Int32) -> (Int32, Int32)
+func Text.codepoint_next(text: String, offset: Int32) -> (Int32, Int32) {}
 
 -- Text.codepoint_previous: read previous codepoint from byte-offset.
 -- Returns (codepoint, byteSize). byteSize is the size of the PREVIOUS
 -- codepoint (the one ending at `offset`); caller decrements by that
 -- many bytes to step backward.
-func Text.codepoint_previous(text: String, offset: Int32) -> (Int32, Int32)
+func Text.codepoint_previous(text: String, offset: Int32) -> (Int32, Int32) {}
 
 -- ── TEXT-13 string utilities (20 methods; Text.append OMITTED) ────────
 --
@@ -1642,38 +1642,38 @@ func Text.codepoint_previous(text: String, offset: Int32) -> (Int32, Int32)
 -- of the FFI (first [String] INPUT + [String] RETURN in the raylib
 -- binding). Runtime helpers at iron_string.c:434-491.
 
-func Text.copy(source: String) -> String
-func Text.is_equal(a: String, b: String) -> Bool
-func Text.length(text: String) -> Int32
+func Text.copy(source: String) -> String {}
+func Text.is_equal(a: String, b: String) -> Bool {}
+func Text.length(text: String) -> Int32 {}
 
 -- TextFormat -> 3 fixed-arity overloads (scalar-only). Pick the
 -- overload matching the single interpolated value's type:
 --   format_i for %d / %u / %x / %o integer formats
 --   format_f for %f / %.Nf float formats (promoted to double internally)
 --   format_s for %s string formats
-func Text.format_i(fmt: String, value: Int32) -> String
-func Text.format_f(fmt: String, value: Float32) -> String
-func Text.format_s(fmt: String, value: String) -> String
+func Text.format_i(fmt: String, value: Int32) -> String {}
+func Text.format_f(fmt: String, value: Float32) -> String {}
+func Text.format_s(fmt: String, value: String) -> String {}
 
-func Text.subtext(text: String, position: Int32, length: Int32) -> String
-func Text.replace(text: String, replace: String, by: String) -> String
-func Text.insert(text: String, insert: String, position: Int32) -> String
+func Text.subtext(text: String, position: Int32, length: Int32) -> String {}
+func Text.replace(text: String, replace: String, by: String) -> String {}
+func Text.insert(text: String, insert: String, position: Int32) -> String {}
 
 -- [String] INPUT / RETURN — first Iron_List_Iron_String crossing the
 -- raylib FFI boundary.
-func Text.join(parts: [String], delimiter: String) -> String
-func Text.split(text: String, delimiter: String) -> [String]
+func Text.join(parts: [String], delimiter: String) -> String {}
+func Text.split(text: String, delimiter: String) -> [String] {}
 
-func Text.find_index(text: String, find: String) -> Int32
+func Text.find_index(text: String, find: String) -> Int32 {}
 
 -- Case conversion + identifier-shape transforms.
-func Text.to_upper(text: String) -> String
-func Text.to_lower(text: String) -> String
-func Text.to_pascal(text: String) -> String
-func Text.to_snake(text: String) -> String
-func Text.to_camel(text: String) -> String
-func Text.to_integer(text: String) -> Int32
-func Text.to_float(text: String) -> Float32
+func Text.to_upper(text: String) -> String {}
+func Text.to_lower(text: String) -> String {}
+func Text.to_pascal(text: String) -> String {}
+func Text.to_snake(text: String) -> String {}
+func Text.to_camel(text: String) -> String {}
+func Text.to_integer(text: String) -> Int32 {}
+func Text.to_float(text: String) -> Float32 {}
 
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)

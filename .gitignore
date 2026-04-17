@@ -18,6 +18,8 @@ test_*
 /collision_smoke
 /raymath_smoke
 /texture_smoke
+/text_smoke
+/text_smoke.c
 /pong
 /arena_split_collection
 /audit_for_array_of_structs

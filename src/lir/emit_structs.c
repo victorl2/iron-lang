@@ -302,13 +302,40 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
         if (!fn || !fn->is_extern || fn->extern_c_name) continue;
         for (int pi = 0; pi < fn->param_count; pi++) {
             Iron_Type *pt = fn->params[pi].type;
-            if (!pt || pt->kind != IRON_TYPE_ARRAY) continue;
-            PLAN_63_04_EMIT_LIST_FOR(pt->array.elem,
-                                      "via foreign-method-stub param scan");
+            if (!pt) continue;
+            if (pt->kind == IRON_TYPE_ARRAY) {
+                PLAN_63_04_EMIT_LIST_FOR(pt->array.elem,
+                                          "via foreign-method-stub param scan");
+            } else if (pt->kind == IRON_TYPE_TUPLE) {
+                /* Plan 67-04: tuple param may contain an array element type
+                 * whose Iron_List_<T> typedef must be visible before the
+                 * emitted tuple typedef references it. See Font.gen_image_atlas
+                 * (Image, [Rectangle]) — same machinery applies to any future
+                 * tuple stub with an array element. */
+                for (int ti = 0; ti < pt->tuple.elem_count; ti++) {
+                    Iron_Type *te = pt->tuple.elem_types[ti];
+                    if (te && te->kind == IRON_TYPE_ARRAY) {
+                        PLAN_63_04_EMIT_LIST_FOR(te->array.elem,
+                            "via foreign-method-stub tuple-param scan");
+                    }
+                }
+            }
         }
-        if (fn->return_type && fn->return_type->kind == IRON_TYPE_ARRAY) {
-            PLAN_63_04_EMIT_LIST_FOR(fn->return_type->array.elem,
-                                      "via foreign-method-stub return scan");
+        if (fn->return_type) {
+            if (fn->return_type->kind == IRON_TYPE_ARRAY) {
+                PLAN_63_04_EMIT_LIST_FOR(fn->return_type->array.elem,
+                                          "via foreign-method-stub return scan");
+            } else if (fn->return_type->kind == IRON_TYPE_TUPLE) {
+                /* Plan 67-04: tuple return may contain an array element
+                 * type — same as tuple-param case above. */
+                for (int ti = 0; ti < fn->return_type->tuple.elem_count; ti++) {
+                    Iron_Type *te = fn->return_type->tuple.elem_types[ti];
+                    if (te && te->kind == IRON_TYPE_ARRAY) {
+                        PLAN_63_04_EMIT_LIST_FOR(te->array.elem,
+                            "via foreign-method-stub tuple-return scan");
+                    }
+                }
+            }
         }
     }
 

@@ -1,0 +1,202 @@
+-- tests/manual/text_smoke.iron — Phase 67 canonical regression test
+--
+-- Walks every TEXT-01..13 requirement via grep-countable tagged
+-- sections (one `-- ── TEXT-NN: <description>` banner per requirement).
+-- Uses Font.default() only — the default font is embedded in raylib
+-- and requires no external TTF fixture.
+--
+-- Invocation:
+--   ./build/ironc build tests/manual/text_smoke.iron
+--   ./text_smoke
+--
+-- Expected: exit 0 and the final `PHASE 67 SMOKE: ALL TEXT-01..13 CALL
+-- SITES EXERCISED` confirmation line.
+--
+-- Pitfall 1 (67-RESEARCH.md): raylib loads the default font inside
+-- InitWindow via rtext.c:LoadFontDefault. Every default-font call
+-- (Font.default, Draw.text, Draw.fps, Text.measure) MUST come AFTER
+-- Window.init.
+--
+-- Canonical template: tests/manual/texture_smoke.iron (Phase 66-05).
+
+import raylib
+
+func main() -> Int32 {
+    -- Prerequisite: Window.init (Pitfall 1 — default font bootstrap).
+    Window.init(Int32(800), Int32(600), "Phase 67 text_smoke")
+
+    -- ── TEXT-01: Default font ─────────────────────────────────────────
+    val f = Font.default()
+    val base_size = f.baseSize
+    val glyph_count = f.glyphCount
+    print("TEXT-01: Font.default() operational")
+
+    -- ── TEXT-02: Font.load + is_valid guard on missing path ──────────
+    -- raylib returns a baseSize=0 shell for missing files; no crash,
+    -- Font.is_valid is the caller-facing guard. Don't unload the bad
+    -- Font (baseSize=0 shells skip UnloadFont per rtext.c:248-258).
+    val bad = Font.load("does/not/exist.ttf")
+    val bad_valid = Font.is_valid(bad)
+    print("TEXT-02: Font.load + is_valid guard exercised")
+
+    -- ── TEXT-03: Font.load_ex with codepoints whitelist ──────────────
+    -- Font.from_memory + Font.load_data DEFERRED ([UInt8] FFI).
+    -- load_ex with a codepoint array covers the non-[UInt8] path.
+    val ascii_codepoints: [Int32] = [Int32(65), Int32(66), Int32(67)]
+    val f3 = Font.load_ex("does/not/exist.ttf", Int32(48), ascii_codepoints)
+    print("TEXT-03: Font.load_ex codepoint whitelist path exercised")
+
+    -- ── TEXT-04: font.is_valid ───────────────────────────────────────
+    val default_valid = Font.is_valid(f)
+    print("TEXT-04: Font.is_valid on default font")
+
+    -- ── TEXT-05: Font.gen_image_atlas + Font.unload_data deferrals ──
+    -- Font.load_data + Font.from_memory DEFERRED ([UInt8] FFI).
+    -- gen_image_atlas + unload_data work on [GlyphInfo] arrays — but
+    -- there's no way to construct a [GlyphInfo] without Font.load_data,
+    -- so this section documents the deferral rather than exercising.
+    print("TEXT-05: [GlyphInfo] data-path deferred ([UInt8] FFI gap)")
+
+    -- ── TEXT-06: Font.export_as_code (writes to /tmp) ────────────────
+    val export_ok = Font.export_as_code(f, "/tmp/iron_phase67_font_export.h")
+    print("TEXT-06: Font.export_as_code operational")
+
+    -- ── TEXT-07: Draw.fps + Text.measure default-font ────────────────
+    Draw.begin()
+    Draw.clear(Color(30, 30, 30, 255))
+    Draw.fps(Int32(10), Int32(10))
+    val width_default = Text.measure("hello", Int32(20))
+    print("TEXT-07: Draw.fps + Text.measure default-font exercised")
+
+    -- ── TEXT-08: Draw.text default-font + Font.draw_ex custom-font ──
+    Draw.text("TEXT-08 default font", Int32(100), Int32(100), Int32(20),
+              Color(255, 255, 255, 255))
+    Font.draw_ex(f, "TEXT-08 draw_ex",
+                 Vector2(Float32(100.0), Float32(140.0)),
+                 Float32(20.0), Float32(1.0),
+                 Color(255, 255, 255, 255))
+    Font.draw_pro(f, "TEXT-08 draw_pro",
+                  Vector2(Float32(100.0), Float32(170.0)),
+                  Vector2(Float32(0.0), Float32(0.0)),
+                  Float32(0.0), Float32(20.0), Float32(1.0),
+                  Color(255, 255, 0, 255))
+    Font.draw_codepoint(f, Int32(65),
+                        Vector2(Float32(400.0), Float32(140.0)),
+                        Float32(40.0),
+                        Color(0, 255, 255, 255))
+    val cp_draw_list: [Int32] = [Int32(65), Int32(66), Int32(67)]
+    Font.draw_codepoints(f, cp_draw_list,
+                         Vector2(Float32(400.0), Float32(170.0)),
+                         Float32(40.0), Float32(2.0),
+                         Color(255, 0, 255, 255))
+    print("TEXT-08: Draw.text + 4 custom-font draws exercised")
+
+    -- ── TEXT-09: Text.set_line_spacing (global state) ────────────────
+    -- Apply set_line_spacing then exercise multi-line rendering via two
+    -- stacked Draw.text calls (Iron does not emit \n escape into C
+    -- string literals as a newline byte — keep each line separate).
+    Text.set_line_spacing(Int32(10))
+    Draw.text("line one", Int32(100), Int32(200), Int32(16),
+              Color(200, 200, 200, 255))
+    Draw.text("line two", Int32(100), Int32(216), Int32(16),
+              Color(200, 200, 200, 255))
+    print("TEXT-09: Text.set_line_spacing exercised")
+
+    -- ── TEXT-10: Text.measure + Font.measure_ex ─────────────────────
+    val w_default = Text.measure("measure me", Int32(20))
+    val v_custom = Font.measure_ex(f, "measure me",
+                                   Float32(20.0), Float32(1.0))
+    print("TEXT-10: Text.measure + Font.measure_ex exercised")
+
+    -- ── TEXT-11: Glyph lookup — index + info + atlas rec ─────────────
+    val glyph_index = Font.get_glyph_index(f, Int32(65))
+    val glyph_info = Font.get_glyph_info(f, Int32(65))
+    val glyph_rec = Font.get_glyph_atlas_rec(f, Int32(65))
+    print("TEXT-11: get_glyph_index/info/atlas_rec exercised")
+
+    -- ── TEXT-12: UTF-8 / codepoint manipulation ──────────────────────
+    val cps = Text.load_codepoints("héllo")
+    val cp_count = Text.codepoint_count("héllo")
+    val (cp0, step0) = Text.codepoint_at("héllo", Int32(0))
+    val (cp1, step1) = Text.codepoint_next("héllo", Int32(0))
+    val (cp2, step2) = Text.codepoint_previous("héllo", Int32(2))
+    val roundtrip = Text.load_utf8(cps)
+    val cp_str = Text.codepoint_to_utf8(Int32(65))
+    print("TEXT-12: 7 UTF-8 / codepoint calls exercised")
+
+    -- ── TEXT-13: String utilities — 16 core + 3 format overloads ──
+    val copied = Text.copy("hello")
+    val equal = Text.is_equal("hello", "hello")
+    val len = Text.length("hello")
+    val fmt_i = Text.format_i("%d", Int32(42))
+    val fmt_f = Text.format_f("%.2f", Float32(3.14))
+    val fmt_s = Text.format_s("[%s]", "hi")
+    val sub = Text.subtext("hello world", Int32(6), Int32(5))
+    val repl = Text.replace("hello world", "world", "raylib")
+    val ins = Text.insert("helloworld", " ", Int32(5))
+    val split_parts = Text.split("a,b,c", ",")
+    val joined = Text.join(split_parts, " | ")
+    val idx = Text.find_index("hello world", "world")
+    val upper = Text.to_upper("hello")
+    val lower = Text.to_lower("HELLO")
+    val pascal = Text.to_pascal("hello world")
+    val snake = Text.to_snake("HelloWorld")
+    val camel = Text.to_camel("hello_world")
+    val int_v = Text.to_integer("42")
+    val float_v = Text.to_float("3.14")
+    print("TEXT-13: 19 Text.* string utilities exercised (Text.append omitted)")
+
+    Draw.end()
+
+    -- Cleanup — Pitfall 7: do not use glyph_info.image after Font.unload.
+    Font.unload(f)
+    Font.unload(f3)
+
+    Window.close()
+
+    -- Keep every checked value alive so the compiler does not DCE the
+    -- call sites out from under the grep-countable section banners.
+    val _k0  = base_size
+    val _k1  = glyph_count
+    val _k2  = bad_valid
+    val _k3  = default_valid
+    val _k4  = export_ok
+    val _k5  = width_default
+    val _k6  = w_default
+    val _k7  = v_custom
+    val _k8  = glyph_index
+    val _k9  = glyph_info
+    val _k10 = glyph_rec
+    val _k11 = cps
+    val _k12 = cp_count
+    val _k13 = cp0
+    val _k14 = step0
+    val _k15 = cp1
+    val _k16 = step1
+    val _k17 = cp2
+    val _k18 = step2
+    val _k19 = roundtrip
+    val _k20 = cp_str
+    val _k21 = copied
+    val _k22 = equal
+    val _k23 = len
+    val _k24 = fmt_i
+    val _k25 = fmt_f
+    val _k26 = fmt_s
+    val _k27 = sub
+    val _k28 = repl
+    val _k29 = ins
+    val _k30 = split_parts
+    val _k31 = joined
+    val _k32 = idx
+    val _k33 = upper
+    val _k34 = lower
+    val _k35 = pascal
+    val _k36 = snake
+    val _k37 = camel
+    val _k38 = int_v
+    val _k39 = float_v
+
+    print("PHASE 67 SMOKE: ALL TEXT-01..13 CALL SITES EXERCISED")
+    return Int32(0)
+}
