@@ -4,15 +4,24 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <pthread.h>
 
-/* ── Primitive singleton table ───────────────────────────────────────────── */
-
-/* Static storage for interned primitive types.
+/* ── Primitive-type singleton table (HARD-07) ────────────────────────────── */
+/* Process-wide: iron_types_init is idempotent across all calls in a process.
+ * pthread_once matches process lifetime (not test-fixture lifetime) — see
+ * RESEARCH.md §Pitfall 3. s_primitives is read-only after init, so concurrent
+ * readers after the first iron_types_init call do not race.
+ *
+ * The original implementation used `static bool s_initialized;` which was
+ * prone to a torn-init race under concurrent ASTWorkers. pthread_once
+ * guarantees types_init_impl() runs exactly once per process, with all
+ * subsequent callers blocking until init completes.
+ *
  * Indexed directly by Iron_TypeKind value.
  * Only kinds in the "primitive" range are populated; others are left zeroed.
  */
-static Iron_Type s_primitives[IRON_TYPE_ERROR + 1];
-static bool      s_initialized = false;
+static Iron_Type       s_primitives[IRON_TYPE_ERROR + 1];
+static pthread_once_t  s_primitives_once = PTHREAD_ONCE_INIT;
 
 /* Kinds that have interned singletons (IRON_TYPE_VOID and IRON_TYPE_NULL
  * and IRON_TYPE_ERROR are also interned for convenience). */
@@ -45,15 +54,20 @@ static bool is_primitive_kind(Iron_TypeKind kind) {
     }
 }
 
-void iron_types_init(Iron_Arena *arena) {
-    (void)arena; /* reserved for future use */
-    if (s_initialized) return;
+/* One-shot body run under pthread_once. Idempotent by construction. */
+static void types_init_impl(void) {
     memset(s_primitives, 0, sizeof(s_primitives));
     /* Stamp the kind field for every internable slot */
     for (int k = IRON_TYPE_INT; k <= IRON_TYPE_ERROR; k++) {
         s_primitives[k].kind = (Iron_TypeKind)k;
     }
-    s_initialized = true;
+}
+
+void iron_types_init(Iron_Arena *arena) {
+    (void)arena; /* reserved for future use; pthread_once ignores it */
+    /* HARD-07: process-wide one-time init. Concurrent callers block until the
+     * first caller's types_init_impl() returns, then return immediately. */
+    pthread_once(&s_primitives_once, types_init_impl);
 }
 
 Iron_Type *iron_type_make_primitive(Iron_TypeKind kind) {
