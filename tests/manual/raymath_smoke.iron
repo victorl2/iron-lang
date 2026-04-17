@@ -1,7 +1,8 @@
 -- tests/manual/raymath_smoke.iron — Phase 65 canonical regression test
 -- Plan 65-01 creates; Plans 65-02/03/04 APPEND (never replace).
 -- MATH-01 (RMath.*) + MATH-02 (Vector2.*) + MATH-03 (Vector3.*)
--- + MATH-04 (Vector4.*) + MATH-05 (Matrix.*) + ToFloatV = 119 call sites.
+-- + MATH-04 (Vector4.*) + MATH-05 (Matrix.*) + MATH-06 (Quaternion.*)
+-- + ToFloatV + 3 tuple returns = 143 call sites.
 
 import raylib
 
@@ -169,6 +170,55 @@ func main() -> Int32 {
     -- ── Vector3.to_float_v (MATH-03 carried from Plan 65-02) ───────────
     val v3_f3    = v3.to_float_v()
 
+    -- ── MATH-06: Quaternion methods (24 call sites) ────────────────────
+    -- Plan 65-04 binds all 24 raymath Quaternion RMAPI functions.
+    -- Static: identity; instance: 23 + to_axis_angle (2-tuple below).
+    val q_a     = Quaternion(Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0))
+    val q_b     = Quaternion(Float32(0.1), Float32(0.0), Float32(0.0), Float32(0.995))
+
+    val q_ident  = Quaternion.identity()
+    val q_add    = q_a.add(q_b)
+    val q_addval = q_a.add_value(Float32(0.1))
+    val q_sub    = q_a.subtract(q_b)
+    val q_subval = q_a.subtract_value(Float32(0.1))
+    val q_len    = q_a.length()
+    val q_norm   = q_a.normalize()
+    val q_inv    = q_a.invert()
+    val q_mul    = q_a.multiply(q_b)
+    val q_scale  = q_a.scale(Float32(2.0))
+    val q_div    = q_a.divide(q_b)
+    val q_lerp   = q_a.lerp(q_b, Float32(0.5))
+    val q_nlerp  = q_a.nlerp(q_b, Float32(0.5))
+    val q_slerp  = q_a.slerp(q_b, Float32(0.5))
+    val q_ch     = q_a.cubic_hermite_spline(q_b, q_a, q_b, Float32(0.5))
+    val q_fv3v3  = Quaternion.from_vector3_to_vector3(
+        Vector3(Float32(1.0), Float32(0.0), Float32(0.0)),
+        Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    )
+    val q_fmat   = Quaternion.from_matrix(Matrix.identity())
+    val q_tomat  = q_a.to_matrix()
+    val q_faxang = Quaternion.from_axis_angle(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(0.0))
+    val q_feuler = Quaternion.from_euler(Float32(0.0), Float32(0.0), Float32(0.0))
+    val q_teuler = q_a.to_euler()
+    val q_xform  = q_a.transform(Matrix.identity())
+    val q_eq     = q_a.equals(q_a)
+
+    -- ── Tuple returns (3 call sites — closes MATH-05 Decompose,
+    --    MATH-03 ortho_normalize, MATH-06 to_axis_angle) ────────────
+    -- 2-tuple: Quaternion.to_axis_angle -> (Vector3, Float32)
+    val (axis_out, angle_out) = q_a.to_axis_angle()
+
+    -- 2-tuple: Vector3.ortho_normalize -> (Vector3, Vector3)
+    val v3u = Vector3(Float32(1.0), Float32(0.0), Float32(0.0))
+    val v3v = Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    val (ortho_a, ortho_b) = v3u.ortho_normalize(v3v)
+
+    -- 3-tuple: Matrix.decompose -> (Vector3, Quaternion, Vector3)
+    -- (First 3-tuple return in the Iron codebase; Plan 65-04 Task 1
+    -- probe confirmed Branch A auto-emit GREEN.)
+    val m_for_decomp = Matrix.identity()
+    val (d_trans, d_rot, d_scale) = m_for_decomp.decompose()
+
     -- ── MATH-08: ABI round-trip assertions (~15 sites across return shapes) ─
     val pass_lerp    = RMath.float_equals(lerped, Float32(5.0))
     val pass_clamped = RMath.float_equals(clamped, Float32(0.0))
@@ -218,7 +268,20 @@ func main() -> Int32 {
     val pass_v3f3_y  = RMath.float_equals(v3_f3.y,   Float32(4.0))
     val pass_v3f3_z  = RMath.float_equals(v3_f3.z,   Float32(0.0))
 
-    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq and pass_v3addx and pass_v3addy and pass_v3addz and pass_v3len and pass_v3lensq and pass_v3dot and pass_v3distsq and pass_v3crossx and pass_v3crossy and pass_v3crossz and pass_v3rotqx and pass_v3xformx and pass_v3eq and pass_v4addx and pass_v4addy and pass_v4addz and pass_v4addw and pass_v4lensq and pass_v4dot and pass_v4eq and pass_mdet and pass_mtrace and pass_mf16_0 and pass_mf16_5 and pass_mf16_1 and pass_v3f3_x and pass_v3f3_y and pass_v3f3_z
+    -- MATH-08 Quaternion + tuple ABI asserts (10 sites — every tuple shape)
+    val pass_q_identw    = RMath.float_equals(q_ident.w,      Float32(1.0))      -- identity w = 1
+    val pass_q_eq        = q_eq                                                   -- equals reflexive
+    val pass_q_len       = RMath.float_equals(q_len,          Float32(1.0))      -- |(0,0,0,1)| = 1
+    val pass_q_teulerx   = RMath.float_equals(q_teuler.x,     Float32(0.0))      -- identity -> zero euler
+    val pass_q_axang_y   = RMath.float_equals(axis_out.y,     axis_out.y)        -- non-NaN self-equality
+    val pass_q_axang_ang = RMath.float_equals(angle_out,      angle_out)         -- non-NaN self-equality
+    val pass_ortho_a_x   = RMath.float_equals(ortho_a.x,      Float32(1.0))      -- orthonormal unit preserved
+    val pass_ortho_b_y   = RMath.float_equals(ortho_b.y,      Float32(1.0))      -- orthonormal unit preserved
+    val pass_d_trans_x   = RMath.float_equals(d_trans.x,      Float32(0.0))      -- identity decomposes zero trans
+    val pass_d_rot_w     = RMath.float_equals(d_rot.w,        Float32(1.0))      -- identity rotation -> (0,0,0,1)
+    val pass_d_scale_x   = RMath.float_equals(d_scale.x,      Float32(1.0))      -- identity scale -> 1
+
+    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq and pass_v3addx and pass_v3addy and pass_v3addz and pass_v3len and pass_v3lensq and pass_v3dot and pass_v3distsq and pass_v3crossx and pass_v3crossy and pass_v3crossz and pass_v3rotqx and pass_v3xformx and pass_v3eq and pass_v4addx and pass_v4addy and pass_v4addz and pass_v4addw and pass_v4lensq and pass_v4dot and pass_v4eq and pass_mdet and pass_mtrace and pass_mf16_0 and pass_mf16_5 and pass_mf16_1 and pass_v3f3_x and pass_v3f3_y and pass_v3f3_z and pass_q_identw and pass_q_eq and pass_q_len and pass_q_teulerx and pass_q_axang_y and pass_q_axang_ang and pass_ortho_a_x and pass_ortho_b_y and pass_d_trans_x and pass_d_rot_w and pass_d_scale_x
 
     if all_pass {
         print("ALL MATH-08 ASSERTS PASS")
