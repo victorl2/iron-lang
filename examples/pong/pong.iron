@@ -102,8 +102,8 @@ func main() {
     Draw.clear(bg)
     Draw.line(400, 0, 400, 600, divider)
     Draw.rectangle(0, 250, 10, 100, fg)
-    -- PHASE 67: DrawText(score_str, 200, 20, 40, fg)      -- was mislabeled (TEXT-07 is Phase 67 territory)
-    -- PHASE 67: DrawText("GAME OVER", 300, 280, 40, accent) -- was mislabeled (TEXT-08 is Phase 67 territory)
+    Draw.text(Text.format_i("%d", Int32(0)), Int32(200), Int32(20), Int32(40), fg)
+    Draw.text("GAME OVER", Int32(300), Int32(280), Int32(40), accent)
     Draw.end()
     Window.close()
 
