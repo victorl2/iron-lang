@@ -1381,6 +1381,9 @@ struct Iron_Rectangle  Iron_font_get_glyph_atlas_rec(struct Iron_Font font,
 /* ── UTF-8 / codepoint (TEXT-12) — Task 1 probe: [Int32] RETURN ─── */
 Iron_List_int32_t Iron_text_load_codepoints(Iron_String text);
 
+/* ── UTF-8 / codepoint (TEXT-12) — Task 2 probe: Iron_String from raylib char* ─── */
+Iron_String Iron_text_codepoint_to_utf8(int32_t codepoint);
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

@@ -4216,6 +4216,32 @@ Iron_List_int32_t Iron_text_load_codepoints(Iron_String text) {
     return out;
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Plan 67-03 Task 2: PROBE — Iron_String allocation from raylib char*
+ *
+ * Pattern 5 (static-buffer variant): raylib's CodepointToUTF8 returns
+ * a const char* into a 6-byte static buffer (rtext.c:1914 `static char
+ * utf8[6] = { 0 }`). Buffer is reset to zero BEFORE the next call. Shim
+ * iron_string_from_cstr's it immediately so Iron owns the returned
+ * String lifetime.
+ *
+ * Template source: Iron_window_get_clipboard_text at iron_raylib.c:205-211
+ * + Iron_window_get_monitor_name at lines 192-198 (Phase 61).
+ *
+ * Pitfalls 2 + 3 (67-RESEARCH.md): shim MUST copy before control returns
+ * to user or to any subsequent raylib call. iron_string_from_cstr does
+ * the copy.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+Iron_String Iron_text_codepoint_to_utf8(int32_t codepoint) {
+    int size = 0;
+    const char *buf = CodepointToUTF8((int)codepoint, &size);
+    if (!buf || size <= 0) {
+        return iron_string_from_literal("", 0);
+    }
+    return iron_string_from_cstr(buf, (size_t)size);
+}
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
