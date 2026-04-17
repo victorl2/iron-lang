@@ -83,6 +83,13 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_UNTERMINATED_STRING   1
 #define IRON_ERR_INVALID_CHAR          2
 #define IRON_ERR_INVALID_NUMBER        3
+/* HARD-09: lexer-side OOM during arena allocation — emitted as a diagnostic
+ * instead of aborting the process, so iron_analyze_buffer stays fallible
+ * on the hot path (CR-01). */
+#define IRON_ERR_LEXER_OOM             4
+/* HARD-09: string literal exceeded the lexer's 4KB buffer capacity. Emitted
+ * once per overflow to avoid log spam on pathological input (WR-07). */
+#define IRON_ERR_STRING_TOO_LONG       5
 
 /* Parser errors */
 #define IRON_ERR_UNEXPECTED_TOKEN    101
