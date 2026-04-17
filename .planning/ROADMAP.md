@@ -184,7 +184,13 @@ Plans:
   4. Every one of the ~143 raymath functions is exercised by at least one Iron-side test case with non-trivial input values, and the output matches raymath's C reference to within single-precision float tolerance.
   5. Freestanding scalar helpers (`Lerp(a, b, t)`, `Clamp(v, lo, hi)`, `Wrap(v, lo, hi)`, `Remap(v, inStart, inEnd, outStart, outEnd)`, `FloatEquals(a, b)`) are callable without a receiver.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 65-01-PLAN.md — Scalars + Vector2 (MATH-01, MATH-02): RAYMATH_STATIC_INLINE inclusion + object Math {} namespace + DEG2RAD/RAD2DEG/EPSILON + 30 Vector2 methods + create tests/manual/raymath_smoke.iron (36 call sites)
+- [ ] 65-02-PLAN.md — Vector3 (MATH-03): 38 Vector3 methods including cross-type Vector3.rotate_by_quaternion / Vector3.unproject; to_float_v + ortho_normalize deferred to 65-03/65-04
+- [ ] 65-03-PLAN.md — Vector4 + Matrix + Float3/Float16 (MATH-04, MATH-05): 22 Vector4 + ~22 Matrix (Decompose→65-04) + Float3/Float16 types with ~21 new _Static_assert entries; first 64 B Matrix struct-by-value return
+- [ ] 65-04-PLAN.md — Quaternion + MATH-07/08 sweep (MATH-06, MATH-07, MATH-08): 26 Quaternion methods + 3-tuple MatrixDecompose probe + QuaternionToAxisAngle + Vector3OrthoNormalize tuples; final raymath_smoke.iron prints ALL MATH-08 ASSERTS PASS
 
 ---
 
