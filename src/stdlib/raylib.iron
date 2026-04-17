@@ -1619,6 +1619,62 @@ func Text.codepoint_next(text: String, offset: Int32) -> (Int32, Int32)
 -- many bytes to step backward.
 func Text.codepoint_previous(text: String, offset: Int32) -> (Int32, Int32)
 
+-- ── TEXT-13 string utilities (20 methods; Text.append OMITTED) ────────
+--
+-- 17 Text.* utilities + 3 TextFormat overloads. Iron has no varargs FFI,
+-- so TextFormat is exposed as three fixed-arity shims (format_i /
+-- format_f / format_s). Each overload covers the most common single-
+-- scalar interpolation pattern — for multi-argument formats, compose
+-- multiple Text.format_* calls or use Iron's built-in `"{x}"` interp
+-- outside the Text.* API.
+--
+-- NOTE: Text.append OMITTED — raylib's TextAppend mutates a caller
+-- buffer and advances int *position (no clean Iron mapping since Iron
+-- Strings are immutable). Use Text.insert for the same semantics with
+-- a cleaner API. See 67-RESEARCH.md Open Question 3.
+--
+-- NOTE: Text.copy is a PURE-FUNCTIONAL alternative to raylib's mutating
+-- TextCopy — returns a fresh String copy of the source. Mainly useful
+-- for FFI parity; Iron Strings are already immutable + copy-on-reference
+-- so this is rarely needed at the Iron level.
+--
+-- NOTE: Text.join + Text.split use Iron_List_Iron_String on both sides
+-- of the FFI (first [String] INPUT + [String] RETURN in the raylib
+-- binding). Runtime helpers at iron_string.c:434-491.
+
+func Text.copy(source: String) -> String
+func Text.is_equal(a: String, b: String) -> Bool
+func Text.length(text: String) -> Int32
+
+-- TextFormat -> 3 fixed-arity overloads (scalar-only). Pick the
+-- overload matching the single interpolated value's type:
+--   format_i for %d / %u / %x / %o integer formats
+--   format_f for %f / %.Nf float formats (promoted to double internally)
+--   format_s for %s string formats
+func Text.format_i(fmt: String, value: Int32) -> String
+func Text.format_f(fmt: String, value: Float32) -> String
+func Text.format_s(fmt: String, value: String) -> String
+
+func Text.subtext(text: String, position: Int32, length: Int32) -> String
+func Text.replace(text: String, replace: String, by: String) -> String
+func Text.insert(text: String, insert: String, position: Int32) -> String
+
+-- [String] INPUT / RETURN — first Iron_List_Iron_String crossing the
+-- raylib FFI boundary.
+func Text.join(parts: [String], delimiter: String) -> String
+func Text.split(text: String, delimiter: String) -> [String]
+
+func Text.find_index(text: String, find: String) -> Int32
+
+-- Case conversion + identifier-shape transforms.
+func Text.to_upper(text: String) -> String
+func Text.to_lower(text: String) -> String
+func Text.to_pascal(text: String) -> String
+func Text.to_snake(text: String) -> String
+func Text.to_camel(text: String) -> String
+func Text.to_integer(text: String) -> Int32
+func Text.to_float(text: String) -> Float32
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════

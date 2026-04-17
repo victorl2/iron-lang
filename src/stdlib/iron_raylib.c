@@ -4303,6 +4303,192 @@ Iron_Tuple_Int32_Int32 Iron_text_codepoint_previous(Iron_String text, int32_t of
     return out;
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Plan 67-04 Task 1: TEXT-13 string utilities (20 shims)
+ *
+ * Binds 17 Text.* utilities + 3 TextFormat overloads (20 entry points
+ * total). Every string-returning shim uses Pattern 5 (iron_string_from_cstr
+ * copy-out) because raylib's Text.* returns point into rotating/shared
+ * static char buffers (rtext.c:1820 `MAX_TEXT_BUFFER_LENGTH = 1024`,
+ * rotating index mechanism). Pitfalls 2 + 3 (67-RESEARCH.md) mandate
+ * immediate copy before control returns to user or to any subsequent
+ * raylib call.
+ *
+ * TextReplace + TextInsert are the two Pattern 5 caller-must-free
+ * variants — raylib RL_CALLOC's a fresh buffer; shim copies into
+ * Iron_String then free()s (Pitfall 4).
+ *
+ * Text.append OMITTED: raylib's TextAppend mutates a caller-provided
+ * char buffer and advances int *position. Iron Strings are immutable —
+ * binding this would require a (String, Int32) tuple wrapping fresh
+ * String + new position. Use Text.insert instead for the same semantics
+ * with a cleaner API. See 67-RESEARCH.md Open Question 3.
+ *
+ * Text.copy decision: raylib's TextCopy(char *dst, const char *src)
+ * mutates a caller-provided buffer — same immutable-String mismatch as
+ * TextAppend. Bound here as a pure functional alternative that returns
+ * a fresh Iron String copy of the source, matching what raylib users
+ * actually want in most contexts.
+ *
+ * Iron_text_join + Iron_text_split exercise Iron_List_Iron_String on
+ * both sides of the FFI (INPUT for join, RETURN for split). Helpers
+ * declared at iron_runtime.h:829 + defined at iron_string.c:434-491.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+Iron_String Iron_text_copy(Iron_String source) {
+    /* TextCopy mutates a caller-provided char buffer — bind a pure
+     * functional alternative instead: return a fresh Iron String copy
+     * of the source. Iron Strings are already immutable + copy-on-
+     * reference so this matters only at the FFI boundary. */
+    const char *src = iron_string_cstr(&source);
+    return src ? iron_string_from_cstr(src, strlen(src))
+               : iron_string_from_literal("", 0);
+}
+
+bool Iron_text_is_equal(Iron_String a, Iron_String b) {
+    return (bool)(TextIsEqual(iron_string_cstr(&a), iron_string_cstr(&b)) != 0);
+}
+
+int32_t Iron_text_length(Iron_String text) {
+    return (int32_t)TextLength(iron_string_cstr(&text));
+}
+
+Iron_String Iron_text_format_i(Iron_String fmt, int32_t value) {
+    const char *buf = TextFormat(iron_string_cstr(&fmt), (int)value);
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_format_f(Iron_String fmt, float value) {
+    /* C promotes float -> double for varargs; %f expects double. */
+    const char *buf = TextFormat(iron_string_cstr(&fmt), (double)value);
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_format_s(Iron_String fmt, Iron_String value) {
+    const char *buf = TextFormat(iron_string_cstr(&fmt), iron_string_cstr(&value));
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_subtext(Iron_String text, int32_t position, int32_t length) {
+    const char *buf = TextSubtext(iron_string_cstr(&text), (int)position, (int)length);
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_replace(Iron_String text, Iron_String replace, Iron_String by) {
+    /* Pitfall 4: caller MUST free TextReplace's return (RL_CALLOC). */
+    char *buf = TextReplace(iron_string_cstr(&text),
+                             iron_string_cstr(&replace),
+                             iron_string_cstr(&by));
+    Iron_String out = buf ? iron_string_from_cstr(buf, strlen(buf))
+                          : iron_string_from_literal("", 0);
+    free(buf);
+    return out;
+}
+
+Iron_String Iron_text_insert(Iron_String text, Iron_String insert_text, int32_t position) {
+    /* Pitfall 4: caller MUST free TextInsert's return (RL_CALLOC). */
+    char *buf = TextInsert(iron_string_cstr(&text),
+                            iron_string_cstr(&insert_text),
+                            (int)position);
+    Iron_String out = buf ? iron_string_from_cstr(buf, strlen(buf))
+                          : iron_string_from_literal("", 0);
+    free(buf);
+    return out;
+}
+
+Iron_String Iron_text_join(Iron_List_Iron_String parts, Iron_String delimiter) {
+    /* raylib TextJoin takes `const char **textList, int count, const char
+     * *delimiter` and returns a pointer into its own static buffer (no
+     * free needed). Build a transient const char ** from the Iron_String
+     * list, call TextJoin, copy the result into a fresh Iron String. */
+    int32_t count = (int32_t)Iron_List_Iron_String_len(&parts);
+    if (count <= 0) {
+        return iron_string_from_literal("", 0);
+    }
+    const char **c_parts = (const char **)calloc((size_t)count, sizeof(const char *));
+    if (!c_parts) {
+        return iron_string_from_literal("", 0);
+    }
+    /* Materialize all cstr pointers first — every iron_string_cstr call
+     * reads from the Iron_String struct by reference, and the Iron_Strings
+     * live in the list's items array for the duration of this shim. */
+    for (int32_t i = 0; i < count; i++) {
+        Iron_String p = Iron_List_Iron_String_get(&parts, (int64_t)i);
+        c_parts[i] = iron_string_cstr(&p);
+    }
+    const char *joined = TextJoin(c_parts, (int)count, iron_string_cstr(&delimiter));
+    Iron_String out = joined ? iron_string_from_cstr(joined, strlen(joined))
+                             : iron_string_from_literal("", 0);
+    free(c_parts);
+    return out;
+}
+
+Iron_List_Iron_String Iron_text_split(Iron_String text, Iron_String delimiter) {
+    /* raylib TextSplit uses internal static char buffers + a static
+     * const char ** result array — no free needed. Copy each part into
+     * Iron_List_Iron_String before returning. Delimiter is a single
+     * char (raylib signature is `char delimiter`); if the Iron caller
+     * passes a multi-byte String, only the first byte is used. */
+    int count = 0;
+    const char *d = iron_string_cstr(&delimiter);
+    char delim = (d && d[0]) ? d[0] : ',';
+    const char **parts = TextSplit(iron_string_cstr(&text), delim, &count);
+    Iron_List_Iron_String out = Iron_List_Iron_String_create();
+    for (int i = 0; i < count; i++) {
+        Iron_String part = parts[i]
+            ? iron_string_from_cstr(parts[i], strlen(parts[i]))
+            : iron_string_from_literal("", 0);
+        Iron_List_Iron_String_push(&out, part);
+    }
+    return out;
+}
+
+int32_t Iron_text_find_index(Iron_String text, Iron_String find) {
+    return (int32_t)TextFindIndex(iron_string_cstr(&text), iron_string_cstr(&find));
+}
+
+Iron_String Iron_text_to_upper(Iron_String text) {
+    const char *buf = TextToUpper(iron_string_cstr(&text));
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_to_lower(Iron_String text) {
+    const char *buf = TextToLower(iron_string_cstr(&text));
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_to_pascal(Iron_String text) {
+    const char *buf = TextToPascal(iron_string_cstr(&text));
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_to_snake(Iron_String text) {
+    const char *buf = TextToSnake(iron_string_cstr(&text));
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+Iron_String Iron_text_to_camel(Iron_String text) {
+    const char *buf = TextToCamel(iron_string_cstr(&text));
+    return buf ? iron_string_from_cstr(buf, strlen(buf))
+               : iron_string_from_literal("", 0);
+}
+
+int32_t Iron_text_to_integer(Iron_String text) {
+    return (int32_t)TextToInteger(iron_string_cstr(&text));
+}
+
+float Iron_text_to_float(Iron_String text) {
+    return TextToFloat(iron_string_cstr(&text));
+}
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

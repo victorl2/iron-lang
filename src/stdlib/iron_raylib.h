@@ -1416,6 +1416,49 @@ Iron_Tuple_Int32_Int32 Iron_text_codepoint_at(Iron_String text, int32_t offset);
 Iron_Tuple_Int32_Int32 Iron_text_codepoint_next(Iron_String text, int32_t offset);
 Iron_Tuple_Int32_Int32 Iron_text_codepoint_previous(Iron_String text, int32_t offset);
 
+/* ── TEXT-13 string utilities (20 shims; TextAppend OMITTED) ──────────
+ *
+ * 17 Text.* utilities + 3 TextFormat overloads (Iron has no varargs FFI,
+ * so each call site picks a fixed-arity overload for its scalar type).
+ *
+ * Text.append OMITTED: raylib's TextAppend mutates a caller-provided
+ * char buffer and advances int *position. Iron Strings are immutable —
+ * use Text.insert instead for the same semantics with a cleaner API.
+ * See 67-RESEARCH.md Open Question 3.
+ *
+ * Iron_text_join takes Iron_List_Iron_String by value (declared at
+ * iron_runtime.h:829 via IRON_LIST_DECL(Iron_String, Iron_String)).
+ * Iron_text_split returns Iron_List_Iron_String — first raylib-binding
+ * RETURN of a String list. Runtime helpers live in iron_string.c:434-491
+ * (Iron_List_Iron_String_create/push/get/len).
+ *
+ * TextReplace + TextInsert return RL_CALLOC'd char* that the caller
+ * MUST free (Pitfall 4). Shim copies into Iron_String then frees. */
+Iron_String Iron_text_copy(Iron_String source);
+bool        Iron_text_is_equal(Iron_String a, Iron_String b);
+int32_t     Iron_text_length(Iron_String text);
+
+Iron_String Iron_text_format_i(Iron_String fmt, int32_t value);
+Iron_String Iron_text_format_f(Iron_String fmt, float value);
+Iron_String Iron_text_format_s(Iron_String fmt, Iron_String value);
+
+Iron_String Iron_text_subtext(Iron_String text, int32_t position, int32_t length);
+Iron_String Iron_text_replace(Iron_String text, Iron_String replace, Iron_String by);
+Iron_String Iron_text_insert(Iron_String text, Iron_String insert_text, int32_t position);
+
+Iron_String           Iron_text_join(Iron_List_Iron_String parts, Iron_String delimiter);
+Iron_List_Iron_String Iron_text_split(Iron_String text, Iron_String delimiter);
+
+int32_t     Iron_text_find_index(Iron_String text, Iron_String find);
+
+Iron_String Iron_text_to_upper(Iron_String text);
+Iron_String Iron_text_to_lower(Iron_String text);
+Iron_String Iron_text_to_pascal(Iron_String text);
+Iron_String Iron_text_to_snake(Iron_String text);
+Iron_String Iron_text_to_camel(Iron_String text);
+int32_t     Iron_text_to_integer(Iron_String text);
+float       Iron_text_to_float(Iron_String text);
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
