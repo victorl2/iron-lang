@@ -267,6 +267,10 @@ endif()
 if(IRON_BUILD_LSP)
     add_executable(ironls
         src/lsp/main.c
+        src/lsp/transport/frame.c
+        src/lsp/transport/json.c
+        src/lsp/transport/reader.c
+        src/lsp/transport/writer.c
         src/vendor/yyjson/yyjson.c
     )
     target_include_directories(ironls PRIVATE src src/vendor)

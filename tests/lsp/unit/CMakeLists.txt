@@ -41,6 +41,23 @@ if(IRON_BUILD_LSP)
     add_test(NAME test_lsp_json COMMAND test_lsp_json)
     set_tests_properties(test_lsp_json PROPERTIES
         LABELS "unit;phase-m1-invariant")
+
+    # Phase 2 Plan 02 Task 03: Writer queue + reader thread.
+    # Requires pthread for the writer/reader thread primitives and _GNU_SOURCE
+    # for fmemopen / open_memstream / memmem on glibc.
+    add_executable(test_lsp_writer_queue test_lsp_writer_queue.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c)
+    target_include_directories(test_lsp_writer_queue PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_writer_queue PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_writer_queue
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_writer_queue COMMAND test_lsp_writer_queue)
+    set_tests_properties(test_lsp_writer_queue PROPERTIES
+        LABELS "unit;phase-m1-invariant")
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()
