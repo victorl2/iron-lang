@@ -4242,6 +4242,67 @@ Iron_String Iron_text_codepoint_to_utf8(int32_t codepoint) {
     return iron_string_from_cstr(buf, (size_t)size);
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Plan 67-03 Task 3: Bulk TEXT-12 — 5 remaining UTF-8 / codepoint shims
+ *
+ * Both probes (Task 1 = [Int32] RETURN, Task 2 = Iron_String from raylib
+ * char*) green first-try. Bulk commits the remainder of TEXT-12:
+ *
+ *   1. Iron_text_load_utf8        — Pattern 5 caller-must-free variant
+ *                                    (LoadUTF8 heap char* -> Iron_String;
+ *                                    shim frees via UnloadUTF8 after copy)
+ *   2. Iron_text_codepoint_count  — trivial scalar wrap
+ *   3. Iron_text_codepoint_at     — Pattern 6 2-tuple (cp, byteSize)
+ *   4. Iron_text_codepoint_next   — Pattern 6 2-tuple (cp, byteSize)
+ *   5. Iron_text_codepoint_previous — Pattern 6 2-tuple (cp, byteSize)
+ *
+ * 2-tuple RETURN uses Iron_Tuple_Int32_Int32 (typedef in iron_raylib.h
+ * guard block). First primitive-element tuple in the binding — Phase 64-01
+ * (Iron_Tuple_Bool_Vector2) + Phase 65-04 (3-tuple) precedent confirms
+ * ironc's tuple auto-emit is arity- and element-agnostic.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+Iron_String Iron_text_load_utf8(Iron_List_int32_t codepoints) {
+    /* LoadUTF8 returns heap char* (RL_MALLOC) that caller must UnloadUTF8.
+     * Copy bytes into Iron-owned String THEN free raylib's buffer. */
+    char *buf = LoadUTF8((const int *)codepoints.items, (int)codepoints.count);
+    Iron_String out = buf ? iron_string_from_cstr(buf, strlen(buf))
+                          : iron_string_from_literal("", 0);
+    UnloadUTF8(buf);
+    return out;
+}
+
+int32_t Iron_text_codepoint_count(Iron_String text) {
+    return (int32_t)GetCodepointCount(iron_string_cstr(&text));
+}
+
+Iron_Tuple_Int32_Int32 Iron_text_codepoint_at(Iron_String text, int32_t offset) {
+    int size = 0;
+    int cp = GetCodepoint(iron_string_cstr(&text) + offset, &size);
+    Iron_Tuple_Int32_Int32 out;
+    out.v0 = (int32_t)cp;
+    out.v1 = (int32_t)size;
+    return out;
+}
+
+Iron_Tuple_Int32_Int32 Iron_text_codepoint_next(Iron_String text, int32_t offset) {
+    int size = 0;
+    int cp = GetCodepointNext(iron_string_cstr(&text) + offset, &size);
+    Iron_Tuple_Int32_Int32 out;
+    out.v0 = (int32_t)cp;
+    out.v1 = (int32_t)size;
+    return out;
+}
+
+Iron_Tuple_Int32_Int32 Iron_text_codepoint_previous(Iron_String text, int32_t offset) {
+    int size = 0;
+    int cp = GetCodepointPrevious(iron_string_cstr(&text) + offset, &size);
+    Iron_Tuple_Int32_Int32 out;
+    out.v0 = (int32_t)cp;
+    out.v1 = (int32_t)size;
+    return out;
+}
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

@@ -1384,6 +1384,38 @@ Iron_List_int32_t Iron_text_load_codepoints(Iron_String text);
 /* ── UTF-8 / codepoint (TEXT-12) — Task 2 probe: Iron_String from raylib char* ─── */
 Iron_String Iron_text_codepoint_to_utf8(int32_t codepoint);
 
+/* ── UTF-8 / codepoint (TEXT-12) — Task 3 bulk ─────────────────────
+ *
+ * 5 remaining TEXT-12 shims:
+ *   - Text.load_utf8([Int32]) -> String: caller-must-free variant of
+ *     Pattern 5 (LoadUTF8 returns heap char*; shim copies + UnloadUTF8).
+ *   - Text.codepoint_count(String) -> Int32: trivial scalar wrap.
+ *   - Text.codepoint_{at,next,previous}(String, Int32) -> (Int32, Int32):
+ *     first 2-tuple RETURN with primitive elements. Typedef name per
+ *     iron_type_to_string (IRON_TYPE_INT32 -> "Int32") ->
+ *     Iron_Tuple_Int32_Int32. Guarded below using the Phase 64-01
+ *     IRON_TUPLE_BOOL_VECTOR2_STRUCT_DEFINED belt-and-suspenders style.
+ */
+
+/* Tuple typedef for Text.codepoint_{at,next,previous} -> (Int32, Int32).
+ * ironc auto-emits this into the generated consumer C TU via the
+ * emit_helpers.c:260-294 tuple_append_mangled_component path
+ * (IRON_TYPE_INT32 -> "Int32" join "Int32" -> "Iron_Tuple_Int32_Int32").
+ * Guarded here so `clang -c iron_raylib.c` compiles standalone. */
+#ifndef IRON_TUPLE_INT32_INT32_STRUCT_DEFINED
+#define IRON_TUPLE_INT32_INT32_STRUCT_DEFINED
+typedef struct {
+    int32_t v0;
+    int32_t v1;
+} Iron_Tuple_Int32_Int32;
+#endif
+
+Iron_String            Iron_text_load_utf8(Iron_List_int32_t codepoints);
+int32_t                Iron_text_codepoint_count(Iron_String text);
+Iron_Tuple_Int32_Int32 Iron_text_codepoint_at(Iron_String text, int32_t offset);
+Iron_Tuple_Int32_Int32 Iron_text_codepoint_next(Iron_String text, int32_t offset);
+Iron_Tuple_Int32_Int32 Iron_text_codepoint_previous(Iron_String text, int32_t offset);
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

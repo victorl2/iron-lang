@@ -1595,6 +1595,30 @@ func Text.load_codepoints(text: String) -> [Int32]
 -- 6-byte static buffer into a fresh Iron String.
 func Text.codepoint_to_utf8(codepoint: Int32) -> String
 
+-- Text.load_utf8: build a UTF-8 string from an array of codepoints.
+-- Shim owns raylib's caller-must-free char* (LoadUTF8 allocates;
+-- UnloadUTF8 frees) — no user-facing unload.
+func Text.load_utf8(codepoints: [Int32]) -> String
+
+-- Text.codepoint_count: count codepoints (not bytes) in a UTF-8 string.
+func Text.codepoint_count(text: String) -> Int32
+
+-- Text.codepoint_at: read codepoint at byte-offset. Returns
+-- (codepoint, byteSize). Invalid UTF-8 returns (0x3F, 1) — the '?'
+-- fallback (raylib convention).
+func Text.codepoint_at(text: String, offset: Int32) -> (Int32, Int32)
+
+-- Text.codepoint_next: read next codepoint from byte-offset. Returns
+-- (codepoint, byteSize). Typical iteration pattern:
+--   val (cp, step) = Text.codepoint_next(s, pos); pos = pos + step
+func Text.codepoint_next(text: String, offset: Int32) -> (Int32, Int32)
+
+-- Text.codepoint_previous: read previous codepoint from byte-offset.
+-- Returns (codepoint, byteSize). byteSize is the size of the PREVIOUS
+-- codepoint (the one ending at `offset`); caller decrements by that
+-- many bytes to step backward.
+func Text.codepoint_previous(text: String, offset: Int32) -> (Int32, Int32)
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════
