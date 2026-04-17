@@ -3672,7 +3672,7 @@ struct Iron_Texture Iron_texture_load_cubemap(struct Iron_Image img, int32_t lay
     return out;
 }
 
-struct Iron_RenderTexture Iron_render_texture_load(int32_t width, int32_t height) {
+struct Iron_RenderTexture Iron_rendertexture_load(int32_t width, int32_t height) {
     RenderTexture2D rt = LoadRenderTexture((int)width, (int)height);
     struct Iron_RenderTexture out;
     /* 44 B memcpy — first RenderTexture by-value return */
@@ -3680,13 +3680,13 @@ struct Iron_RenderTexture Iron_render_texture_load(int32_t width, int32_t height
     return out;
 }
 
-void Iron_render_texture_unload(struct Iron_RenderTexture rt) {
+void Iron_rendertexture_unload(struct Iron_RenderTexture rt) {
     RenderTexture2D t;
     memcpy(&t, &rt, sizeof(RenderTexture));
     UnloadRenderTexture(t);
 }
 
-bool Iron_render_texture_is_valid(struct Iron_RenderTexture rt) {
+bool Iron_rendertexture_is_valid(struct Iron_RenderTexture rt) {
     RenderTexture2D t;
     memcpy(&t, &rt, sizeof(RenderTexture));
     return (bool)(IsRenderTextureValid(t) != 0);
