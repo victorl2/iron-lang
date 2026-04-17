@@ -6,6 +6,16 @@
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+/* CONTEXT.md lock: NULL flag means never cancel; relaxed ordering ok.
+ * This is a static inline helper so each translation unit can define its
+ * own copy without ODR conflicts — grep-friendly across the codebase. */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Keyword table ───────────────────────────────────────────────────────── */
 
@@ -184,15 +194,22 @@ const char *iron_token_kind_str(Iron_TokenKind kind) {
 Iron_Lexer iron_lexer_create(const char *src, const char *filename,
                               Iron_Arena *arena, Iron_DiagList *diags) {
     Iron_Lexer l;
-    l.src      = src;
-    l.src_len  = src ? strlen(src) : 0;
-    l.pos      = 0;
-    l.line     = 1;
-    l.col      = 1;
-    l.filename = filename;
-    l.arena    = arena;
-    l.diags    = diags;
+    l.src         = src;
+    l.src_len     = src ? strlen(src) : 0;
+    l.pos         = 0;
+    l.line        = 1;
+    l.col         = 1;
+    l.filename    = filename;
+    l.arena       = arena;
+    l.diags       = diags;
+    l.cancel_flag = NULL; /* HARD-05: default = never cancel */
     return l;
+}
+
+/* HARD-05: caller attaches a cancel flag; subsequent calls to iron_lex_all
+ * will poll it at safepoints. Passing NULL disables polling. */
+void iron_lexer_set_cancel_flag(Iron_Lexer *l, const _Atomic bool *flag) {
+    if (l) l->cancel_flag = flag;
 }
 
 /* ── Low-level helpers ───────────────────────────────────────────────────── */
@@ -795,6 +812,24 @@ Iron_Token *iron_lex_all(Iron_Lexer *l) {
     Iron_Token *tokens = NULL; /* stb_ds array */
 
     for (;;) {
+        /* HARD-05: cooperative cancellation poll at top of tokenization loop.
+         * Cadence: every iteration — atomic_load with NULL check is ~1ns and
+         * measured overhead is negligible. On observation emit a single
+         * NOTE-level IRON_ERR_CANCELLED and return partial tokens. Ensures
+         * an EOF is appended so downstream callers (parser) see a valid
+         * terminator rather than running off the end of the array. */
+        if (iron_cancel_requested(l->cancel_flag)) {
+            iron_diag_emit(l->diags, l->arena, IRON_DIAG_NOTE,
+                           IRON_ERR_CANCELLED,
+                           iron_span_make(l->filename, l->line, l->col,
+                                          l->line, l->col),
+                           "compilation cancelled", NULL);
+            Iron_Token eof = iron_make_token(l, IRON_TOK_EOF, NULL,
+                                              l->line, l->col, 0);
+            arrput(tokens, eof);
+            break;
+        }
+
         iron_skip_whitespace(l);
 
         char c = iron_peek_char(l);
