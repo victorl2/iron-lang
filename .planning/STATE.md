@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: in_progress
+status: completed
 stopped_at: Completed 63-04-PLAN.md
-last_updated: "2026-04-16T23:26:38Z"
-last_activity: "2026-04-16 — Phase 63 Plan 04 executed on local. Phase 63 COMPLETE. 16 new Draw.* bindings (5 spline-segment + 5 spline-evaluator with FIRST Vector2 RETURN in Draw namespace + 6 array-input whole-spline/line_strip using Branch B / Iron_List_Iron_Vector2 struct by-value). All 3 consumer files (pong.iron / game_raylib.iron / hello_raylib.iron) re-enabled — zero PHASE 63 markers remain. 2 mislabeled DrawText markers in pong re-labeled to PHASE 67. Rule 3 compiler fix in src/lir/emit_structs.c: emit_mono_list_decls() now scans foreign-method-stub + extern-decl parameter/return types for Iron_List_<T> typedef emission (fixes end-to-end pong build). Canonical ironc build validated: pong.iron → 2,658,464-byte Mach-O arm64 executable that runs and initializes raylib 5.5 on macOS. DRAW2D-08 (full) / 15 / 16 closed."
+last_updated: "2026-04-17T01:05:37.949Z"
+last_activity: "2026-04-16 — Phase 63 Plan 04 executed on local. 16 Iron_draw_* prototypes + 16 shim implementations + 16 Iron `func Draw.*` stubs added across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron. Task 1 landed 10 shims (5 spline-segment + 5 spline-evaluator) with the first Vector2-RETURN pattern in Draw namespace — memcpy-out template from Iron_window_get_window_position (iron_raylib.c:137-142). Task 2 landed 6 array-input shims in Branch B mode (Iron_List_Iron_Vector2 struct by-value, matching 63-03 probe outcome A). Task 3 rewrote the 3 consumer files (7 PHASE 63 markers in pong → 5 real Draw.* calls + 2 PHASE 67 re-labels; game_raylib/hello_raylib get single-frame Draw bodies). Task 4 ran the canonical end-to-end build: failed first attempt on Iron_List_Iron_Vector2 typedef gap, fixed in src/lir/emit_structs.c by extending emit_mono_list_decls() with 2 new scan passes (extern_decls + foreign-method-stub funcs for IRON_TYPE_ARRAY params/returns). Second attempt succeeded. `./build/ironc build examples/pong/pong.iron` produces Mach-O arm64 executable; game_raylib.iron also builds clean (hello_raylib.iron's web target skipped — no emcc). ironc invoked 2x per HANDOFF.md memory budget. clang -c iron_raylib.c + iron_raylib_layout.c both exit 0 with zero warnings — Phase 60 _Static_assert grid held through all 392 asserts. Phase 63 COMPLETE."
 progress:
   total_phases: 14
   completed_phases: 3
