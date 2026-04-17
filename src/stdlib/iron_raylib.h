@@ -694,6 +694,41 @@ float Iron_math_wrap(float value, float min, float max);
 float Iron_math_remap(float value, float in_start, float in_end, float out_start, float out_end);
 bool  Iron_math_float_equals(float x, float y);
 
+/* Vector2 methods — 30 functions (MATH-02, raymath.h lines 236-620).
+ * Symbol mangling Iron_vector2_<method> per hir_to_lir lowercase-type
+ * convention. C-side param name `self` is NOT reserved (matches Phase 64
+ * shim style); Iron-side stub must use `v` (E0101 guard). */
+struct Iron_Vector2 Iron_vector2_zero(void);
+struct Iron_Vector2 Iron_vector2_one(void);
+struct Iron_Vector2 Iron_vector2_add(struct Iron_Vector2 self, struct Iron_Vector2 other);
+struct Iron_Vector2 Iron_vector2_add_value(struct Iron_Vector2 self, float add);
+struct Iron_Vector2 Iron_vector2_subtract(struct Iron_Vector2 self, struct Iron_Vector2 other);
+struct Iron_Vector2 Iron_vector2_subtract_value(struct Iron_Vector2 self, float sub);
+float Iron_vector2_length(struct Iron_Vector2 self);
+float Iron_vector2_length_sqr(struct Iron_Vector2 self);
+float Iron_vector2_dot_product(struct Iron_Vector2 self, struct Iron_Vector2 other);
+float Iron_vector2_distance(struct Iron_Vector2 self, struct Iron_Vector2 other);
+float Iron_vector2_distance_sqr(struct Iron_Vector2 self, struct Iron_Vector2 other);
+float Iron_vector2_angle(struct Iron_Vector2 self, struct Iron_Vector2 other);
+float Iron_vector2_line_angle(struct Iron_Vector2 start, struct Iron_Vector2 end);
+struct Iron_Vector2 Iron_vector2_scale(struct Iron_Vector2 self, float scale);
+struct Iron_Vector2 Iron_vector2_multiply(struct Iron_Vector2 self, struct Iron_Vector2 other);
+struct Iron_Vector2 Iron_vector2_negate(struct Iron_Vector2 self);
+struct Iron_Vector2 Iron_vector2_divide(struct Iron_Vector2 self, struct Iron_Vector2 other);
+struct Iron_Vector2 Iron_vector2_normalize(struct Iron_Vector2 self);
+struct Iron_Vector2 Iron_vector2_transform(struct Iron_Vector2 self, struct Iron_Matrix mat);
+struct Iron_Vector2 Iron_vector2_lerp(struct Iron_Vector2 self, struct Iron_Vector2 other, float amount);
+struct Iron_Vector2 Iron_vector2_reflect(struct Iron_Vector2 self, struct Iron_Vector2 normal);
+struct Iron_Vector2 Iron_vector2_min(struct Iron_Vector2 self, struct Iron_Vector2 other);
+struct Iron_Vector2 Iron_vector2_max(struct Iron_Vector2 self, struct Iron_Vector2 other);
+struct Iron_Vector2 Iron_vector2_rotate(struct Iron_Vector2 self, float angle);
+struct Iron_Vector2 Iron_vector2_move_towards(struct Iron_Vector2 self, struct Iron_Vector2 target, float max_distance);
+struct Iron_Vector2 Iron_vector2_invert(struct Iron_Vector2 self);
+struct Iron_Vector2 Iron_vector2_clamp(struct Iron_Vector2 self, struct Iron_Vector2 min, struct Iron_Vector2 max);
+struct Iron_Vector2 Iron_vector2_clamp_value(struct Iron_Vector2 self, float min, float max);
+bool Iron_vector2_equals(struct Iron_Vector2 self, struct Iron_Vector2 other);
+struct Iron_Vector2 Iron_vector2_refract(struct Iron_Vector2 self, struct Iron_Vector2 n, float r);
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */

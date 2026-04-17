@@ -1333,6 +1333,281 @@ bool Iron_math_float_equals(float x, float y) {
     return (bool)(FloatEquals(x, y) != 0);
 }
 
+/* Vector2 methods — 30 functions (MATH-02, raymath.h lines 236-620).
+ *
+ * Each shim memcpys the Iron_Vector2 argument into a stack-local
+ * raymath `Vector2`, invokes the raymath function, then memcpys the
+ * result (when it's a Vector2) back into an Iron_Vector2 return
+ * value. Vector2 is 8 bytes (two contiguous floats) — the Phase 60-02
+ * _Static_assert grid pins this layout permanently.
+ *
+ * Vector2Equals returns int (1/0); coerced to stdbool.h bool.
+ * Vector2Transform takes a raymath Matrix (64 B) as second arg —
+ * passed by value; two separate memcpys marshal the Vector2 and
+ * Matrix independently. */
+
+struct Iron_Vector2 Iron_vector2_zero(void) {
+    Vector2 r = Vector2Zero();
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_one(void) {
+    Vector2 r = Vector2One();
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_add(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    Vector2 r = Vector2Add(a, b);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_add_value(struct Iron_Vector2 self, float add) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2AddValue(v, add);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_subtract(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    Vector2 r = Vector2Subtract(a, b);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_subtract_value(struct Iron_Vector2 self, float sub) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2SubtractValue(v, sub);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+float Iron_vector2_length(struct Iron_Vector2 self) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    return Vector2Length(v);
+}
+
+float Iron_vector2_length_sqr(struct Iron_Vector2 self) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    return Vector2LengthSqr(v);
+}
+
+float Iron_vector2_dot_product(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    return Vector2DotProduct(a, b);
+}
+
+float Iron_vector2_distance(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    return Vector2Distance(a, b);
+}
+
+float Iron_vector2_distance_sqr(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    return Vector2DistanceSqr(a, b);
+}
+
+float Iron_vector2_angle(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    return Vector2Angle(a, b);
+}
+
+float Iron_vector2_line_angle(struct Iron_Vector2 start, struct Iron_Vector2 end) {
+    Vector2 a, b;
+    memcpy(&a, &start, sizeof(Vector2));
+    memcpy(&b, &end,   sizeof(Vector2));
+    return Vector2LineAngle(a, b);
+}
+
+struct Iron_Vector2 Iron_vector2_scale(struct Iron_Vector2 self, float scale) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2Scale(v, scale);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_multiply(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    Vector2 r = Vector2Multiply(a, b);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_negate(struct Iron_Vector2 self) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2Negate(v);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_divide(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    Vector2 r = Vector2Divide(a, b);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_normalize(struct Iron_Vector2 self) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2Normalize(v);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_transform(struct Iron_Vector2 self, struct Iron_Matrix mat) {
+    Vector2 v;
+    Matrix  m;
+    memcpy(&v, &self, sizeof(Vector2));
+    memcpy(&m, &mat,  sizeof(Matrix));
+    Vector2 r = Vector2Transform(v, m);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_lerp(struct Iron_Vector2 self, struct Iron_Vector2 other, float amount) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    Vector2 r = Vector2Lerp(a, b, amount);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_reflect(struct Iron_Vector2 self, struct Iron_Vector2 normal) {
+    Vector2 v, n;
+    memcpy(&v, &self,   sizeof(Vector2));
+    memcpy(&n, &normal, sizeof(Vector2));
+    Vector2 r = Vector2Reflect(v, n);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_min(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    Vector2 r = Vector2Min(a, b);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_max(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    Vector2 r = Vector2Max(a, b);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_rotate(struct Iron_Vector2 self, float angle) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2Rotate(v, angle);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_move_towards(struct Iron_Vector2 self, struct Iron_Vector2 target, float max_distance) {
+    Vector2 v, t;
+    memcpy(&v, &self,   sizeof(Vector2));
+    memcpy(&t, &target, sizeof(Vector2));
+    Vector2 r = Vector2MoveTowards(v, t, max_distance);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_invert(struct Iron_Vector2 self) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2Invert(v);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_clamp(struct Iron_Vector2 self, struct Iron_Vector2 min, struct Iron_Vector2 max) {
+    Vector2 v, lo, hi;
+    memcpy(&v,  &self, sizeof(Vector2));
+    memcpy(&lo, &min,  sizeof(Vector2));
+    memcpy(&hi, &max,  sizeof(Vector2));
+    Vector2 r = Vector2Clamp(v, lo, hi);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_clamp_value(struct Iron_Vector2 self, float min, float max) {
+    Vector2 v;
+    memcpy(&v, &self, sizeof(Vector2));
+    Vector2 r = Vector2ClampValue(v, min, max);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+bool Iron_vector2_equals(struct Iron_Vector2 self, struct Iron_Vector2 other) {
+    Vector2 a, b;
+    memcpy(&a, &self,  sizeof(Vector2));
+    memcpy(&b, &other, sizeof(Vector2));
+    return (bool)(Vector2Equals(a, b) != 0);
+}
+
+struct Iron_Vector2 Iron_vector2_refract(struct Iron_Vector2 self, struct Iron_Vector2 n, float r) {
+    Vector2 v, nrm;
+    memcpy(&v,   &self, sizeof(Vector2));
+    memcpy(&nrm, &n,    sizeof(Vector2));
+    Vector2 out_v = Vector2Refract(v, nrm, r);
+    struct Iron_Vector2 out;
+    memcpy(&out, &out_v, sizeof(Vector2));
+    return out;
+}
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
