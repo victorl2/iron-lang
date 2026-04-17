@@ -5056,6 +5056,53 @@ void Iron_music_resume(struct Iron_Music music) {
     ResumeMusicStream(rl);
 }
 
+/* ── AUDIO-11 Music configure + query (6 shims) ────────────────────── */
+/*
+ * All parameters and returns are raylib's float == Iron's Float32.
+ * seek position, get_time_length, get_time_played are in seconds.
+ * volume and pan are in the 0..1 range (clamped inside raylib).
+ * pitch is a multiplier relative to the track's native playback speed
+ * (1.0 = original, 2.0 = double speed, 0.5 = half speed).
+ *
+ * Same INPUT-by-value memcpy template as AUDIO-10 management block.
+ */
+
+void Iron_music_seek(struct Iron_Music music, float position) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    SeekMusicStream(rl, position);
+}
+
+void Iron_music_set_volume(struct Iron_Music music, float volume) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    SetMusicVolume(rl, volume);
+}
+
+void Iron_music_set_pitch(struct Iron_Music music, float pitch) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    SetMusicPitch(rl, pitch);
+}
+
+void Iron_music_set_pan(struct Iron_Music music, float pan) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    SetMusicPan(rl, pan);
+}
+
+float Iron_music_get_time_length(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    return GetMusicTimeLength(rl);
+}
+
+float Iron_music_get_time_played(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    return GetMusicTimePlayed(rl);
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

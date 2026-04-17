@@ -1606,6 +1606,20 @@ void Iron_music_stop(struct Iron_Music music);
 void Iron_music_pause(struct Iron_Music music);
 void Iron_music_resume(struct Iron_Music music);
 
+/* ── AUDIO-11 Music configure + query (6 shims) ────────────────────── */
+/*
+ * All parameters and returns are raylib's `float` == Iron's Float32.
+ * Positions (seek, get_time_length, get_time_played) are in seconds.
+ * Volume / pan are 0..1 (clamped inside raylib). Pitch is a multiplier
+ * (1.0 = original speed, 2.0 = 2x speed).
+ */
+void  Iron_music_seek(struct Iron_Music music, float position);
+void  Iron_music_set_volume(struct Iron_Music music, float volume);
+void  Iron_music_set_pitch(struct Iron_Music music, float pitch);
+void  Iron_music_set_pan(struct Iron_Music music, float pan);
+float Iron_music_get_time_length(struct Iron_Music music);
+float Iron_music_get_time_played(struct Iron_Music music);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

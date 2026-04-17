@@ -2547,3 +2547,16 @@ func music.update() {}
 func music.stop() {}
 func music.pause() {}
 func music.resume() {}
+
+-- ── AUDIO-11 Music configure + query (6 methods) ───────────────────
+-- All time / volume / pitch / pan values are Float32.
+-- seek / get_time_length / get_time_played use seconds.
+-- volume and pan are 0..1 (clamped inside raylib).
+-- pitch is a multiplier (1.0 = original speed, 2.0 = double speed,
+-- 0.5 = half speed — resampling artifacts are raylib's problem).
+func music.seek(position: Float32) {}
+func music.set_volume(volume: Float32) {}
+func music.set_pitch(pitch: Float32) {}
+func music.set_pan(pan: Float32) {}
+func music.get_time_length() -> Float32 {}
+func music.get_time_played() -> Float32 {}
