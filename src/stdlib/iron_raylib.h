@@ -852,6 +852,89 @@ struct Iron_Matrix Iron_matrix_ortho(float left, float right, float bottom, floa
 struct Iron_Matrix Iron_matrix_look_at(struct Iron_Vector3 eye, struct Iron_Vector3 target, struct Iron_Vector3 up);
 struct Iron_Float16 Iron_matrix_to_float_v(struct Iron_Matrix self);
 
+/* ── Phase 65 Plan 04: guarded tuple typedefs ──────────────────────
+ * Mirrors Phase 64-01's IRON_TUPLE_BOOL_VECTOR2_STRUCT_DEFINED style.
+ * ironc auto-emits the same typedef into generated consumer C TUs
+ * via the generic arity-agnostic loop at emit_helpers.c:260-294
+ * (Task 1 probe confirmed canonical names). The guards let this
+ * header compile standalone via `clang -c iron_raylib.c`; the
+ * matching auto-emitted typedefs in the consumer TU share the
+ * same name, and the `*_STRUCT_DEFINED` guards prevent double
+ * definition at link time. */
+
+#ifndef IRON_TUPLE_VECTOR3_VECTOR3_STRUCT_DEFINED
+#define IRON_TUPLE_VECTOR3_VECTOR3_STRUCT_DEFINED
+typedef struct {
+    struct Iron_Vector3 v0;
+    struct Iron_Vector3 v1;
+} Iron_Tuple_Vector3_Vector3;
+#endif
+
+#ifndef IRON_TUPLE_VECTOR3_FLOAT32_STRUCT_DEFINED
+#define IRON_TUPLE_VECTOR3_FLOAT32_STRUCT_DEFINED
+typedef struct {
+    struct Iron_Vector3 v0;
+    float               v1;
+} Iron_Tuple_Vector3_Float32;
+#endif
+
+#ifndef IRON_TUPLE_VECTOR3_QUATERNION_VECTOR3_STRUCT_DEFINED
+#define IRON_TUPLE_VECTOR3_QUATERNION_VECTOR3_STRUCT_DEFINED
+typedef struct {
+    struct Iron_Vector3    v0;
+    struct Iron_Quaternion v1;
+    struct Iron_Vector3    v2;
+} Iron_Tuple_Vector3_Quaternion_Vector3;
+#endif
+
+/* Matrix.decompose (MATH-05 carried from Plan 65-03) — 3-tuple
+ * out-param. Raymath signature:
+ *   void MatrixDecompose(Matrix, Vector3 *translation,
+ *                        Quaternion *rotation, Vector3 *scale);
+ * First 3-tuple return in the Iron codebase. */
+Iron_Tuple_Vector3_Quaternion_Vector3 Iron_matrix_decompose(struct Iron_Matrix self);
+
+/* Vector3.ortho_normalize (MATH-03 carried from Plan 65-02) —
+ * 2-tuple out-param, mutates both args:
+ *   void Vector3OrthoNormalize(Vector3 *v1, Vector3 *v2); */
+Iron_Tuple_Vector3_Vector3 Iron_vector3_ortho_normalize(struct Iron_Vector3 self, struct Iron_Vector3 other);
+
+/* Quaternion methods — 24 of 24 functions (MATH-06, raymath.h lines
+ * 1731-2170). Raymath 5.5 Quaternion RMAPI count verified at 24 via
+ * `grep -cE '^RMAPI [A-Za-z0-9_]+ Quaternion[A-Z]' raymath.h` = 24.
+ * Plan text claimed 26 pre-emptively — resolved GREEN at 24.
+ *
+ * Same 16 B memcpy-in/memcpy-out template as Vector4. Cross-type
+ * shims use one memcpy per struct-kind arg (Phase 64 precedent).
+ * QuaternionEquals returns int → shim coerces to bool.
+ *
+ * QuaternionToAxisAngle is the 2-tuple out-param case, returning
+ * Iron_Tuple_Vector3_Float32. */
+struct Iron_Quaternion Iron_quaternion_add(struct Iron_Quaternion self, struct Iron_Quaternion other);
+struct Iron_Quaternion Iron_quaternion_add_value(struct Iron_Quaternion self, float add);
+struct Iron_Quaternion Iron_quaternion_subtract(struct Iron_Quaternion self, struct Iron_Quaternion other);
+struct Iron_Quaternion Iron_quaternion_subtract_value(struct Iron_Quaternion self, float sub);
+struct Iron_Quaternion Iron_quaternion_identity(void);
+float Iron_quaternion_length(struct Iron_Quaternion self);
+struct Iron_Quaternion Iron_quaternion_normalize(struct Iron_Quaternion self);
+struct Iron_Quaternion Iron_quaternion_invert(struct Iron_Quaternion self);
+struct Iron_Quaternion Iron_quaternion_multiply(struct Iron_Quaternion self, struct Iron_Quaternion other);
+struct Iron_Quaternion Iron_quaternion_scale(struct Iron_Quaternion self, float mul);
+struct Iron_Quaternion Iron_quaternion_divide(struct Iron_Quaternion self, struct Iron_Quaternion other);
+struct Iron_Quaternion Iron_quaternion_lerp(struct Iron_Quaternion self, struct Iron_Quaternion other, float amount);
+struct Iron_Quaternion Iron_quaternion_nlerp(struct Iron_Quaternion self, struct Iron_Quaternion other, float amount);
+struct Iron_Quaternion Iron_quaternion_slerp(struct Iron_Quaternion self, struct Iron_Quaternion other, float amount);
+struct Iron_Quaternion Iron_quaternion_cubic_hermite_spline(struct Iron_Quaternion self, struct Iron_Quaternion out_tangent1, struct Iron_Quaternion q2, struct Iron_Quaternion in_tangent2, float t);
+struct Iron_Quaternion Iron_quaternion_from_vector3_to_vector3(struct Iron_Vector3 from, struct Iron_Vector3 to);
+struct Iron_Quaternion Iron_quaternion_from_matrix(struct Iron_Matrix mat);
+struct Iron_Matrix     Iron_quaternion_to_matrix(struct Iron_Quaternion self);
+struct Iron_Quaternion Iron_quaternion_from_axis_angle(struct Iron_Vector3 axis, float angle);
+Iron_Tuple_Vector3_Float32 Iron_quaternion_to_axis_angle(struct Iron_Quaternion self);
+struct Iron_Quaternion Iron_quaternion_from_euler(float pitch, float yaw, float roll);
+struct Iron_Vector3    Iron_quaternion_to_euler(struct Iron_Quaternion self);
+struct Iron_Quaternion Iron_quaternion_transform(struct Iron_Quaternion self, struct Iron_Matrix mat);
+bool Iron_quaternion_equals(struct Iron_Quaternion self, struct Iron_Quaternion other);
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */

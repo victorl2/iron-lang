@@ -1097,7 +1097,7 @@ func Vector3.refract(v: Vector3, n: Vector3, r: Float32) -> Vector3 {}
 -- MATH-03 (carried from Plan 65-02): Vector3ToFloatV — lands now that
 -- Float3 exists (Plan 65-03 Task 1).
 func Vector3.to_float_v(v: Vector3) -> Float3 {}
--- DEFERRED to Plan 65-04: func Vector3.ortho_normalize(v: Vector3, other: Vector3) -> (Vector3, Vector3) {}
+-- Vector3.ortho_normalize landed in Plan 65-04 below (2-tuple out-param).
 
 -- MATH-04: Vector4 methods (22 functions, raymath.h lines 1232-1440).
 -- Same 16 B struct-by-value in/out template as Rectangle (Phase 63).
@@ -1151,7 +1151,59 @@ func Matrix.perspective(fovy: Float32, aspect: Float32, near_plane: Float32, far
 func Matrix.ortho(left: Float32, right: Float32, bottom: Float32, top: Float32, near_plane: Float32, far_plane: Float32) -> Matrix {}
 func Matrix.look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix {}
 func Matrix.to_float_v(m: Matrix) -> Float16 {}
--- DEFERRED to Plan 65-04: func Matrix.decompose(m: Matrix) -> (Vector3, Quaternion, Vector3) {}
+
+-- MATH-05 carried from Plan 65-03: MatrixDecompose 3-tuple out-param.
+-- Plan 65-04 Task 1 probe confirmed Branch A (GREEN) — ironc auto-emits
+-- canonical typedef `Iron_Tuple_Vector3_Quaternion_Vector3` with 3 fields
+-- (Iron_Vector3 v0; Iron_Quaternion v1; Iron_Vector3 v2) via the generic
+-- arity-agnostic loop at emit_helpers.c:260-294.
+func Matrix.decompose(m: Matrix) -> (Vector3, Quaternion, Vector3) {}
+
+-- MATH-03 carried from Plan 65-02: Vector3OrthoNormalize 2-tuple
+-- out-param (mutates both args). Raymath signature:
+-- `void Vector3OrthoNormalize(Vector3 *v1, Vector3 *v2)`.
+func Vector3.ortho_normalize(v: Vector3, other: Vector3) -> (Vector3, Vector3) {}
+
+-- MATH-06: Quaternion methods (24 of 24 functions, raymath.h lines
+-- 1731-2170). Raymath 5.5 exposes exactly 24 Quaternion RMAPI functions
+-- (verified via `grep -cE '^RMAPI [A-Za-z0-9_]+ Quaternion[A-Z]' raymath.h`).
+-- Plan text claimed 26 pre-emptively — resolved GREEN at 24.
+--
+-- Same 16 B struct-by-value in/out template as Vector4 (Quaternion is
+-- layout-identical to Vector4 via Phase 60-02 _Static_assert).
+-- QuaternionEquals returns int → shim coerces to Bool (matches
+-- Vector2/3/4 Equals pattern). Cross-type: QuaternionFromMatrix takes
+-- Matrix (64 B) in; QuaternionToMatrix returns Matrix (64 B) out;
+-- QuaternionTransform takes Matrix as second arg; QuaternionToEuler
+-- returns Vector3; QuaternionFromVector3ToVector3 takes 2 Vector3s.
+-- QuaternionToAxisAngle is the 2-tuple out-param case → declared above
+-- alongside Matrix.decompose as a tuple return.
+func Quaternion.add(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.add_value(q: Quaternion, add: Float32) -> Quaternion {}
+func Quaternion.subtract(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.subtract_value(q: Quaternion, sub: Float32) -> Quaternion {}
+func Quaternion.identity() -> Quaternion {}
+func Quaternion.length(q: Quaternion) -> Float32 {}
+func Quaternion.normalize(q: Quaternion) -> Quaternion {}
+func Quaternion.invert(q: Quaternion) -> Quaternion {}
+func Quaternion.multiply(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.scale(q: Quaternion, mul: Float32) -> Quaternion {}
+func Quaternion.divide(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.lerp(q: Quaternion, other: Quaternion, amount: Float32) -> Quaternion {}
+func Quaternion.nlerp(q: Quaternion, other: Quaternion, amount: Float32) -> Quaternion {}
+func Quaternion.slerp(q: Quaternion, other: Quaternion, amount: Float32) -> Quaternion {}
+func Quaternion.cubic_hermite_spline(q1: Quaternion, out_tangent1: Quaternion, q2: Quaternion, in_tangent2: Quaternion, t: Float32) -> Quaternion {}
+func Quaternion.from_vector3_to_vector3(from: Vector3, to: Vector3) -> Quaternion {}
+func Quaternion.from_matrix(mat: Matrix) -> Quaternion {}
+func Quaternion.to_matrix(q: Quaternion) -> Matrix {}
+func Quaternion.from_axis_angle(axis: Vector3, angle: Float32) -> Quaternion {}
+func Quaternion.to_axis_angle(q: Quaternion) -> (Vector3, Float32) {}
+func Quaternion.from_euler(pitch: Float32, yaw: Float32, roll: Float32) -> Quaternion {}
+func Quaternion.to_euler(q: Quaternion) -> Vector3 {}
+func Quaternion.transform(q: Quaternion, mat: Matrix) -> Quaternion {}
+func Quaternion.equals(q: Quaternion, other: Quaternion) -> Bool {}
+
+-- Matrix.decompose landed immediately below (Plan 65-04 Task 2).
 
 -- ── Phase 64 namespace type ───────────────────────────────────────
 --

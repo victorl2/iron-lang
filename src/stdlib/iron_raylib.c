@@ -2352,6 +2352,270 @@ struct Iron_Float16 Iron_matrix_to_float_v(struct Iron_Matrix self) {
     return out;
 }
 
+/* ── Phase 65 Plan 04 — out-param tuple shims ──────────────────────
+ * Three shims packaging raymath out-parameter results into tuple
+ * returns: MatrixDecompose (3-tuple), Vector3OrthoNormalize (2-tuple
+ * mutating both args), QuaternionToAxisAngle (2-tuple). Tuple
+ * typedefs (Iron_Tuple_Vector3_Quaternion_Vector3, _Vector3_Vector3,
+ * _Vector3_Float32) are guarded in iron_raylib.h and auto-emitted
+ * by ironc into consumer C TUs via emit_helpers.c:260-294.
+ *
+ * MatrixDecompose: first 3-tuple return surface in the codebase.
+ * Task 1 probe confirmed the auto-emit path is arity-agnostic. */
+Iron_Tuple_Vector3_Quaternion_Vector3 Iron_matrix_decompose(struct Iron_Matrix self) {
+    Matrix m;
+    memcpy(&m, &self, sizeof(Matrix));
+    Vector3    translation, scale;
+    Quaternion rotation;
+    MatrixDecompose(m, &translation, &rotation, &scale);
+    Iron_Tuple_Vector3_Quaternion_Vector3 out;
+    memcpy(&out.v0, &translation, sizeof(Vector3));
+    memcpy(&out.v1, &rotation,    sizeof(Quaternion));
+    memcpy(&out.v2, &scale,       sizeof(Vector3));
+    return out;
+}
+
+Iron_Tuple_Vector3_Vector3 Iron_vector3_ortho_normalize(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 c1, c2;
+    memcpy(&c1, &self,  sizeof(Vector3));
+    memcpy(&c2, &other, sizeof(Vector3));
+    Vector3OrthoNormalize(&c1, &c2);    /* mutates both locals */
+    Iron_Tuple_Vector3_Vector3 out;
+    memcpy(&out.v0, &c1, sizeof(Vector3));
+    memcpy(&out.v1, &c2, sizeof(Vector3));
+    return out;
+}
+
+/* ── Phase 65 Plan 04 — Quaternion methods (MATH-06, 24 shims) ─────
+ * 24 of 24 raymath Quaternion RMAPI functions. Same 16 B struct-by-
+ * value in/out template as Vector4. Cross-type shims (from_matrix /
+ * to_matrix / transform / from_vector3_to_vector3 / to_euler /
+ * from_axis_angle) use one memcpy per struct-kind arg per Phase 64
+ * Iron_ray_hit_mesh precedent. QuaternionEquals returns int → shim
+ * coerces to bool. */
+struct Iron_Quaternion Iron_quaternion_add(struct Iron_Quaternion self, struct Iron_Quaternion other) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    Quaternion r = QuaternionAdd(a, b);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_add_value(struct Iron_Quaternion self, float add) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Quaternion r = QuaternionAddValue(q, add);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_subtract(struct Iron_Quaternion self, struct Iron_Quaternion other) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    Quaternion r = QuaternionSubtract(a, b);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_subtract_value(struct Iron_Quaternion self, float sub) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Quaternion r = QuaternionSubtractValue(q, sub);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_identity(void) {
+    Quaternion r = QuaternionIdentity();
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+float Iron_quaternion_length(struct Iron_Quaternion self) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    return QuaternionLength(q);
+}
+
+struct Iron_Quaternion Iron_quaternion_normalize(struct Iron_Quaternion self) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Quaternion r = QuaternionNormalize(q);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_invert(struct Iron_Quaternion self) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Quaternion r = QuaternionInvert(q);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_multiply(struct Iron_Quaternion self, struct Iron_Quaternion other) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    Quaternion r = QuaternionMultiply(a, b);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_scale(struct Iron_Quaternion self, float mul) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Quaternion r = QuaternionScale(q, mul);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_divide(struct Iron_Quaternion self, struct Iron_Quaternion other) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    Quaternion r = QuaternionDivide(a, b);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_lerp(struct Iron_Quaternion self, struct Iron_Quaternion other, float amount) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    Quaternion r = QuaternionLerp(a, b, amount);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_nlerp(struct Iron_Quaternion self, struct Iron_Quaternion other, float amount) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    Quaternion r = QuaternionNlerp(a, b, amount);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_slerp(struct Iron_Quaternion self, struct Iron_Quaternion other, float amount) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    Quaternion r = QuaternionSlerp(a, b, amount);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_cubic_hermite_spline(struct Iron_Quaternion self, struct Iron_Quaternion out_tangent1, struct Iron_Quaternion q2, struct Iron_Quaternion in_tangent2, float t) {
+    Quaternion a, ot, b, it;
+    memcpy(&a,  &self,         sizeof(Quaternion));
+    memcpy(&ot, &out_tangent1, sizeof(Quaternion));
+    memcpy(&b,  &q2,           sizeof(Quaternion));
+    memcpy(&it, &in_tangent2,  sizeof(Quaternion));
+    Quaternion r = QuaternionCubicHermiteSpline(a, ot, b, it, t);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_from_vector3_to_vector3(struct Iron_Vector3 from, struct Iron_Vector3 to) {
+    Vector3 f, t;
+    memcpy(&f, &from, sizeof(Vector3));
+    memcpy(&t, &to,   sizeof(Vector3));
+    Quaternion r = QuaternionFromVector3ToVector3(f, t);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_from_matrix(struct Iron_Matrix mat) {
+    Matrix m;
+    memcpy(&m, &mat, sizeof(Matrix));
+    Quaternion r = QuaternionFromMatrix(m);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Matrix Iron_quaternion_to_matrix(struct Iron_Quaternion self) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Matrix r = QuaternionToMatrix(q);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_from_axis_angle(struct Iron_Vector3 axis, float angle) {
+    Vector3 a;
+    memcpy(&a, &axis, sizeof(Vector3));
+    Quaternion r = QuaternionFromAxisAngle(a, angle);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+Iron_Tuple_Vector3_Float32 Iron_quaternion_to_axis_angle(struct Iron_Quaternion self) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Vector3 axis = { 0 };
+    float   angle = 0.0f;
+    QuaternionToAxisAngle(q, &axis, &angle);
+    Iron_Tuple_Vector3_Float32 out;
+    memcpy(&out.v0, &axis, sizeof(Vector3));
+    out.v1 = angle;
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_from_euler(float pitch, float yaw, float roll) {
+    Quaternion r = QuaternionFromEuler(pitch, yaw, roll);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+struct Iron_Vector3 Iron_quaternion_to_euler(struct Iron_Quaternion self) {
+    Quaternion q;
+    memcpy(&q, &self, sizeof(Quaternion));
+    Vector3 r = QuaternionToEuler(q);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Quaternion Iron_quaternion_transform(struct Iron_Quaternion self, struct Iron_Matrix mat) {
+    Quaternion q;
+    Matrix     m;
+    memcpy(&q, &self, sizeof(Quaternion));
+    memcpy(&m, &mat,  sizeof(Matrix));
+    Quaternion r = QuaternionTransform(q, m);
+    struct Iron_Quaternion out;
+    memcpy(&out, &r, sizeof(Quaternion));
+    return out;
+}
+
+bool Iron_quaternion_equals(struct Iron_Quaternion self, struct Iron_Quaternion other) {
+    Quaternion a, b;
+    memcpy(&a, &self,  sizeof(Quaternion));
+    memcpy(&b, &other, sizeof(Quaternion));
+    return (bool)(QuaternionEquals(a, b) != 0);
+}
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
