@@ -1527,6 +1527,18 @@ void              Iron_sound_unload_alias(struct Iron_Sound alias);
 /* ── AUDIO-03 bridge: wave.to_sound() — forwards to Iron_sound_from_wave */
 struct Iron_Sound Iron_wave_to_sound(struct Iron_Wave wave);
 
+/* ── AUDIO-06 Sound management (5 shims) ───────────────────────────── */
+void Iron_sound_play(struct Iron_Sound sound);
+void Iron_sound_stop(struct Iron_Sound sound);
+void Iron_sound_pause(struct Iron_Sound sound);
+void Iron_sound_resume(struct Iron_Sound sound);
+bool Iron_sound_is_playing(struct Iron_Sound sound);
+
+/* ── AUDIO-07 Sound configure (3 shims) ────────────────────────────── */
+void Iron_sound_set_volume(struct Iron_Sound sound, float volume);
+void Iron_sound_set_pitch(struct Iron_Sound sound, float pitch);
+void Iron_sound_set_pan(struct Iron_Sound sound, float pan);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

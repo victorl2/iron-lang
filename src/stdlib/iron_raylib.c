@@ -4838,6 +4838,69 @@ struct Iron_Sound Iron_wave_to_sound(struct Iron_Wave wave) {
     return Iron_sound_from_wave(wave);
 }
 
+/* ── AUDIO-06 Sound management (5 shims) ───────────────────────────── */
+/*
+ * All 5 methods follow the Phase 61 INPUT-by-value memcpy template:
+ * memcpy Iron_Sound → Sound local, invoke raylib, optional Bool
+ * coercion via (bool)(... != 0). No return-slot memcpy needed (4 void
+ * returns + 1 bool return).
+ */
+
+void Iron_sound_play(struct Iron_Sound sound) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    PlaySound(rl);
+}
+
+void Iron_sound_stop(struct Iron_Sound sound) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    StopSound(rl);
+}
+
+void Iron_sound_pause(struct Iron_Sound sound) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    PauseSound(rl);
+}
+
+void Iron_sound_resume(struct Iron_Sound sound) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    ResumeSound(rl);
+}
+
+bool Iron_sound_is_playing(struct Iron_Sound sound) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    return (bool)(IsSoundPlaying(rl) != 0);
+}
+
+/* ── AUDIO-07 Sound configure (3 shims) ────────────────────────────── */
+/*
+ * raylib volume/pitch/pan are float (Iron Float32). SetSoundPan takes
+ * 0.0..1.0 (0=full-left, 0.5=centre, 1=full-right). Out-of-range
+ * values are clamped internally by raylib — no Iron-side validation.
+ */
+
+void Iron_sound_set_volume(struct Iron_Sound sound, float volume) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    SetSoundVolume(rl, volume);
+}
+
+void Iron_sound_set_pitch(struct Iron_Sound sound, float pitch) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    SetSoundPitch(rl, pitch);
+}
+
+void Iron_sound_set_pan(struct Iron_Sound sound, float pan) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    SetSoundPan(rl, pan);
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

@@ -2456,3 +2456,20 @@ func Sound.alias(source: Sound) -> Sound {}
 func sound.is_valid() -> Bool {}
 func sound.unload() {}
 func alias.unload_alias() {}
+
+-- ── AUDIO-06 Sound management (5 methods) ──────────────────────────
+-- Playback state transitions. raylib is a no-op when the audio device
+-- is not ready; wrap call sites with Audio.is_ready() for graceful
+-- headless / CI degradation.
+func sound.play() {}
+func sound.stop() {}
+func sound.pause() {}
+func sound.resume() {}
+func sound.is_playing() -> Bool {}
+
+-- ── AUDIO-07 Sound configure (3 methods) ───────────────────────────
+-- Volume 0..1 (clamped by raylib), pitch multiplier (1.0 = original
+-- pitch), pan 0..1 (0 = full-left, 0.5 = centre, 1 = full-right).
+func sound.set_volume(volume: Float32) {}
+func sound.set_pitch(pitch: Float32) {}
+func sound.set_pan(pan: Float32) {}
