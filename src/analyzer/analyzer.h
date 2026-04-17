@@ -10,6 +10,18 @@
 #include "cli/build.h"
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdatomic.h>
+
+/* ── Analysis mode (HARD-02) ──────────────────────────────────────────────── */
+/* Controls compile-time side effects and cascade-suppression behaviour.
+ * CLI preserves legacy semantics; LSP disables comptime FS I/O and disables
+ * cascade-suppression (in_error_recovery effect on diagnostic emission).
+ * Plan 01: enum declared; behavioural gating lands in Plan 05 (FS) and
+ * Plan 02 (cascade-suppression). */
+typedef enum {
+    IRON_ANALYSIS_MODE_CLI = 0,
+    IRON_ANALYSIS_MODE_LSP = 1
+} IronAnalysisMode;
 
 /* Result of running the full analysis pipeline. */
 typedef struct {
@@ -45,5 +57,36 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
                                  const char *source_text, size_t source_len,
                                  bool force_comptime,
                                  IronBuildTarget target);
+
+/* ── Unified analysis entry point (HARD-01) ───────────────────────────────── */
+/* Unified analysis entry used by both `iron check` and the future LSP facade.
+ *
+ * Preconditions:
+ *   - `source` points to `len` bytes of Iron source; `filename` is either
+ *     arena-interned by the caller or the impl copies it into `arena`.
+ *   - `arena` is caller-owned. iron_analyze_buffer MUST NOT create its own
+ *     arena on the analysis path (HARD-06).
+ *   - `diags` is caller-owned; iron_analyze_buffer accumulates into it.
+ *   - `cancel_flag` may be NULL (meaning "never cancel") or point to a
+ *     caller-owned `_Atomic bool`.
+ *
+ * Cancellation (HARD-05, wired in Plan 03):
+ *   When *cancel_flag becomes true, returns at the next safepoint with
+ *   partial diagnostics plus a NOTE-level IRON_ERR_CANCELLED meta-diagnostic.
+ *
+ * Thread safety (HARD-07, wired in Plan 04):
+ *   Safe to call concurrently from multiple threads provided each call
+ *   uses its own arena, diags, and cancel_flag. The primitive type
+ *   singletons (iron_types_init) are pthread_once-guarded.
+ *
+ * Returns Iron_AnalyzeResult with the same shape as iron_analyze().
+ */
+Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
+                                        size_t              len,
+                                        const char         *filename,
+                                        IronAnalysisMode    mode,
+                                        Iron_Arena         *arena,
+                                        Iron_DiagList      *diags,
+                                        const _Atomic bool *cancel_flag);
 
 #endif /* IRON_ANALYZER_H */
