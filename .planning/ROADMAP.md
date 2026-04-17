@@ -346,7 +346,7 @@ Plans:
 | 61. Window & System | 0/4 | Complete    | 2026-04-15 |
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
 | 63. 2D Drawing | 4/4 | Complete    | 2026-04-17 |
-| 64. Collision | 0/2 | Not started | - |
+| 64. Collision | 1/2 | In Progress|  |
 | 65. raymath | 0/? | Not started | - |
 | 66. Textures & Images | 0/? | Not started | - |
 | 67. Text & Fonts | 0/? | Not started | - |
