@@ -776,6 +776,8 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             : iron_type_make_primitive(IRON_TYPE_VOID);
 
         base = iron_type_make_func(ctx->arena, param_types, param_count, ret);
+        /* HARD-09 CR-02: propagate NULL from OOM to IRON_TYPE_ERROR poison. */
+        if (!base) base = iron_type_make_primitive(IRON_TYPE_ERROR);
 
         /* If this is an array-of-func, wrap in array type */
         if (ann->is_array) {
@@ -784,14 +786,22 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                 Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
                 if (il->value) size = (int)strtol(il->value, NULL, 10);
             }
-            base = iron_type_make_array(ctx->arena, base, size);
-            /* Phase 48: propagate layout annotations */
-            base->array.layout_hint  = ann->layout_hint;
-            base->array.is_unordered = ann->is_unordered;
+            Iron_Type *arr = iron_type_make_array(ctx->arena, base, size);
+            /* HARD-09 CR-02: NULL-propagation fallback. */
+            if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
+            base = arr;
+            /* Phase 48: propagate layout annotations; only safe if the wrapped
+             * type is IRON_TYPE_ARRAY (not the IRON_TYPE_ERROR fallback). */
+            if (base && base->kind == IRON_TYPE_ARRAY) {
+                base->array.layout_hint  = ann->layout_hint;
+                base->array.is_unordered = ann->is_unordered;
+            }
         }
 
         if (ann->is_nullable) {
-            base = iron_type_make_nullable(ctx->arena, base);
+            Iron_Type *nb = iron_type_make_nullable(ctx->arena, base);
+            /* HARD-09 CR-02: NULL-propagation fallback. */
+            base = nb ? nb : iron_type_make_primitive(IRON_TYPE_ERROR);
         }
 
         return base;
@@ -972,7 +982,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
 
     /* Wrap in nullable if needed */
     if (ann->is_nullable) {
-        base = iron_type_make_nullable(ctx->arena, base);
+        Iron_Type *nb = iron_type_make_nullable(ctx->arena, base);
+        /* HARD-09 CR-02: NULL-propagation fallback. */
+        base = nb ? nb : iron_type_make_primitive(IRON_TYPE_ERROR);
     }
 
     /* Wrap in array if needed */
@@ -982,10 +994,16 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
             if (il->value) size = (int)strtol(il->value, NULL, 10);
         }
-        base = iron_type_make_array(ctx->arena, base, size);
-        /* Phase 48: propagate layout annotations */
-        base->array.layout_hint  = ann->layout_hint;
-        base->array.is_unordered = ann->is_unordered;
+        Iron_Type *arr = iron_type_make_array(ctx->arena, base, size);
+        /* HARD-09 CR-02: NULL-propagation fallback. */
+        if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
+        base = arr;
+        /* Phase 48: propagate layout annotations; only safe if the wrapped
+         * type is IRON_TYPE_ARRAY (not the IRON_TYPE_ERROR fallback). */
+        if (base && base->kind == IRON_TYPE_ARRAY) {
+            base->array.layout_hint  = ann->layout_hint;
+            base->array.is_unordered = ann->is_unordered;
+        }
     }
 
     return base;
