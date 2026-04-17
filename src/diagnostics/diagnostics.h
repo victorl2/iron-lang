@@ -207,6 +207,14 @@ void iron_diaglist_free(Iron_DiagList *list);
  * free function or any other non-method context. */
 #define IRON_ERR_SELF_OUTSIDE_CONTEXT       259   /* SELF outside method/iface */
 
+/* HARD-02 (Plan 05): LSP-mode comptime FS-gating — emitted when `read_file()`
+ * (or any future FS-bound builtin) is invoked under IRON_ANALYSIS_MODE_LSP.
+ * ERROR-level so the caller can surface a clear message in-editor without
+ * actually reading the filesystem.
+ * RENUMBERED 234→291 (F3 Phase 8 rebase): 234 now owned by IRON_ERR_MUT_FIELD_IMMUT_RECV
+ * (Phase 80 MUT). */
+#define IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE 291
+
 /* Cancellation meta-diagnostic — emitted by iron_analyze_buffer on cancel.
  * Level is IRON_DIAG_NOTE so it does NOT bump error_count and does NOT change
  * exit-code semantics for CLI. HARD-05 (Plan 03).

@@ -75,6 +75,20 @@ static uint64_t fnv1a_hash(const char *data, size_t len) {
     return hash;
 }
 
+/* ── HARD-02: LSP-mode comptime FS gating ──────────────────────────────────
+ * LSP mode disables every filesystem side effect in the comptime stage:
+ *   - no `.iron-build/` directory creation
+ *   - no cache read or write (fopen/fscanf/fprintf/mkdir all bypassed)
+ *   - no `read_file(path)` builtin — emits IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE
+ * CLI mode preserves existing behaviour byte-for-byte (parity with `iron check`).
+ *
+ * This helper is the single decision site; every FS call site routes through it
+ * so the audit surface is one function, not N scattered checks. Plan 05 Task 01.
+ */
+static inline bool comptime_fs_allowed(IronAnalysisMode mode) {
+    return mode == IRON_ANALYSIS_MODE_CLI;
+}
+
 /* ── Cache read/write (keyed by FNV-1a hash of full source text) ─────────── */
 
 /* Cache format:
@@ -85,7 +99,10 @@ static uint64_t fnv1a_hash(const char *data, size_t len) {
 
 static Iron_ComptimeVal *comptime_cache_read(const char *source_text,
                                               size_t source_len,
-                                              Iron_Arena *arena) {
+                                              Iron_Arena *arena,
+                                              IronAnalysisMode mode) {
+    /* HARD-02: LSP mode bypasses cache read — no FS touch. */
+    if (!comptime_fs_allowed(mode)) return NULL;
     if (!source_text || source_len == 0) return NULL;
 
     uint64_t hash = fnv1a_hash(source_text, source_len);
@@ -183,7 +200,10 @@ static Iron_ComptimeVal *comptime_cache_read(const char *source_text,
 }
 
 static void comptime_cache_write(const char *source_text, size_t source_len,
-                                  Iron_ComptimeVal *val) {
+                                  Iron_ComptimeVal *val,
+                                  IronAnalysisMode mode) {
+    /* HARD-02: LSP mode bypasses cache write — no mkdir, no fopen, no fclose. */
+    if (!comptime_fs_allowed(mode)) return;
     if (!source_text || source_len == 0 || !val) return;
 
     /* Create .iron-build/comptime/ directory */
@@ -576,6 +596,16 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
 
             /* ── read_file builtin ─────────────────────────────────────── */
             if (strcmp(func_name, "read_file") == 0) {
+                /* HARD-02: LSP mode forbids any FS read from comptime. Emit a
+                 * targeted ERROR diagnostic (code 234) and return null so the
+                 * caller keeps the existing comptime AST slot — no divergence
+                 * from CLI behaviour is introduced here beyond the gate. */
+                if (!comptime_fs_allowed(ctx->mode)) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE,
+                               node->span,
+                               "comptime read_file: filesystem access is disabled in LSP mode");
+                    return cval_null(ctx);
+                }
                 if (call->arg_count != 1) {
                     emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
                                "comptime read_file: expected exactly 1 argument");
@@ -1133,10 +1163,12 @@ static void replace_in_node(Iron_Node **slot, ReplaceCtx *rctx) {
         Iron_ComptimeVal *val = iron_comptime_eval_expr(rctx->eval_ctx,
                                                          ce->inner);
         if (!rctx->eval_ctx->had_error && val) {
-            /* Write to cache on successful evaluation */
+            /* Write to cache on successful evaluation.
+             * HARD-02: comptime_cache_write gated internally on ctx->mode. */
             if (rctx->eval_ctx->source_text && rctx->eval_ctx->source_len > 0) {
                 comptime_cache_write(rctx->eval_ctx->source_text,
-                                     rctx->eval_ctx->source_len, val);
+                                     rctx->eval_ctx->source_len, val,
+                                     rctx->eval_ctx->mode);
             }
             Iron_Node *replacement = iron_comptime_val_to_ast(val, rctx->arena,
                                                                orig_span,
@@ -1326,7 +1358,8 @@ static void replace_in_node_array(Iron_Node **nodes, int count,
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
                           Iron_Arena *arena, Iron_DiagList *diags,
                           const char *source_file_dir, bool force_comptime,
-                          const char *source_text, size_t source_len) {
+                          const char *source_text, size_t source_len,
+                          IronAnalysisMode mode) {
     Iron_ComptimeCtx eval_ctx;
     eval_ctx.arena           = arena;
     eval_ctx.diags           = diags;
@@ -1344,13 +1377,16 @@ void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
     eval_ctx.frame_depth     = 0;
     eval_ctx.had_return      = false;
     eval_ctx.return_val      = NULL;
+    eval_ctx.mode            = mode;  /* HARD-02: FS gating */
 
     /* If cache is available and force_comptime is false, try to read cached
      * results. The cache is keyed by the FNV-1a hash of the full source text.
-     * Cache miss or force_comptime causes normal evaluation + cache write. */
+     * Cache miss or force_comptime causes normal evaluation + cache write.
+     * HARD-02: comptime_cache_read is gated on mode (LSP returns NULL without
+     * touching the FS). */
     if (!force_comptime && source_text && source_len > 0) {
         Iron_ComptimeVal *cached = comptime_cache_read(source_text, source_len,
-                                                        arena);
+                                                        arena, mode);
         if (cached) {
             /* Cache hit: walk the AST and replace COMPTIME nodes using the
              * cached value.  For simplicity we apply the cached value to the
