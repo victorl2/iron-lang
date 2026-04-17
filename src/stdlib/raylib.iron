@@ -1256,26 +1256,43 @@ func Color.to_pixel_data(data: Int, c: Color, format: PixelFormat) {}
 func Color.pixel_data_size(width: Int32, height: Int32, format: PixelFormat) -> Int32 {}
 
 -- ══════════════════════════════════════════════════════════════════════
--- Minimal color palette (Phase 60 rescue — full 26-color palette is
--- Phase 66 TEX-14)
+-- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════
 --
--- These six constants exist ONLY to unblock the clean-break rewrite of
--- examples/pong/pong.iron, tests/manual/game_raylib.iron, and
--- tests/integration/web/hello_raylib.iron. Phase 66 TEX-14 replaces
--- this block with the full 26-constant palette (LIGHTGRAY through
--- RAYWHITE) per raylib.h.
---
--- Values are hand-copied from raylib.h LIGHTGRAY/BLACK/... defines
--- (rcolor-palette.h internal table) — they are the canonical RGBA8888
--- tuples raylib exposes.
+-- RGBA values copied verbatim from src/vendor/raylib/raylib.h lines 175-201.
+-- Integer literals only — Iron narrows to UInt8 via typecheck.c:1326.
+-- DO NOT add float suffixes (would trigger E0217 per Phase 66 RESEARCH
+-- Pitfall 2). All 6 Plan 60-08 rescue palette names (RED/BLUE/GREEN/
+-- WHITE/BLACK/DARKGRAY) are preserved in the canonical 26-color set;
+-- existing consumers (pong.iron, game_raylib.iron, hello_raylib.iron)
+-- compile unchanged.
 
-val RED      = Color(230, 41, 55, 255)
-val BLUE     = Color(0, 121, 241, 255)
-val GREEN    = Color(0, 228, 48, 255)
-val WHITE    = Color(255, 255, 255, 255)
-val BLACK    = Color(0, 0, 0, 255)
-val DARKGRAY = Color(80, 80, 80, 255)
+val LIGHTGRAY  = Color(200, 200, 200, 255)
+val GRAY       = Color(130, 130, 130, 255)
+val DARKGRAY   = Color(80,  80,  80,  255)
+val YELLOW     = Color(253, 249, 0,   255)
+val GOLD       = Color(255, 203, 0,   255)
+val ORANGE     = Color(255, 161, 0,   255)
+val PINK       = Color(255, 109, 194, 255)
+val RED        = Color(230, 41,  55,  255)
+val MAROON     = Color(190, 33,  55,  255)
+val GREEN      = Color(0,   228, 48,  255)
+val LIME       = Color(0,   158, 47,  255)
+val DARKGREEN  = Color(0,   117, 44,  255)
+val SKYBLUE    = Color(102, 191, 255, 255)
+val BLUE       = Color(0,   121, 241, 255)
+val DARKBLUE   = Color(0,   82,  172, 255)
+val PURPLE     = Color(200, 122, 255, 255)
+val VIOLET     = Color(135, 60,  190, 255)
+val DARKPURPLE = Color(112, 31,  126, 255)
+val BEIGE      = Color(211, 176, 131, 255)
+val BROWN      = Color(127, 106, 79,  255)
+val DARKBROWN  = Color(76,  63,  47,  255)
+val WHITE      = Color(255, 255, 255, 255)
+val BLACK      = Color(0,   0,   0,   255)
+val BLANK      = Color(0,   0,   0,   0)
+val MAGENTA    = Color(255, 0,   255, 255)
+val RAYWHITE   = Color(245, 245, 245, 255)
 
 -- ══════════════════════════════════════════════════════════════════════
 -- Window & System (Phase 61)

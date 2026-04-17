@@ -216,6 +216,11 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
     else if (strcmp(ta->name, "Int16") == 0)  base = iron_type_make_primitive(IRON_TYPE_INT16);
     else if (strcmp(ta->name, "Int32") == 0)  base = iron_type_make_primitive(IRON_TYPE_INT32);
     else if (strcmp(ta->name, "Int64") == 0)  base = iron_type_make_primitive(IRON_TYPE_INT64);
+    else if (strcmp(ta->name, "UInt") == 0)   base = iron_type_make_primitive(IRON_TYPE_UINT);
+    else if (strcmp(ta->name, "UInt8") == 0)  base = iron_type_make_primitive(IRON_TYPE_UINT8);
+    else if (strcmp(ta->name, "UInt16") == 0) base = iron_type_make_primitive(IRON_TYPE_UINT16);
+    else if (strcmp(ta->name, "UInt32") == 0) base = iron_type_make_primitive(IRON_TYPE_UINT32);
+    else if (strcmp(ta->name, "UInt64") == 0) base = iron_type_make_primitive(IRON_TYPE_UINT64);
     else if (strcmp(ta->name, "Float32") == 0) base = iron_type_make_primitive(IRON_TYPE_FLOAT32);
     else if (strcmp(ta->name, "Float64") == 0) base = iron_type_make_primitive(IRON_TYPE_FLOAT64);
     else {
