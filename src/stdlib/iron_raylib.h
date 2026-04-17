@@ -796,6 +796,62 @@ struct Iron_Vector3 Iron_vector3_clamp_value(struct Iron_Vector3 self, float min
 bool Iron_vector3_equals(struct Iron_Vector3 self, struct Iron_Vector3 other);
 struct Iron_Vector3 Iron_vector3_refract(struct Iron_Vector3 self, struct Iron_Vector3 n, float r);
 
+/* Vector3.to_float_v (MATH-03 carried from Plan 65-02) — first raymath
+ * helper returning a Float3 (12 B) via memcpy-out (Pattern 2g). */
+struct Iron_Float3 Iron_vector3_to_float_v(struct Iron_Vector3 self);
+
+/* Vector4 methods — 22 functions (MATH-04, raymath.h lines 1232-1440).
+ * Same 16 B struct-by-value in/out template as Rectangle (Phase 63).
+ * Vector4Equals returns int → shim coerces to bool. */
+struct Iron_Vector4 Iron_vector4_zero(void);
+struct Iron_Vector4 Iron_vector4_one(void);
+struct Iron_Vector4 Iron_vector4_add(struct Iron_Vector4 self, struct Iron_Vector4 other);
+struct Iron_Vector4 Iron_vector4_add_value(struct Iron_Vector4 self, float add);
+struct Iron_Vector4 Iron_vector4_subtract(struct Iron_Vector4 self, struct Iron_Vector4 other);
+struct Iron_Vector4 Iron_vector4_subtract_value(struct Iron_Vector4 self, float sub);
+float Iron_vector4_length(struct Iron_Vector4 self);
+float Iron_vector4_length_sqr(struct Iron_Vector4 self);
+float Iron_vector4_dot_product(struct Iron_Vector4 self, struct Iron_Vector4 other);
+float Iron_vector4_distance(struct Iron_Vector4 self, struct Iron_Vector4 other);
+float Iron_vector4_distance_sqr(struct Iron_Vector4 self, struct Iron_Vector4 other);
+struct Iron_Vector4 Iron_vector4_scale(struct Iron_Vector4 self, float scale);
+struct Iron_Vector4 Iron_vector4_multiply(struct Iron_Vector4 self, struct Iron_Vector4 other);
+struct Iron_Vector4 Iron_vector4_negate(struct Iron_Vector4 self);
+struct Iron_Vector4 Iron_vector4_divide(struct Iron_Vector4 self, struct Iron_Vector4 other);
+struct Iron_Vector4 Iron_vector4_normalize(struct Iron_Vector4 self);
+struct Iron_Vector4 Iron_vector4_min(struct Iron_Vector4 self, struct Iron_Vector4 other);
+struct Iron_Vector4 Iron_vector4_max(struct Iron_Vector4 self, struct Iron_Vector4 other);
+struct Iron_Vector4 Iron_vector4_lerp(struct Iron_Vector4 self, struct Iron_Vector4 other, float amount);
+struct Iron_Vector4 Iron_vector4_move_towards(struct Iron_Vector4 self, struct Iron_Vector4 target, float max_distance);
+struct Iron_Vector4 Iron_vector4_invert(struct Iron_Vector4 self);
+bool Iron_vector4_equals(struct Iron_Vector4 self, struct Iron_Vector4 other);
+
+/* Matrix methods — 21 of 22 functions (MATH-05, raymath.h lines
+ * 1459-1985). Decompose deferred to Plan 65-04 (3-tuple out-param).
+ * First 64 B struct-by-value RETURN in the codebase. Frustum/Perspective/
+ * Ortho widen Iron Float32 to raymath double via (double) casts. */
+float Iron_matrix_determinant(struct Iron_Matrix self);
+float Iron_matrix_trace(struct Iron_Matrix self);
+struct Iron_Matrix Iron_matrix_transpose(struct Iron_Matrix self);
+struct Iron_Matrix Iron_matrix_invert(struct Iron_Matrix self);
+struct Iron_Matrix Iron_matrix_identity(void);
+struct Iron_Matrix Iron_matrix_add(struct Iron_Matrix self, struct Iron_Matrix other);
+struct Iron_Matrix Iron_matrix_subtract(struct Iron_Matrix self, struct Iron_Matrix other);
+struct Iron_Matrix Iron_matrix_multiply(struct Iron_Matrix self, struct Iron_Matrix other);
+struct Iron_Matrix Iron_matrix_translate(float x, float y, float z);
+struct Iron_Matrix Iron_matrix_rotate(struct Iron_Vector3 axis, float angle);
+struct Iron_Matrix Iron_matrix_rotate_x(float angle);
+struct Iron_Matrix Iron_matrix_rotate_y(float angle);
+struct Iron_Matrix Iron_matrix_rotate_z(float angle);
+struct Iron_Matrix Iron_matrix_rotate_xyz(struct Iron_Vector3 angle);
+struct Iron_Matrix Iron_matrix_rotate_zyx(struct Iron_Vector3 angle);
+struct Iron_Matrix Iron_matrix_scale(float x, float y, float z);
+struct Iron_Matrix Iron_matrix_frustum(float left, float right, float bottom, float top, float near_plane, float far_plane);
+struct Iron_Matrix Iron_matrix_perspective(float fovy, float aspect, float near_plane, float far_plane);
+struct Iron_Matrix Iron_matrix_ortho(float left, float right, float bottom, float top, float near_plane, float far_plane);
+struct Iron_Matrix Iron_matrix_look_at(struct Iron_Vector3 eye, struct Iron_Vector3 target, struct Iron_Vector3 up);
+struct Iron_Float16 Iron_matrix_to_float_v(struct Iron_Matrix self);
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */

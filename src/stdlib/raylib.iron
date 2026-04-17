@@ -1094,8 +1094,64 @@ func Vector3.clamp(v: Vector3, min: Vector3, max: Vector3) -> Vector3 {}
 func Vector3.clamp_value(v: Vector3, min: Float32, max: Float32) -> Vector3 {}
 func Vector3.equals(v: Vector3, other: Vector3) -> Bool {}
 func Vector3.refract(v: Vector3, n: Vector3, r: Float32) -> Vector3 {}
--- DEFERRED to Plan 65-03: func Vector3.to_float_v(v: Vector3) -> Float3 {}
+-- MATH-03 (carried from Plan 65-02): Vector3ToFloatV — lands now that
+-- Float3 exists (Plan 65-03 Task 1).
+func Vector3.to_float_v(v: Vector3) -> Float3 {}
 -- DEFERRED to Plan 65-04: func Vector3.ortho_normalize(v: Vector3, other: Vector3) -> (Vector3, Vector3) {}
+
+-- MATH-04: Vector4 methods (22 functions, raymath.h lines 1232-1440).
+-- Same 16 B struct-by-value in/out template as Rectangle (Phase 63).
+-- Receiver param `v` (or v1 — E0101 guard; `self` is reserved).
+func Vector4.zero() -> Vector4 {}
+func Vector4.one() -> Vector4 {}
+func Vector4.add(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.add_value(v: Vector4, add: Float32) -> Vector4 {}
+func Vector4.subtract(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.subtract_value(v: Vector4, sub: Float32) -> Vector4 {}
+func Vector4.length(v: Vector4) -> Float32 {}
+func Vector4.length_sqr(v: Vector4) -> Float32 {}
+func Vector4.dot_product(v: Vector4, other: Vector4) -> Float32 {}
+func Vector4.distance(v: Vector4, other: Vector4) -> Float32 {}
+func Vector4.distance_sqr(v: Vector4, other: Vector4) -> Float32 {}
+func Vector4.scale(v: Vector4, scale: Float32) -> Vector4 {}
+func Vector4.multiply(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.negate(v: Vector4) -> Vector4 {}
+func Vector4.divide(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.normalize(v: Vector4) -> Vector4 {}
+func Vector4.min(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.max(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.lerp(v: Vector4, other: Vector4, amount: Float32) -> Vector4 {}
+func Vector4.move_towards(v: Vector4, target: Vector4, max_distance: Float32) -> Vector4 {}
+func Vector4.invert(v: Vector4) -> Vector4 {}
+func Vector4.equals(v: Vector4, other: Vector4) -> Bool {}
+
+-- MATH-05: Matrix methods (21 of 22 functions — Decompose deferred to
+-- Plan 65-04 for 3-tuple out-param pattern). raymath.h lines 1459-1985.
+-- First 64 B struct-by-value RETURN surface in the codebase. Frustum /
+-- Perspective / Ortho take double in raymath; Iron-side is Float32 and
+-- the shim widens via (double) casts. Receiver param `m` (or m1/m2).
+func Matrix.determinant(m: Matrix) -> Float32 {}
+func Matrix.trace(m: Matrix) -> Float32 {}
+func Matrix.transpose(m: Matrix) -> Matrix {}
+func Matrix.invert(m: Matrix) -> Matrix {}
+func Matrix.identity() -> Matrix {}
+func Matrix.add(m: Matrix, other: Matrix) -> Matrix {}
+func Matrix.subtract(m: Matrix, other: Matrix) -> Matrix {}
+func Matrix.multiply(m: Matrix, other: Matrix) -> Matrix {}
+func Matrix.translate(x: Float32, y: Float32, z: Float32) -> Matrix {}
+func Matrix.rotate(axis: Vector3, angle: Float32) -> Matrix {}
+func Matrix.rotate_x(angle: Float32) -> Matrix {}
+func Matrix.rotate_y(angle: Float32) -> Matrix {}
+func Matrix.rotate_z(angle: Float32) -> Matrix {}
+func Matrix.rotate_xyz(angle: Vector3) -> Matrix {}
+func Matrix.rotate_zyx(angle: Vector3) -> Matrix {}
+func Matrix.scale(x: Float32, y: Float32, z: Float32) -> Matrix {}
+func Matrix.frustum(left: Float32, right: Float32, bottom: Float32, top: Float32, near: Float32, far: Float32) -> Matrix {}
+func Matrix.perspective(fovy: Float32, aspect: Float32, near_plane: Float32, far_plane: Float32) -> Matrix {}
+func Matrix.ortho(left: Float32, right: Float32, bottom: Float32, top: Float32, near_plane: Float32, far_plane: Float32) -> Matrix {}
+func Matrix.look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix {}
+func Matrix.to_float_v(m: Matrix) -> Float16 {}
+-- DEFERRED to Plan 65-04: func Matrix.decompose(m: Matrix) -> (Vector3, Quaternion, Vector3) {}
 
 -- ── Phase 64 namespace type ───────────────────────────────────────
 --

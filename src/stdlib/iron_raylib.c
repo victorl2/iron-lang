@@ -1967,6 +1967,391 @@ struct Iron_Vector3 Iron_vector3_refract(struct Iron_Vector3 self, struct Iron_V
     return out;
 }
 
+/* Vector3.to_float_v (Plan 65-03, MATH-03 carried) — first Float3
+ * (12 B) struct-by-value RETURN shim. Byte-copy from raymath's
+ * `float3 { float v[3]; }` into `struct Iron_Float3 { float x, y, z; }` —
+ * layout-identical by C contiguous-float guarantee + per-field
+ * _Static_assert offsetof pins (iron_raylib_layout.c Phase 65 Plan 03). */
+struct Iron_Float3 Iron_vector3_to_float_v(struct Iron_Vector3 self) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    float3 r = Vector3ToFloatV(v);
+    struct Iron_Float3 out;
+    memcpy(&out, &r, sizeof(float3));
+    return out;
+}
+
+/* ── Vector4 methods (Phase 65 Plan 03, MATH-04) ───────────────────
+ * 22 shims mirroring raymath Vector4* (lines 1232-1440). 16 B struct
+ * pass-by-value in/out reuses the Rectangle template from Phase 63.
+ * Vector4Equals returns int → explicit (bool)(... != 0) coercion. */
+
+struct Iron_Vector4 Iron_vector4_zero(void) {
+    Vector4 r = Vector4Zero();
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_one(void) {
+    Vector4 r = Vector4One();
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_add(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    Vector4 r = Vector4Add(a, b);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_add_value(struct Iron_Vector4 self, float add) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    Vector4 r = Vector4AddValue(v, add);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_subtract(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    Vector4 r = Vector4Subtract(a, b);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_subtract_value(struct Iron_Vector4 self, float sub) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    Vector4 r = Vector4SubtractValue(v, sub);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+float Iron_vector4_length(struct Iron_Vector4 self) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    return Vector4Length(v);
+}
+
+float Iron_vector4_length_sqr(struct Iron_Vector4 self) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    return Vector4LengthSqr(v);
+}
+
+float Iron_vector4_dot_product(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    return Vector4DotProduct(a, b);
+}
+
+float Iron_vector4_distance(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    return Vector4Distance(a, b);
+}
+
+float Iron_vector4_distance_sqr(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    return Vector4DistanceSqr(a, b);
+}
+
+struct Iron_Vector4 Iron_vector4_scale(struct Iron_Vector4 self, float scale) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    Vector4 r = Vector4Scale(v, scale);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_multiply(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    Vector4 r = Vector4Multiply(a, b);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_negate(struct Iron_Vector4 self) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    Vector4 r = Vector4Negate(v);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_divide(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    Vector4 r = Vector4Divide(a, b);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_normalize(struct Iron_Vector4 self) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    Vector4 r = Vector4Normalize(v);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_min(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    Vector4 r = Vector4Min(a, b);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_max(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    Vector4 r = Vector4Max(a, b);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_lerp(struct Iron_Vector4 self, struct Iron_Vector4 other, float amount) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    Vector4 r = Vector4Lerp(a, b, amount);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_move_towards(struct Iron_Vector4 self, struct Iron_Vector4 target, float max_distance) {
+    Vector4 v, t;
+    memcpy(&v, &self,   sizeof(Vector4));
+    memcpy(&t, &target, sizeof(Vector4));
+    Vector4 r = Vector4MoveTowards(v, t, max_distance);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+struct Iron_Vector4 Iron_vector4_invert(struct Iron_Vector4 self) {
+    Vector4 v;
+    memcpy(&v, &self, sizeof(Vector4));
+    Vector4 r = Vector4Invert(v);
+    struct Iron_Vector4 out;
+    memcpy(&out, &r, sizeof(Vector4));
+    return out;
+}
+
+bool Iron_vector4_equals(struct Iron_Vector4 self, struct Iron_Vector4 other) {
+    Vector4 a, b;
+    memcpy(&a, &self,  sizeof(Vector4));
+    memcpy(&b, &other, sizeof(Vector4));
+    return (bool)(Vector4Equals(a, b) != 0);
+}
+
+/* ── Matrix methods (Phase 65 Plan 03, MATH-05) ────────────────────
+ * 21 of 22 shims. Decompose deferred to Plan 65-04 (3-tuple out-param).
+ * First 64 B struct-by-value RETURN surface in the codebase — validated
+ * zero-warning under -Wall -Wextra (clang threshold fires at strictly
+ * >64, not >=64). Frustum/Perspective/Ortho widen Iron Float32 to
+ * raymath double via (double) casts. */
+
+float Iron_matrix_determinant(struct Iron_Matrix self) {
+    Matrix m;
+    memcpy(&m, &self, sizeof(Matrix));
+    return MatrixDeterminant(m);
+}
+
+float Iron_matrix_trace(struct Iron_Matrix self) {
+    Matrix m;
+    memcpy(&m, &self, sizeof(Matrix));
+    return MatrixTrace(m);
+}
+
+struct Iron_Matrix Iron_matrix_transpose(struct Iron_Matrix self) {
+    Matrix m;
+    memcpy(&m, &self, sizeof(Matrix));
+    Matrix r = MatrixTranspose(m);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_invert(struct Iron_Matrix self) {
+    Matrix m;
+    memcpy(&m, &self, sizeof(Matrix));
+    Matrix r = MatrixInvert(m);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_identity(void) {
+    Matrix r = MatrixIdentity();
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_add(struct Iron_Matrix self, struct Iron_Matrix other) {
+    Matrix a, b;
+    memcpy(&a, &self,  sizeof(Matrix));
+    memcpy(&b, &other, sizeof(Matrix));
+    Matrix r = MatrixAdd(a, b);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_subtract(struct Iron_Matrix self, struct Iron_Matrix other) {
+    Matrix a, b;
+    memcpy(&a, &self,  sizeof(Matrix));
+    memcpy(&b, &other, sizeof(Matrix));
+    Matrix r = MatrixSubtract(a, b);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_multiply(struct Iron_Matrix self, struct Iron_Matrix other) {
+    Matrix a, b;
+    memcpy(&a, &self,  sizeof(Matrix));
+    memcpy(&b, &other, sizeof(Matrix));
+    Matrix r = MatrixMultiply(a, b);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_translate(float x, float y, float z) {
+    Matrix r = MatrixTranslate(x, y, z);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_rotate(struct Iron_Vector3 axis, float angle) {
+    Vector3 a;
+    memcpy(&a, &axis, sizeof(Vector3));
+    Matrix r = MatrixRotate(a, angle);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_rotate_x(float angle) {
+    Matrix r = MatrixRotateX(angle);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_rotate_y(float angle) {
+    Matrix r = MatrixRotateY(angle);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_rotate_z(float angle) {
+    Matrix r = MatrixRotateZ(angle);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_rotate_xyz(struct Iron_Vector3 angle) {
+    Vector3 a;
+    memcpy(&a, &angle, sizeof(Vector3));
+    Matrix r = MatrixRotateXYZ(a);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_rotate_zyx(struct Iron_Vector3 angle) {
+    Vector3 a;
+    memcpy(&a, &angle, sizeof(Vector3));
+    Matrix r = MatrixRotateZYX(a);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_scale(float x, float y, float z) {
+    Matrix r = MatrixScale(x, y, z);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_frustum(float left, float right, float bottom, float top, float near_plane, float far_plane) {
+    /* raymath widens to double; Iron-side is Float32. */
+    Matrix r = MatrixFrustum((double)left, (double)right, (double)bottom, (double)top, (double)near_plane, (double)far_plane);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_perspective(float fovy, float aspect, float near_plane, float far_plane) {
+    Matrix r = MatrixPerspective((double)fovy, (double)aspect, (double)near_plane, (double)far_plane);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_ortho(float left, float right, float bottom, float top, float near_plane, float far_plane) {
+    Matrix r = MatrixOrtho((double)left, (double)right, (double)bottom, (double)top, (double)near_plane, (double)far_plane);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Matrix Iron_matrix_look_at(struct Iron_Vector3 eye, struct Iron_Vector3 target, struct Iron_Vector3 up) {
+    Vector3 e, t, u;
+    memcpy(&e, &eye,    sizeof(Vector3));
+    memcpy(&t, &target, sizeof(Vector3));
+    memcpy(&u, &up,     sizeof(Vector3));
+    Matrix r = MatrixLookAt(e, t, u);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
+struct Iron_Float16 Iron_matrix_to_float_v(struct Iron_Matrix self) {
+    Matrix m;
+    memcpy(&m, &self, sizeof(Matrix));
+    float16 r = MatrixToFloatV(m);
+    struct Iron_Float16 out;
+    memcpy(&out, &r, sizeof(float16));
+    return out;
+}
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
