@@ -20,12 +20,20 @@
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Context ─────────────────────────────────────────────────────────────── */
 
 typedef struct {
-    Iron_Arena    *arena;
-    Iron_DiagList *diags;
+    Iron_Arena         *arena;
+    Iron_DiagList      *diags;
+    const _Atomic bool *cancel_flag;  /* HARD-05 */
 } CaptureCtx;
 
 /* stb_ds string hashmap entry (int value — we just use it as a set) */
@@ -500,6 +508,8 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
  * ordering), then process the lambda itself. */
 static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
     switch ((int)(node->kind)) {
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
@@ -823,15 +833,21 @@ static void verbose_walk(Iron_Node *node, Iron_Arena *arena, int depth) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
-                          Iron_Arena *arena, Iron_DiagList *diags) {
+                          Iron_Arena *arena, Iron_DiagList *diags,
+                          const _Atomic bool *cancel_flag) {
     if (!program) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
     (void)global_scope; /* not needed: resolved_sym already attached to idents */
 
     CaptureCtx ctx;
-    ctx.arena = arena;
-    ctx.diags = diags;
+    ctx.arena       = arena;
+    ctx.diags       = diags;
+    ctx.cancel_flag = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
+        /* HARD-05: cancel poll inside top-level decl loop. */
+        if (iron_cancel_requested(cancel_flag)) return;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
         switch ((int)(decl->kind)) {

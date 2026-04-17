@@ -64,8 +64,8 @@ static Iron_Program *parse_and_resolve(const char *src) {
     Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron", &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
-    iron_typecheck(prog, global, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
+    iron_typecheck(prog, global, &g_arena, &g_diags, NULL);
     return prog;
 }
 

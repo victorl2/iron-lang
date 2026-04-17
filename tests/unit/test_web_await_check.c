@@ -197,7 +197,7 @@ void test_await_in_main_on_web_errors(void) {
 
     Iron_Program *prog = make_prog_with_func(&g_arena, "main", stmts, 1);
 
-    iron_web_await_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB);
+    iron_web_await_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB, NULL);
 
     TEST_ASSERT_TRUE(g_diags.error_count >= 1);
     TEST_ASSERT_TRUE(has_code(501));
@@ -217,7 +217,7 @@ void test_await_in_main_on_native_no_501(void) {
 
     Iron_Program *prog = make_prog_with_func(&g_arena, "main", stmts, 1);
 
-    iron_web_await_check(prog, &g_arena, &g_diags, IRON_TARGET_NATIVE);
+    iron_web_await_check(prog, &g_arena, &g_diags, IRON_TARGET_NATIVE, NULL);
 
     TEST_ASSERT_FALSE(has_code(501));
 }
@@ -233,7 +233,7 @@ void test_no_await_on_web_ok(void) {
      */
     Iron_Program *prog = make_no_await_prog(&g_arena);
 
-    iron_web_await_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB);
+    iron_web_await_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB, NULL);
 
     TEST_ASSERT_FALSE(has_code(501));
 }

@@ -16,7 +16,12 @@
 #include "util/arena.h"
 #include "cli/build.h"
 
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* HARD-05: cancel_flag (NULL = never cancel) polled at entry and walkers. */
 void iron_web_await_check(Iron_Program *program, Iron_Arena *arena,
-                          Iron_DiagList *diags, IronBuildTarget target);
+                          Iron_DiagList *diags, IronBuildTarget target,
+                          const _Atomic bool *cancel_flag);
 
 #endif /* IRON_WEB_AWAIT_CHECK_H */

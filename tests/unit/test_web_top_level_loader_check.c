@@ -190,7 +190,7 @@ void test_top_level_LoadTexture_on_web_errors(void) {
     Iron_CallExpr *call = make_call(&g_arena, "LoadTexture", 1);
     Iron_Program  *prog = make_prog_with_top_level_call(&g_arena, call);
 
-    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB);
+    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB, NULL);
 
     TEST_ASSERT_TRUE(g_diags.error_count >= 1);
     TEST_ASSERT_TRUE(has_code(502));
@@ -208,7 +208,7 @@ void test_top_level_LoadTexture_on_native_ok(void) {
     Iron_CallExpr *call = make_call(&g_arena, "LoadTexture", 1);
     Iron_Program  *prog = make_prog_with_top_level_call(&g_arena, call);
 
-    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_NATIVE);
+    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_NATIVE, NULL);
 
     TEST_ASSERT_FALSE(has_code(502));
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
@@ -232,7 +232,7 @@ void test_in_function_LoadTexture_on_web_ok(void) {
 
     Iron_Program *prog = make_prog_with_func(&g_arena, "main", stmts, 1);
 
-    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB);
+    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB, NULL);
 
     TEST_ASSERT_FALSE(has_code(502));
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
@@ -273,7 +273,7 @@ void test_all_four_loaders_at_top_level_on_web_errors(void) {
     prog->decls      = decls;
     prog->decl_count = 4;
 
-    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB);
+    iron_web_top_level_loader_check(prog, &g_arena, &g_diags, IRON_TARGET_WEB, NULL);
 
     TEST_ASSERT_TRUE(g_diags.error_count >= 4);
     TEST_ASSERT_TRUE(msg_contains("LoadTexture"));

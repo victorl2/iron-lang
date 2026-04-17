@@ -16,6 +16,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Context ─────────────────────────────────────────────────────────────── */
 
@@ -34,6 +41,9 @@ typedef struct {
     bool           in_spawn;
     const char   **spawn_writes;  /* stb_ds: names written inside spawn body */
     const char   **spawn_reads;   /* stb_ds: names read inside spawn body   */
+
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
 } ConcurrencyCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -355,6 +365,8 @@ static void walk_nested_in_parallel_body(ConcurrencyCtx *ctx, Iron_Node *node) {
 
 static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive statement walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
     switch ((int)(node->kind)) {
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
@@ -475,8 +487,11 @@ static void analyze_function(ConcurrencyCtx *ctx, Iron_Node *body_node) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
-                            Iron_Arena *arena, Iron_DiagList *diags) {
+                            Iron_Arena *arena, Iron_DiagList *diags,
+                            const _Atomic bool *cancel_flag) {
     if (!program) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
     (void)global_scope;
 
     ConcurrencyCtx ctx;
@@ -487,8 +502,11 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     ctx.in_spawn     = false;
     ctx.spawn_writes = NULL;
     ctx.spawn_reads  = NULL;
+    ctx.cancel_flag  = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
+        /* HARD-05: cancel poll inside top-level decl loop. */
+        if (iron_cancel_requested(cancel_flag)) break;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
         switch ((int)(decl->kind)) {
