@@ -1,6 +1,7 @@
 -- tests/manual/raymath_smoke.iron — Phase 65 canonical regression test
 -- Plan 65-01 creates; Plans 65-02/03/04 APPEND (never replace).
--- MATH-01 (RMath.*) + MATH-02 (Vector2.*) + MATH-03 (Vector3.*) = 73 call sites.
+-- MATH-01 (RMath.*) + MATH-02 (Vector2.*) + MATH-03 (Vector3.*)
+-- + MATH-04 (Vector4.*) + MATH-05 (Matrix.*) + ToFloatV = 119 call sites.
 
 import raylib
 
@@ -104,6 +105,70 @@ func main() -> Int32 {
     val v3_eq     = v3.equals(v3)                                           -- true
     val v3_refr   = v3.refract(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(1.0))
 
+    -- ── MATH-04: Vector4 methods (22 call sites) ───────────────────────
+    val v4a = Vector4(Float32(1.0), Float32(2.0), Float32(3.0), Float32(4.0))
+    val v4b = Vector4(Float32(0.5), Float32(0.5), Float32(0.5), Float32(0.5))
+
+    val v4_zero   = Vector4.zero()
+    val v4_one    = Vector4.one()
+    val v4_add    = v4a.add(v4b)                            -- (1.5, 2.5, 3.5, 4.5)
+    val v4_addval = v4a.add_value(Float32(1.0))             -- (2, 3, 4, 5)
+    val v4_sub    = v4a.subtract(v4b)                       -- (0.5, 1.5, 2.5, 3.5)
+    val v4_subval = v4a.subtract_value(Float32(0.5))        -- (0.5, 1.5, 2.5, 3.5)
+    val v4_len    = v4a.length()                            -- sqrt(30)
+    val v4_lensq  = v4a.length_sqr()                        -- 30.0
+    val v4_dot    = v4a.dot_product(v4b)                    -- 0.5+1+1.5+2 = 5.0
+    val v4_dist   = v4a.distance(v4b)
+    val v4_distsq = v4a.distance_sqr(v4b)
+    val v4_scale  = v4a.scale(Float32(2.0))                 -- (2, 4, 6, 8)
+    val v4_mul    = v4a.multiply(v4b)                       -- (0.5, 1, 1.5, 2)
+    val v4_neg    = v4a.negate()                            -- (-1, -2, -3, -4)
+    val v4_div    = v4a.divide(v4b)                         -- (2, 4, 6, 8)
+    val v4_norm   = v4a.normalize()                         -- length 1
+    val v4_min    = v4a.min(v4b)                            -- (0.5, 0.5, 0.5, 0.5)
+    val v4_max    = v4a.max(v4b)                            -- (1, 2, 3, 4)
+    val v4_lerp   = v4a.lerp(v4b, Float32(0.5))
+    val v4_mtow   = v4a.move_towards(v4b, Float32(0.1))
+    val v4_inv    = v4a.invert()                            -- (1, 0.5, 0.333..., 0.25)
+    val v4_eq     = v4a.equals(v4a)                         -- true
+
+    -- ── MATH-05: Matrix methods (21 call sites; Decompose -> Plan 65-04) ─
+    val m_id = Matrix.identity()
+    val m_a  = Matrix(
+        Float32(1.0), Float32(0.0), Float32(0.0), Float32(1.0),
+        Float32(0.0), Float32(1.0), Float32(0.0), Float32(2.0),
+        Float32(0.0), Float32(0.0), Float32(1.0), Float32(3.0),
+        Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0)
+    )
+
+    val m_det    = m_id.determinant()                                    -- 1.0
+    val m_trace  = m_id.trace()                                          -- 4.0
+    val m_trans  = m_a.transpose()
+    val m_inv    = m_id.invert()
+    val m_add    = m_id.add(m_id)
+    val m_sub    = m_id.subtract(m_id)
+    val m_mul    = m_id.multiply(m_id)
+    val m_trl    = Matrix.translate(Float32(1.0), Float32(2.0), Float32(3.0))
+    val m_rot    = Matrix.rotate(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(0.0))
+    val m_rotx   = Matrix.rotate_x(Float32(0.0))
+    val m_roty   = Matrix.rotate_y(Float32(0.0))
+    val m_rotz   = Matrix.rotate_z(Float32(0.0))
+    val m_rxyz   = Matrix.rotate_xyz(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)))
+    val m_rzyx   = Matrix.rotate_zyx(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)))
+    val m_scale  = Matrix.scale(Float32(1.0), Float32(1.0), Float32(1.0))
+    val m_frst   = Matrix.frustum(Float32(-1.0), Float32(1.0), Float32(-1.0), Float32(1.0), Float32(1.0), Float32(10.0))
+    val m_pers   = Matrix.perspective(Float32(1.0), Float32(1.777), Float32(0.1), Float32(100.0))
+    val m_ortho  = Matrix.ortho(Float32(-1.0), Float32(1.0), Float32(-1.0), Float32(1.0), Float32(0.1), Float32(100.0))
+    val m_look   = Matrix.look_at(
+        Vector3(Float32(0.0), Float32(0.0), Float32(5.0)),
+        Vector3(Float32(0.0), Float32(0.0), Float32(0.0)),
+        Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    )
+    val m_f16    = m_id.to_float_v()
+
+    -- ── Vector3.to_float_v (MATH-03 carried from Plan 65-02) ───────────
+    val v3_f3    = v3.to_float_v()
+
     -- ── MATH-08: ABI round-trip assertions (~15 sites across return shapes) ─
     val pass_lerp    = RMath.float_equals(lerped, Float32(5.0))
     val pass_clamped = RMath.float_equals(clamped, Float32(0.0))
@@ -136,7 +201,24 @@ func main() -> Int32 {
     val pass_v3xformx = RMath.float_equals(v3_xform.x, Float32(3.0))
     val pass_v3eq     = v3_eq
 
-    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq and pass_v3addx and pass_v3addy and pass_v3addz and pass_v3len and pass_v3lensq and pass_v3dot and pass_v3distsq and pass_v3crossx and pass_v3crossy and pass_v3crossz and pass_v3rotqx and pass_v3xformx and pass_v3eq
+    -- MATH-08 Vector4 + Matrix + ToFloatV ABI asserts (15 sites)
+    val pass_v4addx  = RMath.float_equals(v4_add.x,  Float32(1.5))
+    val pass_v4addy  = RMath.float_equals(v4_add.y,  Float32(2.5))
+    val pass_v4addz  = RMath.float_equals(v4_add.z,  Float32(3.5))
+    val pass_v4addw  = RMath.float_equals(v4_add.w,  Float32(4.5))
+    val pass_v4lensq = RMath.float_equals(v4_lensq,  Float32(30.0))
+    val pass_v4dot   = RMath.float_equals(v4_dot,    Float32(5.0))
+    val pass_v4eq    = v4_eq
+    val pass_mdet    = RMath.float_equals(m_det,     Float32(1.0))
+    val pass_mtrace  = RMath.float_equals(m_trace,   Float32(4.0))
+    val pass_mf16_0  = RMath.float_equals(m_f16.m0,  Float32(1.0))   -- identity m[0] = 1
+    val pass_mf16_5  = RMath.float_equals(m_f16.m5,  Float32(1.0))   -- identity m[5] = 1
+    val pass_mf16_1  = RMath.float_equals(m_f16.m1,  Float32(0.0))   -- identity m[1] = 0
+    val pass_v3f3_x  = RMath.float_equals(v3_f3.x,   Float32(3.0))   -- v3 was (3, 4, 0)
+    val pass_v3f3_y  = RMath.float_equals(v3_f3.y,   Float32(4.0))
+    val pass_v3f3_z  = RMath.float_equals(v3_f3.z,   Float32(0.0))
+
+    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq and pass_v3addx and pass_v3addy and pass_v3addz and pass_v3len and pass_v3lensq and pass_v3dot and pass_v3distsq and pass_v3crossx and pass_v3crossy and pass_v3crossz and pass_v3rotqx and pass_v3xformx and pass_v3eq and pass_v4addx and pass_v4addy and pass_v4addz and pass_v4addw and pass_v4lensq and pass_v4dot and pass_v4eq and pass_mdet and pass_mtrace and pass_mf16_0 and pass_mf16_5 and pass_mf16_1 and pass_v3f3_x and pass_v3f3_y and pass_v3f3_z
 
     if all_pass {
         print("ALL MATH-08 ASSERTS PASS")
