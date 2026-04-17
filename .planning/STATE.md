@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 63 — 2D Drawing (COMPLETE)
-Plan: 04 of 4 — DONE
+Phase: 64 — Collision (2D + 3D) (READY TO DISCUSS)
+Plan: Not started
 Status: Phase 63 COMPLETE (all 4/4 plans closed, 65 Draw.* bindings land; DRAW2D-01..16 all closed). Plan 63-04 bound the last 16 Draw.* surfaces: 5 spline-segment (fixed-point-count) + 5 spline-evaluator (FIRST Vector2 RETURN in the Draw namespace, 5 call sites via memcpy-out) + 6 array-input (DrawLineStrip + 5 whole-splines using Branch B — Iron_List_Iron_Vector2 struct BY VALUE as confirmed by 63-03's probe outcome A). All 3 consumer files (pong.iron / game_raylib.iron / hello_raylib.iron) re-enabled with real Draw.* calls; zero `-- PHASE 63:` markers survive anywhere in the repo. 2 mislabeled DrawText markers in pong re-labeled to `-- PHASE 67:` (TEXT-07/08 is Phase 67 territory). Rule 3 compiler fix landed in src/lir/emit_structs.c (emit_mono_list_decls now scans foreign-method-stub + extern-decl param/return types for Iron_List_<T> typedef emission — a compiler-wide improvement that resolved the 8 'unknown type name Iron_List_Iron_Vector2' errors triggered by the canonical pong build). Canonical `./build/ironc build examples/pong/pong.iron` produces a runnable 2,658,464-byte Mach-O arm64 executable; attempted runtime exec confirms raylib 5.5 initializes cleanly with DESKTOP/GLFW backend on macOS. Phase 63 is end-to-end validated. Phase 62 COMPLETE (4/4 plans, INPUT-01..13 closed). Phase 61 plans (61-01..04) still on branch without SUMMARY.md files; state tech-debt. Phase 60 remains 8/8 closed. Local synced from silvaserver.local 2026-04-16 via rsync after stale-state rollback; git branch `remote/pr-28` now tracks the remote work tree.
 Last activity: 2026-04-16 — Phase 63 Plan 04 executed on local. 16 Iron_draw_* prototypes + 16 shim implementations + 16 Iron `func Draw.*` stubs added across src/stdlib/iron_raylib.{h,c} and src/stdlib/raylib.iron. Task 1 landed 10 shims (5 spline-segment + 5 spline-evaluator) with the first Vector2-RETURN pattern in Draw namespace — memcpy-out template from Iron_window_get_window_position (iron_raylib.c:137-142). Task 2 landed 6 array-input shims in Branch B mode (Iron_List_Iron_Vector2 struct by-value, matching 63-03 probe outcome A). Task 3 rewrote the 3 consumer files (7 PHASE 63 markers in pong → 5 real Draw.* calls + 2 PHASE 67 re-labels; game_raylib/hello_raylib get single-frame Draw bodies). Task 4 ran the canonical end-to-end build: failed first attempt on Iron_List_Iron_Vector2 typedef gap, fixed in src/lir/emit_structs.c by extending emit_mono_list_decls() with 2 new scan passes (extern_decls + foreign-method-stub funcs for IRON_TYPE_ARRAY params/returns). Second attempt succeeded. `./build/ironc build examples/pong/pong.iron` produces Mach-O arm64 executable; game_raylib.iron also builds clean (hello_raylib.iron's web target skipped — no emcc). ironc invoked 2x per HANDOFF.md memory budget. clang -c iron_raylib.c + iron_raylib_layout.c both exit 0 with zero warnings — Phase 60 _Static_assert grid held through all 392 asserts. Phase 63 COMPLETE.
 
@@ -170,7 +170,8 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-16T23:26:38Z
+Last session: 2026-04-17T01:10:00Z
+Stopped at: Phase 63 complete, ready to discuss Phase 64 (Collision 2D + 3D)
 Stopped at: Completed 63-04-PLAN.md
 Next action: Phase 63 is COMPLETE — choose next phase. Candidates now unblocked: Phase 64 (Collision, depends only on Phase 63), Phase 66 (Textures, depends on Phase 63's begin_texture_mode + Vector2 source-rects), Phase 67 (Text & Fonts, depends on Phase 63's Draw namespace; will pick up the 2 DrawText markers re-labeled from pong.iron into PHASE 67). Parallel phases still open: Phase 65 (raymath, depends only on 60), Phase 68 (Audio, independent after 60), Phase 72 (File I/O, independent after 60). Recommended: start Phase 64 next (smallest scope, builds on patterns established in 63) or Phase 66 (unblocks Phase 67 + Phase 71 shaders). The canonical end-to-end pong.iron compile is now proven; future phases can add new Draw/Texture/Text bindings with confidence that the full pipeline works.
-Resume file: .planning/phases/63-2d-drawing/63-04-SUMMARY.md
+Resume file: None
