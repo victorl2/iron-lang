@@ -1610,3 +1610,25 @@ func Collision.circles(c1: Vector2, r1: Float32, c2: Vector2, r2: Float32) -> Bo
 func Collision.circle_line(center: Vector2, radius: Float32, p1: Vector2, p2: Vector2) -> Bool {}
 func Collision.point_circle(point: Vector2, center: Vector2, radius: Float32) -> Bool {}
 func Collision.lines(start_a: Vector2, end_a: Vector2, start_b: Vector2, end_b: Vector2) -> (Bool, Vector2) {}
+
+-- 3D (COLL-02) — 8 functions across BoundingBox / Ray / Collision
+-- receivers. Ray.hit_* returns RayCollision by value (32-byte struct,
+-- first outside spline evaluator Vector2 returns). Ray.hit_mesh is
+-- the first Mesh pass-by-value (120 B) + Matrix pass-by-value (64 B)
+-- through the FFI — layout pinned by Phase 60-04 _Static_assert grid.
+-- Receiver params are named `box` / `ray` per iron_net convention;
+-- `self` is a reserved word in Iron's parser (see 64-01 Rule 1 fix).
+
+-- BoundingBox receiver (2 functions)
+func BoundingBox.collides(box: BoundingBox, other: BoundingBox) -> Bool {}
+func BoundingBox.collides_sphere(box: BoundingBox, center: Vector3, radius: Float32) -> Bool {}
+
+-- Ray receiver (5 functions)
+func Ray.hit_sphere(ray: Ray, center: Vector3, radius: Float32) -> RayCollision {}
+func Ray.hit_box(ray: Ray, box: BoundingBox) -> RayCollision {}
+func Ray.hit_mesh(ray: Ray, mesh: Mesh, transform: Matrix) -> RayCollision {}
+func Ray.hit_triangle(ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3) -> RayCollision {}
+func Ray.hit_quad(ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) -> RayCollision {}
+
+-- Collision namespace (1 pair-based 3D test)
+func Collision.spheres(c1: Vector3, r1: Float32, c2: Vector3, r2: Float32) -> Bool {}

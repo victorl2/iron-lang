@@ -668,6 +668,22 @@ bool Iron_collision_point_circle(struct Iron_Vector2 point, struct Iron_Vector2 
 /* Collision.lines — tuple return. Typedef name from Task 1 probe. */
 Iron_Tuple_Bool_Vector2 Iron_collision_lines(struct Iron_Vector2 start_a, struct Iron_Vector2 end_a, struct Iron_Vector2 start_b, struct Iron_Vector2 end_b);
 
+/* 3D collision (COLL-02) — 8 functions. See src/vendor/raylib/raylib.h:1611-1619. */
+
+/* BoundingBox receiver */
+bool Iron_boundingbox_collides(struct Iron_BoundingBox self, struct Iron_BoundingBox other);
+bool Iron_boundingbox_collides_sphere(struct Iron_BoundingBox self, struct Iron_Vector3 center, float radius);
+
+/* Ray receiver — 5 functions, all return RayCollision (32 bytes) */
+struct Iron_RayCollision Iron_ray_hit_sphere(struct Iron_Ray self, struct Iron_Vector3 center, float radius);
+struct Iron_RayCollision Iron_ray_hit_box(struct Iron_Ray self, struct Iron_BoundingBox box);
+struct Iron_RayCollision Iron_ray_hit_mesh(struct Iron_Ray self, struct Iron_Mesh mesh, struct Iron_Matrix transform);
+struct Iron_RayCollision Iron_ray_hit_triangle(struct Iron_Ray self, struct Iron_Vector3 p1, struct Iron_Vector3 p2, struct Iron_Vector3 p3);
+struct Iron_RayCollision Iron_ray_hit_quad(struct Iron_Ray self, struct Iron_Vector3 p1, struct Iron_Vector3 p2, struct Iron_Vector3 p3, struct Iron_Vector3 p4);
+
+/* Collision namespace — 3D pair-based test */
+bool Iron_collision_spheres(struct Iron_Vector3 c1, float r1, struct Iron_Vector3 c2, float r2);
+
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */

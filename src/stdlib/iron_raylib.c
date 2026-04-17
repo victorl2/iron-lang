@@ -1204,6 +1204,92 @@ Iron_Tuple_Bool_Vector2 Iron_collision_lines(
     return out;
 }
 
+/* 3D collision (COLL-02) — 8 functions. */
+
+bool Iron_boundingbox_collides(struct Iron_BoundingBox self, struct Iron_BoundingBox other) {
+    BoundingBox a, b;
+    memcpy(&a, &self,  sizeof(BoundingBox));
+    memcpy(&b, &other, sizeof(BoundingBox));
+    return CheckCollisionBoxes(a, b);
+}
+
+bool Iron_boundingbox_collides_sphere(struct Iron_BoundingBox self, struct Iron_Vector3 center, float radius) {
+    BoundingBox b;
+    Vector3 c;
+    memcpy(&b, &self,   sizeof(BoundingBox));
+    memcpy(&c, &center, sizeof(Vector3));
+    return CheckCollisionBoxSphere(b, c, radius);
+}
+
+struct Iron_RayCollision Iron_ray_hit_sphere(struct Iron_Ray self, struct Iron_Vector3 center, float radius) {
+    Ray r;
+    Vector3 c;
+    memcpy(&r, &self,   sizeof(Ray));
+    memcpy(&c, &center, sizeof(Vector3));
+    RayCollision rl = GetRayCollisionSphere(r, c, radius);
+    struct Iron_RayCollision out;
+    memcpy(&out, &rl, sizeof(RayCollision));  /* 32 bytes */
+    return out;
+}
+
+struct Iron_RayCollision Iron_ray_hit_box(struct Iron_Ray self, struct Iron_BoundingBox box) {
+    Ray r;
+    BoundingBox bb;
+    memcpy(&r,  &self, sizeof(Ray));
+    memcpy(&bb, &box,  sizeof(BoundingBox));
+    RayCollision rl = GetRayCollisionBox(r, bb);
+    struct Iron_RayCollision out;
+    memcpy(&out, &rl, sizeof(RayCollision));
+    return out;
+}
+
+struct Iron_RayCollision Iron_ray_hit_mesh(struct Iron_Ray self, struct Iron_Mesh mesh, struct Iron_Matrix transform) {
+    Ray r;
+    Mesh m;
+    Matrix tx;
+    memcpy(&r, &self, sizeof(Ray));
+    memcpy(&m, &mesh, sizeof(Mesh));      /* 120 bytes */
+    memcpy(&tx, &transform, sizeof(Matrix));    /* 64 bytes */
+    RayCollision rl = GetRayCollisionMesh(r, m, tx);
+    struct Iron_RayCollision out;
+    memcpy(&out, &rl, sizeof(RayCollision));
+    return out;
+}
+
+struct Iron_RayCollision Iron_ray_hit_triangle(struct Iron_Ray self, struct Iron_Vector3 p1, struct Iron_Vector3 p2, struct Iron_Vector3 p3) {
+    Ray r;
+    Vector3 a, b, c;
+    memcpy(&r, &self, sizeof(Ray));
+    memcpy(&a, &p1,   sizeof(Vector3));
+    memcpy(&b, &p2,   sizeof(Vector3));
+    memcpy(&c, &p3,   sizeof(Vector3));
+    RayCollision rl = GetRayCollisionTriangle(r, a, b, c);
+    struct Iron_RayCollision out;
+    memcpy(&out, &rl, sizeof(RayCollision));
+    return out;
+}
+
+struct Iron_RayCollision Iron_ray_hit_quad(struct Iron_Ray self, struct Iron_Vector3 p1, struct Iron_Vector3 p2, struct Iron_Vector3 p3, struct Iron_Vector3 p4) {
+    Ray r;
+    Vector3 a, b, c, d;
+    memcpy(&r, &self, sizeof(Ray));
+    memcpy(&a, &p1,   sizeof(Vector3));
+    memcpy(&b, &p2,   sizeof(Vector3));
+    memcpy(&c, &p3,   sizeof(Vector3));
+    memcpy(&d, &p4,   sizeof(Vector3));
+    RayCollision rl = GetRayCollisionQuad(r, a, b, c, d);
+    struct Iron_RayCollision out;
+    memcpy(&out, &rl, sizeof(RayCollision));
+    return out;
+}
+
+bool Iron_collision_spheres(struct Iron_Vector3 c1, float r1, struct Iron_Vector3 c2, float r2) {
+    Vector3 a, b;
+    memcpy(&a, &c1, sizeof(Vector3));
+    memcpy(&b, &c2, sizeof(Vector3));
+    return CheckCollisionSpheres(a, r1, b, r2);
+}
+
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
