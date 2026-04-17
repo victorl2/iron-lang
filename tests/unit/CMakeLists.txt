@@ -73,6 +73,12 @@ target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)
 set_tests_properties(test_comptime PROPERTIES LABELS "unit")
 
+# ── Phase 01 M0 Plan 01 (HARD-01): iron_analyze_buffer API smoke test ──────
+add_executable(test_analyze_buffer_basic test_analyze_buffer_basic.c)
+target_link_libraries(test_analyze_buffer_basic iron_compiler unity)
+add_test(NAME test_analyze_buffer_basic COMMAND test_analyze_buffer_basic)
+set_tests_properties(test_analyze_buffer_basic PROPERTIES LABELS "unit;phase-m0-invariant")
+
 # ── Runtime unit tests ───────────────────────────────────────────────────────
 add_executable(test_runtime_string test_runtime_string.c)
 target_link_libraries(test_runtime_string iron_runtime unity)
