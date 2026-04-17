@@ -205,8 +205,10 @@ void test_parity_all_integration_fixtures(void) {
 
     /* Fixture-count floor: >= 300 (observed 381 on Wave 4 tip). A drop below
      * 300 means the integration suite was gutted; bump this floor if the drop
-     * is intentional. */
-    TEST_ASSERT_GREATER_THAN_MESSAGE(300, fixtures_checked,
+     * is intentional.
+     * WR-05: must be >= 300, not strictly > 300 — prior _GREATER_THAN_
+     * assertion required 301+ which contradicted the comment. */
+    TEST_ASSERT_GREATER_OR_EQUAL_MESSAGE(300, fixtures_checked,
         "tests/integration/ fixture count dropped below 300 — intentional?");
 
     /* Zero tolerance for unexplained LSP/CLI divergence. */
