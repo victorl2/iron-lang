@@ -11,6 +11,15 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+/* CONTEXT.md lock: NULL flag means never cancel; relaxed ordering ok.
+ * Duplicated static inline across TUs — grep-friendly, no ODR concerns. */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* FIX-03 / AUDIT-04 §1: SAFETY — this file contains 17 cross-arena storage
  * sites where stb_ds heap-managed arrays (built via `arrput`) are transferred
@@ -111,6 +120,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.in_error_recovery = false;
     p.v3_strict_mode    = true;
     p.mode              = IRON_ANALYSIS_MODE_CLI; /* HARD-02: default preserves legacy behaviour */
+    p.cancel_flag       = NULL;                   /* HARD-05: default = never cancel */
     return p;
 }
 
@@ -118,6 +128,12 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
  * emission (see iron_emit_diag below), so LSP clients see every error. */
 void iron_parser_set_mode(Iron_Parser *p, IronAnalysisMode mode) {
     if (p) p->mode = mode;
+}
+
+/* HARD-05: attach caller-owned cancel flag; subsequent poll sites in
+ * iron_parse and its helpers observe this flag at relaxed atomic ordering. */
+void iron_parser_set_cancel_flag(Iron_Parser *p, const _Atomic bool *flag) {
+    if (p) p->cancel_flag = flag;
 }
 
 /* ── Low-level helpers ───────────────────────────────────────────────────── */
@@ -262,6 +278,10 @@ static void iron_parser_sync_stmt(Iron_Parser *p) {
 /* Parse: TypeName[?][GenericArgs] or [TypeName; Size] or [TypeName] or func(T)->R
  *        or (T0, T1, ...) — Phase 59 01d tuple type. */
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
+    /* HARD-05: cancel poll at function entry (cheap, 1ns when flag is NULL). */
+    if (iron_cancel_requested(p->cancel_flag)) {
+        return iron_make_error(p);
+    }
     Iron_Token *start = iron_current(p);
 
     /* Phase 59 01d: Tuple type (T0, T1, ...) — arity >= 2 enforced. */
@@ -271,6 +291,8 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
         iron_skip_newlines(p);
         Iron_Node **elems = NULL;  /* stb_ds */
         while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
+            /* HARD-05: cancel poll at top of tuple-elements loop. */
+            if (iron_cancel_requested(p->cancel_flag)) { arrfree(elems); return iron_make_error(p); }
             Iron_Node *elem_ty = iron_parse_type_annotation(p);
             arrput(elems, elem_ty);
             iron_skip_newlines(p);
@@ -643,6 +665,10 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
 /* ── Block: { stmt* } ────────────────────────────────────────────────────── */
 
 static Iron_Node *iron_parse_block(Iron_Parser *p) {
+    /* HARD-05: cancel poll at block entry. */
+    if (iron_cancel_requested(p->cancel_flag)) {
+        return iron_make_error(p);
+    }
     Iron_Token *start = iron_current(p);
     if (!iron_expect(p, IRON_TOK_LBRACE)) {
         p->in_error_recovery = true;
@@ -655,6 +681,15 @@ static Iron_Node *iron_parse_block(Iron_Parser *p) {
     int stmt_count = 0;
 
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
+        /* HARD-05: cancel poll inside the no-progress-guarded block loop
+         * (parser.c:605-627 per PATTERNS.md — MANDATORY site). */
+        if (iron_cancel_requested(p->cancel_flag)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_NOTE,
+                           IRON_ERR_CANCELLED,
+                           iron_token_span(p, iron_current(p)),
+                           "compilation cancelled", NULL);
+            break;
+        }
         int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
@@ -1144,9 +1179,17 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
 
 /* Main Pratt expression parser */
 static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
+    /* HARD-05: cancel poll at expression-parser entry. */
+    if (iron_cancel_requested(p->cancel_flag)) {
+        return iron_make_error(p);
+    }
     Iron_Node *left = iron_parse_primary(p);
 
     for (;;) {
+        /* HARD-05: cancel poll at top of Pratt climb loop. */
+        if (iron_cancel_requested(p->cancel_flag)) {
+            return left; /* propagate partial result */
+        }
         iron_skip_newlines(p);
         Iron_TokenKind cur = iron_peek(p);
         int prec = iron_infix_prec(cur);
@@ -2055,6 +2098,10 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
 
 /* Parse a single statement */
 static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
+    /* HARD-05: cancel poll at statement parser entry. */
+    if (iron_cancel_requested(p->cancel_flag)) {
+        return iron_make_error(p);
+    }
     iron_skip_newlines(p);
     Iron_Token *t = iron_current(p);
 
@@ -4393,6 +4440,10 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
 
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
                                   Iron_Node ***extra_decls_out) {
+    /* HARD-05: cancel poll at declaration parser entry. */
+    if (iron_cancel_requested(p->cancel_flag)) {
+        return iron_make_error(p);
+    }
     switch ((int)iron_peek(p)) {
         case IRON_TOK_AT: {
             iron_advance(p);  /* consume '@' */
@@ -4505,6 +4556,15 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     Iron_Node **extra_decls = NULL;
 
     while (!iron_check(p, IRON_TOK_EOF)) {
+        /* HARD-05: cancel poll inside the no-progress-guarded top-level loop
+         * (parser.c:2895-2937 per PATTERNS.md — MANDATORY site). */
+        if (iron_cancel_requested(p->cancel_flag)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_NOTE,
+                           IRON_ERR_CANCELLED,
+                           iron_token_span(p, iron_current(p)),
+                           "compilation cancelled", NULL);
+            break;
+        }
         int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_EOF)) break;
