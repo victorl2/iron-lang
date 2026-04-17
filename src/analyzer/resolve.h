@@ -7,14 +7,21 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 
+#include <stdatomic.h>
+#include <stdbool.h>
+
 /* Run name resolution on the given program.
  * Builds scope tree, populates symbol tables, and sets resolved_sym on all
  * Iron_Ident nodes.
  * Returns the global scope (root of the scope tree).
  * Errors are accumulated in diags.
- */
+ *
+ * HARD-05: cancel_flag (NULL = never cancel) is polled at pass entry and
+ * inside recursive walkers. On cancel the pass returns early with partial
+ * resolved_sym annotations intact. */
 Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
-                          Iron_DiagList *diags);
+                          Iron_DiagList *diags,
+                          const _Atomic bool *cancel_flag);
 
 /* ── Phase 86 PATCH-02/04: program-global patch registry. ─────────────────── */
 

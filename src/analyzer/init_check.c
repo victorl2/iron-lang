@@ -18,6 +18,13 @@
 #include "vendor/stb_ds.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* Max tracked uninitialized variables per function scope */
 #define MAX_UNINIT_VARS 256
@@ -38,6 +45,9 @@ typedef struct {
      * Used for control flow merging: a branch that returns is excluded
      * from the intersection at merge points. */
     bool          has_return;
+
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
 } InitCheckCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -104,6 +114,8 @@ static void union_assigned(InitCheckCtx *ctx, const bool *other) {
 
 static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
     if (!expr) return;
+    /* HARD-05: cancel poll at recursive walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch ((int)(expr->kind)) {
     case IRON_NODE_IDENT: {
@@ -225,6 +237,8 @@ static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
 
 static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive statement walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch ((int)(node->kind)) {
     case IRON_NODE_VAR_DECL: {
@@ -500,12 +514,17 @@ static void check_function(InitCheckCtx *ctx, Iron_FuncDecl *fn) {
 /* ── Public entry point ──────────────────────────────────────────────────── */
 
 void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
-                     Iron_Arena *arena, Iron_DiagList *diags) {
+                     Iron_Arena *arena, Iron_DiagList *diags,
+                     const _Atomic bool *cancel_flag) {
     (void)global_scope;
 
     if (!program) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
 
     for (int i = 0; i < program->decl_count; i++) {
+        /* HARD-05: cancel poll inside top-level decl loop. */
+        if (iron_cancel_requested(cancel_flag)) return;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
 
@@ -515,6 +534,7 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.diags = diags;
             ctx.uninit_count = 0;
             ctx.has_return = false;
+            ctx.cancel_flag = cancel_flag;
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             check_function(&ctx, (Iron_FuncDecl *)decl);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
@@ -525,6 +545,7 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.diags = diags;
             ctx.uninit_count = 0;
             ctx.has_return = false;
+            ctx.cancel_flag = cancel_flag;
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             if (md->body) {
                 check_stmt_init(&ctx, md->body);

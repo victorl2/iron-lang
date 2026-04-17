@@ -18,6 +18,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Context ─────────────────────────────────────────────────────────────── */
 
@@ -42,6 +49,9 @@ typedef struct {
 
     /* Names that escape (appear in return or outer assignment) */
     const char   **escaped_names;  /* stb_ds dynamic array */
+
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
 } EscapeCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -418,6 +428,8 @@ static void validate_free_leak(EscapeCtx *ctx, Iron_Node **stmts, int count) {
 
 static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
     if (!body_node || body_node->kind != IRON_NODE_BLOCK) return;
+    /* HARD-05: cancel poll at per-function analysis entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
     Iron_Block *body = (Iron_Block *)body_node;
 
     /* Reset per-function state */
@@ -471,8 +483,11 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
-                         Iron_Arena *arena, Iron_DiagList *diags) {
+                         Iron_Arena *arena, Iron_DiagList *diags,
+                         const _Atomic bool *cancel_flag) {
     if (!program) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
     (void)global_scope; /* not needed for intra-procedural analysis */
 
     EscapeCtx ctx;
@@ -482,8 +497,11 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     ctx.freed_names   = NULL;
     ctx.leaked_names  = NULL;
     ctx.escaped_names = NULL;
+    ctx.cancel_flag   = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
+        /* HARD-05: cancel poll inside top-level decl loop. */
+        if (iron_cancel_requested(cancel_flag)) break;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
         switch ((int)(decl->kind)) {

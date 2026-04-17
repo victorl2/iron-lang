@@ -58,10 +58,12 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
                                  bool force_comptime,
                                  IronBuildTarget target);
 
-/* HARD-02 / HARD-03: mode-aware analyzer dispatcher.
- * Identical to iron_analyze() but carries an IronAnalysisMode so downstream
- * passes and the comptime stage can gate LSP-specific behaviour.
- * iron_analyze() is a thin delegator that passes IRON_ANALYSIS_MODE_CLI. */
+/* HARD-02 / HARD-03 / HARD-05: mode-aware, cancel-aware analyzer dispatcher.
+ * Identical to iron_analyze() but carries an IronAnalysisMode (so downstream
+ * passes and the comptime stage can gate LSP-specific behaviour) and a
+ * cancel flag (NULL means never cancel; threaded into every pass walker).
+ * iron_analyze() is a thin delegator that passes IRON_ANALYSIS_MODE_CLI and
+ * a NULL cancel_flag. */
 Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
                                            IronAnalysisMode mode,
                                            Iron_Arena *arena,
@@ -69,7 +71,8 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
                                            const char *source_file_dir,
                                            const char *source_text, size_t source_len,
                                            bool force_comptime,
-                                           IronBuildTarget target);
+                                           IronBuildTarget target,
+                                           const _Atomic bool *cancel_flag);
 
 /* ── Unified analysis entry point (HARD-01) ───────────────────────────────── */
 /* Unified analysis entry used by both `iron check` and the future LSP facade.
