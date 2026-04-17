@@ -1,6 +1,6 @@
 -- tests/manual/raymath_smoke.iron — Phase 65 canonical regression test
 -- Plan 65-01 creates; Plans 65-02/03/04 APPEND (never replace).
--- MATH-01 (RMath.*) + MATH-02 (Vector2.*) = 36 call sites total.
+-- MATH-01 (RMath.*) + MATH-02 (Vector2.*) + MATH-03 (Vector3.*) = 73 call sites.
 
 import raylib
 
@@ -54,6 +54,56 @@ func main() -> Int32 {
     val v_eq     = v.equals(v)                                      -- true
     val v_refr   = v.refract(Vector2(Float32(0.0), Float32(1.0)), Float32(1.0))
 
+    -- ── MATH-03: Vector3 methods (37 call sites; 2 deferred to 65-03/04) ─
+    val v3     = Vector3(Float32(3.0), Float32(4.0), Float32(0.0))
+    val w3     = Vector3(Float32(1.0), Float32(2.0), Float32(2.0))
+    val axis_y = Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    val q_id   = Quaternion(Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0))
+    val mat_id3 = Matrix(
+        Float32(1.0), Float32(0.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(1.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(1.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0)
+    )
+
+    val v3_zero   = Vector3.zero()                                          -- (0, 0, 0)
+    val v3_one    = Vector3.one()                                           -- (1, 1, 1)
+    val v3_add    = v3.add(w3)                                              -- (4, 6, 2)
+    val v3_addval = v3.add_value(Float32(1.0))                              -- (4, 5, 1)
+    val v3_sub    = v3.subtract(w3)                                         -- (2, 2, -2)
+    val v3_subval = v3.subtract_value(Float32(1.0))                         -- (2, 3, -1)
+    val v3_scale  = v3.scale(Float32(2.0))                                  -- (6, 8, 0)
+    val v3_mul    = v3.multiply(w3)                                         -- (3, 8, 0)
+    val v3_cross  = v3.cross_product(w3)                                    -- (8, -6, 2)
+    val v3_perp   = v3.perpendicular()                                      -- orthogonal
+    val v3_len    = v3.length()                                             -- 5.0
+    val v3_lensq  = v3.length_sqr()                                         -- 25.0
+    val v3_dot    = v3.dot_product(w3)                                      -- 11.0
+    val v3_dist   = v3.distance(w3)                                         -- sqrt(12)
+    val v3_distsq = v3.distance_sqr(w3)                                     -- 12.0
+    val v3_angle  = v3.angle(w3)                                            -- non-zero
+    val v3_neg    = v3.negate()                                             -- (-3, -4, 0)
+    val v3_div    = v3.divide(w3)                                           -- (3, 2, 0)
+    val v3_norm   = v3.normalize()                                          -- length 1
+    val v3_proj   = v3.project(w3)                                          -- onto w3
+    val v3_rej    = v3.reject(w3)                                           -- v3 - proj
+    val v3_xform  = v3.transform(mat_id3)                                   -- identity -> (3, 4, 0)
+    val v3_rotq   = v3.rotate_by_quaternion(q_id)                           -- identity quat -> (3, 4, 0)
+    val v3_rotaa  = v3.rotate_by_axis_angle(axis_y, Float32(0.0))           -- 0 angle -> (3, 4, 0)
+    val v3_mtow   = v3.move_towards(w3, Float32(1.0))                       -- toward w3 by 1
+    val v3_lerp   = v3.lerp(w3, Float32(0.5))                               -- midpoint
+    val v3_ch     = v3.cubic_hermite(axis_y, w3, axis_y, Float32(0.5))      -- 4-Vector3 + float
+    val v3_refl   = v3.reflect(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)))
+    val v3_min    = v3.min(w3)                                              -- (1, 2, 0)
+    val v3_max    = v3.max(w3)                                              -- (3, 4, 2)
+    val v3_bary   = v3.barycenter(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)), Vector3(Float32(1.0), Float32(0.0), Float32(0.0)), Vector3(Float32(0.0), Float32(1.0), Float32(0.0)))
+    val v3_unproj = v3.unproject(mat_id3, mat_id3)                          -- identity*identity -> (3, 4, 0)
+    val v3_inv    = v3.invert()                                             -- (1/3, 1/4, inf-guarded)
+    val v3_clamp  = v3.clamp(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)), Vector3(Float32(2.0), Float32(2.0), Float32(2.0)))
+    val v3_clampv = v3.clamp_value(Float32(0.0), Float32(10.0))             -- length in range
+    val v3_eq     = v3.equals(v3)                                           -- true
+    val v3_refr   = v3.refract(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(1.0))
+
     -- ── MATH-08: ABI round-trip assertions (~15 sites across return shapes) ─
     val pass_lerp    = RMath.float_equals(lerped, Float32(5.0))
     val pass_clamped = RMath.float_equals(clamped, Float32(0.0))
@@ -71,7 +121,22 @@ func main() -> Int32 {
     val pass_vonex   = RMath.float_equals(v_one.x, Float32(1.0))
     val pass_veq     = v_eq
 
-    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq
+    -- MATH-08 Vector3 ABI asserts (13 sites across return shapes)
+    val pass_v3addx   = RMath.float_equals(v3_add.x,   Float32(4.0))
+    val pass_v3addy   = RMath.float_equals(v3_add.y,   Float32(6.0))
+    val pass_v3addz   = RMath.float_equals(v3_add.z,   Float32(2.0))
+    val pass_v3len    = RMath.float_equals(v3_len,     Float32(5.0))
+    val pass_v3lensq  = RMath.float_equals(v3_lensq,   Float32(25.0))
+    val pass_v3dot    = RMath.float_equals(v3_dot,     Float32(11.0))
+    val pass_v3distsq = RMath.float_equals(v3_distsq,  Float32(12.0))
+    val pass_v3crossx = RMath.float_equals(v3_cross.x, Float32(8.0))
+    val pass_v3crossy = RMath.float_equals(v3_cross.y, Float32(-6.0))
+    val pass_v3crossz = RMath.float_equals(v3_cross.z, Float32(2.0))
+    val pass_v3rotqx  = RMath.float_equals(v3_rotq.x,  Float32(3.0))
+    val pass_v3xformx = RMath.float_equals(v3_xform.x, Float32(3.0))
+    val pass_v3eq     = v3_eq
+
+    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq and pass_v3addx and pass_v3addy and pass_v3addz and pass_v3len and pass_v3lensq and pass_v3dot and pass_v3distsq and pass_v3crossx and pass_v3crossy and pass_v3crossz and pass_v3rotqx and pass_v3xformx and pass_v3eq
 
     if all_pass {
         print("ALL MATH-08 ASSERTS PASS")
