@@ -99,14 +99,16 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
 
     /* Step 6: Comptime evaluation — replace IRON_NODE_COMPTIME nodes with literals.
      * PRESERVED: comptime on a broken AST is unsafe (const-eval on unresolved
-     * symbols is undefined). This guard is semantic, NOT a HARD-03 short-circuit. */
+     * symbols is undefined). This guard is semantic, NOT a HARD-03 short-circuit.
+     * HARD-02 (Plan 05): mode is now threaded through — LSP mode suppresses
+     * every FS side effect inside iron_comptime_apply (cache read/write + the
+     * `read_file` builtin). */
     if (diags->error_count == 0) {
         iron_comptime_apply(program, result.global_scope, arena, diags,
                             source_file_dir, force_comptime,
-                            source_text, source_len);
+                            source_text, source_len,
+                            mode);
     }
-
-    (void)mode; /* Plan 05 consumes mode for comptime FS gating */
 
     result.has_errors = (diags->error_count > 0);
     return result;
