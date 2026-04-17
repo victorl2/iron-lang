@@ -38,12 +38,21 @@ IRON_LIST_IMPL(double,      double)
 IRON_LIST_IMPL(bool,        bool)
 IRON_LIST_IMPL(Iron_String, Iron_String)
 IRON_LIST_IMPL(Iron_Closure, Iron_Closure)
+/* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 implementations. */
+IRON_LIST_IMPL(float,       Iron_Float32)
+IRON_LIST_IMPL(uint8_t,     uint8_t)
 
 /* ── Collection method implementations (map, filter, reduce, forEach, sum) ── */
 
 IRON_LIST_COLL_IMPL(int64_t, int64_t, 0)
 IRON_LIST_COLL_IMPL(int32_t, int32_t, 0)
 IRON_LIST_COLL_IMPL(double,  double,  0.0)
+/* Phase 68 (Plan 68-01): map/filter/reduce/forEach/sum for Iron_Float32 +
+ * uint8_t.  Audio consumers rarely call these on raw sample buffers, but
+ * keeping the COLL_IMPL in parity with the primitive types avoids future
+ * surprise if users do. */
+IRON_LIST_COLL_IMPL(float,   Iron_Float32, 0.0f)
+IRON_LIST_COLL_IMPL(uint8_t, uint8_t,      0)
 
 /* ── Map implementations ──────────────────────────────────────────────────── */
 
