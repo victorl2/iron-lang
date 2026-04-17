@@ -36,6 +36,14 @@ typedef struct {
     const char      *current_type_name;
     /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
     const _Atomic bool *cancel_flag;
+    /* HARD-09 CR-03: counter of push_scope calls that failed (arena OOM)
+     * and silently aliased to the current scope. pop_scope must skip the
+     * same number of pops so the scope stack stays balanced. */
+    int skipped_scope_pushes;
+    /* HARD-09 CR-03: set true when an OOM path was taken so diagnostics
+     * can be suppressed cascades-style without aborting. Mirrors the
+     * parser's p->in_error_recovery flag. */
+    bool in_error_recovery;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -46,11 +54,28 @@ static void resolve_expr(ResolveCtx *ctx, Iron_Node *node);
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
 static void push_scope(ResolveCtx *ctx, Iron_ScopeKind kind) {
-    ctx->current_scope = iron_scope_create(ctx->arena, ctx->current_scope, kind);
+    /* HARD-09 CR-03: iron_scope_create may return NULL on arena OOM. Fall
+     * back to the current scope (alias it as the "new" scope) and record
+     * the skipped push so the matching pop_scope does not unbalance the
+     * stack. The degraded path causes duplicate-decl diagnostics where a
+     * nested scope would have shadowed, but avoids aborting compilation. */
+    Iron_Scope *ns = iron_scope_create(ctx->arena, ctx->current_scope, kind);
+    if (ns) {
+        ctx->current_scope = ns;
+    } else {
+        ctx->skipped_scope_pushes++;
+        ctx->in_error_recovery = true;
+    }
 }
 
 static void pop_scope(ResolveCtx *ctx) {
-    if (ctx->current_scope->parent) {
+    /* HARD-09 CR-03: consume skipped-push counter first so the matching
+     * pops for failed pushes are no-ops. */
+    if (ctx->skipped_scope_pushes > 0) {
+        ctx->skipped_scope_pushes--;
+        return;
+    }
+    if (ctx->current_scope && ctx->current_scope->parent) {
         ctx->current_scope = ctx->current_scope->parent;
     }
 }
@@ -59,6 +84,10 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
                         Iron_Node *decl_node, Iron_Span span, bool is_mutable,
                         bool is_private) {
     Iron_Symbol *sym = iron_symbol_create(ctx->arena, name, kind, decl_node, span);
+    /* HARD-09 CR-03: iron_symbol_create may return NULL on arena OOM.
+     * Skip insertion; subsequent lookups emit "undefined identifier" which
+     * is a safe, non-crashing degraded mode. */
+    if (!sym) { ctx->in_error_recovery = true; return; }
     sym->is_mutable  = is_mutable;
     sym->is_private  = is_private;
     if (!iron_scope_define(ctx->current_scope, ctx->arena, sym)) {
@@ -96,6 +125,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, od->name,
                                                    IRON_SYM_TYPE,
                                                    node, od->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!sym) { ctx->in_error_recovery = true; break; }
             sym->type = ty;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
@@ -110,6 +141,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, id->name,
                                                    IRON_SYM_INTERFACE,
                                                    node, id->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!sym) { ctx->in_error_recovery = true; break; }
             sym->type = ty;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
@@ -124,6 +157,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *enum_sym = iron_symbol_create(ctx->arena, ed->name,
                                                        IRON_SYM_ENUM,
                                                        node, ed->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!enum_sym) { ctx->in_error_recovery = true; break; }
             enum_sym->type = ty;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, enum_sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
@@ -136,6 +171,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *vsym = iron_symbol_create(ctx->arena, ev->name,
                                                         IRON_SYM_ENUM_VARIANT,
                                                         ed->variants[i], ev->span);
+                /* HARD-09 CR-03: skip this variant on arena OOM. */
+                if (!vsym) { ctx->in_error_recovery = true; continue; }
                 vsym->type = ty;
                 /* Silently skip duplicate variant names — a separate check can
                  * catch this later. For now just attempt to define. */
@@ -148,6 +185,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, fd->name,
                                                    IRON_SYM_FUNCTION,
                                                    node, fd->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!sym) { ctx->in_error_recovery = true; break; }
             sym->is_private    = fd->is_private;
             sym->is_extern     = fd->is_extern;
             sym->extern_c_name = fd->extern_c_name;
@@ -166,6 +205,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *sym = iron_symbol_create(ctx->arena, imp->alias,
                                                        IRON_SYM_TYPE,
                                                        node, imp->span);
+                /* HARD-09 CR-03: skip this alias on arena OOM. */
+                if (!sym) { ctx->in_error_recovery = true; break; }
                 /* Tolerate duplicate alias silently — import ordering issues
                  * will be caught by the module resolver later. */
                 iron_scope_define(ctx->global_scope, ctx->arena, sym);
@@ -362,7 +403,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (fd->is_extern) break;
 
             push_scope(ctx, IRON_SCOPE_FUNCTION);
-            ctx->current_scope->owner_name = fd->name;
+            if (ctx->current_scope) ctx->current_scope->owner_name = fd->name;
 
             /* Define params */
             for (int i = 0; i < fd->param_count; i++) {
@@ -370,6 +411,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *ps = iron_symbol_create(ctx->arena, p->name,
                                                       IRON_SYM_PARAM,
                                                       fd->params[i], p->span);
+                /* HARD-09 CR-03: skip this param on arena OOM. */
+                if (!ps) { ctx->in_error_recovery = true; continue; }
                 ps->is_mutable = p->is_var;
                 iron_scope_define(ctx->current_scope, ctx->arena, ps);
             }
@@ -392,7 +435,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             ctx->current_type_name = md->type_name;
 
             push_scope(ctx, IRON_SCOPE_FUNCTION);
-            ctx->current_scope->owner_name = md->method_name;
+            if (ctx->current_scope) ctx->current_scope->owner_name = md->method_name;
 
             /* Phase 80 MUT-09: reject `mut` on non-struct receiver types.
              * Primitive types (Int, Float, Bool, String, etc.) ARE registered
@@ -441,9 +484,14 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *self_sym = iron_symbol_create(ctx->arena, "self",
                                                             IRON_SYM_VARIABLE,
                                                             node, md->span);
-                self_sym->is_mutable = true;
-                self_sym->type = md->owner_sym->type;
-                iron_scope_define(ctx->current_scope, ctx->arena, self_sym);
+                /* HARD-09 CR-03: skip self binding on arena OOM. */
+                if (self_sym) {
+                    self_sym->is_mutable = true;
+                    self_sym->type = md->owner_sym->type;
+                    iron_scope_define(ctx->current_scope, ctx->arena, self_sym);
+                } else {
+                    ctx->in_error_recovery = true;
+                }
             }
 
             /* Define params */
@@ -452,6 +500,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *ps = iron_symbol_create(ctx->arena, p->name,
                                                       IRON_SYM_PARAM,
                                                       md->params[i], p->span);
+                /* HARD-09 CR-03: skip this param on arena OOM. */
+                if (!ps) { ctx->in_error_recovery = true; continue; }
                 /* Phase 80 MUT-02: receiver-form methods use is_mut_receiver
                  * for the receiver binding (params[0] when md->is_receiver_form).
                  * Regular params — including the non-receiver params of a
@@ -679,6 +729,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *ps = iron_symbol_create(ctx->arena, p->name,
                                                       IRON_SYM_PARAM,
                                                       le->params[i], p->span);
+                /* HARD-09 CR-03: skip this param on arena OOM. */
+                if (!ps) { ctx->in_error_recovery = true; continue; }
                 ps->is_mutable = p->is_var;
                 iron_scope_define(ctx->current_scope, ctx->arena, ps);
             }
@@ -1174,10 +1226,22 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     ctx.arena              = arena;
     ctx.diags              = diags;
     ctx.global_scope       = iron_scope_create(arena, NULL, IRON_SCOPE_GLOBAL);
+    /* HARD-09 CR-03: if the top-level arena allocation fails we cannot
+     * proceed with resolution. Emit a meta-diagnostic and return NULL so
+     * the caller can surface it without aborting the process. */
+    if (!ctx.global_scope) {
+        Iron_Span empty_span = {0};
+        iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                       IRON_ERR_LEXER_OOM, empty_span,
+                       "out of memory while creating global scope", NULL);
+        return NULL;
+    }
     ctx.current_scope      = ctx.global_scope;
     ctx.current_method     = NULL;
     ctx.current_type_name  = NULL;
     ctx.cancel_flag        = cancel_flag;
+    ctx.skipped_scope_pushes = 0;
+    ctx.in_error_recovery  = false;
 
     /* Initialize type system */
     iron_types_init(arena);
@@ -1211,6 +1275,8 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Symbol *bsym = iron_symbol_create(arena, print_builtins[bi],
                                                     IRON_SYM_FUNCTION,
                                                     NULL, no_span);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (!bsym) { ctx.in_error_recovery = true; continue; }
             bsym->type = println_type;
             iron_scope_define(ctx.global_scope, arena, bsym);
         }
@@ -1235,8 +1301,13 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "len",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) {
+                sym->type = fn;
+                iron_scope_define(ctx.global_scope, arena, sym);
+            } else {
+                ctx.in_error_recovery = true;
+            }
         }
         /* min(Int, Int) -> Int */
         {
@@ -1244,8 +1315,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 2, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "min",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* max(Int, Int) -> Int */
         {
@@ -1253,8 +1325,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 2, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "max",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* clamp(Int, Int, Int) -> Int */
         {
@@ -1262,8 +1335,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 3, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "clamp",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* abs(Int) -> Int */
         {
@@ -1271,8 +1345,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "abs",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* range(Int) -> Int */
         {
@@ -1280,8 +1355,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "range",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* assert(Bool) -> Void */
         {
@@ -1289,8 +1365,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, void_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "assert",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* read_file(String) -> String — comptime only */
         {
@@ -1298,8 +1375,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, str_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "read_file",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* fill(Int, Int) -> [Int]  (type checker special-cases to infer [T]) */
         {
@@ -1308,8 +1386,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 2, arr_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "fill",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
     }
 
@@ -1339,6 +1418,8 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *pt = iron_type_make_primitive(prims[pi].kind);
             Iron_Symbol *sym = iron_symbol_create(arena, prims[pi].name,
                                                    IRON_SYM_TYPE, NULL, no_span);
+            /* HARD-09 CR-03: skip primitive type registration on arena OOM. */
+            if (!sym) { ctx.in_error_recovery = true; continue; }
             sym->type = pt;
             iron_scope_define(ctx.global_scope, arena, sym);
         }

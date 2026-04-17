@@ -7,7 +7,11 @@
 
 Iron_Scope *iron_scope_create(Iron_Arena *a, Iron_Scope *parent, Iron_ScopeKind kind) {
     Iron_Scope *s = ARENA_ALLOC(a, Iron_Scope);
-    if (!s) iron_oom_abort("scope.c:iron_scope_create");
+    /* HARD-09 REPLACE (CR-03, scope.c:iron_scope_create): return NULL on
+     * arena OOM. Callers (iron_resolve and push_scope) fall back to the
+     * parent scope so resolution can keep emitting diagnostics in-place
+     * rather than aborting the whole compilation. */
+    if (!s) return NULL;
     memset(s, 0, sizeof(*s));
     s->parent     = parent;
     s->kind       = kind;
@@ -75,7 +79,12 @@ Iron_Symbol *iron_symbol_create(Iron_Arena *a,
                                  struct Iron_Node *decl,
                                  Iron_Span span) {
     Iron_Symbol *sym = ARENA_ALLOC(a, Iron_Symbol);
-    if (!sym) iron_oom_abort("scope.c:iron_symbol_create");
+    /* HARD-09 REPLACE (CR-03, scope.c:iron_symbol_create): return NULL on
+     * arena OOM. Callers (resolve.c:define_sym, resolve.c top-level
+     * collect_decl, and builtin registration) already have a degraded
+     * but safe path — symbol not inserted into scope, subsequent lookups
+     * see "undefined identifier" which is semantically fine for OOM. */
+    if (!sym) return NULL;
     memset(sym, 0, sizeof(*sym));
     sym->name       = name;
     sym->sym_kind   = kind;
