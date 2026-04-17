@@ -936,6 +936,37 @@ struct Iron_Quaternion Iron_quaternion_transform(struct Iron_Quaternion self, st
 bool Iron_quaternion_equals(struct Iron_Quaternion self, struct Iron_Quaternion other);
 
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
+
+/* Color math — TEX-13 (Plan 66-01).
+ *
+ * 18 Color-math shims forwarding to raylib's ColorIsEqual/Fade/ColorToInt/
+ * ColorNormalize/ColorFromNormalized/ColorToHSV/ColorFromHSV/ColorTint/
+ * ColorBrightness/ColorContrast/ColorAlpha/ColorAlphaBlend/ColorLerp/
+ * GetColor/GetPixelColor/SetPixelColor/GetPixelDataSize. Iron-side methods
+ * live on the Color namespace (Color.is_equal, Color.fade, Color.to_hsv,
+ * ...). Bool returns use the Phase 62 `(bool)(... != 0)` coercion for
+ * ColorIsEqual. Opaque `void *` pixel-buffer arguments cross the FFI as
+ * Iron `Int` (int64_t) and are recovered via `(void *)(intptr_t)data` —
+ * first opaque-pointer function argument in this TU.
+ */
+bool                Iron_color_is_equal(struct Iron_Color c1, struct Iron_Color c2);
+struct Iron_Color   Iron_color_fade(struct Iron_Color c, float alpha);
+int32_t             Iron_color_to_int(struct Iron_Color c);
+struct Iron_Vector4 Iron_color_normalize(struct Iron_Color c);
+struct Iron_Color   Iron_color_from_normalized(struct Iron_Vector4 v);
+struct Iron_Vector3 Iron_color_to_hsv(struct Iron_Color c);
+struct Iron_Color   Iron_color_from_hsv(float hue, float saturation, float value);
+struct Iron_Color   Iron_color_tint(struct Iron_Color c, struct Iron_Color tint);
+struct Iron_Color   Iron_color_brightness(struct Iron_Color c, float factor);
+struct Iron_Color   Iron_color_contrast(struct Iron_Color c, float contrast);
+struct Iron_Color   Iron_color_alpha(struct Iron_Color c, float alpha);
+struct Iron_Color   Iron_color_alpha_blend(struct Iron_Color dst, struct Iron_Color src, struct Iron_Color tint);
+struct Iron_Color   Iron_color_lerp(struct Iron_Color c1, struct Iron_Color c2, float factor);
+struct Iron_Color   Iron_color_from_int(uint32_t hex_value);
+struct Iron_Color   Iron_color_from_pixel_data(int64_t data, int32_t format);
+void                Iron_color_to_pixel_data(int64_t data, struct Iron_Color c, int32_t format);
+int32_t             Iron_color_pixel_data_size(int32_t width, int32_t height, int32_t format);
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

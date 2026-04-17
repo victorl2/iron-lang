@@ -2617,6 +2617,168 @@ bool Iron_quaternion_equals(struct Iron_Quaternion self, struct Iron_Quaternion 
 }
 
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
+
+/* Color math — TEX-13 (Plan 66-01).
+ *
+ * Template for every Color-in / Color-out shim:
+ *   1. memcpy Iron_Color args into local raylib Color values,
+ *   2. call the corresponding raylib function,
+ *   3. memcpy the returned raylib struct back into an Iron_Color out,
+ *   4. return the out struct by value.
+ *
+ * ColorIsEqual returns a raylib C `bool` (int under the hood on some
+ * toolchains) — coerced to Iron Bool via `(bool)(... != 0)` per the
+ * Phase 62 precedent used for Vector2Equals/Vector3Equals/Vector4Equals.
+ *
+ * GetPixelColor / SetPixelColor take `void *` pixel buffers. The Iron
+ * receiver is `data: Int` (int64_t); the shim casts via
+ * `(void *)(intptr_t)data`. sizeof(int64_t) == sizeof(void *) on every
+ * 64-bit target Iron supports (iron_raylib.h top-of-file contract).
+ */
+
+bool Iron_color_is_equal(struct Iron_Color c1, struct Iron_Color c2) {
+    Color a, b;
+    memcpy(&a, &c1, sizeof(Color));
+    memcpy(&b, &c2, sizeof(Color));
+    return (bool)(ColorIsEqual(a, b) != 0);
+}
+
+struct Iron_Color Iron_color_fade(struct Iron_Color c, float alpha) {
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    Color r = Fade(col, alpha);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+int32_t Iron_color_to_int(struct Iron_Color c) {
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    return (int32_t)ColorToInt(col);
+}
+
+struct Iron_Vector4 Iron_color_normalize(struct Iron_Color c) {
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    Vector4 v = ColorNormalize(col);
+    struct Iron_Vector4 out;
+    memcpy(&out, &v, sizeof(struct Iron_Vector4));
+    return out;
+}
+
+struct Iron_Color Iron_color_from_normalized(struct Iron_Vector4 v) {
+    Vector4 rv;
+    memcpy(&rv, &v, sizeof(Vector4));
+    Color r = ColorFromNormalized(rv);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Vector3 Iron_color_to_hsv(struct Iron_Color c) {
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    Vector3 v = ColorToHSV(col);
+    struct Iron_Vector3 out;
+    memcpy(&out, &v, sizeof(struct Iron_Vector3));
+    return out;
+}
+
+struct Iron_Color Iron_color_from_hsv(float hue, float saturation, float value) {
+    Color r = ColorFromHSV(hue, saturation, value);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Color Iron_color_tint(struct Iron_Color c, struct Iron_Color tint) {
+    Color col, tn;
+    memcpy(&col, &c,    sizeof(Color));
+    memcpy(&tn,  &tint, sizeof(Color));
+    Color r = ColorTint(col, tn);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Color Iron_color_brightness(struct Iron_Color c, float factor) {
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    Color r = ColorBrightness(col, factor);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Color Iron_color_contrast(struct Iron_Color c, float contrast) {
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    Color r = ColorContrast(col, contrast);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Color Iron_color_alpha(struct Iron_Color c, float alpha) {
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    Color r = ColorAlpha(col, alpha);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Color Iron_color_alpha_blend(struct Iron_Color dst, struct Iron_Color src, struct Iron_Color tint) {
+    Color d, s, t;
+    memcpy(&d, &dst,  sizeof(Color));
+    memcpy(&s, &src,  sizeof(Color));
+    memcpy(&t, &tint, sizeof(Color));
+    Color r = ColorAlphaBlend(d, s, t);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Color Iron_color_lerp(struct Iron_Color c1, struct Iron_Color c2, float factor) {
+    Color a, b;
+    memcpy(&a, &c1, sizeof(Color));
+    memcpy(&b, &c2, sizeof(Color));
+    Color r = ColorLerp(a, b, factor);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+struct Iron_Color Iron_color_from_int(uint32_t hex_value) {
+    Color r = GetColor(hex_value);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+/* Opaque void* arg probe — first in iron_raylib.c. sizeof(int64_t)
+ * equals sizeof(void *) on every 64-bit target Iron supports. The
+ * intptr_t hop is the canonical pointer-round-trip cast. */
+struct Iron_Color Iron_color_from_pixel_data(int64_t data, int32_t format) {
+    void *src_ptr = (void *)(intptr_t)data;
+    Color r = GetPixelColor(src_ptr, (int)format);
+    struct Iron_Color out;
+    memcpy(&out, &r, sizeof(struct Iron_Color));
+    return out;
+}
+
+void Iron_color_to_pixel_data(int64_t data, struct Iron_Color c, int32_t format) {
+    void *dst_ptr = (void *)(intptr_t)data;
+    Color col;
+    memcpy(&col, &c, sizeof(Color));
+    SetPixelColor(dst_ptr, col, (int)format);
+}
+
+int32_t Iron_color_pixel_data_size(int32_t width, int32_t height, int32_t format) {
+    return (int32_t)GetPixelDataSize((int)width, (int)height, (int)format);
+}
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

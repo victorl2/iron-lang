@@ -1214,6 +1214,48 @@ func Quaternion.equals(q: Quaternion, other: Quaternion) -> Bool {}
 object Collision {}
 
 -- ══════════════════════════════════════════════════════════════════════
+-- Textures & Images (Phase 66) — Color math (TEX-13, Plan 66-01)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- 18 raylib Color-math functions (raylib.h:1437-1453) bound as idiomatic
+-- Iron methods on the Color namespace. Every stub lowers to
+-- Iron_color_<name>(...) in iron_raylib.c.
+--
+-- Return-by-value semantics: raylib's ColorFade/ColorTint/... all take
+-- Color by value and return Color by value — Iron mirrors this exactly.
+-- Users rebind: val faded = original.fade(0.5).
+--
+-- Receiver param names: c / other / tint / dst / src — NEVER `self`
+-- (E0101 reserved). Phase 64-01 precedent.
+--
+-- Color.from_int takes UInt32 to exercise the primitive-arg path with
+-- raylib's GetColor. Color.from_pixel_data / Color.to_pixel_data take
+-- `data: Int` (Iron int64_t); the shim reinterprets via
+-- (void *)(intptr_t)data. First opaque-pointer function argument in
+-- the raylib binding.
+--
+-- PixelFormat enum is lowered to int32_t by the Phase 62 enum-cast
+-- convention; the shim casts to raylib's `int` at the boundary.
+
+func Color.is_equal(c: Color, other: Color) -> Bool {}
+func Color.fade(c: Color, alpha: Float32) -> Color {}
+func Color.to_int(c: Color) -> Int32 {}
+func Color.normalize(c: Color) -> Vector4 {}
+func Color.from_normalized(v: Vector4) -> Color {}
+func Color.to_hsv(c: Color) -> Vector3 {}
+func Color.from_hsv(hue: Float32, saturation: Float32, value: Float32) -> Color {}
+func Color.tint(c: Color, tint: Color) -> Color {}
+func Color.brightness(c: Color, factor: Float32) -> Color {}
+func Color.contrast(c: Color, contrast: Float32) -> Color {}
+func Color.alpha(c: Color, alpha: Float32) -> Color {}
+func Color.alpha_blend(dst: Color, src: Color, tint: Color) -> Color {}
+func Color.lerp(c: Color, other: Color, factor: Float32) -> Color {}
+func Color.from_int(hex_value: UInt32) -> Color {}
+func Color.from_pixel_data(data: Int, format: PixelFormat) -> Color {}
+func Color.to_pixel_data(data: Int, c: Color, format: PixelFormat) {}
+func Color.pixel_data_size(width: Int32, height: Int32, format: PixelFormat) -> Int32 {}
+
+-- ══════════════════════════════════════════════════════════════════════
 -- Minimal color palette (Phase 60 rescue — full 26-color palette is
 -- Phase 66 TEX-14)
 -- ══════════════════════════════════════════════════════════════════════
