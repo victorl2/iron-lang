@@ -272,10 +272,29 @@ static Iron_Token *iron_expect(Iron_Parser *p, Iron_TokenKind kind) {
     return NULL;
 }
 
-/* Create an ErrorNode at the current position */
+/* HARD-09: shared static ErrorNode sentinel used when arena allocation fails
+ * inside iron_make_error itself — we cannot recurse into iron_make_error on
+ * its own OOM path, so a process-wide zero-span sentinel is returned instead.
+ * Consumers only read kind + span; both are valid on the sentinel.
+ * The sentinel is never freed (static storage duration, init via C runtime). */
+static Iron_ErrorNode s_parser_oom_sentinel = {
+    .span = { .filename = NULL, .line = 0, .col = 0, .end_line = 0, .end_col = 0 },
+    .kind = IRON_NODE_ERROR,
+};
+
+/* Create an ErrorNode at the current position.
+ * HARD-09 REPLACE: on arena OOM, return the static sentinel rather than
+ * aborting. The caller sees a valid IRON_NODE_ERROR node; downstream
+ * passes already tolerate IRON_NODE_ERROR via the ErrorNode-tolerance
+ * added in Plan 02. */
 static Iron_Node *iron_make_error(Iron_Parser *p) {
     Iron_ErrorNode *n = ARENA_ALLOC(p->arena, Iron_ErrorNode);
-    if (!n) iron_oom_abort("parser.c:iron_make_error");
+    if (!n) {
+        /* HARD-09 REPLACE (audit: parser.c:187 row) — OOM fallback to
+         * process-wide sentinel. No recursion, no abort. */
+        p->in_error_recovery = true;
+        return (Iron_Node *)&s_parser_oom_sentinel;
+    }
     n->span = iron_token_span(p, iron_current(p));
     n->kind = IRON_NODE_ERROR;
     return (Iron_Node *)n;
@@ -376,12 +395,12 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
             p->arena, sizeof(Iron_Node *) * (size_t)count,
             _Alignof(Iron_Node *));
-        if (!arena_elems) iron_oom_abort("parser.c:iron_parse_type_annotation tuple elems");
+        if (!arena_elems) { /* HARD-09 REPLACE (iron_parse_type_annotation tuple elems) */ p->in_error_recovery = true; return iron_make_error(p); }
         memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
         arrfree(elems);
 
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
-        if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation tuple");
+        if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation tuple) */ p->in_error_recovery = true; return iron_make_error(p); }
         memset(ann, 0, sizeof(*ann));
         ann->kind             = IRON_NODE_TYPE_ANNOTATION;
         ann->span             = iron_span_merge(start_span,
@@ -395,7 +414,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
     /* Array type: [T] or [T; N] or [func(T)->R] */
     if (iron_match(p, IRON_TOK_LBRACKET)) {
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
-        if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation array");
+        if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation array) */ p->in_error_recovery = true; return iron_make_error(p); }
         memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = true;
@@ -442,7 +461,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             Iron_Token *name_tok = iron_advance(p);
             ann->name = iron_arena_strdup(p->arena, name_tok->value,
                                           strlen(name_tok->value));
-            if (!ann->name) iron_oom_abort("parser.c:iron_parse_type_annotation array elem name");
+            if (!ann->name) { /* HARD-09 REPLACE (iron_parse_type_annotation array elem name) */ ann->name = "?"; }
         }
 
         /* Phase 48: Parse optional layout attributes: [T, layout: soa/aos] [T, unordered] */
@@ -497,7 +516,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         iron_advance(p);  /* consume 'func' */
 
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
-        if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation func");
+        if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation func) */ p->in_error_recovery = true; return iron_make_error(p); }
         memset(ann, 0, sizeof(*ann));
         ann->kind              = IRON_NODE_TYPE_ANNOTATION;
         ann->is_array          = false;
@@ -554,14 +573,14 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
 
     Iron_Token *name_tok = iron_advance(p);
     Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
-    if (!ann) iron_oom_abort("parser.c:iron_parse_type_annotation named");
+    if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation named) */ p->in_error_recovery = true; return iron_make_error(p); }
     memset(ann, 0, sizeof(*ann));
     ann->kind              = IRON_NODE_TYPE_ANNOTATION;
     ann->is_array          = false;
     ann->array_size        = NULL;
     ann->name = iron_arena_strdup(p->arena, name_tok->value,
                                   strlen(name_tok->value));
-    if (!ann->name) iron_oom_abort("parser.c:iron_parse_type_annotation named name");
+    if (!ann->name) { /* HARD-09 REPLACE (iron_parse_type_annotation named name) */ ann->name = "?"; }
     /* Phase 87-02 SELF-01/02: mark "Self" as the contextual Self type.
      * "Self" lexes as IRON_TOK_IDENTIFIER (not a keyword) so we detect it
      * by string comparison here. The typechecker resolves is_self_type to
@@ -622,17 +641,24 @@ static Iron_Node **iron_parse_generic_params(Iron_Parser *p, int *out_count,
         if (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *t  = iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            if (!id) iron_oom_abort("parser.c:iron_parse_generic_params");
+            if (!id) { /* HARD-09 REPLACE (audit: parser.c:509) */
+                p->in_error_recovery = true;
+                break;
+            }
             id->span       = iron_token_span(p, t);
             id->kind       = IRON_NODE_IDENT;
             id->name       = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            if (!id->name) iron_oom_abort("parser.c:iron_parse_generic_params name");
+            if (!id->name) { /* HARD-09 REPLACE (audit: parser.c:513) — strdup fallback to "?" */
+                id->name = "?";
+            }
             id->constraint_name = NULL;
             if (iron_match(p, IRON_TOK_COLON)) {
                 if (iron_check(p, IRON_TOK_IDENTIFIER)) {
                     Iron_Token *ct = iron_advance(p);
                     id->constraint_name = iron_arena_strdup(p->arena, ct->value, strlen(ct->value));
-                    if (!id->constraint_name) iron_oom_abort("parser.c:iron_parse_generic_params constraint");
+                    if (!id->constraint_name) { /* HARD-09 REPLACE (audit: parser.c:519) — drop constraint */
+                        id->constraint_name = NULL;
+                    }
                 }
             }
             arrput(arr, (Iron_Node *)id);
@@ -694,14 +720,19 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
 
         Iron_Token *name_tok = iron_advance(p);
         Iron_Param *param    = ARENA_ALLOC(p->arena, Iron_Param);
-        if (!param) iron_oom_abort("parser.c:iron_parse_param_list");
+        if (!param) { /* HARD-09 REPLACE (audit: parser.c:567) */
+            p->in_error_recovery = true;
+            break;
+        }
         param->kind            = IRON_NODE_PARAM;
         param->span            = iron_token_span(p, name_tok);
         param->is_var          = is_var;
         param->is_mut_receiver = false;  /* Phase 79: regular params never get mut */
         param->name = iron_arena_strdup(p->arena, name_tok->value,
                                         strlen(name_tok->value));
-        if (!param->name) iron_oom_abort("parser.c:iron_parse_param_list name");
+        if (!param->name) { /* HARD-09 REPLACE (audit: parser.c:573) — strdup fallback */
+            param->name = "?";
+        }
 
         /* optional type annotation: : Type */
         if (iron_match(p, IRON_TOK_COLON)) {
@@ -788,7 +819,7 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
     }
 
     Iron_Block *blk  = ARENA_ALLOC(p->arena, Iron_Block);
-    if (!blk) iron_oom_abort("parser.c:iron_parse_block");
+    if (!blk) { /* HARD-09 REPLACE (iron_parse_block) */ p->in_error_recovery = true; return iron_make_error(p); }
     blk->kind        = IRON_NODE_BLOCK;
     blk->span        = iron_span_merge(iron_token_span(p, start),
                                        iron_token_span(p, end));
@@ -843,7 +874,7 @@ static Iron_Node *iron_parse_lambda(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_LambdaExpr *lam = ARENA_ALLOC(p->arena, Iron_LambdaExpr);
-    if (!lam) iron_oom_abort("parser.c:iron_parse_lambda");
+    if (!lam) { /* HARD-09 REPLACE (iron_parse_lambda) */ p->in_error_recovery = true; return iron_make_error(p); }
     lam->kind            = IRON_NODE_LAMBDA;
     lam->span            = iron_span_merge(iron_token_span(p, start), body->span);
     /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `params` array transferred to
@@ -904,33 +935,33 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_INTEGER: {
             iron_advance(p);
             Iron_IntLit *n = ARENA_ALLOC(p->arena, Iron_IntLit);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary IntLit");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary IntLit) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_INT_LIT;
             n->span  = iron_token_span(p, t);
             n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            if (!n->value) iron_oom_abort("parser.c:iron_parse_primary IntLit value");
+            if (!n->value) { /* HARD-09 REPLACE (iron_parse_primary IntLit value) */ n->value = "0"; }
             return (Iron_Node *)n;
         }
         /* Float literal */
         case IRON_TOK_FLOAT: {
             iron_advance(p);
             Iron_FloatLit *n = ARENA_ALLOC(p->arena, Iron_FloatLit);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary FloatLit");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary FloatLit) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_FLOAT_LIT;
             n->span  = iron_token_span(p, t);
             n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            if (!n->value) iron_oom_abort("parser.c:iron_parse_primary FloatLit value");
+            if (!n->value) { /* HARD-09 REPLACE (iron_parse_primary FloatLit value) */ n->value = "0.0"; }
             return (Iron_Node *)n;
         }
         /* String literal */
         case IRON_TOK_STRING: {
             iron_advance(p);
             Iron_StringLit *n = ARENA_ALLOC(p->arena, Iron_StringLit);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary StringLit");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary StringLit) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_STRING_LIT;
             n->span  = iron_token_span(p, t);
             n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            if (!n->value) iron_oom_abort("parser.c:iron_parse_primary StringLit value");
+            if (!n->value) { /* HARD-09 REPLACE (iron_parse_primary StringLit value) */ n->value = ""; }
             return (Iron_Node *)n;
         }
         /* Interpolated string — parse into alternating literal/expr segments */
@@ -942,7 +973,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_TRUE: {
             iron_advance(p);
             Iron_BoolLit *n = ARENA_ALLOC(p->arena, Iron_BoolLit);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary BoolLit true");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary BoolLit true) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_BOOL_LIT;
             n->span  = iron_token_span(p, t);
             n->value = true;
@@ -952,7 +983,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_FALSE: {
             iron_advance(p);
             Iron_BoolLit *n = ARENA_ALLOC(p->arena, Iron_BoolLit);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary BoolLit false");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary BoolLit false) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_BOOL_LIT;
             n->span  = iron_token_span(p, t);
             n->value = false;
@@ -962,7 +993,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_NULL_KW: {
             iron_advance(p);
             Iron_NullLit *n = ARENA_ALLOC(p->arena, Iron_NullLit);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary NullLit");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary NullLit) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind = IRON_NODE_NULL_LIT;
             n->span = iron_token_span(p, t);
             return (Iron_Node *)n;
@@ -972,7 +1003,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary UnaryExpr minus");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary UnaryExpr minus) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_MINUS;
@@ -984,7 +1015,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary UnaryExpr not");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary UnaryExpr not) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_NOT;
@@ -996,7 +1027,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary UnaryExpr tilde");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary UnaryExpr tilde) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_TILDE;
@@ -1048,7 +1079,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                  * we set a sentinel: type_ann points at an Iron_TypeAnnotation
                  * with is_tuple=true. Downstream consumers check this. */
                 Iron_ArrayLit *al = ARENA_ALLOC(p->arena, Iron_ArrayLit);
-                if (!al) iron_oom_abort("parser.c:iron_parse_primary tuple ArrayLit");
+                if (!al) { /* HARD-09 REPLACE (iron_parse_primary tuple ArrayLit) */ p->in_error_recovery = true; return iron_make_error(p); }
                 memset(al, 0, sizeof(*al));
                 al->kind          = IRON_NODE_ARRAY_LIT;
                 al->span          = iron_span_merge(
@@ -1057,7 +1088,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                 Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
                     p->arena, sizeof(Iron_Node *) * (size_t)count,
                     _Alignof(Iron_Node *));
-                if (!arena_elems) iron_oom_abort("parser.c:iron_parse_primary tuple elems");
+                if (!arena_elems) { /* HARD-09 REPLACE (iron_parse_primary tuple elems) */ p->in_error_recovery = true; return iron_make_error(p); }
                 memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
                 arrfree(elems);
                 al->elements      = arena_elems;
@@ -1066,7 +1097,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                  * is_tuple=true. The type checker reads this to know to
                  * treat the array lit as a tuple. */
                 Iron_TypeAnnotation *tag = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
-                if (!tag) iron_oom_abort("parser.c:iron_parse_primary tuple tag");
+                if (!tag) { /* HARD-09 REPLACE (iron_parse_primary tuple tag) */ p->in_error_recovery = true; return iron_make_error(p); }
                 memset(tag, 0, sizeof(*tag));
                 tag->kind             = IRON_NODE_TYPE_ANNOTATION;
                 tag->span             = al->span;
@@ -1087,7 +1118,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
              * captured as part of the inner expression (e.g. heap Enemy(args)) */
             Iron_Node *inner   = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_HeapExpr *n   = ARENA_ALLOC(p->arena, Iron_HeapExpr);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary HeapExpr");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary HeapExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind            = IRON_NODE_HEAP;
             n->span            = iron_span_merge(iron_token_span(p, t), inner->span);
             n->inner           = inner;
@@ -1101,7 +1132,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *inner = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_RcExpr *n   = ARENA_ALLOC(p->arena, Iron_RcExpr);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary RcExpr");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary RcExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind          = IRON_NODE_RC;
             n->span          = iron_span_merge(iron_token_span(p, t), inner->span);
             n->inner         = inner;
@@ -1112,7 +1143,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *inner      = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_ComptimeExpr *n  = ARENA_ALLOC(p->arena, Iron_ComptimeExpr);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary ComptimeExpr");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary ComptimeExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind               = IRON_NODE_COMPTIME;
             n->span               = iron_span_merge(iron_token_span(p, t), inner->span);
             n->inner              = inner;
@@ -1123,7 +1154,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *handle  = iron_parse_expr_prec(p, PREC_UNARY);
             Iron_AwaitExpr *n  = ARENA_ALLOC(p->arena, Iron_AwaitExpr);
-            if (!n) iron_oom_abort("parser.c:iron_parse_primary AwaitExpr");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary AwaitExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind            = IRON_NODE_AWAIT;
             n->span            = iron_span_merge(iron_token_span(p, t), handle->span);
             n->handle          = handle;
@@ -1140,7 +1171,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             iron_skip_newlines(p);
 
             Iron_ArrayLit *arr = ARENA_ALLOC(p->arena, Iron_ArrayLit);
-            if (!arr) iron_oom_abort("parser.c:iron_parse_primary ArrayLit bracket");
+            if (!arr) { /* HARD-09 REPLACE (iron_parse_primary ArrayLit bracket) */ p->in_error_recovery = true; return iron_make_error(p); }
             arr->kind         = IRON_NODE_ARRAY_LIT;
             arr->type_ann     = NULL;
             arr->size         = NULL;
@@ -1193,11 +1224,11 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_IDENTIFIER: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            if (!id) iron_oom_abort("parser.c:iron_parse_primary Ident");
+            if (!id) { /* HARD-09 REPLACE (iron_parse_primary Ident) */ p->in_error_recovery = true; return iron_make_error(p); }
             id->kind            = IRON_NODE_IDENT;
             id->span            = iron_token_span(p, t);
             id->name            = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            if (!id->name) iron_oom_abort("parser.c:iron_parse_primary Ident name");
+            if (!id->name) { /* HARD-09 REPLACE (iron_parse_primary Ident name) */ id->name = "?"; }
             id->resolved_sym    = NULL;
             id->resolved_type   = NULL;
             id->constraint_name = NULL;
@@ -1207,7 +1238,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_SELF: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            if (!id) iron_oom_abort("parser.c:iron_parse_primary Ident self");
+            if (!id) { /* HARD-09 REPLACE (iron_parse_primary Ident self) */ p->in_error_recovery = true; return iron_make_error(p); }
             id->kind            = IRON_NODE_IDENT;
             id->span            = iron_token_span(p, t);
             id->name            = "self";
@@ -1219,7 +1250,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         case IRON_TOK_SUPER: {
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            if (!id) iron_oom_abort("parser.c:iron_parse_primary Ident super");
+            if (!id) { /* HARD-09 REPLACE (iron_parse_primary Ident super) */ p->in_error_recovery = true; return iron_make_error(p); }
             id->kind            = IRON_NODE_IDENT;
             id->span            = iron_token_span(p, t);
             id->name            = "super";
@@ -1297,7 +1328,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
             Iron_Token *name_tok = iron_advance(p);
             const char *name = iron_arena_strdup(p->arena, name_tok->value,
                                                   strlen(name_tok->value));
-            if (!name) iron_oom_abort("parser.c:iron_parse_expr_prec dot name");
+            if (!name) { /* HARD-09 REPLACE (iron_parse_expr_prec dot name) */ name = "?"; }
 
             if (iron_check(p, IRON_TOK_LPAREN)) {
                 /* Heuristic: if the LHS is a simple identifier starting with
@@ -1315,7 +1346,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         int arg_count = 0;
                         Iron_Node **args = iron_parse_call_args(p, &arg_count);
                         Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
-                        if (!ec) iron_oom_abort("parser.c:iron_parse_expr_prec EnumConstruct call");
+                        if (!ec) { /* HARD-09 REPLACE (iron_parse_expr_prec EnumConstruct call) */ p->in_error_recovery = true; return iron_make_error(p); }
                         ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
                         ec->span          = iron_span_merge(left->span,
                                                 iron_token_span(p, iron_current(p)));
@@ -1329,7 +1360,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         int arg_count = 0;
                         Iron_Node **args = iron_parse_call_args(p, &arg_count);
                         Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
-                        if (!mc) iron_oom_abort("parser.c:iron_parse_expr_prec MethodCall ident");
+                        if (!mc) { /* HARD-09 REPLACE (iron_parse_expr_prec MethodCall ident) */ p->in_error_recovery = true; return iron_make_error(p); }
                         mc->kind      = IRON_NODE_METHOD_CALL;
                         mc->span      = iron_span_merge(left->span,
                                                         iron_token_span(p, iron_current(p)));
@@ -1345,7 +1376,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     int arg_count = 0;
                     Iron_Node **args = iron_parse_call_args(p, &arg_count);
                     Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
-                    if (!mc) iron_oom_abort("parser.c:iron_parse_expr_prec MethodCall nonident");
+                    if (!mc) { /* HARD-09 REPLACE (iron_parse_expr_prec MethodCall nonident) */ p->in_error_recovery = true; return iron_make_error(p); }
                     mc->kind      = IRON_NODE_METHOD_CALL;
                     mc->span      = iron_span_merge(left->span,
                                                     iron_token_span(p, iron_current(p)));
@@ -1364,7 +1395,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
                     if (looks_like_type && looks_like_variant) {
                         Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
-                        if (!ec) iron_oom_abort("parser.c:iron_parse_expr_prec EnumConstruct unit");
+                        if (!ec) { /* HARD-09 REPLACE (iron_parse_expr_prec EnumConstruct unit) */ p->in_error_recovery = true; return iron_make_error(p); }
                         ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
                         ec->span          = iron_span_merge(left->span,
                                                             iron_token_span(p, iron_current(p)));
@@ -1379,7 +1410,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 }
                 /* Field access: obj.field */
                 Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
-                if (!fa) iron_oom_abort("parser.c:iron_parse_expr_prec FieldAccess");
+                if (!fa) { /* HARD-09 REPLACE (iron_parse_expr_prec FieldAccess) */ p->in_error_recovery = true; return iron_make_error(p); }
                 fa->kind          = IRON_NODE_FIELD_ACCESS;
                 fa->span          = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
@@ -1408,7 +1439,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 }
                 iron_expect(p, IRON_TOK_RBRACKET);
                 Iron_SliceExpr *sl = ARENA_ALLOC(p->arena, Iron_SliceExpr);
-                if (!sl) iron_oom_abort("parser.c:iron_parse_expr_prec SliceExpr");
+                if (!sl) { /* HARD-09 REPLACE (iron_parse_expr_prec SliceExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
                 sl->kind   = IRON_NODE_SLICE;
                 sl->span   = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
@@ -1419,7 +1450,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
             } else {
                 iron_expect(p, IRON_TOK_RBRACKET);
                 Iron_IndexExpr *ix = ARENA_ALLOC(p->arena, Iron_IndexExpr);
-                if (!ix) iron_oom_abort("parser.c:iron_parse_expr_prec IndexExpr");
+                if (!ix) { /* HARD-09 REPLACE (iron_parse_expr_prec IndexExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
                 ix->kind   = IRON_NODE_INDEX;
                 ix->span   = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
@@ -1438,7 +1469,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
             /* If callee is an Ident, may be construct or call.
              * We emit a CallExpr regardless; semantic analysis disambiguates. */
             Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
-            if (!call) iron_oom_abort("parser.c:iron_parse_expr_prec CallExpr");
+            if (!call) { /* HARD-09 REPLACE (iron_parse_expr_prec CallExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
             call->kind      = IRON_NODE_CALL;
             call->span      = iron_span_merge(left->span,
                                               iron_token_span(p, iron_current(p)));
@@ -1463,9 +1494,9 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
             Iron_Token *type_tok = iron_advance(p);
             const char *type_name = iron_arena_strdup(p->arena, type_tok->value,
                                                        strlen(type_tok->value));
-            if (!type_name) iron_oom_abort("parser.c:iron_parse_expr_prec IsExpr type_name");
+            if (!type_name) { /* HARD-09 REPLACE (iron_parse_expr_prec IsExpr type_name) */ type_name = "?"; }
             Iron_IsExpr *is_n = ARENA_ALLOC(p->arena, Iron_IsExpr);
-            if (!is_n) iron_oom_abort("parser.c:iron_parse_expr_prec IsExpr");
+            if (!is_n) { /* HARD-09 REPLACE (iron_parse_expr_prec IsExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
             is_n->kind      = IRON_NODE_IS;
             is_n->span      = iron_span_merge(left->span,
                                               iron_token_span(p, iron_current(p)));
@@ -1481,7 +1512,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         Iron_Node *right = iron_parse_expr_prec(p, prec);
 
         Iron_BinaryExpr *bin = ARENA_ALLOC(p->arena, Iron_BinaryExpr);
-        if (!bin) iron_oom_abort("parser.c:iron_parse_expr_prec BinaryExpr");
+        if (!bin) { /* HARD-09 REPLACE (iron_parse_expr_prec BinaryExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
         bin->kind  = IRON_NODE_BINARY;
         bin->span  = iron_span_merge(left->span, right->span);
         bin->left  = left;
@@ -1528,7 +1559,7 @@ static Iron_Node *iron_parse_if_stmt(Iron_Parser *p) {
     }
 
     Iron_IfStmt *n  = ARENA_ALLOC(p->arena, Iron_IfStmt);
-    if (!n) iron_oom_abort("parser.c:iron_parse_if_stmt");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_if_stmt) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind         = IRON_NODE_IF;
     n->span         = iron_span_merge(iron_token_span(p, start),
                                        else_body ? else_body->span : body->span);
@@ -1549,7 +1580,7 @@ static Iron_Node *iron_parse_while_stmt(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_WhileStmt *n = ARENA_ALLOC(p->arena, Iron_WhileStmt);
-    if (!n) iron_oom_abort("parser.c:iron_parse_while_stmt");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_while_stmt) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind           = IRON_NODE_WHILE;
     n->span           = iron_span_merge(iron_token_span(p, start), body->span);
     n->condition      = cond;
@@ -1572,7 +1603,7 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     Iron_Token *var_tok  = iron_advance(p);
     const char *var_name = iron_arena_strdup(p->arena, var_tok->value,
                                               strlen(var_tok->value));
-    if (!var_name) iron_oom_abort("parser.c:iron_parse_for_stmt var_name");
+    if (!var_name) { /* HARD-09 REPLACE (iron_parse_for_stmt var_name) */ var_name = "?"; }
 
     /* 'in' */
     if (!iron_expect(p, IRON_TOK_IN)) return iron_make_error(p);
@@ -1597,7 +1628,7 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_ForStmt *n = ARENA_ALLOC(p->arena, Iron_ForStmt);
-    if (!n) iron_oom_abort("parser.c:iron_parse_for_stmt");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_for_stmt) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind         = IRON_NODE_FOR;
     n->span         = iron_span_merge(iron_token_span(p, start), body->span);
     n->var_name     = var_name;
@@ -1664,7 +1695,7 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
                     iron_advance(p);
                     const char *bname = iron_arena_strdup(p->arena, name_tok->value,
                                                            strlen(name_tok->value));
-                    if (!bname) iron_oom_abort("parser.c:iron_parse_pattern bname");
+                    if (!bname) { /* HARD-09 REPLACE (iron_parse_pattern bname) */ bname = "?"; }
                     arrput(binding_names,   bname);
                     arrput(nested_patterns, (Iron_Node *)NULL);
                 }
@@ -1684,16 +1715,16 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
     }
 
     Iron_Pattern *pat   = ARENA_ALLOC(p->arena, Iron_Pattern);
-    if (!pat) iron_oom_abort("parser.c:iron_parse_pattern");
+    if (!pat) { /* HARD-09 REPLACE (iron_parse_pattern) */ p->in_error_recovery = true; return iron_make_error(p); }
     pat->kind           = IRON_NODE_PATTERN;
     pat->span           = iron_span_merge(iron_token_span(p, start),
                                            iron_token_span(p, iron_current(p)));
     pat->enum_name      = iron_arena_strdup(p->arena, enum_tok->value,
                                              strlen(enum_tok->value));
-    if (!pat->enum_name) iron_oom_abort("parser.c:iron_parse_pattern enum_name");
+    if (!pat->enum_name) { /* HARD-09 REPLACE (iron_parse_pattern enum_name) */ pat->enum_name = "?"; }
     pat->variant_name   = iron_arena_strdup(p->arena, variant_tok->value,
                                              strlen(variant_tok->value));
-    if (!pat->variant_name) iron_oom_abort("parser.c:iron_parse_pattern variant_name");
+    if (!pat->variant_name) { /* HARD-09 REPLACE (iron_parse_pattern variant_name) */ pat->variant_name = "?"; }
     pat->binding_names  = binding_names;
     pat->nested_patterns = nested_patterns;
     pat->binding_count  = binding_count;
@@ -1739,7 +1770,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
                 } else {
                     Iron_Node *single = iron_parse_stmt(p);
                     Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
-                    if (!blk) iron_oom_abort("parser.c:iron_parse_match_stmt else Block");
+                    if (!blk) { /* HARD-09 REPLACE (iron_parse_match_stmt else Block) */ p->in_error_recovery = true; return iron_make_error(p); }
                     blk->kind       = IRON_NODE_BLOCK;
                     blk->span       = single->span;
                     blk->stmts      = NULL;
@@ -1774,7 +1805,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
             /* Error recovery: parse the block anyway to continue */
             Iron_Node *cbody = iron_parse_block(p);
             Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
-            if (!mc) iron_oom_abort("parser.c:iron_parse_match_stmt MatchCase error recovery");
+            if (!mc) { /* HARD-09 REPLACE (iron_parse_match_stmt MatchCase error recovery) */ p->in_error_recovery = true; return iron_make_error(p); }
             mc->kind    = IRON_NODE_MATCH_CASE;
             mc->span    = iron_span_merge(pattern->span, cbody->span);
             mc->pattern = pattern;
@@ -1797,7 +1828,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
         } else {
             Iron_Node *single = iron_parse_stmt(p);
             Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
-            if (!blk) iron_oom_abort("parser.c:iron_parse_match_stmt case Block");
+            if (!blk) { /* HARD-09 REPLACE (iron_parse_match_stmt case Block) */ p->in_error_recovery = true; return iron_make_error(p); }
             blk->kind       = IRON_NODE_BLOCK;
             blk->span       = single->span;
             blk->stmts      = NULL;
@@ -1807,7 +1838,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
         }
 
         Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
-        if (!mc) iron_oom_abort("parser.c:iron_parse_match_stmt MatchCase");
+        if (!mc) { /* HARD-09 REPLACE (iron_parse_match_stmt MatchCase) */ p->in_error_recovery = true; return iron_make_error(p); }
         mc->kind    = IRON_NODE_MATCH_CASE;
         mc->span    = iron_span_merge(pattern->span, cbody->span);
         mc->pattern = pattern;
@@ -1821,7 +1852,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_MatchStmt *n = ARENA_ALLOC(p->arena, Iron_MatchStmt);
-    if (!n) iron_oom_abort("parser.c:iron_parse_match_stmt MatchStmt");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_match_stmt MatchStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind           = IRON_NODE_MATCH;
     n->span           = iron_span_merge(iron_token_span(p, start),
                                          iron_token_span(p, end));
@@ -1844,7 +1875,7 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
     if (iron_check(p, IRON_TOK_STRING)) {
         Iron_Token *nt = iron_advance(p);
         spawn_name = iron_arena_strdup(p->arena, nt->value, strlen(nt->value));
-        if (!spawn_name) iron_oom_abort("parser.c:iron_parse_spawn_stmt name");
+        if (!spawn_name) { /* HARD-09 REPLACE (iron_parse_spawn_stmt name) */ spawn_name = "?"; }
     } else {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -1862,7 +1893,7 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_SpawnStmt *n = ARENA_ALLOC(p->arena, Iron_SpawnStmt);
-    if (!n) iron_oom_abort("parser.c:iron_parse_spawn_stmt SpawnStmt");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_spawn_stmt SpawnStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind           = IRON_NODE_SPAWN;
     n->span           = iron_span_merge(iron_token_span(p, start), body->span);
     n->name           = spawn_name;
@@ -1883,7 +1914,7 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
 static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value,
                                             Iron_Span span) {
     Iron_InterpString *n = ARENA_ALLOC(p->arena, Iron_InterpString);
-    if (!n) iron_oom_abort("parser.c:iron_parse_interp_string");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_interp_string) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind       = IRON_NODE_INTERP_STRING;
     n->span       = span;
     n->parts      = NULL;
@@ -1909,11 +1940,11 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
             if (lit_len > 0) {
                 lit_buf[lit_len] = '\0';
                 Iron_StringLit *sl = ARENA_ALLOC(p->arena, Iron_StringLit);
-                if (!sl) iron_oom_abort("parser.c:iron_parse_interp_string StringLit segment");
+                if (!sl) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit segment) */ p->in_error_recovery = true; return iron_make_error(p); }
                 sl->kind  = IRON_NODE_STRING_LIT;
                 sl->span  = span;
                 sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
-                if (!sl->value) iron_oom_abort("parser.c:iron_parse_interp_string StringLit segment value");
+                if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit segment value) */ sl->value = ""; }
                 arrput(n->parts, (Iron_Node *)sl);
                 n->part_count++;
                 lit_len = 0;
@@ -1976,11 +2007,11 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
     if (lit_len > 0) {
         lit_buf[lit_len] = '\0';
         Iron_StringLit *sl = ARENA_ALLOC(p->arena, Iron_StringLit);
-        if (!sl) iron_oom_abort("parser.c:iron_parse_interp_string StringLit tail");
+        if (!sl) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit tail) */ p->in_error_recovery = true; return iron_make_error(p); }
         sl->kind  = IRON_NODE_STRING_LIT;
         sl->span  = span;
         sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
-        if (!sl->value) iron_oom_abort("parser.c:iron_parse_interp_string StringLit tail value");
+        if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit tail value) */ sl->value = ""; }
         arrput(n->parts, (Iron_Node *)sl);
         n->part_count++;
         lit_len = 0;
@@ -2005,7 +2036,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
                 Iron_Token *id = iron_advance(p);
                 const char *tuple_name = iron_arena_strdup(p->arena, id->value,
                                                             strlen(id->value));
-                if (!tuple_name) iron_oom_abort("parser.c:iron_parse_val_decl tuple binding name");
+                if (!tuple_name) { /* HARD-09 REPLACE (iron_parse_val_decl tuple binding name) */ tuple_name = "?"; }
                 arrput(names, tuple_name);
             } else if (iron_check(p, IRON_TOK_WILDCARD)) {
                 iron_advance(p);
@@ -2037,7 +2068,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         const char **arena_names = (const char **)iron_arena_alloc(
             p->arena, sizeof(const char *) * (size_t)count,
             _Alignof(const char *));
-        if (!arena_names) iron_oom_abort("parser.c:iron_parse_val_decl tuple arena_names");
+        if (!arena_names) { /* HARD-09 REPLACE (iron_parse_val_decl tuple arena_names) */ p->in_error_recovery = true; arrfree(names); return iron_make_error(p); }
         memcpy(arena_names, names, sizeof(const char *) * (size_t)count);
         arrfree(names);
 
@@ -2060,7 +2091,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         }
 
         Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
-        if (!n) iron_oom_abort("parser.c:iron_parse_val_decl tuple ValDecl");
+        if (!n) { /* HARD-09 REPLACE (iron_parse_val_decl tuple ValDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
         memset(n, 0, sizeof(*n));
         n->kind          = IRON_NODE_VAL_DECL;
         n->span          = iron_span_merge(iron_token_span(p, start),
@@ -2103,7 +2134,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
                 Iron_SpawnStmt *ss = (Iron_SpawnStmt *)spawn_node;
                 ss->handle_name = iron_arena_strdup(p->arena, name_tok->value,
                                                      strlen(name_tok->value));
-                if (!ss->handle_name) iron_oom_abort("parser.c:iron_parse_val_decl spawn handle_name");
+                if (!ss->handle_name) { /* HARD-09 REPLACE (iron_parse_val_decl spawn handle_name) */ ss->handle_name = "?"; }
             }
             init = spawn_node;
         } else {
@@ -2112,13 +2143,13 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     }
 
     Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
-    if (!n) iron_oom_abort("parser.c:iron_parse_val_decl ValDecl");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_val_decl ValDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind          = IRON_NODE_VAL_DECL;
     n->span          = iron_span_merge(iron_token_span(p, start),
                                        init ? init->span : iron_token_span(p, name_tok));
     n->name          = iron_arena_strdup(p->arena, name_tok->value,
                                          strlen(name_tok->value));
-    if (!n->name) iron_oom_abort("parser.c:iron_parse_val_decl ValDecl name");
+    if (!n->name) { /* HARD-09 REPLACE (iron_parse_val_decl ValDecl name) */ n->name = "?"; }
     n->type_ann      = type_ann;
     n->init          = init;
     n->declared_type = NULL;  /* set by type checker */
@@ -2156,7 +2187,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
                 Iron_SpawnStmt *ss = (Iron_SpawnStmt *)spawn_node;
                 ss->handle_name = iron_arena_strdup(p->arena, name_tok->value,
                                                      strlen(name_tok->value));
-                if (!ss->handle_name) iron_oom_abort("parser.c:iron_parse_var_decl spawn handle_name");
+                if (!ss->handle_name) { /* HARD-09 REPLACE (iron_parse_var_decl spawn handle_name) */ ss->handle_name = "?"; }
             }
             init = spawn_node;
         } else {
@@ -2165,13 +2196,13 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     }
 
     Iron_VarDecl *n = ARENA_ALLOC(p->arena, Iron_VarDecl);
-    if (!n) iron_oom_abort("parser.c:iron_parse_var_decl VarDecl");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_var_decl VarDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind          = IRON_NODE_VAR_DECL;
     n->span          = iron_span_merge(iron_token_span(p, start),
                                        init ? init->span : iron_token_span(p, name_tok));
     n->name          = iron_arena_strdup(p->arena, name_tok->value,
                                          strlen(name_tok->value));
-    if (!n->name) iron_oom_abort("parser.c:iron_parse_var_decl VarDecl name");
+    if (!n->name) { /* HARD-09 REPLACE (iron_parse_var_decl VarDecl name) */ n->name = "?"; }
     n->type_ann      = type_ann;
     n->init          = init;
     n->declared_type = NULL;  /* set by type checker */
@@ -2211,7 +2242,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                 val = iron_parse_expr(p);
             }
             Iron_ReturnStmt *n = ARENA_ALLOC(p->arena, Iron_ReturnStmt);
-            if (!n) iron_oom_abort("parser.c:iron_parse_stmt ReturnStmt");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_stmt ReturnStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_RETURN;
             n->span  = iron_span_merge(iron_token_span(p, t),
                                         val ? val->span : iron_token_span(p, t));
@@ -2230,7 +2261,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *expr  = iron_parse_expr(p);
             Iron_DeferStmt *n = ARENA_ALLOC(p->arena, Iron_DeferStmt);
-            if (!n) iron_oom_abort("parser.c:iron_parse_stmt DeferStmt");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_stmt DeferStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind           = IRON_NODE_DEFER;
             n->span           = iron_span_merge(iron_token_span(p, t), expr->span);
             n->expr           = expr;
@@ -2240,7 +2271,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *expr = iron_parse_expr(p);
             Iron_FreeStmt *n = ARENA_ALLOC(p->arena, Iron_FreeStmt);
-            if (!n) iron_oom_abort("parser.c:iron_parse_stmt FreeStmt");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_stmt FreeStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind          = IRON_NODE_FREE;
             n->span          = iron_span_merge(iron_token_span(p, t), expr->span);
             n->expr          = expr;
@@ -2250,7 +2281,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
             iron_advance(p);
             Iron_Node *expr = iron_parse_expr(p);
             Iron_LeakStmt *n = ARENA_ALLOC(p->arena, Iron_LeakStmt);
-            if (!n) iron_oom_abort("parser.c:iron_parse_stmt LeakStmt");
+            if (!n) { /* HARD-09 REPLACE (iron_parse_stmt LeakStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind          = IRON_NODE_LEAK;
             n->span          = iron_span_merge(iron_token_span(p, t), expr->span);
             n->expr          = expr;
@@ -2302,7 +2333,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                 iron_skip_newlines(p);
                 Iron_Node *val = iron_parse_expr(p);
                 Iron_AssignStmt *a = ARENA_ALLOC(p->arena, Iron_AssignStmt);
-                if (!a) iron_oom_abort("parser.c:iron_parse_stmt AssignStmt");
+                if (!a) { /* HARD-09 REPLACE (iron_parse_stmt AssignStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
                 a->kind          = IRON_NODE_ASSIGN;
                 a->span          = iron_span_merge(expr->span, val->span);
                 a->target        = expr;
@@ -2362,7 +2393,7 @@ static Iron_Node *iron_parse_import_decl(Iron_Parser *p) {
     }
     path_buf[path_len] = '\0';
     const char *path = iron_arena_strdup(p->arena, path_buf, path_len);
-    if (!path) iron_oom_abort("parser.c:iron_parse_import_decl path");
+    if (!path) { /* HARD-09 REPLACE (iron_parse_import_decl path) */ path = "?"; }
 
     /* optional: as alias */
     const char *alias = NULL;
@@ -2372,12 +2403,12 @@ static Iron_Node *iron_parse_import_decl(Iron_Parser *p) {
         if (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *at = iron_advance(p);
             alias = iron_arena_strdup(p->arena, at->value, strlen(at->value));
-            if (!alias) iron_oom_abort("parser.c:iron_parse_import_decl alias");
+            if (!alias) { /* HARD-09 REPLACE (iron_parse_import_decl alias) */ alias = "?"; }
         }
     }
 
     Iron_ImportDecl *n = ARENA_ALLOC(p->arena, Iron_ImportDecl);
-    if (!n) iron_oom_abort("parser.c:iron_parse_import_decl ImportDecl");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_import_decl ImportDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind            = IRON_NODE_IMPORT_DECL;
     n->span            = iron_span_merge(iron_token_span(p, start),
                                           iron_token_span(p, iron_current(p)));
@@ -2399,7 +2430,7 @@ static const char *iron_snake_to_camel(Iron_Arena *arena, const char *name) {
     size_t len = strlen(name);
     /* Output can be at most len bytes (we remove underscores, add nothing) */
     char *buf = (char *)iron_arena_alloc(arena, len + 1, 1);
-    if (!buf) iron_oom_abort("parser.c:iron_snake_to_camel");
+    if (!buf) { /* HARD-09 REPLACE (iron_snake_to_camel) */ buf = "?"; }
 
     size_t out = 0;
     bool capitalize_next = true;  /* capitalize first letter */
@@ -2448,7 +2479,7 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
     Iron_Token *name_tok = iron_advance(p);
     const char *iron_name = iron_arena_strdup(p->arena, name_tok->value,
                                                strlen(name_tok->value));
-    if (!iron_name) iron_oom_abort("parser.c:iron_parse_extern_func iron_name");
+    if (!iron_name) { /* HARD-09 REPLACE (iron_parse_extern_func iron_name) */ iron_name = "?"; }
     /* Derive C name: snake_case -> CamelCase */
     const char *c_name = iron_snake_to_camel(p->arena, iron_name);
 
@@ -2464,7 +2495,7 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
 
     /* No body for extern funcs */
     Iron_FuncDecl *f        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
-    if (!f) iron_oom_abort("parser.c:iron_parse_extern_func FuncDecl");
+    if (!f) { /* HARD-09 REPLACE (iron_parse_extern_func FuncDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     f->kind                 = IRON_NODE_FUNC_DECL;
     f->span                 = iron_span_merge(iron_token_span(p, start),
                                               ret ? ret->span
@@ -2743,13 +2774,13 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         Iron_Node *body = iron_parse_block(p);
 
         Iron_MethodDecl *m      = ARENA_ALLOC(p->arena, Iron_MethodDecl);
-        if (!m) iron_oom_abort("parser.c:iron_parse_func_or_method array MethodDecl");
+        if (!m) { /* HARD-09 REPLACE (iron_parse_func_or_method array MethodDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
         m->kind                 = IRON_NODE_METHOD_DECL;
         m->span                 = iron_span_merge(iron_token_span(p, start), body->span);
         m->type_name            = "__Array";  /* sentinel: marks this as array extension */
         m->method_name          = iron_arena_strdup(p->arena, method_tok->value,
                                                      strlen(method_tok->value));
-        if (!m->method_name) iron_oom_abort("parser.c:iron_parse_func_or_method array method_name");
+        if (!m->method_name) { /* HARD-09 REPLACE (iron_parse_func_or_method array method_name) */ m->method_name = "?"; }
         m->params               = params;
         m->param_count          = param_count;
         m->return_type          = ret;
@@ -2762,7 +2793,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->is_array_extension   = true;
         m->elem_type_name       = iron_arena_strdup(p->arena, elem_type_tok->value,
                                                      strlen(elem_type_tok->value));
-        if (!m->elem_type_name) iron_oom_abort("parser.c:iron_parse_func_or_method array elem_type_name");
+        if (!m->elem_type_name) { /* HARD-09 REPLACE (iron_parse_func_or_method array elem_type_name) */ m->elem_type_name = "?"; }
         m->is_receiver_form     = false;
         m->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
         m->is_readonly          = false;  /* Phase 84: array extension has no tier modifier */
@@ -2822,15 +2853,15 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         Iron_Node *body = iron_parse_block(p);
 
         Iron_MethodDecl *m      = ARENA_ALLOC(p->arena, Iron_MethodDecl);
-        if (!m) iron_oom_abort("parser.c:iron_parse_func_or_method MethodDecl");
+        if (!m) { /* HARD-09 REPLACE (iron_parse_func_or_method MethodDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
         m->kind                 = IRON_NODE_METHOD_DECL;
         m->span                 = iron_span_merge(iron_token_span(p, start), body->span);
         m->type_name            = iron_arena_strdup(p->arena, name_tok->value,
                                                      strlen(name_tok->value));
-        if (!m->type_name) iron_oom_abort("parser.c:iron_parse_func_or_method type_name");
+        if (!m->type_name) { /* HARD-09 REPLACE (iron_parse_func_or_method type_name) */ m->type_name = "?"; }
         m->method_name          = iron_arena_strdup(p->arena, method_tok->value,
                                                      strlen(method_tok->value));
-        if (!m->method_name) iron_oom_abort("parser.c:iron_parse_func_or_method method_name");
+        if (!m->method_name) { /* HARD-09 REPLACE (iron_parse_func_or_method method_name) */ m->method_name = "?"; }
         m->params               = params;
         m->param_count          = param_count;
         m->return_type          = ret;
@@ -2863,12 +2894,12 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     Iron_Node *body = iron_parse_block(p);
 
     Iron_FuncDecl *f        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
-    if (!f) iron_oom_abort("parser.c:iron_parse_func_or_method FuncDecl");
+    if (!f) { /* HARD-09 REPLACE (iron_parse_func_or_method FuncDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     f->kind                 = IRON_NODE_FUNC_DECL;
     f->span                 = iron_span_merge(iron_token_span(p, start), body->span);
     f->name                 = iron_arena_strdup(p->arena, name_tok->value,
                                                strlen(name_tok->value));
-    if (!f->name) iron_oom_abort("parser.c:iron_parse_func_or_method FuncDecl name");
+    if (!f->name) { /* HARD-09 REPLACE (iron_parse_func_or_method FuncDecl name) */ f->name = "?"; }
     f->params               = params;
     f->param_count          = param_count;
     f->return_type          = ret;
@@ -2914,7 +2945,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             Iron_Token *ext_tok = iron_advance(p);
             extends_name = iron_arena_strdup(p->arena, ext_tok->value,
                                               strlen(ext_tok->value));
-            if (!extends_name) iron_oom_abort("parser.c:iron_parse_object_decl extends_name");
+            if (!extends_name) { /* HARD-09 REPLACE (iron_parse_object_decl extends_name) */ extends_name = "?"; }
         }
     }
 
@@ -2927,7 +2958,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             Iron_Token *it = iron_advance(p);
             const char *iname = iron_arena_strdup(p->arena, it->value,
                                                    strlen(it->value));
-            if (!iname) iron_oom_abort("parser.c:iron_parse_object_decl impl iname");
+            if (!iname) { /* HARD-09 REPLACE (iron_parse_object_decl impl iname) */ iname = "?"; }
             arrput(impl_names, iname);
             impl_count++;
             if (!iron_match(p, IRON_TOK_COMMA)) break;
@@ -3315,14 +3346,14 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
         }
 
         Iron_Field *field = ARENA_ALLOC(p->arena, Iron_Field);
-        if (!field) iron_oom_abort("parser.c:iron_parse_object_decl Field");
+        if (!field) { /* HARD-09 REPLACE (iron_parse_object_decl Field) */ p->in_error_recovery = true; return iron_make_error(p); }
         field->kind       = IRON_NODE_FIELD;
         field->span       = iron_span_merge(iron_token_span(p, field_start),
                                              ftype ? ftype->span
                                                    : iron_token_span(p, fname));
         field->name       = iron_arena_strdup(p->arena, fname->value,
                                                strlen(fname->value));
-        if (!field->name) iron_oom_abort("parser.c:iron_parse_object_decl Field name");
+        if (!field->name) { /* HARD-09 REPLACE (iron_parse_object_decl Field name) */ field->name = "?"; }
         field->type_ann   = ftype;
         field->is_var     = is_var;
         /* Phase 83 ACCESS-02: is_pub carries the optional `pub` modifier
@@ -3822,13 +3853,13 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_ObjectDecl *n         = ARENA_ALLOC(p->arena, Iron_ObjectDecl);
-    if (!n) iron_oom_abort("parser.c:iron_parse_object_decl ObjectDecl");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_object_decl ObjectDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind                    = IRON_NODE_OBJECT_DECL;
     n->span                    = iron_span_merge(iron_token_span(p, start),
                                                   iron_token_span(p, end));
     n->name                    = iron_arena_strdup(p->arena, name_tok->value,
                                                     strlen(name_tok->value));
-    if (!n->name) iron_oom_abort("parser.c:iron_parse_object_decl ObjectDecl name");
+    if (!n->name) { /* HARD-09 REPLACE (iron_parse_object_decl ObjectDecl name) */ n->name = "?"; }
     /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `fields` and `impl_names` arrays
      * ownership-transferred to arena-allocated ObjectDecl; file-header. */
     n->fields                  = fields;
@@ -4360,13 +4391,13 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         /* Store as a FuncDecl. body == NULL means signature-only; body != NULL
          * means has_default_body (Phase 87 IFACE-03 invariant). */
         Iron_FuncDecl *sig        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
-        if (!sig) iron_oom_abort("parser.c:iron_parse_interface_decl sig FuncDecl");
+        if (!sig) { /* HARD-09 REPLACE (iron_parse_interface_decl sig FuncDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
         sig->kind                 = IRON_NODE_FUNC_DECL;
         sig->span                 = iron_span_merge(iron_token_span(p, fsig_start),
                                                      iron_token_span(p, iron_current(p)));
         sig->name                 = iron_arena_strdup(p->arena, sig_name->value,
                                                        strlen(sig_name->value));
-        if (!sig->name) iron_oom_abort("parser.c:iron_parse_interface_decl sig name");
+        if (!sig->name) { /* HARD-09 REPLACE (iron_parse_interface_decl sig name) */ sig->name = "?"; }
         sig->params               = sig_params;
         sig->param_count          = sig_param_count;
         sig->return_type          = sig_ret;
@@ -4391,13 +4422,13 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_InterfaceDecl *n = ARENA_ALLOC(p->arena, Iron_InterfaceDecl);
-    if (!n) iron_oom_abort("parser.c:iron_parse_interface_decl InterfaceDecl");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_interface_decl InterfaceDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind               = IRON_NODE_INTERFACE_DECL;
     n->span               = iron_span_merge(iron_token_span(p, start),
                                              iron_token_span(p, end));
     n->name               = iron_arena_strdup(p->arena, name_tok->value,
                                                strlen(name_tok->value));
-    if (!n->name) iron_oom_abort("parser.c:iron_parse_interface_decl InterfaceDecl name");
+    if (!n->name) { /* HARD-09 REPLACE (iron_parse_interface_decl InterfaceDecl name) */ n->name = "?"; }
     n->method_sigs        = method_sigs;
     n->method_count       = method_count;
     (void)is_private;
@@ -4442,11 +4473,11 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
         }
         Iron_Token *vt  = iron_advance(p);
         Iron_EnumVariant *v = ARENA_ALLOC(p->arena, Iron_EnumVariant);
-        if (!v) iron_oom_abort("parser.c:iron_parse_enum_decl EnumVariant");
+        if (!v) { /* HARD-09 REPLACE (iron_parse_enum_decl EnumVariant) */ p->in_error_recovery = true; return iron_make_error(p); }
         v->kind               = IRON_NODE_ENUM_VARIANT;
         v->span               = iron_token_span(p, vt);
         v->name               = iron_arena_strdup(p->arena, vt->value, strlen(vt->value));
-        if (!v->name) iron_oom_abort("parser.c:iron_parse_enum_decl EnumVariant name");
+        if (!v->name) { /* HARD-09 REPLACE (iron_parse_enum_decl EnumVariant name) */ v->name = "?"; }
         v->has_explicit_value = false;
         v->explicit_value     = 0;
         v->payload_type_anns  = NULL;
@@ -4513,13 +4544,13 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     iron_expect(p, IRON_TOK_RBRACE);
 
     Iron_EnumDecl *n   = ARENA_ALLOC(p->arena, Iron_EnumDecl);
-    if (!n) iron_oom_abort("parser.c:iron_parse_enum_decl EnumDecl");
+    if (!n) { /* HARD-09 REPLACE (iron_parse_enum_decl EnumDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind            = IRON_NODE_ENUM_DECL;
     n->span            = iron_span_merge(iron_token_span(p, start),
                                           iron_token_span(p, end));
     n->name            = iron_arena_strdup(p->arena, name_tok->value,
                                             strlen(name_tok->value));
-    if (!n->name) iron_oom_abort("parser.c:iron_parse_enum_decl EnumDecl name");
+    if (!n->name) { /* HARD-09 REPLACE (iron_parse_enum_decl EnumDecl name) */ n->name = "?"; }
     /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `variants` array ownership-
      * transferred to arena-allocated EnumDecl; file-header comment. */
     n->variants             = variants;
@@ -4816,7 +4847,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     }
 
     Iron_Program *prog  = ARENA_ALLOC(p->arena, Iron_Program);
-    if (!prog) iron_oom_abort("parser.c:iron_parse Program");
+    if (!prog) { /* HARD-09 REPLACE (iron_parse Program) */ p->in_error_recovery = true; return iron_make_error(p); }
     prog->kind          = IRON_NODE_PROGRAM;
     prog->span          = iron_span_merge(iron_token_span(p, start),
                                            iron_token_span(p, iron_current(p)));
