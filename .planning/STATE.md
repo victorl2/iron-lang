@@ -4,8 +4,8 @@ milestone: v2.0
 milestone_name: milestone
 status: completed
 stopped_at: Completed 64-02-PLAN.md
-last_updated: "2026-04-17T01:51:39.373Z"
-last_activity: "2026-04-17 — Phase 64 Plan 02 executed on local. 8 Iron_*_* 3D collision shims added to src/stdlib/iron_raylib.{h,c} (2 BoundingBox + 5 Ray + 1 Collision) under the existing /* ── Collision (Phase 64) ── */ markers, appended below the 11 2D shims from 64-01. raylib.iron extended with 8 func stubs (2 BoundingBox.* + 5 Ray.hit_* + 1 Collision.spheres). First Mesh 120-byte pass-by-value + first Matrix 64-byte pass-by-value as a function argument + 5 RayCollision 32-byte struct-by-value returns ALL worked first try with zero -Wlarge-by-value-copy warnings. tests/manual/collision_smoke.iron extended with 3D exerciser block (7 runtime call sites; Ray.hit_mesh runtime validation deferred to Phase 70 because instantiating a Mesh from Iron requires opaque-pointer null syntax not yet available; Task 1 clang -c validates the shim + ABI). Canonical `./build/ironc build tests/manual/collision_smoke.iron` exits 0 zero errors/warnings, produces 2,659,632-byte Mach-O arm64 executable that runs to exit 0 — validates full pipeline for all 19 Phase 64 bindings (11 2D + 8 3D). ironc invoked 1x (Task 2 smoke build). Rule 1 deviation (recurrence): plan's `self: BoundingBox` / `self: Ray` caused E0101 parser errors; renamed to `box` / `ray` per iron_net convention (matches 64-01's rect/point). _Static_assert grid unchanged at 392. COLL-02 closed. Phase 64 COMPLETE (both COLL-01 and COLL-02). Phases 65 / 70 both unblocked — Matrix-by-value and Mesh-by-value templates proven."
+last_updated: "2026-04-17T01:59:30.728Z"
+last_activity: 2026-04-17 — Phase 64 Plan 02 executed on local. 8 Iron_*_* 3D collision shims (2 BoundingBox + 5 Ray + 1 Collision) added to src/stdlib/iron_raylib.{h,c}. tests/manual/collision_smoke.iron extended with 7 runtime 3D call sites. Canonical ironc build validates all 19 Phase 64 bindings end-to-end. COLL-02 closed. Phase 64 COMPLETE.
 progress:
   total_phases: 14
   completed_phases: 4
