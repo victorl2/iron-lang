@@ -125,7 +125,7 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 ### Collision (`rshapes.c` collision + `rmodels.c` 3D collision — ~15 functions)
 
 - [x] **COLL-01**: User can test 2D rectangle/circle/point collisions — `checkCollisionRecs, checkCollisionCircles, checkCollisionCircleRec, checkCollisionCircleLine, checkCollisionPointRec, checkCollisionPointCircle, checkCollisionPointTriangle, checkCollisionPointLine, checkCollisionPointPoly, checkCollisionLines, getCollisionRec` — invoked as methods on `Rectangle`/`Vector2` where idiomatic
-- [ ] **COLL-02**: User can test 3D collisions — `checkCollisionSpheres, checkCollisionBoxes, checkCollisionBoxSphere, getRayCollisionSphere, getRayCollisionBox, getRayCollisionMesh, getRayCollisionTriangle, getRayCollisionQuad` — invoked as methods on `Ray`/`BoundingBox` where idiomatic
+- [x] **COLL-02**: User can test 3D collisions — `checkCollisionSpheres, checkCollisionBoxes, checkCollisionBoxSphere, getRayCollisionSphere, getRayCollisionBox, getRayCollisionMesh, getRayCollisionTriangle, getRayCollisionQuad` — invoked as methods on `Ray`/`BoundingBox` where idiomatic
 
 ### Textures & Images (`rtextures.c` — ~65 functions)
 
@@ -357,7 +357,7 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | DRAW2D-15 | Phase 63 | Complete |
 | DRAW2D-16 | Phase 63 | Complete |
 | COLL-01 | Phase 64 | Complete |
-| COLL-02 | Phase 64 | Pending |
+| COLL-02 | Phase 64 | Complete |
 | MATH-01 | Phase 65 | Pending |
 | MATH-02 | Phase 65 | Pending |
 | MATH-03 | Phase 65 | Pending |

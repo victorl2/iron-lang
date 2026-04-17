@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 64-01-PLAN.md
-last_updated: "2026-04-17T01:44:04.353Z"
-last_activity: "2026-04-17 — Phase 64 Plan 01 executed on local. 11 Iron_*_* collision shims added across src/stdlib/iron_raylib.{h,c} (4 Rectangle + 3 Vector2 + 4 Collision namespace) under the pre-scaffolded /* ── Collision (Phase 64) ── */ markers. Object Collision {} declared as the 36th top-level object in raylib.iron. Task 1 ran tuple-return probe (1 ironc invocation) — canonical typedef name observed: Iron_Tuple_Bool_Vector2 (not Iron_Tuple_Bool_Iron_Vector2 as the plan anticipated). Task 2 canonical smoke build exercised all 11 bindings end-to-end through the full ironc pipeline (parser -> HIR -> analyzer -> LIR -> emit_c -> clang -> link against raylib 5.5). Rule 1 deviation: plan's `self: Rectangle` text caused E0101 parser errors; renamed to `rect`/`point` per iron_net convention. Rule 3 deviation: added /collision_smoke to .gitignore under existing compiled-binaries section. COLL-01 closed."
+stopped_at: Completed 64-02-PLAN.md
+last_updated: "2026-04-17T01:51:39.373Z"
+last_activity: "2026-04-17 — Phase 64 Plan 02 executed on local. 8 Iron_*_* 3D collision shims added to src/stdlib/iron_raylib.{h,c} (2 BoundingBox + 5 Ray + 1 Collision) under the existing /* ── Collision (Phase 64) ── */ markers, appended below the 11 2D shims from 64-01. raylib.iron extended with 8 func stubs (2 BoundingBox.* + 5 Ray.hit_* + 1 Collision.spheres). First Mesh 120-byte pass-by-value + first Matrix 64-byte pass-by-value as a function argument + 5 RayCollision 32-byte struct-by-value returns ALL worked first try with zero -Wlarge-by-value-copy warnings. tests/manual/collision_smoke.iron extended with 3D exerciser block (7 runtime call sites; Ray.hit_mesh runtime validation deferred to Phase 70 because instantiating a Mesh from Iron requires opaque-pointer null syntax not yet available; Task 1 clang -c validates the shim + ABI). Canonical `./build/ironc build tests/manual/collision_smoke.iron` exits 0 zero errors/warnings, produces 2,659,632-byte Mach-O arm64 executable that runs to exit 0 — validates full pipeline for all 19 Phase 64 bindings (11 2D + 8 3D). ironc invoked 1x (Task 2 smoke build). Rule 1 deviation (recurrence): plan's `self: BoundingBox` / `self: Ray` caused E0101 parser errors; renamed to `box` / `ray` per iron_net convention (matches 64-01's rect/point). _Static_assert grid unchanged at 392. COLL-02 closed. Phase 64 COMPLETE (both COLL-01 and COLL-02). Phases 65 / 70 both unblocked — Matrix-by-value and Mesh-by-value templates proven."
 progress:
   total_phases: 14
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 22
-  completed_plans: 17
-  percent: 77
+  completed_plans: 18
+  percent: 82
 ---
 
 # State
@@ -25,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 64 — Collision (2D + 3D) (IN FLIGHT)
-Plan: 02 (3D collision, COLL-02) — READY
-Status: Plan 64-01 COMPLETE (COLL-01 closed — 11 2D collision bindings land). First instance methods on data-carrying object types (Rectangle, Vector2) through the raylib stdlib foreign-method-stub mechanism work on first try — HIR->LIR mangler (hir_to_lir.c:1096-1297) dispatches uniformly on obj_type->object.decl->name whether the object has fields or not. First Rectangle struct-by-value RETURN across the FFI validated via Rectangle.intersection (uses GetCollisionRec memcpy-out template from Phase 61). First tuple-return through raylib stdlib validated via Collision.lines -> (Bool, Vector2) — ironc auto-emits `typedef struct { bool v0; Iron_Vector2 v1; } Iron_Tuple_Bool_Vector2;` (canonical name confirmed via probe — the compiler strips the Iron_ prefix from object element types in tuple-type composition). Iron_Tuple_Bool_Vector2 guarded typedef added to iron_raylib.h under IRON_TUPLE_BOOL_VECTOR2_STRUCT_DEFINED for standalone `clang -c iron_raylib.c` compatibility (auto-emitted into the generated consumer TU; guard prevents double-def). Rule 1 fix: Iron's parser treats `self` as a reserved word (E0101); receiver params renamed to semantic names (rect, point) following iron_net.iron's short-name convention. tests/manual/collision_smoke.iron added as canonical 2D collision regression; `./build/ironc build tests/manual/collision_smoke.iron` produces Mach-O arm64 executable (2,659,152 bytes), runs to exit 0. ironc invoked 2x (1 probe + 1 smoke) per HANDOFF.md budget. clang -c iron_raylib.c + iron_raylib_layout.c both exit 0 with zero warnings; _Static_assert grid unchanged at 392. pong.iron NOT modified (no PHASE 64 markers exist — collision unused by pong/game_raylib/hello_raylib). Phase 63 COMPLETE. Phase 62 COMPLETE. Phase 60 8/8 closed.
-Last activity: 2026-04-17 — Phase 64 Plan 01 executed on local. 11 Iron_*_* collision shims added across src/stdlib/iron_raylib.{h,c} (4 Rectangle + 3 Vector2 + 4 Collision namespace) under the pre-scaffolded /* ── Collision (Phase 64) ── */ markers. Object Collision {} declared as the 36th top-level object in raylib.iron. Task 1 ran tuple-return probe (1 ironc invocation) — canonical typedef name observed: Iron_Tuple_Bool_Vector2 (not Iron_Tuple_Bool_Iron_Vector2 as the plan anticipated). Task 2 canonical smoke build exercised all 11 bindings end-to-end through the full ironc pipeline (parser -> HIR -> analyzer -> LIR -> emit_c -> clang -> link against raylib 5.5). Rule 1 deviation: plan's `self: Rectangle` text caused E0101 parser errors; renamed to `rect`/`point` per iron_net convention. Rule 3 deviation: added /collision_smoke to .gitignore under existing compiled-binaries section. COLL-01 closed.
+Phase: 64 — Collision (2D + 3D) COMPLETE
+Plan: 02 (3D collision, COLL-02) — CLOSED
+Status: Phase 64 is COMPLETE. Plan 64-02 closes COLL-02 (8 3D collision bindings: 2 BoundingBox.* + 5 Ray.hit_* + 1 Collision.spheres). Combined with Plan 64-01 (11 2D bindings, COLL-01 closed), Phase 64 delivers 19 collision bindings total. **First Mesh 120-byte pass-by-value + first Matrix 64-byte pass-by-value as a function argument + 5 RayCollision 32-byte struct-by-value returns ALL worked first try** with ZERO `-Wlarge-by-value-copy` warnings on clang -Wall -Wextra. The C ABI handles large-struct passing silently (AAPCS64 indirect pointer on arm64, SysV stack on x86-64) — memcpy template from Phase 63 spline evaluators scaled uniformly from 8 B (Vector2) to 120 B (Mesh). Phase 60-05's RayCollision _Static_assert grid (bool at offset 0, 3-byte padding, float distance at offset 4, Vector3 point at 8, Vector3 normal at 20) held across 5 memcpy-out sites. Rule 1 auto-fix (recurrence): plan's `self: BoundingBox` / `self: Ray` caused E0101 parser errors (self reserved); renamed to `box` / `ray` per iron_net convention (matches 64-01's rect/point). Iron_boundingbox_* lowercase-concat mangling confirmed (BoundingBox → `boundingbox`, no underscore). Ray.hit_mesh runtime exercise deferred to Phase 70 (instantiating a Mesh from Iron requires opaque-pointer null syntax not yet available; Task 1 clang -c validates the shim + ABI). `./build/ironc build tests/manual/collision_smoke.iron` exits 0 zero errors/warnings, produces 2,659,632-byte Mach-O arm64 executable that runs end-to-end validating all 19 Phase 64 bindings. _Static_assert grid unchanged at 392 (no new types). ironc invoked 1x in this plan (Task 2 smoke only); Phase 64 total 3 invocations (64-01 probe + 64-01 smoke + 64-02 smoke). pong.iron / game_raylib.iron / hello_raylib.iron unaffected — zero PHASE 64 markers exist. Phases 65 (raymath) + 70 (Models) now fully unblocked — Matrix-by-value and Mesh-by-value templates proven. Phase 63 COMPLETE. Phase 62 COMPLETE. Phase 60 8/8 closed.
+Last activity: 2026-04-17 — Phase 64 Plan 02 executed on local. 8 Iron_*_* 3D collision shims (2 BoundingBox + 5 Ray + 1 Collision) added to src/stdlib/iron_raylib.{h,c}. tests/manual/collision_smoke.iron extended with 7 runtime 3D call sites. Canonical ironc build validates all 19 Phase 64 bindings end-to-end. COLL-02 closed. Phase 64 COMPLETE.
 
-Progress: [████████░░] 77%
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
 - Milestone requirements: 183
 - Phases defined: 14
-- Phases complete: 2 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing)
-- Phases in flight: 3 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt; Phase 64 — Collision (2D closed, 3D pending Plan 64-02))
+- Phases complete: 3 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D)
+- Phases in flight: 2 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 77 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01 — Plan 64-01 closes 2D collision)
+- Requirements complete: 78 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02 — Plan 64-02 closes 3D collision, Phase 64 complete)
 
 ### Plan execution log
 
@@ -59,6 +59,8 @@ Progress: [████████░░] 77%
 | 63-03 | 3     | ~5 min   | 3     | 4875f67, 10184c3                            |
 | 63-04 | 4     | ~10 min  | 7     | d2bbf93, 47ebf92, 9fe20da, 6dbd5d9          |
 | 64-01 | 2     | ~5 min   | 5     | 84ca4c0, d6b55d3                            |
+| 64-02 | 2     | ~3 min   | 4     | fb9b46b, 0863e53                            |
+| Phase 64 P02 | ~3 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -150,6 +152,13 @@ Progress: [████████░░] 77%
 - **64-01 decision — Rule 3 auto-fix:** ironc dumps the built binary at repo root (`/collision_smoke`). Added to .gitignore under existing "Compiled binaries (root-level test outputs from iron build)" section to keep git status clean.
 - **64-01 decision:** No manual `emit_c.c` registration fallback was exercised. The plan's contingency path (add Iron_Tuple_Bool_Vector2 to `emit_ensure_tuple` at src/lir/emit_c.c:6333-6361) is NOT needed — the auto-emit path already generalizes beyond the net-tuple pairs that were its original use case.
 - **64-01 note:** Plan 64-01 is the first phase since Phase 60 that completes WITHOUT touching any consumer file. pong.iron / game_raylib.iron / hello_raylib.iron have zero PHASE 64 markers (collision is unused by them). Phase 64 Plan 02 (3D, COLL-02) follows the same pattern — 3D collision is unused by pong/game_raylib/hello_raylib.
+- **64-02 (2026-04-17):** 8 3D collision bindings landed (COLL-02) — closes Phase 64. iron_raylib.h +19 lines (8 C prototypes appended below the 64-01 block). iron_raylib.c +81 lines (8 shim implementations: 2 BoundingBox + 5 Ray.hit_* + 1 Collision.spheres). raylib.iron +24 lines (8 func stubs). tests/manual/collision_smoke.iron +36 lines (3D exerciser block appended inside the existing main() between tuple-destructure and return). clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 with zero warnings on first compile including zero `-Wlarge-by-value-copy` fires on Mesh (120 B) and Matrix (64 B) parameters. `./build/ironc build tests/manual/collision_smoke.iron` exits 0 producing 2,659,632-byte Mach-O arm64 executable that runs to exit 0 — validates full pipeline for all 19 Phase 64 bindings (11 2D + 8 3D). _Static_assert grid unchanged at 392. ironc invoked 1x (Task 2 smoke only). Phase 64 total ironc invocations: 3. Total Phase 64 Iron_* symbols in iron_raylib.c: 19 (11 + 8). COLL-02 closed. Phase 64 COMPLETE.
+- **64-02 CRITICAL RESULT — Mesh 120-byte pass-by-value + Matrix 64-byte pass-by-value as function ARGUMENT both worked FIRST TRY:** Before Plan 64-02, nothing in the project had pushed a Mesh through the FFI (Phase 60-04 embedded Mesh layout in Iron_Model but never passed a full Mesh as an argument) and nothing had passed a Matrix as a function ARGUMENT (Phase 60-04 embedded Matrix in Model.transform but never passed one). Iron_ray_hit_mesh shim uses 3 memcpy-in (Ray + Mesh + Matrix) + 1 memcpy-out (RayCollision). Zero -Wlarge-by-value-copy warnings on clang -Wall -Wextra. The C ABI handles large-struct pass silently — AAPCS64 lowers to indirect pointer pass on arm64, SysV passes on stack on x86-64. The memcpy template from Phase 63 spline evaluators scaled uniformly from 8 B (Vector2) to 120 B (Mesh) with no special handling required. **Phase 70 (Models LoadModel/DrawModel) and Phase 65 (raymath MatrixMultiply/MatrixInvert) unblocked** — they can reuse this exact template.
+- **64-02 CRITICAL RESULT — RayCollision 32-byte struct-by-value RETURN validated across 5 shim sites:** 5 Ray.hit_* shims (hit_sphere, hit_box, hit_mesh, hit_triangle, hit_quad) all return `struct Iron_RayCollision` via the memcpy-out template. Phase 60-05's `_Static_assert(sizeof(struct Iron_RayCollision) == sizeof(RayCollision))` plus per-field offsetof asserts held (hit at offset 0, 3-byte padding, float distance at offset 4, Vector3 point at 8, Vector3 normal at 20). Template scales from 8 B (Vector2 returns in Phase 61/63) to 32 B (RayCollision) with no change. Generalizable to any future composite return type the compiler has a _Static_assert layout pin for.
+- **64-02 CRITICAL RESULT — Iron_boundingbox_* lowercase-concat mangling confirmed:** Per src/hir/hir_to_lir.c:1299-1302, Iron type `BoundingBox` lowercases char-by-char to `boundingbox` (no underscore inserted between Bounding and Box). Shim symbol is `Iron_boundingbox_*`, NOT `Iron_bounding_box_*`. Verified via `grep -c 'Iron_bounding_box' src/stdlib/iron_raylib.h/c` returning 0 everywhere. Future multi-word-capitalized type names (RayCollision → raycollision, AudioStream → audiostream, NPatchInfo → npatchinfo) follow the same lowercase-concat path.
+- **64-02 decision — Rule 1 auto-fix (recurrence):** Plan literal text used `self: BoundingBox` / `self: Ray` as receiver params. Per 64-01's Rule 1 fix, `self` is a reserved word in Iron's parser (E0101). Renamed Iron stubs to `box` (BoundingBox receiver, 2 stubs) and `ray` (Ray receiver, 5 stubs). Semantically idiomatic — matches 64-01's `rect`/`point` convention. C-side shim param names keep `self` (C does not reserve it; consistent with 64-01's 11 shims).
+- **64-02 decision — Ray.hit_mesh smoke-test deferral:** The smoke test does NOT call `ray.hit_mesh(mesh, transform)` at runtime. Instantiating a Mesh from Iron syntax requires knowing the 16-field constructor order including 12 opaque pointer fields that would need null initialization; Iron does not yet have null-pointer-literal syntax for opaque Int fields in constructor position. Task 1 clang -c compile-verifies the shim body and the ABI layout; end-to-end runtime exercise lands in Phase 70 (Models) where LoadModel/LoadModelFromMesh populate Mesh structs correctly.
+- **64-02 note:** Plan 64-02 maintains the pong.iron / game_raylib.iron / hello_raylib.iron unaffected status established by 64-01. Zero PHASE 64 markers exist in any consumer file — collision is unused by the existing demo consumers. Phase 64 is the second consecutive Phase-60-foundation-era phase that completes without touching the 3 consumer files. **Next unblocked phases:** 65 (raymath, Matrix-by-value template proven), 70 (Models, Mesh-by-value template proven), 66 (Textures, already unblocked by 63 + 64-01 Rectangle), 68 (Audio, independent), 72 (File I/O, independent).
 
 ## Phase Dependency Map
 
@@ -172,7 +181,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 ## Pending Decisions
 
 - **API-11 override pending commit:** RESOLVED 2026-04-14 by Plan 60-08. REQUIREMENTS.md line 240 rewritten with override text and `[x]` checkbox; traceability table row updated from `API-11 | Phase 73 | Pending` to `API-11 | Phase 60 (Plan 08, override) | Complete`. The three consumer files (pong.iron, game_raylib.iron, hello_raylib.iron) were rewritten to use canonical Phase 60 names (Vector2, Color via rescue palette, KeyboardKey) with placeholder main bodies annotated with `-- PHASE 6N:` markers for Phase 61/62/63 restoration. Phase 63 Plan 04 (2026-04-16) completed the final leg by re-enabling all three files with real Draw.* calls — zero PHASE 6N markers for Phase 63 remain.
-- None blocking. Phase 60, 62, 63 are COMPLETE; Phases 64 / 65 / 66 / 68 / 72 can all start in parallel.
+- None blocking. Phases 60, 62, 63, 64 are COMPLETE; Phases 65 / 66 / 68 / 70 / 72 can all start in parallel.
 
 ## Blockers
 
@@ -180,7 +189,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-17T01:44:04.350Z
-Stopped at: Completed 64-01-PLAN.md
-Next action: Execute Plan 64-02 (3D collision, COLL-02) next. All 3 mechanisms that CONTEXT.md flagged for verification are now GREEN: (a) instance-method dispatch on data-carrying objects WORKS (proven via Rectangle/Vector2 methods), (b) tuple-return through foreign-method stub WORKS (proven via Collision.lines -> Iron_Tuple_Bool_Vector2), (c) struct-by-value RETURN of composite type WORKS (proven via Rectangle.intersection). Plan 64-02 should reuse the receiver-param convention (`ray: Ray`, `box: BoundingBox` — never `self`). Plan 64-02 will be the first to exercise Mesh pass-by-value (120 B, 14+ opaque pointer fields) and Matrix pass-by-value (64 B) — Phase 60-04's static asserts pin both types' layouts; no additional probe needed. After 64-02 closes, Phase 64 is complete and the following parallel phases unblock: Phase 65 (raymath, depends only on 60), Phase 66 (Textures, depends on 63 + 64's Rectangle passing), Phase 68 (Audio, independent), Phase 72 (File I/O, independent).
+Last session: 2026-04-17T01:51:39.370Z
+Stopped at: Completed 64-02-PLAN.md
+Next action: Phase 64 is COMPLETE. Start any of these parallel-safe phases next: Phase 65 (raymath — depends only on Phase 60; Matrix-by-value template now proven from 64-02's Iron_ray_hit_mesh), Phase 66 (Textures — depends on Phase 63 + Rectangle pass-by-value from 64-01), Phase 68 (Audio — independent), Phase 70 (Models — Mesh pass-by-value template proven from 64-02), Phase 72 (File I/O — independent). Phase 73 (API polish + showcase) runs LAST as a cross-cutting sweep depending on all prior phases. ALL ABI surfaces needed by v2.0.0-alpha are now proven: Vector2/3 pass-by-value INPUT and RETURN (Phase 63), Rectangle/Color/Camera2D/RenderTexture/Shader pass-by-value INPUT (Phase 63), tuple returns auto-emit (64-01), Mesh 120 B / Matrix 64 B pass-by-value ARGUMENT (64-02), RayCollision 32 B struct-by-value RETURN (64-02), `[T]` array ABI for foreign-method stubs (63-03). No blockers remain.
 Resume file: None

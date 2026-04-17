@@ -45,7 +45,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 61: Window & System** — Full window/monitor/clipboard/screenshot/FPS/timing bindings from `rcore.c` (completed 2026-04-15)
 - [x] **Phase 62: Input — Keyboard, Mouse, Gamepad, Touch, Gestures** — All ~40 input functions with typed enum params (completed 2026-04-16)
 - [x] **Phase 63: 2D Drawing** — Every shape/spline/gradient draw primitive plus draw-mode begin/end (completed 2026-04-16)
-- [ ] **Phase 64: Collision (2D + 3D)** — All 2D shape and 3D ray/box/sphere collision tests
+- [x] **Phase 64: Collision (2D + 3D)** — All 2D shape and 3D ray/box/sphere collision tests (completed 2026-04-17)
 - [ ] **Phase 65: raymath** — All 143 raymath helpers as idiomatic methods on Vector2/3/4, Matrix, Quaternion
 - [ ] **Phase 66: Textures & Images** — Full image + texture + render-texture + n-patch + color palette bindings
 - [ ] **Phase 67: Text & Fonts** — Custom font loading, glyph access, codepoint utilities, draw/measure text
@@ -164,8 +164,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 64-01-PLAN.md — 2D collision (COLL-01): 11 functions across Rectangle / Vector2 / Collision receivers, including tuple-return Collision.lines and [Vector2] array input via Iron_List_Iron_Vector2
-- [ ] 64-02-PLAN.md — 3D collision (COLL-02): 8 functions across BoundingBox / Ray / Collision.spheres, including RayCollision struct-by-value return (5 sites) and first Mesh (120B) + Matrix (64B) pass-by-value
+- [x] 64-01-PLAN.md — 2D collision (COLL-01): 11 functions across Rectangle / Vector2 / Collision receivers, including tuple-return Collision.lines and [Vector2] array input via Iron_List_Iron_Vector2
+- [x] 64-02-PLAN.md — 3D collision (COLL-02): 8 functions across BoundingBox / Ray / Collision.spheres, including RayCollision struct-by-value return (5 sites) and first Mesh (120B) + Matrix (64B) pass-by-value
 
 ---
 
@@ -346,7 +346,7 @@ Plans:
 | 61. Window & System | 0/4 | Complete    | 2026-04-15 |
 | 62. Input | 4/4 | Complete   | 2026-04-16 |
 | 63. 2D Drawing | 4/4 | Complete    | 2026-04-17 |
-| 64. Collision | 1/2 | In Progress|  |
+| 64. Collision | 2/2 | Complete   | 2026-04-17 |
 | 65. raymath | 0/? | Not started | - |
 | 66. Textures & Images | 0/? | Not started | - |
 | 67. Text & Fonts | 0/? | Not started | - |
