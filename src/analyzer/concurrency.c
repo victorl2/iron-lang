@@ -77,7 +77,7 @@ static bool name_is_local(ConcurrencyCtx *ctx, const char *name) {
 static void emit_err(ConcurrencyCtx *ctx, int code, Iron_Span span,
                      const char *msg) {
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-    if (!msg_copy) iron_oom_abort("concurrency.c:emit_err msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (concurrency.c:emit_err msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
                    msg_copy, NULL);
 }
@@ -85,7 +85,7 @@ static void emit_err(ConcurrencyCtx *ctx, int code, Iron_Span span,
 static void emit_warn(ConcurrencyCtx *ctx, int code, Iron_Span span,
                       const char *msg) {
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-    if (!msg_copy) iron_oom_abort("concurrency.c:emit_warn msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (concurrency.c:emit_warn msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
                    msg_copy, NULL);
 }

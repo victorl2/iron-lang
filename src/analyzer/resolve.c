@@ -73,7 +73,7 @@ static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
     char msg[256];
     snprintf(msg, sizeof(msg), "undefined identifier '%s'", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-    if (!msg_copy) iron_oom_abort("resolve.c:emit_undefined msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:emit_undefined msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_ERR_UNDEFINED_VAR, span, msg_copy, NULL);
 }
@@ -744,7 +744,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "unknown enum '%s'", pat->enum_name);
                     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN unknown-enum msg");
+                    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN unknown-enum msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
                                    msg_copy, NULL);
@@ -782,7 +782,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                              pat->enum_name, pat->variant_name);
                     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN no-variant msg");
+                    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN no-variant msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
                                    msg_copy, NULL);
@@ -806,7 +806,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg),
                              "pattern binding '%s' shadows outer variable", bname);
                     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN shadow msg");
+                    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN shadow msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_BINDING_SHADOWS, pat->span,
                                    msg_copy, NULL);
@@ -827,7 +827,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (!esym || esym->sym_kind != IRON_SYM_ENUM) {
                 Iron_Ident *ident_node = (Iron_Ident *)iron_arena_alloc(
                     ctx->arena, sizeof(Iron_Ident), _Alignof(Iron_Ident));
-                if (!ident_node) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT ident_node");
+                if (!ident_node) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT ident_node) */ return; }
                 ident_node->kind = IRON_NODE_IDENT;
                 ident_node->span = ec->span;
                 ident_node->name = ec->enum_name;
@@ -856,7 +856,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                         ctx->arena,
                         sizeof(Iron_MethodCallExpr),
                         _Alignof(Iron_MethodCallExpr));
-                    if (!mc) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT method_call");
+                    if (!mc) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT method_call) */ return; }
                     mc->span          = ec->span;
                     mc->kind          = IRON_NODE_METHOD_CALL;
                     mc->resolved_type = NULL;
@@ -876,7 +876,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                         ctx->arena,
                         sizeof(Iron_FieldAccess),
                         _Alignof(Iron_FieldAccess));
-                    if (!fa) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT field_access");
+                    if (!fa) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT field_access) */ return; }
                     fa->span          = ec->span;
                     fa->kind          = IRON_NODE_FIELD_ACCESS;
                     fa->resolved_type = NULL;
@@ -919,7 +919,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                          ec->enum_name, ec->variant_name);
                 const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT no-variant msg");
+                if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT no-variant msg) */ msg_copy = "analyzer error"; }
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNKNOWN_VARIANT, ec->span,
                                msg_copy, NULL);

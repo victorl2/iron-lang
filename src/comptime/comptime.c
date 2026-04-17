@@ -29,7 +29,7 @@ static Iron_ComptimeVal *cval_alloc(Iron_ComptimeCtx *ctx,
     Iron_ComptimeVal *v = iron_arena_alloc(ctx->arena,
                                             sizeof(Iron_ComptimeVal),
                                             _Alignof(Iron_ComptimeVal));
-    if (!v) iron_oom_abort("comptime.c:cval_alloc");
+    if (!v) { /* HARD-09 REPLACE (comptime.c:cval_alloc) */ return NULL; }
     v->kind = kind;
     return v;
 }
@@ -105,7 +105,7 @@ static Iron_ComptimeVal *comptime_cache_read(const char *source_text,
 
     Iron_ComptimeVal *val = iron_arena_alloc(arena, sizeof(Iron_ComptimeVal),
                                               _Alignof(Iron_ComptimeVal));
-    if (!val) iron_oom_abort("comptime.c:comptime_cache_read val");
+    if (!val) { /* HARD-09 REPLACE (comptime.c:comptime_cache_read val) */ return 0; }
     val->kind = (Iron_ComptimeValKind)kind_int;
 
     switch (val->kind) {
@@ -155,7 +155,7 @@ static Iron_ComptimeVal *comptime_cache_read(const char *source_text,
             fseek(f, start, SEEK_SET);
             char *buf = iron_arena_alloc(arena, (size_t)str_len + 1,
                                           _Alignof(char));
-            if (!buf) iron_oom_abort("comptime.c:comptime_cache_read string buf");
+            if (!buf) { /* HARD-09 REPLACE (comptime.c:comptime_cache_read string buf) */ return 0; }
             size_t nread = fread(buf, 1, (size_t)str_len, f);
             buf[nread] = '\0';
             /* Strip trailing newline added by cache_write */
@@ -277,7 +277,7 @@ static const char *build_call_trace(Iron_ComptimeCtx *ctx, Iron_Arena *arena) {
         iron_strbuf_appendf(&sb, "  [%d] %s\n", i, ctx->call_stack[i]);
     }
     const char *result = iron_arena_strdup(arena, sb.data, sb.len);
-    if (!result) iron_oom_abort("comptime.c:build_call_trace");
+    if (!result) { /* HARD-09 REPLACE (comptime.c:build_call_trace) */ return NULL; }
     iron_strbuf_free(&sb);
     return result;
 }
@@ -606,7 +606,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                     snprintf(msg, sizeof(msg),
                              "comptime read_file: cannot open '%s'", full_path);
                     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) iron_oom_abort("comptime.c:iron_comptime_eval_expr read_file error msg");
+                    if (!msg_copy) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr read_file error msg) */ msg_copy = "analyzer error"; }
                     emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
                                msg_copy);
                     return cval_null(ctx);
@@ -622,7 +622,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                 if (fsize < 0) fsize = 0;
                 char *fbuf = iron_arena_alloc(ctx->arena, (size_t)fsize + 1,
                                               _Alignof(char));
-                if (!fbuf) iron_oom_abort("comptime.c:iron_comptime_eval_expr read_file fbuf");
+                if (!fbuf) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr read_file fbuf) */ return NULL; }
                 size_t nread = fread(fbuf, 1, (size_t)fsize, rf);
                 fclose(rf);
                 fbuf[nread] = '\0';
@@ -716,7 +716,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             v->as_array.elems = iron_arena_alloc(ctx->arena,
                 (size_t)al->element_count * sizeof(Iron_ComptimeVal *),
                 _Alignof(Iron_ComptimeVal *));
-            if (!v->as_array.elems) iron_oom_abort("comptime.c:iron_comptime_eval_expr ARRAY_LIT elems");
+            if (!v->as_array.elems) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr ARRAY_LIT elems) */ return NULL; }
             for (int i = 0; i < al->element_count; i++) {
                 v->as_array.elems[i] = iron_comptime_eval_expr(ctx,
                                                                  al->elements[i]);
@@ -735,11 +735,11 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             v->as_struct.field_names = iron_arena_alloc(ctx->arena,
                 (size_t)ce->arg_count * sizeof(const char *),
                 _Alignof(const char *));
-            if (!v->as_struct.field_names) iron_oom_abort("comptime.c:iron_comptime_eval_expr CONSTRUCT field_names");
+            if (!v->as_struct.field_names) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr CONSTRUCT field_names) */ return NULL; }
             v->as_struct.field_vals = iron_arena_alloc(ctx->arena,
                 (size_t)ce->arg_count * sizeof(Iron_ComptimeVal *),
                 _Alignof(Iron_ComptimeVal *));
-            if (!v->as_struct.field_vals) iron_oom_abort("comptime.c:iron_comptime_eval_expr CONSTRUCT field_vals");
+            if (!v->as_struct.field_vals) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr CONSTRUCT field_vals) */ return NULL; }
             /* Look up field names from global scope */
             Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope,
                                                   ce->type_name);
@@ -1002,7 +1002,7 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
         case IRON_CVAL_INT: {
             Iron_IntLit *lit = iron_arena_alloc(arena, sizeof(Iron_IntLit),
                                                  _Alignof(Iron_IntLit));
-            if (!lit) iron_oom_abort("comptime.c:iron_comptime_val_to_ast IntLit");
+            if (!lit) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast IntLit) */ return NULL; }
             lit->span          = span;
             lit->kind          = IRON_NODE_INT_LIT;
             lit->resolved_type = resolved_type;
@@ -1010,28 +1010,28 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             char buf[32];
             snprintf(buf, sizeof(buf), "%" PRId64, val->as_int);
             lit->value = iron_arena_strdup(arena, buf, strlen(buf));
-            if (!lit->value) iron_oom_abort("comptime.c:iron_comptime_val_to_ast IntLit value");
+            if (!lit->value) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast IntLit value) */ return NULL; }
             return (Iron_Node *)lit;
         }
 
         case IRON_CVAL_FLOAT: {
             Iron_FloatLit *lit = iron_arena_alloc(arena, sizeof(Iron_FloatLit),
                                                    _Alignof(Iron_FloatLit));
-            if (!lit) iron_oom_abort("comptime.c:iron_comptime_val_to_ast FloatLit");
+            if (!lit) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast FloatLit) */ return NULL; }
             lit->span          = span;
             lit->kind          = IRON_NODE_FLOAT_LIT;
             lit->resolved_type = resolved_type;
             char buf[64];
             snprintf(buf, sizeof(buf), "%.17g", val->as_float);
             lit->value = iron_arena_strdup(arena, buf, strlen(buf));
-            if (!lit->value) iron_oom_abort("comptime.c:iron_comptime_val_to_ast FloatLit value");
+            if (!lit->value) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast FloatLit value) */ return NULL; }
             return (Iron_Node *)lit;
         }
 
         case IRON_CVAL_BOOL: {
             Iron_BoolLit *lit = iron_arena_alloc(arena, sizeof(Iron_BoolLit),
                                                   _Alignof(Iron_BoolLit));
-            if (!lit) iron_oom_abort("comptime.c:iron_comptime_val_to_ast BoolLit");
+            if (!lit) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast BoolLit) */ return NULL; }
             lit->span          = span;
             lit->kind          = IRON_NODE_BOOL_LIT;
             lit->resolved_type = resolved_type;
@@ -1042,20 +1042,20 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
         case IRON_CVAL_STRING: {
             Iron_StringLit *lit = iron_arena_alloc(arena, sizeof(Iron_StringLit),
                                                     _Alignof(Iron_StringLit));
-            if (!lit) iron_oom_abort("comptime.c:iron_comptime_val_to_ast StringLit");
+            if (!lit) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast StringLit) */ return NULL; }
             lit->span          = span;
             lit->kind          = IRON_NODE_STRING_LIT;
             lit->resolved_type = resolved_type;
             lit->value = iron_arena_strdup(arena, val->as_string.data,
                                             val->as_string.len);
-            if (!lit->value) iron_oom_abort("comptime.c:iron_comptime_val_to_ast StringLit value");
+            if (!lit->value) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast StringLit value) */ return NULL; }
             return (Iron_Node *)lit;
         }
 
         case IRON_CVAL_ARRAY: {
             Iron_ArrayLit *al = iron_arena_alloc(arena, sizeof(Iron_ArrayLit),
                                                   _Alignof(Iron_ArrayLit));
-            if (!al) iron_oom_abort("comptime.c:iron_comptime_val_to_ast ArrayLit");
+            if (!al) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast ArrayLit) */ return NULL; }
             al->span          = span;
             al->kind          = IRON_NODE_ARRAY_LIT;
             al->resolved_type = resolved_type;
@@ -1065,7 +1065,7 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             al->elements = iron_arena_alloc(arena,
                 (size_t)val->as_array.count * sizeof(Iron_Node *),
                 _Alignof(Iron_Node *));
-            if (!al->elements) iron_oom_abort("comptime.c:iron_comptime_val_to_ast ArrayLit elements");
+            if (!al->elements) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast ArrayLit elements) */ return NULL; }
             for (int i = 0; i < val->as_array.count; i++) {
                 al->elements[i] = iron_comptime_val_to_ast(
                     val->as_array.elems[i], arena, span, NULL);
