@@ -1522,6 +1522,54 @@ func Font.unload_data(glyphs: [GlyphInfo]) {}
 func Text.measure(text: String, fontSize: Int32) -> Int32 {}
 func Text.set_line_spacing(spacing: Int32) {}
 
+-- ── Plan 67-02 Task 2: Font.* instance methods — custom-font draws (TEXT-08)
+--
+-- Explicit-receiver convention: `func Font.method(font: Font, ...)`
+-- matches Font.is_valid / Font.unload above + Texture.unload /
+-- RenderTexture.unload (Phases 66-04/05) + every other instance method
+-- in this file. Lowercase-receiver form (e.g. `func font.draw_ex(...)`)
+-- would fail analyzer resolution because `font` is not a declared type.
+-- Rule 1 auto-fix carried over from Plan 67-01.
+
+-- draw_ex: axis-aligned custom-font draw at `position` with horizontal
+-- glyph spacing.
+func Font.draw_ex(font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
+
+-- draw_pro: same as draw_ex but rotates the baseline around `origin`.
+-- `rotation` is in degrees (raylib convention).
+func Font.draw_pro(font: Font, text: String, position: Vector2, origin: Vector2, rotation: Float32, fontSize: Float32, spacing: Float32, tint: Color) {}
+
+-- draw_codepoint: render a single codepoint at an exact pixel position.
+-- Use for manual glyph layout (kerning pairs, baseline alignment, ...).
+func Font.draw_codepoint(font: Font, codepoint: Int32, position: Vector2, fontSize: Float32, tint: Color) {}
+
+-- draw_codepoints: render an explicit sequence of codepoints with
+-- fixed `spacing` between each glyph (no kerning, no line breaks).
+-- Second Iron_List_int32_t INPUT call site in the raylib binding.
+func Font.draw_codepoints(font: Font, codepoints: [Int32], position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
+
+-- ── Plan 67-02 Task 2: Font.* custom-font measure (TEXT-10 custom variant)
+--
+-- Returns exact text bounds as Vector2(width, height) — height
+-- includes line spacing. Unlike Text.measure, accepts Float32 sizes
+-- and per-glyph `spacing`.
+func Font.measure_ex(font: Font, text: String, fontSize: Float32, spacing: Float32) -> Vector2 {}
+
+-- ── Plan 67-02 Task 2: Font.* glyph lookup (TEXT-11)
+--
+-- get_glyph_index: 0-based atlas slot for `codepoint`; returns the `?`
+-- fallback index on miss.
+-- get_glyph_info: FIRST GlyphInfo struct-by-value RETURN in the
+-- binding. WARNING: the returned GlyphInfo.image.data aliases the
+-- parent Font's heap glyph array — do NOT read after Font.unload.
+-- (Pitfall 7, 67-RESEARCH.md.)
+-- get_glyph_atlas_rec: source Rectangle inside the font's atlas
+-- texture; useful for manual Texture.draw_rec uploads of a single
+-- glyph bitmap.
+func Font.get_glyph_index(font: Font, codepoint: Int32) -> Int32 {}
+func Font.get_glyph_info(font: Font, codepoint: Int32) -> GlyphInfo {}
+func Font.get_glyph_atlas_rec(font: Font, codepoint: Int32) -> Rectangle {}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════

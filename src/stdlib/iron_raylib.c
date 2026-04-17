@@ -4057,6 +4057,125 @@ void Iron_text_set_line_spacing(int32_t spacing) {
     SetTextLineSpacing((int)spacing);
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Plan 67-02 Task 2: Font.* instance methods ───────────────────────
+ *
+ * TEXT-08 custom-font draws + TEXT-10 custom-font measure + TEXT-11
+ * glyph lookup. Every shim memcpys Iron_Font (48 B) by value into a
+ * raylib Font local using Phase 66-04 Texture-by-value INPUT template.
+ *
+ * Font_draw_codepoints takes Iron_List_int32_t by value — second raylib
+ * call site after Plan 67-01 Font.load_ex. The .items cast from
+ * int32_t * to const int * is safe on all 64-bit targets Iron supports
+ * (Iron Int32 is int32_t, raylib takes int which is also 32-bit).
+ *
+ * Iron_font_get_glyph_info returns Iron_GlyphInfo (40 B) by value —
+ * FIRST GlyphInfo RETURN in the binding. The embedded Image at
+ * offset 16 carries a .data pointer aliasing the parent Font's heap
+ * glyph array (Pitfall 7). Users must keep the parent Font alive as
+ * long as the returned GlyphInfo is read — documented in raylib.iron.
+ *
+ * 40 B is under clang's default -Wlarge-by-value-copy threshold (64 B),
+ * so no warning is expected for the GlyphInfo return.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* Custom-font draws (TEXT-08) */
+
+void Iron_font_draw_ex(struct Iron_Font font, Iron_String text,
+                        struct Iron_Vector2 position, float font_size,
+                        float spacing, struct Iron_Color tint) {
+    Font    f;
+    Vector2 p;
+    Color   c;
+    memcpy(&f, &font,     sizeof(Font));
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&c, &tint,     sizeof(Color));
+    DrawTextEx(f, iron_string_cstr(&text), p, font_size, spacing, c);
+}
+
+void Iron_font_draw_pro(struct Iron_Font font, Iron_String text,
+                         struct Iron_Vector2 position, struct Iron_Vector2 origin,
+                         float rotation, float font_size, float spacing,
+                         struct Iron_Color tint) {
+    Font    f;
+    Vector2 p, o;
+    Color   c;
+    memcpy(&f, &font,     sizeof(Font));
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&o, &origin,   sizeof(Vector2));
+    memcpy(&c, &tint,     sizeof(Color));
+    DrawTextPro(f, iron_string_cstr(&text), p, o, rotation, font_size, spacing, c);
+}
+
+void Iron_font_draw_codepoint(struct Iron_Font font, int32_t codepoint,
+                               struct Iron_Vector2 position, float font_size,
+                               struct Iron_Color tint) {
+    Font    f;
+    Vector2 p;
+    Color   c;
+    memcpy(&f, &font,     sizeof(Font));
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&c, &tint,     sizeof(Color));
+    DrawTextCodepoint(f, (int)codepoint, p, font_size, c);
+}
+
+void Iron_font_draw_codepoints(struct Iron_Font font, Iron_List_int32_t codepoints,
+                                struct Iron_Vector2 position, float font_size,
+                                float spacing, struct Iron_Color tint) {
+    Font    f;
+    Vector2 p;
+    Color   c;
+    memcpy(&f, &font,     sizeof(Font));
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&c, &tint,     sizeof(Color));
+    /* Iron_List_int32_t.items is int32_t *; raylib wants const int *.
+     * Same int32==int target-ABI assumption as Plan 67-01 Font.load_ex. */
+    DrawTextCodepoints(f, (const int *)codepoints.items, (int)codepoints.count,
+                        p, font_size, spacing, c);
+}
+
+/* Custom-font measure (TEXT-10) — Vector2 RETURN */
+
+struct Iron_Vector2 Iron_font_measure_ex(struct Iron_Font font, Iron_String text,
+                                          float font_size, float spacing) {
+    Font f;
+    memcpy(&f, &font, sizeof(Font));
+    Vector2 rv = MeasureTextEx(f, iron_string_cstr(&text), font_size, spacing);
+    struct Iron_Vector2 out;
+    memcpy(&out, &rv, sizeof(struct Iron_Vector2));
+    return out;
+}
+
+/* Glyph lookup (TEXT-11) */
+
+int32_t Iron_font_get_glyph_index(struct Iron_Font font, int32_t codepoint) {
+    Font f;
+    memcpy(&f, &font, sizeof(Font));
+    return (int32_t)GetGlyphIndex(f, (int)codepoint);
+}
+
+struct Iron_GlyphInfo Iron_font_get_glyph_info(struct Iron_Font font, int32_t codepoint) {
+    Font f;
+    memcpy(&f, &font, sizeof(Font));
+    /* First GlyphInfo (40 B) struct-by-value RETURN in the binding.
+     * Byte-identity pinned by Phase 60-03 _Static_assert grid — the
+     * embedded Image at offset 16 carries a .data pointer aliasing the
+     * parent Font's heap glyph array (Pitfall 7). */
+    GlyphInfo rl = GetGlyphInfo(f, (int)codepoint);
+    struct Iron_GlyphInfo out;
+    memcpy(&out, &rl, sizeof(struct Iron_GlyphInfo));
+    return out;
+}
+
+struct Iron_Rectangle Iron_font_get_glyph_atlas_rec(struct Iron_Font font, int32_t codepoint) {
+    Font f;
+    memcpy(&f, &font, sizeof(Font));
+    Rectangle rv = GetGlyphAtlasRec(f, (int)codepoint);
+    struct Iron_Rectangle out;
+    memcpy(&out, &rv, sizeof(struct Iron_Rectangle));
+    return out;
+}
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */

@@ -1331,6 +1331,53 @@ struct Iron_Image Iron_image_draw_text_ex(struct Iron_Image img, struct Iron_Fon
 int32_t Iron_text_measure(Iron_String text, int32_t font_size);
 void    Iron_text_set_line_spacing(int32_t spacing);
 
+/* ── Plan 67-02 additions (Task 2) — Font.* instance methods ───────
+ *
+ * 8 shims across 3 categories:
+ *   - TEXT-08 custom-font draws: draw_ex / draw_pro / draw_codepoint /
+ *     draw_codepoints. Every one memcpys Iron_Font (48 B) by value
+ *     into a raylib Font local. draw_codepoints additionally takes
+ *     Iron_List_int32_t by value (second raylib call site after
+ *     Plan 67-01 Font.load_ex).
+ *   - TEXT-10 custom-font measure: measure_ex — Vector2 RETURN.
+ *   - TEXT-11 glyph lookup: get_glyph_index / get_glyph_info /
+ *     get_glyph_atlas_rec. get_glyph_info is the FIRST GlyphInfo
+ *     struct-by-value RETURN in the raylib binding (40 B with
+ *     embedded Image at offset 16 — under clang's default
+ *     -Wlarge-by-value-copy 64 B threshold; Phase 60-03 _Static_assert
+ *     grid pins byte identity).
+ *
+ * Pitfall 7 (67-RESEARCH.md): GlyphInfo.image.data aliases the parent
+ * Font's heap glyph array. Do NOT use a returned GlyphInfo after the
+ * parent Font is unloaded — the Image field becomes dangling.
+ * Flagged in raylib.iron above Font.get_glyph_info.
+ */
+
+/* Custom-font draws (TEXT-08) — Font by value INPUT, void RETURN */
+void Iron_font_draw_ex(struct Iron_Font font, Iron_String text,
+                        struct Iron_Vector2 position, float font_size,
+                        float spacing, struct Iron_Color tint);
+void Iron_font_draw_pro(struct Iron_Font font, Iron_String text,
+                         struct Iron_Vector2 position, struct Iron_Vector2 origin,
+                         float rotation, float font_size, float spacing,
+                         struct Iron_Color tint);
+void Iron_font_draw_codepoint(struct Iron_Font font, int32_t codepoint,
+                               struct Iron_Vector2 position, float font_size,
+                               struct Iron_Color tint);
+void Iron_font_draw_codepoints(struct Iron_Font font, Iron_List_int32_t codepoints,
+                                struct Iron_Vector2 position, float font_size,
+                                float spacing, struct Iron_Color tint);
+
+/* Custom-font measure (TEXT-10) — Vector2 RETURN */
+struct Iron_Vector2 Iron_font_measure_ex(struct Iron_Font font, Iron_String text,
+                                          float font_size, float spacing);
+
+/* Glyph lookup (TEXT-11) — get_glyph_info is first GlyphInfo RETURN */
+int32_t                Iron_font_get_glyph_index(struct Iron_Font font, int32_t codepoint);
+struct Iron_GlyphInfo  Iron_font_get_glyph_info(struct Iron_Font font, int32_t codepoint);
+struct Iron_Rectangle  Iron_font_get_glyph_atlas_rec(struct Iron_Font font,
+                                                      int32_t codepoint);
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
