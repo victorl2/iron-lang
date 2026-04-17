@@ -369,7 +369,7 @@ Plans:
 | 65. raymath | 4/4 | Complete    | 2026-04-17 |
 | 66. Textures & Images | 5/5 | Complete    | 2026-04-17 |
 | 67. Text & Fonts | 4/4 | Complete    | 2026-04-17 |
-| 68. Audio System | 0/? | Not started | - |
+| 68. Audio System | 2/5 | In Progress|  |
 | 69. 3D Drawing & Camera3D | 0/? | Not started | - |
 | 70. Models, Meshes, Materials | 0/? | Not started | - |
 | 71. Shaders | 0/? | Not started | - |

@@ -162,10 +162,10 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 
 ### Audio (`raudio.c` — ~35 functions)
 
-- [ ] **AUDIO-01**: User can initialize and shut down the audio device — `Audio.init()`, `Audio.close()` / `initAudioDevice, closeAudioDevice, isAudioDeviceReady, setMasterVolume, getMasterVolume`
-- [ ] **AUDIO-02**: User can load and unload a `Wave` from file or memory — `Wave.load(path)`, `wave.unload()`, `Wave.loadFromMemory(type, data)`
-- [ ] **AUDIO-03**: User can convert a wave to/from a sound — `wave.toSound(), wave.copy(), wave.crop(initFrame, finalFrame), wave.format(sampleRate, sampleSize, channels), wave.loadSamples(), wave.unloadSamples()`
-- [ ] **AUDIO-04**: User can export waves — `wave.export(path), wave.exportAsCode(path)`
+- [x] **AUDIO-01**: User can initialize and shut down the audio device — `Audio.init()`, `Audio.close()` / `initAudioDevice, closeAudioDevice, isAudioDeviceReady, setMasterVolume, getMasterVolume`
+- [x] **AUDIO-02**: User can load and unload a `Wave` from file or memory — `Wave.load(path)`, `wave.unload()`, `Wave.loadFromMemory(type, data)`
+- [ ] **AUDIO-03**: User can convert a wave to/from a sound — `wave.toSound(), wave.copy(), wave.crop(initFrame, finalFrame), wave.format(sampleRate, sampleSize, channels), wave.loadSamples(), wave.unloadSamples()` (Wave-side 4-of-5 closed in Plan 68-02 — wave.copy / wave.crop / wave.format / wave.load_samples; wave.to_sound bridge deferred to Plan 68-03 alongside Sound.from_wave alias)
+- [x] **AUDIO-04**: User can export waves — `wave.export(path), wave.exportAsCode(path)`
 - [ ] **AUDIO-05**: User can load a `Sound` — `Sound.load(path), Sound.fromWave(wave), Sound.loadAlias(source)` — and unload via `sound.unload()`, `sound.unloadAlias()`
 - [ ] **AUDIO-06**: User can play, stop, pause, resume sounds — `sound.play(), sound.stop(), sound.pause(), sound.resume(), sound.isPlaying()`
 - [ ] **AUDIO-07**: User can configure sound playback — `sound.setVolume(v), sound.setPitch(p), sound.setPan(p)`
@@ -393,10 +393,10 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | TEXT-11 | Phase 67 | Complete |
 | TEXT-12 | Phase 67 | Complete |
 | TEXT-13 | Phase 67 | Complete |
-| AUDIO-01 | Phase 68 | Pending |
-| AUDIO-02 | Phase 68 | Pending |
-| AUDIO-03 | Phase 68 | Pending |
-| AUDIO-04 | Phase 68 | Pending |
+| AUDIO-01 | Phase 68 | Complete |
+| AUDIO-02 | Phase 68 | Complete |
+| AUDIO-03 | Phase 68 | Partial (Plan 02 — 4-of-5 Wave-side; wave.to_sound in Plan 03) |
+| AUDIO-04 | Phase 68 | Complete |
 | AUDIO-05 | Phase 68 | Pending |
 | AUDIO-06 | Phase 68 | Pending |
 | AUDIO-07 | Phase 68 | Pending |
