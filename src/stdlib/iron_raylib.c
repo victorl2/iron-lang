@@ -4901,6 +4901,34 @@ void Iron_sound_set_pan(struct Iron_Sound sound, float pan) {
     SetSoundPan(rl, pan);
 }
 
+/* ── AUDIO-08 Sound update (1 shim, ABI-FLOAT32 INPUT) ─────────────── */
+/*
+ * First live ABI-FLOAT32 INPUT consumer. raylib's UpdateSound
+ * signature is `void(Sound, const void *, int)`.
+ * Iron_List_float.items is already `float *` — pass directly as
+ * `const void *` (C implicitly converts any object pointer to
+ * `void *`; no cast needed).
+ *
+ * Sample count semantics (raudio.c): sampleCount is the number of
+ * individual samples (NOT frames). For stereo 16-bit:
+ *   bytes_to_write = sampleCount × sizeof(short) × 2    -- 16-bit
+ *   bytes_to_write = sampleCount × sizeof(float)        -- 32-bit
+ * raylib internally reinterprets based on sound.stream.sampleSize.
+ *
+ * Iron_List element-type mangling: the list type is `Iron_List_float`
+ * (emit_type_to_c output for Float32 = "float"). Plan 68-02 SUMMARY
+ * key finding #2 + Rule 3 Blocking deviation established this. Do
+ * NOT use `Iron_List_Iron_Float32` — that symbol does not exist.
+ */
+
+void Iron_sound_update(struct Iron_Sound sound,
+                        Iron_List_float data,
+                        int32_t sample_count) {
+    Sound rl;
+    memcpy(&rl, &sound, sizeof(Sound));
+    UpdateSound(rl, data.items, (int)sample_count);
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

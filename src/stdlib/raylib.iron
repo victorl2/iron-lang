@@ -2473,3 +2473,13 @@ func sound.is_playing() -> Bool {}
 func sound.set_volume(volume: Float32) {}
 func sound.set_pitch(pitch: Float32) {}
 func sound.set_pan(pan: Float32) {}
+
+-- ── AUDIO-08 Sound update (1 method, ABI-FLOAT32 INPUT) ────────────
+-- First live ABI-FLOAT32 INPUT consumer in the raylib binding. Mirror
+-- of Plan 68-02's wave.load_samples ABI-FLOAT32 RETURN path. The shim
+-- passes data.items directly to raylib's UpdateSound as a const void *.
+-- sampleCount is the number of individual samples (NOT frames) —
+-- raylib reinterprets based on sound.stream.sampleSize (16-bit short
+-- or 32-bit float). Callers must match the sample format declared
+-- at Sound load time.
+func sound.update(data: [Float32], sampleCount: Int32) {}

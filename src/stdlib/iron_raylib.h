@@ -1539,6 +1539,15 @@ void Iron_sound_set_volume(struct Iron_Sound sound, float volume);
 void Iron_sound_set_pitch(struct Iron_Sound sound, float pitch);
 void Iron_sound_set_pan(struct Iron_Sound sound, float pan);
 
+/* ── AUDIO-08 Sound update (1 shim, ABI-FLOAT32 INPUT) ─────────────── */
+/*
+ * First live ABI-FLOAT32 INPUT consumer in the raylib binding. Mirror
+ * of Plan 68-02's wave.load_samples (ABI-FLOAT32 RETURN). Iron_List
+ * element-type suffix is `float` (matches emit_type_to_c output, per
+ * Plan 68-02 SUMMARY deviation note — not `Iron_Float32`).
+ */
+void Iron_sound_update(struct Iron_Sound sound, Iron_List_float data, int32_t sample_count);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
