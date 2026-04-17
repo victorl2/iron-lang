@@ -1463,6 +1463,21 @@ int32_t     Iron_text_to_integer(Iron_String text);
 float       Iron_text_to_float(Iron_String text);
 
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
+/* Plan 68-01 Task 3: ABI-CALLBACK trampoline infrastructure.
+ *
+ * raylib's AudioCallback = void(*)(void *bufferData, unsigned int frames).
+ * Iron's closure ABI is Iron_Closure { void *env; void (*fn)(void *); }.
+ * The trampoline bridges them via a 16-slot fixed-size pool — raylib
+ * receives a plain function pointer (audio_cb_N) that invokes the
+ * corresponding Iron_Closure entry with (env, buffer, frames).  See
+ * Plan 68-01 Task 3 implementation in iron_raylib.c.
+ *
+ * Plan 68-05 will bind the 5 AUDIO-12 callback entries
+ * (SetAudioStreamCallback, AttachAudioStreamProcessor,
+ * DetachAudioStreamProcessor, AttachAudioMixedProcessor,
+ * DetachAudioMixedProcessor) on top of this. */
+typedef Iron_Closure Iron_AudioCallback;
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

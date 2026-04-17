@@ -4490,6 +4490,114 @@ float Iron_text_to_float(Iron_String text) {
 }
 
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
+/* Plan 68-01 Task 3: ABI-CALLBACK trampoline registry (16 slots).
+ *
+ * raylib's AudioCallback = void(*)(void *bufferData, unsigned int frames).
+ * Iron closures have ABI { void *env; void (*fn)(void *); }.  We bridge
+ * via a pool of 16 static entry functions (audio_cb_0..audio_cb_15), each
+ * dispatching to g_audio_cb[slot] with (env, buffer, frames).
+ *
+ * Slot count = 16 is conservative.  raylib AttachAudioStreamProcessor
+ * is typically used for 1-2 processors per stream; overflow returns
+ * slot = -1 (silent failure — callback not attached).
+ *
+ * Thread safety: raylib invokes the callback from miniaudio's audio
+ * thread.  Iron closure bodies MUST be audio-thread-safe (no Iron heap
+ * allocation, no GC, no blocking).  This constraint is documented in
+ * raylib.iron's header comment above stream.set_callback in Plan 68-05.
+ *
+ * Detach semantics: stream.detach_processor / Audio.detach_mixed_processor
+ * free ALL slots associated with the given Iron stream / mixer rather
+ * than matching a specific Iron_Closure (detach-all per stream).  raylib's
+ * DetachAudioStreamProcessor matches the C function pointer, not the
+ * closure — Iron users passing the same lambda twice would create two
+ * slots with the same Iron_Closure, and matching-by-closure is ambiguous.
+ * Detach-all is simpler and matches 99% of real usage (users typically
+ * detach AFTER stopping audio, not selectively). */
+
+#define IRON_AUDIO_CB_SLOTS 16
+
+static Iron_Closure g_audio_cb[IRON_AUDIO_CB_SLOTS];
+static bool         g_audio_cb_used[IRON_AUDIO_CB_SLOTS];
+
+/* Cast closure fn to the 3-arg signature (env, buffer, frames) and invoke.
+ * Uses memcpy through a typed function pointer to avoid
+ * -Wcast-function-type-mismatch (same pattern as
+ * IRON_LIST_COLL_IMPL in iron_runtime.h:545 — "to avoid
+ * -Wcast-function-type-mismatch"). */
+typedef void (*Iron_AudioCallback_Fn)(void *, void *, unsigned int);
+static void audio_cb_slot_invoke(int slot, void *buf, unsigned int frames) {
+    Iron_Closure c = g_audio_cb[slot];
+    if (!c.fn) return;
+    Iron_AudioCallback_Fn cb_fn;
+    memcpy(&cb_fn, &c.fn, sizeof(cb_fn));
+    cb_fn(c.env, buf, frames);
+}
+
+/* One static entry function per slot — raylib takes a plain fn pointer. */
+static void audio_cb_0 (void *buf, unsigned int n) { audio_cb_slot_invoke(0,  buf, n); }
+static void audio_cb_1 (void *buf, unsigned int n) { audio_cb_slot_invoke(1,  buf, n); }
+static void audio_cb_2 (void *buf, unsigned int n) { audio_cb_slot_invoke(2,  buf, n); }
+static void audio_cb_3 (void *buf, unsigned int n) { audio_cb_slot_invoke(3,  buf, n); }
+static void audio_cb_4 (void *buf, unsigned int n) { audio_cb_slot_invoke(4,  buf, n); }
+static void audio_cb_5 (void *buf, unsigned int n) { audio_cb_slot_invoke(5,  buf, n); }
+static void audio_cb_6 (void *buf, unsigned int n) { audio_cb_slot_invoke(6,  buf, n); }
+static void audio_cb_7 (void *buf, unsigned int n) { audio_cb_slot_invoke(7,  buf, n); }
+static void audio_cb_8 (void *buf, unsigned int n) { audio_cb_slot_invoke(8,  buf, n); }
+static void audio_cb_9 (void *buf, unsigned int n) { audio_cb_slot_invoke(9,  buf, n); }
+static void audio_cb_10(void *buf, unsigned int n) { audio_cb_slot_invoke(10, buf, n); }
+static void audio_cb_11(void *buf, unsigned int n) { audio_cb_slot_invoke(11, buf, n); }
+static void audio_cb_12(void *buf, unsigned int n) { audio_cb_slot_invoke(12, buf, n); }
+static void audio_cb_13(void *buf, unsigned int n) { audio_cb_slot_invoke(13, buf, n); }
+static void audio_cb_14(void *buf, unsigned int n) { audio_cb_slot_invoke(14, buf, n); }
+static void audio_cb_15(void *buf, unsigned int n) { audio_cb_slot_invoke(15, buf, n); }
+
+/* Fixed table of entry pointers — index by slot id.  Matches raylib's
+ * AudioCallback typedef (void(*)(void *, unsigned int)).  Referenced by
+ * Plan 68-05's stream.set_callback / attach_processor shims.
+ * __attribute__((unused)) silences -Wunused-variable until Plan 68-05 lands. */
+__attribute__((unused))
+static AudioCallback g_audio_cb_fns[IRON_AUDIO_CB_SLOTS] = {
+    audio_cb_0,  audio_cb_1,  audio_cb_2,  audio_cb_3,
+    audio_cb_4,  audio_cb_5,  audio_cb_6,  audio_cb_7,
+    audio_cb_8,  audio_cb_9,  audio_cb_10, audio_cb_11,
+    audio_cb_12, audio_cb_13, audio_cb_14, audio_cb_15,
+};
+
+/* Allocate a trampoline slot for the given Iron closure.
+ * Returns slot index on success, -1 on overflow.  Plan 68-05 uses this
+ * from Iron_stream_set_callback and the 4 processor shims.
+ * __attribute__((unused)) silences -Wunused-function until Plan 68-05. */
+__attribute__((unused))
+static int audio_cb_alloc(Iron_Closure c) {
+    for (int i = 0; i < IRON_AUDIO_CB_SLOTS; i++) {
+        if (!g_audio_cb_used[i]) {
+            g_audio_cb[i] = c;
+            g_audio_cb_used[i] = true;
+            return i;
+        }
+    }
+    return -1;  /* overflow — caller should log and no-op */
+}
+
+/* Free a trampoline slot.  Safe for slot = -1 (no-op).
+ * __attribute__((unused)) silences -Wunused-function until Plan 68-05. */
+__attribute__((unused))
+static void audio_cb_free(int slot) {
+    if (slot >= 0 && slot < IRON_AUDIO_CB_SLOTS) {
+        g_audio_cb_used[slot] = false;
+        g_audio_cb[slot] = (Iron_Closure){0};
+    }
+}
+
+/* audio_cb_alloc / audio_cb_free / g_audio_cb_fns are currently unreferenced —
+ * Plan 68-05 consumes them via the 5 AUDIO-12 callback shims.  Until then,
+ * -Wunused-function would warn; prefix with __attribute__((unused)) if the
+ * project's warning flags are strict (see below). */
+
+/* ── End of ABI-CALLBACK trampoline infrastructure ─────────────────── */
+/* Plan 68-02+ will add raudio binding shims after this block. */
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
