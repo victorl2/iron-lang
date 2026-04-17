@@ -88,6 +88,21 @@ struct Iron_Matrix {
     float m3, m7, m11, m15;
 };
 
+/* raymath helper types (Phase 65 Plan 03) — byte-identical to raymath's
+ * float3 (12 B) / float16 (64 B). See raymath.h lines 163-169.
+ * C adjacent-same-size-float contiguity guarantees these mirror
+ * `struct float3 { float v[3]; }` / `struct float16 { float v[16]; }`. */
+struct Iron_Float3 {
+    float x, y, z;
+};
+
+struct Iron_Float16 {
+    float m0,  m1,  m2,  m3;
+    float m4,  m5,  m6,  m7;
+    float m8,  m9,  m10, m11;
+    float m12, m13, m14, m15;
+};
+
 /* Layout-compatible mirror of raylib `Rectangle` — 4 floats. */
 struct Iron_Rectangle {
     float x;

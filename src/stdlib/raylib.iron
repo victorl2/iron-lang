@@ -137,6 +137,35 @@ object Quaternion {
     val w: Float32
 }
 
+-- raymath helper types (Phase 65 Plan 03) — byte-identical to raymath's
+-- float3 / float16 (see raymath.h lines 163-169). Out-params for
+-- Vector3.to_float_v and Matrix.to_float_v respectively. Layout pinned
+-- at compile time by ~21 _Static_assert entries in iron_raylib_layout.c.
+object Float3 {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+}
+
+object Float16 {
+    val m0:  Float32
+    val m1:  Float32
+    val m2:  Float32
+    val m3:  Float32
+    val m4:  Float32
+    val m5:  Float32
+    val m6:  Float32
+    val m7:  Float32
+    val m8:  Float32
+    val m9:  Float32
+    val m10: Float32
+    val m11: Float32
+    val m12: Float32
+    val m13: Float32
+    val m14: Float32
+    val m15: Float32
+}
+
 -- 4x4 column-major matrix — matches C `struct Matrix` from raylib.h
 -- line 239. raylib's matrix stores floats in the order m0 m4 m8 m12
 -- m1 m5 m9 m13 m2 m6 m10 m14 m3 m7 m11 m15, and that is exactly the

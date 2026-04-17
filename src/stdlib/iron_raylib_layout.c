@@ -29,6 +29,13 @@
 #include "iron_raylib.h"
 #include "raylib.h"
 
+/* raymath.h inclusion (Phase 65 Plan 03) — static-inline mode so each
+ * TU gets its own copies of the 143 raymath helpers. MUST come AFTER
+ * raylib.h so raylib's RL_VECTOR2_TYPE guards are set before raymath.h
+ * decides whether to redeclare Vector2/3/4/Matrix typedefs. */
+#define RAYMATH_STATIC_INLINE
+#include "raymath.h"
+
 /* ════════════════════════════════════════════════════════════════════
  * Struct layout assertions — one group per raylib type.
  * Added by Plans 60-02 through 60-05.
@@ -618,6 +625,41 @@ _Static_assert(SHADER_ATTRIB_VEC4  == 3, "SHADER_ATTRIB_VEC4 drifted");
 _Static_assert(NPATCH_NINE_PATCH              == 0, "NPATCH_NINE_PATCH drifted");
 _Static_assert(NPATCH_THREE_PATCH_VERTICAL    == 1, "NPATCH_THREE_PATCH_VERTICAL drifted");
 _Static_assert(NPATCH_THREE_PATCH_HORIZONTAL  == 2, "NPATCH_THREE_PATCH_HORIZONTAL drifted");
+
+/* ── Phase 65 Plan 03: Float3 / Float16 (raymath helper types) ────── */
+
+/* Float3: 1 size + 3 offsetof = 4 asserts. Byte-identical to raymath's
+ * `typedef struct float3 { float v[3]; } float3;` (raymath.h:163). */
+_Static_assert(sizeof(struct Iron_Float3) == sizeof(float3),
+               "Iron_Float3 size must equal float3");
+_Static_assert(offsetof(struct Iron_Float3, x) == offsetof(float3, v[0]),
+               "Iron_Float3.x offset must equal float3.v[0]");
+_Static_assert(offsetof(struct Iron_Float3, y) == offsetof(float3, v[1]),
+               "Iron_Float3.y offset must equal float3.v[1]");
+_Static_assert(offsetof(struct Iron_Float3, z) == offsetof(float3, v[2]),
+               "Iron_Float3.z offset must equal float3.v[2]");
+
+/* Float16: 1 size + 16 offsetof = 17 asserts. Byte-identical to
+ * raymath's `typedef struct float16 { float v[16]; } float16;`
+ * (raymath.h:169). */
+_Static_assert(sizeof(struct Iron_Float16) == sizeof(float16),
+               "Iron_Float16 size must equal float16");
+_Static_assert(offsetof(struct Iron_Float16, m0)  == offsetof(float16, v[0]),  "Iron_Float16.m0");
+_Static_assert(offsetof(struct Iron_Float16, m1)  == offsetof(float16, v[1]),  "Iron_Float16.m1");
+_Static_assert(offsetof(struct Iron_Float16, m2)  == offsetof(float16, v[2]),  "Iron_Float16.m2");
+_Static_assert(offsetof(struct Iron_Float16, m3)  == offsetof(float16, v[3]),  "Iron_Float16.m3");
+_Static_assert(offsetof(struct Iron_Float16, m4)  == offsetof(float16, v[4]),  "Iron_Float16.m4");
+_Static_assert(offsetof(struct Iron_Float16, m5)  == offsetof(float16, v[5]),  "Iron_Float16.m5");
+_Static_assert(offsetof(struct Iron_Float16, m6)  == offsetof(float16, v[6]),  "Iron_Float16.m6");
+_Static_assert(offsetof(struct Iron_Float16, m7)  == offsetof(float16, v[7]),  "Iron_Float16.m7");
+_Static_assert(offsetof(struct Iron_Float16, m8)  == offsetof(float16, v[8]),  "Iron_Float16.m8");
+_Static_assert(offsetof(struct Iron_Float16, m9)  == offsetof(float16, v[9]),  "Iron_Float16.m9");
+_Static_assert(offsetof(struct Iron_Float16, m10) == offsetof(float16, v[10]), "Iron_Float16.m10");
+_Static_assert(offsetof(struct Iron_Float16, m11) == offsetof(float16, v[11]), "Iron_Float16.m11");
+_Static_assert(offsetof(struct Iron_Float16, m12) == offsetof(float16, v[12]), "Iron_Float16.m12");
+_Static_assert(offsetof(struct Iron_Float16, m13) == offsetof(float16, v[13]), "Iron_Float16.m13");
+_Static_assert(offsetof(struct Iron_Float16, m14) == offsetof(float16, v[14]), "Iron_Float16.m14");
+_Static_assert(offsetof(struct Iron_Float16, m15) == offsetof(float16, v[15]), "Iron_Float16.m15");
 
 /* Compile-unit sentinel: ensures at least one symbol exists in the
  * object file so the linker doesn't warn about an "empty" TU. The
