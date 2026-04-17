@@ -110,7 +110,14 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.source            = source;
     p.in_error_recovery = false;
     p.v3_strict_mode    = true;
+    p.mode              = IRON_ANALYSIS_MODE_CLI; /* HARD-02: default preserves legacy behaviour */
     return p;
+}
+
+/* HARD-02: LSP mode disables the in_error_recovery effect on diagnostic
+ * emission (see iron_emit_diag below), so LSP clients see every error. */
+void iron_parser_set_mode(Iron_Parser *p, IronAnalysisMode mode) {
+    if (p) p->mode = mode;
 }
 
 /* ── Low-level helpers ───────────────────────────────────────────────────── */
@@ -178,11 +185,14 @@ static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t) {
                           t->line, t->col + (t->len > 0 ? t->len - 1 : 0));
 }
 
-/* Emit a diagnostic only if not currently suppressing cascading errors */
+/* Emit a diagnostic. In CLI mode we suppress cascading errors while in
+ * error-recovery so the user sees a clean error list (HARD-11 parity). In
+ * LSP mode (HARD-02) suppression is disabled: LSP clients dedupe. */
 static void iron_emit_diag(Iron_Parser *p, int code, Iron_Span sp, const char *msg) {
-    if (!p->in_error_recovery) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code, sp, msg, NULL);
+    if (p->in_error_recovery && p->mode != IRON_ANALYSIS_MODE_LSP) {
+        return;
     }
+    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code, sp, msg, NULL);
 }
 
 /* Emit a diagnostic and return NULL; used by iron_expect on failure */
