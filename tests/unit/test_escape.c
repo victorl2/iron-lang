@@ -55,9 +55,9 @@ static Iron_Program *run_escape(const char *src) {
     Iron_Parser  p    = iron_parser_create(tokens, count, src, "test.iron", &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
-    iron_typecheck(prog, global, &g_arena, &g_diags);
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
+    iron_typecheck(prog, global, &g_arena, &g_diags, NULL);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
     return prog;
 }
 
@@ -94,8 +94,8 @@ static Iron_Span ts(int l, int c) {
  * at index 0 (g_diags is freshly initialized per-test by setUp). */
 static Iron_Scope *resolve_quiet(Iron_Program *prog, Iron_Arena *a) {
     Iron_DiagList quiet = iron_diaglist_create();
-    Iron_Scope *global  = iron_resolve(prog, a, &quiet);
-    iron_typecheck(prog, global, a, &quiet);
+    Iron_Scope *global  = iron_resolve(prog, a, &quiet, NULL);
+    iron_typecheck(prog, global, a, &quiet, NULL);
     iron_diaglist_free(&quiet);
     return global;
 }
@@ -240,7 +240,7 @@ void test_heap_local_no_escape(void) {
     Iron_Program *prog   = make_prog(&g_arena, "heap_local", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(he->auto_free);
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
@@ -262,7 +262,7 @@ void test_heap_returned_no_free_emits_e0207(void) {
     Iron_Program *prog   = make_prog(&g_arena, "heap_ret_nofree", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_TRUE(he->escapes);
@@ -288,7 +288,7 @@ void test_heap_with_free_no_error(void) {
     Iron_Program *prog   = make_prog(&g_arena, "heap_free_ok", stmts, 3);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
 }
@@ -309,7 +309,7 @@ void test_heap_with_leak_no_error(void) {
     Iron_Program *prog   = make_prog(&g_arena, "heap_leak_ok", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_FALSE(has_error(IRON_ERR_LEAK_NON_HEAP));
@@ -335,7 +335,7 @@ void test_free_non_heap_emits_e0212(void) {
     Iron_Program *prog   = make_prog(&g_arena, "free_nonheap", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_FREE_NON_HEAP));
 }
@@ -360,7 +360,7 @@ void test_leak_non_heap_emits_e0213(void) {
     Iron_Program *prog   = make_prog(&g_arena, "leak_nonheap", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_LEAK_NON_HEAP));
 }
@@ -401,7 +401,7 @@ void test_leak_rc_emits_e0214(void) {
     if (r_sym) r_sym->type = rc_expr->resolved_type;
     leak_id->resolved_sym = r_sym;
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_LEAK_RC));
 }
@@ -439,7 +439,7 @@ void test_rc_exempt_from_escape(void) {
     if (s_sym) s_sym->type = rc_expr->resolved_type;
     ret_id->resolved_sym = s_sym;
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
 }
@@ -471,7 +471,7 @@ void test_heap_escaped_via_assign(void) {
     Iron_Program *prog   = make_prog(&g_arena, "heap_escape_assign", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_TRUE(he->escapes);
@@ -497,7 +497,7 @@ void test_heap_with_leak_return_no_error(void) {
     Iron_Program *prog   = make_prog(&g_arena, "heap_leak_ret", stmts, 3);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
 }
@@ -530,7 +530,7 @@ void test_heap_escapes_via_field_assign(void) {
     Iron_Program *prog   = make_prog(&g_arena, "field_assign_escape", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_TRUE(he->escapes);
@@ -570,7 +570,7 @@ void test_heap_escapes_via_index_assign(void) {
     Iron_Program *prog   = make_prog(&g_arena, "index_assign_escape", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_TRUE(he->escapes);
@@ -611,7 +611,7 @@ void test_heap_escapes_via_chained_field(void) {
     Iron_Program *prog   = make_prog(&g_arena, "chained_field_escape", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_TRUE(he->escapes);
@@ -650,7 +650,7 @@ void test_no_false_positive_field_assign_nonheap(void) {
     Iron_Program *prog   = make_prog(&g_arena, "field_nonheap", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
 }
@@ -679,7 +679,7 @@ void test_heap_escapes_via_call_arg(void) {
     Iron_Program *prog   = make_prog(&g_arena, "call_arg_escape", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_TRUE(he->escapes);
@@ -709,7 +709,7 @@ void test_heap_escapes_via_method_call_arg(void) {
     Iron_Program *prog   = make_prog(&g_arena, "method_call_escape", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_ESCAPE_NO_FREE));
     TEST_ASSERT_TRUE(he->escapes);
@@ -744,7 +744,7 @@ void test_no_false_positive_call_arg_nonheap(void) {
     Iron_Program *prog   = make_prog(&g_arena, "call_nonheap", stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_escape_analyze(prog, global, &g_arena, &g_diags);
+    iron_escape_analyze(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_ESCAPE_NO_FREE));
 }

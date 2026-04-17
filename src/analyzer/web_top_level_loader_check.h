@@ -23,8 +23,13 @@
 #include "util/arena.h"
 #include "cli/build.h"
 
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* HARD-05: cancel_flag (NULL = never cancel) polled at entry and walkers. */
 void iron_web_top_level_loader_check(Iron_Program *program, Iron_Arena *arena,
                                      Iron_DiagList *diags,
-                                     IronBuildTarget target);
+                                     IronBuildTarget target,
+                                     const _Atomic bool *cancel_flag);
 
 #endif /* IRON_WEB_TOP_LEVEL_LOADER_CHECK_H */

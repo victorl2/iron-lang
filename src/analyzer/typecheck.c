@@ -35,6 +35,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 /* ── Type checker context ────────────────────────────────────────────────── */
 
@@ -120,7 +122,13 @@ typedef struct {
      * Consulted by resolve_type_annotation when ann->is_self_type is true
      * to substitute the concrete enclosing type instead of Self. */
     const char        *enclosing_type_name;
+    const _Atomic bool *cancel_flag;         /* HARD-05: NULL means never cancel */
 } TypeCtx;
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
 
@@ -691,6 +699,10 @@ static NarrowEntry *narrowing_copy(TypeCtx *ctx) {
 
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
+    /* HARD-05: cancel poll at type-annotation walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) {
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
 
     if (ann_node->kind != IRON_NODE_TYPE_ANNOTATION) {
         return iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -1201,6 +1213,10 @@ static Iron_Type *resolve_array_builtin_method(const char *method,
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return iron_type_make_primitive(IRON_TYPE_VOID);
+    /* HARD-05: cancel poll at recursive expression walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) {
+        return iron_type_make_primitive(IRON_TYPE_VOID);
+    }
 
     Iron_Type *result = NULL;
 
@@ -3220,6 +3236,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
  */
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                                             Iron_Type *expected) {
+    /* HARD-05: cancel poll at expected-type walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) {
+        return iron_type_make_primitive(IRON_TYPE_VOID);
+    }
     if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
         expected->kind == IRON_TYPE_ARRAY) {
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;
@@ -3235,6 +3255,8 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
 
 static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive statement walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch ((int)(node->kind)) {
         case IRON_NODE_BLOCK: {
@@ -4305,6 +4327,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
     for (int i = 0; i < count; i++) {
+        /* HARD-05: cancel poll at top of block-statement bulk walker. */
+        if (iron_cancel_requested(ctx->cancel_flag)) return;
         check_stmt(ctx, stmts[i]);
     }
 }
@@ -4708,8 +4732,11 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
 void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
-                    Iron_Arena *arena, Iron_DiagList *diags) {
+                    Iron_Arena *arena, Iron_DiagList *diags,
+                    const _Atomic bool *cancel_flag) {
     if (!program || !global_scope) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
 
     TypeCtx ctx;
     ctx.arena               = arena;
@@ -4729,6 +4756,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.program             = program;
     ctx.spawn_result_types  = NULL;
     ctx.mono_registry       = NULL;
+    ctx.cancel_flag         = cancel_flag;
     sh_new_strdup(ctx.narrowed);
     sh_new_strdup(ctx.spawn_result_types);
     sh_new_strdup(ctx.mono_registry);

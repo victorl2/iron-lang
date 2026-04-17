@@ -15,6 +15,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Resolver context ────────────────────────────────────────────────────── */
 
@@ -27,6 +34,8 @@ typedef struct {
     Iron_MethodDecl *current_method;
     /* The object type_name for the current method. NULL outside methods. */
     const char      *current_type_name;
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -203,17 +212,23 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
 
 static void resolve_node_list(ResolveCtx *ctx, Iron_Node **nodes, int count) {
     for (int i = 0; i < count; i++) {
+        /* HARD-05: cancel poll inside bulk list walker. */
+        if (iron_cancel_requested(ctx->cancel_flag)) return;
         if (nodes[i]) resolve_node(ctx, nodes[i]);
     }
 }
 
 static void resolve_expr(ResolveCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at expression walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
     resolve_node(ctx, node);
 }
 
 static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at the top of the recursive switch dispatcher. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch (node->kind) {
         /* ── Ident resolution ─────────────────────────────────────────────── */
@@ -1149,8 +1164,11 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
 Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
-                          Iron_DiagList *diags) {
+                          Iron_DiagList *diags,
+                          const _Atomic bool *cancel_flag) {
     if (!program) return NULL;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return NULL;
 
     ResolveCtx ctx;
     ctx.arena              = arena;
@@ -1159,6 +1177,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     ctx.current_scope      = ctx.global_scope;
     ctx.current_method     = NULL;
     ctx.current_type_name  = NULL;
+    ctx.cancel_flag        = cancel_flag;
 
     /* Initialize type system */
     iron_types_init(arena);

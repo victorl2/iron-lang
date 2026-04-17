@@ -66,9 +66,9 @@ static Iron_Span ts(int l, int c) {
 
 static Iron_Scope *resolve_quiet(Iron_Program *prog, Iron_Arena *a) {
     Iron_DiagList quiet = iron_diaglist_create();
-    Iron_Scope *global  = iron_resolve(prog, a, &quiet);
-    iron_typecheck(prog, global, a, &quiet);
-    iron_escape_analyze(prog, global, a, &quiet);
+    Iron_Scope *global  = iron_resolve(prog, a, &quiet, NULL);
+    iron_typecheck(prog, global, a, &quiet, NULL);
+    iron_escape_analyze(prog, global, a, &quiet, NULL);
     iron_diaglist_free(&quiet);
     return global;
 }
@@ -267,7 +267,7 @@ void test_parallel_for_outer_mutation_error(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_mutation", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -303,7 +303,7 @@ void test_parallel_for_outer_read_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_read_ok", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -333,7 +333,7 @@ void test_parallel_for_local_mutation_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_local_ok", fn_stmts, 1);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -363,7 +363,7 @@ void test_sequential_for_outer_mutation_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "seq_ok", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -389,7 +389,7 @@ void test_parallel_for_loop_var_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_loopvar_ok", fn_stmts, 1);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -433,7 +433,7 @@ void test_parallel_for_field_mutation_error(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_field_mut", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -485,7 +485,7 @@ void test_parallel_for_index_mutation_error(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_index_mut", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -529,7 +529,7 @@ void test_parallel_for_local_field_mutation_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_local_field_ok", fn_stmts, 1);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -576,7 +576,7 @@ void test_parallel_for_partitioned_local_index_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_local_index_ok", fn_stmts, 1);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -616,7 +616,7 @@ void test_spawn_write_outer_var_race(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_write", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
@@ -658,7 +658,7 @@ void test_spawn_field_write_outer_race(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_field_write", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
@@ -708,7 +708,7 @@ void test_spawn_index_write_outer_race(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_index_write", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
@@ -743,7 +743,7 @@ void test_spawn_read_outer_var_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_read_ok", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
@@ -783,7 +783,7 @@ void test_spawn_write_local_var_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_local_ok", fn_stmts, 1);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
@@ -832,7 +832,7 @@ void test_spawn_inside_sequential_for(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_in_for", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
@@ -879,7 +879,7 @@ void test_spawn_inside_parallel_for(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_in_pfor", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     /* Should warn — spawn inside parallel-for writing outer var */
     TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
@@ -939,7 +939,7 @@ void test_multiple_spawns_same_var(void) {
     Iron_Program *prog   = make_prog(&g_arena, "multi_spawn", fn_stmts, 3);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
 }
@@ -996,7 +996,7 @@ void test_spawn_read_write_different_vars(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_rw_diff", fn_stmts, 4);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     /* s2 writes y => WARN */
     TEST_ASSERT_TRUE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
@@ -1046,7 +1046,7 @@ void test_parallel_for_nested_sequential_for_outer_mutation(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_nested_seq_mut", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_TRUE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -1082,7 +1082,7 @@ void test_parallel_for_read_only_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "par_read_only", fn_stmts, 2);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));
 }
@@ -1105,7 +1105,7 @@ void test_spawn_only_locals_ok(void) {
     Iron_Program *prog   = make_prog(&g_arena, "spawn_locals_only", fn_stmts, 1);
     Iron_Scope   *global = resolve_quiet(prog, &g_arena);
 
-    iron_concurrency_check(prog, global, &g_arena, &g_diags);
+    iron_concurrency_check(prog, global, &g_arena, &g_diags, NULL);
 
     TEST_ASSERT_FALSE(has_warning(IRON_WARN_SPAWN_DATA_RACE));
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PARALLEL_MUTATION));

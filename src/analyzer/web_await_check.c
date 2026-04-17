@@ -16,8 +16,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 #define IRON_DIAG_E0501_AWAIT_ON_WEB 501
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Context ─────────────────────────────────────────────────────────────── */
 
@@ -33,6 +40,9 @@ typedef struct {
 
     /* Call-chain stack for error rendering (stb_ds array of string pointers) */
     const char **chain;
+
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
 } WebAwaitCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -84,6 +94,8 @@ static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
 static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
                       Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive BFS walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch ((int)(node->kind)) {
         /* ── The target: flag every await expression ─────────────────────── */
@@ -202,15 +214,19 @@ static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
 /* ── Public entry point ──────────────────────────────────────────────────── */
 
 void iron_web_await_check(Iron_Program *program, Iron_Arena *arena,
-                          Iron_DiagList *diags, IronBuildTarget target) {
+                          Iron_DiagList *diags, IronBuildTarget target,
+                          const _Atomic bool *cancel_flag) {
     /* On native targets this pass is a zero-cost no-op. */
     if (target != IRON_TARGET_WEB) return;
     if (!program || program->decl_count == 0) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
 
     WebAwaitCtx ctx;
     memset(&ctx, 0, sizeof(ctx));
-    ctx.arena = arena;
-    ctx.diags = diags;
+    ctx.arena       = arena;
+    ctx.diags       = diags;
+    ctx.cancel_flag = cancel_flag;
 
     /* Build function-by-name map from top-level declarations */
     for (int i = 0; i < program->decl_count; i++) {
