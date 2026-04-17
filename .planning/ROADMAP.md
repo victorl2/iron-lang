@@ -48,7 +48,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 64: Collision (2D + 3D)** — All 2D shape and 3D ray/box/sphere collision tests (completed 2026-04-17)
 - [x] **Phase 65: raymath** — All 143 raymath helpers as idiomatic methods on Vector2/3/4, Matrix, Quaternion (completed 2026-04-17)
 - [x] **Phase 66: Textures & Images** — Full image + texture + render-texture + n-patch + color palette bindings (completed 2026-04-17)
-- [ ] **Phase 67: Text & Fonts** — Custom font loading, glyph access, codepoint utilities, draw/measure text
+- [x] **Phase 67: Text & Fonts** — Custom font loading, glyph access, codepoint utilities, draw/measure text (completed 2026-04-17)
 - [ ] **Phase 68: Audio System** — Device init, Wave, Sound, Music, AudioStream (fully independent of graphics)
 - [ ] **Phase 69: 3D Drawing & Camera3D** — All 3D primitives, camera modes, screen↔world rays
 - [ ] **Phase 70: Models, Meshes, Materials, Animations** — Model load/draw, procedural meshes, materials, bones, billboards
@@ -368,7 +368,7 @@ Plans:
 | 64. Collision | 2/2 | Complete    | 2026-04-17 |
 | 65. raymath | 4/4 | Complete    | 2026-04-17 |
 | 66. Textures & Images | 5/5 | Complete    | 2026-04-17 |
-| 67. Text & Fonts | 3/4 | In Progress|  |
+| 67. Text & Fonts | 4/4 | Complete   | 2026-04-17 |
 | 68. Audio System | 0/? | Not started | - |
 | 69. 3D Drawing & Camera3D | 0/? | Not started | - |
 | 70. Models, Meshes, Materials | 0/? | Not started | - |

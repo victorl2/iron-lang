@@ -1107,7 +1107,9 @@ struct Iron_Image Iron_image_color_replace(struct Iron_Image img, struct Iron_Co
  * Iron_List_Iron_Vector2 by-value ABI from Phase 63-03 / 63-04 (the
  * Task 1 probe-GREEN ARRAY_PARAM_LIST mode).
  *
- * ImageDrawTextEx DEFERRED to Phase 67: requires Font type.
+ * ImageDrawTextEx (Phase 66 deferral) CLOSED in Phase 67 Plan 01 —
+ * see Iron_image_draw_text_ex prototype below, adjacent to the
+ * Image.draw_text non-Ex variant.
  */
 struct Iron_Image Iron_image_clear_background(struct Iron_Image img, struct Iron_Color color);
 struct Iron_Image Iron_image_draw_pixel(struct Iron_Image img, int32_t pos_x, int32_t pos_y,
@@ -1156,7 +1158,8 @@ struct Iron_Image Iron_image_draw(struct Iron_Image img, struct Iron_Image src_i
                                    struct Iron_Color tint);
 struct Iron_Image Iron_image_draw_text(struct Iron_Image img, Iron_String text, int32_t pos_x,
                                         int32_t pos_y, int32_t font_size, struct Iron_Color color);
-/* ImageDrawTextEx DEFERRED to Phase 67: requires Font type */
+/* ImageDrawTextEx (Phase 66 deferral) CLOSED in Phase 67 Plan 01 — see
+ * Iron_image_draw_text_ex prototype adjacent to Image.text_ex below. */
 
 /* TEX-08/09/10/11 Texture + RenderTexture (Plan 66-04 Task 1 — 12 shims).
  *
