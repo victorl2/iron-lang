@@ -1548,6 +1548,46 @@ void Iron_sound_set_pan(struct Iron_Sound sound, float pan);
  */
 void Iron_sound_update(struct Iron_Sound sound, Iron_List_float data, int32_t sample_count);
 
+/* ── AUDIO-09 Music load/unload (4 shims) ──────────────────────────── */
+/*
+ * Music is 48 B (embeds AudioStream + frameCount + looping + ctxType +
+ * _ctxData opaque pointer). 2nd live ABI-UINT8 INPUT consumer after
+ * Plan 68-02 Wave.load_from_memory; same Iron_List_uint8_t pattern.
+ *
+ * Note: LoadMusicStream returns Music with ctxType=0 (MUSIC_AUDIO_NONE)
+ * and _ctxData=NULL on failure + prints TRACELOG warning. Users MUST
+ * call music.is_valid() before play/update.
+ *
+ * Is-predicate asymmetry: raylib names IsMusicValid (no Stream) but
+ * IsMusicStreamPlaying (with Stream). Iron flattens to music.is_valid
+ * + music.is_playing. The shim bodies call the correctly-named raylib
+ * function internally — the Iron surface stays consistent.
+ */
+struct Iron_Music Iron_music_load(Iron_String file_name);
+struct Iron_Music Iron_music_load_from_memory(Iron_String file_type, Iron_List_uint8_t data, int32_t data_size);
+bool              Iron_music_is_valid(struct Iron_Music music);
+void              Iron_music_unload(struct Iron_Music music);
+
+/* Music.set_looping — Iron val-field write fallback.
+ *
+ * raylib's `Music` struct exposes `bool looping` as a writable public
+ * field. Iron's `object Music` (raylib.iron:921) declares it as a
+ * `val` field, which is read-only at the Iron level. This shim
+ * provides a raylib-semantically-equivalent setter using the mutating-
+ * return-by-value pattern (Phase 66-03 template applied to an audio
+ * type): memcpy INPUT → mutate local → memcpy OUTPUT to a fresh Music
+ * value. Iron callers use `val m2 = m.set_looping(true)`.
+ *
+ * This is a defensive fallback. Pre-build ironc source inspection
+ * (typecheck.c:2758 assignment check) shows val-immutability is only
+ * enforced on IRON_NODE_IDENT targets (local variables), NOT on
+ * IRON_NODE_FIELD_ACCESS targets — so `m.looping = true` likely
+ * compiles in a future ironc rebuild. The shim lands now to keep
+ * Music.looping write semantics reachable regardless of ironc path.
+ * See 68-04 SUMMARY for the full rationale.
+ */
+struct Iron_Music Iron_music_set_looping(struct Iron_Music music, bool looping);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

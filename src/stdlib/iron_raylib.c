@@ -4929,6 +4929,77 @@ void Iron_sound_update(struct Iron_Sound sound,
     UpdateSound(rl, data.items, (int)sample_count);
 }
 
+/* ── AUDIO-09 Music load/unload (4 shims) ──────────────────────────── */
+/*
+ * Music is the largest audio struct (48 B = AudioStream 24 B + uint32
+ * frameCount + bool looping + int ctxType + void *_ctxData). Well
+ * under Phase 64's validated 120 B struct-by-value FFI ceiling.
+ *
+ * 2nd live ABI-UINT8 INPUT consumer after Plan 68-02
+ * Wave.load_from_memory — same Iron_List_uint8_t pattern. Confirms the
+ * abi-uint8 probe (Plan 68-01) works for multiple distinct type
+ * contexts.
+ *
+ * Failure semantics: LoadMusicStream sets ctxType = MUSIC_AUDIO_NONE
+ * (0) and _ctxData = NULL when the file cannot be loaded, and prints
+ * a TRACELOG warning. Callers MUST guard with music.is_valid() before
+ * play/update. IsMusicValid returns false when ctxType == NONE or
+ * _ctxData is NULL.
+ */
+
+struct Iron_Music Iron_music_load(Iron_String file_name) {
+    Music rl = LoadMusicStream(iron_string_cstr(&file_name));
+    struct Iron_Music out;
+    memcpy(&out, &rl, sizeof(struct Iron_Music));
+    return out;
+}
+
+struct Iron_Music Iron_music_load_from_memory(Iron_String file_type,
+                                                Iron_List_uint8_t data,
+                                                int32_t data_size) {
+    Music rl = LoadMusicStreamFromMemory(iron_string_cstr(&file_type),
+                                          data.items,
+                                          (int)data_size);
+    struct Iron_Music out;
+    memcpy(&out, &rl, sizeof(struct Iron_Music));
+    return out;
+}
+
+bool Iron_music_is_valid(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    return (bool)(IsMusicValid(rl) != 0);
+}
+
+void Iron_music_unload(struct Iron_Music music) {
+    Music rl;
+    memcpy(&rl, &music, sizeof(Music));
+    UnloadMusicStream(rl);
+}
+
+/*
+ * Music.set_looping — val-field write fallback, mutating-return-by-
+ * value template (Phase 66-03 applied to audio). Source analysis of
+ * src/analyzer/typecheck.c:2758 shows val-immutability is enforced
+ * ONLY on IRON_NODE_IDENT targets (local variables), NOT on
+ * IRON_NODE_FIELD_ACCESS targets — so `m.looping = true` would
+ * likely compile after the next ironc rebuild. This setter exists
+ * as the defensive portable form: works under current ironc, works
+ * after a rebuild, and makes the "return a fresh Music" semantics
+ * explicit at call sites. Iron use:
+ *
+ *     val m2 = m.set_looping(true)
+ *     m2.update()
+ */
+struct Iron_Music Iron_music_set_looping(struct Iron_Music music, bool looping) {
+    Music local;
+    memcpy(&local, &music, sizeof(Music));
+    local.looping = looping;
+    struct Iron_Music out;
+    memcpy(&out, &local, sizeof(struct Iron_Music));
+    return out;
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

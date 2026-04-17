@@ -2483,3 +2483,43 @@ func sound.set_pan(pan: Float32) {}
 -- or 32-bit float). Callers must match the sample format declared
 -- at Sound load time.
 func sound.update(data: [Float32], sampleCount: Int32) {}
+
+-- ── AUDIO-09 Music load/unload (4 methods) ─────────────────────────
+-- raylib drops the `Stream` suffix in IsMusicValid / UnloadMusicStream
+-- / LoadMusicStream at the Iron surface: Music is a stream by
+-- definition, no need to repeat the word. The Is-predicate naming
+-- asymmetry in raylib (IsMusicValid BUT IsMusicStreamPlaying) is
+-- flattened on the Iron side to music.is_valid() + music.is_playing()
+-- — both predicates without the _stream_ infix. Each shim internally
+-- dispatches to the correctly-named raylib function.
+--
+-- 2nd live ABI-UINT8 INPUT consumer: Music.load_from_memory. Same
+-- Iron_List_uint8_t pattern as Plan 68-02's Wave.load_from_memory.
+--
+-- Music.looping is raylib-writable as a public struct field. Iron
+-- declares it `val` (object Music block above). Whether
+-- `m.looping = true` compiles depends on ironc's val-field write
+-- semantics — see the Music.looping research note below AUDIO-11.
+func Music.load(filePath: String) -> Music {}
+func Music.load_from_memory(fileType: String, data: [UInt8], dataSize: Int32) -> Music {}
+func music.is_valid() -> Bool {}
+func music.unload() {}
+
+-- Music.looping write-through — Path B fallback.
+-- raylib exposes `bool looping` as a writable public C struct field,
+-- but Iron's `object Music` (above) declares it `val` (read-only at
+-- the Iron surface). music.set_looping(b) returns a fresh Music with
+-- the looping field updated, using the mutating-return-by-value
+-- pattern established for wave.crop / wave.format (Phase 66-03).
+--
+-- USAGE:
+--   val m2 = m.set_looping(true)
+--   m2.update()
+--
+-- Rationale for shipping this shim even when direct field-write is
+-- plausibly legal: ironc's assignment typecheck blocks val targets
+-- only on local-variable writes (IRON_NODE_IDENT), not on field
+-- writes (IRON_NODE_FIELD_ACCESS) — so `m.looping = true` likely
+-- compiles after an ironc rebuild. But the setter is the portable
+-- form that works in all paths; see 68-04 SUMMARY for details.
+func music.set_looping(looping: Bool) -> Music {}
