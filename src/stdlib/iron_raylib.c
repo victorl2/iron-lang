@@ -1301,35 +1301,39 @@ bool Iron_collision_spheres(struct Iron_Vector3 c1, float r1, struct Iron_Vector
 
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 
-/* Math namespace — scalar helpers (MATH-01, raymath.h lines 178-228).
+/* RMath namespace — scalar helpers (MATH-01, raymath.h lines 178-228).
  *
  * Each shim forwards to raymath's RMAPI function. With
  * RAYMATH_STATIC_INLINE defined above, the raymath symbols are
  * `static inline` — each TU owns its own copy; linker deduplicates.
  * FloatEquals returns int (1/0); we coerce to stdbool.h bool so the
- * Iron-side signature is a clean Bool. */
+ * Iron-side signature is a clean Bool.
+ *
+ * Symbol prefix is Iron_rmath_ (NOT Iron_math_) to avoid colliding
+ * with iron_math.h / math.iron's existing Math namespace surface.
+ * Iron stubs use `object RMath`. */
 
-float Iron_math_clamp(float value, float min, float max) {
+float Iron_rmath_clamp(float value, float min, float max) {
     return Clamp(value, min, max);
 }
 
-float Iron_math_lerp(float start, float end, float amount) {
+float Iron_rmath_lerp(float start, float end, float amount) {
     return Lerp(start, end, amount);
 }
 
-float Iron_math_normalize(float value, float start, float end) {
+float Iron_rmath_normalize(float value, float start, float end) {
     return Normalize(value, start, end);
 }
 
-float Iron_math_wrap(float value, float min, float max) {
+float Iron_rmath_wrap(float value, float min, float max) {
     return Wrap(value, min, max);
 }
 
-float Iron_math_remap(float value, float in_start, float in_end, float out_start, float out_end) {
+float Iron_rmath_remap(float value, float in_start, float in_end, float out_start, float out_end) {
     return Remap(value, in_start, in_end, out_start, out_end);
 }
 
-bool Iron_math_float_equals(float x, float y) {
+bool Iron_rmath_float_equals(float x, float y) {
     return (bool)(FloatEquals(x, y) != 0);
 }
 

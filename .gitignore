@@ -16,6 +16,7 @@ heap_auto_free
 strength_reduction_loop
 test_*
 /collision_smoke
+/raymath_smoke
 /arena_split_collection
 /audit_for_array_of_structs
 /capture_*

@@ -1,0 +1,84 @@
+-- tests/manual/raymath_smoke.iron — Phase 65 canonical regression test
+-- Plan 65-01 creates; Plans 65-02/03/04 APPEND (never replace).
+-- MATH-01 (RMath.*) + MATH-02 (Vector2.*) = 36 call sites total.
+
+import raylib
+
+func main() -> Int32 {
+    -- ── MATH-01: scalar helpers (6 call sites) ──────────────────────
+    val lerped  = RMath.lerp(Float32(0.0), Float32(10.0), Float32(0.5))        -- 5.0
+    val clamped = RMath.clamp(Float32(-3.0), Float32(0.0), Float32(5.0))       -- 0.0
+    val wrapped = RMath.wrap(Float32(370.0), Float32(0.0), Float32(360.0))     -- 10.0
+    val remap1  = RMath.remap(Float32(5.0), Float32(0.0), Float32(10.0), Float32(100.0), Float32(200.0))  -- 150.0
+    val normd   = RMath.normalize(Float32(7.5), Float32(5.0), Float32(10.0))   -- 0.5
+    val feq     = RMath.float_equals(Float32(3.0), Float32(3.0))               -- true
+
+    -- ── MATH-02: Vector2 methods (30 call sites) ────────────────────
+    val v  = Vector2(Float32(3.0), Float32(4.0))
+    val w  = Vector2(Float32(1.0), Float32(2.0))
+    val mat_id = Matrix(
+        Float32(1.0), Float32(0.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(1.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(1.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0)
+    )
+
+    val v_zero   = Vector2.zero()                                   -- (0, 0)
+    val v_one    = Vector2.one()                                    -- (1, 1)
+    val v_add    = v.add(w)                                         -- (4, 6)
+    val v_addval = v.add_value(Float32(1.0))                        -- (4, 5)
+    val v_sub    = v.subtract(w)                                    -- (2, 2)
+    val v_subval = v.subtract_value(Float32(1.0))                   -- (2, 3)
+    val v_len    = v.length()                                       -- 5.0
+    val v_lensq  = v.length_sqr()                                   -- 25.0
+    val v_dot    = v.dot_product(w)                                 -- 3 + 8 = 11.0
+    val v_dist   = v.distance(w)                                    -- sqrt(4+4) = 2.828...
+    val v_distsq = v.distance_sqr(w)                                -- 8.0
+    val v_angle  = v.angle(w)                                       -- non-zero radians
+    val v_langle = v.line_angle(w)                                  -- atan2(2-4, 1-3)
+    val v_scale  = v.scale(Float32(2.0))                            -- (6, 8)
+    val v_mul    = v.multiply(w)                                    -- (3, 8)
+    val v_neg    = v.negate()                                       -- (-3, -4)
+    val v_div    = v.divide(w)                                      -- (3, 2)
+    val v_norm   = v.normalize()                                    -- length 1
+    val v_xform  = v.transform(mat_id)                              -- (3, 4) (identity)
+    val v_lerp   = v.lerp(w, Float32(0.5))                          -- (2, 3)
+    val v_refl   = v.reflect(Vector2(Float32(0.0), Float32(1.0)))   -- (3, -4)
+    val v_min    = v.min(w)                                         -- (1, 2)
+    val v_max    = v.max(w)                                         -- (3, 4)
+    val v_rot    = v.rotate(Float32(0.0))                           -- (3, 4) (0 angle)
+    val v_mtow   = v.move_towards(w, Float32(1.0))                  -- toward w by 1
+    val v_inv    = v.invert()                                       -- (1/3, 1/4)
+    val v_clamp  = v.clamp(Vector2(Float32(0.0), Float32(0.0)), Vector2(Float32(2.0), Float32(2.0)))  -- (2, 2)
+    val v_clampv = v.clamp_value(Float32(0.0), Float32(2.0))        -- length clamped
+    val v_eq     = v.equals(v)                                      -- true
+    val v_refr   = v.refract(Vector2(Float32(0.0), Float32(1.0)), Float32(1.0))
+
+    -- ── MATH-08: ABI round-trip assertions (~15 sites across return shapes) ─
+    val pass_lerp    = RMath.float_equals(lerped, Float32(5.0))
+    val pass_clamped = RMath.float_equals(clamped, Float32(0.0))
+    val pass_wrapped = RMath.float_equals(wrapped, Float32(10.0))
+    val pass_remap   = RMath.float_equals(remap1, Float32(150.0))
+    val pass_normd   = RMath.float_equals(normd, Float32(0.5))
+    val pass_feq     = feq
+    val pass_vlen    = RMath.float_equals(v_len, Float32(5.0))
+    val pass_vlensq  = RMath.float_equals(v_lensq, Float32(25.0))
+    val pass_vdot    = RMath.float_equals(v_dot, Float32(11.0))
+    val pass_vdistsq = RMath.float_equals(v_distsq, Float32(8.0))
+    val pass_vaddx   = RMath.float_equals(v_add.x, Float32(4.0))
+    val pass_vaddy   = RMath.float_equals(v_add.y, Float32(6.0))
+    val pass_vzerox  = RMath.float_equals(v_zero.x, Float32(0.0))
+    val pass_vonex   = RMath.float_equals(v_one.x, Float32(1.0))
+    val pass_veq     = v_eq
+
+    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq
+
+    if all_pass {
+        print("ALL MATH-08 ASSERTS PASS")
+    } else {
+        print("MATH-08 FAILURE")
+        return Int32(1)
+    }
+
+    return Int32(0)
+}

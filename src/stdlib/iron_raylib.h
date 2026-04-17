@@ -686,13 +686,16 @@ bool Iron_collision_spheres(struct Iron_Vector3 c1, float r1, struct Iron_Vector
 
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 
-/* Math namespace — scalar helpers (MATH-01, raymath.h lines 178-228) */
-float Iron_math_clamp(float value, float min, float max);
-float Iron_math_lerp(float start, float end, float amount);
-float Iron_math_normalize(float value, float start, float end);
-float Iron_math_wrap(float value, float min, float max);
-float Iron_math_remap(float value, float in_start, float in_end, float out_start, float out_end);
-bool  Iron_math_float_equals(float x, float y);
+/* RMath namespace — scalar helpers (MATH-01, raymath.h lines 178-228).
+ * RMath (raylib-math) avoids a name clash with the Iron stdlib's
+ * pre-existing `object Math` in src/stdlib/math.iron and its
+ * Iron_math_* symbol family declared by iron_math.h. */
+float Iron_rmath_clamp(float value, float min, float max);
+float Iron_rmath_lerp(float start, float end, float amount);
+float Iron_rmath_normalize(float value, float start, float end);
+float Iron_rmath_wrap(float value, float min, float max);
+float Iron_rmath_remap(float value, float in_start, float in_end, float out_start, float out_end);
+bool  Iron_rmath_float_equals(float x, float y);
 
 /* Vector2 methods — 30 functions (MATH-02, raymath.h lines 236-620).
  * Symbol mangling Iron_vector2_<method> per hir_to_lir lowercase-type

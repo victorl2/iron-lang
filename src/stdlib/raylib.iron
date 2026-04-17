@@ -955,13 +955,21 @@ object Gestures {}
 
 -- ── Phase 65 raymath (Plan 65-01) ─────────────────────────────────
 --
--- Math namespace hosts the 6 freestanding scalar helpers from
+-- RMath namespace hosts the 6 freestanding scalar helpers from
 -- raymath.h (Clamp, Lerp, Normalize, Wrap, Remap, FloatEquals).
 -- Vector2.* method bindings land below alongside other
 -- instance-method-on-data-carrying-object surfaces.
+--
+-- NOTE: Namespace is RMath (raylib-math), NOT Math. The Iron stdlib
+-- already exposes an `object Math` in src/stdlib/math.iron with
+-- PI/TAU/E/sin/cos/lerp etc., and codegen auto-includes iron_math.h
+-- which reserves the Iron_math_* symbol prefix (emit_c.c:6710 skips
+-- auto-prototyping symbols that match). RMath lowers to Iron_rmath_*,
+-- sidestepping the collision entirely and preserving the symmetry
+-- with raylib's own R-prefix (raylib/raymath/rlgl).
 
 -- Namespace type for freestanding scalar helpers (MATH-01).
-object Math {}
+object RMath {}
 
 -- Module-level constants mirroring raymath.h EPSILON / DEG2RAD / RAD2DEG.
 -- Users write `angle * DEG2RAD`, `Math.clamp(x, -EPSILON, EPSILON)`.
@@ -972,12 +980,12 @@ val RAD2DEG: Float32 = Float32(57.29578)
 val EPSILON: Float32 = Float32(0.000001)
 
 -- MATH-01: scalar helpers (6 functions, raymath.h lines 178-228)
-func Math.clamp(value: Float32, min: Float32, max: Float32) -> Float32 {}
-func Math.lerp(start: Float32, end: Float32, amount: Float32) -> Float32 {}
-func Math.normalize(value: Float32, start: Float32, end: Float32) -> Float32 {}
-func Math.wrap(value: Float32, min: Float32, max: Float32) -> Float32 {}
-func Math.remap(value: Float32, in_start: Float32, in_end: Float32, out_start: Float32, out_end: Float32) -> Float32 {}
-func Math.float_equals(x: Float32, y: Float32) -> Bool {}
+func RMath.clamp(value: Float32, min: Float32, max: Float32) -> Float32 {}
+func RMath.lerp(start: Float32, end: Float32, amount: Float32) -> Float32 {}
+func RMath.normalize(value: Float32, start: Float32, end: Float32) -> Float32 {}
+func RMath.wrap(value: Float32, min: Float32, max: Float32) -> Float32 {}
+func RMath.remap(value: Float32, in_start: Float32, in_end: Float32, out_start: Float32, out_end: Float32) -> Float32 {}
+func RMath.float_equals(x: Float32, y: Float32) -> Bool {}
 
 -- MATH-02: Vector2 methods (30 functions, raymath.h lines 236-620).
 -- Receiver param MUST be `v` (or start/v1/v2) — `self` is reserved
