@@ -133,9 +133,9 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **TEX-02**: User can load an `Image` from raw memory, file data buffer, screen, or compressed data
 - [x] **TEX-03**: User can generate procedural images — `Image.color(w, h, color), Image.gradientLinear/Radial/Square, Image.checked, Image.whiteNoise, Image.perlinNoise, Image.cellular, Image.text, Image.textEx`
 - [x] **TEX-04**: User can save an `Image` — `image.export(path), image.exportToMemory, image.exportAsCode`
-- [ ] **TEX-05**: User can transform an image in place — `image.toPOT, image.format, image.toPOT, image.crop, image.alphaCrop, image.alphaClear, image.alphaMask, image.alphaPremultiply, image.blurGaussian, image.kernelConvolution, image.resize, image.resizeNN, image.resizeCanvas, image.mipmaps, image.dither, image.flipVertical/Horizontal, image.rotate, image.rotateCW/CCW, image.colorTint, image.colorInvert, image.colorGrayscale, image.colorContrast, image.colorBrightness, image.colorReplace`
+- [x] **TEX-05**: User can transform an image in place — `image.toPOT, image.format, image.toPOT, image.crop, image.alphaCrop, image.alphaClear, image.alphaMask, image.alphaPremultiply, image.blurGaussian, image.kernelConvolution, image.resize, image.resizeNN, image.resizeCanvas, image.mipmaps, image.dither, image.flipVertical/Horizontal, image.rotate, image.rotateCW/CCW, image.colorTint, image.colorInvert, image.colorGrayscale, image.colorContrast, image.colorBrightness, image.colorReplace`
 - [x] **TEX-06**: User can extract image data — `image.loadColors, image.loadPalette, image.getAlphaBorder, image.getColor`
-- [ ] **TEX-07**: User can draw onto an `Image` (CPU-side) — `image.drawPixel, image.drawLine, image.drawCircle, image.drawRectangle, image.draw, image.drawText` (full set of `ImageDraw*` functions)
+- [x] **TEX-07**: User can draw onto an `Image` (CPU-side) — `image.drawPixel, image.drawLine, image.drawCircle, image.drawRectangle, image.draw, image.drawText` (full set of `ImageDraw*` functions)
 - [ ] **TEX-08**: User can load a `Texture2D` from a file or `Image` — `Texture.load(path), image.toTexture()` — and unload via `texture.unload()`
 - [ ] **TEX-09**: User can load cubemaps and `RenderTexture2D` — `Texture.loadCubemap(image, layout), RenderTexture.load(width, height)` and unload them
 - [ ] **TEX-10**: User can update texture data — `texture.update(pixels), texture.updateRec(rec, pixels)`
@@ -370,9 +370,9 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | TEX-02 | Phase 66 | Complete |
 | TEX-03 | Phase 66 | Complete |
 | TEX-04 | Phase 66 | Complete |
-| TEX-05 | Phase 66 | Pending |
+| TEX-05 | Phase 66 | Complete |
 | TEX-06 | Phase 66 | Complete |
-| TEX-07 | Phase 66 | Pending |
+| TEX-07 | Phase 66 | Complete |
 | TEX-08 | Phase 66 | Pending |
 | TEX-09 | Phase 66 | Pending |
 | TEX-10 | Phase 66 | Pending |

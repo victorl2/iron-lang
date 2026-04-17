@@ -361,7 +361,7 @@ Plans:
 | 63. 2D Drawing | 4/4 | Complete    | 2026-04-17 |
 | 64. Collision | 2/2 | Complete    | 2026-04-17 |
 | 65. raymath | 4/4 | Complete    | 2026-04-17 |
-| 66. Textures & Images | 2/5 | In Progress|  |
+| 66. Textures & Images | 3/5 | In Progress|  |
 | 67. Text & Fonts | 0/? | Not started | - |
 | 68. Audio System | 0/? | Not started | - |
 | 69. 3D Drawing & Camera3D | 0/? | Not started | - |
