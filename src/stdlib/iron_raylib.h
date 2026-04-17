@@ -635,6 +635,39 @@ void Iron_draw_spline_bezier_quadratic(Iron_List_Iron_Vector2 points, int32_t co
 void Iron_draw_spline_bezier_cubic(Iron_List_Iron_Vector2 points, int32_t count, float thick, struct Iron_Color color);
 
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
+/* 2D collision (COLL-01) — 11 functions. See src/vendor/raylib/raylib.h:1304-1315. */
+
+/* Tuple typedef for Collision.lines -> (Bool, Vector2). ironc auto-emits
+ * this into the generated consumer C TU (probe confirmed canonical name
+ * `Iron_Tuple_Bool_Vector2`); guarded here so `clang -c iron_raylib.c`
+ * compiles standalone. Same belt-and-suspenders pattern as
+ * IRON_LIST_IRON_VECTOR2_STRUCT_DEFINED above. */
+#ifndef IRON_TUPLE_BOOL_VECTOR2_STRUCT_DEFINED
+#define IRON_TUPLE_BOOL_VECTOR2_STRUCT_DEFINED
+typedef struct {
+    bool                 v0;
+    struct Iron_Vector2  v1;
+} Iron_Tuple_Bool_Vector2;
+#endif
+
+/* Rectangle receiver */
+bool Iron_rectangle_collides(struct Iron_Rectangle self, struct Iron_Rectangle other);
+struct Iron_Rectangle Iron_rectangle_intersection(struct Iron_Rectangle self, struct Iron_Rectangle other);
+bool Iron_rectangle_contains_point(struct Iron_Rectangle self, struct Iron_Vector2 point);
+bool Iron_rectangle_collides_circle(struct Iron_Rectangle self, struct Iron_Vector2 center, float radius);
+
+/* Vector2 receiver */
+bool Iron_vector2_inside_triangle(struct Iron_Vector2 self, struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3);
+bool Iron_vector2_inside_polygon(struct Iron_Vector2 self, Iron_List_Iron_Vector2 points);
+bool Iron_vector2_on_line(struct Iron_Vector2 self, struct Iron_Vector2 p1, struct Iron_Vector2 p2, int32_t threshold);
+
+/* Collision namespace — 2D pair-based tests */
+bool Iron_collision_circles(struct Iron_Vector2 c1, float r1, struct Iron_Vector2 c2, float r2);
+bool Iron_collision_circle_line(struct Iron_Vector2 center, float radius, struct Iron_Vector2 p1, struct Iron_Vector2 p2);
+bool Iron_collision_point_circle(struct Iron_Vector2 point, struct Iron_Vector2 center, float radius);
+/* Collision.lines — tuple return. Typedef name from Task 1 probe. */
+Iron_Tuple_Bool_Vector2 Iron_collision_lines(struct Iron_Vector2 start_a, struct Iron_Vector2 end_a, struct Iron_Vector2 start_b, struct Iron_Vector2 end_b);
+
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */

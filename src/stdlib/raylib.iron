@@ -953,6 +953,14 @@ object Gamepad {}
 object Touch {}
 object Gestures {}
 
+-- ── Phase 64 namespace type ───────────────────────────────────────
+--
+-- Collision namespace holds pair-based 2D/3D collision tests that
+-- have no single natural receiver (circle-circle, sphere-sphere,
+-- line-line, point-circle). Natural-receiver collision methods
+-- attach to Rectangle / Vector2 / Ray / BoundingBox directly.
+object Collision {}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- Minimal color palette (Phase 60 rescue — full 26-color palette is
 -- Phase 66 TEX-14)
@@ -1572,3 +1580,30 @@ func Draw.spline_basis(points: [Vector2], count: Int32, thick: Float32, color: C
 func Draw.spline_catmull_rom(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
 func Draw.spline_bezier_quadratic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
 func Draw.spline_bezier_cubic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Collision (Phase 64)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- 2D (COLL-01) — 11 functions across Rectangle / Vector2 / Collision
+-- receivers. Methods on data-carrying objects (Rectangle, Vector2)
+-- dispatch via Iron_<lowercased_type>_<method> mangling per
+-- src/hir/hir_to_lir.c:1096-1297. Collision.* namespace holds the
+-- 4 pair-based tests with no natural receiver.
+
+-- Rectangle receiver (4 functions)
+func Rectangle.collides(self: Rectangle, other: Rectangle) -> Bool {}
+func Rectangle.intersection(self: Rectangle, other: Rectangle) -> Rectangle {}
+func Rectangle.contains_point(self: Rectangle, point: Vector2) -> Bool {}
+func Rectangle.collides_circle(self: Rectangle, center: Vector2, radius: Float32) -> Bool {}
+
+-- Vector2 receiver (3 functions)
+func Vector2.inside_triangle(self: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
+func Vector2.inside_polygon(self: Vector2, points: [Vector2]) -> Bool {}
+func Vector2.on_line(self: Vector2, p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
+
+-- Collision namespace (4 pair-based 2D tests)
+func Collision.circles(c1: Vector2, r1: Float32, c2: Vector2, r2: Float32) -> Bool {}
+func Collision.circle_line(center: Vector2, radius: Float32, p1: Vector2, p2: Vector2) -> Bool {}
+func Collision.point_circle(point: Vector2, center: Vector2, radius: Float32) -> Bool {}
+func Collision.lines(start_a: Vector2, end_a: Vector2, start_b: Vector2, end_b: Vector2) -> (Bool, Vector2) {}

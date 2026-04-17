@@ -1109,6 +1109,101 @@ void Iron_draw_spline_bezier_cubic(Iron_List_Iron_Vector2 points, int32_t count,
 }
 
 /* ── Collision (Phase 64) ─────────────────────────────────────────── */
+/* 2D collision (COLL-01) — 11 functions. */
+
+bool Iron_rectangle_collides(struct Iron_Rectangle self, struct Iron_Rectangle other) {
+    Rectangle a, b;
+    memcpy(&a, &self,  sizeof(Rectangle));
+    memcpy(&b, &other, sizeof(Rectangle));
+    return CheckCollisionRecs(a, b);
+}
+
+struct Iron_Rectangle Iron_rectangle_intersection(struct Iron_Rectangle self, struct Iron_Rectangle other) {
+    Rectangle a, b;
+    memcpy(&a, &self,  sizeof(Rectangle));
+    memcpy(&b, &other, sizeof(Rectangle));
+    Rectangle rl = GetCollisionRec(a, b);
+    struct Iron_Rectangle out;
+    memcpy(&out, &rl, sizeof(Rectangle));
+    return out;
+}
+
+bool Iron_rectangle_contains_point(struct Iron_Rectangle self, struct Iron_Vector2 point) {
+    Rectangle r;
+    Vector2 p;
+    memcpy(&r, &self,  sizeof(Rectangle));
+    memcpy(&p, &point, sizeof(Vector2));
+    return CheckCollisionPointRec(p, r);
+}
+
+bool Iron_rectangle_collides_circle(struct Iron_Rectangle self, struct Iron_Vector2 center, float radius) {
+    Rectangle r;
+    Vector2 c;
+    memcpy(&r, &self,   sizeof(Rectangle));
+    memcpy(&c, &center, sizeof(Vector2));
+    return CheckCollisionCircleRec(c, radius, r);
+}
+
+bool Iron_vector2_inside_triangle(struct Iron_Vector2 self, struct Iron_Vector2 p1, struct Iron_Vector2 p2, struct Iron_Vector2 p3) {
+    Vector2 p, a, b, c;
+    memcpy(&p, &self, sizeof(Vector2));
+    memcpy(&a, &p1,   sizeof(Vector2));
+    memcpy(&b, &p2,   sizeof(Vector2));
+    memcpy(&c, &p3,   sizeof(Vector2));
+    return CheckCollisionPointTriangle(p, a, b, c);
+}
+
+bool Iron_vector2_inside_polygon(struct Iron_Vector2 self, Iron_List_Iron_Vector2 points) {
+    Vector2 p;
+    memcpy(&p, &self, sizeof(Vector2));
+    return CheckCollisionPointPoly(p, (const Vector2 *)points.items, (int)points.count);
+}
+
+bool Iron_vector2_on_line(struct Iron_Vector2 self, struct Iron_Vector2 p1, struct Iron_Vector2 p2, int32_t threshold) {
+    Vector2 p, a, b;
+    memcpy(&p, &self, sizeof(Vector2));
+    memcpy(&a, &p1,   sizeof(Vector2));
+    memcpy(&b, &p2,   sizeof(Vector2));
+    return CheckCollisionPointLine(p, a, b, (int)threshold);
+}
+
+bool Iron_collision_circles(struct Iron_Vector2 c1, float r1, struct Iron_Vector2 c2, float r2) {
+    Vector2 a, b;
+    memcpy(&a, &c1, sizeof(Vector2));
+    memcpy(&b, &c2, sizeof(Vector2));
+    return CheckCollisionCircles(a, r1, b, r2);
+}
+
+bool Iron_collision_circle_line(struct Iron_Vector2 center, float radius, struct Iron_Vector2 p1, struct Iron_Vector2 p2) {
+    Vector2 c, a, b;
+    memcpy(&c, &center, sizeof(Vector2));
+    memcpy(&a, &p1,     sizeof(Vector2));
+    memcpy(&b, &p2,     sizeof(Vector2));
+    return CheckCollisionCircleLine(c, radius, a, b);
+}
+
+bool Iron_collision_point_circle(struct Iron_Vector2 point, struct Iron_Vector2 center, float radius) {
+    Vector2 p, c;
+    memcpy(&p, &point,  sizeof(Vector2));
+    memcpy(&c, &center, sizeof(Vector2));
+    return CheckCollisionPointCircle(p, c, radius);
+}
+
+Iron_Tuple_Bool_Vector2 Iron_collision_lines(
+        struct Iron_Vector2 start_a, struct Iron_Vector2 end_a,
+        struct Iron_Vector2 start_b, struct Iron_Vector2 end_b) {
+    Vector2 s1, e1, s2, e2, pt;
+    memcpy(&s1, &start_a, sizeof(Vector2));
+    memcpy(&e1, &end_a,   sizeof(Vector2));
+    memcpy(&s2, &start_b, sizeof(Vector2));
+    memcpy(&e2, &end_b,   sizeof(Vector2));
+    bool hit = CheckCollisionLines(s1, e1, s2, e2, &pt);
+    Iron_Tuple_Bool_Vector2 out;
+    out.v0 = hit;
+    memcpy(&out.v1, &pt, sizeof(Vector2));
+    return out;
+}
+
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
