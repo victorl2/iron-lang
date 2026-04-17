@@ -76,7 +76,7 @@ static void emit_uninit_error(InitCheckCtx *ctx, Iron_Span span,
     snprintf(buf, sizeof(buf),
              "variable '%s' may be used before initialization", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, buf, strlen(buf));
-    if (!msg_copy) iron_oom_abort("init_check.c:emit_uninit_error msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (init_check.c:emit_uninit_error msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_ERR_POSSIBLY_UNINITIALIZED, span,
                    msg_copy, NULL);
