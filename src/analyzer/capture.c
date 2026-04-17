@@ -121,6 +121,14 @@ static void collect_locals(Iron_Node *node, StrSet **locals) {
         }
         /* Do NOT recurse into nested IRON_NODE_LAMBDA — its locals are
          * handled when find_captures processes it separately. */
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* -Wswitch-enum opt-out: collect_locals only visits statement-shaped
          * kinds that can declare a new name; every other Iron_NodeKind is
          * ignored. */

@@ -181,6 +181,14 @@ static void scan_node(WebAwaitCtx *ctx, Iron_FuncDecl *enclosing,
             scan_node(ctx, enclosing, (Iron_Node *)fs->body);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* ── Default: leaf or unrecognised container — no-op ─────────────── */
         /* -Wswitch-enum opt-out: web-await BFS only needs to descend into
          * expression / control-flow kinds that can contain an AWAIT. Leaf

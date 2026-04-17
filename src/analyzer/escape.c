@@ -234,6 +234,14 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             if (ss->body) collect_stmt(ctx, ss->body);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* -Wswitch-enum opt-out: escape.c::collect_stmt only cares about
          * statements that can produce, free, leak, or escape a heap binding;
          * every other Iron_NodeKind is intentionally a no-op here. */
@@ -290,7 +298,11 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
                      * non-ident shapes. */
                     bool is_rc = false;
                     if (ls->expr->kind == IRON_NODE_IDENT) {
-                        IRON_NODE_ASSERT_KIND(ls->expr, IRON_NODE_IDENT);
+                        /* HARD-10 REPLACE (audit row escape.c:293):
+                         * guard above (ls->expr->kind == IRON_NODE_IDENT) is
+                         * the authoritative kind check; the redundant assert
+                         * has been dropped so an IRON_NODE_ERROR never aborts
+                         * here (unreachable given the guard but principled). */
                         Iron_Ident *id = (Iron_Ident *)ls->expr;
                         /* Check if it's an rc value via resolved_sym->type */
                         if (id->resolved_sym &&
@@ -385,6 +397,10 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
             if (ss->body) validate_node(ctx, ss->body);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
         /* -Wswitch-enum opt-out: validate_node only inspects stmts that can
          * reference a freed/leaked binding or introduce a nested scope. */
         default:
@@ -481,6 +497,10 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
                 if (md->body) analyze_function_body(&ctx, md->body);
                 break;
             }
+            /* HARD-04: graceful no-op on parser ErrorNode at top level. */
+            case IRON_NODE_ERROR:
+                break;
+
             /* -Wswitch-enum opt-out: escape analysis only runs on function
              * and method bodies; every other top-level Iron_NodeKind is
              * intentionally skipped. */
