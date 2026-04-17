@@ -1161,14 +1161,12 @@ int iron_build(const char *source_path, const char *output_path,
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
 
-    if (diags.error_count > 0) {
-        iron_diag_print_all(&diags, source);
-        iron_diaglist_free(&diags);
-        iron_arena_free(&arena);
-        free(source);
-        free(base_dir);
-        return 1;
-    }
+    /* HARD-03 WR-01: do NOT short-circuit on parse errors.
+     * Previously the CLI build path bailed here, diverging from `iron check`
+     * which routes through iron_analyze_buffer (which does NOT short-circuit).
+     * That divergence produced different diagnostic sets for the same
+     * malformed input across `ironc build` and `ironc check`.
+     * The has-errors gate at the analyze site below still prevents codegen. */
 
     /* 5. Analyze */
     /* Derive source directory for comptime read_file() resolution */
