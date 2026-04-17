@@ -2408,3 +2408,16 @@ func wave.is_valid() -> Bool {}
 func wave.unload() {}
 func wave.export(filePath: String) -> Bool {}
 func wave.export_as_code(filePath: String) -> Bool {}
+
+-- ── AUDIO-03 Wave manipulation (4 methods; wave.to_sound in 68-03) ──
+-- wave.copy returns a fresh Wave by value.
+-- wave.crop and wave.format use mutating-return-by-value: raylib
+-- mutates an internal copy, shim returns the mutated Wave as a fresh
+-- value. Iron sees value semantics (no aliasing). Phase 66-03 template.
+-- wave.load_samples returns [Float32] — first ABI-FLOAT32 RETURN
+-- consumer. Shim calls UnloadWaveSamples internally; no user-facing
+-- unload_samples method.
+func wave.copy() -> Wave {}
+func wave.crop(initFrame: Int32, finalFrame: Int32) -> Wave {}
+func wave.format(sampleRate: Int32, sampleSize: Int32, channels: Int32) -> Wave {}
+func wave.load_samples() -> [Float32] {}

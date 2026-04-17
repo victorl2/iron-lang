@@ -1493,6 +1493,12 @@ void             Iron_wave_unload(struct Iron_Wave wave);
 bool             Iron_wave_export(struct Iron_Wave wave, Iron_String file_name);
 bool             Iron_wave_export_as_code(struct Iron_Wave wave, Iron_String file_name);
 
+/* ── AUDIO-03 Wave manipulation (4 shims; wave.to_sound lands in 68-03) */
+struct Iron_Wave Iron_wave_copy(struct Iron_Wave wave);
+struct Iron_Wave Iron_wave_crop(struct Iron_Wave wave, int32_t init_frame, int32_t final_frame);
+struct Iron_Wave Iron_wave_format(struct Iron_Wave wave, int32_t sample_rate, int32_t sample_size, int32_t channels);
+Iron_List_float  Iron_wave_load_samples(struct Iron_Wave wave);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

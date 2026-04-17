@@ -4688,6 +4688,75 @@ bool Iron_wave_export_as_code(struct Iron_Wave wave, Iron_String file_name) {
     return (bool)(ExportWaveAsCode(rl, iron_string_cstr(&file_name)) != 0);
 }
 
+/* ── AUDIO-03 Wave manipulation (4 shims; wave.to_sound in 68-03) ──── */
+/*
+ * Pattern 1: WaveCopy returns Wave by value. Shim memcpys in+out.
+ * Pattern 2 (mutating-return-by-value, Phase 66-03 template):
+ *   WaveCrop + WaveFormat take `Wave *wave` and mutate in place.
+ *   Shim: memcpy INPUT to local, call raylib with &local, memcpy
+ *   OUT to return slot. Iron sees a fresh Wave by value.
+ * Pattern 3 (ABI-FLOAT32 RETURN, Plan 68-01 consumer):
+ *   LoadWaveSamples returns raylib-owned float*. Shim deep-copies
+ *   into Iron_List_float via _create_with_capacity + _push
+ *   loop, then calls UnloadWaveSamples to release raylib's buffer.
+ *   No user-facing unload-samples method — lifecycle owned by shim.
+ *
+ * Naming note (Plan 68-01 SUMMARY key finding #2): the monomorphized
+ * List type suffix is `float`, not `Iron_Float32` — matches Iron's
+ * emit_type_to_c output (Float32 -> "float"). Helpers are
+ * Iron_List_float_create_with_capacity + Iron_List_float_push.
+ */
+
+struct Iron_Wave Iron_wave_copy(struct Iron_Wave wave) {
+    Wave rl;
+    memcpy(&rl, &wave, sizeof(Wave));
+    Wave dup = WaveCopy(rl);
+    struct Iron_Wave out;
+    memcpy(&out, &dup, sizeof(struct Iron_Wave));
+    return out;
+}
+
+struct Iron_Wave Iron_wave_crop(struct Iron_Wave wave, int32_t init_frame, int32_t final_frame) {
+    /* Phase 66-03 mutating-return-by-value template. raylib prints
+     * TRACELOG warning on out-of-range inputs but doesn't fail;
+     * we return the (possibly unchanged) Wave — same as Image.crop. */
+    Wave local;
+    memcpy(&local, &wave, sizeof(Wave));
+    WaveCrop(&local, (int)init_frame, (int)final_frame);
+    struct Iron_Wave out;
+    memcpy(&out, &local, sizeof(struct Iron_Wave));
+    return out;
+}
+
+struct Iron_Wave Iron_wave_format(struct Iron_Wave wave, int32_t sample_rate, int32_t sample_size, int32_t channels) {
+    /* Same Phase 66-03 mutating-return-by-value shape. */
+    Wave local;
+    memcpy(&local, &wave, sizeof(Wave));
+    WaveFormat(&local, (int)sample_rate, (int)sample_size, (int)channels);
+    struct Iron_Wave out;
+    memcpy(&out, &local, sizeof(struct Iron_Wave));
+    return out;
+}
+
+Iron_List_float Iron_wave_load_samples(struct Iron_Wave wave) {
+    /* Plan 68-01 ABI-FLOAT32 RETURN consumer. Deep-copies raylib's
+     * float* into Iron-owned Iron_List_float, then calls
+     * UnloadWaveSamples so users never see the raw pointer.
+     * Length = frameCount × channels (raylib convention). */
+    Wave w;
+    memcpy(&w, &wave, sizeof(Wave));
+    float *raw = LoadWaveSamples(w);
+    int64_t n = (int64_t)(w.frameCount * w.channels);
+    Iron_List_float out = Iron_List_float_create_with_capacity(n);
+    if (raw) {
+        for (int64_t i = 0; i < n; i++) {
+            Iron_List_float_push(&out, raw[i]);
+        }
+        UnloadWaveSamples(raw);
+    }
+    return out;
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
