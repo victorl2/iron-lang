@@ -3738,6 +3738,91 @@ struct Iron_Texture Iron_texture_gen_mipmaps(struct Iron_Texture tex) {
     return out;
 }
 
+/* ════════════════════════════════════════════════════════════════════
+ * TEX-12 Texture draw variants (Plan 66-04 Task 2 — 6 shims).
+ *
+ * Texture / Vector2 / Rectangle / Color memcpy pattern from Phase 63
+ * scaled to 6 draw entry points. draw_n_patch is the first
+ * NPatchInfo-by-value INPUT across the FFI (36 B, under -Wlarge-by-
+ * value-copy 64 B threshold).
+ * ════════════════════════════════════════════════════════════════════ */
+
+void Iron_texture_draw(struct Iron_Texture tex, int32_t pos_x, int32_t pos_y,
+                        struct Iron_Color tint) {
+    Texture t;
+    Color c;
+    memcpy(&t, &tex,  sizeof(Texture));
+    memcpy(&c, &tint, sizeof(Color));
+    DrawTexture(t, (int)pos_x, (int)pos_y, c);
+}
+
+void Iron_texture_draw_v(struct Iron_Texture tex, struct Iron_Vector2 position,
+                          struct Iron_Color tint) {
+    Texture t;
+    Vector2 p;
+    Color c;
+    memcpy(&t, &tex,      sizeof(Texture));
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&c, &tint,     sizeof(Color));
+    DrawTextureV(t, p, c);
+}
+
+void Iron_texture_draw_ex(struct Iron_Texture tex, struct Iron_Vector2 position,
+                           float rotation, float scale, struct Iron_Color tint) {
+    Texture t;
+    Vector2 p;
+    Color c;
+    memcpy(&t, &tex,      sizeof(Texture));
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&c, &tint,     sizeof(Color));
+    DrawTextureEx(t, p, rotation, scale, c);
+}
+
+void Iron_texture_draw_rec(struct Iron_Texture tex, struct Iron_Rectangle source,
+                            struct Iron_Vector2 position, struct Iron_Color tint) {
+    Texture t;
+    Rectangle s;
+    Vector2 p;
+    Color c;
+    memcpy(&t, &tex,      sizeof(Texture));
+    memcpy(&s, &source,   sizeof(Rectangle));
+    memcpy(&p, &position, sizeof(Vector2));
+    memcpy(&c, &tint,     sizeof(Color));
+    DrawTextureRec(t, s, p, c);
+}
+
+void Iron_texture_draw_pro(struct Iron_Texture tex, struct Iron_Rectangle source,
+                            struct Iron_Rectangle dest, struct Iron_Vector2 origin,
+                            float rotation, struct Iron_Color tint) {
+    Texture t;
+    Rectangle s, d;
+    Vector2 o;
+    Color c;
+    memcpy(&t, &tex,    sizeof(Texture));
+    memcpy(&s, &source, sizeof(Rectangle));
+    memcpy(&d, &dest,   sizeof(Rectangle));
+    memcpy(&o, &origin, sizeof(Vector2));
+    memcpy(&c, &tint,   sizeof(Color));
+    DrawTexturePro(t, s, d, o, rotation, c);
+}
+
+void Iron_texture_draw_n_patch(struct Iron_Texture tex, struct Iron_NPatchInfo n_patch_info,
+                                struct Iron_Rectangle dest, struct Iron_Vector2 origin,
+                                float rotation, struct Iron_Color tint) {
+    Texture t;
+    NPatchInfo n;
+    Rectangle d;
+    Vector2 o;
+    Color c;
+    memcpy(&t, &tex,          sizeof(Texture));
+    /* First NPatchInfo-by-value INPUT (36 B) */
+    memcpy(&n, &n_patch_info, sizeof(NPatchInfo));
+    memcpy(&d, &dest,         sizeof(Rectangle));
+    memcpy(&o, &origin,       sizeof(Vector2));
+    memcpy(&c, &tint,         sizeof(Color));
+    DrawTextureNPatch(t, n, d, o, rotation, c);
+}
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

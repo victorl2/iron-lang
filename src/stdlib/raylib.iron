@@ -1428,6 +1428,21 @@ func Texture.set_filter(tex: Texture, filter: TextureFilter) {}
 func Texture.set_wrap(tex: Texture, wrap: TextureWrap) {}
 func Texture.gen_mipmaps(tex: Texture) -> Texture {}
 
+-- Texture draw variants (Plan 66-04 — TEX-12, 6 bindings)
+--
+-- Texture-by-value INPUT exercised across 6 draw entry points. draw_n_patch
+-- introduces the first NPatchInfo-by-value INPUT (36 B, under the
+-- -Wlarge-by-value-copy 64 B threshold). Vector2 / Rectangle / Color by-
+-- value args reuse the memcpy template from Phase 63-02/03/04 draws.
+
+-- TEX-12 draw variants
+func Texture.draw(tex: Texture, pos_x: Int32, pos_y: Int32, tint: Color) {}
+func Texture.draw_v(tex: Texture, position: Vector2, tint: Color) {}
+func Texture.draw_ex(tex: Texture, position: Vector2, rotation: Float32, scale: Float32, tint: Color) {}
+func Texture.draw_rec(tex: Texture, source: Rectangle, position: Vector2, tint: Color) {}
+func Texture.draw_pro(tex: Texture, source: Rectangle, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
+func Texture.draw_n_patch(tex: Texture, n_patch_info: NPatchInfo, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════

@@ -1176,6 +1176,30 @@ void                Iron_texture_set_filter(struct Iron_Texture tex, int32_t fil
 void                Iron_texture_set_wrap(struct Iron_Texture tex, int32_t wrap);
 struct Iron_Texture Iron_texture_gen_mipmaps(struct Iron_Texture tex);
 
+/* TEX-12 Texture draw variants (Plan 66-04 Task 2 — 6 shims).
+ *
+ * First Texture-by-value INPUT at scale (Phase 63-01's begin_texture_mode
+ * established the ABI with a single consumer; these 6 draws exercise the
+ * same memcpy template 6x). First NPatchInfo-by-value INPUT (36 B, under
+ * the -Wlarge-by-value-copy 64 B threshold) via draw_n_patch. All shims
+ * forward to DrawTexture* family which consumes Texture + Vector2 /
+ * Rectangle / Color / NPatchInfo by value.
+ */
+void Iron_texture_draw(struct Iron_Texture tex, int32_t pos_x, int32_t pos_y,
+                        struct Iron_Color tint);
+void Iron_texture_draw_v(struct Iron_Texture tex, struct Iron_Vector2 position,
+                          struct Iron_Color tint);
+void Iron_texture_draw_ex(struct Iron_Texture tex, struct Iron_Vector2 position,
+                           float rotation, float scale, struct Iron_Color tint);
+void Iron_texture_draw_rec(struct Iron_Texture tex, struct Iron_Rectangle source,
+                            struct Iron_Vector2 position, struct Iron_Color tint);
+void Iron_texture_draw_pro(struct Iron_Texture tex, struct Iron_Rectangle source,
+                            struct Iron_Rectangle dest, struct Iron_Vector2 origin,
+                            float rotation, struct Iron_Color tint);
+void Iron_texture_draw_n_patch(struct Iron_Texture tex, struct Iron_NPatchInfo n_patch_info,
+                                struct Iron_Rectangle dest, struct Iron_Vector2 origin,
+                                float rotation, struct Iron_Color tint);
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
