@@ -166,9 +166,16 @@ void test_concurrent_cancel_returns(void) {
     /* Observable: either the compile raced ahead and finished before the
      * cancel was observed (rare but possible on very fast hardware with
      * large arena budget), OR at least one IRON_ERR_CANCELLED NOTE is
-     * present. Both outcomes prove HARD-05 — cancellation did not deadlock. */
-    TEST_ASSERT_TRUE_MESSAGE(1,
-        "concurrent cancel must not hang iron_analyze_buffer");
+     * present. Both outcomes prove HARD-05 — cancellation did not deadlock.
+     *
+     * WR-04: the liveness invariant ("cancellation does not hang
+     * iron_analyze_buffer") is enforced by ctest TIMEOUT on this test
+     * binary in CMakeLists.txt — if pthread_join above hangs, the test
+     * runner kills the process and marks the test failed. There is no
+     * separate Unity assertion here because both racing outcomes (finished
+     * first / cancelled first) are legitimate, so the only useful positive
+     * assertion IS the "we got here without TIMEOUT" condition, which ctest
+     * already owns. Do not reintroduce TEST_ASSERT_TRUE_MESSAGE(1, ...). */
 
     iron_diaglist_free(&job_diags);
     iron_arena_free(&job_arena);
