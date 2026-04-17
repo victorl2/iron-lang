@@ -6,6 +6,8 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 /* ── Token kinds ─────────────────────────────────────────────────────────── */
 
@@ -139,14 +141,15 @@ typedef struct {
 /* ── Lexer ───────────────────────────────────────────────────────────────── */
 
 typedef struct {
-    const char   *src;       /* source text (not owned) */
-    size_t        src_len;   /* length in bytes */
-    size_t        pos;       /* current byte position */
-    uint32_t      line;      /* current 1-indexed line */
-    uint32_t      col;       /* current 1-indexed column */
-    const char   *filename;  /* source file name for diagnostics */
-    Iron_Arena   *arena;     /* arena for token values and diagnostic messages */
-    Iron_DiagList *diags;    /* diagnostic list to emit errors into */
+    const char         *src;       /* source text (not owned) */
+    size_t              src_len;   /* length in bytes */
+    size_t              pos;       /* current byte position */
+    uint32_t            line;      /* current 1-indexed line */
+    uint32_t            col;       /* current 1-indexed column */
+    const char         *filename;  /* source file name for diagnostics */
+    Iron_Arena         *arena;     /* arena for token values and diagnostic messages */
+    Iron_DiagList      *diags;     /* diagnostic list to emit errors into */
+    const _Atomic bool *cancel_flag; /* HARD-05: NULL means never cancel */
 } Iron_Lexer;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */
@@ -154,6 +157,12 @@ typedef struct {
 /* Create a lexer over `src` (not copied; must outlive the lexer). */
 Iron_Lexer iron_lexer_create(const char *src, const char *filename,
                               Iron_Arena *arena, Iron_DiagList *diags);
+
+/* HARD-05: attach a caller-owned _Atomic bool *cancel flag to the lexer.
+ * NULL means "never cancel" (the default from iron_lexer_create). When the
+ * flag becomes true during iron_lex_all, lexing stops at the next safepoint
+ * and emits a single NOTE-level IRON_ERR_CANCELLED diagnostic. */
+void iron_lexer_set_cancel_flag(Iron_Lexer *l, const _Atomic bool *flag);
 
 /* Lex all tokens from the source. Returns a stb_ds dynamic array of tokens.
  * The final token is always IRON_TOK_EOF.
