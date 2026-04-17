@@ -732,6 +732,55 @@ struct Iron_Vector2 Iron_vector2_clamp_value(struct Iron_Vector2 self, float min
 bool Iron_vector2_equals(struct Iron_Vector2 self, struct Iron_Vector2 other);
 struct Iron_Vector2 Iron_vector2_refract(struct Iron_Vector2 self, struct Iron_Vector2 n, float r);
 
+/* Vector3 methods — 38 functions (MATH-03, raymath.h lines 621-1140).
+ * Symbol mangling Iron_vector3_<method> per hir_to_lir lowercase-type
+ * naming. Receiver param is named `self` on the C side (C does not
+ * reserve it); Iron side uses `v`/`v1`/`source`/`p` per E0101 rule.
+ * Cross-type args: Vector3+Quaternion (rotate_by_quaternion),
+ * Vector3+Matrix (transform), Vector3+Matrix+Matrix (unproject) each
+ * use one memcpy per struct-kind arg (Phase 64 Iron_ray_hit_mesh
+ * precedent).
+ * 2 functions deferred:
+ *   - to_float_v (Float3 return) → Plan 65-03
+ *   - ortho_normalize (out-param 2-tuple) → Plan 65-04 */
+struct Iron_Vector3 Iron_vector3_zero(void);
+struct Iron_Vector3 Iron_vector3_one(void);
+struct Iron_Vector3 Iron_vector3_add(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_add_value(struct Iron_Vector3 self, float add);
+struct Iron_Vector3 Iron_vector3_subtract(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_subtract_value(struct Iron_Vector3 self, float sub);
+struct Iron_Vector3 Iron_vector3_scale(struct Iron_Vector3 self, float scalar);
+struct Iron_Vector3 Iron_vector3_multiply(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_cross_product(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_perpendicular(struct Iron_Vector3 self);
+float Iron_vector3_length(struct Iron_Vector3 self);
+float Iron_vector3_length_sqr(struct Iron_Vector3 self);
+float Iron_vector3_dot_product(struct Iron_Vector3 self, struct Iron_Vector3 other);
+float Iron_vector3_distance(struct Iron_Vector3 self, struct Iron_Vector3 other);
+float Iron_vector3_distance_sqr(struct Iron_Vector3 self, struct Iron_Vector3 other);
+float Iron_vector3_angle(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_negate(struct Iron_Vector3 self);
+struct Iron_Vector3 Iron_vector3_divide(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_normalize(struct Iron_Vector3 self);
+struct Iron_Vector3 Iron_vector3_project(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_reject(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_transform(struct Iron_Vector3 self, struct Iron_Matrix mat);
+struct Iron_Vector3 Iron_vector3_rotate_by_quaternion(struct Iron_Vector3 self, struct Iron_Quaternion q);
+struct Iron_Vector3 Iron_vector3_rotate_by_axis_angle(struct Iron_Vector3 self, struct Iron_Vector3 axis, float angle);
+struct Iron_Vector3 Iron_vector3_move_towards(struct Iron_Vector3 self, struct Iron_Vector3 target, float max_distance);
+struct Iron_Vector3 Iron_vector3_lerp(struct Iron_Vector3 self, struct Iron_Vector3 other, float amount);
+struct Iron_Vector3 Iron_vector3_cubic_hermite(struct Iron_Vector3 self, struct Iron_Vector3 tangent1, struct Iron_Vector3 v2, struct Iron_Vector3 tangent2, float amount);
+struct Iron_Vector3 Iron_vector3_reflect(struct Iron_Vector3 self, struct Iron_Vector3 normal);
+struct Iron_Vector3 Iron_vector3_min(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_max(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_barycenter(struct Iron_Vector3 self, struct Iron_Vector3 a, struct Iron_Vector3 b, struct Iron_Vector3 c);
+struct Iron_Vector3 Iron_vector3_unproject(struct Iron_Vector3 self, struct Iron_Matrix projection, struct Iron_Matrix view);
+struct Iron_Vector3 Iron_vector3_invert(struct Iron_Vector3 self);
+struct Iron_Vector3 Iron_vector3_clamp(struct Iron_Vector3 self, struct Iron_Vector3 min, struct Iron_Vector3 max);
+struct Iron_Vector3 Iron_vector3_clamp_value(struct Iron_Vector3 self, float min, float max);
+bool Iron_vector3_equals(struct Iron_Vector3 self, struct Iron_Vector3 other);
+struct Iron_Vector3 Iron_vector3_refract(struct Iron_Vector3 self, struct Iron_Vector3 n, float r);
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */

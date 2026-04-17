@@ -1022,6 +1022,52 @@ func Vector2.clamp_value(v: Vector2, min: Float32, max: Float32) -> Vector2 {}
 func Vector2.equals(v: Vector2, other: Vector2) -> Bool {}
 func Vector2.refract(v: Vector2, n: Vector2, r: Float32) -> Vector2 {}
 
+-- MATH-03: Vector3 methods (38 functions in Plan 65-02; 2 deferred:
+--   to_float_v → Plan 65-03 (Float3 return type),
+--   ortho_normalize → Plan 65-04 (out-param 2-tuple return)).
+-- Symbol mangling Iron_vector3_<method> per hir_to_lir lowercase-type
+-- naming. Cross-type args (Quaternion, Matrix) follow Phase 64's
+-- Iron_ray_hit_mesh precedent (one memcpy per struct-kind arg).
+func Vector3.zero() -> Vector3 {}
+func Vector3.one() -> Vector3 {}
+func Vector3.add(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.add_value(v: Vector3, add: Float32) -> Vector3 {}
+func Vector3.subtract(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.subtract_value(v: Vector3, sub: Float32) -> Vector3 {}
+func Vector3.scale(v: Vector3, scalar: Float32) -> Vector3 {}
+func Vector3.multiply(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.cross_product(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.perpendicular(v: Vector3) -> Vector3 {}
+func Vector3.length(v: Vector3) -> Float32 {}
+func Vector3.length_sqr(v: Vector3) -> Float32 {}
+func Vector3.dot_product(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.distance(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.distance_sqr(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.angle(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.negate(v: Vector3) -> Vector3 {}
+func Vector3.divide(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.normalize(v: Vector3) -> Vector3 {}
+func Vector3.project(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.reject(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.transform(v: Vector3, mat: Matrix) -> Vector3 {}
+func Vector3.rotate_by_quaternion(v: Vector3, q: Quaternion) -> Vector3 {}
+func Vector3.rotate_by_axis_angle(v: Vector3, axis: Vector3, angle: Float32) -> Vector3 {}
+func Vector3.move_towards(v: Vector3, target: Vector3, max_distance: Float32) -> Vector3 {}
+func Vector3.lerp(v: Vector3, other: Vector3, amount: Float32) -> Vector3 {}
+func Vector3.cubic_hermite(v1: Vector3, tangent1: Vector3, v2: Vector3, tangent2: Vector3, amount: Float32) -> Vector3 {}
+func Vector3.reflect(v: Vector3, normal: Vector3) -> Vector3 {}
+func Vector3.min(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.max(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.barycenter(p: Vector3, a: Vector3, b: Vector3, c: Vector3) -> Vector3 {}
+func Vector3.unproject(source: Vector3, projection: Matrix, view: Matrix) -> Vector3 {}
+func Vector3.invert(v: Vector3) -> Vector3 {}
+func Vector3.clamp(v: Vector3, min: Vector3, max: Vector3) -> Vector3 {}
+func Vector3.clamp_value(v: Vector3, min: Float32, max: Float32) -> Vector3 {}
+func Vector3.equals(v: Vector3, other: Vector3) -> Bool {}
+func Vector3.refract(v: Vector3, n: Vector3, r: Float32) -> Vector3 {}
+-- DEFERRED to Plan 65-03: func Vector3.to_float_v(v: Vector3) -> Float3 {}
+-- DEFERRED to Plan 65-04: func Vector3.ortho_normalize(v: Vector3, other: Vector3) -> (Vector3, Vector3) {}
+
 -- ── Phase 64 namespace type ───────────────────────────────────────
 --
 -- Collision namespace holds pair-based 2D/3D collision tests that

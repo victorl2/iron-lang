@@ -1612,6 +1612,361 @@ struct Iron_Vector2 Iron_vector2_refract(struct Iron_Vector2 self, struct Iron_V
     return out;
 }
 
+/* Vector3 methods — 38 functions (MATH-03, raymath.h lines 621-1140).
+ * Each shim memcpys struct-by-value Iron_Vector3 (12 B) into a raymath
+ * Vector3, invokes the raymath function, then memcpys the result back
+ * into Iron_Vector3 for return. Cross-type args (Quaternion 16 B,
+ * Matrix 64 B) use one independent memcpy per struct-kind arg per the
+ * Iron_ray_hit_mesh precedent (Phase 64-02). Matrix-64 B pass-by-value
+ * is exactly at the -Wlarge-by-value-copy threshold (fires at strictly
+ * > 64), so unproject/transform pass clean under -Wall -Wextra.
+ *
+ * 2 functions deferred to later plans:
+ *   - Iron_vector3_to_float_v → Plan 65-03 (Float3 return type)
+ *   - Iron_vector3_ortho_normalize → Plan 65-04 (tuple return) */
+
+struct Iron_Vector3 Iron_vector3_zero(void) {
+    Vector3 r = Vector3Zero();
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_one(void) {
+    Vector3 r = Vector3One();
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_add(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Add(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_add_value(struct Iron_Vector3 self, float add) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3AddValue(v, add);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_subtract(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Subtract(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_subtract_value(struct Iron_Vector3 self, float sub) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3SubtractValue(v, sub);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_scale(struct Iron_Vector3 self, float scalar) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3Scale(v, scalar);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_multiply(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Multiply(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_cross_product(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3CrossProduct(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_perpendicular(struct Iron_Vector3 self) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3Perpendicular(v);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+float Iron_vector3_length(struct Iron_Vector3 self) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    return Vector3Length(v);
+}
+
+float Iron_vector3_length_sqr(struct Iron_Vector3 self) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    return Vector3LengthSqr(v);
+}
+
+float Iron_vector3_dot_product(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    return Vector3DotProduct(a, b);
+}
+
+float Iron_vector3_distance(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    return Vector3Distance(a, b);
+}
+
+float Iron_vector3_distance_sqr(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    return Vector3DistanceSqr(a, b);
+}
+
+float Iron_vector3_angle(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    return Vector3Angle(a, b);
+}
+
+struct Iron_Vector3 Iron_vector3_negate(struct Iron_Vector3 self) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3Negate(v);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_divide(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Divide(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_normalize(struct Iron_Vector3 self) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3Normalize(v);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_project(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Project(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_reject(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Reject(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_transform(struct Iron_Vector3 self, struct Iron_Matrix mat) {
+    Vector3 v;
+    Matrix  m;
+    memcpy(&v, &self, sizeof(Vector3));
+    memcpy(&m, &mat,  sizeof(Matrix));
+    Vector3 r = Vector3Transform(v, m);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_rotate_by_quaternion(struct Iron_Vector3 self, struct Iron_Quaternion q) {
+    Vector3    v;
+    Quaternion quat;
+    memcpy(&v,    &self, sizeof(Vector3));
+    memcpy(&quat, &q,    sizeof(Quaternion));
+    Vector3 r = Vector3RotateByQuaternion(v, quat);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_rotate_by_axis_angle(struct Iron_Vector3 self, struct Iron_Vector3 axis, float angle) {
+    Vector3 v, ax;
+    memcpy(&v,  &self, sizeof(Vector3));
+    memcpy(&ax, &axis, sizeof(Vector3));
+    Vector3 r = Vector3RotateByAxisAngle(v, ax, angle);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_move_towards(struct Iron_Vector3 self, struct Iron_Vector3 target, float max_distance) {
+    Vector3 v, t;
+    memcpy(&v, &self,   sizeof(Vector3));
+    memcpy(&t, &target, sizeof(Vector3));
+    Vector3 r = Vector3MoveTowards(v, t, max_distance);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_lerp(struct Iron_Vector3 self, struct Iron_Vector3 other, float amount) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Lerp(a, b, amount);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_cubic_hermite(struct Iron_Vector3 self, struct Iron_Vector3 tangent1, struct Iron_Vector3 v2, struct Iron_Vector3 tangent2, float amount) {
+    Vector3 v1, t1, vv2, t2;
+    memcpy(&v1,  &self,     sizeof(Vector3));
+    memcpy(&t1,  &tangent1, sizeof(Vector3));
+    memcpy(&vv2, &v2,       sizeof(Vector3));
+    memcpy(&t2,  &tangent2, sizeof(Vector3));
+    Vector3 r = Vector3CubicHermite(v1, t1, vv2, t2, amount);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_reflect(struct Iron_Vector3 self, struct Iron_Vector3 normal) {
+    Vector3 v, n;
+    memcpy(&v, &self,   sizeof(Vector3));
+    memcpy(&n, &normal, sizeof(Vector3));
+    Vector3 r = Vector3Reflect(v, n);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_min(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Min(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_max(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    Vector3 r = Vector3Max(a, b);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_barycenter(struct Iron_Vector3 self, struct Iron_Vector3 a, struct Iron_Vector3 b, struct Iron_Vector3 c) {
+    Vector3 pp, aa, bb, cc;
+    memcpy(&pp, &self, sizeof(Vector3));
+    memcpy(&aa, &a,    sizeof(Vector3));
+    memcpy(&bb, &b,    sizeof(Vector3));
+    memcpy(&cc, &c,    sizeof(Vector3));
+    Vector3 r = Vector3Barycenter(pp, aa, bb, cc);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_unproject(struct Iron_Vector3 self, struct Iron_Matrix projection, struct Iron_Matrix view) {
+    Vector3 src;
+    Matrix  proj, vw;
+    memcpy(&src,  &self,       sizeof(Vector3));
+    memcpy(&proj, &projection, sizeof(Matrix));
+    memcpy(&vw,   &view,       sizeof(Matrix));
+    Vector3 r = Vector3Unproject(src, proj, vw);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_invert(struct Iron_Vector3 self) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3Invert(v);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_clamp(struct Iron_Vector3 self, struct Iron_Vector3 min, struct Iron_Vector3 max) {
+    Vector3 v, mn, mx;
+    memcpy(&v,  &self, sizeof(Vector3));
+    memcpy(&mn, &min,  sizeof(Vector3));
+    memcpy(&mx, &max,  sizeof(Vector3));
+    Vector3 r = Vector3Clamp(v, mn, mx);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_clamp_value(struct Iron_Vector3 self, float min, float max) {
+    Vector3 v;
+    memcpy(&v, &self, sizeof(Vector3));
+    Vector3 r = Vector3ClampValue(v, min, max);
+    struct Iron_Vector3 out;
+    memcpy(&out, &r, sizeof(Vector3));
+    return out;
+}
+
+bool Iron_vector3_equals(struct Iron_Vector3 self, struct Iron_Vector3 other) {
+    Vector3 a, b;
+    memcpy(&a, &self,  sizeof(Vector3));
+    memcpy(&b, &other, sizeof(Vector3));
+    return (bool)(Vector3Equals(a, b) != 0);
+}
+
+struct Iron_Vector3 Iron_vector3_refract(struct Iron_Vector3 self, struct Iron_Vector3 n, float r) {
+    Vector3 v, nrm;
+    memcpy(&v,   &self, sizeof(Vector3));
+    memcpy(&nrm, &n,    sizeof(Vector3));
+    Vector3 out_v = Vector3Refract(v, nrm, r);
+    struct Iron_Vector3 out;
+    memcpy(&out, &out_v, sizeof(Vector3));
+    return out;
+}
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
