@@ -685,6 +685,15 @@ struct Iron_RayCollision Iron_ray_hit_quad(struct Iron_Ray self, struct Iron_Vec
 bool Iron_collision_spheres(struct Iron_Vector3 c1, float r1, struct Iron_Vector3 c2, float r2);
 
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
+
+/* Math namespace — scalar helpers (MATH-01, raymath.h lines 178-228) */
+float Iron_math_clamp(float value, float min, float max);
+float Iron_math_lerp(float start, float end, float amount);
+float Iron_math_normalize(float value, float start, float end);
+float Iron_math_wrap(float value, float min, float max);
+float Iron_math_remap(float value, float in_start, float in_end, float out_start, float out_end);
+bool  Iron_math_float_equals(float x, float y);
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */

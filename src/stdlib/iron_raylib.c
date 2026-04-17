@@ -28,6 +28,15 @@
 #include <string.h>
 #include "iron_raylib.h"
 #include "raylib.h"
+/* raymath.h reuses raylib's Vector2/3/4/Matrix typedefs via the
+ * RL_VECTOR2_TYPE guard family. raylib.h defines those guards BEFORE
+ * declaring the typedefs (line 167), so raylib.h must be included
+ * first; raymath.h then skips its duplicate typedefs cleanly.
+ * RAYMATH_STATIC_INLINE picks the `static inline` RMAPI flavor so each
+ * TU owns its own copies without link-time collision against rcore.c
+ * (which owns RAYMATH_IMPLEMENTATION at its line 116). */
+#define RAYMATH_STATIC_INLINE
+#include "raymath.h"
 
 /* ════════════════════════════════════════════════════════════════════
  * Section markers — wrapper functions land here in later phases.
@@ -1291,6 +1300,39 @@ bool Iron_collision_spheres(struct Iron_Vector3 c1, float r1, struct Iron_Vector
 }
 
 /* ── raymath (Phase 65) ───────────────────────────────────────────── */
+
+/* Math namespace — scalar helpers (MATH-01, raymath.h lines 178-228).
+ *
+ * Each shim forwards to raymath's RMAPI function. With
+ * RAYMATH_STATIC_INLINE defined above, the raymath symbols are
+ * `static inline` — each TU owns its own copy; linker deduplicates.
+ * FloatEquals returns int (1/0); we coerce to stdbool.h bool so the
+ * Iron-side signature is a clean Bool. */
+
+float Iron_math_clamp(float value, float min, float max) {
+    return Clamp(value, min, max);
+}
+
+float Iron_math_lerp(float start, float end, float amount) {
+    return Lerp(start, end, amount);
+}
+
+float Iron_math_normalize(float value, float start, float end) {
+    return Normalize(value, start, end);
+}
+
+float Iron_math_wrap(float value, float min, float max) {
+    return Wrap(value, min, max);
+}
+
+float Iron_math_remap(float value, float in_start, float in_end, float out_start, float out_end) {
+    return Remap(value, in_start, in_end, out_start, out_end);
+}
+
+bool Iron_math_float_equals(float x, float y) {
+    return (bool)(FloatEquals(x, y) != 0);
+}
+
 /* ── Textures & Images (Phase 66) ─────────────────────────────────── */
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
