@@ -402,11 +402,11 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
         Iron_CaptureEntry *arr = iron_arena_alloc(
             ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
             _Alignof(Iron_CaptureEntry));
-        if (!arr) iron_oom_abort("capture.c:find_captures arr");
+        if (!arr) { /* HARD-09 REPLACE (capture.c:find_captures arr) */ return; }
         for (int i = 0; i < count; i++) {
             arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
                                                   strlen(captures[i].name));
-            if (!arr[i].name) iron_oom_abort("capture.c:find_captures name");
+            if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
         }
@@ -442,11 +442,11 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
         Iron_CaptureEntry *arr = iron_arena_alloc(
             ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
             _Alignof(Iron_CaptureEntry));
-        if (!arr) iron_oom_abort("capture.c:find_spawn_captures arr");
+        if (!arr) { /* HARD-09 REPLACE (capture.c:find_spawn_captures arr) */ return; }
         for (int i = 0; i < count; i++) {
             arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
                                                   strlen(captures[i].name));
-            if (!arr[i].name) iron_oom_abort("capture.c:find_spawn_captures name");
+            if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_spawn_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
         }
@@ -481,11 +481,11 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
         Iron_CaptureEntry *arr = iron_arena_alloc(
             ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
             _Alignof(Iron_CaptureEntry));
-        if (!arr) iron_oom_abort("capture.c:find_pfor_captures arr");
+        if (!arr) { /* HARD-09 REPLACE (capture.c:find_pfor_captures arr) */ return; }
         for (int i = 0; i < count; i++) {
             arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
                                                   strlen(captures[i].name));
-            if (!arr[i].name) iron_oom_abort("capture.c:find_pfor_captures name");
+            if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_pfor_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
         }

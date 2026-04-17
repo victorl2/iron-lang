@@ -88,7 +88,7 @@ static void emit_loader_error(WebLoaderCtx *ctx, const char *callee_name,
              callee_name);
 
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-    if (!msg_copy) iron_oom_abort("web_top_level_loader_check.c:emit_loader_error msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (web_top_level_loader_check.c:emit_loader_error msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_DIAG_E0502_TOP_LEVEL_LOADER_ON_WEB, span,
                    msg_copy, NULL);
