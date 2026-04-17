@@ -31,7 +31,38 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  * On breach: iron_parser_depth_exceeded emits IRON_ERR_PARSE_DEPTH_EXCEEDED
  * (code 107, reserved by Plan 01), sets p->in_error_recovery = true, and
  * the caller returns an ErrorNode. NO SIGSEGV, NO abort — this is the
- * DoS mitigation T-01-04-02 in the plan's threat model. */
+ * DoS mitigation T-01-04-02 in the plan's threat model.
+ *
+ * WR-03: spanning-set reachability argument.
+ * Only five entry points bump `p->recur_depth`: iron_parse_type_annotation,
+ * iron_parse_block, iron_parse_expr_prec, iron_parse_stmt, and iron_parse_decl
+ * (at parser.c:330, 720, 1244, 2166, 2989 respectively). Statement-shaped
+ * parsers such as iron_parse_if_stmt / _while_stmt / _for_stmt /
+ * _match_stmt / _spawn_stmt / iron_parse_func_or_method /
+ * iron_parse_object_decl / iron_parse_interface_decl / iron_parse_enum_decl
+ * do NOT increment recur_depth themselves. This is SAFE because every
+ * recursive edge in the grammar passes through at least one of the five
+ * wrapped entries before reaching another instance of the same non-terminal:
+ *
+ *   - All statements enter through iron_parse_stmt (which wraps at 2166).
+ *   - All declarations enter through iron_parse_decl (which wraps at 2989).
+ *   - All block bodies enter through iron_parse_block (which wraps at 720).
+ *   - All type annotations enter through iron_parse_type_annotation
+ *     (which wraps at 330).
+ *   - All expressions — including the operand slots of every statement and
+ *     declaration — enter through iron_parse_expr_prec (which wraps at 1244).
+ *
+ * The five entry points form a SPANNING SET for the grammar's cycles: no
+ * recursive chain of length > 1 can avoid all five. Therefore a runaway
+ * input cannot climb recursion depth without crossing at least one wrap
+ * per syntactic level, and the IRON_PARSER_MAX_DEPTH=1000 ceiling is hit
+ * well before the 8 MB stack overflows. Grep invariant:
+ *   grep -En 'iron_parser_depth_exceeded|p->recur_depth\+\+' src/parser/parser.c
+ * must return exactly the five wrap sites listed above.
+ *
+ * Defense-in-depth note (IN-07 flag): adding depth bumps to
+ * func_or_method / object_decl would be harmless but redundant — these
+ * are reached only through iron_parse_decl, already wrapped. */
 #define IRON_PARSER_MAX_DEPTH 1000
 
 /* Forward decls for helpers used before their definitions. */
