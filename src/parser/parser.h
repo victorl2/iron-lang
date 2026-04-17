@@ -23,6 +23,7 @@ typedef struct {
     bool                v3_strict_mode;
     IronAnalysisMode    mode;         /* HARD-02: gate cascade-suppression on LSP mode */
     const _Atomic bool *cancel_flag;  /* HARD-05: NULL means never cancel */
+    int                 recur_depth;  /* HARD-08: current recursion depth */
 } Iron_Parser;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */
