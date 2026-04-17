@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 66-01-PLAN.md — Phase 66 in progress (1/5 plans)
-last_updated: "2026-04-17T13:37:22.967Z"
-last_activity: "2026-04-17 — Phase 66 Plan 01 executed on local. 18 Color-math bindings (TEX-13) + 26-color canonical palette (TEX-14). Opaque void* arg ABI and UInt32 primitive-arg resolution both probed GREEN. Deviation Rule 3: resolve_type_ann patched with UInt family."
+status: in-progress
+stopped_at: Completed 66-02-PLAN.md
+last_updated: "2026-04-17T13:59:37.756Z"
+last_activity: "2026-04-17 — Phase 66 Plan 02 executed on local. 21 Image.* bindings (TEX-01, narrowed TEX-02, TEX-03, narrowed TEX-04, TEX-06). Task 1 probe GREEN: `-> [Color]` reverse-direction Iron_List return works end-to-end through ironc via emit_structs.c:309-312 foreign-method-stub return scan. 4 deferred memory-buffer functions (Load/Save *FromMemory / Raw / ToMemory) documented. Deviations: Rule 1 (Image.text signature matched raylib.h:1345 not plan), Rule 3 (direct calloc vs compiler helper for Iron_List_Iron_Color buffer)."
 progress:
   total_phases: 14
   completed_phases: 5
   total_plans: 31
-  completed_plans: 23
-  percent: 81
+  completed_plans: 24
+  percent: 77
 ---
 
 # State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 66 — Textures & Images (IN PROGRESS — 1/5 plans complete)
-Plan: 66-01 COMPLETE; next up is 66-02 (Image load/gen/save/extract, TEX-01/02/03/04/06)
-Status: Phase 66 Plan 01 complete (2 tasks, 2 atomic commits, 7 min). 18 Color-math functions bound as idiomatic methods on Color (TEX-13 closed): is_equal, fade, to_int, normalize, from_normalized, to_hsv, from_hsv, tint, brightness, contrast, alpha, alpha_blend, lerp, from_int, from_pixel_data, to_pixel_data, pixel_data_size. raylib 5.5 canonical 26-color palette (LIGHTGRAY..RAYWHITE) installed replacing Plan 60-08 rescue block — all 6 legacy names (RED/BLUE/GREEN/WHITE/BLACK/DARKGRAY) preserved so pong/game_raylib/hello_raylib compile unchanged (TEX-14 closed). Opaque void* function-arg ABI first-ever in iron_raylib.c: Iron `Int` (int64_t) with (void *)(intptr_t)data cast — zero warnings (RESEARCH Open Question 2 resolved GREEN). Vector3/Vector4 return paths on Color receivers validated. Rule 3 deviation fix: resolve_type_ann in src/hir/hir_lower.c was missing UInt/UInt8/UInt16/UInt32/UInt64 entries — added symmetrically next to Int8..64; first function-param use of UInt* in any stdlib foreign-method stub (Color.from_int(hex_value: UInt32)). clang -c iron_raylib.c exits 0 zero warnings; _Static_assert grid unchanged at 413 entries; ./build/ironc build examples/pong/pong.iron produces 2.68 MB Mach-O arm64 executable. Cumulative Phase 66: 2/14 requirements complete (TEX-13, TEX-14); 17 new Iron_color_* shims added.
-Last activity: 2026-04-17 — Phase 66 Plan 01 executed on local. 18 Color-math bindings (TEX-13) + 26-color canonical palette (TEX-14). Opaque void* arg ABI and UInt32 primitive-arg resolution both probed GREEN. Deviation Rule 3: resolve_type_ann patched with UInt family.
+Phase: 66 — Textures & Images (IN PROGRESS — 2/5 plans complete)
+Plan: 66-02 COMPLETE; next up is 66-03 (Image transforms + CPU draw, TEX-05 + TEX-07)
+Status: Phase 66 Plan 02 complete (2 tasks — Task 1 probe with zero commits, Task 2 with one commit `3f6953f`, 5 min total). 21 Image.* functions bound as idiomatic methods on Image (TEX-01 closed: load/unload/is_valid; TEX-02 narrowed + closed: load_anim/from_texture/from_screen; TEX-03 closed: 9 procedural generators — color/gradient_linear/gradient_radial/gradient_square/checked/white_noise/perlin_noise/cellular/text; TEX-04 narrowed + closed: export/export_as_code; TEX-06 closed: load_colors/load_palette/get_alpha_border/get_color). CRITICAL: Task 1 probe confirmed `-> [Color]` reverse-direction Iron_List return works end-to-end through ironc — emit_structs.c:309-312 foreign-method-stub return scan fires GREEN and auto-emits Iron_List_Iron_Color typedef + IRON_LIST_DECL + IRON_LIST_IMPL into the consumer TU (observed in `.iron-build/color_list_probe.c:822-829` with comment "via foreign-method-stub return scan"). First reverse-direction Iron list in raylib.iron; unblocks every future raylib API returning a `T *` + count pair. 4 memory-buffer functions DEFERRED (LoadImageRaw / LoadImageFromMemory / LoadImageAnimFromMemory / ExportImageToMemory) per RESEARCH Pitfall 7 `[UInt8]` FFI gap — documented inline in iron_raylib.h and SUMMARY. Shims use direct calloc (iron_net.c:build_address_list_from_addrinfo precedent) rather than compiler-emitted _create_with_capacity helper so standalone `clang -c iron_raylib.c` compiles clean; `#include <stdlib.h>` added to iron_raylib.c for calloc. clang -c iron_raylib.c exits 0 zero warnings; _Static_assert grid unchanged at 413 entries; ./build/ironc build examples/pong/pong.iron still ships. Cumulative Phase 66: 7/14 requirements complete (TEX-01, TEX-02, TEX-03, TEX-04, TEX-06, TEX-13, TEX-14).
+Last activity: 2026-04-17 — Phase 66 Plan 02 executed on local. 21 Image.* bindings (TEX-01, narrowed TEX-02, TEX-03, narrowed TEX-04, TEX-06). Task 1 probe GREEN: first reverse-direction Iron_List return through the FFI. 4 deferred memory-buffer functions documented. Deviations: Rule 1 Image.text signature mismatch, Rule 3 compiler-helper symbol not visible standalone.
 
 Progress: [████████░░] 77%
 
@@ -39,7 +39,7 @@ Progress: [████████░░] 77%
 - Phases complete: 4 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D; Phase 65 — raymath)
 - Phases in flight: 2 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 88 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01..08 all closed — 143/143 raymath functions bound; TEX-13 + TEX-14 — 18 Color-math bindings + 26-color canonical palette)
+- Requirements complete: 93 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01..08 all closed — 143/143 raymath functions bound; TEX-01 + TEX-02 + TEX-03 + TEX-04 + TEX-06 + TEX-13 + TEX-14 — 21 Image.* bindings + 18 Color-math bindings + 26-color canonical palette; 4 memory-buffer functions DEFERRED pending [UInt8] FFI)
 
 ### Plan execution log
 
@@ -65,7 +65,7 @@ Progress: [████████░░] 77%
 | 65-03 | 3     | ~5 min   | 5     | 24592fd, 760b0ca, 04b736c                   |
 | 65-04 | 3     | ~6 min   | 4     | b0c1ea2, e226a63                            |
 | 66-01 | 2     | ~7 min   | 5     | 6c80d43, ffcae94                            |
-| Phase 66 P01 | 7min | 2 tasks | 5 files |
+| 66-02 | 2     | ~5 min   | 4     | 3f6953f (Task 1 probe = 0 commits)          |
 
 ## Accumulated Context
 
@@ -196,8 +196,12 @@ Progress: [████████░░] 77%
 - **66-01 CRITICAL RESULT — Vector3/Vector4 struct-by-value RETURN from Color receiver validated GREEN:** ColorToHSV returns a 12-byte Vector3, ColorNormalize returns a 16-byte Vector4, both through a Color-receiver method. Memcpy-out pattern from Phase 65 raymath transfers directly to Color-receiver methods — no new ABI work needed. Establishes readiness for TEX-06 reverse-direction `LoadImageColors -> [Color]` in Plan 66-02.
 - **66-01 deviation — resolve_type_ann missing UInt family (Rule 3 blocker, auto-fixed):** `./build/ironc build examples/pong/pong.iron` failed with `Iron_Color Iron_color_from_int(void hex_value);` — generated C rendered UInt32 as `void`. Root cause: `src/hir/hir_lower.c:210-220` only had Int/Int8..64/Float/Float32/64/Bool/String/Void name-table entries; UInt/UInt8..64 fell through to named-type lookup and returned NULL. Fix: added 5 symmetric entries (UInt, UInt8, UInt16, UInt32, UInt64) next to the Int family. First function-param use of a UInt* primitive in any stdlib foreign-method stub. Impact: unblocks every future raylib binding that needs `unsigned int` hex codes / IDs / bitflags as Iron UInt32 args. Committed in ffcae94.
 - **66-01 note — [UInt8] primitive-list ABI still NOT supported (Pitfall 7 confirmed, deferred):** TEX-02 memory-load (LoadImageRaw, LoadImageFromMemory, LoadImageAnimFromMemory) and TEX-04 export-to-memory (ExportImageToMemory) remain deferred per Phase 66 RESEARCH. iron_runtime.h pre-declares only int64_t/int32_t/double/bool/Iron_String/Iron_Closure list types (lines 825-830); `Iron_List_uint8_t` would need cross-cutting runtime work. These functions belong to a follow-up phase — NOT Plans 66-02..05.
-
-## Phase Dependency Map
+- **66-02 (2026-04-17):** Phase 66 Plan 02 closes TEX-01 (Image.load + Image.unload + Image.is_valid), narrowed TEX-02 (Image.load_anim + Image.from_texture + Image.from_screen — 3 memory-buffer variants DEFERRED), TEX-03 (9 procedural generators: color, gradient_linear/radial/square, checked, white_noise, perlin_noise, cellular, text), narrowed TEX-04 (Image.export + Image.export_as_code — 1 memory-buffer variant DEFERRED), TEX-06 (load_colors + load_palette + get_alpha_border + get_color). iron_raylib.h +~55 lines (21 Iron_image_* prototypes + IRON_LIST_IRON_COLOR_STRUCT_DEFINED guarded typedef); iron_raylib.c +~245 lines (21 shim implementations + `#include <stdlib.h>` for calloc); raylib.iron +~55 lines (21 func Image.* stubs). Consumer-unaffected streak now 9 plans. clang -c iron_raylib.c and iron_raylib_layout.c exit 0 zero warnings; grid still 413. `./build/ironc build examples/pong/pong.iron` still ships. Commit: 3f6953f (Task 2; Task 1 probe produces zero commits per Plan 63-03 precedent). ironc invoked 1x this plan (Task 1 probe only).
+- **66-02 CRITICAL RESULT — reverse-direction Iron_List return ABI validated GREEN (Task 1 probe):** emit_structs.c:309-312's Plan 63-04 foreign-method-stub return scan fires correctly for raylib.iron. Observed in `.iron-build/color_list_probe.c:822-829`: `/* Phase 56: Iron_List type for mono-collapsed Iron_Color (via foreign-method-stub return scan) */` followed by typedef + IRON_LIST_DECL + IRON_LIST_IMPL emission, prototype at 1020, call site at 1258 with struct-by-value Iron_Image arg. First reverse-direction Iron_List in raylib.iron; unblocks every future raylib API returning a `T *` + count pair (Font atlas, Mesh vertex arrays, Wave sample buffers). Probe artifacts (stub + prototype + shim + test file + binary) removed per 63-03 Task 1 methodology; only the IRON_LIST_IRON_COLOR_STRUCT_DEFINED guarded typedef was kept for Task 2 consumption.
+- **66-02 decision — standalone clang -c forces direct calloc over compiler-emitted helper:** Iron_List_Iron_Color_create_with_capacity is only declared inside the consumer TU via IRON_LIST_DECL expansion, not in iron_raylib.c's compilation unit. The initial probe attempt using the helper hit `error: call to undeclared function 'Iron_List_Iron_Color_create_with_capacity'` during `./build/ironc build` — clang compiled iron_raylib.c standalone and the symbol was unresolved. Fix: switch to direct `calloc((size_t)count, sizeof(struct Iron_Color))` with malloc-backed items buffer, matching iron_net.c:build_address_list_from_addrinfo. Both the probe and the production Iron_image_load_colors / Iron_image_load_palette shims use this pattern. Added `#include <stdlib.h>` at the top of iron_raylib.c. Rule 3 blocker, auto-fixed.
+- **66-02 decision — Image.text(width, height, text), not (text, size, color):** Plan's initial Iron stub sketch `Image.text(text: String, size: Int32, color: Color)` did not match raylib.h:1345 `GenImageText(int width, int height, const char *text)`. raylib renders a grayscale bitmap with the default font; there is no color parameter. Corrected the Iron stub and shim per the plan's own "inspect raylib.h:1345 before committing" instruction. Rule 1 upstream-API-mismatch, auto-fixed.
+- **66-02 decision — Image.load_anim drops raylib's `int *frames` out-param:** Iron has no out-ref (`&mut Int`) mechanism. The raylib pointer receives a shim-local int that is immediately discarded. Alternative tuple-return variant (`(Image, Int32)`) was deferred alongside the 4 memory-buffer functions. Callers needing the frame count must wait for a follow-up phase.
+- **66-02 note — first 40 B Image struct-by-value both-direction FFI exercise:** Image is the largest struct-by-value traffic in the stdlib binding to date (40 B: 8 B _data pointer + 4×Int32 dimensions/format). 14 distinct Image-out shims + 2 Image-in shims (unload, is_valid, export, export_as_code, from_texture takes Texture returns Image) round-trip through memcpy with zero warnings. Validates Phase 60-03's _Static_assert grid for Image under load.
 
 ```
 60 (Types + Enums)  ← foundation; all others depend on it
@@ -226,7 +230,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-17T13:33:24Z
-Stopped at: Completed 66-01-PLAN.md — Phase 66 in progress (1/5 plans)
+Last session: 2026-04-17T13:59:37.752Z
+Stopped at: Completed 66-02-PLAN.md
 Next action: Phase 66 Plan 01 COMPLETE (TEX-13 + TEX-14 closed). Next up: Plan 66-02 (Image load/gen/save/extract — TEX-01/02/03/04/06; ~25 functions; first String-arg stress + `LoadImageColors -> [Color]` reverse-direction Iron_List probe). TEX-02 memory-load + TEX-04 export-to-memory remain deferred per Pitfall 7 ([UInt8] primitive-list FFI blocker). Parallel-safe phases still available: Phase 68 (Audio — independent), Phase 70 (Models — all ABI surfaces proven), Phase 72 (File I/O — independent). Phase 73 polish candidates: (a) Float32→String formatter, (b) chained-method tuple destructure inference, (c) `[UInt8]` primitive-list runtime support (cross-cutting, gates TEX-02/04 memory functions). New in 66-01: opaque void* function-arg ABI validated GREEN; UInt32 primitive-param resolution now works end-to-end (hir_lower.c fix).
 Resume file: None
