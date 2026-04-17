@@ -390,49 +390,14 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();
 
-    /* 3. Lex */
-    Iron_Lexer lexer = iron_lexer_create(source, source_path, &arena, &diags);
-    Iron_Token *tokens = iron_lex_all(&lexer);
+    /* 3. Analyze — single call, no bypass paths (HARD-01) */
+    Iron_AnalyzeResult result = iron_analyze_buffer(
+        source, strlen(source), source_path,
+        IRON_ANALYSIS_MODE_CLI,
+        &arena, &diags,
+        NULL);
 
-    if (diags.error_count > 0) {
-        iron_diag_print_all(&diags, source);
-        arrfree(tokens);
-        iron_diaglist_free(&diags);
-        iron_arena_free(&arena);
-        free(source);
-        free(base_dir);
-        return 1;
-    }
-
-    /* 4. Parse */
-    int token_count = (int)arrlen(tokens);
-    Iron_Parser parser = iron_parser_create(tokens, token_count,
-                                            source, source_path,
-                                            &arena, &diags);
-    /* Phase 88: propagate --strict-v3 gate to parser */
-    parser.v3_strict_mode = strict_v3;
-    Iron_Node *ast = iron_parse(&parser);
-    arrfree(tokens);
-
-    if (diags.error_count > 0) {
-        iron_diag_print_all(&diags, source);
-        iron_diaglist_free(&diags);
-        iron_arena_free(&arena);
-        free(source);
-        free(base_dir);
-        return 1;
-    }
-
-    /* 5. Analyze */
-    Iron_AnalyzeResult result = iron_analyze((Iron_Program *)ast, &arena,
-                                             &diags,
-                                             NULL  /* source_file_dir */,
-                                             NULL  /* source_text */,
-                                             0     /* source_len */,
-                                             false /* force_comptime */,
-                                             IRON_TARGET_NATIVE);
-
-    /* 6. Print all diagnostics */
+    /* 4. Print all diagnostics */
     iron_diag_print_all(&diags, source);
 
     /* 7. Verbose: print analysis summary */

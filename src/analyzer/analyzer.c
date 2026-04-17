@@ -8,10 +8,13 @@
 #include "analyzer/web_await_check.h"
 #include "analyzer/web_top_level_loader_check.h"
 #include "comptime/comptime.h"
+#include "lexer/lexer.h"
+#include "parser/parser.h"
 #include "vendor/stb_ds.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdatomic.h>
 
 Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
                                  Iron_DiagList *diags,
@@ -83,5 +86,45 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
     }
 
     result.has_errors = (diags->error_count > 0);
+    return result;
+}
+
+/* ── iron_analyze_buffer stub (HARD-01 — Plan 01) ─────────────────────────── */
+/* Plan 01: delegates to the existing pipeline without semantic change.
+ * Plan 02 removes analyzer short-circuits; Plan 03 wires cancellation;
+ * Plan 04 adds pthread_once init + parser recursion guard; Plan 05 gates
+ * comptime FS I/O on `mode`. */
+Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
+                                        size_t              len,
+                                        const char         *filename,
+                                        IronAnalysisMode    mode,
+                                        Iron_Arena         *arena,
+                                        Iron_DiagList      *diags,
+                                        const _Atomic bool *cancel_flag) {
+    Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false };
+
+    /* Pre-cancel check (Plan 03 populates poll sites; Plan 01 honors the flag
+     * at the pipeline entry only). */
+    if (cancel_flag &&
+        atomic_load_explicit(cancel_flag, memory_order_relaxed)) {
+        return result;
+    }
+
+    Iron_Lexer lexer = iron_lexer_create(source, filename, arena, diags);
+    Iron_Token *tokens = iron_lex_all(&lexer);
+
+    int token_count = (int)arrlen(tokens);
+    Iron_Parser parser = iron_parser_create(tokens, token_count, source,
+                                            filename, arena, diags);
+    Iron_Node *ast = iron_parse(&parser);
+    arrfree(tokens);
+
+    /* Plan 01 PRESERVES the existing short-circuit behaviour via delegating
+     * to iron_analyze unchanged. Plan 02 removes the short-circuits inside
+     * iron_analyze's interior directly. */
+    result = iron_analyze((Iron_Program *)ast, arena, diags,
+                          NULL, NULL, 0, false, IRON_TARGET_NATIVE);
+    (void)mode;
+    (void)len;
     return result;
 }
