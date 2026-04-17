@@ -109,6 +109,12 @@ target_link_libraries(test_types_init_once iron_compiler unity pthread)
 add_test(NAME test_types_init_once COMMAND test_types_init_once)
 set_tests_properties(test_types_init_once PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 60)
 
+# ── Phase 01 M0 Plan 04 (HARD-08): parser recursion-depth guard ─────────────
+add_executable(test_parser_recursion_guard test_parser_recursion_guard.c)
+target_link_libraries(test_parser_recursion_guard iron_compiler unity)
+add_test(NAME test_parser_recursion_guard COMMAND test_parser_recursion_guard)
+set_tests_properties(test_parser_recursion_guard PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 60)
+
 # ── Runtime unit tests ───────────────────────────────────────────────────────
 add_executable(test_runtime_string test_runtime_string.c)
 target_link_libraries(test_runtime_string iron_runtime unity)

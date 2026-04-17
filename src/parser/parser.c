@@ -21,6 +21,43 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
     return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
 }
 
+/* ── PROT-05: recursion-depth guard (HARD-08) ────────────────────────────── */
+/* Ceiling chosen per RESEARCH.md §Pitfall 5: worst-case ~3-5 frames per
+ * syntactic level, 8 MB default stack with ~200-400 byte frames, safe
+ * range 1000-5000. Grep of tests/integration `*.iron` confirms max observed
+ * bracket/paren-depth well below 100, giving 10x headroom above any
+ * legitimate input.
+ *
+ * On breach: iron_parser_depth_exceeded emits IRON_ERR_PARSE_DEPTH_EXCEEDED
+ * (code 107, reserved by Plan 01), sets p->in_error_recovery = true, and
+ * the caller returns an ErrorNode. NO SIGSEGV, NO abort — this is the
+ * DoS mitigation T-01-04-02 in the plan's threat model. */
+#define IRON_PARSER_MAX_DEPTH 1000
+
+/* Forward decls for helpers used before their definitions. */
+static Iron_Span   iron_token_span(Iron_Parser *p, Iron_Token *t);
+static Iron_Token *iron_current(Iron_Parser *p);
+
+/* HARD-08: check-and-emit helper. Returns true if the parser has reached
+ * IRON_PARSER_MAX_DEPTH — the caller must then return an ErrorNode (or the
+ * closest equivalent for its return type) without recursing further. The
+ * single-site emit guarantees every depth-exceeded diagnostic carries the
+ * same message and code, and suppresses cascade via in_error_recovery. */
+static bool iron_parser_depth_exceeded(Iron_Parser *p) {
+    if (p->recur_depth < IRON_PARSER_MAX_DEPTH) return false;
+    /* Emit exactly once per runaway: after the first breach in_error_recovery
+     * is already true, and iron_emit_diag (CLI mode) would suppress the
+     * second emission anyway. In LSP mode (cascade-suppression disabled)
+     * this may fire multiple times; that's acceptable — LSP clients dedupe
+     * by (code, span). */
+    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_PARSE_DEPTH_EXCEEDED,
+                   iron_token_span(p, iron_current(p)),
+                   "expression nesting too deep", NULL);
+    p->in_error_recovery = true;
+    return true;
+}
+
 /* FIX-03 / AUDIT-04 §1: SAFETY — this file contains 17 cross-arena storage
  * sites where stb_ds heap-managed arrays (built via `arrput`) are transferred
  * into arena-allocated AST nodes (assigned to `n->fields`, `n->variants`,
@@ -79,11 +116,19 @@ typedef enum {
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
 
+/* HARD-08: public recursive-descent entries are thin wrappers over their
+ * `_impl` bodies. The wrapper performs the depth check + inc/dec pair so the
+ * impl body can return from any path without plumbing a cleanup label. */
+static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec);
 static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec);
 static Iron_Node *iron_parse_expr(Iron_Parser *p);
+static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p);
 static Iron_Node *iron_parse_stmt(Iron_Parser *p);
+static Iron_Node *iron_parse_block_impl(Iron_Parser *p);
 static Iron_Node *iron_parse_block(Iron_Parser *p);
+static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p);
+static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private);
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
@@ -121,6 +166,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.v3_strict_mode    = true;
     p.mode              = IRON_ANALYSIS_MODE_CLI; /* HARD-02: default preserves legacy behaviour */
     p.cancel_flag       = NULL;                   /* HARD-05: default = never cancel */
+    p.recur_depth       = 0;                      /* HARD-08: recursion-depth guard baseline */
     return p;
 }
 
@@ -277,7 +323,21 @@ static void iron_parser_sync_stmt(Iron_Parser *p) {
 
 /* Parse: TypeName[?][GenericArgs] or [TypeName; Size] or [TypeName] or func(T)->R
  *        or (T0, T1, ...) — Phase 59 01d tuple type. */
+/* HARD-08: wrapper performs the recursion-depth guard (increment on entry,
+ * decrement on every return path from _impl). Callers still invoke the
+ * unsuffixed name (iron_parse_type_annotation); the _impl body is the
+ * pre-HARD-08 body verbatim. */
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
+    if (iron_parser_depth_exceeded(p)) {
+        return iron_make_error(p);
+    }
+    p->recur_depth++;
+    Iron_Node *r = iron_parse_type_annotation_impl(p);
+    p->recur_depth--;
+    return r;
+}
+
+static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
     /* HARD-05: cancel poll at function entry (cheap, 1ns when flag is NULL). */
     if (iron_cancel_requested(p->cancel_flag)) {
         return iron_make_error(p);
@@ -664,7 +724,18 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
 
 /* ── Block: { stmt* } ────────────────────────────────────────────────────── */
 
+/* HARD-08: wrapper — see iron_parse_type_annotation for the pattern. */
 static Iron_Node *iron_parse_block(Iron_Parser *p) {
+    if (iron_parser_depth_exceeded(p)) {
+        return iron_make_error(p);
+    }
+    p->recur_depth++;
+    Iron_Node *r = iron_parse_block_impl(p);
+    p->recur_depth--;
+    return r;
+}
+
+static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
     /* HARD-05: cancel poll at block entry. */
     if (iron_cancel_requested(p->cancel_flag)) {
         return iron_make_error(p);
@@ -1177,8 +1248,19 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     return iron_make_error(p);
 }
 
-/* Main Pratt expression parser */
+/* HARD-08: wrapper — see iron_parse_type_annotation for the pattern. */
 static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
+    if (iron_parser_depth_exceeded(p)) {
+        return iron_make_error(p);
+    }
+    p->recur_depth++;
+    Iron_Node *r = iron_parse_expr_prec_impl(p, min_prec);
+    p->recur_depth--;
+    return r;
+}
+
+/* Main Pratt expression parser */
+static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
     /* HARD-05: cancel poll at expression-parser entry. */
     if (iron_cancel_requested(p->cancel_flag)) {
         return iron_make_error(p);
@@ -2096,8 +2178,19 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     return (Iron_Node *)n;
 }
 
-/* Parse a single statement */
+/* HARD-08: wrapper — see iron_parse_type_annotation for the pattern. */
 static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
+    if (iron_parser_depth_exceeded(p)) {
+        return iron_make_error(p);
+    }
+    p->recur_depth++;
+    Iron_Node *r = iron_parse_stmt_impl(p);
+    p->recur_depth--;
+    return r;
+}
+
+/* Parse a single statement */
+static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
     /* HARD-05: cancel poll at statement parser entry. */
     if (iron_cancel_requested(p->cancel_flag)) {
         return iron_make_error(p);
@@ -4438,8 +4531,20 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)n;
 }
 
+/* HARD-08: wrapper — see iron_parse_type_annotation for the pattern. */
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
                                   Iron_Node ***extra_decls_out) {
+    if (iron_parser_depth_exceeded(p)) {
+        return iron_make_error(p);
+    }
+    p->recur_depth++;
+    Iron_Node *r = iron_parse_decl_impl(p, is_private, extra_decls_out);
+    p->recur_depth--;
+    return r;
+}
+
+static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private,
+                                       Iron_Node ***extra_decls_out) {
     /* HARD-05: cancel poll at declaration parser entry. */
     if (iron_cancel_requested(p->cancel_flag)) {
         return iron_make_error(p);
