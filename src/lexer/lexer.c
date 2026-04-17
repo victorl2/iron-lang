@@ -296,9 +296,15 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
     size_t buf_max = 4096;
 
     int has_interp = 0;
+    /* WR-07: track whether any bytes were dropped by PUSH_CHAR when the
+     * literal exceeded buf_max-1 characters, so we can emit a single
+     * IRON_ERR_STRING_TOO_LONG diagnostic per literal instead of silently
+     * truncating. */
+    bool overflowed = false;
 
 #define PUSH_CHAR(ch) do { \
     if (buf_len < buf_max - 1) { buf[buf_len++] = (ch); } \
+    else { overflowed = true; } \
 } while (0)
 
     for (;;) {
@@ -389,6 +395,22 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
 #undef PUSH_CHAR
 
     buf[buf_len] = '\0';
+
+    /* WR-07: if PUSH_CHAR dropped bytes past the 4KB buffer capacity, emit
+     * a single diagnostic so the user sees the truncation rather than
+     * silently getting a wrong string value. The token is still returned
+     * (truncated) so downstream parsing continues on its best effort. */
+    if (overflowed) {
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                         l->line, l->col);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_STRING_TOO_LONG, span,
+                       "string literal exceeds 4095-character limit "
+                       "and was truncated",
+                       "split the string across multiple literals or "
+                       "move it to a file read with comptime read_file()");
+    }
+
     /* Copy final string into arena (fresh minimal allocation). */
     const char *value = iron_arena_strdup(l->arena, buf, buf_len);
     if (!value) {
