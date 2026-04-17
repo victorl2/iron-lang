@@ -1322,7 +1322,8 @@ func Image.get_color(img: Image, x: Int32, y: Int32) -> Color {}
 -- does not yet pre-declare in iron_runtime.h's primitive list types
 -- (Iron_List_float / Iron_List_double absent; Pitfall 7 variant). Rebind
 -- in the phase that lands the Float list primitive.
--- ImageTextEx DEFERRED: Font-dependent, owned by Phase 67.
+-- ImageTextEx: Phase 66 deferral CLOSED in Phase 67 Plan 01 Task 2 —
+-- see Image.text_ex / Image.draw_text_ex in the Phase 67 section below.
 
 -- Group A — 3 by-value returns (Pattern 1)
 func Image.copy(img: Image) -> Image {}
@@ -1374,7 +1375,8 @@ func Image.color_replace(img: Image, color: Color, replace: Color) -> Image {}
 -- `draw_triangle_fan` / `draw_triangle_strip` reuse the Iron_List_Iron_Vector2
 -- by-value ABI proven in Phase 63-03 (triangle_fan/strip / line_strip).
 --
--- ImageDrawTextEx DEFERRED to Phase 67 (requires Font type).
+-- ImageDrawTextEx: Phase 66 deferral CLOSED in Phase 67 Plan 01 Task 2 —
+-- see Image.draw_text_ex in the Phase 67 section below.
 
 func Image.clear_background(img: Image, color: Color) -> Image {}
 func Image.draw_pixel(img: Image, pos_x: Int32, pos_y: Int32, color: Color) -> Image {}
@@ -1397,6 +1399,14 @@ func Image.draw_triangle_fan(img: Image, points: [Vector2], point_count: Int32, 
 func Image.draw_triangle_strip(img: Image, points: [Vector2], point_count: Int32, color: Color) -> Image {}
 func Image.draw(img: Image, src: Image, src_rec: Rectangle, dst_rec: Rectangle, tint: Color) -> Image {}
 func Image.draw_text(img: Image, text: String, pos_x: Int32, pos_y: Int32, font_size: Int32, color: Color) -> Image {}
+
+-- Phase 66 Font-dependent deferrals closed in Phase 67 Plan 01 Task 2
+-- (TEX-05 / TEX-07). ImageTextEx allocates a fresh Image rendered with
+-- the given Font. ImageDrawTextEx mutates an existing Image in place
+-- (Phase 66-03 Pattern 2 mutating-return-by-value). Font lifetime MUST
+-- outlive the call — raylib reads Font._recs / _glyphs internally.
+func Image.text_ex(font: Font, text: String, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
+func Image.draw_text_ex(img: Image, font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
 
 -- Texture + RenderTexture load/update/config (Plan 66-04 — TEX-08/09/10/11, 12 bindings)
 --
@@ -1484,6 +1494,14 @@ func Font.from_image(image: Image, keyColor: Color, firstChar: Int32) -> Font {}
 func Font.is_valid(font: Font) -> Bool {}
 func Font.unload(font: Font) {}
 func Font.export_as_code(font: Font, filePath: String) -> Bool {}
+
+-- TEXT-05 Font data operations. gen_image_atlas bakes an atlas Image +
+-- per-glyph source Rectangles from an input [GlyphInfo] array, returning
+-- both as a tuple. unload_data releases a [GlyphInfo] array allocated by
+-- raylib (Font.load_data, deferred). First (Image, [Rectangle]) tuple
+-- RETURN and first [GlyphInfo] INPUT in the raylib binding.
+func Font.gen_image_atlas(glyphs: [GlyphInfo], fontSize: Int32, padding: Int32, packMethod: Int32) -> (Image, [Rectangle]) {}
+func Font.unload_data(glyphs: [GlyphInfo]) {}
 
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)

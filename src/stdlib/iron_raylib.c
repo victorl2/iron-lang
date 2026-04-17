@@ -3316,7 +3316,10 @@ struct Iron_Image Iron_image_color_replace(struct Iron_Image img, struct Iron_Co
  * alongside the Image. Array draws (triangle_fan/triangle_strip)
  * reuse the Iron_List_Iron_Vector2 by-value ABI from Phase 63-03.
  *
- * ImageDrawTextEx DEFERRED to Phase 67: requires Font type.
+ * ImageDrawTextEx: Phase 66 deferral closed in Phase 67 Plan 01 Task 2
+ * (see the Iron_image_text_ex / Iron_image_draw_text_ex shims below,
+ * placed after the Pattern 2 mutating-transforms run).
+ *
  * ImageDrawText uses the raylib default font — Pitfall 4 requires
  * Window.init() to have loaded the default font before the call.
  */
@@ -3617,6 +3620,48 @@ struct Iron_Image Iron_image_draw_text(struct Iron_Image img, Iron_String text, 
     return out;
 }
 
+/*
+ * TEX-05 + TEX-07 Phase 66 deferrals closed in Phase 67 Plan 01 Task 2.
+ * Font type now exists — ImageTextEx (allocates fresh Image) and
+ * ImageDrawTextEx (mutating-return-by-value per Pattern 2) land here,
+ * placed alongside the other Image draw shims. Font lifetime must
+ * outlive both calls (Pitfall 6 — raylib reads Font._recs / _glyphs
+ * internally to look up glyphs).
+ */
+
+struct Iron_Image Iron_image_text_ex(struct Iron_Font font, Iron_String text,
+                                      float font_size, float spacing,
+                                      struct Iron_Color tint) {
+    Font f;
+    Color c;
+    memcpy(&f, &font, sizeof(Font));
+    memcpy(&c, &tint, sizeof(Color));
+    const char *ctext = iron_string_cstr(&text);
+    Image rl = ImageTextEx(f, ctext ? ctext : "", font_size, spacing, c);
+    struct Iron_Image out;
+    memcpy(&out, &rl, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_draw_text_ex(struct Iron_Image img, struct Iron_Font font,
+                                           Iron_String text, struct Iron_Vector2 position,
+                                           float font_size, float spacing,
+                                           struct Iron_Color tint) {
+    Image src;
+    Font f;
+    Vector2 p;
+    Color c;
+    memcpy(&src, &img,      sizeof(Image));
+    memcpy(&f,   &font,     sizeof(Font));
+    memcpy(&p,   &position, sizeof(Vector2));
+    memcpy(&c,   &tint,     sizeof(Color));
+    const char *ctext = iron_string_cstr(&text);
+    ImageDrawTextEx(&src, f, ctext ? ctext : "", p, font_size, spacing, c);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
 /* ════════════════════════════════════════════════════════════════════
  * TEX-08/09/10/11 Texture + RenderTexture (Plan 66-04 Task 1 — 12 shims).
  *
@@ -3906,6 +3951,66 @@ bool Iron_font_export_as_code(struct Iron_Font font, Iron_String file_name) {
     memcpy(&rl, &font, sizeof(Font));
     const char *cpath = iron_string_cstr(&file_name);
     return (bool)(ExportFontAsCode(rl, cpath ? cpath : "") != 0);
+}
+
+/*
+ * TEXT-05 Font data operations (2 shims — gen_image_atlas + unload_data).
+ *
+ * Iron_font_gen_image_atlas takes [GlyphInfo] by value (Iron_List_Iron_GlyphInfo
+ * is 24 B items/count/capacity wrapper — same ARRAY_PARAM_LIST mode as
+ * Phase 63-03 triangle_fan/strip and Phase 66-02 image_load_colors).
+ * Returns a (Image, [Rectangle]) tuple. raylib's GenImageFontAtlas writes
+ * per-glyph source rectangles via a Rectangle** out-param; the shim
+ * deep-copies those into a fresh Iron_List_Iron_Rectangle and calls
+ * free() on the raylib RL_MALLOC'd outer buffer (Pattern 4 copy-out
+ * template from Iron_image_load_colors at line 2971).
+ *
+ * The cast (const GlyphInfo *)glyphs.items is byte-safe because
+ * Phase 60-03 _Static_assert grid pins Iron_GlyphInfo layout to raylib's
+ * GlyphInfo (40 B, field-for-field).
+ *
+ * Font.load_data + Font.from_memory remain DEFERRED: both take [UInt8]
+ * fileData which requires Iron_List_uint8_t (not in iron_runtime.h yet).
+ * See iron_raylib.h Phase 67 section comment for full defer rationale.
+ */
+
+Iron_Tuple_Image__Rectangle_
+Iron_font_gen_image_atlas(Iron_List_Iron_GlyphInfo glyphs, int32_t font_size,
+                           int32_t padding, int32_t pack_method) {
+    Rectangle *recs_out = NULL;
+    Image rl = GenImageFontAtlas((const GlyphInfo *)glyphs.items, &recs_out,
+                                  (int)glyphs.count, (int)font_size,
+                                  (int)padding, (int)pack_method);
+
+    /* Build Iron_List_Iron_Rectangle by memcpy'ing each rec into an
+     * Iron-owned calloc buffer. raylib allocates recs_out via RL_MALLOC
+     * which is plain malloc by default; free() is the matched deallocator. */
+    Iron_List_Iron_Rectangle recs;
+    recs.items    = NULL;
+    recs.count    = 0;
+    recs.capacity = 0;
+    if (recs_out && glyphs.count > 0) {
+        recs.items    = (struct Iron_Rectangle *)calloc((size_t)glyphs.count,
+                                                         sizeof(struct Iron_Rectangle));
+        recs.capacity = glyphs.count;
+        if (recs.items) {
+            memcpy(recs.items, recs_out,
+                   (size_t)glyphs.count * sizeof(struct Iron_Rectangle));
+            recs.count = glyphs.count;
+        }
+    }
+    free(recs_out);
+
+    Iron_Tuple_Image__Rectangle_ out;
+    memcpy(&out.v0, &rl, sizeof(struct Iron_Image));
+    out.v1 = recs;
+    return out;
+}
+
+void Iron_font_unload_data(Iron_List_Iron_GlyphInfo glyphs) {
+    /* Cast-safe: Iron_GlyphInfo is byte-identical to raylib GlyphInfo
+     * per Phase 60-03 _Static_assert grid. */
+    UnloadFontData((GlyphInfo *)glyphs.items, (int)glyphs.count);
 }
 
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */

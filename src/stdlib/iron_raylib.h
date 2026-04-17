@@ -1229,6 +1229,85 @@ bool             Iron_font_is_valid(struct Iron_Font font);
 void             Iron_font_unload(struct Iron_Font font);
 bool             Iron_font_export_as_code(struct Iron_Font font, Iron_String file_name);
 
+/* Iron's [GlyphInfo] lowers to Iron_List_Iron_GlyphInfo in C. Guarded the
+ * same way as Iron_List_Iron_Color / Iron_List_Iron_Vector2 so
+ * `clang -c iron_raylib.c` compiles standalone — the compiler's
+ * emit_structs.c Scan B auto-emits an identical typedef in the consumer
+ * TU, and the guard prevents double-definition. Same belt-and-suspenders
+ * pattern as IRON_LIST_IRON_COLOR_STRUCT_DEFINED / IRON_LIST_IRON_VECTOR2
+ * above. */
+#ifndef IRON_LIST_IRON_GLYPHINFO_STRUCT_DEFINED
+#define IRON_LIST_IRON_GLYPHINFO_STRUCT_DEFINED
+typedef struct Iron_List_Iron_GlyphInfo {
+    struct Iron_GlyphInfo *items;
+    int64_t                count;
+    int64_t                capacity;
+} Iron_List_Iron_GlyphInfo;
+#endif
+
+/* Iron's [Rectangle] lowers to Iron_List_Iron_Rectangle in C. Same guard
+ * pattern. */
+#ifndef IRON_LIST_IRON_RECTANGLE_STRUCT_DEFINED
+#define IRON_LIST_IRON_RECTANGLE_STRUCT_DEFINED
+typedef struct Iron_List_Iron_Rectangle {
+    struct Iron_Rectangle *items;
+    int64_t                count;
+    int64_t                capacity;
+} Iron_List_Iron_Rectangle;
+#endif
+
+/* Tuple typedef for Font.gen_image_atlas -> (Image, [Rectangle]).
+ *
+ * Mangling trace: ironc's tuple_build_mangled_name (src/analyzer/types.c:170)
+ * joins iron_type_to_string of each element, sanitizing non-alnum/_ to '_'.
+ *   iron_type_to_string(Image)       = "Image"
+ *   iron_type_to_string([Rectangle]) = "[Rectangle]" -> "_Rectangle_"
+ *   Final:   Iron_Tuple_Image__Rectangle_
+ *
+ * Field types use emit_type_to_c (emit_helpers.c:140): Image resolves to
+ * struct Iron_Image (header-declared above), [Rectangle] resolves to
+ * Iron_List_Iron_Rectangle (typedef above). Guarded so standalone
+ * `clang -c iron_raylib.c` compiles. */
+#ifndef IRON_TUPLE_IMAGE__RECTANGLE__STRUCT_DEFINED
+#define IRON_TUPLE_IMAGE__RECTANGLE__STRUCT_DEFINED
+typedef struct {
+    struct Iron_Image        v0;
+    Iron_List_Iron_Rectangle v1;
+} Iron_Tuple_Image__Rectangle_;
+#endif
+
+/* TEXT-05 Font data probes.
+ * gen_image_atlas bakes an atlas Image + per-glyph source Rectangles;
+ * the shim deep-copies the Rectangle out-array into Iron-owned storage
+ * then frees raylib's RL_MALLOC'd buffer. unload_data releases a
+ * [GlyphInfo] array via raylib's UnloadFontData.
+ *
+ * Font.load_data + Font.from_memory DEFERRED: both take [UInt8] fileData.
+ * Iron_List_uint8_t is not pre-declared in iron_runtime.h:824-830.
+ * Unblocks when a runtime task adds IRON_LIST_DECL(uint8_t, uint8_t) —
+ * same gate as the 5 existing Phase 66 [UInt8] deferrals
+ * (LoadImageRaw, LoadImageFromMemory, LoadImageAnimFromMemory,
+ * ExportImageToMemory, ImageKernelConvolution). */
+Iron_Tuple_Image__Rectangle_
+Iron_font_gen_image_atlas(Iron_List_Iron_GlyphInfo glyphs, int32_t font_size,
+                           int32_t padding, int32_t pack_method);
+void Iron_font_unload_data(Iron_List_Iron_GlyphInfo glyphs);
+
+/* Phase 66 Font-dependent Image deferrals closed (TEX-05/07 Font variant).
+ * ImageTextEx allocates a fresh Image from rendering `text` with the
+ * given Font. ImageDrawTextEx mutates an existing Image in place using
+ * Phase 66-03 Pattern 2 (mutating-return-by-value).
+ *
+ * Font lifetime MUST outlive both calls (Pitfall 6 in 67-RESEARCH.md) —
+ * raylib reads Font._recs / _glyphs internally to look up glyphs. */
+struct Iron_Image Iron_image_text_ex(struct Iron_Font font, Iron_String text,
+                                      float font_size, float spacing,
+                                      struct Iron_Color tint);
+struct Iron_Image Iron_image_draw_text_ex(struct Iron_Image img, struct Iron_Font font,
+                                           Iron_String text, struct Iron_Vector2 position,
+                                           float font_size, float spacing,
+                                           struct Iron_Color tint);
+
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
