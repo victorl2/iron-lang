@@ -76,4 +76,4 @@ See `.planning/REQUIREMENTS.md` for the full categorized list.
 | New `iron_raylib.c` C shim allowed if needed | Some raylib APIs (varargs `TextFormat`, out-params, struct-by-value returns) may not map cleanly to Iron's FFI; a shim is the cleanest escape hatch | — Pending |
 
 ---
-*Last updated: 2026-04-17 after Phase 63 (2D Drawing) — 65 Draw.* bindings shipped, DRAW2D-01..16 closed, pong.iron rebuilds to a runnable arm64 executable; Iron_List_<T> typedef emission for stdlib foreign-method-stubs landed as a compiler-wide improvement.*
+*Last updated: 2026-04-17 after Phase 64 (Collision 2D + 3D) — 19 collision bindings (11 2D + 8 3D), COLL-01/COLL-02 closed. Proved instance-method dispatch on data-carrying objects, tuple-return `(Bool, Vector2)` through foreign-method-stub (canonical typedef `Iron_Tuple_Bool_Vector2`), Mesh 120B + Matrix 64B pass-by-value, RayCollision 32B memcpy-out returns. All ABI surfaces for v2.0.0-alpha now proven.*
