@@ -91,6 +91,18 @@ target_link_libraries(test_analyzer_no_short_circuit iron_compiler unity)
 add_test(NAME test_analyzer_no_short_circuit COMMAND test_analyzer_no_short_circuit)
 set_tests_properties(test_analyzer_no_short_circuit PROPERTIES LABELS "unit;phase-m0-invariant")
 
+# ── Phase 01 M0 Plan 03 (HARD-05): cancel_flag latency invariant ───────────
+add_executable(test_cancel_latency test_cancel_latency.c)
+target_link_libraries(test_cancel_latency iron_compiler unity pthread)
+add_test(NAME test_cancel_latency COMMAND test_cancel_latency)
+set_tests_properties(test_cancel_latency PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 30)
+
+# ── Phase 01 M0 Plan 03 (HARD-06): per-request arena RSS stability ─────────
+add_executable(test_arena_scoping_stress test_arena_scoping_stress.c)
+target_link_libraries(test_arena_scoping_stress iron_compiler unity)
+add_test(NAME test_arena_scoping_stress COMMAND test_arena_scoping_stress)
+set_tests_properties(test_arena_scoping_stress PROPERTIES LABELS "unit;phase-m0-invariant" TIMEOUT 120)
+
 # ── Runtime unit tests ───────────────────────────────────────────────────────
 add_executable(test_runtime_string test_runtime_string.c)
 target_link_libraries(test_runtime_string iron_runtime unity)
