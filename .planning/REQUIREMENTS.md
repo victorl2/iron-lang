@@ -146,12 +146,12 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 
 ### Text & Fonts (`rtext.c` — ~30 functions)
 
-- [ ] **TEXT-01**: User can get the default font — `Font.default()` / `getFontDefault`
-- [ ] **TEXT-02**: User can load a `Font` from file (TTF, BMP, FNT, etc.) — `Font.load(path)` — and unload via `font.unload()`
+- [x] **TEXT-01**: User can get the default font — `Font.default()` / `getFontDefault`
+- [x] **TEXT-02**: User can load a `Font` from file (TTF, BMP, FNT, etc.) — `Font.load(path)` — and unload via `font.unload()`
 - [ ] **TEXT-03**: User can load a font with explicit size, codepoint set, and SDF support — `Font.loadEx(path, size, codepoints), Font.loadFromImage(image, key, firstChar), Font.loadFromMemory(type, data, size, codepoints)`
-- [ ] **TEXT-04**: User can check whether a font is ready (`isFontValid`)
+- [x] **TEXT-04**: User can check whether a font is ready (`isFontValid`)
 - [ ] **TEXT-05**: User can load and unload font glyph data (`loadFontData, unloadFontData`) and generate a font atlas (`genImageFontAtlas`)
-- [ ] **TEXT-06**: User can export a font as code (`exportFontAsCode`)
+- [x] **TEXT-06**: User can export a font as code (`exportFontAsCode`)
 - [ ] **TEXT-07**: User can draw the FPS overlay — `drawFPS(x, y)`
 - [ ] **TEXT-08**: User can draw text in every variant — `drawText, drawTextEx, drawTextPro, drawTextCodepoint, drawTextCodepoints` — invoked as methods on `Font` or as freestanding draws
 - [ ] **TEXT-09**: User can set text line spacing — `setTextLineSpacing`
@@ -380,12 +380,12 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | TEX-12 | Phase 66 | Complete |
 | TEX-13 | Phase 66 | Complete |
 | TEX-14 | Phase 66 | Complete |
-| TEXT-01 | Phase 67 | Pending |
-| TEXT-02 | Phase 67 | Pending |
+| TEXT-01 | Phase 67 | Complete |
+| TEXT-02 | Phase 67 | Complete |
 | TEXT-03 | Phase 67 | Pending |
-| TEXT-04 | Phase 67 | Pending |
+| TEXT-04 | Phase 67 | Complete |
 | TEXT-05 | Phase 67 | Pending |
-| TEXT-06 | Phase 67 | Pending |
+| TEXT-06 | Phase 67 | Complete |
 | TEXT-07 | Phase 67 | Pending |
 | TEXT-08 | Phase 67 | Pending |
 | TEXT-09 | Phase 67 | Pending |

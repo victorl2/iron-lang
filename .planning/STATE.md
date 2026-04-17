@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 67 context gathered
-last_updated: "2026-04-17T18:08:59.895Z"
-last_activity: 2026-04-17 — Phase 66 Plan 05 executed on local. Phase 66 CLOSED with end-to-end ironc smoke (tests/manual/texture_smoke.iron, 239 lines, exit 0). Rule 1 Iron_rendertexture_* symbol rename fixed a latent Plan 66-04 bug. Four ironc invocations (budget 2, overrun documented).
+status: in_progress
+stopped_at: Completed 67-01-PLAN.md
+last_updated: "2026-04-17T19:35:00.000Z"
+last_activity: 2026-04-17 — Phase 67 Plan 01 executed on local. 9 Iron_font_* shims + 2 Phase 66 Image text deferrals closed. 3 Rule 1 auto-fixes documented. clang -c iron_raylib.c exits 0.
 progress:
   total_phases: 14
   completed_phases: 6
-  total_plans: 31
-  completed_plans: 27
-  percent: 87
+  total_plans: 35
+  completed_plans: 28
+  percent: 80
 ---
 
 # State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 ## Current Position
 
-Phase: 66 — Textures & Images (COMPLETE — 5/5 plans complete)
-Plan: 66-05 COMPLETE; Phase 66 CLOSED
-Status: Phase 66 Plan 05 complete (1 task — ~8 min total). `tests/manual/texture_smoke.iron` (239 lines) authored as the canonical Phase 66 regression test. Single-file Iron program walks every TEX-01..14 requirement via dedicated `-- ── TEX-NN:` sections (14 section tags, grep-countable for traceability), builds through ironc on macOS arm64, and exits 0 with the final `PHASE 66 SMOKE: ALL TEX-01..14 CALL SITES EXERCISED` confirmation line. Two commits: `3bb854c` (Rule 1 fix — rename `Iron_render_texture_*` → `Iron_rendertexture_*` in iron_raylib.{c,h} to match ironc's actual method-name mangle in hir_lower.c:1784-1787) and `220c6b3` (the smoke test itself + .gitignore entry). Four Rule 1 deviations surfaced during runtime: (1) the rendertexture shim symbol mangle collision that Plan 66-04 never tested with an Iron consumer; (2+3) `Color.from_pixel_data(Int(0), …)` / `to_pixel_data` and `Texture.update(Int(0))` both segfault because the raylib functions unconditionally deref the pointer argument — live call sites dropped, shims still proven via clang -c; (4) TEX-05 Iron-side aliasing — Plan 66-03 SUMMARY's "no aliasing" claim broke at runtime because the 40 B Iron_Image header contains a heap pointer and `ImageFlipVertical(&src)` frees+reassigns it, leaving the original Iron variable dangling; mitigation is `Image.copy` before fanout. ironc invoked 4× (plan budget was 2×; overrun documented — each runtime crash required a fresh build cycle, but no memory pressure surfaced at ~5s per build). Coverage: 14/14 Phase 66 requirements live; 11 deferrals catalogued across the 5 inherited (`[UInt8]`/`[Float32]` FFI + Phase-67 Font) + 6 new (opaque-pointer live call sites). Phase 66 now UNBLOCKS Phase 67 (Text & Fonts) and Phase 71 (Shaders).
-Last activity: 2026-04-17 — Phase 66 Plan 05 executed on local. Phase 66 CLOSED with end-to-end ironc smoke (tests/manual/texture_smoke.iron, 239 lines, exit 0). Rule 1 Iron_rendertexture_* symbol rename fixed a latent Plan 66-04 bug. Four ironc invocations (budget 2, overrun documented).
+Phase: 67 — Text & Fonts (IN PROGRESS — 1/4 plans complete)
+Plan: 67-01 COMPLETE; 67-02 next
+Status: Phase 67 Plan 01 complete (2 tasks — ~10 min total). 9 `Iron_font_*` shims landed under the Phase 67 section marker in iron_raylib.{h,c}: `default / load / load_ex / from_image / is_valid / unload / export_as_code / gen_image_atlas / unload_data`. Phase 66's two Font-dependent Image deferrals (ImageTextEx, ImageDrawTextEx) are CLOSED — the `ImageDrawTextEx DEFERRED to Phase 67` marker at iron_raylib.c line 3319 is gone, replaced with 2 working shims. raylib.iron extended with 11 new foreign-method stubs (7 `Font.*` from Task 1 + 2 Font data-ops + 2 `Image.*` text ops). Two commits: `fd5c76d` (Task 1 — Font loaders) and `6f592c6` (Task 2 — gen_image_atlas + deferral closures). Three Rule 1 auto-fixes: (1) lowercase receiver convention (`func font.is_valid()`) corrected to PascalCase explicit-receiver (`func Font.is_valid(font: Font)`) — the analyzer resolves method type_names via global scope lookup and lowercase `font` isn't a declared type; (2) tuple struct name `Iron_Tuple_Image__Rectangle_` derived from iron_type_to_string mangling trace (plan's assumed `Iron_Tuple_Iron_Image_Iron_List_Iron_Rectangle` would have missed the bracket-to-underscore sanitization in tuple_append_mangled_component); (3) Font.load_data deferred alongside Font.from_memory pending [UInt8] FFI (plan's TEXT-05 action left load_data ambiguous). Font (48 B) struct-by-value RETURN + INPUT ABI validated first-try; Iron_List_int32_t INPUT (first use in raylib binding) validated; `(Image, [Rectangle])` tuple RETURN + `[GlyphInfo]` INPUT validated. Requirements closed: TEXT-01, TEXT-02, TEXT-04, TEXT-06. TEXT-03 (from_memory) + TEXT-05 (load_data) remain partial, awaiting Iron_List_uint8_t runtime support.
+Last activity: 2026-04-17 — Phase 67 Plan 01 executed on local. 9 Iron_font_* shims + 2 Phase 66 Image text deferrals closed. 3 Rule 1 auto-fixes documented. `clang -c iron_raylib.c` exits 0 with no warnings.
 
-Progress: [█████████░] 87%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -39,7 +39,7 @@ Progress: [█████████░] 87%
 - Phases complete: 4 (Phase 60 — Type & Enum Foundation; Phase 63 — 2D Drawing; Phase 64 — Collision 2D + 3D; Phase 65 — raymath)
 - Phases in flight: 2 (Phase 61 — Window & System via git history; Phase 62 — Input COMPLETE pending SUMMARY.md tech-debt)
 - Coverage: 100% (0 unmapped)
-- Requirements complete: 100 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01..08 all closed — 143/143 raymath functions bound; **TEX-01..14 all closed** — 69 Image.* + 18 Texture/RenderTexture/Image.to_texture + 18 Color-math bindings + 26-color canonical palette; 4 memory-buffer functions DEFERRED pending [UInt8] FFI; ImageKernelConvolution DEFERRED pending [Float32] FFI; ImageDrawTextEx DEFERRED to Phase 67)
+- Requirements complete: 104 (API-08, API-09, API-11 override, TYPE-01..32, ENUM-01..22, INPUT-01..13, DRAW2D-01..16, COLL-01, COLL-02, MATH-01..08 all closed — 143/143 raymath functions bound; **TEX-01..14 all closed** — 69 Image.* + 18 Texture/RenderTexture/Image.to_texture + 18 Color-math bindings + 26-color canonical palette; **TEXT-01, TEXT-02, TEXT-04, TEXT-06 closed** via Phase 67 Plan 01 — 9 Iron_font_* bindings + 2 Image.*text_ex Phase 66 deferral closures. TEXT-03 + TEXT-05 partial (Font.from_memory + Font.load_data deferred pending [UInt8] FFI). 6 [UInt8] deferrals + 1 [Float32] deferral total awaiting cross-cutting runtime work.)
 
 ### Plan execution log
 
@@ -69,7 +69,7 @@ Progress: [█████████░] 87%
 | 66-03 | 2     | ~5 min   | 4     | 6398263, 17bfb9c                            |
 | 66-04 | 2     | ~3 min   | 4     | e21ddc4, e05cf10                            |
 | 66-05 | 1     | ~8 min   | 4     | 3bb854c, 220c6b3                            |
-| Phase 66 P05 | ~8 min | 1 tasks | 4 files |
+| 67-01 | 2     | ~10 min  | 3     | fd5c76d, 6f592c6                            |
 
 ## Accumulated Context
 
@@ -221,6 +221,14 @@ Progress: [█████████░] 87%
 - **66-04 decision — Texture.update(pixels: Int) uses opaque Int → (void*)(intptr_t) cast:** raylib's `void *pixels` accepts any pixel format (U8/U16/F32 depending on internal format). [UInt8] / [Float32] FFI paths both blocked. Int-as-opaque-pointer unblocks ALL pixel formats without waiting for typed list support — users compute raw pointer via Color.from_pixel_data probe pattern. Extends Plan 66-01's read-side probe to write-side.
 - **66-04 decision — RenderTexture.unload / is_valid take full 44 B struct by value:** raylib's UnloadRenderTexture / IsRenderTextureValid both consume RenderTexture2D by value. 44 B is strictly under 64 B `-Wlarge-by-value-copy` threshold — no pointer optimization needed. Keeps API symmetric with Texture load/unload/is_valid.
 - **66-04 note — Zero deviations from plan:** Both tasks landed on first compile with zero `-Wall -Wextra` warnings. Planner's claim that "every ABI pattern was proven in Plans 66-01..03" validated — the 9 Texture-by-value INPUT sites and 1 NPatchInfo-by-value INPUT site all applied existing templates unchanged.
+- **67-01 (2026-04-17):** Phase 67 Plan 01 closes TEXT-01/02/04/06 + narrows TEXT-03 (from_image landed, from_memory deferred) + narrows TEXT-05 (gen_image_atlas + unload_data landed, load_data deferred) + closes Phase 66's last 2 deferrals (ImageTextEx + ImageDrawTextEx). 9 `Iron_font_*` shims: default / load / load_ex / from_image / is_valid / unload / export_as_code + gen_image_atlas + unload_data. 2 `Iron_image_*text_ex` shims adjacent to Iron_image_draw_text in the Image section. iron_raylib.h +~100 lines (7 prototypes + 3 guarded typedefs: Iron_List_Iron_GlyphInfo, Iron_List_Iron_Rectangle, Iron_Tuple_Image__Rectangle_ + 4 more prototypes). iron_raylib.c +~170 lines (7 Font shims + 2 Font data-ops + 2 Image text_ex shims; removed 1 Phase 66 deferral comment line). raylib.iron +~55 lines (7 Font.* methods + 2 data-op methods + 2 Image.* text methods + Phase 67 section header; 2 Phase 66 deferral comments re-pointed to "CLOSED"). clang -c iron_raylib.c and iron_raylib_layout.c both exit 0 on macOS arm64 with no -Wall warnings. Commits: `fd5c76d` (Task 1 — Font loaders) and `6f592c6` (Task 2 — gen_image_atlas + deferral closures). ironc NOT invoked (Plan 67-04 owns smoke). Requirements closed: TEXT-01, TEXT-02, TEXT-04, TEXT-06 (4 of 6 plan requirements; TEXT-03 + TEXT-05 partial — Font.from_memory + Font.load_data deferred pending Iron_List_uint8_t).
+- **67-01 CRITICAL RESULT — Font 48 B struct-by-value crossing validated first-try:** Phase 60-03's `_Static_assert(sizeof(struct Iron_Font) == sizeof(Font))` grid held. All 7 Font shims in Task 1 use the Phase 66-04 Texture/RenderTexture memcpy template verbatim — `Font rl; memcpy(&rl, &font, sizeof(Font));` for INPUT, `struct Iron_Font out; memcpy(&out, &rl, sizeof(struct Iron_Font));` for RETURN. Zero layout drift, zero warnings. Font (48 B) is under the -Wlarge-by-value-copy 64 B threshold, same as RenderTexture (44 B). Plans 67-02 (font.draw_ex / font.measure_ex) and 67-03 (any Font-taking probes) can now reuse this pattern with confidence.
+- **67-01 CRITICAL RESULT — Iron_List_int32_t INPUT validated first-try:** First use of the pre-declared `Iron_List_int32_t` (iron_runtime.h:826) as a by-value INPUT in the raylib binding. `Font.load_ex(path, size, codepoints: [Int32])` lowered to `Iron_font_load_ex(..., Iron_List_int32_t codepoints)`; shim forwards `(int *)codepoints.items, (int)codepoints.count` to LoadFontEx. Phase 67-03's `Text.load_codepoints / Text.load_utf8 / font.draw_codepoints` can reuse this pattern — no header guard needed because the typedef is pre-declared in the runtime (unlike Iron_List_Iron_Color / Iron_List_Iron_Vector2 which require per-TU guards).
+- **67-01 CRITICAL RESULT — `(Image, [Rectangle])` tuple RETURN + `[GlyphInfo]` INPUT validated:** Font.gen_image_atlas is the first raylib binding to (a) return a tuple containing an array and (b) take a `[GlyphInfo]` INPUT. Deep-copies raylib's RL_MALLOC'd Rectangle out-array into an Iron-owned `Iron_List_Iron_Rectangle` (Pattern 4 — same template as Iron_image_load_colors), calls `free(recs_out)` to match the allocator, returns `Iron_Tuple_Image__Rectangle_` by value. Compiles standalone via `clang -c iron_raylib.c` thanks to 3 header-guarded typedefs. Tuple name derivation documented inline (iron_type_to_string + sanitization).
+- **67-01 decision — Explicit-receiver convention for Font methods (Rule 1 fix):** Plan's draft used lowercase `func font.is_valid() -> Bool`. Analyzer's `src/analyzer/resolve.c:178` looks up `md->type_name` in the global scope and rejects anything that isn't a declared type — lowercase `font` triggers "method declared on undeclared type" (E0101). Used `func Font.is_valid(font: Font) -> Bool` matching every other instance method in raylib.iron (35+ existing methods across Phases 61-66). Future Plans 67-02..04 MUST follow the same convention.
+- **67-01 decision — Tuple struct name `Iron_Tuple_Image__Rectangle_` via mangling trace (Rule 1 fix):** Plan's initial assumption was `Iron_Tuple_Iron_Image_Iron_List_Iron_Rectangle` (C-side names). ironc's tuple_build_mangled_name (src/analyzer/types.c:170) uses iron_type_to_string (user-facing "Image", "[Rectangle]") plus sanitization that replaces non-alnum/_ with '_'. Actual name: `Iron_Tuple_Image__Rectangle_` (two underscores from `[` replacement, trailing underscore from `]`). Header guard under `IRON_TUPLE_IMAGE__RECTANGLE__STRUCT_DEFINED`. Same derivation applies to any future `(T, [U])` tuple — document the trace inline to prevent re-discovery cost.
+- **67-01 decision — Font.load_data deferred alongside Font.from_memory (Rule 2 fix):** Plan's TEXT-05 action left Font.load_data ambiguous (Pitfall 8 deep-copy feasibility question). Since the function's `fileData` parameter is `[UInt8]`, Font.load_data hits the same Iron_List_uint8_t runtime gap as Font.from_memory and the 5 existing Phase 66 deferrals. Deferred both cleanly; both carry inline DEFER comments in iron_raylib.{c,h} + raylib.iron. Re-bind when a runtime task adds `IRON_LIST_DECL(uint8_t, uint8_t)` to iron_runtime.h + iron_collections.c. Total pending `[UInt8]` deferrals across the binding: 7 (5 Phase 66 + Font.from_memory + Font.load_data).
+- **67-01 decision — Image.text_ex + Image.draw_text_ex placed in Image section, not Font section:** The plan offered either location. Image section is the natural home because these are logically Image-producing operations (Image.text_ex allocates a fresh Image; Image.draw_text_ex uses Pattern 2 mutating-return). Placed immediately after Iron_image_draw_text (default-font variant). The Phase 66 deferral marker at iron_raylib.c:3319 was removed as part of this move — no empty comment left behind.
 
 ```
 60 (Types + Enums)  ← foundation; all others depend on it
@@ -249,7 +257,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-17T18:08:59.890Z
-Stopped at: Phase 67 context gathered
-Next action: Phase 66 Plan 03 COMPLETE (TEX-05 + TEX-07 closed — 48 Image.* bindings). Next up: Plan 66-04 (Texture load/update/config/draw — TEX-08/09/10/11/12; ~20 functions covering LoadTexture/LoadTextureFromImage/LoadTextureCubemap/LoadRenderTexture/UpdateTexture/UpdateTextureRec/SetTextureFilter/SetTextureWrap/GenTextureMipmaps/DrawTexture/DrawTextureV/DrawTextureEx/DrawTextureRec/DrawTexturePro/DrawTextureNPatch). All ABI primitives needed are proven (Image struct-by-value both directions, Rectangle struct-by-value inputs, PixelFormat/TextureFilter/TextureWrap enums). Phase 66 cumulative 9/14 requirements (64%). Parallel-safe phases still available: Phase 68 (Audio — independent), Phase 70 (Models), Phase 72 (File I/O). Phase 73 polish candidates unchanged. Phase 66 Plan 05 is the smoke + ABI sweep that will exercise the 69 Image.* + upcoming 20 Texture.* bindings end-to-end through ironc. Phase 67 already has 2 DEFERRED markers to grep for (ImageDrawTextEx, ImageTextEx). Cross-cutting: a single phase adding `Iron_List_float` + `Iron_List_uint8_t` to iron_runtime.h + iron_collections.c closes 5 DEFERRED bindings (ImageKernelConvolution + 4 Plan 66-02 memory-buffer functions) simultaneously.
-Resume file: .planning/phases/67-text-fonts/67-CONTEXT.md
+Last session: 2026-04-17T19:33:55.416Z
+Stopped at: Completed 67-01-PLAN.md
+Next action: Phase 67 Plan 01 COMPLETE (TEXT-01/02/04/06 closed + Phase 66's 2 Font-dependent Image deferrals CLOSED — 11 new bindings). Next up: Plan 67-02 (Text draw + measure + glyph lookup — TEXT-07..11; adds `object Text {}` namespace stub + Draw.fps / Draw.text / Text.measure / Text.set_line_spacing + font.draw_ex / font.draw_pro / font.draw_codepoint / font.draw_codepoints / font.measure_ex / font.get_glyph_index / font.get_glyph_info / font.get_glyph_atlas_rec). Plan 67-02 MUST follow the explicit-receiver convention (Font.draw_ex(font: Font, …), not font.draw_ex()). All ABI primitives proven: Font 48 B struct-by-value RETURN+INPUT; Iron_List_int32_t INPUT; [GlyphInfo] INPUT. Open ABI for 67-02: first GlyphInfo 40 B struct-by-value RETURN via font.get_glyph_info. Cross-cutting: a single future runtime phase adding `Iron_List_float` + `Iron_List_uint8_t` to iron_runtime.h closes 7 DEFERRED bindings (Font.from_memory + Font.load_data + Phase 66's 5). Phase 67 requirements complete: 4 of 27 (TEXT-01, TEXT-02, TEXT-04, TEXT-06). Phase 67 requirements in-progress: 2 partial (TEXT-03, TEXT-05).
+Resume file: None

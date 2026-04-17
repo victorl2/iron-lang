@@ -235,7 +235,13 @@ Plans:
   4. User can iterate a UTF-8 string codepoint-by-codepoint via `getCodepointNext` / `getCodepointPrevious` / `codepointToUTF8`, and load/unload codepoint and UTF-8 buffers without leaking.
   5. User can set text line spacing via `setTextLineSpacing` and multiline text draws respect the value.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 67-01-PLAN.md — Font loading + Image text deferrals (TEXT-01..06 + Phase 66 TEX-05/07 residual): Font.default / load / load_ex / from_image / is_valid / unload / export_as_code / gen_image_atlas / unload_data + Image.text_ex + image.draw_text_ex (Font.load_data + Font.from_memory deferred pending [UInt8] FFI)
+- [ ] 67-02-PLAN.md — Text draw + measure + glyph lookup (TEXT-07..11): Draw.fps / Draw.text + Text.measure / Text.set_line_spacing (new object Text {} namespace) + font.draw_ex / font.draw_pro / font.draw_codepoint / font.draw_codepoints / font.measure_ex / font.get_glyph_index / font.get_glyph_info / font.get_glyph_atlas_rec (validates GlyphInfo 40B struct-by-value RETURN)
+- [ ] 67-03-PLAN.md — Codepoint + UTF-8 (TEXT-12): Owns 2 novel ABI probes as dedicated 1-commit tasks ([Int32] RETURN via Text.load_codepoints + Iron_String from raylib caller-must-free char* via Text.codepoint_to_utf8) before bulk Text.load_utf8 / codepoint_count / codepoint_next/previous/at with (Int32, Int32) tuple returns
+- [ ] 67-04-PLAN.md — TEXT-13 string utilities + smoke + pong re-enablement: 20 Text.* string helpers (17 + 3 TextFormat overloads; Text.append omitted) validates Iron_List_Iron_String on both sides of FFI + tests/manual/text_smoke.iron (13 tagged sections) + restore examples/pong/pong.iron lines 105-106 with Draw.text + Text.format_i
 
 ---
 
@@ -362,7 +368,7 @@ Plans:
 | 64. Collision | 2/2 | Complete    | 2026-04-17 |
 | 65. raymath | 4/4 | Complete    | 2026-04-17 |
 | 66. Textures & Images | 5/5 | Complete    | 2026-04-17 |
-| 67. Text & Fonts | 0/? | Not started | - |
+| 67. Text & Fonts | 1/4 | In Progress|  |
 | 68. Audio System | 0/? | Not started | - |
 | 69. 3D Drawing & Camera3D | 0/? | Not started | - |
 | 70. Models, Meshes, Materials | 0/? | Not started | - |
