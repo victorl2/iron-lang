@@ -16,12 +16,20 @@
 #include <stdio.h>
 #include <stdatomic.h>
 
-Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
-                                 Iron_DiagList *diags,
-                                 const char *source_file_dir,
-                                 const char *source_text, size_t source_len,
-                                 bool force_comptime,
-                                 IronBuildTarget target) {
+/* HARD-02 / HARD-03: mode-aware analyzer dispatcher.
+ * Every pass runs unconditionally on the AST (no short-circuits on
+ * diags->error_count). Passes are responsible for tolerating ErrorNode and
+ * partial annotations (HARD-04). The one remaining `error_count == 0` guard
+ * is the comptime stage (Step 6) — running comptime on a broken AST is
+ * unsafe, so we preserve that semantic gate. */
+Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
+                                           IronAnalysisMode mode,
+                                           Iron_Arena *arena,
+                                           Iron_DiagList *diags,
+                                           const char *source_file_dir,
+                                           const char *source_text, size_t source_len,
+                                           bool force_comptime,
+                                           IronBuildTarget target) {
     Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false };
 
     /* Step 1: Initialize type system (interned primitives) */
@@ -29,17 +37,9 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
 
     /* Step 2: Name resolution */
     result.global_scope = iron_resolve(program, arena, diags);
-    if (diags->error_count > 0) {
-        result.has_errors = true;
-        return result;  /* Cannot type-check with unresolved names */
-    }
 
-    /* Step 3: Type checking */
+    /* Step 3: Type checking — runs regardless of resolve errors (HARD-03) */
     iron_typecheck(program, result.global_scope, arena, diags);
-    if (diags->error_count > 0) {
-        result.has_errors = true;
-        return result;  /* Cannot continue analysis with type errors */
-    }
 
     /* Step 3b: Capture analysis — annotate Iron_LambdaExpr.captures[] */
     iron_capture_analyze(program, result.global_scope, arena, diags);
@@ -54,22 +54,15 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
     iron_concurrency_check(program, result.global_scope, arena, diags);
 
     /* Step 5.5: Web target `await` reachability check (WEB-RUNTIME-04).
-     * Runs only when target == IRON_TARGET_WEB. No-op on native. */
+     * Runs only when target == IRON_TARGET_WEB. No-op on native.
+     * HARD-03: no short-circuit — pass must tolerate ErrorNode. */
     iron_web_await_check(program, arena, diags, target);
-    if (diags->error_count > 0) {
-        result.has_errors = true;
-        return result;
-    }
 
     /* Step 5.6: Web target top-level loader guard (WEB-ASSET-03).
      * Emits E0502 if LoadTexture/LoadSound/LoadFont/LoadModel is called at
      * module level (outside any function body) for --target=web.
-     * No-op on native. */
+     * No-op on native. HARD-03: no short-circuit. */
     iron_web_top_level_loader_check(program, arena, diags, target);
-    if (diags->error_count > 0) {
-        result.has_errors = true;
-        return result;
-    }
 
     /* Step 5b: Interface implementor collection — build IfaceRegistry */
     result.iface_registry = iron_iface_collect(program, arena);
@@ -78,15 +71,31 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
     iron_iface_eliminate_dead(&result.iface_registry, program);
 
 
-    /* Step 6: Comptime evaluation — replace IRON_NODE_COMPTIME nodes with literals */
+    /* Step 6: Comptime evaluation — replace IRON_NODE_COMPTIME nodes with literals.
+     * PRESERVED: comptime on a broken AST is unsafe (const-eval on unresolved
+     * symbols is undefined). This guard is semantic, NOT a HARD-03 short-circuit. */
     if (diags->error_count == 0) {
         iron_comptime_apply(program, result.global_scope, arena, diags,
                             source_file_dir, force_comptime,
                             source_text, source_len);
     }
 
+    (void)mode; /* Plan 05 consumes mode for comptime FS gating */
+
     result.has_errors = (diags->error_count > 0);
     return result;
+}
+
+/* Backwards-compatible dispatcher — CLI mode preserves legacy behaviour. */
+Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
+                                 Iron_DiagList *diags,
+                                 const char *source_file_dir,
+                                 const char *source_text, size_t source_len,
+                                 bool force_comptime,
+                                 IronBuildTarget target) {
+    return iron_analyze_with_mode(program, IRON_ANALYSIS_MODE_CLI, arena, diags,
+                                   source_file_dir, source_text, source_len,
+                                   force_comptime, target);
 }
 
 /* ── iron_analyze_buffer stub (HARD-01 — Plan 01) ─────────────────────────── */
@@ -116,15 +125,14 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
     int token_count = (int)arrlen(tokens);
     Iron_Parser parser = iron_parser_create(tokens, token_count, source,
                                             filename, arena, diags);
+    iron_parser_set_mode(&parser, mode); /* HARD-02: LSP mode disables cascade suppression */
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
 
-    /* Plan 01 PRESERVES the existing short-circuit behaviour via delegating
-     * to iron_analyze unchanged. Plan 02 removes the short-circuits inside
-     * iron_analyze's interior directly. */
-    result = iron_analyze((Iron_Program *)ast, arena, diags,
-                          NULL, NULL, 0, false, IRON_TARGET_NATIVE);
-    (void)mode;
+    /* HARD-02/HARD-03: mode is threaded into iron_analyze_with_mode so each
+     * pass runs unconditionally and LSP-specific gating can be honoured. */
+    result = iron_analyze_with_mode((Iron_Program *)ast, mode, arena, diags,
+                                    NULL, NULL, 0, false, IRON_TARGET_NATIVE);
     (void)len;
     return result;
 }
