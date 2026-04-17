@@ -220,6 +220,14 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
             collect_spawn_refs(ctx, ls->expr);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* -Wswitch-enum opt-out: collect_spawn_refs is a generic walker that
          * only cares about statements that can read or write a variable; all
          * remaining Iron_NodeKind values are legitimate no-ops here. */

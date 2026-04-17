@@ -204,6 +204,14 @@ static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
         /* Lambda bodies are separate scopes; skip for now. */
         break;
     }
+    /* HARD-04: graceful no-op on parser ErrorNode. */
+    case IRON_NODE_ERROR:
+        break;
+
+    /* HARD-04: sentinel — never a real node kind. */
+    case IRON_NODE_COUNT:
+        break;
+
     /* -Wswitch-enum opt-out: init-check walker only visits expression kinds
      * that can read a name; literals, nulls, bools, and helper kinds are
      * intentional no-ops. */
