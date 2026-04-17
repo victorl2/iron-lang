@@ -1305,6 +1305,56 @@ func Image.load_palette(img: Image, max_palette_size: Int32) -> [Color] {}
 func Image.get_alpha_border(img: Image, threshold: Float32) -> Rectangle {}
 func Image.get_color(img: Image, x: Int32, y: Int32) -> Color {}
 
+-- ──────────────────────────────────────────────────────────────────────
+-- Image transforms (Plan 66-03 — TEX-05, 27 bindings)
+-- ──────────────────────────────────────────────────────────────────────
+--
+-- Mutating-transform return-by-value idiom locked in Phase 66 CONTEXT.md.
+-- Every method takes Image by value, returns a fresh Image by value —
+-- chain-style composition in Iron:
+--
+--   Image.color(64, 64, BLACK)
+--     .flip_vertical()
+--     .color_tint(RED)
+--     .crop(Rectangle(0, 0, 32, 32))
+--
+-- ImageKernelConvolution DEFERRED: takes `[Float32]` which Iron's runtime
+-- does not yet pre-declare in iron_runtime.h's primitive list types
+-- (Iron_List_float / Iron_List_double absent; Pitfall 7 variant). Rebind
+-- in the phase that lands the Float list primitive.
+-- ImageTextEx DEFERRED: Font-dependent, owned by Phase 67.
+
+-- Group A — 3 by-value returns (Pattern 1)
+func Image.copy(img: Image) -> Image {}
+func Image.from_rectangle(img: Image, rec: Rectangle) -> Image {}
+func Image.from_channel(img: Image, selected_channel: Int32) -> Image {}
+
+-- Group B — 24 mutating transforms (Pattern 2)
+func Image.format(img: Image, new_format: PixelFormat) -> Image {}
+func Image.to_pot(img: Image, fill: Color) -> Image {}
+func Image.crop(img: Image, crop: Rectangle) -> Image {}
+func Image.alpha_crop(img: Image, threshold: Float32) -> Image {}
+func Image.alpha_clear(img: Image, color: Color, threshold: Float32) -> Image {}
+func Image.alpha_mask(img: Image, mask: Image) -> Image {}
+func Image.alpha_premultiply(img: Image) -> Image {}
+func Image.blur_gaussian(img: Image, blur_size: Int32) -> Image {}
+func Image.resize(img: Image, new_width: Int32, new_height: Int32) -> Image {}
+func Image.resize_nn(img: Image, new_width: Int32, new_height: Int32) -> Image {}
+func Image.resize_canvas(img: Image, new_width: Int32, new_height: Int32, offset_x: Int32, offset_y: Int32, fill: Color) -> Image {}
+func Image.mipmaps(img: Image) -> Image {}
+func Image.dither(img: Image, r_bpp: Int32, g_bpp: Int32, b_bpp: Int32, a_bpp: Int32) -> Image {}
+func Image.flip_vertical(img: Image) -> Image {}
+func Image.flip_horizontal(img: Image) -> Image {}
+func Image.rotate(img: Image, degrees: Int32) -> Image {}
+func Image.rotate_cw(img: Image) -> Image {}
+func Image.rotate_ccw(img: Image) -> Image {}
+func Image.color_tint(img: Image, color: Color) -> Image {}
+func Image.color_invert(img: Image) -> Image {}
+func Image.color_grayscale(img: Image) -> Image {}
+func Image.color_contrast(img: Image, contrast: Float32) -> Image {}
+func Image.color_brightness(img: Image, brightness: Int32) -> Image {}
+func Image.color_replace(img: Image, color: Color, replace: Color) -> Image {}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════

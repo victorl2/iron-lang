@@ -3024,6 +3024,289 @@ struct Iron_Color Iron_image_get_color(struct Iron_Image img, int32_t x, int32_t
     return out;
 }
 
+/*
+ * TEX-05 Image transforms (Plan 66-03 Task 1 — 27 shims).
+ *
+ * Pattern 2 (mutating transform, return by value): memcpy Iron_Image in,
+ * call ImageFoo(&src, ...) so raylib mutates in place, memcpy mutated src
+ * out as fresh Iron_Image return. Pattern 1 (copy/from_rectangle/from_channel):
+ * raylib returns Image by value from ImageCopy / ImageFromImage /
+ * ImageFromChannel — memcpy input, capture return, memcpy out.
+ *
+ * ImageKernelConvolution DEFERRED: takes `const float *kernel`, requires
+ * [Float32] FFI runtime support (Iron_List_float / Iron_List_double are
+ * not in iron_runtime.h:824-830 pre-declared primitive list types).
+ * Rebind in the phase that lands the Float list primitive alongside
+ * [UInt8] (same Pitfall 7 variant as the 4 memory-buffer Image functions
+ * deferred in Plan 66-02).
+ */
+
+/* Group A — 3 by-value-return functions (Pattern 1). */
+
+struct Iron_Image Iron_image_copy(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    Image dup = ImageCopy(src);
+    struct Iron_Image out;
+    memcpy(&out, &dup, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_from_rectangle(struct Iron_Image img, struct Iron_Rectangle rec) {
+    Image src;
+    Rectangle r;
+    memcpy(&src, &img, sizeof(Image));
+    memcpy(&r,   &rec, sizeof(Rectangle));
+    Image dup = ImageFromImage(src, r);
+    struct Iron_Image out;
+    memcpy(&out, &dup, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_from_channel(struct Iron_Image img, int32_t selected_channel) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    Image dup = ImageFromChannel(src, (int)selected_channel);
+    struct Iron_Image out;
+    memcpy(&out, &dup, sizeof(struct Iron_Image));
+    return out;
+}
+
+/* Group B — 24 mutating transforms (Pattern 2). */
+
+struct Iron_Image Iron_image_format(struct Iron_Image img, int32_t new_format) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageFormat(&src, (int)new_format);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_to_pot(struct Iron_Image img, struct Iron_Color fill) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,  sizeof(Image));
+    memcpy(&col, &fill, sizeof(Color));
+    ImageToPOT(&src, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_crop(struct Iron_Image img, struct Iron_Rectangle crop) {
+    Image src;
+    Rectangle r;
+    memcpy(&src, &img,  sizeof(Image));
+    memcpy(&r,   &crop, sizeof(Rectangle));
+    ImageCrop(&src, r);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_alpha_crop(struct Iron_Image img, float threshold) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageAlphaCrop(&src, threshold);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_alpha_clear(struct Iron_Image img, struct Iron_Color color, float threshold) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageAlphaClear(&src, col, threshold);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_alpha_mask(struct Iron_Image img, struct Iron_Image mask) {
+    Image src, mk;
+    memcpy(&src, &img,  sizeof(Image));
+    memcpy(&mk,  &mask, sizeof(Image));
+    ImageAlphaMask(&src, mk);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_alpha_premultiply(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageAlphaPremultiply(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_blur_gaussian(struct Iron_Image img, int32_t blur_size) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageBlurGaussian(&src, (int)blur_size);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_resize(struct Iron_Image img, int32_t new_width, int32_t new_height) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageResize(&src, (int)new_width, (int)new_height);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_resize_nn(struct Iron_Image img, int32_t new_width, int32_t new_height) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageResizeNN(&src, (int)new_width, (int)new_height);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_resize_canvas(struct Iron_Image img, int32_t new_width, int32_t new_height,
+                                            int32_t offset_x, int32_t offset_y, struct Iron_Color fill) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,  sizeof(Image));
+    memcpy(&col, &fill, sizeof(Color));
+    ImageResizeCanvas(&src, (int)new_width, (int)new_height, (int)offset_x, (int)offset_y, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_mipmaps(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageMipmaps(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_dither(struct Iron_Image img, int32_t r_bpp, int32_t g_bpp,
+                                     int32_t b_bpp, int32_t a_bpp) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageDither(&src, (int)r_bpp, (int)g_bpp, (int)b_bpp, (int)a_bpp);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_flip_vertical(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageFlipVertical(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_flip_horizontal(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageFlipHorizontal(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_rotate(struct Iron_Image img, int32_t degrees) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageRotate(&src, (int)degrees);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_rotate_cw(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageRotateCW(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_rotate_ccw(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageRotateCCW(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_color_tint(struct Iron_Image img, struct Iron_Color color) {
+    Image src;
+    Color col;
+    memcpy(&src, &img,   sizeof(Image));
+    memcpy(&col, &color, sizeof(Color));
+    ImageColorTint(&src, col);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_color_invert(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageColorInvert(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_color_grayscale(struct Iron_Image img) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageColorGrayscale(&src);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_color_contrast(struct Iron_Image img, float contrast) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageColorContrast(&src, contrast);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_color_brightness(struct Iron_Image img, int32_t brightness) {
+    Image src;
+    memcpy(&src, &img, sizeof(Image));
+    ImageColorBrightness(&src, (int)brightness);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
+struct Iron_Image Iron_image_color_replace(struct Iron_Image img, struct Iron_Color color,
+                                            struct Iron_Color replace) {
+    Image src;
+    Color a, b;
+    memcpy(&src, &img,     sizeof(Image));
+    memcpy(&a,   &color,   sizeof(Color));
+    memcpy(&b,   &replace, sizeof(Color));
+    ImageColorReplace(&src, a, b);
+    struct Iron_Image out;
+    memcpy(&out, &src, sizeof(struct Iron_Image));
+    return out;
+}
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */

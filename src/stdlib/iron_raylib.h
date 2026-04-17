@@ -1033,6 +1033,58 @@ Iron_List_Iron_Color Iron_image_load_palette(struct Iron_Image img, int32_t max_
 struct Iron_Rectangle Iron_image_get_alpha_border(struct Iron_Image img, float threshold);
 struct Iron_Color     Iron_image_get_color(struct Iron_Image img, int32_t x, int32_t y);
 
+/* TEX-05 Image transforms (Plan 66-03 Task 1).
+ *
+ * 27 mutating-transform + by-value-return shims implementing the
+ * "take Image by value, return mutated Image by value" idiom locked
+ * in Phase 66 CONTEXT.md. Shim body template (Pattern 2): memcpy the
+ * Iron_Image struct into a local raylib `Image`, call `ImageFoo(&src, ...)`
+ * so raylib mutates `src` in place, memcpy the mutated `src` back out
+ * into a fresh Iron_Image return value. Chain-style composition in Iron:
+ *   image.crop(r).flip_vertical().color_tint(RED)
+ *
+ * 3 shims (copy / from_rectangle / from_channel) use Pattern 1 (Image
+ * returned by raylib by value — no *dst mutation).
+ *
+ * Deferred:
+ *   - ImageKernelConvolution: requires [Float32] FFI runtime support
+ *     (Pitfall 7 — no Iron_List_float / Iron_List_double in primitive
+ *     list types at iron_runtime.h:824-830). Rebind in the phase that
+ *     lands [Float32] alongside [UInt8].
+ *   - ImageTextEx: Font-dependent, owned by Phase 67.
+ */
+struct Iron_Image Iron_image_copy(struct Iron_Image img);
+struct Iron_Image Iron_image_from_rectangle(struct Iron_Image img, struct Iron_Rectangle rec);
+struct Iron_Image Iron_image_from_channel(struct Iron_Image img, int32_t selected_channel);
+struct Iron_Image Iron_image_format(struct Iron_Image img, int32_t new_format);
+struct Iron_Image Iron_image_to_pot(struct Iron_Image img, struct Iron_Color fill);
+struct Iron_Image Iron_image_crop(struct Iron_Image img, struct Iron_Rectangle crop);
+struct Iron_Image Iron_image_alpha_crop(struct Iron_Image img, float threshold);
+struct Iron_Image Iron_image_alpha_clear(struct Iron_Image img, struct Iron_Color color, float threshold);
+struct Iron_Image Iron_image_alpha_mask(struct Iron_Image img, struct Iron_Image mask);
+struct Iron_Image Iron_image_alpha_premultiply(struct Iron_Image img);
+struct Iron_Image Iron_image_blur_gaussian(struct Iron_Image img, int32_t blur_size);
+struct Iron_Image Iron_image_resize(struct Iron_Image img, int32_t new_width, int32_t new_height);
+struct Iron_Image Iron_image_resize_nn(struct Iron_Image img, int32_t new_width, int32_t new_height);
+struct Iron_Image Iron_image_resize_canvas(struct Iron_Image img, int32_t new_width, int32_t new_height,
+                                            int32_t offset_x, int32_t offset_y, struct Iron_Color fill);
+struct Iron_Image Iron_image_mipmaps(struct Iron_Image img);
+struct Iron_Image Iron_image_dither(struct Iron_Image img, int32_t r_bpp, int32_t g_bpp,
+                                     int32_t b_bpp, int32_t a_bpp);
+struct Iron_Image Iron_image_flip_vertical(struct Iron_Image img);
+struct Iron_Image Iron_image_flip_horizontal(struct Iron_Image img);
+struct Iron_Image Iron_image_rotate(struct Iron_Image img, int32_t degrees);
+struct Iron_Image Iron_image_rotate_cw(struct Iron_Image img);
+struct Iron_Image Iron_image_rotate_ccw(struct Iron_Image img);
+struct Iron_Image Iron_image_color_tint(struct Iron_Image img, struct Iron_Color color);
+struct Iron_Image Iron_image_color_invert(struct Iron_Image img);
+struct Iron_Image Iron_image_color_grayscale(struct Iron_Image img);
+struct Iron_Image Iron_image_color_contrast(struct Iron_Image img, float contrast);
+struct Iron_Image Iron_image_color_brightness(struct Iron_Image img, int32_t brightness);
+struct Iron_Image Iron_image_color_replace(struct Iron_Image img, struct Iron_Color color,
+                                            struct Iron_Color replace);
+/* ImageKernelConvolution DEFERRED: requires [Float32] FFI runtime support (Pitfall 7 variant) */
+
 /* ── Text & Fonts (Phase 67) ──────────────────────────────────────── */
 /* ── Audio (Phase 68) ─────────────────────────────────────────────── */
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
