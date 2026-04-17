@@ -209,7 +209,14 @@ Plans:
   4. User can manipulate colors via `color.tint(tint)`, `color.fade(0.5)`, `color.toHSV()`, `Color.fromHSV(hsv)`, `color.lerp(other, t)`, `color.alphaBlend(dst, src)` and get raylib-equivalent results.
   5. All 26 raylib `Color` palette constants (LIGHTGRAY through RAYWHITE) are available as Iron `val` constants and usable in any draw call.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 66-01-PLAN.md — Color math (TEX-13) + 26-color canonical palette replacing Plan 60-08 rescue (TEX-14); probes opaque void* arg pattern
+- [ ] 66-02-PLAN.md — Image load/gen/export/extract (TEX-01, narrowed TEX-02, TEX-03, narrowed TEX-04, TEX-06); Task 1 is the `-> [Color]` reverse-direction Iron_List probe; 4 memory-buffer functions deferred per `[UInt8]` FFI blocker
+- [ ] 66-03-PLAN.md — Image mutating transforms (TEX-05) + CPU draw (TEX-07); ~48 functions via mutating-transform return-by-value pattern; ImageKernelConvolution / ImageTextEx / ImageDrawTextEx deferred
+- [ ] 66-04-PLAN.md — Texture + RenderTexture load/update/config/draw (TEX-08, TEX-09, TEX-10, TEX-11, TEX-12); first RenderTexture 44 B return + NPatchInfo 36 B input through FFI
+- [ ] 66-05-PLAN.md — Standalone `tests/manual/texture_smoke.iron` exercising all 14 TEX requirements end-to-end; no consumer files touched
 
 ---
 
