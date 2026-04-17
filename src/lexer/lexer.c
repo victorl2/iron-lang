@@ -275,35 +275,13 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
         multiline = 1;
     }
 
-    /* Buffer for string content (stored in arena later). */
-    size_t  buf_cap  = 256;
+    /* Buffer for string content (stored in arena later).
+     * WR-06: previously this function allocated 256 bytes then immediately
+     * re-allocated 4096 bytes without using the first block, wasting ~2.56 MB
+     * of arena per 10K-string program. The 256-byte allocation has been
+     * removed — we go straight to the 4 KB arena block. */
     size_t  buf_len  = 0;
-    char   *buf      = (char *)iron_arena_alloc(l->arena, buf_cap, 1);
-    if (!buf) {
-        /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_string scratch): emit an
-         * OOM diagnostic and return IRON_TOK_ERROR so iron_analyze_buffer
-         * stays fallible on the hot path. */
-        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
-                                         l->line, l->col);
-        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_LEXER_OOM, span,
-                       "out of memory while lexing string literal", NULL);
-        return iron_make_token(l, IRON_TOK_ERROR, NULL,
-                               start_line, start_col,
-                               (uint32_t)(l->pos - start_pos));
-    }
-
-    int has_interp = 0;
-
-    /* Reserve space helper (inline growth). Since arena is bump-only, we
-     * pre-allocate a generous block and track usage. For very long strings we
-     * just extend the arena. The simpler approach: build into a local large
-     * arena allocation. We use 4096 initial capacity. */
-    (void)buf_cap;
-    /* Restart: allocate 4 KB up front. The arena won't reclaim it so we accept
-     * the waste for now. */
-    buf_len = 0;
-    buf     = (char *)iron_arena_alloc(l->arena, 4096, 1);
+    char   *buf      = (char *)iron_arena_alloc(l->arena, 4096, 1);
     if (!buf) {
         /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_string 4K scratch). */
         Iron_Span span = iron_span_make(l->filename, start_line, start_col,
@@ -316,6 +294,8 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                                (uint32_t)(l->pos - start_pos));
     }
     size_t buf_max = 4096;
+
+    int has_interp = 0;
 
 #define PUSH_CHAR(ch) do { \
     if (buf_len < buf_max - 1) { buf[buf_len++] = (ch); } \
