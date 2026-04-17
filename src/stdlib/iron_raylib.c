@@ -4598,6 +4598,38 @@ static void audio_cb_free(int slot) {
 /* ── End of ABI-CALLBACK trampoline infrastructure ─────────────────── */
 /* Plan 68-02+ will add raudio binding shims after this block. */
 
+/* ── AUDIO-01 Audio device lifecycle (5 shims) ─────────────────────── */
+/*
+ * Freestanding shims — no instance receiver. Mirrors Phase 61 Window.*
+ * shape (e.g., Iron_window_init / Iron_window_close).
+ *
+ * Pitfall 7 (68-RESEARCH.md): InitAudioDevice logs a TRACELOG warning
+ * on backend failure but does NOT crash. Subsequent play / update calls
+ * are silent no-ops when !IsAudioDeviceReady(). Iron users guard with
+ * `if Audio.is_ready() { ... }` — the smoke test (Plan 68-05) does
+ * this for graceful headless / CI degradation.
+ */
+
+void Iron_audio_init(void) {
+    InitAudioDevice();
+}
+
+void Iron_audio_close(void) {
+    CloseAudioDevice();
+}
+
+bool Iron_audio_is_ready(void) {
+    return (bool)(IsAudioDeviceReady() != 0);
+}
+
+void Iron_audio_set_master_volume(float volume) {
+    SetMasterVolume(volume);
+}
+
+float Iron_audio_get_master_volume(void) {
+    return GetMasterVolume();
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */

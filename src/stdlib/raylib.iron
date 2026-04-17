@@ -2376,3 +2376,20 @@ func Ray.hit_quad(ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) 
 
 -- Collision namespace (1 pair-based 3D test)
 func Collision.spheres(c1: Vector3, r1: Float32, c2: Vector3, r2: Float32) -> Bool {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 68 — Audio System (raudio bindings)
+-- ══════════════════════════════════════════════════════════════════════
+
+-- ── AUDIO-01 device lifecycle (5 methods, freestanding on Audio.*) ─
+-- Matches Phase 61 Window.* precedent. raylib's _device suffix is
+-- dropped — the Audio namespace already implies device scope.
+--
+-- Pitfall: InitAudioDevice logs a TRACELOG warning on backend failure
+-- but does NOT crash. Callers should guard play/update calls with
+-- Audio.is_ready() for graceful headless / CI degradation.
+func Audio.init() {}
+func Audio.close() {}
+func Audio.is_ready() -> Bool {}
+func Audio.set_master_volume(volume: Float32) {}
+func Audio.get_master_volume() -> Float32 {}

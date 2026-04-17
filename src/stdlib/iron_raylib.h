@@ -1478,6 +1478,13 @@ float       Iron_text_to_float(Iron_String text);
  * DetachAudioMixedProcessor) on top of this. */
 typedef Iron_Closure Iron_AudioCallback;
 
+/* ── AUDIO-01 Audio device lifecycle (5 shims) ─────────────────────── */
+void  Iron_audio_init(void);
+void  Iron_audio_close(void);
+bool  Iron_audio_is_ready(void);
+void  Iron_audio_set_master_volume(float volume);
+float Iron_audio_get_master_volume(void);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
