@@ -21,13 +21,20 @@ func main() -> Int32 {
     Window.init(Int32(800), Int32(600), "Phase 69 draw3d_smoke")
 
     -- Camera3D setup — shared across all four DRAW3D-NN sections.
-    -- Pitfall 9: 5 fields — position, target, up, fovy, projection.ordinal.
+    -- Pitfall 9: 5 fields — position, target, up, fovy, projection (Int32).
+    -- [Rule 3 Blocking fix — Plan 69-04] The documented Pitfall 10 form
+    -- `CameraProjection.PERSPECTIVE.ordinal` fails at ironc codegen with
+    -- "member reference base type 'Iron_CameraProjection' is not a
+    -- structure or union" because ironc lowers enum variants to a C
+    -- enum typedef (not a struct with .ordinal). The struct field is
+    -- already Int32, so pass Int32(0) directly for PERSPECTIVE and
+    -- Int32(1) for ORTHOGRAPHIC. Deferred to a Phase 73 ironc fix.
     val cam = Camera3D(
         Vector3(Float32(10.0), Float32(10.0), Float32(10.0)),  -- position
         Vector3(Float32(0.0),  Float32(0.0),  Float32(0.0)),   -- target
         Vector3(Float32(0.0),  Float32(1.0),  Float32(0.0)),   -- up (Y-up)
         Float32(45.0),                                          -- fovy (degrees)
-        CameraProjection.PERSPECTIVE.ordinal                    -- Pitfall 10: .ordinal
+        Int32(0)                                                -- projection = PERSPECTIVE
     )
 
     -- ── DRAW3D-01: begin/end 3D mode ─────────────────────────────
@@ -97,6 +104,33 @@ func main() -> Int32 {
     Draw.end()
     print("DRAW3D-04 batch 1: line_3d / point_3d / circle_3d / triangle_3d / triangle_strip_3d / cube (4) / sphere (3) exercised")
 
+    -- ── DRAW3D-04 (batch 2): cylinder (4) / capsule (2) / plane / ray / grid
+    val size2 = Vector2(Float32(10.0), Float32(10.0))
+
+    Draw.begin()
+    Draw.clear(RAYWHITE)
+    Draw.begin_mode_3d(cam)
+
+    Draw.cylinder(origin, Float32(1.0), Float32(1.0), Float32(2.0),
+                  Int32(16), ORANGE)
+    Draw.cylinder_ex(origin, p2, Float32(0.5), Float32(1.0),
+                     Int32(16), ORANGE)
+    Draw.cylinder_wires(origin, Float32(1.0), Float32(1.0), Float32(2.0),
+                        Int32(16), BLACK)
+    Draw.cylinder_wires_ex(origin, p2, Float32(0.5), Float32(1.0),
+                           Int32(16), BLACK)
+
+    Draw.capsule(origin, p2, Float32(0.5), Int32(8), Int32(8), DARKGREEN)
+    Draw.capsule_wires(origin, p2, Float32(0.5), Int32(8), Int32(8), BLACK)
+
+    Draw.plane(origin, size2, LIGHTGRAY)         -- Pitfall 4: size is Vector2
+    Draw.ray(ray, MAGENTA)                        -- First Ray INPUT
+    Draw.grid(Int32(10), Float32(1.0))           -- Pitfall 6: no Color
+
+    Draw.end_mode_3d()
+    Draw.end()
+    print("DRAW3D-04 batch 2: cylinder (4) / capsule (2) / plane / ray / grid exercised")
+
 
     Window.close()
 
@@ -113,6 +147,6 @@ func main() -> Int32 {
     val _k9 = screen_ex
     val _k10 = view_m
 
-    print("PHASE 69 SMOKE: DRAW3D-01..03 + DRAW3D-04 batch 1 exercised (DRAW3D-04 batch 2 pending plan 69-04)")
+    print("PHASE 69 SMOKE: ALL DRAW3D-01..04 CALL SITES EXERCISED")
     return Int32(0)
 }
