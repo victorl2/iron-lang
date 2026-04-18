@@ -68,6 +68,10 @@ void ilsp_handle_type_hierarchy_subtypes            (IronLsp_Server *s, yyjson_d
 /* Phase 3 Plan 06 (NAV-12): workspace/diagnostic pull handler. */
 void ilsp_handle_workspace_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 4 Plan 04-02 (EDIT-01, EDIT-03): completion + resolve. */
+void ilsp_handle_text_document_completion   (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_completion_item_resolve    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -90,10 +94,17 @@ void ilsp_handle_workspace_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Iron_A
  * signatureHelp < typeDefinition ('s' < 't'). */
 const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "$/cancelRequest",                   ilsp_handle_cancel,                         false, NULL                    },
+    /* Phase 4 Plan 04-02 (EDIT-03): completionItem/resolve.
+     * Sort: '$' (0x24) < 'c' (0x63) < 'e' (0x65), so this row belongs
+     * directly after "$/cancelRequest" and before "exit". */
+    { "completionItem/resolve",            ilsp_handle_completion_item_resolve,        true,  "completionProvider"    },
     { "exit",                              ilsp_handle_exit,                           false, NULL                    },
     { "initialize",                        ilsp_handle_initialize,                     true,  NULL                    },
     { "initialized",                       ilsp_handle_initialized,                    false, NULL                    },
     { "shutdown",                          ilsp_handle_shutdown,                       true,  NULL                    },
+    /* Phase 4 Plan 04-02 (EDIT-01): textDocument/completion. Sort:
+     * "completion" < "declaration" because 'c'(0x63) < 'd'(0x64). */
+    { "textDocument/completion",           ilsp_handle_text_document_completion,       true,  "completionProvider"    },
     /* Plan 03 Task 02 (NAV-03): declaration. */
     { "textDocument/declaration",          ilsp_handle_text_document_declaration,      true,  "declarationProvider"   },
     /* Plan 03 Task 02 (NAV-02): definition. */
