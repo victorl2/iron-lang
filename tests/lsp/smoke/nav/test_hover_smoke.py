@@ -1,6 +1,6 @@
 """textDocument/hover smoke -- Phase 3 Plan 04 Task 02 (NAV-09, D-04).
 
-Flipped from the Wave 0 stub.  Drives the in-process ironls binary
+Real pytest-lsp e2e.  Drives the in-process ironls binary
 end-to-end via pytest-lsp.  Key invariant: the server accepts hover
 requests and responds with either None or a Hover object within the
 asyncio deadline (earlier phases would have responded MethodNotFound).

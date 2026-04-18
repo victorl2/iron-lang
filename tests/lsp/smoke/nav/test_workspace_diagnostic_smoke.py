@@ -1,6 +1,6 @@
 """workspace/diagnostic smoke -- Phase 3 Plan 06 (NAV-12, NAV-13, D-12).
 
-Flipped from Wave 0 stub.  Drives the ironls binary end-to-end via
+Real pytest-lsp e2e.  Drives the ironls binary end-to-end via
 pytest-lsp.  Key invariants asserted:
 
 1. The server accepts ``workspace/diagnostic`` and responds with an

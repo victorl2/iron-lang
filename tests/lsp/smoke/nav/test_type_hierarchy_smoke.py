@@ -1,6 +1,6 @@
 """textDocument/prepareTypeHierarchy smoke -- Phase 3 Plan 05 Task 02 (NAV-11, D-08).
 
-Flipped from the Wave 0 stub.  Drives the in-process ironls binary
+Real pytest-lsp e2e.  Drives the in-process ironls binary
 end-to-end via pytest-lsp.  The key invariant: the server accepts the
 prepare request and responds with a list (or None) within the asyncio
 deadline -- earlier phases responded MethodNotFound.

@@ -1,6 +1,6 @@
 """textDocument/definition smoke -- Phase 3 Plan 03 Task 02 (NAV-02/03/04).
 
-Flipped from the Wave 0 stub. Drives the in-process ironls binary
+Real pytest-lsp e2e. Drives the in-process ironls binary
 end-to-end via pytest-lsp; exercises same-file resolution via the
 project_a fixture.
 """
