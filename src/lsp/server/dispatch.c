@@ -37,11 +37,13 @@ void ilsp_handle_exit       (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *are
 void ilsp_handle_cancel     (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
 /* Plan 04: document-sync handlers (defined in handlers_document.c). */
-void ilsp_handle_didOpen               (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didChange             (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didClose              (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didSave               (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didChangeWatchedFiles (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didOpen                 (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didChange               (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didClose                (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didSave                 (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didChangeWatchedFiles   (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+/* Plan 05: pull-diagnostic request. */
+void ilsp_handle_text_document_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
@@ -52,16 +54,21 @@ void ilsp_handle_didChangeWatchedFiles (IronLsp_Server *s, yyjson_doc *doc, Iron
  * < 's' (0x73) < 't' (0x74) < 'w' (0x77). Within "textDocument/..." the
  * sub-tokens are also lexical. */
 const IronLsp_HandlerEntry ilsp_handler_table[] = {
-    { "$/cancelRequest",                   ilsp_handle_cancel,                 false, NULL              },
-    { "exit",                              ilsp_handle_exit,                   false, NULL              },
-    { "initialize",                        ilsp_handle_initialize,             true,  NULL              },
-    { "initialized",                       ilsp_handle_initialized,            false, NULL              },
-    { "shutdown",                          ilsp_handle_shutdown,               true,  NULL              },
-    { "textDocument/didChange",            ilsp_handle_didChange,              false, "textDocumentSync"},
-    { "textDocument/didClose",             ilsp_handle_didClose,               false, "textDocumentSync"},
-    { "textDocument/didOpen",              ilsp_handle_didOpen,                false, "textDocumentSync"},
-    { "textDocument/didSave",              ilsp_handle_didSave,                false, "textDocumentSync"},
-    { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,  false, NULL              },
+    { "$/cancelRequest",                   ilsp_handle_cancel,                  false, NULL                },
+    { "exit",                              ilsp_handle_exit,                    false, NULL                },
+    { "initialize",                        ilsp_handle_initialize,              true,  NULL                },
+    { "initialized",                       ilsp_handle_initialized,             false, NULL                },
+    { "shutdown",                          ilsp_handle_shutdown,                true,  NULL                },
+    /* Plan 05 pull-diagnostic row: "textDocument/diagnostic" sorts BEFORE
+     * "textDocument/did*" ('a' 0x61 < 'd' 0x64). Capability flows through
+     * the handler-table -> ServerCapabilities pipeline as
+     * "diagnosticProvider" (capabilities.c special-cases it). */
+    { "textDocument/diagnostic",           ilsp_handle_text_document_diagnostic,true,  "diagnosticProvider"},
+    { "textDocument/didChange",            ilsp_handle_didChange,               false, "textDocumentSync"  },
+    { "textDocument/didClose",             ilsp_handle_didClose,                false, "textDocumentSync"  },
+    { "textDocument/didOpen",              ilsp_handle_didOpen,                 false, "textDocumentSync"  },
+    { "textDocument/didSave",              ilsp_handle_didSave,                 false, "textDocumentSync"  },
+    { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,   false, NULL                },
 };
 const size_t ilsp_handler_table_size =
     sizeof(ilsp_handler_table) / sizeof(ilsp_handler_table[0]);
