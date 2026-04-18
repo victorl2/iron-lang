@@ -6837,3 +6837,59 @@ struct Iron_Image Iron_image_kernel_convolution(struct Iron_Image image,
     memcpy(&out, &img, sizeof(struct Iron_Image));
     return out;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Phase 73-02 Constructor Sugar (API-03) ─────────────────────────────
+ *
+ * Five struct-literal constructors closing API-03 per REQUIREMENTS.md:232.
+ * No raylib call; pure Iron-side ergonomic wrappers over the existing
+ * struct-field constructor form.
+ *
+ * Matches the flat static-constructor precedent established by Phase 66
+ * (Image.color / Image.gradient_linear at iron_raylib.c:2877+).
+ *
+ * Color uses UInt8 r/g/b/a to match the raylib Color struct field types;
+ * Vector2 / Vector3 / Rectangle use Float32 per Phase 60 convention.
+ * ════════════════════════════════════════════════════════════════════ */
+
+struct Iron_Color Iron_color_rgb(uint8_t r, uint8_t g, uint8_t b) {
+    struct Iron_Color out;
+    out.r = r;
+    out.g = g;
+    out.b = b;
+    out.a = 255;
+    return out;
+}
+
+struct Iron_Color Iron_color_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    struct Iron_Color out;
+    out.r = r;
+    out.g = g;
+    out.b = b;
+    out.a = a;
+    return out;
+}
+
+struct Iron_Vector2 Iron_vector2_of(float x, float y) {
+    struct Iron_Vector2 out;
+    out.x = x;
+    out.y = y;
+    return out;
+}
+
+struct Iron_Vector3 Iron_vector3_of(float x, float y, float z) {
+    struct Iron_Vector3 out;
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    return out;
+}
+
+struct Iron_Rectangle Iron_rectangle_of(float x, float y, float width, float height) {
+    struct Iron_Rectangle out;
+    out.x = x;
+    out.y = y;
+    out.width = width;
+    out.height = height;
+    return out;
+}

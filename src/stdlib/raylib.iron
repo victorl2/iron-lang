@@ -3045,3 +3045,20 @@ func Image.load_from_memory(file_type: String, file_data: [UInt8], data_size: In
 func Image.load_anim_from_memory(file_type: String, file_data: [UInt8], data_size: Int32) -> (Image, Int32) {}
 func Image.export_to_memory(image: Image, file_type: String) -> [UInt8] {}
 func Image.kernel_convolution(image: Image, kernel: [Float32], kernel_size: Int32) -> Image {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 73-02: Constructor sugar (API-03)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Five struct-literal constructors closing API-03 per REQUIREMENTS.md.
+-- Matches the flat static-constructor precedent from Phase 66's
+-- Image.color / Image.gradient_linear / Image.checked (raylib.iron:1295+).
+--
+-- Color uses UInt8 r/g/b/a to match the raylib Color struct field types;
+-- Vector2 / Vector3 / Rectangle use Float32 per Phase 60 convention.
+-- Color.rgb defaults a=255 (opaque); Color.rgba is explicit.
+func Color.rgb(r: UInt8, g: UInt8, b: UInt8) -> Color {}
+func Color.rgba(r: UInt8, g: UInt8, b: UInt8, a: UInt8) -> Color {}
+func Vector2.of(x: Float32, y: Float32) -> Vector2 {}
+func Vector3.of(x: Float32, y: Float32, z: Float32) -> Vector3 {}
+func Rectangle.of(x: Float32, y: Float32, width: Float32, height: Float32) -> Rectangle {}

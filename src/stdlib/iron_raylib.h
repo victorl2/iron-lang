@@ -2021,4 +2021,18 @@ struct Iron_Image        Iron_image_kernel_convolution(struct Iron_Image image,
                                                         Iron_List_float kernel,
                                                         int32_t kernel_size);
 
+/* ══════════════════════════════════════════════════════════════════════
+ * Phase 73-02: Constructor sugar (API-03, 5 shims)
+ *
+ * Pure struct-literal constructors — no raylib call. Iron-side ergonomic
+ * wrappers for the most-used math types. Color uses UInt8 to match the
+ * raylib Color struct field types; Vector2 / Vector3 / Rectangle use
+ * Float32 per Phase 60 convention.
+ * ════════════════════════════════════════════════════════════════════ */
+struct Iron_Color     Iron_color_rgb(uint8_t r, uint8_t g, uint8_t b);
+struct Iron_Color     Iron_color_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+struct Iron_Vector2   Iron_vector2_of(float x, float y);
+struct Iron_Vector3   Iron_vector3_of(float x, float y, float z);
+struct Iron_Rectangle Iron_rectangle_of(float x, float y, float width, float height);
+
 #endif /* IRON_RAYLIB_H */
