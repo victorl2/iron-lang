@@ -21,18 +21,35 @@
 # The CSV is consumed by Plan 03 Task 2 to write 'rationale' strings into
 # every benchmark config.json.
 #
-# Usage: bash scripts/bench_audit.sh [--platform {linux-x86_64|macos-arm64|auto}] [runs]
+# Usage: bash scripts/bench_audit.sh [--platform {linux-x86_64|macos-arm64|auto}]
+#                                    [--group {sequential|parallel|all}] [runs]
 #   --platform: CI-runner tag for the output CSV (default: auto via uname).
 #               Phase 69 Plan 05 (REG-03) added this so the next benchmark
 #               drift incident is a 5-minute re-run instead of a 30-minute
 #               debug session. The CSV gains a leading `platform` column
 #               so per-platform thresholds can be split into separate
 #               tests/benchmarks/thresholds.<platform>.json files.
+#   --group:    Benchmark group filter (default: all).
+#               Phase 73 Plan 01 (HARDEN-03, Option B) added this so the
+#               linux calibration can be matrix-split across two concurrent
+#               GH Actions runners instead of running 139 benchmarks
+#               serially on a single runner and blowing past the 30-min job
+#               budget (observed: round 1/5 alone did not finish in 30 min
+#               on ubuntu-24.04). `sequential` passes --skip-parallel to
+#               run_benchmarks.sh; `parallel` passes --only-parallel; `all`
+#               passes no filter (backwards-compat default).
 #   runs:       number of audit rounds (default 5)
 #
-# Outputs:
-#   /tmp/58-audit-run-{1..5}.json  per-run JSON results
-#   /tmp/58-audit.csv              aggregated CSV with columns:
+# Outputs (when --group all, the default):
+#   /tmp/58-audit-run-{1..N}.json  per-run JSON results
+#   /tmp/58-audit.csv              aggregated CSV
+# Outputs (when --group is sequential or parallel):
+#   /tmp/58-audit-{group}-run-{1..N}.json  per-run JSON results
+#   /tmp/58-audit-{group}.csv              aggregated CSV (same schema)
+#
+# CSV columns (identical across all --group values so the downstream merge
+# step in .github/workflows/bench-calibrate.yml can concatenate two CSVs by
+# header-match):
 #     platform, problem, runs_total, runs_used, ratio_min, ratio_max,
 #     ratio_mean, ratio_stddev, variance_pct, iron_ms_mean, c_ms_mean,
 #     pass_count, current_max_ratio,
@@ -44,14 +61,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUNNER="$REPO_ROOT/tests/benchmarks/run_benchmarks.sh"
 
-# Argument parsing: --platform flag is optional, runs is positional.
+# Argument parsing: --platform and --group are optional flags, runs is positional.
 # Backwards-compat: `bash scripts/bench_audit.sh 5` still works (positional runs=5).
 PLATFORM="auto"
+GROUP="all"
 RUNS=5
 while [ $# -gt 0 ]; do
     case "$1" in
         --help|-h)
-            sed -n '1,39p' "${BASH_SOURCE[0]}"
+            sed -n '1,55p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         --platform)
@@ -60,6 +78,14 @@ while [ $# -gt 0 ]; do
             ;;
         --platform=*)
             PLATFORM="${1#--platform=}"
+            shift
+            ;;
+        --group)
+            GROUP="$2"
+            shift 2
+            ;;
+        --group=*)
+            GROUP="${1#--group=}"
             shift
             ;;
         *)
@@ -101,7 +127,36 @@ case "$PLATFORM" in
         ;;
 esac
 
+# --group dispatch: map to the run_benchmarks.sh flag and the output-path prefix.
+# When --group=all (default), keep the legacy /tmp/58-audit.csv path so existing
+# consumers (Phase 69 REG-03 tooling) still work. When sequential/parallel,
+# suffix the output paths so two CI matrix cells can write to the same runner
+# workspace (or for local back-to-back invocations) without clobbering.
+RUNNER_GROUP_FLAG=""
+OUT_PREFIX="/tmp/58-audit"
+case "$GROUP" in
+    all)
+        RUNNER_GROUP_FLAG=""
+        OUT_PREFIX="/tmp/58-audit"
+        ;;
+    sequential)
+        RUNNER_GROUP_FLAG="--skip-parallel"
+        OUT_PREFIX="/tmp/58-audit-sequential"
+        ;;
+    parallel)
+        RUNNER_GROUP_FLAG="--only-parallel"
+        OUT_PREFIX="/tmp/58-audit-parallel"
+        ;;
+    *)
+        echo "ERROR: invalid --group: $GROUP" >&2
+        echo "  valid values: sequential, parallel, all" >&2
+        exit 1
+        ;;
+esac
+
 echo "Platform: $PLATFORM"
+echo "Group:    $GROUP (runner flag: ${RUNNER_GROUP_FLAG:-<none>})"
+echo "Output prefix: $OUT_PREFIX"
 
 if [ ! -x "$RUNNER" ]; then
     echo "ERROR: $RUNNER not found or not executable"
@@ -121,18 +176,24 @@ echo ""
 # expected during the audit — we only care about the JSON output, not the
 # pass/fail summary. Only abort on rc >= 100 (infra failures).
 for i in $(seq 1 "$RUNS"); do
-    out="/tmp/58-audit-run-$i.json"
+    out="$OUT_PREFIX-run-$i.json"
     echo "[run $i/$RUNS] writing $out ..."
-    bash "$RUNNER" --json "$out" >"/tmp/58-audit-run-$i.log" 2>"/tmp/58-audit-run-$i.err"
+    if [ -n "$RUNNER_GROUP_FLAG" ]; then
+        bash "$RUNNER" "$RUNNER_GROUP_FLAG" --json "$out" \
+            >"$OUT_PREFIX-run-$i.log" 2>"$OUT_PREFIX-run-$i.err"
+    else
+        bash "$RUNNER" --json "$out" \
+            >"$OUT_PREFIX-run-$i.log" 2>"$OUT_PREFIX-run-$i.err"
+    fi
     rc=$?
     if [ "$rc" -ge 100 ]; then
         echo "  ABORT: runner exited with rc=$rc (infrastructure failure)"
-        head -20 "/tmp/58-audit-run-$i.err"
+        head -20 "$OUT_PREFIX-run-$i.err"
         exit 1
     fi
     if [ ! -f "$out" ]; then
         echo "ABORT: $out was not produced (rc=$rc)"
-        head -20 "/tmp/58-audit-run-$i.err"
+        head -20 "$OUT_PREFIX-run-$i.err"
         exit 1
     fi
     count=$(jq '.benchmarks | length' "$out" 2>/dev/null || echo "?")
@@ -140,7 +201,7 @@ for i in $(seq 1 "$RUNS"); do
 done
 
 echo ""
-echo "=== Aggregating $RUNS runs into /tmp/58-audit.csv ==="
+echo "=== Aggregating $RUNS runs into ${OUT_PREFIX}.csv ==="
 
 # 2) Aggregate with trimmed-mean robustness.
 #    For each benchmark, drop the min and max across the N runs, then compute
@@ -150,16 +211,17 @@ echo "=== Aggregating $RUNS runs into /tmp/58-audit.csv ==="
 #    Rationale: machine-level noise on ~15ms-runtime benchmarks produces
 #    single-run outliers that distort a naive 5-sample mean; trimming min+max
 #    removes those outliers while keeping enough samples for a useful stddev.
-python3 - "$RUNS" "$PLATFORM" <<'PYEOF'
+python3 - "$RUNS" "$PLATFORM" "$OUT_PREFIX" <<'PYEOF'
 import json
 import math
 import sys
 
 RUNS = int(sys.argv[1])
 platform_tag = sys.argv[2]
+out_prefix = sys.argv[3]
 runs_data = []
 for i in range(1, RUNS + 1):
-    path = f"/tmp/58-audit-run-{i}.json"
+    path = f"{out_prefix}-run-{i}.json"
     with open(path) as f:
         runs_data.append(json.load(f))
 
@@ -198,7 +260,7 @@ def trimmed_mean_std(values):
         stddev = 0.0
     return mean, stddev, m
 
-with open("/tmp/58-audit.csv", "w") as out:
+with open(f"{out_prefix}.csv", "w") as out:
     # Header: trimmed-aware statistics + raw per-run ratios for auditability.
     header_cols = [
         "platform",
@@ -248,15 +310,16 @@ with open("/tmp/58-audit.csv", "w") as out:
                 row.append("")
         out.write(",".join(row) + "\n")
 
-print(f"Wrote /tmp/58-audit.csv ({len(by_problem)} problems, {RUNS} runs each, trimmed-mean over middle {RUNS - 2})")
+print(f"Wrote {out_prefix}.csv ({len(by_problem)} problems, {RUNS} runs each, trimmed-mean over middle {RUNS - 2})")
 PYEOF
 
 echo ""
 echo "=== Audit complete ==="
 echo "Platform:          $PLATFORM"
-echo "Raw per-run data:  /tmp/58-audit-run-{1..$RUNS}.json"
-echo "Aggregated CSV:    /tmp/58-audit.csv"
+echo "Group:             $GROUP"
+echo "Raw per-run data:  ${OUT_PREFIX}-run-{1..$RUNS}.json"
+echo "Aggregated CSV:    ${OUT_PREFIX}.csv"
 echo ""
-echo "binary_tree_diameter row:"
-head -1 /tmp/58-audit.csv
-grep "^binary_tree_diameter," /tmp/58-audit.csv || echo "  (not found — audit is broken)"
+echo "First data row:"
+head -1 "${OUT_PREFIX}.csv"
+head -2 "${OUT_PREFIX}.csv" | tail -1 || echo "  (empty — audit is broken)"
