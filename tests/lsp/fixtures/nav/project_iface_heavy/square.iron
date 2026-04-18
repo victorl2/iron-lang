@@ -1,0 +1,6 @@
+import shapes
+
+object Square implements Shape {
+    side: Float
+    func area() -> Float { return side * side }
+}

@@ -396,6 +396,43 @@ if(IRON_BUILD_LSP)
     set_source_files_properties(
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
         PROPERTIES COMPILE_FLAGS "-Wno-error -w")
+
+    # ── Phase 3 Plan 01 Wave 0: 18 Unity test stubs ───────────────────────
+    # Each stub file calls TEST_IGNORE_MESSAGE so Unity exits 0 and ctest
+    # counts the test as PASS. Plans 01..06 swap TEST_IGNORE_MESSAGE for
+    # real assertions one test at a time; when a stub flips to real, the
+    # target's source list is extended below to pull in the TUs under test.
+    # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
+    set(_PHASE3_WAVE0_STUBS
+        test_lexer_doc_comment
+        test_lexer_doc_comment_parity
+        test_ast_sealed
+        test_symbol_id
+        test_node_at
+        test_workspace_index
+        test_stdlib_cache
+        test_dep_map
+        test_nav_definition
+        test_nav_references
+        test_document_symbol
+        test_workspace_symbol
+        test_fuzzy_matcher
+        test_hover_formatter
+        test_signature_help
+        test_type_hierarchy
+        test_iface_workspace
+        test_workspace_diagnostic)
+    foreach(_stub IN LISTS _PHASE3_WAVE0_STUBS)
+        add_executable(${_stub} ${_stub}.c)
+        target_include_directories(${_stub} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor)
+        target_link_libraries(${_stub} unity pthread)
+        add_test(NAME ${_stub} COMMAND ${_stub})
+        set_tests_properties(${_stub} PROPERTIES
+            LABELS "unit;phase-m2-invariant"
+            TIMEOUT 30)
+    endforeach()
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()
