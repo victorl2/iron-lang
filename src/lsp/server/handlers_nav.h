@@ -39,6 +39,21 @@ void ilsp_handle_workspace_symbol(struct IronLsp_Server *s,
                                     struct yyjson_doc     *doc,
                                     Iron_Arena            *arena);
 
+/* Phase 3 Plan 04 Task 01 (NAV-06): textDocument/references. */
+void ilsp_handle_text_document_references(struct IronLsp_Server *s,
+                                            struct yyjson_doc     *doc,
+                                            Iron_Arena            *arena);
+
+/* Phase 3 Plan 04 Task 02 (NAV-09): textDocument/hover. */
+void ilsp_handle_text_document_hover(struct IronLsp_Server *s,
+                                       struct yyjson_doc     *doc,
+                                       Iron_Arena            *arena);
+
+/* Phase 3 Plan 04 Task 03 (NAV-10): textDocument/signatureHelp. */
+void ilsp_handle_text_document_signature_help(struct IronLsp_Server *s,
+                                                struct yyjson_doc     *doc,
+                                                Iron_Arena            *arena);
+
 #ifdef __cplusplus
 }
 #endif

@@ -276,6 +276,250 @@ void ilsp_handle_text_document_document_symbol(IronLsp_Server *s,
     iron_arena_free(&work_arena);
 }
 
+/* ── textDocument/references (Plan 04 Task 01) ────────────────────── */
+
+static yyjson_mut_val *ref_site_to_json(yyjson_mut_doc *rd,
+                                         const IronLsp_RefSite *rs) {
+    yyjson_mut_val *o = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_strcpy(rd, o, "uri", rs->uri ? rs->uri : "");
+
+    yyjson_mut_val *range = yyjson_mut_obj(rd);
+    yyjson_mut_val *rst   = yyjson_mut_obj(rd);
+    yyjson_mut_val *ren   = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_uint(rd, rst, "line",      rs->range.start.line);
+    yyjson_mut_obj_add_uint(rd, rst, "character", rs->range.start.character);
+    yyjson_mut_obj_add_uint(rd, ren, "line",      rs->range.end.line);
+    yyjson_mut_obj_add_uint(rd, ren, "character", rs->range.end.character);
+    yyjson_mut_obj_add_val(rd, range, "start", rst);
+    yyjson_mut_obj_add_val(rd, range, "end",   ren);
+    yyjson_mut_obj_add_val(rd, o, "range", range);
+    return o;
+}
+
+void ilsp_handle_text_document_references(IronLsp_Server *s,
+                                             struct yyjson_doc *doc,
+                                             Iron_Arena *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+
+    const char *uri = ilsp_nav_parse_uri(params);
+    IronLsp_Position pos = {0};
+    bool have_pos = ilsp_nav_parse_position(params, &pos);
+
+    /* includeDeclaration defaults to false per LSP 3.17 §references. */
+    bool include_decl = false;
+    yyjson_val *ctx = yyjson_obj_get(params, "context");
+    if (ctx) {
+        yyjson_val *inc = yyjson_obj_get(ctx, "includeDeclaration");
+        if (inc && yyjson_is_bool(inc)) include_decl = yyjson_get_bool(inc);
+    }
+
+    Iron_Arena    body_arena = iron_arena_create(4 * 1024);
+    yyjson_alc    alc        = ilsp_json_alc(&body_arena);
+    yyjson_mut_doc *rd        = yyjson_mut_doc_new(&alc);
+    if (!rd) { iron_arena_free(&body_arena); return; }
+
+    IronLsp_Document *d = lookup_doc(s, uri);
+    if (!d || !have_pos) {
+        yyjson_mut_val *empty = yyjson_mut_arr(rd);
+        enqueue_result(s, &body_arena, id_v, rd, empty);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = register_cancel(s, id_v);
+
+    Iron_Arena       work_arena = iron_arena_create(64 * 1024);
+    IronLsp_RefSite *sites = NULL;
+    size_t           n     = 0;
+    ilsp_facade_nav_references(s, d, pos, include_decl, cancel,
+                                 &work_arena, &sites, &n);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    yyjson_mut_val *arr = yyjson_mut_arr(rd);
+    for (size_t i = 0; i < n; i++) {
+        yyjson_mut_arr_append(arr, ref_site_to_json(rd, &sites[i]));
+    }
+    enqueue_result(s, &body_arena, id_v, rd, arr);
+
+    yyjson_mut_doc_free(rd);
+    iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
+}
+
+/* ── textDocument/hover (Plan 04 Task 02) ─────────────────────────── */
+
+void ilsp_handle_text_document_hover(IronLsp_Server *s,
+                                        struct yyjson_doc *doc,
+                                        Iron_Arena *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+
+    const char *uri = ilsp_nav_parse_uri(params);
+    IronLsp_Position pos = {0};
+    bool have_pos = ilsp_nav_parse_position(params, &pos);
+
+    Iron_Arena    body_arena = iron_arena_create(4 * 1024);
+    yyjson_alc    alc        = ilsp_json_alc(&body_arena);
+    yyjson_mut_doc *rd        = yyjson_mut_doc_new(&alc);
+    if (!rd) { iron_arena_free(&body_arena); return; }
+
+    IronLsp_Document *d = lookup_doc(s, uri);
+    if (!d || !have_pos) {
+        /* Emit result=null for hover misses per LSP 3.17. */
+        enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_null(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = register_cancel(s, id_v);
+
+    Iron_Arena work_arena = iron_arena_create(64 * 1024);
+    IronLsp_HoverResult hr = {0};
+    ilsp_facade_hover(s, d, pos, cancel, &work_arena, &hr);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    yyjson_mut_val *result;
+    if (!hr.markdown) {
+        result = yyjson_mut_null(rd);
+    } else {
+        result = yyjson_mut_obj(rd);
+        yyjson_mut_val *contents = yyjson_mut_obj(rd);
+        yyjson_mut_obj_add_strcpy(rd, contents, "kind", "markdown");
+        yyjson_mut_obj_add_strcpy(rd, contents, "value", hr.markdown);
+        yyjson_mut_obj_add_val(rd, result, "contents", contents);
+        if (hr.has_range) {
+            yyjson_mut_val *range = yyjson_mut_obj(rd);
+            yyjson_mut_val *rst   = yyjson_mut_obj(rd);
+            yyjson_mut_val *ren   = yyjson_mut_obj(rd);
+            yyjson_mut_obj_add_uint(rd, rst, "line",      hr.range.start.line);
+            yyjson_mut_obj_add_uint(rd, rst, "character", hr.range.start.character);
+            yyjson_mut_obj_add_uint(rd, ren, "line",      hr.range.end.line);
+            yyjson_mut_obj_add_uint(rd, ren, "character", hr.range.end.character);
+            yyjson_mut_obj_add_val(rd, range, "start", rst);
+            yyjson_mut_obj_add_val(rd, range, "end",   ren);
+            yyjson_mut_obj_add_val(rd, result, "range", range);
+        }
+    }
+    enqueue_result(s, &body_arena, id_v, rd, result);
+
+    yyjson_mut_doc_free(rd);
+    iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
+}
+
+/* ── textDocument/signatureHelp (Plan 04 Task 03) ─────────────────── */
+
+void ilsp_handle_text_document_signature_help(IronLsp_Server *s,
+                                                 struct yyjson_doc *doc,
+                                                 Iron_Arena *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+
+    const char *uri = ilsp_nav_parse_uri(params);
+    IronLsp_Position pos = {0};
+    bool have_pos = ilsp_nav_parse_position(params, &pos);
+
+    Iron_Arena    body_arena = iron_arena_create(4 * 1024);
+    yyjson_alc    alc        = ilsp_json_alc(&body_arena);
+    yyjson_mut_doc *rd        = yyjson_mut_doc_new(&alc);
+    if (!rd) { iron_arena_free(&body_arena); return; }
+
+    IronLsp_Document *d = lookup_doc(s, uri);
+    if (!d || !have_pos) {
+        enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_null(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = register_cancel(s, id_v);
+
+    Iron_Arena work_arena = iron_arena_create(64 * 1024);
+    IronLsp_SignatureInfo *sigs = NULL;
+    size_t n = 0;
+    int active_sig = 0, active_param = 0;
+    ilsp_facade_signature_help(s, d, pos, cancel, &work_arena,
+                                 &sigs, &n, &active_sig, &active_param);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    yyjson_mut_val *result;
+    if (n == 0) {
+        /* Empty signatures -> still emit valid SignatureHelp shape
+         * with an empty array so the client caches cleanly. */
+        result = yyjson_mut_obj(rd);
+        yyjson_mut_val *arr = yyjson_mut_arr(rd);
+        yyjson_mut_obj_add_val(rd, result, "signatures", arr);
+        yyjson_mut_obj_add_int(rd, result, "activeSignature", 0);
+        yyjson_mut_obj_add_int(rd, result, "activeParameter", 0);
+    } else {
+        result = yyjson_mut_obj(rd);
+        yyjson_mut_val *arr = yyjson_mut_arr(rd);
+        for (size_t i = 0; i < n; i++) {
+            yyjson_mut_val *so = yyjson_mut_obj(rd);
+            yyjson_mut_obj_add_strcpy(rd, so, "label",
+                sigs[i].label ? sigs[i].label : "");
+            if (sigs[i].documentation) {
+                yyjson_mut_obj_add_strcpy(rd, so, "documentation",
+                    sigs[i].documentation);
+            }
+            yyjson_mut_val *pa = yyjson_mut_arr(rd);
+            for (int k = 0; k < sigs[i].parameter_count; k++) {
+                yyjson_mut_val *po = yyjson_mut_obj(rd);
+                yyjson_mut_val *lab = yyjson_mut_arr(rd);
+                yyjson_mut_arr_add_int(rd, lab,
+                    sigs[i].parameter_offsets[k].start);
+                yyjson_mut_arr_add_int(rd, lab,
+                    sigs[i].parameter_offsets[k].end);
+                yyjson_mut_obj_add_val(rd, po, "label", lab);
+                yyjson_mut_arr_append(pa, po);
+            }
+            yyjson_mut_obj_add_val(rd, so, "parameters", pa);
+            yyjson_mut_arr_append(arr, so);
+        }
+        yyjson_mut_obj_add_val(rd, result, "signatures", arr);
+        yyjson_mut_obj_add_int(rd, result, "activeSignature", active_sig);
+        yyjson_mut_obj_add_int(rd, result, "activeParameter", active_param);
+    }
+    enqueue_result(s, &body_arena, id_v, rd, result);
+
+    yyjson_mut_doc_free(rd);
+    iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
+}
+
 /* ── workspace/symbol ─────────────────────────────────────────────── */
 
 static yyjson_mut_val *ws_sym_to_json(yyjson_mut_doc *rd,

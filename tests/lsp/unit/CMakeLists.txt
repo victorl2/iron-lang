@@ -106,12 +106,20 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_nav.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/definition.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/declaration.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/type_definition.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/document_symbol.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/workspace_symbol.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/workspace_symbol.c
+        # Phase 3 Plan 04: references_index + references + hover +
+        # signature_help. Tests linking dispatch.c (which now has 3
+        # new NAV rows) must resolve these symbols.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/hover.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/signature_help.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -420,9 +428,8 @@ if(IRON_BUILD_LSP)
     # target's source list is extended below to pull in the TUs under test.
     # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
     set(_PHASE3_WAVE0_STUBS
-        test_nav_references
-        test_hover_formatter
-        test_signature_help
+        # Plan 04 flipped: test_nav_references, test_hover_formatter,
+        # test_signature_help now have real targets further below.
         test_type_hierarchy
         test_iface_workspace
         test_workspace_diagnostic)
@@ -571,6 +578,12 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        # Plan 04 Task 01: workspace_index.c now calls into
+        # references_index via drop/populate; test link set must
+        # pull in the new TU + its transitive symbol_id/nav_common deps.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
@@ -617,6 +630,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/type_definition.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/document_symbol.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/workspace_symbol.c
+        # Phase 3 Plan 04: references + hover + signatureHelp.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/hover.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/signature_help.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
@@ -674,6 +692,51 @@ if(IRON_BUILD_LSP)
         iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_workspace_symbol COMMAND test_workspace_symbol)
     set_tests_properties(test_workspace_symbol PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    # ── Phase 3 Plan 04: references + hover + signatureHelp ─────────────
+    # Each of these three tests drives the facade entry directly in
+    # memory against a minimal fixture; they link the full nav facade
+    # stack (incl. Plan 04's references_index / references / hover /
+    # signature_help) so the behaviour-under-test is exercised end to
+    # end without spawning a server process.
+    add_executable(test_nav_references test_nav_references.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_nav_references PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_nav_references PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_nav_references
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_nav_references COMMAND test_nav_references)
+    set_tests_properties(test_nav_references PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_hover_formatter test_hover_formatter.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_hover_formatter PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_hover_formatter PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_hover_formatter
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_hover_formatter COMMAND test_hover_formatter)
+    set_tests_properties(test_hover_formatter PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_signature_help test_signature_help.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_signature_help PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_signature_help PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_signature_help
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_signature_help COMMAND test_signature_help)
+    set_tests_properties(test_signature_help PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 else()

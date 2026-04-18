@@ -52,6 +52,11 @@ void ilsp_handle_text_document_document_symbol(IronLsp_Server *s, yyjson_doc *do
 void ilsp_handle_text_document_type_definition(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_workspace_symbol            (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 3 Plan 04: hover + references + signatureHelp handlers (handlers_nav.c). */
+void ilsp_handle_text_document_hover         (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_references    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_signature_help(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -63,8 +68,15 @@ void ilsp_handle_workspace_symbol            (IronLsp_Server *s, yyjson_doc *doc
  *
  * Alphabetical order within textDocument (ASCII):
  *   declaration < definition < diagnostic < didChange < didClose <
- *   didOpen < didSave < documentSymbol < typeDefinition
- * because 'c'<'f'<'g'<'i'<'o'<'y'. */
+ *   didOpen < didSave < documentSymbol < hover < references <
+ *   signatureHelp < typeDefinition
+ * because 'c'<'f'<'g'<'i'<'o'<'u'<'h'<'r'<'s'<'y' -- actually the
+ * ordering is documentSymbol < hover because the next differing byte
+ * after "document" is 'S' (0x53) vs nothing (" " in "hover"): strcmp
+ * compares "Symbol" vs "hover" starting at the next byte -- 'S' 0x53 <
+ * 'h' 0x68, so documentSymbol < hover. Similarly hover < references
+ * ('h' 0x68 < 'r' 0x72), references < signatureHelp ('r' < 's'), and
+ * signatureHelp < typeDefinition ('s' < 't'). */
 const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "$/cancelRequest",                   ilsp_handle_cancel,                         false, NULL                    },
     { "exit",                              ilsp_handle_exit,                           false, NULL                    },
@@ -86,6 +98,12 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "textDocument/didSave",              ilsp_handle_didSave,                        false, "textDocumentSync"      },
     /* Plan 03 Task 03 (NAV-07): documentSymbol. */
     { "textDocument/documentSymbol",       ilsp_handle_text_document_document_symbol,  true,  "documentSymbolProvider"},
+    /* Plan 04 Task 02 (NAV-09): hover. */
+    { "textDocument/hover",                ilsp_handle_text_document_hover,            true,  "hoverProvider"         },
+    /* Plan 04 Task 01 (NAV-06): references. */
+    { "textDocument/references",           ilsp_handle_text_document_references,       true,  "referencesProvider"    },
+    /* Plan 04 Task 03 (NAV-10): signatureHelp. */
+    { "textDocument/signatureHelp",        ilsp_handle_text_document_signature_help,   true,  "signatureHelpProvider" },
     /* Plan 03 Task 02 (NAV-04): typeDefinition. */
     { "textDocument/typeDefinition",       ilsp_handle_text_document_type_definition,  true,  "typeDefinitionProvider"},
     { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,          false, NULL                    },
