@@ -310,6 +310,7 @@ if(IRON_BUILD_LSP)
         # cache (pthread_once-guarded); dep_map.c wraps the library-linked
         # src/pkg/resolver.c.
         src/lsp/store/workspace_index.c
+        src/lsp/store/stdlib_cache.c
         # Phase 2 Plan 06: observability (XDG JSON-line log sink,
         # in-memory trace histogram) used by main.c + transport threads.
         src/lsp/obs/log.c
