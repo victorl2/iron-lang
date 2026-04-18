@@ -1712,6 +1712,30 @@ void Iron_draw_sphere_ex(struct Iron_Vector3 center, float radius,
 void Iron_draw_sphere_wires(struct Iron_Vector3 center, float radius,
                             int32_t rings, int32_t slices, struct Iron_Color color);
 
+/* DRAW3D-04 batch 2 — void-return primitives */
+void Iron_draw_cylinder(struct Iron_Vector3 position, float radius_top,
+                        float radius_bottom, float height, int32_t slices,
+                        struct Iron_Color color);
+void Iron_draw_cylinder_ex(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                           float start_radius, float end_radius, int32_t sides,
+                           struct Iron_Color color);
+void Iron_draw_cylinder_wires(struct Iron_Vector3 position, float radius_top,
+                              float radius_bottom, float height, int32_t slices,
+                              struct Iron_Color color);
+void Iron_draw_cylinder_wires_ex(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                                 float start_radius, float end_radius, int32_t sides,
+                                 struct Iron_Color color);
+void Iron_draw_capsule(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                       float radius, int32_t slices, int32_t rings,
+                       struct Iron_Color color);
+void Iron_draw_capsule_wires(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                             float radius, int32_t slices, int32_t rings,
+                             struct Iron_Color color);
+void Iron_draw_plane(struct Iron_Vector3 center, struct Iron_Vector2 size,
+                     struct Iron_Color color);
+void Iron_draw_ray(struct Iron_Ray ray, struct Iron_Color color);
+void Iron_draw_grid(int32_t slices, float spacing);
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */

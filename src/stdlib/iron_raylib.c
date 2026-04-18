@@ -5457,6 +5457,106 @@ void Iron_draw_sphere_wires(struct Iron_Vector3 center, float radius,
     DrawSphereWires(ctr, radius, (int)rings, (int)slices, c);
 }
 
+/* DRAW3D-04 batch 2: cylinder (4 variants) / capsule (2 variants) /
+ * plane / ray / grid — raylib.h:1538-1546. Closes DRAW3D-04 at 21/21.
+ *
+ * Pitfall 4 (Draw.plane): size param is Vector2 (XZ extent), not
+ * Vector3. Shim uses Iron_Vector2 explicitly.
+ * Pitfall 6 (Draw.grid): no Color parameter. raylib draws grid in its
+ * internal gray.
+ * First Ray-by-value INPUT across the FFI (Iron_draw_ray). 24 B
+ * struct, pinned layout from Phase 60-05. */
+
+void Iron_draw_cylinder(struct Iron_Vector3 position, float radius_top,
+                        float radius_bottom, float height, int32_t slices,
+                        struct Iron_Color color) {
+    Vector3 p;
+    Color   c;
+    memcpy(&p, &position, sizeof(Vector3));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawCylinder(p, radius_top, radius_bottom, height, (int)slices, c);
+}
+
+void Iron_draw_cylinder_ex(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                           float start_radius, float end_radius, int32_t sides,
+                           struct Iron_Color color) {
+    Vector3 s, e;
+    Color   c;
+    memcpy(&s, &start, sizeof(Vector3));
+    memcpy(&e, &end,   sizeof(Vector3));
+    memcpy(&c, &color, sizeof(Color));
+    DrawCylinderEx(s, e, start_radius, end_radius, (int)sides, c);
+}
+
+void Iron_draw_cylinder_wires(struct Iron_Vector3 position, float radius_top,
+                              float radius_bottom, float height, int32_t slices,
+                              struct Iron_Color color) {
+    Vector3 p;
+    Color   c;
+    memcpy(&p, &position, sizeof(Vector3));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawCylinderWires(p, radius_top, radius_bottom, height, (int)slices, c);
+}
+
+void Iron_draw_cylinder_wires_ex(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                                 float start_radius, float end_radius, int32_t sides,
+                                 struct Iron_Color color) {
+    Vector3 s, e;
+    Color   c;
+    memcpy(&s, &start, sizeof(Vector3));
+    memcpy(&e, &end,   sizeof(Vector3));
+    memcpy(&c, &color, sizeof(Color));
+    DrawCylinderWiresEx(s, e, start_radius, end_radius, (int)sides, c);
+}
+
+void Iron_draw_capsule(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                       float radius, int32_t slices, int32_t rings,
+                       struct Iron_Color color) {
+    Vector3 s, e;
+    Color   c;
+    memcpy(&s, &start, sizeof(Vector3));
+    memcpy(&e, &end,   sizeof(Vector3));
+    memcpy(&c, &color, sizeof(Color));
+    DrawCapsule(s, e, radius, (int)slices, (int)rings, c);
+}
+
+void Iron_draw_capsule_wires(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                             float radius, int32_t slices, int32_t rings,
+                             struct Iron_Color color) {
+    Vector3 s, e;
+    Color   c;
+    memcpy(&s, &start, sizeof(Vector3));
+    memcpy(&e, &end,   sizeof(Vector3));
+    memcpy(&c, &color, sizeof(Color));
+    DrawCapsuleWires(s, e, radius, (int)slices, (int)rings, c);
+}
+
+/* Pitfall 4: Vector2 size (XZ extent). */
+void Iron_draw_plane(struct Iron_Vector3 center, struct Iron_Vector2 size,
+                     struct Iron_Color color) {
+    Vector3 ctr;
+    Vector2 sz;
+    Color   c;
+    memcpy(&ctr, &center, sizeof(Vector3));
+    memcpy(&sz,  &size,   sizeof(Vector2));
+    memcpy(&c,   &color,  sizeof(Color));
+    DrawPlane(ctr, sz, c);
+}
+
+/* First Ray-by-value INPUT across the FFI. */
+void Iron_draw_ray(struct Iron_Ray ray, struct Iron_Color color) {
+    Ray   rl;
+    Color c;
+    memcpy(&rl, &ray,   sizeof(Ray));
+    memcpy(&c,  &color, sizeof(Color));
+    DrawRay(rl, c);
+}
+
+/* Pitfall 6: no Color parameter. raylib draws grid in its internal gray. */
+void Iron_draw_grid(int32_t slices, float spacing) {
+    DrawGrid((int)slices, spacing);
+}
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
