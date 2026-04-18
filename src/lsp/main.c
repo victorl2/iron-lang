@@ -64,6 +64,8 @@ int main(int argc, char **argv) {
     server.cancels           = ilsp_cancel_registry_create();
     server.dyn_reg           = ilsp_dyn_register_create();
     server.position_encoding = ILSP_ENC_UTF16;
+    server.documents         = NULL;   /* lazy sh_new_strdup on first didOpen */
+    server.workspace_root    = NULL;
     atomic_store(&server.next_request_id, 1);
 
     fprintf(stderr,
