@@ -140,6 +140,21 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_lsp_dynamic_registration PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
 
+    # Task 03: $/cancelRequest end-to-end + thread-visibility smoke
+    add_executable(test_lsp_cancel_request_e2e test_lsp_cancel_request_e2e.c
+        ${_LSP_PLAN03_SERVER_SRC}
+        ${_LSP_PLAN03_TRANSPORT_SRC})
+    target_include_directories(test_lsp_cancel_request_e2e PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_cancel_request_e2e PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_cancel_request_e2e
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_cancel_request_e2e
+             COMMAND test_lsp_cancel_request_e2e)
+    set_tests_properties(test_lsp_cancel_request_e2e PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
     # The yyjson vendor TU must survive the repo-global -Werror strictness.
     # One set_source_files_properties entry covers every test above that
     # compiles yyjson.c directly (directory-scoped property).
