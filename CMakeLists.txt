@@ -298,6 +298,10 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/compile.c
         src/lsp/facade/span.c
         src/lsp/facade/diagnostics.c
+        # Phase 2 Plan 06: observability (XDG JSON-line log sink,
+        # in-memory trace histogram) used by main.c + transport threads.
+        src/lsp/obs/log.c
+        src/lsp/obs/trace.c
         src/vendor/yyjson/yyjson.c
     )
     target_include_directories(ironls PRIVATE src src/vendor)
