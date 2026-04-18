@@ -20,6 +20,7 @@
 
 #include "runtime/iron_runtime.h"  /* IRON_THREAD_* */
 #include "lsp/transport/frame.h"
+#include "lsp/obs/log.h"           /* Plan 06: EOF/ferror logging */
 
 #define ILSP_READER_CHUNK_SIZE 4096
 
@@ -48,8 +49,8 @@ static void reader_pump_remaining(IronLsp_Reader *r) {
         }
         if (fr == ILSP_FRAME_RESULT_NEED_MORE) return;
         /* Framing error: fatal -- log and exit pump. */
-        fprintf(stderr, "ironls: frame error %d -- aborting reader\n",
-                (int)fr);
+        ilsp_log(ILSP_LOG_ERROR, "reader-frame-error",
+                 "frame error %d; aborting reader", (int)fr);
         atomic_store(&r->shutdown, true);
         return;
     }
@@ -73,16 +74,31 @@ static void *reader_thread_main(void *arg) {
             } else if (fr == ILSP_FRAME_RESULT_NEED_MORE) {
                 /* Keep reading. */
             } else {
-                fprintf(stderr, "ironls: frame error %d -- aborting reader\n",
-                        (int)fr);
+                ilsp_log(ILSP_LOG_ERROR, "reader-frame-error",
+                         "frame error %d; aborting reader", (int)fr);
+                atomic_store(&r->shutdown, true);
                 break;
             }
         }
         if (n < sizeof(chunk)) {
             /* Short read: either EOF, error, or non-blocking would-block.
              * For a blocking FILE* (stdin, fmemopen), feof/ferror are the
-             * definitive signals. */
-            if (feof(r->source) || ferror(r->source)) break;
+             * definitive signals. Plan 06 (CORE-19): EOF on stdin means
+             * the parent editor closed our input, so we flip the shutdown
+             * flag and exit -- main.c will then join writer + workers
+             * and exit with status 0. */
+            if (feof(r->source)) {
+                ilsp_log(ILSP_LOG_INFO, "reader-eof",
+                         "stdin closed; initiating shutdown");
+                atomic_store(&r->shutdown, true);
+                break;
+            }
+            if (ferror(r->source)) {
+                ilsp_log(ILSP_LOG_ERROR, "reader-error",
+                         "stdin read error; initiating shutdown");
+                atomic_store(&r->shutdown, true);
+                break;
+            }
         }
     }
     return NULL;
