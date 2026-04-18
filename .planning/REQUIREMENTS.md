@@ -180,13 +180,13 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **DRAW3D-01**: User can begin/end 3D camera mode — `beginMode3D(camera), endMode3D` taking `Camera3D`
 - [x] **DRAW3D-02**: User can update a `Camera3D` — `camera.update(mode), camera.updatePro(movement, rotation, zoom)` taking `CameraMode`
 - [x] **DRAW3D-03**: User can convert screen positions to rays — `getScreenToWorldRay, getScreenToWorldRayEx, getWorldToScreen, getWorldToScreenEx, getCameraMatrix`
-- [ ] **DRAW3D-04**: User can draw 3D primitives — `drawLine3D, drawPoint3D, drawCircle3D, drawTriangle3D, drawTriangleStrip3D, drawCube, drawCubeV, drawCubeWires, drawCubeWiresV, drawSphere, drawSphereEx, drawSphereWires, drawCylinder, drawCylinderEx, drawCylinderWires, drawCylinderWiresEx, drawCapsule, drawCapsuleWires, drawPlane, drawRay, drawGrid`
+- [x] **DRAW3D-04**: User can draw 3D primitives — `drawLine3D, drawPoint3D, drawCircle3D, drawTriangle3D, drawTriangleStrip3D, drawCube, drawCubeV, drawCubeWires, drawCubeWiresV, drawSphere, drawSphereEx, drawSphereWires, drawCylinder, drawCylinderEx, drawCylinderWires, drawCylinderWiresEx, drawCapsule, drawCapsuleWires, drawPlane, drawRay, drawGrid`
 
 ### Models, Meshes, Materials (`rmodels.c` — ~45 functions)
 
-- [ ] **MODEL-01**: User can load and unload a `Model` — `Model.load(path), Model.fromMesh(mesh), model.unload(), model.isReady()`
-- [ ] **MODEL-02**: User can query model bounds — `model.getBoundingBox()`
-- [ ] **MODEL-03**: User can draw a model in every variant — `model.draw(position, scale, tint), model.drawEx(position, axis, angle, scale, tint), model.drawWires(...), model.drawWiresEx(...), model.drawPoints(...), model.drawPointsEx(...)`
+- [x] **MODEL-01**: User can load and unload a `Model` — `Model.load(path), Model.fromMesh(mesh), model.unload(), model.isReady()`
+- [x] **MODEL-02**: User can query model bounds — `model.getBoundingBox()`
+- [x] **MODEL-03**: User can draw a model in every variant — `model.draw(position, scale, tint), model.drawEx(position, axis, angle, scale, tint), model.drawWires(...), model.drawWiresEx(...), model.drawPoints(...), model.drawPointsEx(...)`
 - [ ] **MODEL-04**: User can manipulate meshes — `mesh.upload(dynamic), mesh.updateBuffer(index, data, offset), mesh.unload(), mesh.export(path), mesh.exportAsCode(path), mesh.getBoundingBox(), mesh.genTangents()`
 - [ ] **MODEL-05**: User can draw individual meshes — `mesh.draw(material, transform), mesh.drawInstanced(material, transforms, instances)`
 - [ ] **MODEL-06**: User can generate procedural meshes — `Mesh.poly(sides, radius), Mesh.plane(width, length, resX, resZ), Mesh.cube(w, h, l), Mesh.sphere(radius, rings, slices), Mesh.hemiSphere(...), Mesh.cylinder(...), Mesh.cone(...), Mesh.torus(...), Mesh.knot(...), Mesh.heightmap(image, size), Mesh.cubicmap(image, size)`
@@ -408,10 +408,10 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | DRAW3D-01 | Phase 69 | Complete |
 | DRAW3D-02 | Phase 69 | Complete |
 | DRAW3D-03 | Phase 69 | Complete |
-| DRAW3D-04 | Phase 69 | In Progress (12/21 — Plan 69-03 landed line_3d/point_3d/circle_3d/triangle_3d/triangle_strip_3d/cube×4/sphere×3; Plan 69-04 to finish cylinder×4/capsule×2/plane/ray/grid) |
-| MODEL-01 | Phase 70 | Pending |
-| MODEL-02 | Phase 70 | Pending |
-| MODEL-03 | Phase 70 | Pending |
+| DRAW3D-04 | Phase 69 | Complete |
+| MODEL-01 | Phase 70 (Plan 01) | Complete |
+| MODEL-02 | Phase 70 (Plan 01) | Complete |
+| MODEL-03 | Phase 70 (Plan 01) | Complete |
 | MODEL-04 | Phase 70 | Pending |
 | MODEL-05 | Phase 70 | Pending |
 | MODEL-06 | Phase 70 | Pending |

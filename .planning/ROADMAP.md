@@ -50,7 +50,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 66: Textures & Images** — Full image + texture + render-texture + n-patch + color palette bindings (completed 2026-04-17)
 - [x] **Phase 67: Text & Fonts** — Custom font loading, glyph access, codepoint utilities, draw/measure text (completed 2026-04-17)
 - [x] **Phase 68: Audio System** — Device init, Wave, Sound, Music, AudioStream (fully independent of graphics) (completed 2026-04-17)
-- [ ] **Phase 69: 3D Drawing & Camera3D** — All 3D primitives, camera modes, screen↔world rays
+- [x] **Phase 69: 3D Drawing & Camera3D** — All 3D primitives, camera modes, screen↔world rays (completed 2026-04-18)
 - [ ] **Phase 70: Models, Meshes, Materials, Animations** — Model load/draw, procedural meshes, materials, bones, billboards
 - [ ] **Phase 71: Shaders** — Shader load/unload, uniform setting by type, shader location indices
 - [ ] **Phase 72: File I/O & Utilities** — File/text I/O, filesystem queries, compress/encode, random
@@ -301,7 +301,13 @@ Plans:
   4. User can load a `.iqm` model with animations via `ModelAnimation.load("character.iqm")`, drive frame updates with `model.updateAnimation(anim, frame)`, and the skeleton animates.
   5. User can draw billboards via `drawBillboard` / `drawBillboardRec` / `drawBillboardPro` and bounding boxes via `drawBoundingBox` inside a 3D render pass.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [x] 70-01-PLAN.md — Model load/unload/bbox + draw variants + Scan B auto-emit probe (MODEL-01, 02, 03); 11 shims + probe GREEN (Iron_List_Iron_Matrix / Material / ModelAnimation) ✓ 2026-04-17
+- [ ] 70-02-PLAN.md — Mesh operations + mesh draw (MODEL-04, 05); 9 shims including mutating-return-by-value mesh.upload / gen_tangents, first 120+40+64 B simultaneous struct-input (DrawMesh), first [Matrix] list input (DrawMeshInstanced)
+- [ ] 70-03-PLAN.md — Mesh generation (MODEL-06); 11 Mesh.<shape> static constructors with 120 B Mesh struct-by-value RETURN probe (Task 1 lands Mesh.cube alone; Task 2 lands remaining 10)
+- [ ] 70-04-PLAN.md — Material + Animation + Billboard + BoundingBox draw + smoke + showcase (MODEL-07, 08, 09, 10); 16 shims + tests/manual/models_smoke.iron (10 tagged sections) + examples/model_viewer/model_viewer.iron (3D showcase with .obj asset loading) + tests/assets/models/cube.obj
 
 ---
 
@@ -374,8 +380,8 @@ Plans:
 | 66. Textures & Images | 5/5 | Complete    | 2026-04-17 |
 | 67. Text & Fonts | 4/4 | Complete    | 2026-04-17 |
 | 68. Audio System | 5/5 | Complete    | 2026-04-17 |
-| 69. 3D Drawing & Camera3D | 3/4 | In Progress|  |
-| 70. Models, Meshes, Materials | 0/? | Not started | - |
+| 69. 3D Drawing & Camera3D | 4/4 | Complete    | 2026-04-18 |
+| 70. Models, Meshes, Materials | 1/4 | In Progress | - |
 | 71. Shaders | 0/? | Not started | - |
 | 72. File I/O & Utilities | 0/? | Not started | - |
 | 73. Idiomatic API Polish & Showcase | 0/? | Not started | - |
