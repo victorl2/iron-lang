@@ -307,6 +307,18 @@ if(IRON_BUILD_LSP)
         # Phase 3 Plan 03 Task 01 (D-11): fzy-algorithm fuzzy scorer
         # shared by workspace/symbol + future completion ranking.
         src/lsp/facade/nav/fuzzy.c
+        # Phase 3 Plan 03 Task 02/03: nav endpoints (definition,
+        # declaration, typeDefinition, documentSymbol, workspaceSymbol)
+        # and the shared nav_common helpers. handlers_nav.c is the
+        # handler-table seam; it delegates to these facade TUs per the
+        # Handler -> Facade -> iron_compiler hard rule.
+        src/lsp/facade/nav/nav_common.c
+        src/lsp/facade/nav/definition.c
+        src/lsp/facade/nav/declaration.c
+        src/lsp/facade/nav/type_definition.c
+        src/lsp/facade/nav/document_symbol.c
+        src/lsp/facade/nav/workspace_symbol.c
+        src/lsp/server/handlers_nav.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
         # stdlib_cache.c is the process-lifetime pre-parsed surface-file

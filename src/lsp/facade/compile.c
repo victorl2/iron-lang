@@ -44,19 +44,39 @@ static void enqueue_body(IronLsp_Writer *w, IronLsp_Priority prio,
     /* Ownership transferred; do not touch `heap` after this. */
 }
 
+/* Shared analyze primitive -- the SINGLE iron_analyze_buffer call site
+ * for the entire src/lsp tree. Both ilsp_facade_compile_pure (discards
+ * the program pointer) and ilsp_facade_compile_for_nav (returns it)
+ * route through this helper so the CORE-22 grep check stays at 1 hit. */
+static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
+                                      const IronLsp_CompileRequest *req,
+                                      Iron_Arena                   *arena,
+                                      Iron_DiagList                *diags) {
+    if (!doc || !arena || !diags) return NULL;
+    const _Atomic bool *cancel = req ? req->cancel_flag : NULL;
+    Iron_AnalyzeResult r = iron_analyze_buffer(
+        doc->text ? doc->text : "",
+        doc->text_len,
+        doc->uri ? doc->uri : "<buffer>",
+        IRON_ANALYSIS_MODE_LSP,
+        arena,
+        diags,
+        cancel);
+    return r.program;
+}
+
 void ilsp_facade_compile_pure(struct IronLsp_Document      *doc,
                                const IronLsp_CompileRequest *req,
                                Iron_Arena                   *arena,
                                Iron_DiagList                *diags) {
-    if (!doc || !arena || !diags) return;
-    const _Atomic bool *cancel = req ? req->cancel_flag : NULL;
-    (void)iron_analyze_buffer(doc->text ? doc->text : "",
-                               doc->text_len,
-                               doc->uri ? doc->uri : "<buffer>",
-                               IRON_ANALYSIS_MODE_LSP,
-                               arena,
-                               diags,
-                               cancel);
+    (void)facade_analyze(doc, req, arena, diags);
+}
+
+Iron_Program *ilsp_facade_compile_for_nav(struct IronLsp_Document      *doc,
+                                            const IronLsp_CompileRequest *req,
+                                            Iron_Arena                   *arena,
+                                            Iron_DiagList                *diags) {
+    return facade_analyze(doc, req, arena, diags);
 }
 
 void ilsp_facade_compile(struct IronLsp_Server   *server,

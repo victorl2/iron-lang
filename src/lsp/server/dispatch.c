@@ -45,6 +45,13 @@ void ilsp_handle_didChangeWatchedFiles   (IronLsp_Server *s, yyjson_doc *doc, Ir
 /* Plan 05: pull-diagnostic request. */
 void ilsp_handle_text_document_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 3 Plan 03: navigation handlers (handlers_nav.c). */
+void ilsp_handle_text_document_declaration   (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_definition    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_document_symbol(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_type_definition(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_workspace_symbol            (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -52,23 +59,38 @@ void ilsp_handle_text_document_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Ir
  *
  * Sort order verification (ASCII): '$' (0x24) < 'e' (0x65) < 'i' (0x69)
  * < 's' (0x73) < 't' (0x74) < 'w' (0x77). Within "textDocument/..." the
- * sub-tokens are also lexical. */
+ * sub-tokens are also lexical.
+ *
+ * Alphabetical order within textDocument (ASCII):
+ *   declaration < definition < diagnostic < didChange < didClose <
+ *   didOpen < didSave < documentSymbol < typeDefinition
+ * because 'c'<'f'<'g'<'i'<'o'<'y'. */
 const IronLsp_HandlerEntry ilsp_handler_table[] = {
-    { "$/cancelRequest",                   ilsp_handle_cancel,                  false, NULL                },
-    { "exit",                              ilsp_handle_exit,                    false, NULL                },
-    { "initialize",                        ilsp_handle_initialize,              true,  NULL                },
-    { "initialized",                       ilsp_handle_initialized,             false, NULL                },
-    { "shutdown",                          ilsp_handle_shutdown,                true,  NULL                },
+    { "$/cancelRequest",                   ilsp_handle_cancel,                         false, NULL                    },
+    { "exit",                              ilsp_handle_exit,                           false, NULL                    },
+    { "initialize",                        ilsp_handle_initialize,                     true,  NULL                    },
+    { "initialized",                       ilsp_handle_initialized,                    false, NULL                    },
+    { "shutdown",                          ilsp_handle_shutdown,                       true,  NULL                    },
+    /* Plan 03 Task 02 (NAV-03): declaration. */
+    { "textDocument/declaration",          ilsp_handle_text_document_declaration,      true,  "declarationProvider"   },
+    /* Plan 03 Task 02 (NAV-02): definition. */
+    { "textDocument/definition",           ilsp_handle_text_document_definition,       true,  "definitionProvider"    },
     /* Plan 05 pull-diagnostic row: "textDocument/diagnostic" sorts BEFORE
      * "textDocument/did*" ('a' 0x61 < 'd' 0x64). Capability flows through
      * the handler-table -> ServerCapabilities pipeline as
      * "diagnosticProvider" (capabilities.c special-cases it). */
-    { "textDocument/diagnostic",           ilsp_handle_text_document_diagnostic,true,  "diagnosticProvider"},
-    { "textDocument/didChange",            ilsp_handle_didChange,               false, "textDocumentSync"  },
-    { "textDocument/didClose",             ilsp_handle_didClose,                false, "textDocumentSync"  },
-    { "textDocument/didOpen",              ilsp_handle_didOpen,                 false, "textDocumentSync"  },
-    { "textDocument/didSave",              ilsp_handle_didSave,                 false, "textDocumentSync"  },
-    { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,   false, NULL                },
+    { "textDocument/diagnostic",           ilsp_handle_text_document_diagnostic,       true,  "diagnosticProvider"    },
+    { "textDocument/didChange",            ilsp_handle_didChange,                      false, "textDocumentSync"      },
+    { "textDocument/didClose",             ilsp_handle_didClose,                       false, "textDocumentSync"      },
+    { "textDocument/didOpen",              ilsp_handle_didOpen,                        false, "textDocumentSync"      },
+    { "textDocument/didSave",              ilsp_handle_didSave,                        false, "textDocumentSync"      },
+    /* Plan 03 Task 03 (NAV-07): documentSymbol. */
+    { "textDocument/documentSymbol",       ilsp_handle_text_document_document_symbol,  true,  "documentSymbolProvider"},
+    /* Plan 03 Task 02 (NAV-04): typeDefinition. */
+    { "textDocument/typeDefinition",       ilsp_handle_text_document_type_definition,  true,  "typeDefinitionProvider"},
+    { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,          false, NULL                    },
+    /* Plan 03 Task 03 (NAV-08): workspace/symbol. */
+    { "workspace/symbol",                  ilsp_handle_workspace_symbol,               true,  "workspaceSymbolProvider"},
 };
 const size_t ilsp_handler_table_size =
     sizeof(ilsp_handler_table) / sizeof(ilsp_handler_table[0]);
