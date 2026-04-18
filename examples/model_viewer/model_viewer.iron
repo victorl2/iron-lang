@@ -1,0 +1,65 @@
+-- examples/model_viewer/model_viewer.iron
+-- Phase 70 canonical 3D showcase — proves "Iron builds real 3D games"
+-- extends to loaded assets, not just procedural primitives.
+--
+-- Invocation: ./build/ironc build examples/model_viewer/model_viewer.iron
+--             ./model_viewer        (run from repo root for asset resolution)
+-- Expected:   window opens, orbital camera rotates around a cube loaded
+--             from tests/assets/models/cube.obj (falls back to procedural
+--             Mesh.cube if asset unavailable), bounding-box wireframe
+--             highlights the model, closes cleanly on ESC / window close.
+--
+-- Asset resolution: loads "tests/assets/models/cube.obj" relative to the
+-- binary's working directory. If Model.is_valid returns false (wrong cwd
+-- or missing asset), falls back to Model.from_mesh(Mesh.cube(...)) so the
+-- showcase always produces a visible 3D scene.
+--
+-- Template: examples/rotating_cube/rotating_cube.iron (Phase 69-04 3D
+-- showcase). Static-form calls per Rule-3 (Plan 68-05 / 69-04 convention).
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(800), Int32(600), "Model Viewer — Iron + raylib")
+    Window.set_target_fps(Int32(60))
+
+    var cam = Camera3D(
+        Vector3(Float32(10.0), Float32(10.0), Float32(10.0)),
+        Vector3(Float32(0.0),  Float32(0.0),  Float32(0.0)),
+        Vector3(Float32(0.0),  Float32(1.0),  Float32(0.0)),
+        Float32(45.0),
+        Int32(0)
+    )
+
+    -- Try .obj load; fall back to procedural cube if asset missing / ironc
+    -- invoked from non-repo-root directory.
+    val loaded = Model.load("tests/assets/models/cube.obj")
+    val loaded_ok = Model.is_valid(loaded)
+    var model = loaded
+    if not loaded_ok {
+        model = Model.from_mesh(Mesh.cube(Float32(2.0), Float32(2.0), Float32(2.0)))
+    }
+
+    val origin = Vector3(Float32(0.0), Float32(0.0), Float32(0.0))
+    val bbox = Model.bounding_box(model)
+
+    while not Window.should_close() {
+        cam = Camera3D.update(cam, CameraMode.ORBITAL)
+
+        Draw.begin()
+        Draw.clear(RAYWHITE)
+        Draw.begin_mode_3d(cam)
+
+        Model.draw(model, origin, Float32(1.0), WHITE)
+        Model.draw_wires(model, origin, Float32(1.0), BLACK)
+        Draw.bounding_box(bbox, GREEN)
+        Draw.grid(Int32(10), Float32(1.0))
+
+        Draw.end_mode_3d()
+        Draw.end()
+    }
+
+    Model.unload(model)
+    Window.close()
+    return Int32(0)
+}
