@@ -97,7 +97,7 @@ jobs:
         # Phase 2 M1 LSP Core: smoke tests under tests/lsp/smoke/ drive real
         # ironls via pytest-lsp. The --break-system-packages fallback handles
         # Ubuntu 24.04's PEP 668 externally-managed environment.
-        run: python3 -m pip install 'pytest-lsp>=1.0' 'pytest>=7' || python3 -m pip install --break-system-packages 'pytest-lsp>=1.0' 'pytest>=7'
+        run: python3 -m pip install --pre 'pytest-lsp>=1.0.0b1' 'pytest>=7' || python3 -m pip install --pre --break-system-packages 'pytest-lsp>=1.0.0b1' 'pytest>=7'
 
       - name: Configure (Debug with ASan/UBSan)
         if: needs.changes.outputs.ci == 'true'
@@ -179,7 +179,7 @@ jobs:
       - name: Install pytest-lsp
         # Phase 2 M1 LSP Core: Release job mirrors Debug job pytest-lsp
         # install so tests/lsp/smoke/ can run under both configurations.
-        run: python3 -m pip install 'pytest-lsp>=1.0' 'pytest>=7' || python3 -m pip install --break-system-packages 'pytest-lsp>=1.0' 'pytest>=7'
+        run: python3 -m pip install --pre 'pytest-lsp>=1.0.0b1' 'pytest>=7' || python3 -m pip install --pre --break-system-packages 'pytest-lsp>=1.0.0b1' 'pytest>=7'
 
       - name: Configure (Release, no sanitizers)
         if: needs.changes.outputs.ci == 'true'
