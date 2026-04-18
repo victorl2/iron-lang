@@ -26,6 +26,10 @@ test_*
 /draw3d_smoke.c
 /rotating_cube
 /rotating_cube.c
+/models_smoke
+/models_smoke.c
+/model_viewer
+/model_viewer.c
 /abi_float32_probe
 /abi_float32_probe.c
 /abi_phase70_probe
