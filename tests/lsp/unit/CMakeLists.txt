@@ -58,6 +58,50 @@ if(IRON_BUILD_LSP)
     add_test(NAME test_lsp_writer_queue COMMAND test_lsp_writer_queue)
     set_tests_properties(test_lsp_writer_queue PROPERTIES
         LABELS "unit;phase-m1-invariant")
+
+    # ── Phase 2 Plan 03 (lifecycle + capabilities + cancel + dyn-register) ──
+    # Every Plan 03 Unity test links the full server/transport stack so the
+    # end-to-end dispatcher path can be exercised against a sink-backed
+    # writer. The yyjson vendor TU is compiled per-executable with
+    # -Wno-error -w (mirrors the ironls target).
+
+    set(_LSP_PLAN03_SERVER_SRC
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/dispatch.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/lifecycle.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/capabilities.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/cancel.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/dyn_register.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_lifecycle.c)
+    set(_LSP_PLAN03_TRANSPORT_SRC
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+
+    # Task 01: lifecycle FSM (6 RUN_TESTs)
+    add_executable(test_lsp_lifecycle_fsm test_lsp_lifecycle_fsm.c
+        ${_LSP_PLAN03_SERVER_SRC}
+        ${_LSP_PLAN03_TRANSPORT_SRC})
+    target_include_directories(test_lsp_lifecycle_fsm PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_lifecycle_fsm PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_lifecycle_fsm
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_lifecycle_fsm COMMAND test_lsp_lifecycle_fsm)
+    set_tests_properties(test_lsp_lifecycle_fsm PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # (Tasks 02 + 03 add additional test executables below in their own
+    # commits; each reuses _LSP_PLAN03_SERVER_SRC / _LSP_PLAN03_TRANSPORT_SRC.)
+
+    # The yyjson vendor TU must survive the repo-global -Werror strictness.
+    # One set_source_files_properties entry covers every test above that
+    # compiles yyjson.c directly (directory-scoped property).
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+        PROPERTIES COMPILE_FLAGS "-Wno-error -w")
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()

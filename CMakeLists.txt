@@ -271,6 +271,14 @@ if(IRON_BUILD_LSP)
         src/lsp/transport/json.c
         src/lsp/transport/reader.c
         src/lsp/transport/writer.c
+        # Phase 2 Plan 03: server subsystem (dispatcher, lifecycle FSM,
+        # capabilities, dynamic registration, cancellation, lifecycle handlers).
+        src/lsp/server/dispatch.c
+        src/lsp/server/lifecycle.c
+        src/lsp/server/capabilities.c
+        src/lsp/server/dyn_register.c
+        src/lsp/server/cancel.c
+        src/lsp/server/handlers_lifecycle.c
         src/vendor/yyjson/yyjson.c
     )
     target_include_directories(ironls PRIVATE src src/vendor)
