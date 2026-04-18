@@ -347,6 +347,22 @@ if(IRON_BUILD_LSP)
         LABELS "unit;lsp-unit;phase-m1-invariant"
         TIMEOUT 30)
 
+    # ── Phase 2 Plan 06 (observability + EPIPE/EOF + smoke wiring) ────────
+    # Task 01: XDG log resolution + JSON-line format + level filter +
+    # thread-safe writes (6 RUN_TESTs).
+    add_executable(test_lsp_log_path_xdg test_lsp_log_path_xdg.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
+    target_include_directories(test_lsp_log_path_xdg PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_log_path_xdg PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_log_path_xdg
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_log_path_xdg COMMAND test_lsp_log_path_xdg)
+    set_tests_properties(test_lsp_log_path_xdg PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant"
+        TIMEOUT 30)
+
     # The yyjson vendor TU must survive the repo-global -Werror strictness.
     # One set_source_files_properties entry covers every test above that
     # compiles yyjson.c directly (directory-scoped property).
