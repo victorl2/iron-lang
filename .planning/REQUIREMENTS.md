@@ -408,7 +408,7 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | DRAW3D-01 | Phase 69 | Complete |
 | DRAW3D-02 | Phase 69 | Complete |
 | DRAW3D-03 | Phase 69 | Complete |
-| DRAW3D-04 | Phase 69 | Pending |
+| DRAW3D-04 | Phase 69 | In Progress (12/21 — Plan 69-03 landed line_3d/point_3d/circle_3d/triangle_3d/triangle_strip_3d/cube×4/sphere×3; Plan 69-04 to finish cylinder×4/capsule×2/plane/ray/grid) |
 | MODEL-01 | Phase 70 | Pending |
 | MODEL-02 | Phase 70 | Pending |
 | MODEL-03 | Phase 70 | Pending |

@@ -374,7 +374,7 @@ Plans:
 | 66. Textures & Images | 5/5 | Complete    | 2026-04-17 |
 | 67. Text & Fonts | 4/4 | Complete    | 2026-04-17 |
 | 68. Audio System | 5/5 | Complete    | 2026-04-17 |
-| 69. 3D Drawing & Camera3D | 2/4 | In Progress|  |
+| 69. 3D Drawing & Camera3D | 3/4 | In Progress|  |
 | 70. Models, Meshes, Materials | 0/? | Not started | - |
 | 71. Shaders | 0/? | Not started | - |
 | 72. File I/O & Utilities | 0/? | Not started | - |
