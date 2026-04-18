@@ -36,6 +36,8 @@ test_*
 /shaders_smoke.c
 /post_fx
 /post_fx.c
+/raylib_showcase
+/raylib_showcase.c
 /abi_float32_probe
 /abi_float32_probe.c
 /abi_phase70_probe

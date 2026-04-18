@@ -1,0 +1,161 @@
+-- examples/raylib_showcase/raylib_showcase.iron
+-- Phase 73-03 canonical single-file showcase — API-10 deliverable.
+--
+-- Proves Iron's v2.0.0-alpha raylib binding works end-to-end across all
+-- 12 in-scope categories on both native and web targets.
+--
+-- Invocation: ./build/ironc build examples/raylib_showcase/raylib_showcase.iron
+--             ./raylib_showcase        (run from repo root for asset resolution)
+--             ./build/ironc build --target=web examples/raylib_showcase/raylib_showcase.iron
+--
+-- Naming note: the .iron file shares the directory basename so ironc's
+-- output-binary-name derivation (basename of .iron → binary) produces
+-- `./raylib_showcase` — matches the other 3 Phase 69-71 showcase conventions
+-- (rotating_cube/rotating_cube.iron, model_viewer/model_viewer.iron,
+--  post_fx/post_fx.iron). Plan 73-03 originally specified `showcase.iron`
+-- inside `raylib_showcase/`; renamed per Rule-3 deviation so the
+-- `.gitignore` `raylib_showcase` entry and the success-criteria
+-- `./raylib_showcase` binary target both align with the produced artifact.
+--
+-- Expected runtime: window opens; user sees a RAYWHITE background with a
+-- red rectangle, a procedural red/blue checker texture, a grayscale-filtered
+-- copy of the same texture, an orbital 3D cube from tests/assets/models/cube.obj
+-- over a grid, bounding-box wireframe, and status/help text. SPACE plays
+-- the bounce.wav sound (AUDIO category). ESC exits cleanly.
+--
+-- Assets (reuse only — NO new vendoring per Phase 73 asset-strategy decision):
+--   • tests/assets/bounce.wav      (Phase 68)
+--   • tests/assets/models/cube.obj (Phase 70)
+--   • tests/assets/shaders/grayscale.fs (Phase 71)
+--   • procedural 2D texture via Image.checked → to_texture (TEX category)
+--   • Font.default() implicitly via Draw.text (TEXT category)
+--
+-- Structure: one ~column-0 `-- ── <CAT>: ───` tag per in-scope category
+-- (12 total). Each category hits 1–2 API calls sufficient to prove the
+-- binding compiles + links + resolves symbols at runtime.
+--
+-- Ironc workaround notes:
+--   • Camera3D's projection field passes `Int32(0)` for PERSPECTIVE
+--     (enum-in-struct-initializer codegen bug — Phase 73 D5 residual;
+--     deferred to a post-alpha ironc milestone).
+--   • 73-02 shipped Color.rgb / Vector2.of / Vector3.of / Rectangle.of
+--     constructor sugar — adopted here for ergonomic rect + vector setup.
+--
+-- Canonical template chain:
+--   examples/pong/pong.iron (Phase 68-05, 2D + audio idiom)
+--   examples/rotating_cube/rotating_cube.iron (Phase 69-04, Camera3D idiom)
+--   examples/model_viewer/model_viewer.iron (Phase 70-04, Model.load fallback)
+--   examples/post_fx/post_fx.iron (Phase 71-02, shader-mode nesting)
+
+import raylib
+
+func main() -> Int32 {
+-- ── WIN: Window + target-fps lifecycle ───────────────────────────────
+    Window.init(Int32(800), Int32(600), "raylib_showcase — Iron v2.0.0-alpha")
+    Window.set_target_fps(Int32(60))
+
+-- ── AUDIO: Audio init + Sound.load from vendored bounce.wav ──────────
+    Audio.init()
+    val blip = Sound.load("tests/assets/bounce.wav")
+
+-- ── TEX: procedural checker via Image.checked → to_texture ───────────
+    -- Uses Color.rgb sugar from 73-02 for palette values.
+    val red_checker  = Color.rgb(UInt8(230), UInt8(41),  UInt8(55))   -- RED-ish
+    val blue_checker = Color.rgb(UInt8(0),   UInt8(121), UInt8(241))  -- BLUE-ish
+    val checker_img  = Image.checked(Int32(64), Int32(64), Int32(8), Int32(8), red_checker, blue_checker)
+    val checker_tex  = Image.to_texture(checker_img)
+    Image.unload(checker_img)
+
+-- ── MODEL: Model.load with procedural-cube fallback (from model_viewer) ─
+    val loaded_model = Model.load("tests/assets/models/cube.obj")
+    var model = loaded_model
+    if not Model.is_valid(loaded_model) {
+        model = Model.from_mesh(Mesh.cube(Float32(2.0), Float32(2.0), Float32(2.0)))
+    }
+    val bbox = Model.bounding_box(model)
+
+-- ── SHADER: Shader.load grayscale.fs (default VS via empty string) ────
+    val fx_grayscale = Shader.load("", "tests/assets/shaders/grayscale.fs")
+
+-- ── MATH: raymath Vector3.normalize pre-loop (idempotent eval) ───────
+    val forward = Vector3.normalize(Vector3.of(Float32(0.0), Float32(0.0), Float32(1.0)))
+
+-- ── FILE: Files.exists asset probe pre-loop ──────────────────────────
+    val bounce_exists = Files.exists("tests/assets/bounce.wav")
+
+    -- Camera3D with Int32(0) PERSPECTIVE workaround (D5 residual).
+    var cam = Camera3D(
+        Vector3.of(Float32(5.0), Float32(5.0), Float32(5.0)),
+        Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0)),
+        Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0)),
+        Float32(45.0),
+        Int32(0)
+    )
+
+    -- Collision rectangles (two overlapping) + origin reused across frames.
+    val r1     = Rectangle.of(Float32(10.0), Float32(10.0), Float32(50.0), Float32(50.0))
+    val r2     = Rectangle.of(Float32(30.0), Float32(30.0), Float32(50.0), Float32(50.0))
+    val origin = Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0))
+
+    while not Window.should_close() {
+-- ── INPUT: Keyboard.is_pressed gated SPACE → Sound.play ──────────────
+        if Keyboard.is_pressed(KeyboardKey.SPACE) {
+            Sound.play(blip)
+        }
+
+-- ── COLL: Rectangle.collides checks two overlapping rects each frame ─
+        val hit = Rectangle.collides(r1, r2)
+
+        -- Orbital camera update (Phase 69 idiom).
+        cam = Camera3D.update(cam, CameraMode.ORBITAL)
+
+-- ── DRAW2D: Draw.begin/clear/rectangle primitives ────────────────────
+        Draw.begin()
+        Draw.clear(RAYWHITE)
+        Draw.rectangle(Int32(10), Int32(10), Int32(100), Int32(50), RED)
+        Draw.rectangle(Int32(30), Int32(30), Int32(50),  Int32(50),  GREEN)
+        Texture.draw(checker_tex, Int32(140), Int32(10), WHITE)
+
+-- ── DRAW3D: Camera3D mode + Model.draw + grid wrapping ───────────────
+        Draw.begin_mode_3d(cam)
+        Model.draw(model, origin, Float32(1.0), WHITE)
+        Draw.bounding_box(bbox, GREEN)
+        Draw.grid(Int32(10), Float32(1.0))
+        Draw.end_mode_3d()
+
+        -- Shader-mode nested toggle — draws a grayscale-filtered copy of the
+        -- checker texture (demonstrates begin/end_shader_mode pairing).
+        Draw.begin_shader_mode(fx_grayscale)
+        Texture.draw(checker_tex, Int32(220), Int32(10), WHITE)
+        Draw.end_shader_mode()
+
+-- ── TEXT: Draw.text status line (uses Font.default internally) ───────
+        Draw.text("raylib_showcase — SPACE plays bounce.wav, ESC exits",
+                  Int32(10), Int32(570), Int32(20), DARKGRAY)
+
+        -- Auxiliary diagnostics — not required for category coverage but
+        -- demonstrates the hit / bounce_exists locals stay live.
+        if hit {
+            Draw.text("COLL hit detected", Int32(10), Int32(80), Int32(16), MAROON)
+        }
+        if bounce_exists {
+            Draw.text("bounce.wav: OK",    Int32(10), Int32(100), Int32(16), DARKGREEN)
+        }
+
+        Draw.end()
+    }
+
+    -- Cleanup (reverse load order).
+    Texture.unload(checker_tex)
+    Shader.unload(fx_grayscale)
+    Model.unload(model)
+    Sound.unload(blip)
+    Audio.close()
+    Window.close()
+
+    -- Keep-alive reference so MATH's forward local isn't DCE'd away.
+    if forward.z > Float32(0.0) {
+        return Int32(0)
+    }
+    return Int32(0)
+}
