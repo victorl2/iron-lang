@@ -1647,6 +1647,18 @@ void Iron_audiostream_set_pan(struct Iron_AudioStream stream, float pan);
 void Iron_audiostream_set_buffer_size_default(int32_t size);
 
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
+
+/* DRAW3D-01 */
+void Iron_draw_begin_mode_3d(struct Iron_Camera3D camera);
+void Iron_draw_end_mode_3d(void);
+
+/* DRAW3D-02 — mutating-return-by-value */
+struct Iron_Camera3D Iron_camera3d_update(struct Iron_Camera3D camera, int32_t mode);
+struct Iron_Camera3D Iron_camera3d_update_pro(struct Iron_Camera3D camera,
+                                               struct Iron_Vector3 movement,
+                                               struct Iron_Vector3 rotation,
+                                               float zoom);
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
