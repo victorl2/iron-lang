@@ -324,6 +324,10 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/nav/references.c
         src/lsp/facade/hover.c
         src/lsp/facade/signature_help.c
+        # Phase 3 Plan 05 Task 01/02: iface workspace aggregator +
+        # implementation + typeHierarchy facade TUs.
+        src/lsp/facade/nav/iface_workspace.c
+        src/lsp/facade/nav/implementation.c
         src/lsp/server/handlers_nav.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;

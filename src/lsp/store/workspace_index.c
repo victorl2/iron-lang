@@ -20,6 +20,7 @@
 #include "lexer/lexer.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/nav/references_index.h"  /* Plan 04: ref-index hooks */
+#include "lsp/facade/nav/iface_workspace.h"   /* Plan 05: iface aggregator */
 #include "lsp/store/document.h"
 #include "lsp/store/line_index.h"
 #include "lsp/store/sha256.h"
@@ -181,6 +182,9 @@ static void invalidate_path_locked(IronLsp_WorkspaceIndex *wi,
      * reverse-ref contributions BEFORE freeing its arena. The
      * ilsp_refs_drop_for_entry helper tolerates NULL refs state. */
     if (e) ilsp_refs_drop_for_entry(wi, e);
+    /* Plan 05 Task 01 (D-07): drop this entry's iface-workspace
+     * contributions before freeing its arena. */
+    if (e && wi->iface_ws) ilsp_iface_ws_drop_for_entry(wi->iface_ws, e);
     free_entry(e);
     shdel(wi->entries, canonical_path);
     if (was_analyzed && wi->analyzed_count > 0) wi->analyzed_count--;
@@ -327,6 +331,9 @@ IronLsp_WorkspaceIndex *ilsp_workspace_index_create(const char *workspace_root) 
      * lazily populated on first hmput inside references_index.c. */
     wi->refs = NULL;
     wi->bulk_analyze_done = false;
+    /* Plan 05 Task 01: create the iface workspace aggregator. NULL
+     * on OOM is tolerated by all query paths (they no-op). */
+    wi->iface_ws = ilsp_iface_ws_create();
     return wi;
 }
 
@@ -341,10 +348,23 @@ void ilsp_workspace_index_destroy(IronLsp_WorkspaceIndex *wi) {
     }
     /* Plan 04 Task 01: drain + free the reverse-ref map. */
     ilsp_refs_index_destroy(wi);
+    /* Plan 05 Task 01: tear down the iface workspace aggregator. */
+    if (wi->iface_ws) {
+        ilsp_iface_ws_destroy(wi->iface_ws);
+        wi->iface_ws = NULL;
+    }
     IRON_MUTEX_UNLOCK(wi->lock);
     IRON_MUTEX_DESTROY(wi->lock);
     if (wi->workspace_root) free(wi->workspace_root);
     free(wi);
+}
+
+/* Plan 05 Task 01: accessor used by facade/nav/implementation.c and
+ * facade/nav/type_hierarchy.c.  Keeps workspace_index.h free of any
+ * iface_workspace.h include. */
+struct IronLsp_IfaceWorkspace *ilsp_workspace_index_iface_ws(
+    IronLsp_WorkspaceIndex *wi) {
+    return wi ? wi->iface_ws : NULL;
 }
 
 void ilsp_workspace_index_warm_seed(IronLsp_WorkspaceIndex *wi,
@@ -467,6 +487,11 @@ Iron_Program *ilsp_workspace_index_analyze_lazy(IronLsp_WorkspaceIndex *wi,
      * (Pitfall 6). Held outside wi->lock because populate uses
      * stb_ds macros that may reallocate the map. */
     if (fresh) ilsp_refs_populate_for_entry(wi, entry);
+
+    /* Plan 05 Task 01 (NAV-05, D-07): harvest the per-compile iface
+     * registry into the workspace aggregator.  populate_for_entry
+     * drops this entry's prior contributions first (Pitfall 6). */
+    if (fresh && wi->iface_ws) ilsp_iface_ws_populate_for_entry(wi->iface_ws, entry);
 
     return entry->program;
 }

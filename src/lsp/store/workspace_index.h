@@ -61,6 +61,7 @@ extern "C" {
 /* Forward declarations */
 struct IronLsp_StdlibCache;
 struct IronLsp_DepMap;
+struct IronLsp_IfaceWorkspace;
 
 typedef struct IronLsp_IndexEntry {
     char              *canonical_path;   /* malloc'd realpath-normalized absolute path */
@@ -117,6 +118,15 @@ typedef struct IronLsp_WorkspaceIndex {
      * calls analyze_lazy to produce resolved_sym annotations, then
      * sets this to true so subsequent references queries are cheap. */
     bool                        bulk_analyze_done;
+
+    /* Phase 3 Plan 05 Task 01 (NAV-05, D-07): workspace-wide iface
+     * implementor registry. Aggregates per-compile Iron_IfaceRegistry
+     * instances from every analyzed entry. Pointer-typed (opaque) so
+     * this header doesn't pull in iface_workspace.h. Populated by
+     * ilsp_iface_ws_populate_for_entry inside analyze_lazy; drained
+     * by ilsp_iface_ws_drop_for_entry at invalidation. Created in
+     * _create, destroyed in _destroy. */
+    struct IronLsp_IfaceWorkspace *iface_ws;
 } IronLsp_WorkspaceIndex;
 
 /* Tuning knobs: exposed so tests can override via a separate helper. */
@@ -185,6 +195,14 @@ char                  **ilsp_workspace_index_snapshot_paths(IronLsp_WorkspaceInd
 void                    ilsp_workspace_index_bulk_analyze_for_refs(
                             IronLsp_WorkspaceIndex *wi,
                             _Atomic bool           *cancel);
+
+/* Phase 3 Plan 05 Task 01 (NAV-05, D-07) -- accessor for the
+ * workspace-wide iface implementor aggregator. Callers (facade/nav/
+ * implementation.c + type_hierarchy.c) use this to avoid an
+ * iface_workspace.h include in workspace_index.h. Returns NULL when
+ * wi is NULL. */
+struct IronLsp_IfaceWorkspace *ilsp_workspace_index_iface_ws(
+    IronLsp_WorkspaceIndex *wi);
 
 #ifdef __cplusplus
 }

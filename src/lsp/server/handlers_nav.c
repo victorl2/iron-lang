@@ -28,6 +28,7 @@
 #include "lsp/store/document.h"
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/nav_core.h"
+#include "lsp/facade/nav/iface_workspace.h"
 #include "lsp/facade/types.h"
 #include "lsp/transport/writer.h"
 #include "lsp/transport/json.h"
@@ -174,6 +175,15 @@ void ilsp_handle_text_document_type_definition(IronLsp_Server *s,
     (void)arena;
     handle_locationlink_request(s, doc, arena,
                                  ilsp_facade_nav_type_definition);
+}
+
+/* Phase 3 Plan 05 Task 01 (NAV-05): textDocument/implementation. */
+void ilsp_handle_text_document_implementation(IronLsp_Server *s,
+                                                 struct yyjson_doc *doc,
+                                                 Iron_Arena *arena) {
+    (void)arena;
+    handle_locationlink_request(s, doc, arena,
+                                 ilsp_facade_nav_implementation);
 }
 
 /* ── DocumentSymbol ───────────────────────────────────────────────── */

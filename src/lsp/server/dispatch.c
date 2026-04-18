@@ -57,6 +57,9 @@ void ilsp_handle_text_document_hover         (IronLsp_Server *s, yyjson_doc *doc
 void ilsp_handle_text_document_references    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_text_document_signature_help(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 3 Plan 05: implementation handler (handlers_nav.c). */
+void ilsp_handle_text_document_implementation(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -100,6 +103,8 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "textDocument/documentSymbol",       ilsp_handle_text_document_document_symbol,  true,  "documentSymbolProvider"},
     /* Plan 04 Task 02 (NAV-09): hover. */
     { "textDocument/hover",                ilsp_handle_text_document_hover,            true,  "hoverProvider"         },
+    /* Plan 05 Task 01 (NAV-05): implementation. 'h' < 'i' < 'r' sort. */
+    { "textDocument/implementation",       ilsp_handle_text_document_implementation,   true,  "implementationProvider"},
     /* Plan 04 Task 01 (NAV-06): references. */
     { "textDocument/references",           ilsp_handle_text_document_references,       true,  "referencesProvider"    },
     /* Plan 04 Task 03 (NAV-10): signatureHelp. */
