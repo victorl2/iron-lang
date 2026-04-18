@@ -1937,4 +1937,23 @@ bool        Iron_files_is_valid_name(Iron_String path);
 int64_t     Iron_files_mod_time(Iron_String path);
 int32_t     Iron_files_make_directory(Iron_String path);
 
+/* FILE-04: Directory listing (3) — FilePathList struct-by-value RETURN.
+ * Extends Phase 62 Iron_files_load_dropped precedent (iron_raylib.c:534-548). */
+struct Iron_FilePathList Iron_files_list(Iron_String path);
+struct Iron_FilePathList Iron_files_list_ex(Iron_String path,
+                                            Iron_String filter,
+                                            bool scan_subdirs);
+void                     Iron_files_unload_list(struct Iron_FilePathList list);
+
+/* FILE-05: Data utilities (7).
+ * Pitfall 3 (heap + MemFree): compress / decompress / encode_base64 / decode_base64.
+ * Pitfall 2 (static buffer — NO FREE): compute_md5 / compute_sha1. */
+Iron_List_uint8_t Iron_files_compress(Iron_List_uint8_t data);
+Iron_List_uint8_t Iron_files_decompress(Iron_List_uint8_t data);
+Iron_String       Iron_files_encode_base64(Iron_List_uint8_t data);
+Iron_List_uint8_t Iron_files_decode_base64(Iron_String b64);
+uint32_t          Iron_files_compute_crc32(Iron_List_uint8_t data);
+Iron_List_uint8_t Iron_files_compute_md5(Iron_List_uint8_t data);   /* 16 bytes */
+Iron_List_uint8_t Iron_files_compute_sha1(Iron_List_uint8_t data);  /* 20 bytes */
+
 #endif /* IRON_RAYLIB_H */

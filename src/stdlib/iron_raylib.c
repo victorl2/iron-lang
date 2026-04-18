@@ -6387,3 +6387,176 @@ Iron_String Iron_files_application_directory(void) {
     if (ad == NULL) return iron_string_from_literal("", 0);
     return iron_string_from_cstr(ad, strlen(ad));
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * ── FILE-04: Directory listing (Plan 72-02) ──────────────────────────
+ * FilePathList struct-by-value RETURN — extends Phase 62
+ * Iron_files_load_dropped precedent (iron_raylib.c:534-548). The `_paths`
+ * field is `void *` per iron_raylib.h:349 — match Phase 62 cast exactly
+ * (`(void *)src.paths` on encode, `(char **)list._paths` on decode).
+ * ═══════════════════════════════════════════════════════════════════ */
+
+struct Iron_FilePathList Iron_files_list(Iron_String path) {
+    const char *cpath = iron_string_cstr(&path);
+    FilePathList src = LoadDirectoryFiles(cpath);
+    struct Iron_FilePathList out;
+    out.capacity = src.capacity;
+    out.count    = src.count;
+    out._paths   = (void *)src.paths;
+    return out;
+}
+
+struct Iron_FilePathList Iron_files_list_ex(Iron_String path,
+                                            Iron_String filter,
+                                            bool scan_subdirs) {
+    const char *cpath   = iron_string_cstr(&path);
+    const char *cfilter = iron_string_cstr(&filter);
+    /* Pitfall 7: filter must be dot-prefixed (e.g. ".png"); raylib
+     * GetFileExtension-compares. Empty string => NULL => match all files. */
+    FilePathList src = LoadDirectoryFilesEx(cpath,
+                                            (cfilter && *cfilter) ? cfilter : NULL,
+                                            scan_subdirs);
+    struct Iron_FilePathList out;
+    out.capacity = src.capacity;
+    out.count    = src.count;
+    out._paths   = (void *)src.paths;
+    return out;
+}
+
+void Iron_files_unload_list(struct Iron_FilePathList list) {
+    FilePathList fl;
+    fl.capacity = list.capacity;
+    fl.count    = list.count;
+    fl.paths    = (char **)list._paths;
+    UnloadDirectoryFiles(fl);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * ── FILE-05: Data utilities (Plan 72-02) ─────────────────────────────
+ * Five [UInt8] RETURN consumers (compress / decompress / decode_base64 /
+ * compute_md5 / compute_sha1) + one String RETURN (encode_base64) + one
+ * scalar (compute_crc32). Memory ownership: compress / decompress /
+ * base64 all RL_MALLOC their output — shim memcpy's then MemFree's.
+ * MD5 / SHA1 return pointers into STATIC raylib buffers — shim memcpy
+ * WITHOUT MemFree (freeing static storage crashes).
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Pitfall 3: raylib heap buffer (RL_CALLOC in rcore.c:2473) — memcpy + MemFree. */
+Iron_List_uint8_t Iron_files_compress(Iron_List_uint8_t data) {
+    int comp_size = 0;
+    unsigned char *buf = CompressData((const unsigned char *)data.items,
+                                      (int)data.count, &comp_size);
+    Iron_List_uint8_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (comp_size > 0 && buf) {
+        out.items    = (uint8_t *)calloc((size_t)comp_size, sizeof(uint8_t));
+        out.capacity = (int64_t)comp_size;
+        if (out.items) {
+            memcpy(out.items, buf, (size_t)comp_size);
+            out.count = (int64_t)comp_size;
+        }
+    }
+    MemFree(buf);
+    return out;
+}
+
+/* Pitfall 3: raylib heap buffer (RL_MALLOC + RL_REALLOC in rcore.c:2491). */
+Iron_List_uint8_t Iron_files_decompress(Iron_List_uint8_t data) {
+    int orig_size = 0;
+    unsigned char *buf = DecompressData((const unsigned char *)data.items,
+                                        (int)data.count, &orig_size);
+    Iron_List_uint8_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (orig_size > 0 && buf) {
+        out.items    = (uint8_t *)calloc((size_t)orig_size, sizeof(uint8_t));
+        out.capacity = (int64_t)orig_size;
+        if (out.items) {
+            memcpy(out.items, buf, (size_t)orig_size);
+            out.count = (int64_t)orig_size;
+        }
+    }
+    MemFree(buf);
+    return out;
+}
+
+/* raylib returns char*; Iron returns String (human-readable base64).
+ * Pitfall 3: raylib heap buffer (RL_MALLOC in rcore.c:2522). */
+Iron_String Iron_files_encode_base64(Iron_List_uint8_t data) {
+    int out_size = 0;
+    char *b64 = EncodeDataBase64((const unsigned char *)data.items,
+                                 (int)data.count, &out_size);
+    Iron_String out = b64 ? iron_string_from_cstr(b64, strlen(b64))
+                          : iron_string_from_literal("", 0);
+    MemFree(b64);
+    return out;
+}
+
+/* Pitfall 3: raylib heap buffer (RL_MALLOC in rcore.c:2568). */
+Iron_List_uint8_t Iron_files_decode_base64(Iron_String b64) {
+    const char *cb64 = iron_string_cstr(&b64);
+    int out_size = 0;
+    unsigned char *buf = DecodeDataBase64((const unsigned char *)cb64, &out_size);
+    Iron_List_uint8_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (out_size > 0 && buf) {
+        out.items    = (uint8_t *)calloc((size_t)out_size, sizeof(uint8_t));
+        out.capacity = (int64_t)out_size;
+        if (out.items) {
+            memcpy(out.items, buf, (size_t)out_size);
+            out.count = (int64_t)out_size;
+        }
+    }
+    MemFree(buf);
+    return out;
+}
+
+/* Scalar return — no allocation. */
+uint32_t Iron_files_compute_crc32(Iron_List_uint8_t data) {
+    return (uint32_t)ComputeCRC32((unsigned char *)data.items, (int)data.count);
+}
+
+/* Pitfall 2: ComputeMD5 returns pointer into static unsigned int hash[4] (rcore.c:2654).
+ * DO NOT call MemFree on the returned pointer (static storage → crash).
+ * MUST memcpy 16 bytes into Iron-owned buffer BEFORE any subsequent raylib call. */
+Iron_List_uint8_t Iron_files_compute_md5(Iron_List_uint8_t data) {
+    unsigned int *hash = ComputeMD5((unsigned char *)data.items, (int)data.count);
+    Iron_List_uint8_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (hash) {
+        out.items    = (uint8_t *)calloc(16, sizeof(uint8_t));
+        out.capacity = 16;
+        if (out.items) {
+            memcpy(out.items, hash, 16);
+            out.count = 16;
+        }
+    }
+    return out;
+}
+
+/* Pitfall 2: ComputeSHA1 returns pointer into static unsigned int hash[5] (rcore.c:2771).
+ * DO NOT call MemFree on the returned pointer (static storage → crash).
+ * MUST memcpy 20 bytes into Iron-owned buffer BEFORE any subsequent raylib call. */
+Iron_List_uint8_t Iron_files_compute_sha1(Iron_List_uint8_t data) {
+    unsigned int *hash = ComputeSHA1((unsigned char *)data.items, (int)data.count);
+    Iron_List_uint8_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (hash) {
+        out.items    = (uint8_t *)calloc(20, sizeof(uint8_t));
+        out.capacity = 20;
+        if (out.items) {
+            memcpy(out.items, hash, 20);
+            out.count = 20;
+        }
+    }
+    return out;
+}
