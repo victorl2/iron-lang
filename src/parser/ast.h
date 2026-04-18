@@ -155,7 +155,30 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_PROGRAM */
     Iron_Node   **decls;
     int           decl_count;
+    /* Phase 3 NAV-15: set to true by iron_analyze_buffer on the single
+     * successful-return path. Consumers outside src/analyzer/ and
+     * src/parser/ must never mutate a sealed Iron_Program -- the
+     * IRON_AST_ASSERT_UNSEALED macro below traps rogue writes in
+     * debug builds. See docs/dev/AST_CONTRACT.md. */
+    bool          sealed;
 } Iron_Program;
+
+/* ── Phase 3 NAV-15: sealed-AST contract debug enforcement ───────────────────
+ * Expands to a call into iron_ice (which is noreturn) when a NAV/LSP handler
+ * attempts to write to an Iron_Program after iron_analyze_buffer has sealed
+ * it. Release builds compile it to a no-op so production is zero-cost.
+ *
+ * Usage: inside any `src/lsp/facade` write path that touches Iron_Program
+ * fields, call IRON_AST_ASSERT_UNSEALED(program) before the write. The
+ * full contract lives in docs/dev/AST_CONTRACT.md. */
+#ifndef NDEBUG
+#  define IRON_AST_ASSERT_UNSEALED(program)                                  \
+       do { if ((program) && ((const Iron_Program *)(program))->sealed)     \
+            iron_ice("AST_CONTRACT breach: write after analyze at %s:%d",   \
+                     __FILE__, __LINE__); } while (0)
+#else
+#  define IRON_AST_ASSERT_UNSEALED(program) ((void)0)
+#endif
 
 typedef struct {
     Iron_Span     span;

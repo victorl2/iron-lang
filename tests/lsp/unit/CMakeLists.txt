@@ -404,7 +404,6 @@ if(IRON_BUILD_LSP)
     # target's source list is extended below to pull in the TUs under test.
     # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
     set(_PHASE3_WAVE0_STUBS
-        test_ast_sealed
         test_symbol_id
         test_node_at
         test_workspace_index
@@ -458,6 +457,22 @@ if(IRON_BUILD_LSP)
     add_test(NAME test_lexer_doc_comment_parity
              COMMAND test_lexer_doc_comment_parity)
     set_tests_properties(test_lexer_doc_comment_parity PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 30)
+
+    # ── Phase 3 Plan 01 Task 03 (NAV-15): sealed-AST contract test ───────
+    # Verifies analyzer sets program->sealed; macro is no-op on unsealed;
+    # fork()+SIGABRT proof that IRON_AST_ASSERT_UNSEALED actually aborts
+    # under !NDEBUG. Links iron_stdlib because iron_analyze_buffer ends up
+    # pulling stdlib-dependent passes through iron_runtime.
+    add_executable(test_ast_sealed test_ast_sealed.c)
+    target_include_directories(test_ast_sealed PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_ast_sealed
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_ast_sealed COMMAND test_ast_sealed)
+    set_tests_properties(test_ast_sealed PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 30)
 else()
