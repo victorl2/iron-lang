@@ -1962,4 +1962,53 @@ int32_t           Iron_random_get_value(int32_t min, int32_t max);
 Iron_List_int32_t Iron_random_load_sequence(uint32_t count, int32_t min, int32_t max);
 void              Iron_random_unload_sequence(Iron_List_int32_t seq);
 
+/* ══════════════════════════════════════════════════════════════════════
+ * Phase 73-01: Deferral closures (7 [UInt8]/file-path + 1 [Float32])
+ *
+ * Closes accumulated Phase 66 (Image I/O) + Phase 67 (Font memory loaders)
+ * deferrals at the C-shim surface. Iron-side stubs land adjacent to their
+ * pre-existing Font / Image sections in raylib.iron.
+ *
+ * Omissions documented in 73-01-SUMMARY.md:
+ *   • Image.load_svg — LoadImageSvg not in vendored raylib 5.5 source.
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* Tuple typedef for Image.load_anim_from_memory -> (Image, Int32).
+ * Mangling per tuple_build_mangled_name at src/analyzer/types.c:170 joins
+ * iron_type_to_string results: "Image" + "_" + "Int32" = Iron_Tuple_Image_Int32.
+ * Guarded so standalone `clang -c iron_raylib.c` compiles. */
+#ifndef IRON_TUPLE_IMAGE_INT32_STRUCT_DEFINED
+#define IRON_TUPLE_IMAGE_INT32_STRUCT_DEFINED
+typedef struct {
+    struct Iron_Image v0;
+    int32_t           v1;
+} Iron_Tuple_Image_Int32;
+#endif
+
+/* Phase 73-01: Deferral closures (7) */
+struct Iron_Font         Iron_font_from_memory(Iron_String file_type,
+                                                Iron_List_uint8_t data,
+                                                int32_t data_size,
+                                                int32_t font_size,
+                                                Iron_List_int32_t codepoints);
+Iron_List_Iron_GlyphInfo Iron_font_load_data(Iron_List_uint8_t file_data,
+                                              int32_t data_size,
+                                              int32_t font_size,
+                                              Iron_List_int32_t codepoints,
+                                              int32_t type);
+struct Iron_Image        Iron_image_load_raw(Iron_String file_name,
+                                              int32_t width, int32_t height,
+                                              int32_t format, int32_t header_size);
+struct Iron_Image        Iron_image_load_from_memory(Iron_String file_type,
+                                                      Iron_List_uint8_t file_data,
+                                                      int32_t data_size);
+Iron_Tuple_Image_Int32   Iron_image_load_anim_from_memory(Iron_String file_type,
+                                                           Iron_List_uint8_t file_data,
+                                                           int32_t data_size);
+Iron_List_uint8_t        Iron_image_export_to_memory(struct Iron_Image image,
+                                                      Iron_String file_type);
+struct Iron_Image        Iron_image_kernel_convolution(struct Iron_Image image,
+                                                        Iron_List_float kernel,
+                                                        int32_t kernel_size);
+
 #endif /* IRON_RAYLIB_H */

@@ -6596,3 +6596,169 @@ Iron_List_int32_t Iron_random_load_sequence(uint32_t count, int32_t min, int32_t
 void Iron_random_unload_sequence(Iron_List_int32_t seq) {
     (void)seq;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * ── Phase 73-01 deferral closures ──────────────────────────────────────
+ *
+ * Closes 7 [UInt8]/file-path deferrals + 1 [Float32] deferral accumulated
+ * across Phase 66 (Image I/O) + Phase 67 (Font memory loaders).
+ *
+ * Omissions (documented in 73-01-SUMMARY.md):
+ *   • Image.load_svg — LoadImageSvg is NOT exposed in the vendored
+ *     raylib 5.5 source (grep src/vendor/raylib/raylib.h → 0 matches).
+ *     This was a post-5.5 addition. Closure defers to a future raylib
+ *     vendor bump; scope shrinks from 8 → 7 closed shims.
+ *
+ * Template A (Iron_List_uint8_t ARG + struct RETURN) — mirrors
+ *   Iron_wave_load_from_memory at line 4654.
+ *
+ * Template B (Iron_List_uint8_t RETURN with calloc + memcpy + MemFree) —
+ *   mirrors Iron_files_compress at line 6445.
+ *
+ * Mutating-return-by-value (Phase 66-03 pattern) — mirrors Iron_image_crop.
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* Font.from_memory — Template A.
+ * raylib LoadFontFromMemory(const char *fileType, const unsigned char *fileData,
+ *                           int dataSize, int fontSize, int *codepoints,
+ *                           int codepointCount) -> Font */
+struct Iron_Font Iron_font_from_memory(Iron_String file_type,
+                                        Iron_List_uint8_t data,
+                                        int32_t data_size,
+                                        int32_t font_size,
+                                        Iron_List_int32_t codepoints) {
+    const char *cft = iron_string_cstr(&file_type);
+    Font rl = LoadFontFromMemory(cft ? cft : "",
+                                 (const unsigned char *)data.items,
+                                 (int)data_size,
+                                 (int)font_size,
+                                 (int *)codepoints.items,
+                                 (int)codepoints.count);
+    struct Iron_Font out;
+    memcpy(&out, &rl, sizeof(struct Iron_Font));
+    return out;
+}
+
+/* Font.load_data — returns GlyphInfo array via raylib RL_MALLOC.
+ * Iron takes ownership by deep-copy; Font.unload_data frees raylib's
+ * backing buffer via UnloadFontData (already bound at line 4034).
+ *
+ * Iron's caller MUST invoke Font.unload_data(glyphs) when done because
+ * raylib's LoadFontData retains per-glyph image.data ptrs into its own
+ * heap — a plain free() on glyphs.items would leak those. Pitfall
+ * documented alongside Iron_font_unload_data. */
+Iron_List_Iron_GlyphInfo Iron_font_load_data(Iron_List_uint8_t file_data,
+                                              int32_t data_size,
+                                              int32_t font_size,
+                                              Iron_List_int32_t codepoints,
+                                              int32_t type) {
+    GlyphInfo *raw = LoadFontData((const unsigned char *)file_data.items,
+                                  (int)data_size,
+                                  (int)font_size,
+                                  (int *)codepoints.items,
+                                  (int)codepoints.count,
+                                  (int)type);
+    int64_t count = (codepoints.count > 0) ? codepoints.count : 95; /* raylib default */
+    Iron_List_Iron_GlyphInfo out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (raw && count > 0) {
+        out.items = (struct Iron_GlyphInfo *)calloc((size_t)count,
+                                                     sizeof(struct Iron_GlyphInfo));
+        if (out.items) {
+            memcpy(out.items, raw, (size_t)count * sizeof(struct Iron_GlyphInfo));
+            out.count    = count;
+            out.capacity = count;
+        }
+    }
+    /* Do NOT UnloadFontData here — Iron owns the copy; raylib's ptrs
+     * inside per-GlyphInfo.image.data are still raylib-owned and will be
+     * freed when the caller invokes Font.unload_data on the Iron copy
+     * (which forwards to UnloadFontData via items cast). */
+    return out;
+}
+
+/* Image.load_raw — file-path only (NOT [UInt8] per raylib.h:1324). */
+struct Iron_Image Iron_image_load_raw(Iron_String file_name,
+                                       int32_t width, int32_t height,
+                                       int32_t format, int32_t header_size) {
+    const char *cpath = iron_string_cstr(&file_name);
+    Image rl = LoadImageRaw(cpath ? cpath : "",
+                            (int)width, (int)height,
+                            (int)format, (int)header_size);
+    struct Iron_Image out;
+    memcpy(&out, &rl, sizeof(struct Iron_Image));
+    return out;
+}
+
+/* Image.load_from_memory — Template A. */
+struct Iron_Image Iron_image_load_from_memory(Iron_String file_type,
+                                               Iron_List_uint8_t file_data,
+                                               int32_t data_size) {
+    const char *cft = iron_string_cstr(&file_type);
+    Image rl = LoadImageFromMemory(cft ? cft : "",
+                                    (const unsigned char *)file_data.items,
+                                    (int)data_size);
+    struct Iron_Image out;
+    memcpy(&out, &rl, sizeof(struct Iron_Image));
+    return out;
+}
+
+/* Image.load_anim_from_memory — raylib writes frame count into int *frames
+ * out-param. Iron surface returns tuple (Image, Int32) via Iron_Tuple_Image_Int32
+ * (auto-emitted by ironc in consumer TUs; guarded here for standalone
+ * `clang -c iron_raylib.c`). */
+Iron_Tuple_Image_Int32
+Iron_image_load_anim_from_memory(Iron_String file_type,
+                                  Iron_List_uint8_t file_data,
+                                  int32_t data_size) {
+    const char *cft = iron_string_cstr(&file_type);
+    int frames = 0;
+    Image rl = LoadImageAnimFromMemory(cft ? cft : "",
+                                        (const unsigned char *)file_data.items,
+                                        (int)data_size, &frames);
+    Iron_Tuple_Image_Int32 out;
+    memcpy(&out.v0, &rl, sizeof(struct Iron_Image));
+    out.v1 = (int32_t)frames;
+    return out;
+}
+
+/* Image.export_to_memory — Template B (reverse-direction [UInt8] return).
+ * raylib RL_MALLOC's the byte buffer; shim memcpy + MemFree pairing. */
+Iron_List_uint8_t Iron_image_export_to_memory(struct Iron_Image image,
+                                               Iron_String file_type) {
+    Image img;
+    memcpy(&img, &image, sizeof(Image));
+    const char *cft = iron_string_cstr(&file_type);
+    int size = 0;
+    unsigned char *buf = ExportImageToMemory(img, cft ? cft : "", &size);
+    Iron_List_uint8_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (buf && size > 0) {
+        out.items    = (uint8_t *)calloc((size_t)size, sizeof(uint8_t));
+        out.capacity = (int64_t)size;
+        if (out.items) {
+            memcpy(out.items, buf, (size_t)size);
+            out.count = (int64_t)size;
+        }
+    }
+    MemFree(buf);
+    return out;
+}
+
+/* Image.kernel_convolution — raylib ImageKernelConvolution(Image *image,
+ * const float *kernel, int kernelSize). Mutates in-place.
+ * Phase 66-03 mutating-return-by-value pattern: copy in, mutate, copy out. */
+struct Iron_Image Iron_image_kernel_convolution(struct Iron_Image image,
+                                                 Iron_List_float kernel,
+                                                 int32_t kernel_size) {
+    Image img;
+    memcpy(&img, &image, sizeof(Image));
+    ImageKernelConvolution(&img, kernel.items, (int)kernel_size);
+    struct Iron_Image out;
+    memcpy(&out, &img, sizeof(struct Iron_Image));
+    return out;
+}
