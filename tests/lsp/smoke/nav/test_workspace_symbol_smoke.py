@@ -1,6 +1,6 @@
 """workspace/symbol smoke -- Phase 3 Plan 03 Task 03 (NAV-08).
 
-Flipped from the Wave 0 stub. Drives the ironls binary end-to-end:
+Real pytest-lsp e2e. Drives the ironls binary end-to-end:
 opens a few files, issues workspace/symbol, verifies the response
 shape and that the handler is registered (not MethodNotFound).
 """
