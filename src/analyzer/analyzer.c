@@ -41,7 +41,8 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
                                            bool force_comptime,
                                            IronBuildTarget target,
                                            const _Atomic bool *cancel_flag) {
-    Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false };
+    Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false,
+                                   .program = program };
 
     /* Step 1: Initialize type system (interned primitives) */
     iron_types_init(arena);
@@ -111,6 +112,12 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
     }
 
     result.has_errors = (diags->error_count > 0);
+    /* Phase 3 NAV-15: mark the AST as sealed. Consumers outside the
+     * analyzer/parser may freely read but must never write to this
+     * Iron_Program. Debug builds trap via IRON_AST_ASSERT_UNSEALED. */
+    if (program) {
+        program->sealed = true;
+    }
     return result;
 }
 
@@ -140,7 +147,8 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
                                         Iron_Arena         *arena,
                                         Iron_DiagList      *diags,
                                         const _Atomic bool *cancel_flag) {
-    Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false };
+    Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false,
+                                   .program = NULL };
 
     /* HARD-05: pipeline-entry cancel check. Emit a NOTE-level diagnostic so
      * the caller can tell the difference between "no work" and "cancelled
@@ -172,6 +180,10 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
     iron_parser_set_cancel_flag(&parser, cancel_flag); /* HARD-05 */
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
+    /* Phase 3 NAV-15: expose the parsed AST in the result even when we
+     * bail out to cancellation between passes — NAV consumers can still
+     * render partial trees. */
+    result.program = (Iron_Program *)ast;
 
     /* HARD-05: pipeline-stage boundary check between parse and analyze. */
     if (iron_cancel_requested(cancel_flag)) {
