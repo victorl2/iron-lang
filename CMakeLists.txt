@@ -298,6 +298,12 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/compile.c
         src/lsp/facade/span.c
         src/lsp/facade/diagnostics.c
+        # Phase 3 Plan 01: nav foundations (NAV-16). symbol_id derives
+        # the (canonical_path, name_path, kind) identity triple used by
+        # every hover/goto endpoint; node_at resolves LSP Position ->
+        # AST Iron_Node by walking the sealed Iron_Program.
+        src/lsp/facade/nav/symbol_id.c
+        src/lsp/facade/nav/node_at.c
         # Phase 2 Plan 06: observability (XDG JSON-line log sink,
         # in-memory trace histogram) used by main.c + transport threads.
         src/lsp/obs/log.c
