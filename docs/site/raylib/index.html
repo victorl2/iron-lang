@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iron raylib — Build Real Games in Pure Iron</title>
+  <meta name="description" content="v2.0.0-alpha raylib binding: 183 requirements, 14 categories, from pixels to 3D shaders.">
+  <meta property="og:title" content="Iron raylib — Build Real Games in Pure Iron">
+  <meta property="og:description" content="Every pixel, every shader, every audio frame — bound to Iron with exact C ABI.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ironlang.dev/raylib/">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --accent-glow: rgba(232, 89, 12, 0.12);
+      --accent-subtle: rgba(232, 89, 12, 0.06);
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --max-width: 1200px;
+      --radius: 10px;
+
+      /* Syntax highlighting */
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+      --syn-op: #94a3b8;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+
+    a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--accent-hover); }
+
+    /* ── Navigation ─────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(8, 8, 15, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 2rem;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 800;
+      font-size: 1.25rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-logo:hover { color: var(--text); }
+
+    .nav-logo-icon {
+      width: 30px;
+      height: 30px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: white;
+      font-family: var(--font-sans);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      transition: color 0.2s, background 0.2s;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .nav-links a.active-link {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .nav-links .gh-link {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .nav-links .gh-link svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    .nav-hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: var(--text-secondary);
+      margin: 5px 0;
+      transition: 0.3s;
+      transform-origin: center;
+    }
+
+    .nav-hamburger.active span:nth-child(1) {
+      transform: rotate(45deg) translate(5px, 5px);
+    }
+
+    .nav-hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .nav-hamburger.active span:nth-child(3) {
+      transform: rotate(-45deg) translate(5px, -5px);
+    }
+
+    /* ── Hero ───────────────────────────────────────────── */
+    .hero {
+      padding: 10rem 2rem 6rem;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: center;
+    }
+
+    .hero-content { min-width: 0; }
+    .hero-code { min-width: 0; position: relative; }
+
+    .hero-content h1 {
+      font-size: 3.25rem;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-content h1 .highlight {
+      background: linear-gradient(135deg, var(--accent), #ff8c42);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-content p {
+      font-size: 1.15rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 2rem;
+      max-width: 520px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.75rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      color: white;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(232, 89, 12, 0.3);
+    }
+
+    .btn-secondary {
+      background: var(--bg-surface);
+      color: var(--text);
+      border: 1px solid var(--border-light);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card);
+      color: var(--text);
+      border-color: var(--text-muted);
+      transform: translateY(-1px);
+    }
+
+    .hero-meta {
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .code-window {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+      max-width: 100%;
+    }
+
+    .code-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.8rem 1rem;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .code-dot.red { background: #ef4444; }
+    .code-dot.yellow { background: #eab308; }
+    .code-dot.green { background: #22c55e; }
+
+    .code-filename {
+      margin-left: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .code-body {
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+    }
+
+    .code-body pre {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre;
+      margin: 0;
+    }
+
+    .syn-kw { color: var(--syn-kw); font-weight: 500; }
+    .syn-ty { color: var(--syn-ty); }
+    .syn-st { color: var(--syn-st); }
+    .syn-cm { color: var(--syn-cm); font-style: italic; }
+    .syn-fn { color: var(--syn-fn); }
+    .syn-nu { color: var(--syn-nu); }
+    .syn-pr { color: var(--syn-pr); }
+
+    /* ── Features ───────────────────────────────────────── */
+    .features {
+      padding: 5rem 2rem;
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    .section-title {
+      font-size: 2.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .section-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin-bottom: 3rem;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      display: block;
+      padding: 2rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.3s, transform 0.2s, box-shadow 0.3s;
+      color: var(--text);
+    }
+
+    .feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 28px rgba(232, 89, 12, 0.12);
+      color: var(--text);
+    }
+
+    .feature-card .feature-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.25rem;
+      font-size: 1.3rem;
+      background: var(--accent-glow);
+      color: var(--accent);
+    }
+
+    .feature-card h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 0.6rem;
+      color: var(--text);
+    }
+
+    .feature-card p {
+      font-size: 0.92rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 1rem;
+    }
+
+    .feature-card .feature-link {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    /* ── Categories ─────────────────────────────────────── */
+    .categories {
+      padding: 5rem 2rem;
+      background: var(--bg-primary);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .categories-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .categories-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+      margin-top: 2rem;
+    }
+
+    .category-pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.9rem 1.1rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .category-pill:hover {
+      border-color: var(--accent);
+      background: var(--bg-card);
+      color: var(--text);
+      transform: translateY(-1px);
+    }
+
+    .category-pill .arrow {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      transition: transform 0.2s, color 0.2s;
+    }
+
+    .category-pill:hover .arrow {
+      color: var(--accent);
+      transform: translateX(2px);
+    }
+
+    /* ── Install CTA ────────────────────────────────────── */
+    .install {
+      padding: 6rem 2rem;
+      text-align: center;
+    }
+
+    .install-inner {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .install-inner h2 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .install-inner p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+    }
+
+    .install-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    footer {
+      background: var(--bg-primary);
+      border-top: 1px solid var(--border);
+      padding: 3rem 2rem 1.5rem;
+    }
+
+    .footer-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 3rem;
+    }
+
+    .footer-brand p {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      margin-top: 1rem;
+      max-width: 300px;
+    }
+
+    .footer-col h4 {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      margin-bottom: 1rem;
+    }
+
+    .footer-col ul {
+      list-style: none;
+    }
+
+    .footer-col li {
+      margin-bottom: 0.5rem;
+    }
+
+    .footer-col a {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .footer-col a:hover {
+      color: var(--accent);
+    }
+
+    .footer-bottom {
+      max-width: var(--max-width);
+      margin: 2.5rem auto 0;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Overlay ────────────────────────────────────────── */
+    .nav-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s, visibility 0.25s;
+      z-index: 89;
+    }
+
+    .nav-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* ── Responsive ─────────────────────────────────────── */
+    @media (max-width: 960px) {
+      .features-grid { grid-template-columns: 1fr; }
+      .categories-grid { grid-template-columns: repeat(2, 1fr); }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      .hero {
+        grid-template-columns: 1fr;
+        padding: 8rem 1.5rem 4rem;
+        gap: 2.5rem;
+      }
+      .hero-content h1 { font-size: 2.5rem; }
+      .nav-hamburger { display: block; }
+      .nav-links {
+        position: fixed;
+        top: 64px;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        background: rgba(8, 8, 15, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 1.5rem;
+        gap: 0;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-8px);
+        transition: opacity 0.25s, visibility 0.25s, transform 0.25s;
+      }
+      .nav-links.open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+      .nav-links li { width: 100%; }
+      .nav-links a {
+        padding: 0.75rem 0.75rem;
+        font-size: 1rem;
+        display: block;
+      }
+      .features { padding: 3rem 1.5rem; }
+      .categories { padding: 3rem 1.5rem; }
+      .categories-grid { grid-template-columns: 1fr; }
+      .install { padding: 4rem 1.5rem; }
+      .install-inner h2 { font-size: 1.75rem; }
+      .footer-inner { grid-template-columns: 1fr; gap: 2rem; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; }
+    }
+
+    @media (max-width: 480px) {
+      .hero-content h1 { font-size: 2rem; }
+      .hero-content p { font-size: 1rem; }
+      .section-title { font-size: 1.6rem; }
+      .feature-card { padding: 1.5rem; }
+      .code-body { padding: 1rem; }
+      .code-body pre { font-size: 0.72rem; }
+      footer { padding: 2rem 1rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ── Navigation ───────────────────────────────────── -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">
+        <div class="nav-logo-icon">Fe</div>
+        Iron
+      </a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="/docs/">Docs</a></li>
+        <li><a href="/guide/">Package Manager</a></li>
+        <li><a href="/raylib/" class="active-link">Raylib</a></li>
+        <li><a href="/install/">Install</a></li>
+        <li>
+          <a href="https://github.com/victorl2/iron-lang" class="gh-link">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            Source Code
+          </a>
+        </li>
+      </ul>
+      <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <!-- ── Hero ─────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-content">
+      <h1>raylib in <span class="highlight">pure Iron</span></h1>
+      <p>Every pixel, every shader, every audio frame &mdash; bound to Iron with exact C ABI. The v2.0.0-alpha stdlib exposes raylib 5.5 as idiomatic Iron across 14 categories: types, input, 2D drawing, collision, textures, text, audio, 3D drawing, models, shaders, math, and files.</p>
+      <div class="hero-buttons">
+        <a href="/raylib/guide/" class="btn btn-primary">Get Started</a>
+        <a href="/raylib/examples/" class="btn btn-secondary">View Examples</a>
+      </div>
+      <div class="hero-meta">183 requirements closed &middot; 5 canonical examples &middot; Apache 2.0</div>
+    </div>
+    <div class="hero-code">
+      <div class="code-window">
+        <div class="code-titlebar">
+          <div class="code-dot red"></div>
+          <div class="code-dot yellow"></div>
+          <div class="code-dot green"></div>
+          <span class="code-filename">rotating_cube.iron</span>
+        </div>
+        <div class="code-body">
+<pre><span class="syn-kw">import</span> raylib
+
+<span class="syn-kw">func</span> <span class="syn-fn">main</span>() -&gt; <span class="syn-ty">Int32</span> {
+    <span class="syn-ty">Window</span>.<span class="syn-fn">init</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">800</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">600</span>), <span class="syn-st">"Rotating Cube"</span>)
+    <span class="syn-ty">Window</span>.<span class="syn-fn">set_target_fps</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">60</span>))
+
+    <span class="syn-kw">var</span> cam = <span class="syn-ty">Camera3D</span>(
+        <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">10.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">10.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">10.0</span>)),
+        <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>)),
+        <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>)),
+        <span class="syn-ty">Float32</span>(<span class="syn-nu">45.0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>))
+
+    <span class="syn-kw">while not</span> <span class="syn-ty">Window</span>.<span class="syn-fn">should_close</span>() {
+        cam = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">update</span>(cam, <span class="syn-ty">CameraMode</span>.<span class="syn-pr">ORBITAL</span>)
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">begin</span>()
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">SKYBLUE</span>)
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">begin_mode_3d</span>(cam)
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">cube</span>(origin, size, size, size, <span class="syn-pr">RED</span>)
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">grid</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">10</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>))
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">end_mode_3d</span>()
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">end</span>()
+    }
+    <span class="syn-ty">Window</span>.<span class="syn-fn">close</span>()
+    <span class="syn-kw">return</span> <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>)
+}</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Features ─────────────────────────────────────── -->
+  <section class="features">
+    <div class="section-label">Documentation</div>
+    <h2 class="section-title">Three paths into the binding</h2>
+    <p class="section-subtitle">Whether you're writing your first Iron window or wiring up a multi-pass shader pipeline, pick the shape of doc that matches the moment.</p>
+
+    <div class="features-grid">
+      <a href="/raylib/guide/" class="feature-card">
+        <div class="feature-icon">&#9654;</div>
+        <h3>Getting Started</h3>
+        <p>Install Iron, open a window, then walk through pong, a rotating 3D cube, and a post-FX shader &mdash; every snippet copy-pasted from a real example.</p>
+        <span class="feature-link">Open the guide &rarr;</span>
+      </a>
+      <a href="/raylib/reference/types.html" class="feature-card">
+        <div class="feature-icon">&#9881;</div>
+        <h3>API Reference</h3>
+        <p>14 categories: Types, Enums, Window, Input, 2D Drawing, Collision, Textures, Text, Audio, 3D Drawing, Models, Shaders, Math, Files. Every function cross-linked to raylib.h and a test.</p>
+        <span class="feature-link">Browse the reference &rarr;</span>
+      </a>
+      <a href="/raylib/examples/" class="feature-card">
+        <div class="feature-icon">&#9733;</div>
+        <h3>Examples</h3>
+        <p>pong, rotating_cube, model_viewer, post_fx, raylib_showcase &mdash; five canonical consumers with full source, screenshots, and "why this pattern" notes.</p>
+        <span class="feature-link">See the gallery &rarr;</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- ── Categories ───────────────────────────────────── -->
+  <section class="categories">
+    <div class="categories-inner">
+      <div class="section-label">API Surface</div>
+      <h2 class="section-title">14 categories, one binding</h2>
+      <p class="section-subtitle">Every upstream raylib 5.5 function group ships as idiomatic Iron. Jump directly to the category you need.</p>
+      <div class="categories-grid">
+        <a href="/raylib/reference/types.html" class="category-pill"><span>Types</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/enums.html" class="category-pill"><span>Enums</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/window.html" class="category-pill"><span>Window &amp; System</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/input.html" class="category-pill"><span>Input</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/draw2d.html" class="category-pill"><span>2D Drawing</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/coll.html" class="category-pill"><span>Collision</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/tex.html" class="category-pill"><span>Textures &amp; Images</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/text.html" class="category-pill"><span>Text &amp; Fonts</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/audio.html" class="category-pill"><span>Audio</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/draw3d.html" class="category-pill"><span>3D Drawing</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/model.html" class="category-pill"><span>Models &amp; Meshes</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/shader.html" class="category-pill"><span>Shaders</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/math.html" class="category-pill"><span>Math</span><span class="arrow">&rarr;</span></a>
+        <a href="/raylib/reference/file.html" class="category-pill"><span>Files</span><span class="arrow">&rarr;</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Get Started ──────────────────────────────────── -->
+  <section class="install" id="install">
+    <div class="install-inner">
+      <h2>Build real games in Iron. Starting now.</h2>
+      <p>Install Iron, clone an example, change one line, rebuild. The binding is the whole point &mdash; reach for it.</p>
+      <div class="install-buttons">
+        <a href="/install/" class="btn btn-primary">Install Iron</a>
+        <a href="/raylib/guide/" class="btn btn-secondary">Read the Guide</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ───────────────────────────────────────── -->
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">
+          <div class="nav-logo-icon">Fe</div>
+          Iron
+        </a>
+        <p>A compiled, strongly-typed programming language built for clarity, legibility, and performance. Open source under the Apache 2.0 license.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/guide/">Package Manager</a></li>
+          <li><a href="/raylib/">Raylib</a></li>
+          <li><a href="/docs/#full-example">Examples</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="/install/">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/discussions">Discussions</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/" style="color: var(--text-secondary); text-decoration: underline;">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var toggle = document.getElementById('navToggle');
+      var links = document.getElementById('navLinks');
+      var overlay = document.getElementById('navOverlay');
+
+      function closeMenu() {
+        links.classList.remove('open');
+        toggle.classList.remove('active');
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+
+      toggle.addEventListener('click', function() {
+        var isOpen = links.classList.toggle('open');
+        toggle.classList.toggle('active');
+        overlay.classList.toggle('active');
+        document.body.style.overflow = isOpen ? 'hidden' : '';
+      });
+
+      overlay.addEventListener('click', closeMenu);
+
+      links.querySelectorAll('a').forEach(function(a) {
+        a.addEventListener('click', closeMenu);
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeMenu();
+      });
+    })();
+  </script>
+</body>
+</html>
