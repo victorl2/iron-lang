@@ -317,3 +317,56 @@ add_executable(test_cov_compiler_printers test_cov_compiler_printers.c)
 target_link_libraries(test_cov_compiler_printers iron_compiler iron_runtime unity)
 add_test(NAME test_cov_compiler_printers COMMAND test_cov_compiler_printers)
 set_tests_properties(test_cov_compiler_printers PROPERTIES LABELS "unit;cov")
+
+# ── Phase 4 Plan 04-01 Task 01 (EDIT-07) — Wave 0 test targets ─────────────
+# The `phase-m3-invariant` CTest label marks the M3 editing-assistance gate.
+# Task 01 registers these targets; Task 02 flips the Wave-0 stubs to LIVE
+# assertions. test_typo_candidate is LIVE from Task 01 (the helper is ready).
+add_executable(test_typo_candidate test_typo_candidate.c)
+target_link_libraries(test_typo_candidate iron_compiler iron_runtime unity)
+add_test(NAME test_typo_candidate COMMAND test_typo_candidate)
+set_tests_properties(test_typo_candidate PROPERTIES
+    LABELS "unit;phase-m3-invariant"
+    TIMEOUT 30)
+
+add_executable(test_diag_suggestion_seeded test_diag_suggestion_seeded.c)
+target_link_libraries(test_diag_suggestion_seeded iron_compiler iron_runtime unity)
+add_test(NAME test_diag_suggestion_seeded COMMAND test_diag_suggestion_seeded)
+set_tests_properties(test_diag_suggestion_seeded PROPERTIES
+    LABELS "unit;phase-m3-invariant"
+    TIMEOUT 30)
+
+add_executable(test_unused_import_check test_unused_import_check.c)
+target_link_libraries(test_unused_import_check iron_compiler iron_runtime unity)
+add_test(NAME test_unused_import_check COMMAND test_unused_import_check)
+set_tests_properties(test_unused_import_check PROPERTIES
+    LABELS "unit;phase-m3-invariant"
+    TIMEOUT 30)
+
+add_executable(test_missing_return test_missing_return.c)
+target_link_libraries(test_missing_return iron_compiler iron_runtime unity)
+add_test(NAME test_missing_return COMMAND test_missing_return)
+set_tests_properties(test_missing_return PROPERTIES
+    LABELS "unit;phase-m3-invariant"
+    TIMEOUT 30)
+
+add_executable(test_redundant_cast test_redundant_cast.c)
+target_link_libraries(test_redundant_cast iron_compiler iron_runtime unity)
+add_test(NAME test_redundant_cast COMMAND test_redundant_cast)
+set_tests_properties(test_redundant_cast PROPERTIES
+    LABELS "unit;phase-m3-invariant"
+    TIMEOUT 30)
+
+add_executable(test_type_mismatch_literal test_type_mismatch_literal.c)
+target_link_libraries(test_type_mismatch_literal iron_compiler iron_runtime unity)
+add_test(NAME test_type_mismatch_literal COMMAND test_type_mismatch_literal)
+set_tests_properties(test_type_mismatch_literal PROPERTIES
+    LABELS "unit;phase-m3-invariant"
+    TIMEOUT 30)
+
+add_executable(test_parity_ironc_lsp_suggestions test_parity_ironc_lsp_suggestions.c)
+target_link_libraries(test_parity_ironc_lsp_suggestions iron_compiler iron_runtime unity)
+add_test(NAME test_parity_ironc_lsp_suggestions COMMAND test_parity_ironc_lsp_suggestions)
+set_tests_properties(test_parity_ironc_lsp_suggestions PROPERTIES
+    LABELS "unit;phase-m3-invariant"
+    TIMEOUT 30)

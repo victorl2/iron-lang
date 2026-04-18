@@ -34,6 +34,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
                 -v --tb=short
                 -p no:cacheprovider
                 --ignore=${CMAKE_CURRENT_SOURCE_DIR}/nav
+                --ignore=${CMAKE_CURRENT_SOURCE_DIR}/edit
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_smoke PROPERTIES
             LABELS "smoke;phase-m1-invariant"
@@ -56,6 +57,23 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             LABELS "smoke;lsp_smoke;phase-m2-invariant"
             TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
+        # Phase 4 Plan 04-01 Wave 0: lsp_edit_smoke -- pytest harness root
+        # under tests/lsp/smoke/edit/ for the EDIT endpoints (EDIT-01..15).
+        # Task 01 registers the conftest.py scaffold + a pytest.mark.skip
+        # scaffold test; subsequent plans flip stubs to real assertions.
+        add_test(
+            NAME lsp_edit_smoke
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/edit
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_edit_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m3-invariant"
+            TIMEOUT 120
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
     else()
         message(STATUS
             "pytest-lsp not installed -- registering lsp_smoke as a skipping shim. "
@@ -76,6 +94,16 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
         set_tests_properties(lsp_nav_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase-m2-invariant"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30)
+
+        # Phase 4 Plan 04-01 Wave 0: same SKIP shim for the edit harness so
+        # ctest -L phase-m3-invariant stays green when pytest-lsp is absent.
+        add_test(
+            NAME lsp_edit_smoke
+            COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
+        set_tests_properties(lsp_edit_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m3-invariant"
             SKIP_RETURN_CODE 77
             TIMEOUT 30)
     endif()
