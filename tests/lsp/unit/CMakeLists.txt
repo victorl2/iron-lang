@@ -99,7 +99,19 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        # Phase 3 Plan 03: handlers_nav.c registers 5 NAV rows in
+        # dispatch.c; every test linking dispatch.c must also link
+        # handlers_nav.c plus the facade/nav endpoint TUs it delegates to.
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_nav.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/definition.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/declaration.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/type_definition.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/document_symbol.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/workspace_symbol.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -589,6 +601,81 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_fuzzy_matcher PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 30)
+
+    # ── Phase 3 Plan 03 Task 02/03: nav facade unit tests ──────────────
+    # Shared source list for the three nav-facade Unity targets
+    # (definition, document_symbol, workspace_symbol). All three drive
+    # ilsp_facade_nav_* in-process; they need the full nav facade +
+    # store stack.
+    set(_LSP_PHASE3_NAV_FACADE_SRC
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/definition.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/declaration.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/type_definition.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/document_symbol.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/workspace_symbol.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/stdlib_cache.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/dep_map.c
+        ${CMAKE_SOURCE_DIR}/src/pkg/resolver.c
+        ${CMAKE_SOURCE_DIR}/src/pkg/fetcher.c
+        ${CMAKE_SOURCE_DIR}/src/pkg/lockfile.c
+        ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+
+    add_executable(test_nav_definition test_nav_definition.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_nav_definition PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_nav_definition PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_nav_definition
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_nav_definition COMMAND test_nav_definition)
+    set_tests_properties(test_nav_definition PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_document_symbol test_document_symbol.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_document_symbol PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_document_symbol PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_document_symbol
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_document_symbol COMMAND test_document_symbol)
+    set_tests_properties(test_document_symbol PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_workspace_symbol test_workspace_symbol.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_workspace_symbol PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_workspace_symbol PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_workspace_symbol
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_workspace_symbol COMMAND test_workspace_symbol)
+    set_tests_properties(test_workspace_symbol PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()
