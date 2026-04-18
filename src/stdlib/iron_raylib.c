@@ -5898,6 +5898,224 @@ struct Iron_Mesh Iron_mesh_cubicmap(struct Iron_Image cubicmap, struct Iron_Vect
     return out;
 }
 
+/* MODEL-07: Materials (6) — raylib.h:1596-1601
+ *
+ * Material = 40 B (CORRECTION vs CONTEXT.md's ~296 B estimate — verified
+ * sizeof(Material) == 40 against raylib 5.5). Same memcpy template as Image.
+ *
+ * LoadMaterials returns raylib-allocated Material*; raylib does NOT expose
+ * UnloadMaterials (Pitfall 10). Iron deep-copies into Iron_List_Iron_Material
+ * + free()s the outer raylib buffer. Per-Material cleanup via UnloadMaterial.
+ *
+ * SetMaterialTexture / SetModelMeshMaterial mutate via Type*; Iron uses
+ * mutating-return-by-value (Phase 66-03 template).
+ */
+
+Iron_List_Iron_Material Iron_material_load(Iron_String file_name) {
+    int count = 0;
+    Material *raw = LoadMaterials(iron_string_cstr(&file_name), &count);
+    Iron_List_Iron_Material out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (count > 0 && raw) {
+        out.items = (struct Iron_Material *)calloc((size_t)count,
+                                                    sizeof(struct Iron_Material));
+        out.capacity = count;
+        if (out.items) {
+            memcpy(out.items, raw, (size_t)count * sizeof(struct Iron_Material));
+            out.count = count;
+        }
+    }
+    /* Free ONLY the outer raylib wrapper array; Materials' interior _maps
+     * pointers remain valid and released per-element via UnloadMaterial. */
+    if (raw) free(raw);
+    return out;
+}
+
+struct Iron_Material Iron_material_default(void) {
+    Material rl = LoadMaterialDefault();
+    struct Iron_Material out;
+    memcpy(&out, &rl, sizeof(struct Iron_Material));
+    return out;
+}
+
+bool Iron_material_is_valid(struct Iron_Material material) {
+    Material rm;
+    memcpy(&rm, &material, sizeof(Material));
+    return (bool)(IsMaterialValid(rm) != 0);
+}
+
+void Iron_material_unload(struct Iron_Material material) {
+    Material rm;
+    memcpy(&rm, &material, sizeof(Material));
+    UnloadMaterial(rm);
+}
+
+struct Iron_Material Iron_material_set_texture(struct Iron_Material material,
+                                               int32_t map_type,
+                                               struct Iron_Texture texture) {
+    Material local;
+    Texture  tex;
+    memcpy(&local, &material, sizeof(Material));
+    memcpy(&tex,   &texture,  sizeof(Texture));
+    SetMaterialTexture(&local, (int)map_type, tex);
+    struct Iron_Material out;
+    memcpy(&out, &local, sizeof(struct Iron_Material));
+    return out;
+}
+
+struct Iron_Model Iron_model_set_mesh_material(struct Iron_Model model,
+                                               int32_t mesh_id, int32_t material_id) {
+    Model local;
+    memcpy(&local, &model, sizeof(Model));
+    SetModelMeshMaterial(&local, (int)mesh_id, (int)material_id);
+    struct Iron_Model out;
+    memcpy(&out, &local, sizeof(struct Iron_Model));
+    return out;
+}
+
+/* MODEL-08: Model animations (6) — raylib.h:1604-1609
+ *
+ * LoadModelAnimations returns raylib-allocated ModelAnimation*; Iron deep-
+ * copies the 56 B wrappers into Iron_List_Iron_ModelAnimation and free()s
+ * ONLY the outer array. Interior _bones / _framePoses pointers stay live
+ * until UnloadModelAnimations is called via unload_all (Pitfall 7).
+ *
+ * IsModelAnimationValid takes Model + ModelAnimation (Pitfall 11). Iron's
+ * signature matches raylib: model.animation_valid(anim).
+ */
+
+Iron_List_Iron_ModelAnimation Iron_modelanimation_load(Iron_String file_name) {
+    int count = 0;
+    ModelAnimation *raw = LoadModelAnimations(iron_string_cstr(&file_name), &count);
+    Iron_List_Iron_ModelAnimation out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (count > 0 && raw) {
+        out.items = (struct Iron_ModelAnimation *)calloc(
+            (size_t)count, sizeof(struct Iron_ModelAnimation));
+        out.capacity = count;
+        if (out.items) {
+            memcpy(out.items, raw, (size_t)count * sizeof(struct Iron_ModelAnimation));
+            out.count = count;
+        }
+    }
+    /* Free ONLY the outer raylib wrapper array. Interior _bones/_framePoses
+     * stay live for later unload_all() to reach via list.items. */
+    if (raw) free(raw);
+    return out;
+}
+
+bool Iron_model_animation_valid(struct Iron_Model model,
+                                struct Iron_ModelAnimation anim) {
+    Model          rm;
+    ModelAnimation ra;
+    memcpy(&rm, &model, sizeof(Model));
+    memcpy(&ra, &anim,  sizeof(ModelAnimation));
+    return (bool)(IsModelAnimationValid(rm, ra) != 0);
+}
+
+void Iron_model_update_animation(struct Iron_Model model,
+                                 struct Iron_ModelAnimation anim,
+                                 int32_t frame) {
+    Model          rm;
+    ModelAnimation ra;
+    memcpy(&rm, &model, sizeof(Model));
+    memcpy(&ra, &anim,  sizeof(ModelAnimation));
+    UpdateModelAnimation(rm, ra, (int)frame);
+}
+
+void Iron_model_update_animation_bones(struct Iron_Model model,
+                                       struct Iron_ModelAnimation anim,
+                                       int32_t frame) {
+    Model          rm;
+    ModelAnimation ra;
+    memcpy(&rm, &model, sizeof(Model));
+    memcpy(&ra, &anim,  sizeof(ModelAnimation));
+    UpdateModelAnimationBones(rm, ra, (int)frame);
+}
+
+void Iron_modelanimation_unload(struct Iron_ModelAnimation anim) {
+    ModelAnimation ra;
+    memcpy(&ra, &anim, sizeof(ModelAnimation));
+    UnloadModelAnimation(ra);
+}
+
+void Iron_modelanimation_unload_all(Iron_List_Iron_ModelAnimation anims) {
+    /* Forward the list back to raylib. Safe because Iron_modelanimation_load
+     * freed ONLY the outer wrapper; _bones / _framePoses are still raylib-
+     * owned and will be released here. */
+    UnloadModelAnimations((ModelAnimation *)anims.items, (int)anims.count);
+}
+
+/* MODEL-09: Billboards (3) — raylib.h:1567-1569 */
+
+void Iron_draw_billboard(struct Iron_Camera3D camera, struct Iron_Texture texture,
+                         struct Iron_Vector3 position, float scale,
+                         struct Iron_Color tint) {
+    Camera  cam;
+    Texture tex;
+    Vector3 pos;
+    Color   c;
+    memcpy(&cam, &camera,   sizeof(Camera));
+    memcpy(&tex, &texture,  sizeof(Texture));
+    memcpy(&pos, &position, sizeof(Vector3));
+    memcpy(&c,   &tint,     sizeof(Color));
+    DrawBillboard(cam, tex, pos, scale, c);
+}
+
+void Iron_draw_billboard_rec(struct Iron_Camera3D camera, struct Iron_Texture texture,
+                             struct Iron_Rectangle source, struct Iron_Vector3 position,
+                             struct Iron_Vector2 size, struct Iron_Color tint) {
+    Camera    cam;
+    Texture   tex;
+    Rectangle src;
+    Vector3   pos;
+    Vector2   sz;
+    Color     c;
+    memcpy(&cam, &camera,   sizeof(Camera));
+    memcpy(&tex, &texture,  sizeof(Texture));
+    memcpy(&src, &source,   sizeof(Rectangle));
+    memcpy(&pos, &position, sizeof(Vector3));
+    memcpy(&sz,  &size,     sizeof(Vector2));
+    memcpy(&c,   &tint,     sizeof(Color));
+    DrawBillboardRec(cam, tex, src, pos, sz, c);
+}
+
+void Iron_draw_billboard_pro(struct Iron_Camera3D camera, struct Iron_Texture texture,
+                             struct Iron_Rectangle source, struct Iron_Vector3 position,
+                             struct Iron_Vector3 up, struct Iron_Vector2 size,
+                             struct Iron_Vector2 origin, float rotation,
+                             struct Iron_Color tint) {
+    Camera    cam;
+    Texture   tex;
+    Rectangle src;
+    Vector3   pos, upv;
+    Vector2   sz, org;
+    Color     c;
+    memcpy(&cam, &camera,   sizeof(Camera));
+    memcpy(&tex, &texture,  sizeof(Texture));
+    memcpy(&src, &source,   sizeof(Rectangle));
+    memcpy(&pos, &position, sizeof(Vector3));
+    memcpy(&upv, &up,       sizeof(Vector3));
+    memcpy(&sz,  &size,     sizeof(Vector2));
+    memcpy(&org, &origin,   sizeof(Vector2));
+    memcpy(&c,   &tint,     sizeof(Color));
+    DrawBillboardPro(cam, tex, src, pos, upv, sz, org, rotation, c);
+}
+
+/* MODEL-10: Bounding box draw (1) — raylib.h:1566 */
+
+void Iron_draw_bounding_box(struct Iron_BoundingBox box, struct Iron_Color color) {
+    BoundingBox bb;
+    Color       c;
+    memcpy(&bb, &box,   sizeof(BoundingBox));
+    memcpy(&c,  &color, sizeof(Color));
+    DrawBoundingBox(bb, c);
+}
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 

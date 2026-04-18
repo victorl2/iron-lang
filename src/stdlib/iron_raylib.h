@@ -1814,6 +1814,73 @@ struct Iron_Mesh Iron_mesh_knot(float radius, float size, int32_t rad_seg, int32
 struct Iron_Mesh Iron_mesh_heightmap(struct Iron_Image heightmap, struct Iron_Vector3 size);
 struct Iron_Mesh Iron_mesh_cubicmap(struct Iron_Image cubicmap, struct Iron_Vector3 cube_size);
 
+/* Iron's [Material] lowers to Iron_List_Iron_Material in C (LIST_TYPE_REVERSE
+ * mode, first consumer is Iron_material_load below). Layout-compatible with
+ * the compiler-emitted IRON_LIST_DECL expansion. Same guard pattern as
+ * iron_raylib.h's IRON_LIST_IRON_VECTOR2 / IRON_LIST_IRON_MATRIX blocks —
+ * #ifndef avoids duplicate-definition collision with Scan B's auto-emit when
+ * a user program calls Material.load() (Plan 70-01 probe verified GREEN). */
+#ifndef IRON_LIST_IRON_MATERIAL_STRUCT_DEFINED
+#define IRON_LIST_IRON_MATERIAL_STRUCT_DEFINED
+typedef struct Iron_List_Iron_Material {
+    struct Iron_Material *items;
+    int64_t               count;
+    int64_t               capacity;
+} Iron_List_Iron_Material;
+#endif
+
+/* Iron's [ModelAnimation] lowers to Iron_List_Iron_ModelAnimation — same
+ * reverse-direction list pattern as Iron_List_Iron_Material. First consumer
+ * is Iron_modelanimation_load below. */
+#ifndef IRON_LIST_IRON_MODELANIMATION_STRUCT_DEFINED
+#define IRON_LIST_IRON_MODELANIMATION_STRUCT_DEFINED
+typedef struct Iron_List_Iron_ModelAnimation {
+    struct Iron_ModelAnimation *items;
+    int64_t                     count;
+    int64_t                     capacity;
+} Iron_List_Iron_ModelAnimation;
+#endif
+
+/* MODEL-07: Materials (6) */
+Iron_List_Iron_Material Iron_material_load(Iron_String file_name);
+struct Iron_Material    Iron_material_default(void);
+bool                    Iron_material_is_valid(struct Iron_Material material);
+void                    Iron_material_unload(struct Iron_Material material);
+struct Iron_Material    Iron_material_set_texture(struct Iron_Material material,
+                                                  int32_t map_type,
+                                                  struct Iron_Texture texture);
+struct Iron_Model       Iron_model_set_mesh_material(struct Iron_Model model,
+                                                     int32_t mesh_id, int32_t material_id);
+
+/* MODEL-08: Model animations (6) */
+Iron_List_Iron_ModelAnimation Iron_modelanimation_load(Iron_String file_name);
+bool                          Iron_model_animation_valid(struct Iron_Model model,
+                                                         struct Iron_ModelAnimation anim);
+void                          Iron_model_update_animation(struct Iron_Model model,
+                                                          struct Iron_ModelAnimation anim,
+                                                          int32_t frame);
+void                          Iron_model_update_animation_bones(struct Iron_Model model,
+                                                                struct Iron_ModelAnimation anim,
+                                                                int32_t frame);
+void                          Iron_modelanimation_unload(struct Iron_ModelAnimation anim);
+void                          Iron_modelanimation_unload_all(Iron_List_Iron_ModelAnimation anims);
+
+/* MODEL-09: Billboards (3) */
+void Iron_draw_billboard(struct Iron_Camera3D camera, struct Iron_Texture texture,
+                         struct Iron_Vector3 position, float scale,
+                         struct Iron_Color tint);
+void Iron_draw_billboard_rec(struct Iron_Camera3D camera, struct Iron_Texture texture,
+                             struct Iron_Rectangle source, struct Iron_Vector3 position,
+                             struct Iron_Vector2 size, struct Iron_Color tint);
+void Iron_draw_billboard_pro(struct Iron_Camera3D camera, struct Iron_Texture texture,
+                             struct Iron_Rectangle source, struct Iron_Vector3 position,
+                             struct Iron_Vector3 up, struct Iron_Vector2 size,
+                             struct Iron_Vector2 origin, float rotation,
+                             struct Iron_Color tint);
+
+/* MODEL-10: Bounding box draw (1) */
+void Iron_draw_bounding_box(struct Iron_BoundingBox box, struct Iron_Color color);
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
