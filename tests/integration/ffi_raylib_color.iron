@@ -1,16 +1,22 @@
--- ffi_raylib_color.iron — regression test for FFI ABI mismatch fix
--- Verifies that extern func parameters with Iron types (Int, Color, String)
--- are correctly cast to C types (int, Color struct, const char*) at call sites.
+-- ffi_raylib_color.iron — regression test for FFI ABI mismatch fix.
+-- Verifies that foreign-method-stub parameters with Iron types (Int32,
+-- Color, String) are correctly cast to C types (int, Color struct,
+-- const char*) at call sites.
+--
+-- Migrated from the old camelCase raylib API (InitWindow / BeginDrawing /
+-- DrawText / DrawRectangle / CloseWindow) to the namespaced stdlib
+-- surface introduced in Phase 60+ (Window.*, Draw.*). The ABI-cast
+-- concern still applies — the new stubs take the same primitive types.
 
 import raylib
 
 func main() {
-    InitWindow(800, 600, "FFI Test")
-    SetTargetFPS(60)
-    BeginDrawing()
-    ClearBackground(BLACK)
-    DrawText("Hello FFI", 10, 10, 20, WHITE)
-    DrawRectangle(100, 100, 50, 50, RED)
-    EndDrawing()
-    CloseWindow()
+    Window.init(800, 600, "FFI Test")
+    Window.set_target_fps(60)
+    Draw.begin()
+    Draw.clear(BLACK)
+    Draw.text("Hello FFI", 10, 10, 20, WHITE)
+    Draw.rectangle(100, 100, 50, 50, RED)
+    Draw.end()
+    Window.close()
 }

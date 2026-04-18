@@ -1004,9 +1004,20 @@ void emit_foreign_method_prototypes(EmitCtx *ctx) {
         "Iron_math_",
         "Iron_io_",
         "Iron_time_",
-        /* Iron_timer_* is declared in iron_time.h with pointer receivers
-         * for the mutating methods (update/reset). The LIR stub params are
-         * value-typed, so auto-gen would emit a conflicting prototype. */
+        /* Iron_timer_* is fully declared in iron_time.h. Auto-gen must
+         * skip the whole prefix because update/reset take pointer
+         * receivers there while the LIR stubs are value-typed — emitting
+         * a conflicting prototype is a hard clang error. Iron_timer_done
+         * is value-typed in both places so it's just redundant, not
+         * conflicting, but skipping is cleaner.
+         *
+         * Note: src/runtime/iron_runtime.h also declares ~40 Iron_<lower>_*
+         * symbols (Iron_pool_, Iron_channel_, Iron_mutex_, …). None of
+         * those are reachable as foreign-method stubs today because no
+         * stdlib .iron file declares Pool / Channel / Mutex objects. If
+         * any future stdlib adds such stubs, add the matching prefix here
+         * or accept duplicate-prototype emission (safe when types match,
+         * a hard error when they don't). */
         "Iron_timer_",
         "Iron_log_",
         "Iron_hint_",
