@@ -961,6 +961,7 @@ object Window {}
 object Draw {}
 object Audio {}
 object Files {}
+object Random {}    -- Phase 72 FILE-06 — RNG namespace receiver (parallels Audio/Window/Files)
 
 -- Phase 67 text-utility namespace. Receives measure + line-spacing
 -- default-font methods in Plan 67-02 (Text.measure, Text.set_line_spacing)
@@ -3009,3 +3010,15 @@ func Files.decode_base64(b64: String) -> [UInt8] {}
 func Files.compute_crc32(data: [UInt8]) -> UInt32 {}
 func Files.compute_md5(data: [UInt8]) -> [UInt8] {}
 func Files.compute_sha1(data: [UInt8]) -> [UInt8] {}
+
+-- FILE-06: Random (4 entries under the new Random.* namespace declared line 964)
+-- Pitfall 8: set_seed takes UInt32 — negative Int32 would silently wrap mod 2^32.
+-- Pitfall 9: load_sequence returns empty [Int32] when count > (max - min + 1)
+--           because raylib guarantees unique values.
+-- Q3: unload_sequence is an intentional NO-OP — raylib's int* already freed internally
+--     at the end of load_sequence; Iron's [Int32] is GC-managed. The method exists
+--     purely for raylib-parity so ported code finds it where expected.
+func Random.set_seed(seed: UInt32) {}
+func Random.get_value(min: Int32, max: Int32) -> Int32 {}
+func Random.load_sequence(count: UInt32, min: Int32, max: Int32) -> [Int32] {}
+func Random.unload_sequence(seq: [Int32]) {}
