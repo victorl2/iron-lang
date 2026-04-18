@@ -28,6 +28,8 @@ test_*
 /rotating_cube.c
 /abi_float32_probe
 /abi_float32_probe.c
+/abi_phase70_probe
+/abi_phase70_probe.c
 /pong
 /arena_split_collection
 /audit_for_array_of_structs

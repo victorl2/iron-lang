@@ -1,0 +1,26 @@
+-- tests/manual/abi_phase70_probe.iron
+-- Phase 70 Scan B auto-emit probe. Declares 3 throwaway foreign-method
+-- stubs that force ironc to emit Iron_List_Iron_Matrix,
+-- Iron_List_Iron_Material, and Iron_List_Iron_ModelAnimation typedefs
+-- via the PLAN_63_04_EMIT_LIST_FOR path at src/lir/emit_structs.c:252-340.
+--
+-- Referenced from Plan 70-02 (mesh.draw_instanced takes [Matrix]) and
+-- Plan 70-04 (Material.load returns [Material]; ModelAnimation.load
+-- returns [ModelAnimation]). This probe lands BEFORE any real shim
+-- so a RED result surfaces as a compiler diagnostic, not a link error.
+--
+-- Expected: ironc emits the three typedef + IRON_LIST_DECL + IRON_LIST_IMPL
+-- triples in the generated C file. GREEN = dedicated Scan B dispatch works.
+-- RED = extend Scan B per Phase 68-01 template.
+
+import raylib
+
+object _Phase70Probe {}
+
+func _Phase70Probe.list_matrix_in(items: [Matrix]) {}
+func _Phase70Probe.list_material_out() -> [Material] {}
+func _Phase70Probe.list_model_animation_out() -> [ModelAnimation] {}
+
+func main() -> Int32 {
+    return Int32(0)
+}
