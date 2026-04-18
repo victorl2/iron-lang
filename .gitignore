@@ -137,3 +137,6 @@ compile_commands.json
 *.exe
 *.dSYM/
 *.pch
+# Python bytecode (smoke harness under tests/lsp/smoke/)
+__pycache__/
+*.pyc
