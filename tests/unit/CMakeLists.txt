@@ -370,3 +370,41 @@ add_test(NAME test_parity_ironc_lsp_suggestions COMMAND test_parity_ironc_lsp_su
 set_tests_properties(test_parity_ironc_lsp_suggestions PROPERTIES
     LABELS "unit;phase-m3-invariant"
     TIMEOUT 30)
+
+# ── Phase 4 Plan 04-02 Task 01 (EDIT-01, EDIT-06): completion classifier +
+# keyword-mirror drift guard. Both tests link the completion TUs directly so
+# they can exercise the internal API without booting the full ironls server.
+if(IRON_BUILD_LSP)
+    add_executable(test_completion_context_classify
+        test_completion_context_classify.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
+    )
+    target_include_directories(test_completion_context_classify PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_completion_context_classify
+        iron_compiler iron_runtime unity)
+    add_test(NAME test_completion_context_classify
+        COMMAND test_completion_context_classify)
+    set_tests_properties(test_completion_context_classify PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
+
+    add_executable(test_completion_keyword_mirror
+        test_completion_keyword_mirror.c
+    )
+    target_include_directories(test_completion_keyword_mirror PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_completion_keyword_mirror
+        iron_compiler iron_runtime unity)
+    add_test(NAME test_completion_keyword_mirror
+        COMMAND test_completion_keyword_mirror)
+    set_tests_properties(test_completion_keyword_mirror PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
+endif()

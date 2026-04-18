@@ -265,6 +265,45 @@ if(IRON_BUILD_LSP AND WIN32)
         "with -DIRON_BUILD_LSP=OFF to skip the LSP binary.")
 endif()
 
+# ── Phase 4 Plan 04-02 Task 01 (EDIT-06): keyword mirror header ─────────────
+# Extract the `kw_table` keyword strings from src/lexer/lexer.c at configure
+# time and materialise them as a static const char *[] array in the
+# generated keyword_mirror.h header consumed by the completion engine
+# (src/lsp/facade/edit/complete/*). The drift-guard Unity test
+# tests/unit/test_completion_keyword_mirror.c asserts byte-for-byte parity
+# with the lexer's single-token API at run time. PITFALL H in 04-PATTERNS.md.
+#
+# Strategy: file(STRINGS) reads every line of lexer.c that looks like a
+# kw_table entry ("kw", IRON_TOK_...), we regex-capture the quoted keyword
+# and emit a comma-separated, C-quoted list into IRON_KEYWORD_LIST which
+# feeds configure_file. No helper script — the CMake graph already depends
+# on lexer.c via iron_compiler, and configure_file re-runs whenever any of
+# its inputs (including lexer.c) change.
+if(IRON_BUILD_LSP)
+    set(_kw_table_src "${CMAKE_SOURCE_DIR}/src/lexer/lexer.c")
+    file(STRINGS "${_kw_table_src}" _kw_lines
+         REGEX "^[ \t]*\\{[ \t]*\"[a-zA-Z_]+\"[ \t]*,[ \t]*IRON_TOK_")
+    set(IRON_KEYWORD_LIST "")
+    foreach(_line IN LISTS _kw_lines)
+        string(REGEX MATCH "\"([a-zA-Z_]+)\"" _m "${_line}")
+        if(_m)
+            set(_kw "${CMAKE_MATCH_1}")
+            set(IRON_KEYWORD_LIST "${IRON_KEYWORD_LIST}    \"${_kw}\",\n")
+        endif()
+    endforeach()
+    if(IRON_KEYWORD_LIST STREQUAL "")
+        message(FATAL_ERROR
+            "Phase 4 Plan 04-02 Task 01: failed to extract Iron keyword list "
+            "from ${_kw_table_src} -- regex drift? The completion engine "
+            "cannot build without the generated keyword_mirror.h header.")
+    endif()
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_mirror.h.in"
+        "${CMAKE_BINARY_DIR}/generated/keyword_mirror.h"
+        @ONLY)
+    message(STATUS "Phase 4 Plan 04-02: keyword_mirror.h generated")
+endif()
+
 if(IRON_BUILD_LSP)
     add_executable(ironls
         src/lsp/main.c
@@ -337,6 +376,14 @@ if(IRON_BUILD_LSP)
         # the single iron_analyze_buffer call site (CORE-22).
         src/lsp/facade/workspace_diagnostic.c
         src/lsp/server/handlers_workspace_diag.c
+        # Phase 4 Plan 04-02 (EDIT-01, EDIT-02, EDIT-03, EDIT-06): completion
+        # engine facade + handlers + capability shape override. Consumes the
+        # configure_file-generated keyword_mirror.h for Bucket 6 (keywords).
+        src/lsp/facade/edit/complete/context_classify.c
+        src/lsp/facade/edit/complete/buckets.c
+        src/lsp/facade/edit/complete/complete.c
+        src/lsp/facade/edit/complete/resolve.c
+        src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
         # stdlib_cache.c is the process-lifetime pre-parsed surface-file
@@ -359,7 +406,11 @@ if(IRON_BUILD_LSP)
         src/lsp/obs/trace.c
         src/vendor/yyjson/yyjson.c
     )
-    target_include_directories(ironls PRIVATE src src/vendor)
+    target_include_directories(ironls PRIVATE
+        src
+        src/vendor
+        "${CMAKE_BINARY_DIR}/generated"   # Plan 04-02: keyword_mirror.h
+    )
     target_link_libraries(ironls iron_compiler iron_runtime iron_stdlib m pthread)
     target_compile_definitions(ironls PRIVATE
         IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
