@@ -6,7 +6,7 @@ func alpha() {}
 /// Third line with a backtick: `code`
 object Beta {
     /// Field doc.
-    x: Int
+    val x: Int
 }
 
 /// Orphan doc (blank line breaks association).

@@ -265,6 +265,10 @@ void iron_diaglist_free(Iron_DiagList *list);
 
 /* Warning codes (600 range) */
 #define IRON_WARN_SPAWN_NO_HANDLE     600
+/* Phase 3 NAV-14 (T-03-01): `///` doc-comment body exceeded the 8 KB per-line
+ * cap. Body is truncated; a NOTE-level diagnostic is emitted so the user can
+ * see why their `///` text stopped mid-sentence. */
+#define IRON_WARN_DOC_COMMENT_TRUNCATED 610
 
 /* Type validation warnings (601+ range) */
 #define IRON_WARN_NARROWING_CAST        601

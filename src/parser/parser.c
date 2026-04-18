@@ -161,6 +161,9 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p);
 static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
+/* Phase 3 NAV-14: forward decl for doc-comment attachment helper used by
+ * iron_parse_decl's post-hook. Definition lives after iron_parse_decl_impl. */
+static void iron_attach_doc_comment(Iron_Node *n, const char *doc);
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private);
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, Iron_Node ***extra_decls_out);
@@ -224,10 +227,106 @@ static Iron_TokenKind iron_peek(Iron_Parser *p) {
     return iron_current(p)->kind;
 }
 
-/* Advance past newlines without consuming the current token */
+/* Advance past newlines (and Phase 3 NAV-14 IRON_TOK_DOC_COMMENT runs)
+ * without consuming the current token. Doc comments are stream-level
+ * punctuation as far as the grammar is concerned — they are aggregated
+ * by `collect_doc_run` at each decl entry point and written onto the
+ * decl's `doc_comment` field. */
 static void iron_skip_newlines(Iron_Parser *p) {
-    while (p->pos < p->token_count && p->tokens[p->pos].kind == IRON_TOK_NEWLINE)
-        p->pos++;
+    while (p->pos < p->token_count) {
+        Iron_TokenKind k = p->tokens[p->pos].kind;
+        if (k == IRON_TOK_NEWLINE || k == IRON_TOK_DOC_COMMENT) {
+            p->pos++;
+        } else {
+            break;
+        }
+    }
+}
+
+/* Phase 3 NAV-14: aggregate the doc-comment run immediately preceding
+ * the current token position. Walks BACKWARDS from p->pos - 1 over a
+ * maximal run of (NEWLINE | DOC_COMMENT) tokens.
+ *
+ * Association rule: a doc-comment run associates with the following
+ * decl if and only if there is AT MOST ONE newline between the last
+ * `///` line and the decl's first token. The token stream after
+ * `/// foo\n<decl>` is `DOC_COMMENT, NEWLINE, <decl>` — one newline, so
+ * the doc attaches. The token stream after `/// foo\n\n<decl>` is
+ * `DOC_COMMENT, NEWLINE, NEWLINE, <decl>` — two newlines (a blank line
+ * between the doc and the decl) breaks the association.
+ *
+ * Returns NULL if no doc comment is attached. Callers: iron_parse_decl
+ * (top-level decls) and per-decl field/variant/method-sig loops. */
+static const char *iron_collect_doc_run(Iron_Parser *p, Iron_Arena *arena) {
+    if (p->pos == 0 || arena == NULL) return NULL;
+
+    /* Step 1: count the run of trailing NEWLINEs immediately before p->pos
+     * (i.e. between the last doc/content token and the decl we're about
+     * to parse). If >= 2, no doc attaches (blank line breaks). */
+    long long idx = (long long)p->pos - 1;
+    int trailing_nls = 0;
+    while (idx >= 0 && p->tokens[idx].kind == IRON_TOK_NEWLINE) {
+        trailing_nls++;
+        idx--;
+    }
+    if (trailing_nls >= 2) return NULL;
+
+    /* Step 2: walk back collecting DOC_COMMENTs. Between consecutive
+     * doc lines there is exactly one NEWLINE (the `\n` terminating the
+     * previous `///` line) — two newlines between docs also breaks
+     * their aggregation. */
+    long long last_doc_idx = -1;   /* inclusive */
+    long long first_doc_idx = -1;  /* inclusive */
+    while (idx >= 0) {
+        Iron_TokenKind k = p->tokens[idx].kind;
+        if (k == IRON_TOK_DOC_COMMENT) {
+            if (last_doc_idx < 0) last_doc_idx = idx;
+            first_doc_idx = idx;
+            idx--;
+            /* Allow one NEWLINE between consecutive doc lines. */
+            int inner_nls = 0;
+            while (idx >= 0 && p->tokens[idx].kind == IRON_TOK_NEWLINE) {
+                inner_nls++;
+                idx--;
+            }
+            if (inner_nls >= 2) break;  /* blank line splits doc blocks */
+            continue;
+        }
+        /* Any non-doc non-newline token (or exhaustion of newlines)
+         * terminates the backwards walk. */
+        break;
+    }
+    if (first_doc_idx < 0) return NULL;
+
+    /* Join bodies in source order (first_doc_idx .. last_doc_idx) with '\n'.
+     * Tokens between them are newlines — skip those. Use a local buffer
+     * via a size pass + a single arena strdup. */
+    size_t total = 0;
+    int    count = 0;
+    for (long long i = first_doc_idx; i <= last_doc_idx; i++) {
+        if (p->tokens[i].kind != IRON_TOK_DOC_COMMENT) continue;
+        const char *v = p->tokens[i].value ? p->tokens[i].value : "";
+        total += strlen(v);
+        count++;
+    }
+    if (count == 0) return NULL;
+    /* count lines joined by '\n' -> (count - 1) separators. */
+    total += (size_t)(count - 1);
+    char *buf = (char *)iron_arena_alloc(arena, total + 1, 1);
+    if (!buf) return NULL;
+    char *w = buf;
+    int   written = 0;
+    for (long long i = first_doc_idx; i <= last_doc_idx; i++) {
+        if (p->tokens[i].kind != IRON_TOK_DOC_COMMENT) continue;
+        const char *v = p->tokens[i].value ? p->tokens[i].value : "";
+        size_t vl = strlen(v);
+        if (written > 0) *w++ = '\n';
+        memcpy(w, v, vl);
+        w += vl;
+        written++;
+    }
+    *w = '\0';
+    return buf;
 }
 
 /* Return current token and advance; automatically skips newlines after */
@@ -3332,6 +3431,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             continue;
         }
 
+        /* Phase 3 NAV-14: capture the doc-comment run that sits between
+         * the previous field and this one (or between the object header
+         * and the first field). Must be done BEFORE consuming val/var. */
+        const char *field_doc = iron_collect_doc_run(p, p->arena);
+
         bool is_var = false;
         Iron_Token *field_start = iron_current(p);
         if (iron_check(p, IRON_TOK_VAR)) {
@@ -3391,6 +3495,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
          * consumed earlier in this iteration. Plan 83-02 reads it to drive
          * accessor synthesis. */
         field->is_pub     = member_is_pub;
+        field->doc_comment = field_doc;  /* Phase 3 NAV-14 */
         arrput(fields, (Iron_Node *)field);
         field_count++;
         if (is_var) var_field_count++;
@@ -4335,6 +4440,9 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
 
+        /* Phase 3 NAV-14: capture doc-comment run for this method signature. */
+        const char *sig_doc = iron_collect_doc_run(p, p->arena);
+
         /* Phase 85 INIT-15 / Phase 87 IFACE-04: interfaces describe behavior,
          * not construction. Reject `init` in interface bodies with a clear
          * message pointing at the Self-returning factory alternative.
@@ -4444,6 +4552,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         /* Phase 87 IFACE-01: tier modifier bits from the pre-func consumption above. */
         sig->is_readonly          = member_is_readonly;
         sig->is_pure              = member_is_pure;
+        sig->doc_comment          = sig_doc;  /* Phase 3 NAV-14 */
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
@@ -4495,6 +4604,9 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        /* Phase 3 NAV-14: capture doc-comment run for this variant BEFORE
+         * consuming its identifier. */
+        const char *variant_doc = iron_collect_doc_run(p, p->arena);
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
@@ -4513,6 +4625,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
         v->explicit_value     = 0;
         v->payload_type_anns  = NULL;
         v->payload_count      = 0;
+        v->doc_comment        = variant_doc;  /* Phase 3 NAV-14 */
 
         /* Check for payload types: VariantName(Type, Type, ...) */
         if (iron_match(p, IRON_TOK_LPAREN)) {
@@ -4593,16 +4706,58 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)n;
 }
 
-/* HARD-08: wrapper — see iron_parse_type_annotation for the pattern. */
+/* HARD-08: wrapper — see iron_parse_type_annotation for the pattern.
+ * Phase 3 NAV-14: after the decl is built, attach any aggregated doc
+ * comment run to it. iron_parse_decl_impl captures the run at entry
+ * (before p->pos advances). */
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
                                   Iron_Node ***extra_decls_out) {
     if (iron_parser_depth_exceeded(p)) {
         return iron_make_error(p);
     }
     p->recur_depth++;
+    /* Collect the doc-comment run NOW, before any advance inside _impl
+     * moves p->pos. The run is anchored to the position of the decl's
+     * first token. */
+    const char *doc = iron_collect_doc_run(p, p->arena);
     Iron_Node *r = iron_parse_decl_impl(p, is_private, extra_decls_out);
+    iron_attach_doc_comment(r, doc);
     p->recur_depth--;
     return r;
+}
+
+/* Phase 3 NAV-14: attach a collected doc-comment run to the appropriate
+ * AST node kind. No-op for ErrorNode / unknown kinds. Cast to int so the
+ * -Werror=switch-enum audit is satisfied via the default arm (val/var
+ * decl, error nodes, and every non-decl node kind intentionally drop
+ * the doc). */
+static void iron_attach_doc_comment(Iron_Node *n, const char *doc) {
+    if (!n || !doc) return;
+    switch ((int)n->kind) {
+        case IRON_NODE_IMPORT_DECL:
+            ((Iron_ImportDecl *)n)->doc_comment = doc;
+            break;
+        case IRON_NODE_OBJECT_DECL:
+            ((Iron_ObjectDecl *)n)->doc_comment = doc;
+            break;
+        case IRON_NODE_INTERFACE_DECL:
+            ((Iron_InterfaceDecl *)n)->doc_comment = doc;
+            break;
+        case IRON_NODE_ENUM_DECL:
+            ((Iron_EnumDecl *)n)->doc_comment = doc;
+            break;
+        case IRON_NODE_FUNC_DECL:
+            ((Iron_FuncDecl *)n)->doc_comment = doc;
+            break;
+        case IRON_NODE_METHOD_DECL:
+            ((Iron_MethodDecl *)n)->doc_comment = doc;
+            break;
+        default:
+            /* Val / var / error nodes — no doc_comment field. Silently
+             * drop; the lexer already arena-interned the body so nothing
+             * leaks. */
+            break;
+    }
 }
 
 static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private,

@@ -118,6 +118,13 @@ typedef enum {
     IRON_TOK_IDENTIFIER,
     IRON_TOK_WILDCARD,      /* _ (bare underscore) */
 
+    /* Phase 3 NAV-14: triple-slash `///` doc-comment body. Token value is
+     * the arena-interned trimmed body (one leading space stripped). Runs of
+     * consecutive DOC_COMMENT tokens are aggregated by the parser onto the
+     * following decl's `doc_comment` field. Appended immediately before the
+     * COUNT sentinel to preserve the append-only enum invariant. */
+    IRON_TOK_DOC_COMMENT,
+
     /* Sentinel */
     IRON_TOK_COUNT
 } Iron_TokenKind;

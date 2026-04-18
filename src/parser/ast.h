@@ -162,6 +162,8 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_IMPORT_DECL */
     const char   *path;
     const char   *alias;  /* NULL if no alias */
+    /* Phase 3 NAV-14: arena-interned `///` run (lines joined by '\n'); NULL if none. */
+    const char   *doc_comment;
 } Iron_ImportDecl;
 
 typedef struct Iron_ObjectDecl {
@@ -189,6 +191,8 @@ typedef struct Iron_ObjectDecl {
      *                   lookup site. */
     bool          is_patch;           /* PATCH-01 */
     const char   *target_type_name;   /* PATCH-02 */
+    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    const char   *doc_comment;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -197,6 +201,8 @@ typedef struct Iron_InterfaceDecl {
     const char   *name;
     Iron_Node   **method_sigs;
     int           method_count;
+    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    const char   *doc_comment;
 } Iron_InterfaceDecl;
 
 typedef struct Iron_EnumDecl {
@@ -208,6 +214,8 @@ typedef struct Iron_EnumDecl {
     bool          has_payloads;       /* true if any variant has payload_count > 0 */
     Iron_Node   **generic_params;     /* NULL for non-generic enums */
     int           generic_param_count; /* 0 for non-generic enums */
+    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    const char   *doc_comment;
 } Iron_EnumDecl;
 
 typedef struct {
@@ -235,6 +243,8 @@ typedef struct {
      * flag. Defaults false at every allocation site. */
     bool               is_readonly;
     bool               is_pure;
+    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    const char        *doc_comment;
 } Iron_FuncDecl;
 
 typedef struct {
@@ -294,6 +304,8 @@ typedef struct {
      * is_init is true and init_name != NULL, method_name == init_name so
      * the symbol-table lookup for `Type.<init_name>` hits naturally. */
     const char        *init_name;
+    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    const char        *doc_comment;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -327,6 +339,8 @@ typedef struct {
      * to decide whether to synthesize accessor methods. Default false;
      * Phase 88 BREAK may flip the default to public-by-default. */
     bool          is_pub;
+    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    const char   *doc_comment;
 } Iron_Field;
 
 typedef struct {
@@ -338,6 +352,8 @@ typedef struct {
     Iron_Node   **payload_type_anns;   /* array of IRON_NODE_TYPE_ANNOTATION nodes; NULL if plain */
     int           payload_count;       /* 0 for plain variants */
     bool         *payload_is_boxed;    /* [payload_count]; true if field is recursive (auto-boxed) */
+    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    const char   *doc_comment;
 } Iron_EnumVariant;
 
 typedef struct {
