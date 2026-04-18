@@ -37,7 +37,7 @@ func main() -> Int32 {
         Int32(0)                                                -- projection = PERSPECTIVE
     )
 
-    -- ── DRAW3D-01: begin/end 3D mode ─────────────────────────────
+-- ── DRAW3D-01: begin/end 3D mode ─────────────────────────────
     Draw.begin()
     Draw.clear(RAYWHITE)
     Draw.begin_mode_3d(cam)
@@ -45,7 +45,7 @@ func main() -> Int32 {
     Draw.end()
     print("DRAW3D-01: Draw.begin_mode_3d / end_mode_3d exercised")
 
-    -- ── DRAW3D-02: camera update — all 5 modes + update_pro ─────
+-- ── DRAW3D-02: camera update — all 5 modes + update_pro ─────
     -- Pitfall 2: CameraMode.CUSTOM is a no-op; we exercise it for
     -- call-site coverage only (not a field-diff assertion).
     val cam_free   = Camera3D.update(cam, CameraMode.FREE)
@@ -57,7 +57,7 @@ func main() -> Int32 {
     val cam_pro    = Camera3D.update_pro(cam, zero_v, zero_v, Float32(0.0))
     print("DRAW3D-02: Camera3D.update (5 modes) + update_pro exercised")
 
-    -- ── DRAW3D-03: screen↔world + view matrix ────────────────────
+-- ── DRAW3D-03: screen↔world + view matrix ────────────────────
     val mouse  = Vector2(Float32(400.0), Float32(300.0))
     val ray    = Camera3D.screen_to_world_ray(cam, mouse)
     val ray_ex = Camera3D.screen_to_world_ray_ex(cam, mouse,
@@ -69,7 +69,7 @@ func main() -> Int32 {
     val view_m    = Camera3D.matrix(cam)
     print("DRAW3D-03: screen_to_world_ray + _ex / world_to_screen + _ex / matrix exercised")
 
-    -- ── DRAW3D-04: 3D primitives (batch 1 — line / point / circle /
+-- ── DRAW3D-04: 3D primitives (batch 1 — line / point / circle /
     --              triangle / triangle-strip / cube (4) / sphere (3))
     -- Plan 69-04 appends batch 2 (cylinder / capsule / plane / ray / grid)
     -- and the final keep-alive + PHASE 69 SMOKE confirmation line.
@@ -104,7 +104,7 @@ func main() -> Int32 {
     Draw.end()
     print("DRAW3D-04 batch 1: line_3d / point_3d / circle_3d / triangle_3d / triangle_strip_3d / cube (4) / sphere (3) exercised")
 
-    -- ── DRAW3D-04 (batch 2): cylinder (4) / capsule (2) / plane / ray / grid
+-- ── DRAW3D-04 (batch 2): cylinder (4) / capsule (2) / plane / ray / grid
     val size2 = Vector2(Float32(10.0), Float32(10.0))
 
     Draw.begin()

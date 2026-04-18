@@ -43,7 +43,7 @@ func main() -> Int32 {
     -- Tuple-return: Collision.lines returns (Bool, Vector2)
     val (hit_ll, ipt): (Bool, Vector2) = Collision.lines(t1, t2, t3, Vector2(Float32(200.0), Float32(200.0)))
 
-    -- ── Phase 64 Plan 02 — 3D collision exercisers ──────────────────
+-- ── Phase 64 Plan 02 — 3D collision exercisers ──────────────────
     --
     -- Exercises all 8 COLL-02 bindings with zero-initialized operands.
     -- Mesh is zero-initialized (no LoadModel available without an

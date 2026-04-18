@@ -18,7 +18,7 @@ func main() -> Int32 {
     -- Prerequisite: Window.init (Pitfall 4 — default font bootstrap).
     Window.init(Int32(64), Int32(64), "texture_smoke")
 
-    -- ── TEX-14: 26-color palette ──────────────────────────────────────
+-- ── TEX-14: 26-color palette ──────────────────────────────────────
     val palette_check = RAYWHITE   -- new canonical color (absent in Plan 60-08 rescue)
     val rescue_check  = RED        -- existing color preserved
     val blank_check   = BLANK      -- new transparent color
@@ -26,7 +26,7 @@ func main() -> Int32 {
     val dark_check    = DARKGRAY   -- preserved from 6-color rescue
     print("TEX-14: palette constants available")
 
-    -- ── TEX-13: Color math (17 bindings) ──────────────────────────────
+-- ── TEX-13: Color math (17 bindings) ──────────────────────────────
     val hsv          = Color.to_hsv(RED)
     val red_back     = Color.from_hsv(hsv.x, hsv.y, hsv.z)
     val faded        = Color.fade(BLUE, Float32(0.5))
@@ -49,7 +49,7 @@ func main() -> Int32 {
     -- needs Image._data accessor (deferred to a follow-up phase).
     print("TEX-13: color math operational (15 of 17 Color methods called live)")
 
-    -- ── TEX-03: Procedural image generation ───────────────────────────
+-- ── TEX-03: Procedural image generation ───────────────────────────
     val img_color   = Image.color(Int32(32), Int32(32), BLUE)
     val img_grad_l  = Image.gradient_linear(Int32(32), Int32(32), Int32(0), RED, GREEN)
     val img_grad_r  = Image.gradient_radial(Int32(32), Int32(32), Float32(0.5), RED, GREEN)
@@ -61,19 +61,19 @@ func main() -> Int32 {
     val img_text    = Image.text(Int32(32), Int32(32), "Hi")   -- REQUIRES Window.init (done above)
     print("TEX-03: generators operational")
 
-    -- ── TEX-01: Image load/unload/is_valid surface ────────────────────
+-- ── TEX-01: Image load/unload/is_valid surface ────────────────────
     -- Image.load requires a PNG fixture; Image.copy exercises the same
     -- Image-by-value round-trip shape without fixture dependency.
     val loaded = Image.copy(img_color)
     val is_v   = Image.is_valid(loaded)
     print("TEX-01: Image load/copy/is_valid surface operational")
 
-    -- ── TEX-04: Image export ──────────────────────────────────────────
+-- ── TEX-04: Image export ──────────────────────────────────────────
     val exported      = Image.export(img_color, "/tmp/texture_smoke_out.png")
     val exported_code = Image.export_as_code(img_color, "/tmp/texture_smoke_out.h")
     print("TEX-04: image.export operational")
 
-    -- ── TEX-05: Mutating Image transforms + by-value returns ──────────
+-- ── TEX-05: Mutating Image transforms + by-value returns ──────────
     -- Aliasing contract (critical): raylib's Image*dst transforms free the
     -- input buffer and assign new data. An Iron-side `Image` is a 40 B
     -- header containing a pointer; after a transform, the OLD Iron variable
@@ -112,7 +112,7 @@ func main() -> Int32 {
     val dithered     = Image.dither(mipmapped, Int32(5), Int32(6), Int32(5), Int32(0))
     print("TEX-05: 27 mutating transforms chained")
 
-    -- ── TEX-07: Image CPU draw (21 bindings) ──────────────────────────
+-- ── TEX-07: Image CPU draw (21 bindings) ──────────────────────────
     val poly = [Vector2(Float32(0.0), Float32(0.0)),
                 Vector2(Float32(8.0), Float32(0.0)),
                 Vector2(Float32(8.0), Float32(8.0))]
@@ -150,7 +150,7 @@ func main() -> Int32 {
     val canvas20 = Image.draw_text(canvas19, "X", Int32(2), Int32(2), Int32(10), ORANGE)
     print("TEX-07: 21 CPU draws chained")
 
-    -- ── TEX-06: Image data extraction ─────────────────────────────────
+-- ── TEX-06: Image data extraction ─────────────────────────────────
     val colors       = Image.load_colors(img_color)
     val color_count  = colors.len()
     val palette_list = Image.load_palette(img_color, Int32(16))
@@ -159,25 +159,25 @@ func main() -> Int32 {
     val sampled      = Image.get_color(img_color, Int32(4), Int32(4))
     print("TEX-06: data extraction operational")
 
-    -- ── TEX-08: Texture.load via image.to_texture ─────────────────────
+-- ── TEX-08: Texture.load via image.to_texture ─────────────────────
     val tex       = Image.to_texture(img_color)
     val tex_valid = Texture.is_valid(tex)
     print("TEX-08: image.to_texture operational")
 
-    -- ── TEX-11: Texture config (set_filter/set_wrap/gen_mipmaps) ──────
+-- ── TEX-11: Texture config (set_filter/set_wrap/gen_mipmaps) ──────
     Texture.set_filter(tex, TextureFilter.BILINEAR)
     Texture.set_wrap(tex, TextureWrap.CLAMP)
     val tex_mips = Texture.gen_mipmaps(tex)
     print("TEX-11: set_filter/set_wrap/gen_mipmaps operational")
 
-    -- ── TEX-09: Cubemap + RenderTexture ───────────────────────────────
+-- ── TEX-09: Cubemap + RenderTexture ───────────────────────────────
     val cube_img = Image.color(Int32(128), Int32(32), PURPLE)   -- 4:1 strip for LINE_HORIZONTAL
     val cube     = Texture.load_cubemap(cube_img, CubemapLayout.LINE_HORIZONTAL)
     val rt       = RenderTexture.load(Int32(64), Int32(64))
     val rt_valid = RenderTexture.is_valid(rt)
     print("TEX-09: cubemap + render_texture operational")
 
-    -- ── TEX-10: Texture update (opaque void* via Int) ─────────────────
+-- ── TEX-10: Texture update (opaque void* via Int) ─────────────────
     -- Texture.update / update_rec require a live pixel buffer; glTexSubImage2D
     -- with NULL is NOT null-safe on macOS OpenGL 4.1 (Apple driver derefs).
     -- The shim is proven via `clang -c` in Plan 66-04; live call-site proof
@@ -185,7 +185,7 @@ func main() -> Int32 {
     -- opaque-handle accessors are exposed on Iron objects).
     print("TEX-10: texture.update opaque-pointer surface (shim compiled, live call deferred)")
 
-    -- ── TEX-12: Texture draw variants (inside Draw.begin/end) ─────────
+-- ── TEX-12: Texture draw variants (inside Draw.begin/end) ─────────
     Draw.begin()
     Draw.clear(BLACK)
     Texture.draw(tex, Int32(0), Int32(0), WHITE)
@@ -207,7 +207,7 @@ func main() -> Int32 {
     Draw.end()
     print("TEX-12: all 6 texture draw variants operational")
 
-    -- ── TEX-02: Image.from_texture / from_screen ──────────────────────
+-- ── TEX-02: Image.from_texture / from_screen ──────────────────────
     -- Image.load_anim dropped its `frames` out-param in Plan 66-02 —
     -- call site exists via Image.load_anim(path) but requires a fixture;
     -- the remaining 2 surfaces cover TEX-02's regression contract.
@@ -215,7 +215,7 @@ func main() -> Int32 {
     val img_from_screen = Image.from_screen()
     print("TEX-02: from_texture + from_screen operational")
 
-    -- ── Cleanup (reverse-order unload) ────────────────────────────────
+-- ── Cleanup (reverse-order unload) ────────────────────────────────
     Image.unload(img_color)
     Image.unload(img_grad_l)
     Image.unload(img_grad_r)

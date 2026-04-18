@@ -25,13 +25,13 @@ func main() -> Int32 {
     -- Prerequisite: Window.init (Pitfall 1 — default font bootstrap).
     Window.init(Int32(800), Int32(600), "Phase 67 text_smoke")
 
-    -- ── TEXT-01: Default font ─────────────────────────────────────────
+-- ── TEXT-01: Default font ─────────────────────────────────────────
     val f = Font.default()
     val base_size = f.baseSize
     val glyph_count = f.glyphCount
     print("TEXT-01: Font.default() operational")
 
-    -- ── TEXT-02: Font.load + is_valid guard on missing path ──────────
+-- ── TEXT-02: Font.load + is_valid guard on missing path ──────────
     -- raylib returns a baseSize=0 shell for missing files; no crash,
     -- Font.is_valid is the caller-facing guard. Don't unload the bad
     -- Font (baseSize=0 shells skip UnloadFont per rtext.c:248-258).
@@ -39,36 +39,36 @@ func main() -> Int32 {
     val bad_valid = Font.is_valid(bad)
     print("TEXT-02: Font.load + is_valid guard exercised")
 
-    -- ── TEXT-03: Font.load_ex with codepoints whitelist ──────────────
+-- ── TEXT-03: Font.load_ex with codepoints whitelist ──────────────
     -- Font.from_memory + Font.load_data DEFERRED ([UInt8] FFI).
     -- load_ex with a codepoint array covers the non-[UInt8] path.
     val ascii_codepoints: [Int32] = [Int32(65), Int32(66), Int32(67)]
     val f3 = Font.load_ex("does/not/exist.ttf", Int32(48), ascii_codepoints)
     print("TEXT-03: Font.load_ex codepoint whitelist path exercised")
 
-    -- ── TEXT-04: font.is_valid ───────────────────────────────────────
+-- ── TEXT-04: font.is_valid ───────────────────────────────────────
     val default_valid = Font.is_valid(f)
     print("TEXT-04: Font.is_valid on default font")
 
-    -- ── TEXT-05: Font.gen_image_atlas + Font.unload_data deferrals ──
+-- ── TEXT-05: Font.gen_image_atlas + Font.unload_data deferrals ──
     -- Font.load_data + Font.from_memory DEFERRED ([UInt8] FFI).
     -- gen_image_atlas + unload_data work on [GlyphInfo] arrays — but
     -- there's no way to construct a [GlyphInfo] without Font.load_data,
     -- so this section documents the deferral rather than exercising.
     print("TEXT-05: [GlyphInfo] data-path deferred ([UInt8] FFI gap)")
 
-    -- ── TEXT-06: Font.export_as_code (writes to /tmp) ────────────────
+-- ── TEXT-06: Font.export_as_code (writes to /tmp) ────────────────
     val export_ok = Font.export_as_code(f, "/tmp/iron_phase67_font_export.h")
     print("TEXT-06: Font.export_as_code operational")
 
-    -- ── TEXT-07: Draw.fps + Text.measure default-font ────────────────
+-- ── TEXT-07: Draw.fps + Text.measure default-font ────────────────
     Draw.begin()
     Draw.clear(Color(30, 30, 30, 255))
     Draw.fps(Int32(10), Int32(10))
     val width_default = Text.measure("hello", Int32(20))
     print("TEXT-07: Draw.fps + Text.measure default-font exercised")
 
-    -- ── TEXT-08: Draw.text default-font + Font.draw_ex custom-font ──
+-- ── TEXT-08: Draw.text default-font + Font.draw_ex custom-font ──
     Draw.text("TEXT-08 default font", Int32(100), Int32(100), Int32(20),
               Color(255, 255, 255, 255))
     Font.draw_ex(f, "TEXT-08 draw_ex",
@@ -91,7 +91,7 @@ func main() -> Int32 {
                          Color(255, 0, 255, 255))
     print("TEXT-08: Draw.text + 4 custom-font draws exercised")
 
-    -- ── TEXT-09: Text.set_line_spacing (global state) ────────────────
+-- ── TEXT-09: Text.set_line_spacing (global state) ────────────────
     -- Apply set_line_spacing then exercise multi-line rendering via two
     -- stacked Draw.text calls (Iron does not emit \n escape into C
     -- string literals as a newline byte — keep each line separate).
@@ -102,19 +102,19 @@ func main() -> Int32 {
               Color(200, 200, 200, 255))
     print("TEXT-09: Text.set_line_spacing exercised")
 
-    -- ── TEXT-10: Text.measure + Font.measure_ex ─────────────────────
+-- ── TEXT-10: Text.measure + Font.measure_ex ─────────────────────
     val w_default = Text.measure("measure me", Int32(20))
     val v_custom = Font.measure_ex(f, "measure me",
                                    Float32(20.0), Float32(1.0))
     print("TEXT-10: Text.measure + Font.measure_ex exercised")
 
-    -- ── TEXT-11: Glyph lookup — index + info + atlas rec ─────────────
+-- ── TEXT-11: Glyph lookup — index + info + atlas rec ─────────────
     val glyph_index = Font.get_glyph_index(f, Int32(65))
     val glyph_info = Font.get_glyph_info(f, Int32(65))
     val glyph_rec = Font.get_glyph_atlas_rec(f, Int32(65))
     print("TEXT-11: get_glyph_index/info/atlas_rec exercised")
 
-    -- ── TEXT-12: UTF-8 / codepoint manipulation ──────────────────────
+-- ── TEXT-12: UTF-8 / codepoint manipulation ──────────────────────
     val cps = Text.load_codepoints("héllo")
     val cp_count = Text.codepoint_count("héllo")
     val (cp0, step0) = Text.codepoint_at("héllo", Int32(0))
@@ -124,7 +124,7 @@ func main() -> Int32 {
     val cp_str = Text.codepoint_to_utf8(Int32(65))
     print("TEXT-12: 7 UTF-8 / codepoint calls exercised")
 
-    -- ── TEXT-13: String utilities — 16 core + 3 format overloads ──
+-- ── TEXT-13: String utilities — 16 core + 3 format overloads ──
     val copied = Text.copy("hello")
     val equal = Text.is_equal("hello", "hello")
     val len = Text.length("hello")

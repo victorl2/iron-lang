@@ -7,7 +7,7 @@
 import raylib
 
 func main() -> Int32 {
-    -- ── MATH-01: scalar helpers (6 call sites) ──────────────────────
+-- ── MATH-01: scalar helpers (6 call sites) ──────────────────────
     val lerped  = RMath.lerp(Float32(0.0), Float32(10.0), Float32(0.5))        -- 5.0
     val clamped = RMath.clamp(Float32(-3.0), Float32(0.0), Float32(5.0))       -- 0.0
     val wrapped = RMath.wrap(Float32(370.0), Float32(0.0), Float32(360.0))     -- 10.0
@@ -15,7 +15,7 @@ func main() -> Int32 {
     val normd   = RMath.normalize(Float32(7.5), Float32(5.0), Float32(10.0))   -- 0.5
     val feq     = RMath.float_equals(Float32(3.0), Float32(3.0))               -- true
 
-    -- ── MATH-02: Vector2 methods (30 call sites) ────────────────────
+-- ── MATH-02: Vector2 methods (30 call sites) ────────────────────
     val v  = Vector2(Float32(3.0), Float32(4.0))
     val w  = Vector2(Float32(1.0), Float32(2.0))
     val mat_id = Matrix(
@@ -56,7 +56,7 @@ func main() -> Int32 {
     val v_eq     = v.equals(v)                                      -- true
     val v_refr   = v.refract(Vector2(Float32(0.0), Float32(1.0)), Float32(1.0))
 
-    -- ── MATH-03: Vector3 methods (37 call sites; 2 deferred to 65-03/04) ─
+-- ── MATH-03: Vector3 methods (37 call sites; 2 deferred to 65-03/04) ─
     val v3     = Vector3(Float32(3.0), Float32(4.0), Float32(0.0))
     val w3     = Vector3(Float32(1.0), Float32(2.0), Float32(2.0))
     val axis_y = Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
@@ -106,7 +106,7 @@ func main() -> Int32 {
     val v3_eq     = v3.equals(v3)                                           -- true
     val v3_refr   = v3.refract(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(1.0))
 
-    -- ── MATH-04: Vector4 methods (22 call sites) ───────────────────────
+-- ── MATH-04: Vector4 methods (22 call sites) ───────────────────────
     val v4a = Vector4(Float32(1.0), Float32(2.0), Float32(3.0), Float32(4.0))
     val v4b = Vector4(Float32(0.5), Float32(0.5), Float32(0.5), Float32(0.5))
 
@@ -133,7 +133,7 @@ func main() -> Int32 {
     val v4_inv    = v4a.invert()                            -- (1, 0.5, 0.333..., 0.25)
     val v4_eq     = v4a.equals(v4a)                         -- true
 
-    -- ── MATH-05: Matrix methods (21 call sites; Decompose -> Plan 65-04) ─
+-- ── MATH-05: Matrix methods (21 call sites; Decompose -> Plan 65-04) ─
     val m_id = Matrix.identity()
     val m_a  = Matrix(
         Float32(1.0), Float32(0.0), Float32(0.0), Float32(1.0),
@@ -167,10 +167,10 @@ func main() -> Int32 {
     )
     val m_f16    = m_id.to_float_v()
 
-    -- ── Vector3.to_float_v (MATH-03 carried from Plan 65-02) ───────────
+-- ── Vector3.to_float_v (MATH-03 carried from Plan 65-02) ───────────
     val v3_f3    = v3.to_float_v()
 
-    -- ── MATH-06: Quaternion methods (24 call sites) ────────────────────
+-- ── MATH-06: Quaternion methods (24 call sites) ────────────────────
     -- Plan 65-04 binds all 24 raymath Quaternion RMAPI functions.
     -- Static: identity; instance: 23 + to_axis_angle (2-tuple below).
     val q_a     = Quaternion(Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0))
@@ -203,7 +203,7 @@ func main() -> Int32 {
     val q_xform  = q_a.transform(Matrix.identity())
     val q_eq     = q_a.equals(q_a)
 
-    -- ── Tuple returns (3 call sites — closes MATH-05 Decompose,
+-- ── Tuple returns (3 call sites — closes MATH-05 Decompose,
     --    MATH-03 ortho_normalize, MATH-06 to_axis_angle) ────────────
     -- 2-tuple: Quaternion.to_axis_angle -> (Vector3, Float32)
     val (axis_out, angle_out) = q_a.to_axis_angle()
@@ -219,7 +219,7 @@ func main() -> Int32 {
     val m_for_decomp = Matrix.identity()
     val (d_trans, d_rot, d_scale) = m_for_decomp.decompose()
 
-    -- ── MATH-08: ABI round-trip assertions (~15 sites across return shapes) ─
+-- ── MATH-08: ABI round-trip assertions (~15 sites across return shapes) ─
     val pass_lerp    = RMath.float_equals(lerped, Float32(5.0))
     val pass_clamped = RMath.float_equals(clamped, Float32(0.0))
     val pass_wrapped = RMath.float_equals(wrapped, Float32(10.0))

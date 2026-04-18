@@ -29,20 +29,20 @@ func main() -> Int32 {
     val axis_y = Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
     val unit_scale = Vector3(Float32(1.0), Float32(1.0), Float32(1.0))
 
-    -- ── MODEL-01: Model load / from_mesh / is_valid / unload ─────────
+-- ── MODEL-01: Model load / from_mesh / is_valid / unload ─────────
     val cube_mesh = Mesh.cube(Float32(1.0), Float32(1.0), Float32(1.0))
     val model_a = Model.from_mesh(cube_mesh)
     val m01_valid = Model.is_valid(model_a)
     val _k_m01 = m01_valid
     print("MODEL-01: from_mesh + is_valid exercised")
 
-    -- ── MODEL-02: Bounding box ───────────────────────────────────────
+-- ── MODEL-02: Bounding box ───────────────────────────────────────
     val bbox = Model.bounding_box(model_a)
     val _k_bb_min = bbox.min.x
     val _k_bb_max = bbox.max.x
     print("MODEL-02: bounding_box exercised")
 
-    -- ── MODEL-03: Draw variants (6) inside Draw.begin_mode_3d ────────
+-- ── MODEL-03: Draw variants (6) inside Draw.begin_mode_3d ────────
     Draw.begin()
     Draw.clear(RAYWHITE)
     Draw.begin_mode_3d(cam)
@@ -58,7 +58,7 @@ func main() -> Int32 {
     Draw.end()
     print("MODEL-03: all 6 draw variants exercised")
 
-    -- ── MODEL-04: Mesh operations ────────────────────────────────────
+-- ── MODEL-04: Mesh operations ────────────────────────────────────
     var work_mesh = Mesh.sphere(Float32(1.0), Int32(16), Int32(32))
     work_mesh = Mesh.upload(work_mesh, true)
     val mbbox = Mesh.bounding_box(work_mesh)
@@ -70,7 +70,7 @@ func main() -> Int32 {
     val _k_exp_code = export_code_ok
     print("MODEL-04: mesh upload + bbox + gen_tangents + export + export_as_code exercised")
 
-    -- ── MODEL-05: Mesh draw (2) ──────────────────────────────────────
+-- ── MODEL-05: Mesh draw (2) ──────────────────────────────────────
     val mat_default = Material.default()
     val ident = Matrix.identity()
 
@@ -85,7 +85,7 @@ func main() -> Int32 {
     Draw.end()
     print("MODEL-05: draw + draw_instanced exercised")
 
-    -- ── MODEL-06: Mesh generation (11) ───────────────────────────────
+-- ── MODEL-06: Mesh generation (11) ───────────────────────────────
     val m_poly     = Mesh.poly(Int32(6), Float32(1.0))
     val m_plane    = Mesh.plane(Float32(10.0), Float32(10.0), Int32(5), Int32(5))
     val m_cube2    = Mesh.cube(Float32(1.0), Float32(1.0), Float32(1.0))
@@ -104,7 +104,7 @@ func main() -> Int32 {
     val m_cubic    = Mesh.cubicmap(hm_img, cube_size)
     print("MODEL-06: all 11 procedural generators returned meshes")
 
-    -- ── MODEL-07: Materials ─────────────────────────────────────────
+-- ── MODEL-07: Materials ─────────────────────────────────────────
     var mat = Material.default()
     val mat_valid = Material.is_valid(mat)
     val _k_mat_valid = mat_valid
@@ -117,7 +117,7 @@ func main() -> Int32 {
     model_b = Model.set_mesh_material(model_b, Int32(0), Int32(0))
     print("MODEL-07: set_texture + set_mesh_material exercised")
 
-    -- ── MODEL-08: Model animations ──────────────────────────────────
+-- ── MODEL-08: Model animations ──────────────────────────────────
     -- Attempt to load a nonexistent .iqm — expect empty list (see RESEARCH.md
     -- Claude's Discretion: no .iqm asset vendored; ABI-level smoke only).
     val anims = ModelAnimation.load("/tmp/phase70_nonexistent.iqm")
@@ -127,7 +127,7 @@ func main() -> Int32 {
     ModelAnimation.unload_all(anims)
     print("MODEL-08: ModelAnimation.load + unload_all exercised")
 
-    -- ── MODEL-09: Billboards ─────────────────────────────────────────
+-- ── MODEL-09: Billboards ─────────────────────────────────────────
     val label_src = Rectangle(Float32(0.0), Float32(0.0),
                               Float32(2.0), Float32(2.0))
     val label_size = Vector2(Float32(2.0), Float32(2.0))
@@ -144,7 +144,7 @@ func main() -> Int32 {
     Draw.end()
     print("MODEL-09: 3 billboard variants exercised")
 
-    -- ── MODEL-10: Bounding box draw ──────────────────────────────────
+-- ── MODEL-10: Bounding box draw ──────────────────────────────────
     Draw.begin()
     Draw.clear(RAYWHITE)
     Draw.begin_mode_3d(cam)

@@ -33,31 +33,31 @@ func main() -> Int32 {
     -- on macOS; safe to init audio after window).
     Window.init(Int32(800), Int32(600), "Phase 68 audio_smoke")
 
-    -- ── AUDIO-01: Audio device lifecycle ─────────────────────────
+-- ── AUDIO-01: Audio device lifecycle ─────────────────────────
     Audio.init()
     val ready = Audio.is_ready()
     Audio.set_master_volume(Float32(0.8))
     val master = Audio.get_master_volume()
     print("AUDIO-01: Audio.init / is_ready / master_volume exercised")
 
-    -- ── AUDIO-02: Wave load/unload + memory variant ──────────────
+-- ── AUDIO-02: Wave load/unload + memory variant ──────────────
     val w = Wave.load("tests/assets/bounce.wav")
     val w_valid = Wave.is_valid(w)
     print("AUDIO-02: Wave.load + Wave.is_valid exercised")
 
-    -- ── AUDIO-03: Wave manipulation (copy / crop / format / samples) ─
+-- ── AUDIO-03: Wave manipulation (copy / crop / format / samples) ─
     val w_copy = Wave.copy(w)
     val w_crop = Wave.crop(w, Int32(0), Int32(500))
     val w_fmt = Wave.format(w, Int32(22050), Int32(16), Int32(1))
     val samples = Wave.load_samples(w)
     print("AUDIO-03: Wave.copy / crop / format / load_samples exercised")
 
-    -- ── AUDIO-04: Wave export (to /tmp to avoid polluting repo) ──
+-- ── AUDIO-04: Wave export (to /tmp to avoid polluting repo) ──
     val exp_ok = Wave.export(w, "/tmp/iron_phase68_export.wav")
     val exp_code = Wave.export_as_code(w, "/tmp/iron_phase68_export.h")
     print("AUDIO-04: Wave.export / export_as_code exercised")
 
-    -- ── AUDIO-05: Sound load + from_wave + alias ─────────────────
+-- ── AUDIO-05: Sound load + from_wave + alias ─────────────────
     val s = Sound.load("tests/assets/bounce.wav")
     val s_from_wave = Sound.from_wave(w)
     val s_to_sound = Wave.to_sound(w)
@@ -65,7 +65,7 @@ func main() -> Int32 {
     val s_valid = Sound.is_valid(s)
     print("AUDIO-05: Sound.load / from_wave / alias / is_valid exercised")
 
-    -- ── AUDIO-06: Sound management (play / stop / pause / resume) ─
+-- ── AUDIO-06: Sound management (play / stop / pause / resume) ─
     if ready { Sound.play(s) }
     val playing = Sound.is_playing(s)
     if ready { Sound.pause(s) }
@@ -73,24 +73,24 @@ func main() -> Int32 {
     if ready { Sound.stop(s) }
     print("AUDIO-06: Sound.play / is_playing / pause / resume / stop exercised")
 
-    -- ── AUDIO-07: Sound configure (volume / pitch / pan) ─────────
+-- ── AUDIO-07: Sound configure (volume / pitch / pan) ─────────
     Sound.set_volume(s, Float32(0.9))
     Sound.set_pitch(s, Float32(1.0))
     Sound.set_pan(s, Float32(0.5))
     print("AUDIO-07: Sound.set_volume / pitch / pan exercised")
 
-    -- ── AUDIO-08: Sound.update (1st live ABI-FLOAT32 INPUT) ──────
+-- ── AUDIO-08: Sound.update (1st live ABI-FLOAT32 INPUT) ──────
     val pcm: [Float32] = [Float32(0.0), Float32(0.1), Float32(0.2), Float32(0.1), Float32(0.0)]
     Sound.update(s, pcm, Int32(5))
     print("AUDIO-08: Sound.update (ABI-FLOAT32 INPUT) exercised")
 
-    -- ── AUDIO-09: Music load/unload ──────────────────────────────
+-- ── AUDIO-09: Music load/unload ──────────────────────────────
     val m = Music.load("tests/assets/loop.ogg")
     val m_valid = Music.is_valid(m)
     val m_loop = Music.set_looping(m, true)
     print("AUDIO-09: Music.load / is_valid / set_looping exercised")
 
-    -- ── AUDIO-10: Music management ───────────────────────────────
+-- ── AUDIO-10: Music management ───────────────────────────────
     if ready { Music.play(m_loop) }
     val m_playing = Music.is_playing(m_loop)
     if ready { Music.update(m_loop) }
@@ -99,7 +99,7 @@ func main() -> Int32 {
     if ready { Music.stop(m_loop) }
     print("AUDIO-10: Music.play / update / pause / resume / stop exercised")
 
-    -- ── AUDIO-11: Music configure + query ────────────────────────
+-- ── AUDIO-11: Music configure + query ────────────────────────
     Music.seek(m_loop, Float32(1.0))
     Music.set_volume(m_loop, Float32(0.7))
     Music.set_pitch(m_loop, Float32(1.0))
@@ -108,7 +108,7 @@ func main() -> Int32 {
     val m_played = Music.get_time_played(m_loop)
     print("AUDIO-11: Music.seek / set_volume / pitch / pan / get_time_* exercised")
 
-    -- ── AUDIO-12: AudioStream (14 of 19 bound; 5 callbacks deferred) ─
+-- ── AUDIO-12: AudioStream (14 of 19 bound; 5 callbacks deferred) ─
     val astream = AudioStream.load(UInt32(22050), UInt32(16), UInt32(1))
     val astream_valid = AudioStream.is_valid(astream)
     if ready { AudioStream.play(astream) }
@@ -123,13 +123,13 @@ func main() -> Int32 {
     AudioStream.set_buffer_size_default(Int32(4096))
     print("AUDIO-12: AudioStream.load / is_valid / play / pause / stop / set_* exercised (14 of 19; 5 callbacks deferred)")
 
-    -- ── ABI-FLOAT32: [Float32] input + return paths ──────────────
+-- ── ABI-FLOAT32: [Float32] input + return paths ──────────────
     -- INPUT: Sound.update + AudioStream.update both take [Float32] data.
     AudioStream.update(astream, pcm, Int32(1))
     -- RETURN: Wave.load_samples returned `samples: [Float32]` above.
     print("ABI-FLOAT32: [Float32] INPUT (Sound.update + AudioStream.update) + RETURN (Wave.load_samples) exercised")
 
-    -- ── ABI-UINT8: [UInt8] input path ────────────────────────────
+-- ── ABI-UINT8: [UInt8] input path ────────────────────────────
     -- Small inlined byte buffer to exercise the ABI without a full
     -- decoder round-trip. raylib will TraceLog-warn and return an
     -- invalid Wave/Music for the placeholder bytes -- expected.
@@ -140,7 +140,7 @@ func main() -> Int32 {
     val m_mem_valid = Music.is_valid(m_mem)
     print("ABI-UINT8: Wave/Music.load_from_memory exercised")
 
-    -- ── ABI-CALLBACK: Iron closure → trampoline (DEFERRED) ───────
+-- ── ABI-CALLBACK: Iron closure → trampoline (DEFERRED) ───────
     -- The 5 callback-accepting AUDIO-12 entries are deferred pending
     -- Iron lambda → Iron_Closure FFI. Runtime trampoline infrastructure
     -- is shipped and ready (iron_raylib.c:4497-4599 — 16-slot pool with
