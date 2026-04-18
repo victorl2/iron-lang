@@ -2703,3 +2703,42 @@ func Camera3D.world_to_screen(camera: Camera3D, position: Vector3) -> Vector2 {}
 func Camera3D.world_to_screen_ex(camera: Camera3D, position: Vector3,
                                  width: Int32, height: Int32) -> Vector2 {}
 func Camera3D.matrix(camera: Camera3D) -> Matrix {}
+
+-- ── DRAW3D-04: 3D primitives batch 1 — raylib.h:1526-1537 ───────────
+--
+-- Every primitive matches raylib's C-side name 1:1 with snake_case
+-- normalization. Suffixes preserved (_v = Vector3-size variant,
+-- _wires = wireframe, _ex = extended params). Phase 63 precedent.
+--
+-- Pitfall 3 (Float32 vs Float): radius / width / height / length /
+-- rotation_angle are Float32 — users write Float32(1.0) at call sites.
+-- Pitfall 5 (Int32 vs Int): rings / slices / sides are Int32 — users
+-- write Int32(16) at call sites.
+-- Pitfall 8 ([Vector3] array ABI): triangle_strip_3d is the first
+-- Phase 69 consumer of Iron_List_Iron_Vector3. The C-side typedef is
+-- added to iron_raylib.h under a new IRON_LIST_IRON_VECTOR3_STRUCT_DEFINED
+-- guard mirroring the Phase 63-04 Vector2 precedent at lines 604-611.
+
+-- Line / point / circle / triangle / triangle-strip
+func Draw.line_3d(start: Vector3, end: Vector3, color: Color) {}
+func Draw.point_3d(position: Vector3, color: Color) {}
+func Draw.circle_3d(center: Vector3, radius: Float32,
+                    rotation_axis: Vector3, rotation_angle: Float32,
+                    color: Color) {}
+func Draw.triangle_3d(v1: Vector3, v2: Vector3, v3: Vector3, color: Color) {}
+func Draw.triangle_strip_3d(points: [Vector3], count: Int32, color: Color) {}
+
+-- Cube (4 variants: scalar, Vector3-size, wires, wires-Vector3)
+func Draw.cube(position: Vector3, width: Float32, height: Float32,
+               length: Float32, color: Color) {}
+func Draw.cube_v(position: Vector3, size: Vector3, color: Color) {}
+func Draw.cube_wires(position: Vector3, width: Float32, height: Float32,
+                     length: Float32, color: Color) {}
+func Draw.cube_wires_v(position: Vector3, size: Vector3, color: Color) {}
+
+-- Sphere (3 variants: simple, extended, wires)
+func Draw.sphere(center: Vector3, radius: Float32, color: Color) {}
+func Draw.sphere_ex(center: Vector3, radius: Float32,
+                    rings: Int32, slices: Int32, color: Color) {}
+func Draw.sphere_wires(center: Vector3, radius: Float32,
+                       rings: Int32, slices: Int32, color: Color) {}
