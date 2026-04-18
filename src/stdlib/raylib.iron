@@ -2619,3 +2619,63 @@ func AudioStream.set_buffer_size_default(size: Int32) {}
 --
 -- See .planning/phases/68-audio-system/68-05-SUMMARY.md for the full
 -- rationale. AUDIO-12 status: 14 of 19 bound (callbacks deferred).
+
+
+-- ══════════════════════════════════════════════════════════════════════
+-- 3D Drawing (Phase 69) — DRAW3D-01..04
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Binds raylib's 3D draw-mode stack (BeginMode3D / EndMode3D), camera
+-- update functions (UpdateCamera / UpdateCameraPro), screen↔world
+-- conversion helpers (GetScreenToWorldRay / GetWorldToScreen /
+-- GetCameraMatrix), and the 21 3D primitive draw functions. Implemented
+-- in src/stdlib/iron_raylib.c under the Phase 69 marker at line 5211.
+-- Shim-only per Phase 60 binding architecture.
+--
+-- Method dispatch:
+--   • freestanding Draw.* for mode stack and every primitive
+--     (matches Phase 63 2D-drawing exactly)
+--   • instance methods on Camera3D for update / coordinate conversion /
+--     view matrix (camera is the coordinate-space authority)
+--
+-- Pitfall 0 (Plan 68-05 Rule-3 Blocking): ALL Camera3D methods MUST use
+-- the static Namespace.method(receiver: T, ...) form — lowercase
+-- receivers (func camera3d.update(...)) trigger E0200. Call sites may
+-- use Camera3D.update(cam, .free) (canonical) or cam.update(.free)
+-- (receiver-sugar; may work via auto-dispatch — smoke uses static form).
+--
+-- Pitfall 1 (raylib typedef Camera3D Camera): raylib's C Camera *
+-- parameter is Camera3D * at runtime (typedef alias at raylib.h:334).
+-- Iron inverts: Iron's Camera is 2D (16 B); Iron's Camera3D is 3D
+-- (44 B). NEVER type the parameter as camera: Camera here.
+--
+-- Pitfall 3 (Float32 vs Float): raylib uses float throughout. Iron
+-- stubs use Float32. Users write Float32(45.0) at call sites per
+-- the Plan 60-08 rescue-palette convention.
+--
+-- raylib's GetMouseRay (raylib.h:1063) is a compat alias for
+-- GetScreenToWorldRay. Iron binds only the canonical name.
+
+-- ── DRAW3D-01: 3D draw-mode stack — raylib.h:1032-1033 ──────────────
+--
+-- Wrap every 3D draw call between Draw.begin_mode_3d(cam) and
+-- Draw.end_mode_3d(). Parallels Phase 63's Draw.begin_mode_2d /
+-- Draw.end_mode_2d verbatim. Must be called between Draw.begin()
+-- and Draw.end().
+func Draw.begin_mode_3d(camera: Camera3D) {}
+func Draw.end_mode_3d() {}
+
+-- ── DRAW3D-02: Camera3D update — raylib.h:1233-1234 ────────────────
+--
+-- Mutating-return-by-value pattern (Phase 66-03 template): raylib's
+-- UpdateCamera mutates via out-pointer, but Iron's val fields are
+-- immutable. The shim copies into a local, mutates, copies back, and
+-- returns the new Camera3D. Iron user rebinds: val cam = cam.update(.free).
+--
+-- Pitfall 2: .custom (CameraMode.CUSTOM = 0) is a NO-OP in raylib's
+-- UpdateCamera — the returned Camera3D is bit-identical to the input.
+-- Users driving the camera manually should mutate via val re-binding
+-- directly (read-modify-write) and skip this call in .custom mode.
+func Camera3D.update(camera: Camera3D, mode: CameraMode) -> Camera3D {}
+func Camera3D.update_pro(camera: Camera3D, movement: Vector3,
+                         rotation: Vector3, zoom: Float32) -> Camera3D {}
