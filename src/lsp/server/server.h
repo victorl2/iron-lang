@@ -44,8 +44,17 @@ typedef struct IronLsp_Server {
     IronLsp_DynRegister      *dyn_reg;
     IronLsp_PositionEncoding  position_encoding;
 
-    /* Plan 04 adds: */
-    /* struct { char *key; IronLsp_Document *value; } *documents; */
+    /* Plan 04: URI -> IronLsp_Document* registry (stb_ds sh_new_strdup
+     * map). Mutated ONLY on the main dispatcher thread in Plan 04; Plan 05
+     * will add per-doc mailbox access from worker threads with a coarser
+     * lock discipline. */
+    struct { char *key; IronLsp_Document *value; } *documents;
+
+    /* Plan 04: discovered workspace root (malloc'd path to the directory
+     * containing iron.toml). NULL if not yet discovered (no
+     * workspaceFolders in the initialize params, or no iron.toml found
+     * up the tree). */
+    char                     *workspace_root;
 
     /* Plan 05 adds: */
     /* IronLsp_WorkerPool *workers; */
