@@ -5209,6 +5209,55 @@ void Iron_audiostream_set_buffer_size_default(int32_t size) {
 }
 
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
+
+/* DRAW3D-01: 3D draw-mode stack — raylib.h:1032-1033.
+ * Parallels Phase 63's Iron_draw_begin_mode_2d at line 595. Note that
+ * raylib's `Camera3D camera` parameter uses the typedef Camera3D;
+ * no relation to the Iron `Camera` type (which is 2D, 16 B). */
+void Iron_draw_begin_mode_3d(struct Iron_Camera3D camera) {
+    Camera3D rl;
+    memcpy(&rl, &camera, sizeof(Camera3D));
+    BeginMode3D(rl);
+}
+
+void Iron_draw_end_mode_3d(void) { EndMode3D(); }
+
+/* DRAW3D-02: Camera3D update — raylib.h:1233-1234.
+ * Mutating-return-by-value template (Phase 66-03 Iron_image_crop at
+ * iron_raylib.c:3121-3130; Phase 68-02 Iron_wave_crop at line 4719-4729).
+ * raylib's `Camera *camera` is a `Camera3D *` at runtime (typedef
+ * alias at raylib.h:334). Iron's val-declared Camera3D fields are
+ * immutable, so the shim copies into a local, raylib mutates, then
+ * we memcpy back out.
+ *
+ * CAMERA_CUSTOM (mode == 0) is a no-op in raylib's UpdateCamera
+ * (documented in rcamera.c); returned Camera3D is bit-identical to
+ * the input. Users in .custom mode should mutate Camera3D fields
+ * directly via val re-binding and skip this call. */
+struct Iron_Camera3D Iron_camera3d_update(struct Iron_Camera3D camera, int32_t mode) {
+    Camera3D local;
+    memcpy(&local, &camera, sizeof(Camera3D));
+    UpdateCamera(&local, (int)mode);
+    struct Iron_Camera3D out;
+    memcpy(&out, &local, sizeof(struct Iron_Camera3D));
+    return out;
+}
+
+struct Iron_Camera3D Iron_camera3d_update_pro(struct Iron_Camera3D camera,
+                                               struct Iron_Vector3 movement,
+                                               struct Iron_Vector3 rotation,
+                                               float zoom) {
+    Camera3D local;
+    Vector3  m, r;
+    memcpy(&local, &camera,   sizeof(Camera3D));
+    memcpy(&m,     &movement, sizeof(Vector3));
+    memcpy(&r,     &rotation, sizeof(Vector3));
+    UpdateCameraPro(&local, m, r, zoom);
+    struct Iron_Camera3D out;
+    memcpy(&out, &local, sizeof(struct Iron_Camera3D));
+    return out;
+}
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
