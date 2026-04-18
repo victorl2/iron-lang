@@ -69,16 +69,17 @@ func main() {
     print("FILE-03 done")
 
 -- ── FILE-04: directory listing
-    -- Phase 62 FilePathList.count stub signature () is out of sync with its C shim
-    -- (takes struct by value) — tracked as Phase 73 cleanup. Smoke exercises
-    -- Files.list / Files.list_ex / Files.unload_list call sites only; indexing
-    -- APIs are validated at clang-TU level (Iron_filepathlist_count prototype
-    -- exists in iron_raylib.h at a known-correct signature).
+    -- The D7 signature mismatch (zero-arg Iron stub vs struct-by-value C
+    -- shim) is fixed — `.count()` and `.get(i)` now lower correctly through
+    -- the explicit-receiver pattern in raylib.iron (same shape as
+    -- Timer.done(t)).
     val list: FilePathList = Files.list("/tmp/iron_phase72")
-    val _k_list = list
+    val n: Int32 = list.count()
+    val _k_n = n
     Files.unload_list(list)
     val flist: FilePathList = Files.list_ex("/tmp/iron_phase72", ".txt", false)
-    val _k_flist = flist
+    val nf: Int32 = flist.count()
+    val _k_nf = nf
     Files.unload_list(flist)
     print("FILE-04 done")
 

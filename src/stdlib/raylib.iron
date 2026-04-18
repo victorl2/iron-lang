@@ -2035,7 +2035,10 @@ func Files.unload_dropped(list: FilePathList) {}
 
 -- FilePathList accessors (INPUT-13 iteration clause)
 --
--- Iterate a FilePathList in a typed Iron loop:
+-- Iterate a FilePathList in a typed Iron loop (instance-style call
+-- form sugars over the underlying static signature — `files.count()`
+-- lowers to `Iron_filepathlist_count(files)`):
+--
 --   val files = Files.load_dropped()
 --   var i = 0
 --   while i < files.count() {
@@ -2046,8 +2049,14 @@ func Files.unload_dropped(list: FilePathList) {}
 --
 -- `get(i)` bounds-checks against `count` on the C side and returns
 -- an empty string for out-of-range indices.
-func FilePathList.count() -> Int32 {}
-func FilePathList.get(index: Int32) -> String {}
+--
+-- Receiver is declared as an explicit first parameter (the same pattern
+-- used by Timer.done / Timer.update / Timer.reset in stdlib/time.iron).
+-- Without the explicit receiver, the Iron stub would have zero params
+-- while the C shim takes `struct Iron_FilePathList list` — a hard clang
+-- error at any call site. Phase 72-03 residual D7.
+func FilePathList.count(list: FilePathList) -> Int32 {}
+func FilePathList.get(list: FilePathList, index: Int32) -> String {}
 
 -- ══════════════════════════════════════════════════════════════════════
 -- 2D Drawing (Phase 63)
