@@ -1,35 +1,30 @@
--- Pong — Phase 12 reference game for the Iron WASM worker
+-- Pong — Phase 12 reference game for the Iron WASM worker.
 --
--- PHASE 60 NOTE (Plan 60-08): This file was rewritten during the
--- clean-break (API-11 override) to use canonical Phase 60 names:
---   Vec2    → Vector2  (not used in pong's placeholder body)
---   Key.X   → KeyboardKey.X
--- Most raylib function calls (Window/Input/Draw) are commented out
--- with `-- PHASE 6N:` markers because those functions are defined in
--- Phases 61/62/63 — Phase 60 only defines types and enums, no
--- functions. When Phases 61-63 land, uncomment the marked lines one
--- phase at a time and the file will run again. The full gameplay
--- implementation is preserved in git history; Phase 73 reintegrates
--- it as the canonical showcase game.
+-- Two paddles, ball with reflection, per-player score, win condition,
+-- and a title → play → game-over state machine driven from a single
+-- top-level `while not Window.should_close()` loop. The loop captures
+-- several mutable locals (ball position, velocity, paddle positions,
+-- scores, state); the LIR main-loop split pass lifts these into a
+-- FrameState struct on --target=web so writes persist across requestAnimationFrame callbacks.
 --
--- Original intent: two paddles, ball with reflection, per-player
--- score, win condition, and a title/play/game-over state machine
--- driven from a single top-level while(!WindowShouldClose()) loop
--- that captures at least four locals (ball_x, ball_y, ball_vx,
--- ball_vy, paddle positions, scores). Builds on both
--- `--target=native` and `--target=web` from the same source.
+-- Builds on both `--target=native` and `--target=web` from the same source.
+-- Post-alpha restoration of the original Phase 12 gameplay — the earlier
+-- Phase 60 placeholder body (commented out under PHASE 6N markers) shipped
+-- only to validate linking through the partial raylib bind while later
+-- phases were in flight.
 
 import raylib
 
--- Game state enum for the title → play → game over → restart state machine
+-- Game state enum for the title → play → game-over → restart state machine.
 enum GameState {
-    TITLE    = 0,
-    PLAYING  = 1,
+    TITLE     = 0,
+    PLAYING   = 1,
     GAME_OVER = 2,
 }
 
 -- Convert a non-negative Int to its decimal String representation.
--- Iron has no stdlib Int→String; implement locally (pattern from url.iron).
+-- Iron has no stdlib Int→String; implemented locally (pattern from url.iron).
+-- Used for the per-player scoreboard overlay.
 func int_to_str(n: Int) -> String {
     if n == 0 { return "0" }
     var x = n
@@ -44,102 +39,178 @@ func int_to_str(n: Int) -> String {
 }
 
 func main() {
-    -- PHASE 60 PLACEHOLDER: pong.iron body removed pending Phase 61-63
-    -- function bindings. See git history for the original implementation.
-    -- Phase 61 restores Window.init / Window.close / Window.should_close.
-    -- Phase 62 restores input (KeyboardKey.SPACE / W / S / UP / DOWN).
-    -- Phase 63 restores the Draw.* methods (begin / clear / end /
-    -- DrawRectangle / DrawLine / DrawText). Phase 73 reintegrates the
-    -- full game loop and GameState machine.
-    --
-    -- The placeholder below exercises Phase 60's type + enum surface
-    -- (Vector2, Color, KeyboardKey, GameState, int_to_str) so the file
-    -- parses AND links AND produces a working binary under the new
-    -- raylib.iron — this is the canonical end-to-end validation test
-    -- for the Phase 60 clean break.
+    -- Screen dimensions + tunables. Kept as Int (int64_t) so arithmetic
+    -- stays branchless and wrap-free; cast to Int32 at the Draw.* call sites
+    -- that require it.
+    val SCREEN_W: Int = 800
+    val SCREEN_H: Int = 600
+    val PADDLE_W: Int = 12
+    val PADDLE_H: Int = 80
+    val PADDLE_SPEED: Int = 6
+    val BALL_SIZE: Int = 12
+    val BALL_SPEED: Int = 5
+    val WIN_SCORE: Int = 5
 
-    val title: String = "Iron Pong — Phase 60 clean-break placeholder"
-    val bg: Color = BLACK
-    val fg: Color = WHITE
-    val accent: Color = RED
-    val divider: Color = DARKGRAY
-    val ball_origin: Vector2 = Vector2(Float32(400.0), Float32(300.0))
-    val start_key: KeyboardKey = KeyboardKey.SPACE
-    val left_up: KeyboardKey = KeyboardKey.W
-    val left_down: KeyboardKey = KeyboardKey.S
-    val right_up: KeyboardKey = KeyboardKey.UP
-    val right_down: KeyboardKey = KeyboardKey.DOWN
-    val initial_state: GameState = GameState.TITLE
-    val score_str: String = int_to_str(0)
+    Window.init(Int32(SCREEN_W), Int32(SCREEN_H), "Iron Pong")
+    Window.set_target_fps(Int32(60))
 
-    -- Phase 61: init/target_fps/close the window. The frame-loop body
-    -- (Input polling, Draw.begin/end) lands in Phases 62 and 63;
-    -- for Phase 61 we just prove the Window.* bindings link and run.
-    Window.init(800, 600, title)
-    Window.set_target_fps(60)
-    -- Poll should_close once to exercise the symbol, then tear down.
-    -- A real game loop would live here.
-    val _should: Bool = Window.should_close()
-
-    -- PHASE 68: bounce sound — initialize audio device + load bounce.wav.
-    -- The placeholder body has no real hit detection, so we exercise
-    -- bounce.play() once inside the render block below (proof that the
-    -- Sound.* bindings link and the raylib audio backend accepts the
-    -- call). Phase 73 will move bounce.play() to the real paddle/wall/
-    -- score handlers. Guard all audio calls with Sound.is_valid() so
-    -- missing-asset-at-runtime (CI / headless) is non-fatal.
+    -- Audio: bounce on paddle/wall collisions. Sound.is_valid() gates
+    -- every play() call so a missing-asset runtime (CI / headless) is
+    -- non-fatal — the game still plays silently.
     Audio.init()
     val bounce: Sound = Sound.load("tests/assets/bounce.wav")
 
-    -- Phase 62: poll the keyboard once to exercise the bindings.
-    -- A real game loop with input would live here, but Phase 63 owns
-    -- Draw.* and a render-free input loop has no observable behavior
-    -- beyond proving the symbols link. Each call returns Bool; we
-    -- bind to placeholder locals so the typechecker keeps them alive.
-    val _kb_start: Bool      = Keyboard.is_pressed(start_key)
-    val _kb_left_up: Bool    = Keyboard.is_down(left_up)
-    val _kb_left_down: Bool  = Keyboard.is_down(left_down)
-    val _kb_right_up: Bool   = Keyboard.is_down(right_up)
-    val _kb_right_down: Bool = Keyboard.is_down(right_down)
+    -- Captured locals — the Phase 5 LIR main-loop split pass lifts these
+    -- into a FrameState struct for web so writes persist frame-over-frame.
+    var state: GameState = GameState.TITLE
+    var ball_x: Int = SCREEN_W / 2
+    var ball_y: Int = SCREEN_H / 2
+    var ball_vx: Int = BALL_SPEED
+    var ball_vy: Int = BALL_SPEED
+    var left_y: Int = SCREEN_H / 2 - PADDLE_H / 2
+    var right_y: Int = SCREEN_H / 2 - PADDLE_H / 2
+    var left_score: Int = 0
+    var right_score: Int = 0
 
-    -- Phase 63: render a single frame to exercise the Draw namespace.
-    -- A real game loop with animated paddles / ball would live here;
-    -- the placeholder draws one frame using the locals already
-    -- declared above (bg, divider, fg). Paddle coordinates are
-    -- hardcoded because left_y / SCREEN_W / PADDLE_W etc. are not
-    -- declared in this placeholder body.
-    Draw.begin()
-    Draw.clear(bg)
-    Draw.line(400, 0, 400, 600, divider)
-    Draw.rectangle(0, 250, 10, 100, fg)
-    Draw.text(Text.format_i("%d", Int32(0)), Int32(200), Int32(20), Int32(40), fg)
-    Draw.text("GAME OVER", Int32(300), Int32(280), Int32(40), accent)
-    -- PHASE 68: play bounce on each paddle/wall/score hit.  The
-    -- placeholder body below fires three calls on the single render
-    -- pass — real game loop will move these to the actual collision
-    -- / score handlers.  Sound.is_valid() guards missing-asset case.
-    if Sound.is_valid(bounce) {
-        Sound.play(bounce)
+    while not Window.should_close() {
+        -- Per-frame update dispatch on game state.
+        if state == GameState.TITLE {
+            if Keyboard.is_pressed(KeyboardKey.SPACE) {
+                state = GameState.PLAYING
+            }
+        }
+        if state == GameState.PLAYING {
+            -- Left paddle: W / S.
+            if Keyboard.is_down(KeyboardKey.W) { left_y = left_y - PADDLE_SPEED }
+            if Keyboard.is_down(KeyboardKey.S) { left_y = left_y + PADDLE_SPEED }
+            -- Right paddle: UP / DOWN arrows.
+            if Keyboard.is_down(KeyboardKey.UP)   { right_y = right_y - PADDLE_SPEED }
+            if Keyboard.is_down(KeyboardKey.DOWN) { right_y = right_y + PADDLE_SPEED }
+
+            -- Clamp paddles to screen.
+            if left_y < 0 { left_y = 0 }
+            if left_y > SCREEN_H - PADDLE_H { left_y = SCREEN_H - PADDLE_H }
+            if right_y < 0 { right_y = 0 }
+            if right_y > SCREEN_H - PADDLE_H { right_y = SCREEN_H - PADDLE_H }
+
+            -- Ball update.
+            ball_x = ball_x + ball_vx
+            ball_y = ball_y + ball_vy
+
+            -- Top/bottom wall reflection.
+            if ball_y < 0 {
+                ball_y = 0
+                ball_vy = -ball_vy
+                if Sound.is_valid(bounce) { Sound.play(bounce) }
+            }
+            if ball_y > SCREEN_H - BALL_SIZE {
+                ball_y = SCREEN_H - BALL_SIZE
+                ball_vy = -ball_vy
+                if Sound.is_valid(bounce) { Sound.play(bounce) }
+            }
+
+            -- Left paddle collision (x range + y range).
+            if ball_x < PADDLE_W and ball_x > 0 {
+                if ball_y + BALL_SIZE > left_y and ball_y < left_y + PADDLE_H {
+                    ball_x = PADDLE_W
+                    ball_vx = -ball_vx
+                    if Sound.is_valid(bounce) { Sound.play(bounce) }
+                }
+            }
+            -- Right paddle collision.
+            if ball_x + BALL_SIZE > SCREEN_W - PADDLE_W and ball_x + BALL_SIZE < SCREEN_W {
+                if ball_y + BALL_SIZE > right_y and ball_y < right_y + PADDLE_H {
+                    ball_x = SCREEN_W - PADDLE_W - BALL_SIZE
+                    ball_vx = -ball_vx
+                    if Sound.is_valid(bounce) { Sound.play(bounce) }
+                }
+            }
+
+            -- Scoring: ball past a paddle → reset + bump opponent score.
+            if ball_x < 0 {
+                right_score = right_score + 1
+                ball_x = SCREEN_W / 2
+                ball_y = SCREEN_H / 2
+                ball_vx = BALL_SPEED
+                ball_vy = BALL_SPEED
+            }
+            if ball_x > SCREEN_W {
+                left_score = left_score + 1
+                ball_x = SCREEN_W / 2
+                ball_y = SCREEN_H / 2
+                ball_vx = -BALL_SPEED
+                ball_vy = BALL_SPEED
+            }
+
+            -- Win condition.
+            if left_score >= WIN_SCORE { state = GameState.GAME_OVER }
+            if right_score >= WIN_SCORE { state = GameState.GAME_OVER }
+        }
+        if state == GameState.GAME_OVER {
+            -- SPACE restarts: reset scores + respawn ball.
+            if Keyboard.is_pressed(KeyboardKey.SPACE) {
+                state = GameState.PLAYING
+                left_score = 0
+                right_score = 0
+                ball_x = SCREEN_W / 2
+                ball_y = SCREEN_H / 2
+                ball_vx = BALL_SPEED
+                ball_vy = BALL_SPEED
+            }
+        }
+
+        -- Render.
+        Draw.begin()
+        Draw.clear(BLACK)
+
+        -- Center line.
+        Draw.line(Int32(SCREEN_W / 2), Int32(0),
+                   Int32(SCREEN_W / 2), Int32(SCREEN_H), DARKGRAY)
+
+        -- Paddles.
+        Draw.rectangle(Int32(0), Int32(left_y),
+                        Int32(PADDLE_W), Int32(PADDLE_H), WHITE)
+        Draw.rectangle(Int32(SCREEN_W - PADDLE_W), Int32(right_y),
+                        Int32(PADDLE_W), Int32(PADDLE_H), WHITE)
+
+        -- Ball (only drawn in PLAYING + GAME_OVER to avoid flashing on title).
+        if state == GameState.PLAYING {
+            Draw.rectangle(Int32(ball_x), Int32(ball_y),
+                            Int32(BALL_SIZE), Int32(BALL_SIZE), WHITE)
+        }
+        if state == GameState.GAME_OVER {
+            Draw.rectangle(Int32(ball_x), Int32(ball_y),
+                            Int32(BALL_SIZE), Int32(BALL_SIZE), WHITE)
+        }
+
+        -- Scores.
+        val left_str = int_to_str(left_score)
+        val right_str = int_to_str(right_score)
+        Draw.text(left_str,  Int32(SCREEN_W / 4),     Int32(20), Int32(40), WHITE)
+        Draw.text(right_str, Int32(3 * SCREEN_W / 4), Int32(20), Int32(40), WHITE)
+
+        -- State-specific overlay text.
+        if state == GameState.TITLE {
+            Draw.text("IRON PONG",
+                       Int32(SCREEN_W / 2 - 100), Int32(SCREEN_H / 2 - 40),
+                       Int32(40), WHITE)
+            Draw.text("Press SPACE to start",
+                       Int32(SCREEN_W / 2 - 120), Int32(SCREEN_H / 2 + 20),
+                       Int32(20), DARKGRAY)
+        }
+        if state == GameState.GAME_OVER {
+            Draw.text("GAME OVER",
+                       Int32(SCREEN_W / 2 - 100), Int32(SCREEN_H / 2 - 40),
+                       Int32(40), RED)
+            Draw.text("Press SPACE to restart",
+                       Int32(SCREEN_W / 2 - 130), Int32(SCREEN_H / 2 + 20),
+                       Int32(20), DARKGRAY)
+        }
+
+        Draw.end()
     }
-    Draw.end()
 
-    -- PHASE 68: audio teardown — unload Sound first, then close device.
     Sound.unload(bounce)
     Audio.close()
     Window.close()
-
-    -- Keep the placeholder locals alive so the typechecker doesn't warn
-    -- about unused values (and so the compiler does not DCE them away,
-    -- which would make this file a silent no-op).
-    val _unused_0 = title
-    val _unused_1 = bg
-    val _unused_2 = fg
-    val _unused_3 = accent
-    val _unused_4 = divider
-    val _unused_5 = ball_origin
-    -- _unused_6..10 removed: start_key / left_up / left_down /
-    -- right_up / right_down are now consumed by the Keyboard.*
-    -- calls above (Plan 62-01).
-    val _unused_11 = initial_state
-    val _unused_12 = score_str
 }
