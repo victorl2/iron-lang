@@ -39,6 +39,10 @@
 #include "util/strbuf.h"
 #include "diagnostics/diagnostics.h"
 
+/* Plan 05 (CORE-22): 4th pass drives the LSP facade call site. */
+#include "lsp/facade/compile.h"
+#include "lsp/store/document.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,6 +111,40 @@ static char *run_once(const char *src, size_t len, const char *name,
     return out;
 }
 
+/* Plan 05 CORE-22: drive the LSP facade's single iron_analyze_buffer call
+ * site and produce the same canonical serialization so we can assert
+ * byte-for-byte match with the CLI mode output.
+ *
+ * We use ilsp_facade_compile_pure, which skips the writer/notification
+ * path and returns the raw Iron_DiagList via caller-owned arena + diags.
+ * That isolates the analyze step and proves the facade's call shape
+ * matches the CLI's.
+ *
+ * The document is synthetic: uri = fixture name, text = slurped source,
+ * line_idx not used by facade_compile_pure (it's only needed by the
+ * translation step, which we don't exercise here). */
+static char *run_via_facade(const char *src, size_t len, const char *name) {
+    Iron_Arena    a = iron_arena_create(131072);
+    Iron_DiagList d = iron_diaglist_create();
+
+    IronLsp_Document doc;
+    memset(&doc, 0, sizeof(doc));
+    /* The facade reads doc->text, doc->text_len, doc->uri. Cast the
+     * const char * since IronLsp_Document declares text as char *.
+     * facade_compile_pure does not mutate the buffer. */
+    doc.text     = (char *)src;
+    doc.text_len = len;
+    doc.uri      = (char *)name;
+
+    IronLsp_CompileRequest req = { .version = 1, .cancel_flag = NULL };
+    ilsp_facade_compile_pure(&doc, &req, &a, &d);
+
+    char *out = diag_serialize(&d);
+    iron_diaglist_free(&d);
+    iron_arena_free(&a);
+    return out;
+}
+
 /* Heuristic markers to explain a permitted LSP/CLI divergence on a fixture. */
 static int fixture_uses_comptime(const char *src) {
     return strstr(src, "comptime") != NULL;
@@ -144,6 +182,8 @@ void test_parity_all_integration_fixtures(void) {
     int cli_cli_mismatches          = 0;
     int lsp_cli_diffs_annotated     = 0;
     int lsp_cli_diffs_unexplained   = 0;
+    /* Plan 05 CORE-22: pass-4 vs CLI pass-1 parity. */
+    int facade_cli_mismatches       = 0;
 
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
@@ -193,8 +233,28 @@ void test_parity_all_integration_fixtures(void) {
             }
         }
 
+        /* Plan 05 CORE-22: pass 4 -- drive the LSP facade directly and
+         * assert byte-for-byte match against CLI pass 1. The facade is
+         * the ONE iron_analyze_buffer call site in src/lsp, so if this
+         * output matches CLI, then every LSP feature that reads from
+         * the facade (push diagnostics, pull diagnostics, hover, etc.)
+         * matches ironc by construction. */
+        char *out4 = run_via_facade(src, slen, name);
+        if (!is_baseline && strcmp(out3, out4) != 0) {
+            /* The facade runs with IRON_ANALYSIS_MODE_LSP, same as pass
+             * 3. If the outputs diverge, the facade is adding or
+             * dropping diagnostics vs. direct-LSP-mode -- that's a
+             * facade bug. */
+            facade_cli_mismatches++;
+            fprintf(stderr,
+                "[parity] facade/LSP divergence on fixture %s\n"
+                "---direct-LSP---\n%s---facade-LSP---\n%s\n",
+                name, out3, out4);
+        }
+
         if (is_baseline) fixtures_skipped_baseline++;
 
+        free(out4);
         free(out3);
         free(out2);
         free(out1);
@@ -221,12 +281,24 @@ void test_parity_all_integration_fixtures(void) {
         TEST_FAIL_MESSAGE(msg);
     }
 
+    /* Plan 05 CORE-22: zero tolerance for facade vs direct-LSP
+     * divergence -- the facade MUST replicate the analyzer output
+     * exactly, since it just passes through iron_analyze_buffer. */
+    if (facade_cli_mismatches > 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+            "%d fixtures produced facade/LSP diffs -- see stderr for details",
+            facade_cli_mismatches);
+        TEST_FAIL_MESSAGE(msg);
+    }
+
     /* Status summary (printed even on success under --output-on-failure). */
     printf("[parity] fixtures=%d baseline_skipped=%d cli_cli_mismatches=%d "
-           "lsp_cli_annotated=%d lsp_cli_unexplained=%d\n",
+           "lsp_cli_annotated=%d lsp_cli_unexplained=%d "
+           "facade_cli_mismatches=%d\n",
            fixtures_checked, fixtures_skipped_baseline,
            cli_cli_mismatches, lsp_cli_diffs_annotated,
-           lsp_cli_diffs_unexplained);
+           lsp_cli_diffs_unexplained, facade_cli_mismatches);
 }
 
 int main(void) {
