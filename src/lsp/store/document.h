@@ -23,16 +23,24 @@
  * thread (Plan 05 will add per-doc mailbox + worker thread). No locks
  * on the buffer in Plan 04. */
 
+#include <setjmp.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "lsp/store/line_index.h"
 #include "lsp/facade/types.h"   /* IronLsp_PositionEncoding, IronLsp_Range */
+#include "runtime/iron_runtime.h"  /* iron_thread_t */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Forward declaration: the per-document mailbox is Plan 05's coalescing
+ * message queue for the ASTWorker thread. Header lives in
+ * lsp/workers/mailbox.h. */
+struct IronLsp_Mailbox;
 
 typedef struct IronLsp_Document {
     char              *uri;          /* malloc'd copy of the client's URI. */
@@ -45,6 +53,22 @@ typedef struct IronLsp_Document {
     IronLsp_LineIndex  line_idx;     /* rebuilt on every edit. */
 
     uint8_t            sha256[32];   /* hash of text[0..text_len]. */
+
+    /* ── Plan 05 fields ───────────────────────────────────────────────── */
+    /* Per-document mailbox + worker thread. Owned by this document;
+     * created in ilsp_document_create_with_worker (or lazily by the
+     * handlers_document didOpen path) and torn down in destroy. */
+    struct IronLsp_Mailbox *mailbox;
+    iron_thread_t           worker_thread;
+    bool                    worker_started;
+
+    /* SIGABRT boundary: the ASTWorker does sigsetjmp(abort_jmp, 1) before
+     * each call into the facade; the SIGABRT handler siglongjmp's here
+     * if TLS ilsp_current_doc_tls points at this document. */
+    sigjmp_buf              abort_jmp;
+    uint32_t                abort_count;      /* number of SIGABRT strikes observed */
+    _Atomic bool            quarantined;      /* >=2 strikes -> true; worker skips compiles */
+    _Atomic bool            shutdown;         /* set by destroy before joining worker */
 } IronLsp_Document;
 
 /* Create a new document. Copies `text` into a fresh malloc'd buffer.

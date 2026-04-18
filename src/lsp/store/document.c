@@ -107,6 +107,15 @@ IronLsp_Document *ilsp_document_create(const char *uri,
 
     ilsp_sha256((const uint8_t *)doc->text, doc->text_len, doc->sha256);
 
+    /* Plan 05: worker + mailbox + SIGABRT boundary fields.
+     * calloc above zeroed everything; explicitly init the atomics to be
+     * portable across atomic_bool implementations that require atomic_init. */
+    doc->mailbox        = NULL;
+    doc->worker_started = false;
+    doc->abort_count    = 0;
+    atomic_init(&doc->quarantined, false);
+    atomic_init(&doc->shutdown,    false);
+
     return doc;
 }
 

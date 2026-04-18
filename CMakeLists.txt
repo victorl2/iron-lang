@@ -288,6 +288,14 @@ if(IRON_BUILD_LSP)
         src/lsp/store/sha256.c
         src/lsp/store/workspace.c
         src/lsp/server/handlers_document.c
+        # Phase 2 Plan 05: compilation pipeline (per-doc ASTWorker +
+        # coalescing mailbox + 250ms debounce + SIGABRT boundary +
+        # window/showMessage notifications + facade single call site).
+        src/lsp/workers/mailbox.c
+        src/lsp/workers/ast_worker.c
+        src/lsp/obs/abort_handler.c
+        src/lsp/server/notifications.c
+        src/lsp/facade/compile.c
         src/vendor/yyjson/yyjson.c
     )
     target_include_directories(ironls PRIVATE src src/vendor)

@@ -238,6 +238,81 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_lsp_watched_files PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
 
+    # ── Phase 2 Plan 05 (mailbox + ASTWorker + SIGABRT boundary) ──────────
+    # Source list for the Plan 05 tests that exercise the workers/ and
+    # obs/ subsystems. test_lsp_diagnostic_debounce defines its own stubs
+    # for ilsp_facade_compile + ilsp_facade_pull_diagnostic so it does
+    # NOT link src/lsp/facade/compile.c; test_lsp_sigabrt_boundary does
+    # link notifications.c (which is needed by ast_worker.c's strike
+    # helper).
+
+    # Task 01 Unity 1: coalescing mailbox (mailbox.c only, no threads).
+    add_executable(test_lsp_mailbox_coalesce test_lsp_mailbox_coalesce.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c)
+    target_include_directories(test_lsp_mailbox_coalesce PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lsp_mailbox_coalesce
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_mailbox_coalesce COMMAND test_lsp_mailbox_coalesce)
+    set_tests_properties(test_lsp_mailbox_coalesce PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # Task 01 Unity 2: debounce timing. Links ast_worker + mailbox; does
+    # NOT link facade/compile.c -- the test provides its own facade stubs
+    # as link-time overrides. notifications.c IS linked (the worker's
+    # abort branch calls ilsp_send_window_showmessage, which would emit
+    # to server->writer, but in this test server.writer is NULL so the
+    # helper is a no-op). store/document.c is linked because mailbox + a
+    # few test helpers touch IronLsp_Document fields.
+    add_executable(test_lsp_diagnostic_debounce test_lsp_diagnostic_debounce.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/ast_worker.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c
+        ${_LSP_PLAN04_STORE_SRC}
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    target_include_directories(test_lsp_diagnostic_debounce PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_diagnostic_debounce PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_diagnostic_debounce
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_diagnostic_debounce
+             COMMAND test_lsp_diagnostic_debounce)
+    set_tests_properties(test_lsp_diagnostic_debounce PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant"
+        TIMEOUT 30)
+
+    # Task 01 Unity 3: SIGABRT boundary + window/showMessage emission.
+    # Links everything needed to drive a real IronLsp_Writer backed by
+    # open_memstream and inspect the emitted window/showMessage JSON.
+    # Links facade/compile.c (stub or real -- symbol needs to exist).
+    add_executable(test_lsp_sigabrt_boundary test_lsp_sigabrt_boundary.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/ast_worker.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${_LSP_PLAN04_STORE_SRC}
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    target_include_directories(test_lsp_sigabrt_boundary PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_sigabrt_boundary PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_sigabrt_boundary
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_sigabrt_boundary COMMAND test_lsp_sigabrt_boundary)
+    set_tests_properties(test_lsp_sigabrt_boundary PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant"
+        TIMEOUT 30)
+
     # The yyjson vendor TU must survive the repo-global -Werror strictness.
     # One set_source_files_properties entry covers every test above that
     # compiles yyjson.c directly (directory-scoped property).

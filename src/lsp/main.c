@@ -20,6 +20,7 @@
 #include "lsp/server/dyn_register.h"
 #include "lsp/transport/writer.h"
 #include "lsp/facade/types.h"
+#include "lsp/obs/abort_handler.h"   /* Phase 2 Plan 05: SIGABRT boundary */
 
 #ifndef IRON_VERSION_STRING
 #define IRON_VERSION_STRING "0.0.0"
@@ -66,7 +67,14 @@ int main(int argc, char **argv) {
     server.position_encoding = ILSP_ENC_UTF16;
     server.documents         = NULL;   /* lazy sh_new_strdup on first didOpen */
     server.workspace_root    = NULL;
+    server.workers           = NULL;   /* Plan 05: per-doc workers live on IronLsp_Document */
     atomic_store(&server.next_request_id, 1);
+
+    /* Plan 05 CORE-18: install the SIGABRT boundary handler before any
+     * ASTWorker thread starts, so a crash inside iron_analyze_buffer
+     * siglongjmp's into the worker's per-doc jmp_buf rather than
+     * terminating the whole LSP process. */
+    ilsp_install_abort_handler();
 
     fprintf(stderr,
             "%s: dispatcher loaded (%zu handlers)\n",
