@@ -311,6 +311,15 @@ if(IRON_BUILD_LSP)
         # src/pkg/resolver.c.
         src/lsp/store/workspace_index.c
         src/lsp/store/stdlib_cache.c
+        src/lsp/store/dep_map.c
+        # Phase 3 Plan 02 Task 03: dep_map.c links src/pkg/resolver.c as
+        # library code (no subprocess).  Pull in the resolver's transitive
+        # dependencies (fetcher, lockfile, toml) so ironls can resolve
+        # iron.toml deps in-process.
+        src/pkg/resolver.c
+        src/pkg/fetcher.c
+        src/pkg/lockfile.c
+        src/cli/toml.c
         # Phase 2 Plan 06: observability (XDG JSON-line log sink,
         # in-memory trace histogram) used by main.c + transport threads.
         src/lsp/obs/log.c
