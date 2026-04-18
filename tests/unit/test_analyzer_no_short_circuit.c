@@ -45,11 +45,20 @@ void test_both_resolve_and_typecheck_errors_reported(void) {
         IRON_ANALYSIS_MODE_CLI,
         &arena, &diags, NULL);
     (void)r;
-    /* Both error codes expected to appear in the diag list. */
+    /* Both error codes expected to appear in the diag list.
+     *
+     * Phase 4 Plan 04-01 (EDIT-07): the literal-position RHS (String "hello"
+     * bound to Int annotation) now narrows to IRON_ERR_TYPE_MISMATCH_LITERAL
+     * (code 235). Accept either 202 or 235 as evidence that the typecheck
+     * pass ran — HARD-03 only requires that SOME type-error diagnostic
+     * be produced, not a specific code. */
     int saw_undefined = 0, saw_type_mismatch = 0;
     for (int i = 0; i < diags.count; i++) {
         if (diags.items[i].code == IRON_ERR_UNDEFINED_VAR) saw_undefined = 1;
-        if (diags.items[i].code == IRON_ERR_TYPE_MISMATCH) saw_type_mismatch = 1;
+        if (diags.items[i].code == IRON_ERR_TYPE_MISMATCH ||
+            diags.items[i].code == IRON_ERR_TYPE_MISMATCH_LITERAL) {
+            saw_type_mismatch = 1;
+        }
     }
     TEST_ASSERT_TRUE_MESSAGE(saw_undefined,
         "resolve pass must emit undefined-var diagnostic");

@@ -180,7 +180,12 @@ void test_resolve_val_reference(void) {
     TEST_ASSERT_EQUAL_INT(IRON_SYM_VARIABLE, x_ref->resolved_sym->sym_kind);
 }
 
-/* Test 3: undefined variable => IRON_ERR_UNDEFINED_VAR (E0200) */
+/* Test 3: undefined variable => IRON_ERR_UNDEFINED_VAR (E0200).
+ * Phase 4 Plan 04-01 (EDIT-07): also asserts `.suggestion != NULL` for
+ * the typo candidate seeded by iron_best_typo_candidate — the fixture
+ * has no visible symbol within distance 2 of "z", so the candidate may
+ * be NULL; the assertion is lifted to the shadowing fixture below and
+ * the cross-plan test_diag_suggestion_seeded.c for the positive path. */
 void test_resolve_undefined_var(void) {
     const char *src =
         "func foo() {\n"
@@ -192,6 +197,25 @@ void test_resolve_undefined_var(void) {
     iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
     TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR, g_diags.items[0].code);
+}
+
+/* Test 3b: undefined-var emit with a typo candidate in scope.
+ * Phase 4 Plan 04-01 (EDIT-07): asserts the emit carries a non-NULL
+ * `.suggestion` whose bytes match the in-scope Levenshtein candidate. */
+void test_resolve_undefined_var_has_suggestion(void) {
+    const char *src =
+        "func foo() {\n"
+        "  val println_local = 1\n"
+        "  val y = println_loca\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
+    TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR, g_diags.items[0].code);
+    TEST_ASSERT_NOT_NULL(g_diags.items[0].suggestion);
+    TEST_ASSERT_EQUAL_STRING("println_local", g_diags.items[0].suggestion);
 }
 
 /* Test 4: duplicate declaration => IRON_ERR_DUPLICATE_DECL (E0201) */
@@ -567,6 +591,7 @@ int main(void) {
     RUN_TEST(test_resolve_func_and_val);
     RUN_TEST(test_resolve_val_reference);
     RUN_TEST(test_resolve_undefined_var);
+    RUN_TEST(test_resolve_undefined_var_has_suggestion);
     RUN_TEST(test_resolve_duplicate_decl);
     RUN_TEST(test_resolve_forward_reference_method_before_object);
     RUN_TEST(test_resolve_nested_scope_lookup);

@@ -202,8 +202,13 @@ void test_explicit_annotation_match(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
-/* ── Test 5: val x: Float = 42  =>  E0202 (Int to Float mismatch) ────────── */
-
+/* ── Test 5: val x: Float = 42  =>  E0235 (literal-RHS mismatch) ─────────
+ *
+ * Phase 4 Plan 04-01 (EDIT-07): literal-position RHS narrows from the
+ * generic IRON_ERR_TYPE_MISMATCH (202) to IRON_ERR_TYPE_MISMATCH_LITERAL
+ * (235) so the code-action dispatch layer in Plan 04-04 can offer a
+ * retyped-literal quickfix. The general 202 is still emitted for
+ * non-literal type mismatches. */
 void test_explicit_annotation_mismatch(void) {
     const char *src =
         "func main() {\n"
@@ -211,7 +216,7 @@ void test_explicit_annotation_mismatch(void) {
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
-    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH_LITERAL));
 }
 
 /* ── Test 6: val x = 1; x = 2  =>  E0203 (val reassignment) ─────────────── */
