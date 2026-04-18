@@ -2982,3 +2982,30 @@ func Files.is_file(path: String) -> Bool {}                  -- IsPathFile
 func Files.is_valid_name(path: String) -> Bool {}
 func Files.mod_time(path: String) -> Int64 {}
 func Files.make_directory(path: String) -> Int32 {}
+
+-- FILE-04: Directory listing (3 entries — extends Phase 62 FilePathList type)
+-- list / list_ex return FilePathList by value (struct-by-value RETURN, Phase 62 precedent).
+-- unload_list is EXPLICIT — FilePathList has interior pointers; no auto-free.
+-- Iterate via existing Phase 62 accessors: FilePathList.count(list), FilePathList.get(list, i).
+-- Pitfall 7: list_ex filter must be dot-prefixed (e.g. ".png"); empty string matches all.
+func Files.list(path: String) -> FilePathList {}
+func Files.list_ex(path: String, filter: String, scan_subdirs: Bool) -> FilePathList {}
+func Files.unload_list(list: FilePathList) {}
+
+-- FILE-05: Data utilities (7 entries)
+-- Memory ownership:
+--   compress / decompress / decode_base64: raylib RL_MALLOC → shim memcpy + MemFree.
+--   encode_base64: raylib RL_MALLOC char* → Iron_String (iron_string_from_cstr + MemFree).
+--   compute_crc32: scalar return, no allocation.
+--   compute_md5 / compute_sha1: raylib STATIC BUFFER → shim memcpy ONLY; DO NOT FREE.
+-- Hash sizes:
+--   md5  -> [UInt8] count=16 (RFC 1321; "abc" = 900150983cd24fb0d6963f7d28e17f72).
+--   sha1 -> [UInt8] count=20 (FIPS 180; "abc" = a9993e364706816aba3e25717850c26c9cd0d89d).
+--   crc32 -> UInt32 (ISO 3309; "123456789" = 0xcbf43926).
+func Files.compress(data: [UInt8]) -> [UInt8] {}
+func Files.decompress(data: [UInt8]) -> [UInt8] {}
+func Files.encode_base64(data: [UInt8]) -> String {}
+func Files.decode_base64(b64: String) -> [UInt8] {}
+func Files.compute_crc32(data: [UInt8]) -> UInt32 {}
+func Files.compute_md5(data: [UInt8]) -> [UInt8] {}
+func Files.compute_sha1(data: [UInt8]) -> [UInt8] {}
