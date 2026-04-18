@@ -2742,3 +2742,43 @@ func Draw.sphere_ex(center: Vector3, radius: Float32,
                     rings: Int32, slices: Int32, color: Color) {}
 func Draw.sphere_wires(center: Vector3, radius: Float32,
                        rings: Int32, slices: Int32, color: Color) {}
+
+-- ── DRAW3D-04: 3D primitives batch 2 — raylib.h:1538-1546 ───────────
+--
+-- Closes DRAW3D-04 at 21/21. Cylinder 4 variants + capsule 2 variants +
+-- plane + ray + grid. Every primitive matches raylib's C-side name 1:1
+-- with snake_case normalization.
+--
+-- Pitfall 4 (Draw.plane size type): raylib's DrawPlane takes a Vector2
+-- size (X=width, Z=depth); the plane is fixed XZ-oriented. NEVER write
+-- size: Vector3 here.
+-- Pitfall 6 (Draw.grid has no Color): raylib draws the grid in its
+-- built-in gray; no Color parameter.
+-- First Ray-by-value INPUT across the FFI (Draw.ray) — 24 B struct,
+-- pinned layout from Phase 60-05.
+
+-- Cylinder (4 variants: position+radii / start-end-radii / wires / wires-ex)
+func Draw.cylinder(position: Vector3, radius_top: Float32, radius_bottom: Float32,
+                   height: Float32, slices: Int32, color: Color) {}
+func Draw.cylinder_ex(start: Vector3, end: Vector3,
+                      start_radius: Float32, end_radius: Float32,
+                      sides: Int32, color: Color) {}
+func Draw.cylinder_wires(position: Vector3, radius_top: Float32, radius_bottom: Float32,
+                         height: Float32, slices: Int32, color: Color) {}
+func Draw.cylinder_wires_ex(start: Vector3, end: Vector3,
+                            start_radius: Float32, end_radius: Float32,
+                            sides: Int32, color: Color) {}
+
+-- Capsule (2 variants: solid + wires)
+func Draw.capsule(start: Vector3, end: Vector3, radius: Float32,
+                  slices: Int32, rings: Int32, color: Color) {}
+func Draw.capsule_wires(start: Vector3, end: Vector3, radius: Float32,
+                        slices: Int32, rings: Int32, color: Color) {}
+
+-- Plane / Ray / Grid — 1:1 with raylib, no sugar
+-- size is Vector2 (X=width, Z=depth); plane is fixed XZ-oriented (Pitfall 4).
+func Draw.plane(center: Vector3, size: Vector2, color: Color) {}
+-- First Ray-by-value INPUT — 24 B struct, pinned layout from Phase 60-05.
+func Draw.ray(ray: Ray, color: Color) {}
+-- DrawGrid draws with raylib's built-in gray; NO Color override (Pitfall 6).
+func Draw.grid(slices: Int32, spacing: Float32) {}
