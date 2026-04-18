@@ -72,11 +72,15 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         return;
     }
 
-    /* diagnosticProvider expects { interFileDependencies: bool, workspaceDiagnostics: bool }. */
+    /* diagnosticProvider expects { interFileDependencies: bool, workspaceDiagnostics: bool }.
+     * Plan 06 (NAV-12, NAV-13, D-12): workspaceDiagnostics flipped from
+     * false to true; the workspace/diagnostic pull handler is registered
+     * in dispatch.c and the workspace/diagnostic/refresh notification is
+     * emitted on non-open-file invalidation in handlers_document.c. */
     if (strcmp(name, "diagnosticProvider") == 0) {
         yyjson_mut_val *dp = yyjson_mut_obj(d);
         yyjson_mut_obj_add_bool(d, dp, "interFileDependencies", false);
-        yyjson_mut_obj_add_bool(d, dp, "workspaceDiagnostics",  false);
+        yyjson_mut_obj_add_bool(d, dp, "workspaceDiagnostics",  true);
         yyjson_mut_obj_add_val (d, caps, name, dp);
         return;
     }

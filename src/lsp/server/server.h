@@ -34,6 +34,7 @@ typedef struct IronLsp_DynRegister    IronLsp_DynRegister;
 typedef struct IronLsp_Document       IronLsp_Document;   /* Plan 04 */
 typedef struct IronLsp_WorkerPool     IronLsp_WorkerPool; /* Plan 05 */
 typedef struct IronLsp_WorkspaceIndex IronLsp_WorkspaceIndex; /* Phase 3 Plan 02 */
+typedef struct IronLsp_WsDiagCache    IronLsp_WsDiagCache;    /* Phase 3 Plan 06 */
 
 /* Compile-time shared server state. Singleton; owned by main.c (Plan 06);
  * mutated ONLY before transport threads start and AFTER they join. */
@@ -71,6 +72,13 @@ typedef struct IronLsp_Server {
      * detached thread after `initialized`; destroyed in main.c teardown.
      * NULL until `initialize` resolves a workspace root. */
     IronLsp_WorkspaceIndex   *workspace_index;
+
+    /* Phase 3 Plan 06 (NAV-12, D-12): workspace/diagnostic per-file cache.
+     * Created alongside workspace_index in handlers_lifecycle.c;
+     * destroyed in main.c teardown. NULL until workspace_index is
+     * created. Keyed on canonical_path; LRU=200; resultId embeds the
+     * monotonic workspace_version counter for client correlation. */
+    IronLsp_WsDiagCache      *ws_diag_cache;
 
     /* Atomic request-id counter for server-originated requests
      * (e.g., client/registerCapability from the dyn-register subsystem). */

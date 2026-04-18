@@ -127,7 +127,13 @@ if(IRON_BUILD_LSP)
         # + the aggregator's ilsp_iface_ws_* symbols used by workspace_index.c.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/iface_workspace.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/implementation.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/type_hierarchy.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/type_hierarchy.c
+        # Phase 3 Plan 06: workspace/diagnostic facade + handler + refresh.
+        # dispatch.c now references ilsp_handle_workspace_diagnostic and
+        # handlers_document.c calls ilsp_send_workspace_diagnostic_refresh
+        # + ilsp_ws_diag_cache_evict_path.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/workspace_diagnostic.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_workspace_diag.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -435,12 +441,16 @@ if(IRON_BUILD_LSP)
     # real assertions one test at a time; when a stub flips to real, the
     # target's source list is extended below to pull in the TUs under test.
     # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
+    #
+    # Plan 06 final flip: test_workspace_diagnostic now has a real target
+    # further below; all prior stubs have likewise been flipped.
+    # _PHASE3_WAVE0_STUBS is intentionally empty at Phase-3 close.
     set(_PHASE3_WAVE0_STUBS
         # Plan 04 flipped: test_nav_references, test_hover_formatter,
         # test_signature_help now have real targets further below.
-        # Plan 05 flipped: test_iface_workspace + test_type_hierarchy
-        # now have real targets further below.
-        test_workspace_diagnostic)
+        # Plan 05 flipped: test_iface_workspace + test_type_hierarchy.
+        # Plan 06 flipped: test_workspace_diagnostic.
+        )
     foreach(_stub IN LISTS _PHASE3_WAVE0_STUBS)
         add_executable(${_stub} ${_stub}.c)
         target_include_directories(${_stub} PRIVATE
@@ -650,6 +660,12 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/iface_workspace.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/implementation.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/type_hierarchy.c
+        # Phase 3 Plan 06: workspace/diagnostic facade + handler.
+        # handlers_workspace_diag.c calls ilsp_cancel_register so cancel.c
+        # is required in the link set.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/workspace_diagnostic.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_workspace_diag.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/cancel.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
@@ -783,6 +799,38 @@ if(IRON_BUILD_LSP)
         iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_type_hierarchy COMMAND test_type_hierarchy)
     set_tests_properties(test_type_hierarchy PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    # ── Phase 3 Plan 06: workspace/diagnostic facade + refresh push ──────
+    # Flipped from Wave 0 stub: exercises the cache (hit/miss/evict),
+    # the 2 s budget loop termination, and the refresh-notification
+    # emitter. Full NAV facade stack is linked so the facade entry can
+    # run real analyses against in-memory fixtures.
+    # capabilities.c is additionally linked because Test 07 verifies
+    # diagnosticProvider.workspaceDiagnostics == true.
+    add_executable(test_workspace_diagnostic test_workspace_diagnostic.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC}
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/capabilities.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/dispatch.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/lifecycle.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/dyn_register.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_lifecycle.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_nav.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/ast_worker.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c)
+    target_include_directories(test_workspace_diagnostic PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_workspace_diagnostic PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_workspace_diagnostic
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_workspace_diagnostic COMMAND test_workspace_diagnostic)
+    set_tests_properties(test_workspace_diagnostic PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
