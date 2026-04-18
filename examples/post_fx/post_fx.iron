@@ -1,0 +1,133 @@
+-- examples/post_fx/post_fx.iron
+-- Phase 71 — Post-FX pipeline showcase. Demonstrates Iron's shader
+-- binding end-to-end: 3D scene -> RenderTexture -> grayscale/invert
+-- post-FX -> display. SPACE key toggles between grayscale and invert
+-- shaders (demonstrates SHADER-03 interactive uniform setting).
+--
+-- Invocation: ./build/ironc build examples/post_fx/post_fx.iron
+--             ./post_fx            (run from repo root for asset resolution)
+-- Expected:   window opens, orbital camera rotates around a cube loaded
+--             from tests/assets/models/cube.obj (falls back to procedural
+--             Mesh.cube if asset unavailable), grayscale post-FX applied
+--             by default; SPACE swaps to invert.fs with u_intensity = 1.0
+--             (full invert); ESC / window close exits cleanly.
+--
+-- Asset resolution: loads cube.obj + grayscale.fs + invert.fs relative
+-- to the binary's working directory. Model falls back to procedural
+-- cube if Model.is_valid returns false; shaders fall back to raylib
+-- default internally if load fails (is_valid check emits warning).
+--
+-- Closes Phase 71 milestone claim "Iron builds post-processing
+-- pipelines". Canonical template: examples/model_viewer/model_viewer.iron
+-- (Phase 70-04) + shader composition from Plan 71-02 smoke.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(800), Int32(600), "Post-FX — Iron + raylib")
+    Window.set_target_fps(Int32(60))
+
+    -- Offscreen render target for 3D scene
+    val rt = RenderTexture.load(Int32(800), Int32(600))
+
+    -- Load both shaders at startup. Empty VS string uses raylib's default
+    -- vertex stage (a full-screen quad shader for post-FX) — see
+    -- rcore.c:1302-1303 + Phase 71 CONTEXT.md.
+    val fx_grayscale = Shader.load("", "tests/assets/shaders/grayscale.fs")
+    val fx_invert    = Shader.load("", "tests/assets/shaders/invert.fs")
+
+    -- Resolve invert.fs's u_intensity uniform (set per-frame when active).
+    val loc_intensity = Shader.get_location(fx_invert, "u_intensity")
+
+    -- Load 3D scene model. Phase 70-04 cube.obj with procedural fallback
+    -- (Model.is_valid guard mirrors examples/model_viewer pattern).
+    val loaded = Model.load("tests/assets/models/cube.obj")
+    val loaded_ok = Model.is_valid(loaded)
+    var model = loaded
+    if not loaded_ok {
+        print("cube.obj failed to load; falling back to Mesh.cube")
+        model = Model.from_mesh(Mesh.cube(Float32(2.0), Float32(2.0), Float32(2.0)))
+    }
+
+    -- Orbital camera. Int32(0) for CameraProjection.PERSPECTIVE per
+    -- Phase 69-04 Rule-3 fix.
+    var cam = Camera3D(
+        Vector3(Float32(4.0), Float32(4.0), Float32(4.0)),
+        Vector3(Float32(0.0), Float32(0.0), Float32(0.0)),
+        Vector3(Float32(0.0), Float32(1.0), Float32(0.0)),
+        Float32(45.0),
+        Int32(0)
+    )
+
+    -- State: 0 = grayscale, 1 = invert. Toggled on SPACE press.
+    var current_fx = Int32(0)
+
+    -- u_intensity byte buffer — fixed at 1.0 (full invert) for showcase
+    -- simplicity. Float32(1.0) IEEE-754 LE = 0x3F800000 =
+    -- [0x00, 0x00, 0x80, 0x3F].
+    val intensity_bytes: [UInt8] = [UInt8(0), UInt8(0), UInt8(128), UInt8(63)]
+
+    val origin = Vector3(Float32(0.0), Float32(0.0), Float32(0.0))
+
+    while not Window.should_close() {
+        -- Orbital camera update (Phase 69 CameraMode.ORBITAL)
+        cam = Camera3D.update(cam, CameraMode.ORBITAL)
+
+        -- SPACE key toggles between shaders
+        if Keyboard.is_pressed(KeyboardKey.SPACE) {
+            if current_fx == Int32(0) {
+                current_fx = Int32(1)
+            } else {
+                current_fx = Int32(0)
+            }
+        }
+
+        -- Set u_intensity on invert shader every frame (demonstrates
+        -- SHADER-03 set_value .float interactively). raylib no-ops if
+        -- loc_intensity == -1.
+        if loc_intensity >= Int32(0) {
+            Shader.set_value(fx_invert, loc_intensity, intensity_bytes, ShaderUniformDataType.FLOAT)
+        }
+
+        -- Pass 1: render 3D scene into offscreen RenderTexture
+        Draw.begin_texture_mode(rt)
+        Draw.clear(RAYWHITE)
+        Draw.begin_mode_3d(cam)
+        Model.draw(model, origin, Float32(1.0), WHITE)
+        Draw.end_mode_3d()
+        Draw.end_texture_mode()
+
+        -- Pass 2: draw RenderTexture through selected post-FX shader
+        Draw.begin()
+        Draw.clear(BLACK)
+
+        -- Select shader (no if-expression in Iron per Phase 70-04;
+        -- use var + if statement form).
+        var active_shader = fx_grayscale
+        if current_fx == Int32(1) {
+            active_shader = fx_invert
+        }
+
+        Draw.begin_shader_mode(active_shader)
+        -- Y-flip via negative-height Rectangle (Pitfall 6 — OpenGL
+        -- RenderTexture origin is bottom-left).
+        Texture.draw_rec(
+            rt.texture,
+            Rectangle(Float32(0.0), Float32(0.0), Float32(800.0), Float32(-600.0)),
+            Vector2(Float32(0.0), Float32(0.0)),
+            WHITE
+        )
+        Draw.end_shader_mode()
+
+        Draw.end()
+    }
+
+    -- Cleanup
+    Shader.unload(fx_grayscale)
+    Shader.unload(fx_invert)
+    RenderTexture.unload(rt)
+    Model.unload(model)
+    Window.close()
+
+    return Int32(0)
+}
