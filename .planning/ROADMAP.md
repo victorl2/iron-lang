@@ -381,7 +381,7 @@ Plans:
 | 67. Text & Fonts | 4/4 | Complete    | 2026-04-17 |
 | 68. Audio System | 5/5 | Complete    | 2026-04-17 |
 | 69. 3D Drawing & Camera3D | 4/4 | Complete    | 2026-04-18 |
-| 70. Models, Meshes, Materials | 2/4 | In Progress | - |
+| 70. Models, Meshes, Materials | 3/4 | In Progress|  |
 | 71. Shaders | 0/? | Not started | - |
 | 72. File I/O & Utilities | 0/? | Not started | - |
 | 73. Idiomatic API Polish & Showcase | 0/? | Not started | - |
