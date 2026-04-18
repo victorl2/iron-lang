@@ -12,11 +12,13 @@
  * in-flight responses before a clean shutdown. */
 #include "lsp/transport/reader.h"
 
+#include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>  /* read(2) */
 
 #include "runtime/iron_runtime.h"  /* IRON_THREAD_* */
 #include "lsp/transport/frame.h"
@@ -56,17 +58,47 @@ static void reader_pump_remaining(IronLsp_Reader *r) {
     }
 }
 
+/* Read up to `cap` bytes into `chunk` from the reader's source. Returns
+ * >0 byte count on success, 0 on EOF, -1 on error.
+ *
+ * Implementation note (Plan 06): `fread(chunk, 1, cap, FILE*)` BLOCKS
+ * on a blocking FILE* until it has accumulated `cap` bytes OR hits
+ * EOF/error -- that's fine for an fmemopen'd buffer (EOF arrives
+ * immediately) but catastrophic on a real pipe: the LSP client writes
+ * ~300 bytes per request, fread asks for 4096, and the thread sits
+ * forever. We take the underlying fd and call read(2) directly which
+ * returns as soon as any bytes arrive; fmemopen/open_memstream
+ * streams don't expose a valid fd from fileno(), so we fall back to
+ * fread in that case. */
+static ssize_t reader_pull(IronLsp_Reader *r, char *chunk, size_t cap) {
+    int fd = fileno(r->source);
+    if (fd >= 0) {
+        ssize_t rn;
+        do {
+            rn = read(fd, chunk, cap);
+        } while (rn < 0 && errno == EINTR);
+        return rn;
+    }
+    /* In-memory FILE*: cheat via fread -- fmemopen/open_memstream hit
+     * EOF once the internal buffer is drained, so fread will not block. */
+    size_t fn = fread(chunk, 1, cap, r->source);
+    if (fn > 0) return (ssize_t)fn;
+    if (feof(r->source))   return 0;
+    if (ferror(r->source)) return -1;
+    return 0;
+}
+
 static void *reader_thread_main(void *arg) {
     IronLsp_Reader *r = (IronLsp_Reader *)arg;
     char chunk[ILSP_READER_CHUNK_SIZE];
 
     while (!atomic_load(&r->shutdown)) {
-        size_t n = fread(chunk, 1, sizeof(chunk), r->source);
+        ssize_t n = reader_pull(r, chunk, sizeof(chunk));
         if (n > 0) {
             const char *body = NULL;
             size_t len = 0;
             IronLsp_FrameResult fr =
-                ilsp_frame_feed(&r->parser, chunk, n, &body, &len);
+                ilsp_frame_feed(&r->parser, chunk, (size_t)n, &body, &len);
             if (fr == ILSP_FRAME_RESULT_COMPLETE) {
                 if (r->on_message) r->on_message(r->ctx, body, len);
                 ilsp_frame_consume(&r->parser);
@@ -79,27 +111,21 @@ static void *reader_thread_main(void *arg) {
                 atomic_store(&r->shutdown, true);
                 break;
             }
+            continue;
         }
-        if (n < sizeof(chunk)) {
-            /* Short read: either EOF, error, or non-blocking would-block.
-             * For a blocking FILE* (stdin, fmemopen), feof/ferror are the
-             * definitive signals. Plan 06 (CORE-19): EOF on stdin means
-             * the parent editor closed our input, so we flip the shutdown
-             * flag and exit -- main.c will then join writer + workers
-             * and exit with status 0. */
-            if (feof(r->source)) {
-                ilsp_log(ILSP_LOG_INFO, "reader-eof",
-                         "stdin closed; initiating shutdown");
-                atomic_store(&r->shutdown, true);
-                break;
-            }
-            if (ferror(r->source)) {
-                ilsp_log(ILSP_LOG_ERROR, "reader-error",
-                         "stdin read error; initiating shutdown");
-                atomic_store(&r->shutdown, true);
-                break;
-            }
+        /* n <= 0: Plan 06 (CORE-19). EOF on stdin means the parent
+         * editor closed our input; main.c joins writer + workers and
+         * exits. A real read error (-1) is handled the same way. */
+        if (n == 0) {
+            ilsp_log(ILSP_LOG_INFO, "reader-eof",
+                     "stdin closed; initiating shutdown");
+        } else {
+            ilsp_log(ILSP_LOG_ERROR, "reader-error",
+                     "stdin read error (errno=%d); initiating shutdown",
+                     errno);
         }
+        atomic_store(&r->shutdown, true);
+        break;
     }
     return NULL;
 }
