@@ -155,6 +155,51 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_lsp_cancel_request_e2e PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
 
+    # ── Phase 2 Plan 04 (document store + UTF + SHA-256 + watched files) ────
+    # Shared source lists so each test executable re-uses the same compile
+    # artifacts. Plan 04 extends Plan 03's server source set with the new
+    # store/ subsystem + handlers_document.c.
+    set(_LSP_PLAN04_STORE_SRC
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace.c)
+
+    # Task 01a: UTF math (8 RUN_TESTs across 6 scenarios)
+    add_executable(test_lsp_utf_translation test_lsp_utf_translation.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c)
+    target_include_directories(test_lsp_utf_translation PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lsp_utf_translation iron_compiler iron_runtime unity)
+    add_test(NAME test_lsp_utf_translation COMMAND test_lsp_utf_translation)
+    set_tests_properties(test_lsp_utf_translation PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # Task 01b: line_starts[] index (6 RUN_TESTs)
+    # stb_ds_impl.c is provided by iron_runtime -- link, don't compile twice.
+    add_executable(test_lsp_line_starts_index test_lsp_line_starts_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c)
+    target_include_directories(test_lsp_line_starts_index PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lsp_line_starts_index iron_compiler iron_runtime unity)
+    add_test(NAME test_lsp_line_starts_index COMMAND test_lsp_line_starts_index)
+    set_tests_properties(test_lsp_line_starts_index PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # Task 01c: SHA-256 known-vector test (4 RUN_TESTs)
+    add_executable(test_lsp_sync_integrity_hash test_lsp_sync_integrity_hash.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c)
+    target_include_directories(test_lsp_sync_integrity_hash PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lsp_sync_integrity_hash iron_compiler iron_runtime unity)
+    add_test(NAME test_lsp_sync_integrity_hash COMMAND test_lsp_sync_integrity_hash)
+    set_tests_properties(test_lsp_sync_integrity_hash PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
     # The yyjson vendor TU must survive the repo-global -Werror strictness.
     # One set_source_files_properties entry covers every test above that
     # compiles yyjson.c directly (directory-scoped property).
