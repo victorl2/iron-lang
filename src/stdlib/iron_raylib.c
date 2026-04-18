@@ -5324,6 +5324,139 @@ struct Iron_Matrix Iron_camera3d_matrix(struct Iron_Camera3D camera) {
     return out;
 }
 
+/* DRAW3D-04 batch 1: line / point / circle / triangle / triangle-strip
+ * / cube (4 variants) / sphere (3 variants) — raylib.h:1526-1537.
+ *
+ * Every shim is a direct variant of Phase 63 Template F (Vector-in +
+ * Color). The [Vector3] array shim for triangle_strip_3d reuses the
+ * Phase 63-04 Branch B pattern (iron_raylib.c:941-951) with
+ * element-type substitution Vector2 -> Vector3. The Iron_List_Iron_Vector3
+ * typedef lives in iron_raylib.h under the IRON_LIST_IRON_VECTOR3_STRUCT_
+ * DEFINED guard (mirrors the Vector2 precedent at iron_raylib.h:604-611).
+ *
+ * Pitfall 3: radius / width / height / length / rotation_angle arrive
+ * as `float` from ironc (emit_type_to_c lowers Float32 -> "float").
+ * Pitfall 5: rings / slices / sides arrive as int32_t; cast to raylib's
+ * `int` at the FFI boundary.
+ */
+
+void Iron_draw_line_3d(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                       struct Iron_Color color) {
+    Vector3 s, e;
+    Color c;
+    memcpy(&s, &start, sizeof(Vector3));
+    memcpy(&e, &end,   sizeof(Vector3));
+    memcpy(&c, &color, sizeof(Color));
+    DrawLine3D(s, e, c);
+}
+
+void Iron_draw_point_3d(struct Iron_Vector3 position, struct Iron_Color color) {
+    Vector3 p;
+    Color   c;
+    memcpy(&p, &position, sizeof(Vector3));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawPoint3D(p, c);
+}
+
+void Iron_draw_circle_3d(struct Iron_Vector3 center, float radius,
+                         struct Iron_Vector3 rotation_axis, float rotation_angle,
+                         struct Iron_Color color) {
+    Vector3 ctr, ax;
+    Color   c;
+    memcpy(&ctr, &center,        sizeof(Vector3));
+    memcpy(&ax,  &rotation_axis, sizeof(Vector3));
+    memcpy(&c,   &color,         sizeof(Color));
+    DrawCircle3D(ctr, radius, ax, rotation_angle, c);
+}
+
+void Iron_draw_triangle_3d(struct Iron_Vector3 v1, struct Iron_Vector3 v2,
+                           struct Iron_Vector3 v3, struct Iron_Color color) {
+    Vector3 a, b, d;
+    Color   c;
+    memcpy(&a, &v1,    sizeof(Vector3));
+    memcpy(&b, &v2,    sizeof(Vector3));
+    memcpy(&d, &v3,    sizeof(Vector3));
+    memcpy(&c, &color, sizeof(Color));
+    DrawTriangle3D(a, b, d, c);
+}
+
+/* First [Vector3] array input across the FFI. Iron_List_Iron_Vector3 is
+ * defined in iron_raylib.h above the DRAW3D-04 prototypes, under the
+ * IRON_LIST_IRON_VECTOR3_STRUCT_DEFINED guard. Vector3 layout is pinned
+ * byte-identical by Phase 60-02 _Static_assert grid, so the reinterpret
+ * of points.items to `const Vector3 *` is safe. */
+void Iron_draw_triangle_strip_3d(Iron_List_Iron_Vector3 points,
+                                 int32_t count, struct Iron_Color color) {
+    Color c;
+    memcpy(&c, &color, sizeof(Color));
+    DrawTriangleStrip3D((const Vector3 *)points.items, (int)count, c);
+}
+
+void Iron_draw_cube(struct Iron_Vector3 position, float width, float height,
+                    float length, struct Iron_Color color) {
+    Vector3 p;
+    Color   c;
+    memcpy(&p, &position, sizeof(Vector3));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawCube(p, width, height, length, c);
+}
+
+void Iron_draw_cube_v(struct Iron_Vector3 position, struct Iron_Vector3 size,
+                      struct Iron_Color color) {
+    Vector3 p, s;
+    Color   c;
+    memcpy(&p, &position, sizeof(Vector3));
+    memcpy(&s, &size,     sizeof(Vector3));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawCubeV(p, s, c);
+}
+
+void Iron_draw_cube_wires(struct Iron_Vector3 position, float width, float height,
+                          float length, struct Iron_Color color) {
+    Vector3 p;
+    Color   c;
+    memcpy(&p, &position, sizeof(Vector3));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawCubeWires(p, width, height, length, c);
+}
+
+void Iron_draw_cube_wires_v(struct Iron_Vector3 position, struct Iron_Vector3 size,
+                            struct Iron_Color color) {
+    Vector3 p, s;
+    Color   c;
+    memcpy(&p, &position, sizeof(Vector3));
+    memcpy(&s, &size,     sizeof(Vector3));
+    memcpy(&c, &color,    sizeof(Color));
+    DrawCubeWiresV(p, s, c);
+}
+
+void Iron_draw_sphere(struct Iron_Vector3 center, float radius,
+                      struct Iron_Color color) {
+    Vector3 ctr;
+    Color   c;
+    memcpy(&ctr, &center, sizeof(Vector3));
+    memcpy(&c,   &color,  sizeof(Color));
+    DrawSphere(ctr, radius, c);
+}
+
+void Iron_draw_sphere_ex(struct Iron_Vector3 center, float radius,
+                         int32_t rings, int32_t slices, struct Iron_Color color) {
+    Vector3 ctr;
+    Color   c;
+    memcpy(&ctr, &center, sizeof(Vector3));
+    memcpy(&c,   &color,  sizeof(Color));
+    DrawSphereEx(ctr, radius, (int)rings, (int)slices, c);
+}
+
+void Iron_draw_sphere_wires(struct Iron_Vector3 center, float radius,
+                            int32_t rings, int32_t slices, struct Iron_Color color) {
+    Vector3 ctr;
+    Color   c;
+    memcpy(&ctr, &center, sizeof(Vector3));
+    memcpy(&c,   &color,  sizeof(Color));
+    DrawSphereWires(ctr, radius, (int)rings, (int)slices, c);
+}
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */

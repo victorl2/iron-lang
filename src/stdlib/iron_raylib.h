@@ -1672,6 +1672,46 @@ struct Iron_Vector2 Iron_camera3d_world_to_screen_ex(struct Iron_Camera3D camera
                                                       int32_t width, int32_t height);
 struct Iron_Matrix  Iron_camera3d_matrix(struct Iron_Camera3D camera);
 
+/* Iron's [Vector3] lowers to Iron_List_Iron_Vector3 in C (ARRAY_PARAM_LIST
+ * mode, first consumer is Iron_draw_triangle_strip_3d below). Layout-
+ * compatible with the compiler-emitted IRON_LIST_DECL expansion. Same
+ * guard pattern as iron_raylib.h's IRON_LIST_IRON_VECTOR2 block
+ * (lines 604-611) and iron_net.h's Iron_List_Iron_Address block. */
+#ifndef IRON_LIST_IRON_VECTOR3_STRUCT_DEFINED
+#define IRON_LIST_IRON_VECTOR3_STRUCT_DEFINED
+typedef struct Iron_List_Iron_Vector3 {
+    struct Iron_Vector3 *items;
+    int64_t              count;
+    int64_t              capacity;
+} Iron_List_Iron_Vector3;
+#endif
+
+/* DRAW3D-04 batch 1 — void-return primitives */
+void Iron_draw_line_3d(struct Iron_Vector3 start, struct Iron_Vector3 end,
+                       struct Iron_Color color);
+void Iron_draw_point_3d(struct Iron_Vector3 position, struct Iron_Color color);
+void Iron_draw_circle_3d(struct Iron_Vector3 center, float radius,
+                         struct Iron_Vector3 rotation_axis, float rotation_angle,
+                         struct Iron_Color color);
+void Iron_draw_triangle_3d(struct Iron_Vector3 v1, struct Iron_Vector3 v2,
+                           struct Iron_Vector3 v3, struct Iron_Color color);
+void Iron_draw_triangle_strip_3d(Iron_List_Iron_Vector3 points,
+                                 int32_t count, struct Iron_Color color);
+void Iron_draw_cube(struct Iron_Vector3 position, float width, float height,
+                    float length, struct Iron_Color color);
+void Iron_draw_cube_v(struct Iron_Vector3 position, struct Iron_Vector3 size,
+                      struct Iron_Color color);
+void Iron_draw_cube_wires(struct Iron_Vector3 position, float width, float height,
+                          float length, struct Iron_Color color);
+void Iron_draw_cube_wires_v(struct Iron_Vector3 position, struct Iron_Vector3 size,
+                            struct Iron_Color color);
+void Iron_draw_sphere(struct Iron_Vector3 center, float radius,
+                      struct Iron_Color color);
+void Iron_draw_sphere_ex(struct Iron_Vector3 center, float radius,
+                         int32_t rings, int32_t slices, struct Iron_Color color);
+void Iron_draw_sphere_wires(struct Iron_Vector3 center, float radius,
+                            int32_t rings, int32_t slices, struct Iron_Color color);
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
