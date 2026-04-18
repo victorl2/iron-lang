@@ -5814,6 +5814,90 @@ struct Iron_Mesh Iron_mesh_cube(float width, float height, float length) {
     return out;
 }
 
+/* MODEL-06 remaining (10): poly / plane / sphere / hemi_sphere / cylinder
+ * / cone / torus / knot / heightmap / cubicmap — raylib.h:1583-1593.
+ * All return 120 B Mesh struct-by-value. Template G (confirmed by Task 1
+ * probe). Heightmap + Cubicmap also take Image (40 B) + Vector3 (12 B)
+ * by value — Template B composition. */
+
+struct Iron_Mesh Iron_mesh_poly(int32_t sides, float radius) {
+    Mesh rl = GenMeshPoly((int)sides, radius);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_plane(float width, float length, int32_t res_x, int32_t res_z) {
+    Mesh rl = GenMeshPlane(width, length, (int)res_x, (int)res_z);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_sphere(float radius, int32_t rings, int32_t slices) {
+    Mesh rl = GenMeshSphere(radius, (int)rings, (int)slices);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_hemi_sphere(float radius, int32_t rings, int32_t slices) {
+    Mesh rl = GenMeshHemiSphere(radius, (int)rings, (int)slices);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_cylinder(float radius, float height, int32_t slices) {
+    Mesh rl = GenMeshCylinder(radius, height, (int)slices);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_cone(float radius, float height, int32_t slices) {
+    Mesh rl = GenMeshCone(radius, height, (int)slices);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_torus(float radius, float size, int32_t rad_seg, int32_t sides) {
+    Mesh rl = GenMeshTorus(radius, size, (int)rad_seg, (int)sides);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_knot(float radius, float size, int32_t rad_seg, int32_t sides) {
+    Mesh rl = GenMeshKnot(radius, size, (int)rad_seg, (int)sides);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_heightmap(struct Iron_Image heightmap, struct Iron_Vector3 size) {
+    Image   hm;
+    Vector3 sz;
+    memcpy(&hm, &heightmap, sizeof(Image));
+    memcpy(&sz, &size,      sizeof(Vector3));
+    Mesh rl = GenMeshHeightmap(hm, sz);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_cubicmap(struct Iron_Image cubicmap, struct Iron_Vector3 cube_size) {
+    Image   cm;
+    Vector3 sz;
+    memcpy(&cm, &cubicmap,  sizeof(Image));
+    memcpy(&sz, &cube_size, sizeof(Vector3));
+    Mesh rl = GenMeshCubicmap(cm, sz);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 

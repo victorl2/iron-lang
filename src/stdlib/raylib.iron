@@ -2854,3 +2854,20 @@ func Mesh.draw_instanced(mesh: Mesh, material: Material,
 -- -Wlarge-by-value-copy, refactor to hidden-out-param pattern and update
 -- this stub accordingly. Expected GREEN per Phase 64-02 / 65-03 priors.
 func Mesh.cube(width: Float32, height: Float32, length: Float32) -> Mesh {}
+
+-- ── MODEL-06: Mesh generation (remaining 10) — raylib.h:1583-1593 ─────
+-- Flat static constructors matching Image.color / Font.default /
+-- Material.default convention (NOT `Mesh.gen.cube` sub-namespace).
+--
+-- Parameter ordering matches raylib C exactly. Int32 for raylib `int`,
+-- Float32 for raylib `float`. Pitfall 3 (Float32) + Pitfall 5 (Int32).
+func Mesh.poly(sides: Int32, radius: Float32) -> Mesh {}
+func Mesh.plane(width: Float32, length: Float32, res_x: Int32, res_z: Int32) -> Mesh {}
+func Mesh.sphere(radius: Float32, rings: Int32, slices: Int32) -> Mesh {}
+func Mesh.hemi_sphere(radius: Float32, rings: Int32, slices: Int32) -> Mesh {}
+func Mesh.cylinder(radius: Float32, height: Float32, slices: Int32) -> Mesh {}
+func Mesh.cone(radius: Float32, height: Float32, slices: Int32) -> Mesh {}
+func Mesh.torus(radius: Float32, size: Float32, rad_seg: Int32, sides: Int32) -> Mesh {}
+func Mesh.knot(radius: Float32, size: Float32, rad_seg: Int32, sides: Int32) -> Mesh {}
+func Mesh.heightmap(heightmap: Image, size: Vector3) -> Mesh {}
+func Mesh.cubicmap(cubicmap: Image, cube_size: Vector3) -> Mesh {}

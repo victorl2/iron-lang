@@ -1802,6 +1802,18 @@ void Iron_mesh_draw_instanced(struct Iron_Mesh mesh, struct Iron_Material materi
  * Task 2 appends the remaining 10 after clang validation. */
 struct Iron_Mesh Iron_mesh_cube(float width, float height, float length);
 
+/* MODEL-06 remaining (10) */
+struct Iron_Mesh Iron_mesh_poly(int32_t sides, float radius);
+struct Iron_Mesh Iron_mesh_plane(float width, float length, int32_t res_x, int32_t res_z);
+struct Iron_Mesh Iron_mesh_sphere(float radius, int32_t rings, int32_t slices);
+struct Iron_Mesh Iron_mesh_hemi_sphere(float radius, int32_t rings, int32_t slices);
+struct Iron_Mesh Iron_mesh_cylinder(float radius, float height, int32_t slices);
+struct Iron_Mesh Iron_mesh_cone(float radius, float height, int32_t slices);
+struct Iron_Mesh Iron_mesh_torus(float radius, float size, int32_t rad_seg, int32_t sides);
+struct Iron_Mesh Iron_mesh_knot(float radius, float size, int32_t rad_seg, int32_t sides);
+struct Iron_Mesh Iron_mesh_heightmap(struct Iron_Image heightmap, struct Iron_Vector3 size);
+struct Iron_Mesh Iron_mesh_cubicmap(struct Iron_Image cubicmap, struct Iron_Vector3 cube_size);
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
