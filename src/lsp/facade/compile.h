@@ -36,6 +36,7 @@
  * `struct Iron_Arena`. Include the headers directly; they're small. */
 #include "util/arena.h"               /* Iron_Arena */
 #include "diagnostics/diagnostics.h"  /* Iron_DiagList */
+#include "parser/ast.h"               /* Iron_Program (typedef) */
 
 struct IronLsp_Server;
 struct IronLsp_Document;
@@ -67,6 +68,17 @@ void ilsp_facade_compile_pure(struct IronLsp_Document      *doc,
                                const IronLsp_CompileRequest *req,
                                Iron_Arena                   *arena,
                                Iron_DiagList                *diags);
+
+/* Phase 3 Plan 03 Task 02 -- NAV seam. Same contract as
+ * ilsp_facade_compile_pure but also returns the Iron_Program root so
+ * nav handlers can walk the resulting AST. Preserves CORE-22: still
+ * the single iron_analyze_buffer call site (both entries route through
+ * a private static helper inside compile.c). */
+Iron_Program *ilsp_facade_compile_for_nav(
+    struct IronLsp_Document      *doc,
+    const IronLsp_CompileRequest *req,
+    Iron_Arena                   *arena,
+    Iron_DiagList                *diags);
 
 #ifdef __cplusplus
 }

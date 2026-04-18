@@ -168,10 +168,14 @@ static void test_unregistered_provider_absent(void) {
         yyjson_obj_get(yyjson_doc_get_root(d), "result"), "capabilities");
     TEST_ASSERT_NOT_NULL(caps);
 
-    /* Plan 03 has no hover handler registered -> capability must be absent. */
+    /* Providers registered only by later plans must remain absent.
+     * Phase 3 Plan 03 introduces definition/declaration/typeDefinition/
+     * documentSymbol/workspaceSymbol, so those are NOT asserted absent
+     * any more. Hover (Plan 04) and references (Plan 05) are still
+     * unregistered. */
     TEST_ASSERT_NULL(yyjson_obj_get(caps, "hoverProvider"));
-    TEST_ASSERT_NULL(yyjson_obj_get(caps, "definitionProvider"));
     TEST_ASSERT_NULL(yyjson_obj_get(caps, "referencesProvider"));
+    TEST_ASSERT_NULL(yyjson_obj_get(caps, "signatureHelpProvider"));
 
     iron_arena_free(&pa);
     harness_destroy(&h);
