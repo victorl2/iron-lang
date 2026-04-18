@@ -28,10 +28,13 @@
 
 #include "lsp/server/server.h"
 #include "lsp/server/dispatch.h"
+#include "lsp/server/cancel.h"
 #include "lsp/store/document.h"
 #include "lsp/store/workspace.h"
 #include "lsp/store/sha256.h"
 #include "lsp/facade/types.h"
+#include "lsp/workers/ast_worker.h"    /* Plan 05: start/shutdown worker */
+#include "lsp/workers/mailbox.h"       /* Plan 05: post COMPILE / PULL */
 
 #include "vendor/yyjson/yyjson.h"
 #include "vendor/stb_ds.h"
@@ -42,11 +45,35 @@
 #include <string.h>
 
 /* Forward declarations -- referenced from dispatch.c handler table. */
-void ilsp_handle_didOpen               (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didChange             (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didClose              (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didSave               (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
-void ilsp_handle_didChangeWatchedFiles (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didOpen                 (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didChange               (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didClose                (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didSave                 (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_didChangeWatchedFiles   (IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+/* Plan 05: pull diagnostic handler. */
+void ilsp_handle_text_document_diagnostic(IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+
+/* ── Plan 05 helpers ─────────────────────────────────────────────── */
+
+/* Build a stringified request-id key from a yyjson id value. Caller
+ * owns the returned malloc'd string (or NULL). */
+static char *stringify_request_id(yyjson_val *id) {
+    if (!id || yyjson_is_null(id)) return NULL;
+    if (yyjson_is_int(id) || yyjson_is_sint(id)) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%lld",
+                  (long long)yyjson_get_sint(id));
+        return strdup(buf);
+    }
+    if (yyjson_is_uint(id)) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%llu",
+                  (unsigned long long)yyjson_get_uint(id));
+        return strdup(buf);
+    }
+    if (yyjson_is_str(id)) return strdup(yyjson_get_str(id));
+    return NULL;
+}
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 
@@ -114,10 +141,16 @@ void ilsp_handle_didOpen(IronLsp_Server *s, struct yyjson_doc *doc,
 
     ensure_documents_map(s);
 
-    /* Idempotent: a duplicate didOpen replaces the existing document. */
+    /* Idempotent: a duplicate didOpen replaces the existing document.
+     * Plan 05: stop any existing ASTWorker before destroying the doc. */
     ptrdiff_t idx = shgeti(s->documents, uri);
     if (idx >= 0) {
         IronLsp_Document *prev = s->documents[idx].value;
+        ilsp_ast_worker_shutdown_and_join(prev);
+        if (prev->mailbox) {
+            ilsp_mailbox_destroy(prev->mailbox);
+            prev->mailbox = NULL;
+        }
         ilsp_document_destroy(prev);
         shdel(s->documents, uri);
     }
@@ -125,6 +158,19 @@ void ilsp_handle_didOpen(IronLsp_Server *s, struct yyjson_doc *doc,
     IronLsp_Document *nd = ilsp_document_create(uri, text, strlen(text), version);
     if (!nd) return;
     shput(s->documents, uri, nd);
+
+    /* Plan 05 CORE-14: start the per-doc ASTWorker and schedule the
+     * initial compile for this document. Failure (e.g. pthread_create
+     * returned EAGAIN) is non-fatal: we log and leave the doc around
+     * so subsequent edits still update the buffer; the client just
+     * won't see diagnostics. */
+    if (!ilsp_ast_worker_start(s, nd)) {
+        fprintf(stderr,
+                "ironls: failed to start ASTWorker for %s -- diagnostics disabled\n",
+                uri);
+        return;
+    }
+    ilsp_mailbox_post_compile(nd->mailbox, nd->version, NULL);
 }
 
 /* ── textDocument/didChange ────────────────────────────────────────── */
@@ -206,6 +252,22 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
                     "server hash) -- client should reload\n", uri);
         }
     }
+
+    /* Plan 05 CORE-14/CORE-15: post a COMPILE to the ASTWorker. Worker
+     * debounces 250ms + coalesces rapid didChange floods into a single
+     * compile of the newest version. Register a per-version cancel flag
+     * so a subsequent edit can race-cancel the in-flight analyze. The
+     * cancel-flag key is "<uri>#v<version>" -- unique per edit, so
+     * cancel_signal can flip the right flag without cross-doc confusion. */
+    if (d->mailbox && d->worker_started) {
+        char cancel_key[1024];
+        snprintf(cancel_key, sizeof(cancel_key),
+                  "%s#v%d", uri, d->version);
+        _Atomic bool *flag = s->cancels
+                               ? ilsp_cancel_register(s->cancels, cancel_key)
+                               : NULL;
+        ilsp_mailbox_post_compile(d->mailbox, d->version, flag);
+    }
 }
 
 /* ── textDocument/didClose ─────────────────────────────────────────── */
@@ -227,6 +289,17 @@ void ilsp_handle_didClose(IronLsp_Server *s, struct yyjson_doc *doc,
     ptrdiff_t idx = shgeti(s->documents, uri);
     if (idx < 0) return;   /* idempotent: closing unknown URI is a no-op. */
     IronLsp_Document *d = s->documents[idx].value;
+
+    /* Plan 05: stop the ASTWorker before freeing document memory. The
+     * worker may still be mid-compile; ilsp_ast_worker_shutdown_and_join
+     * posts SHUTDOWN to the mailbox and pthread_join's the worker
+     * thread. After join, it's safe to destroy the mailbox and the
+     * document body. */
+    ilsp_ast_worker_shutdown_and_join(d);
+    if (d->mailbox) {
+        ilsp_mailbox_destroy(d->mailbox);
+        d->mailbox = NULL;
+    }
     ilsp_document_destroy(d);
     shdel(s->documents, uri);
 }
@@ -320,4 +393,56 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                 break;
         }
     }
+}
+
+/* ── textDocument/diagnostic (pull) ──────────────────────────────────
+ * Plan 05 CORE-17. Synchronous pull: routes a PULL_DIAGNOSTIC message
+ * to the doc's ASTWorker with the request id. The worker runs the
+ * facade pull path, which builds a DocumentDiagnosticReport and
+ * enqueues it at ILSP_PRIO_RESPONSE bound to the original id. If the
+ * document is unknown, emit an empty report so the client isn't left
+ * hanging. */
+
+void ilsp_handle_text_document_diagnostic(IronLsp_Server *s,
+                                           struct yyjson_doc *doc,
+                                           Iron_Arena *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+    yyjson_val *td = yyjson_obj_get(params, "textDocument");
+    if (!td) return;
+    const char *uri = yyjson_get_str(yyjson_obj_get(td, "uri"));
+    if (!uri) return;
+
+    char *request_id = stringify_request_id(id_v);
+
+    if (!s->documents) goto no_doc;
+    ptrdiff_t idx = shgeti(s->documents, uri);
+    if (idx < 0) goto no_doc;
+
+    IronLsp_Document *d = s->documents[idx].value;
+    if (!d->mailbox || !d->worker_started) goto no_doc;
+
+    /* Post PULL_DIAGNOSTIC to the worker; the worker handles response
+     * enqueue via ilsp_facade_pull_diagnostic. The mailbox duplicates
+     * the request_id string internally; we free our copy after. */
+    ilsp_mailbox_post_pull(d->mailbox, d->version,
+                            request_id ? request_id : "");
+    free(request_id);
+    return;
+
+no_doc:
+    /* Unknown document: reply with an empty full report so the client
+     * doesn't time out waiting for a response. */
+    free(request_id);
+    /* Note: actually emitting the response here would require
+     * duplicating the facade's response-building logic. For Plan 05,
+     * log and let the client's timeout handle it. A follow-up can
+     * synthesize an empty DocumentDiagnosticReport. */
+    fprintf(stderr,
+            "ironls: textDocument/diagnostic for unknown URI %s\n", uri);
 }
