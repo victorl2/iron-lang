@@ -28,6 +28,12 @@ typedef struct {
     Iron_Scope         *global_scope;   /* root of scope tree */
     Iron_IfaceRegistry  iface_registry; /* interface implementor map */
     bool                has_errors;     /* true if any semantic errors occurred */
+    /* Phase 3 NAV-15: AST root. Always set to the parsed Iron_Program
+     * (even when has_errors is true, so NAV consumers can still walk
+     * partial trees). For iron_analyze(), which takes program as an
+     * input, this mirrors the input pointer. For iron_analyze_buffer,
+     * which owns the parse, it is the freshly-parsed root. */
+    Iron_Program *program;
 } Iron_AnalyzeResult;
 
 /* Run the complete semantic analysis pipeline on the given program:
