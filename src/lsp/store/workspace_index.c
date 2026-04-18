@@ -19,6 +19,7 @@
 #include "diagnostics/diagnostics.h"
 #include "lexer/lexer.h"
 #include "lsp/facade/compile.h"
+#include "lsp/facade/nav/references_index.h"  /* Plan 04: ref-index hooks */
 #include "lsp/store/document.h"
 #include "lsp/store/line_index.h"
 #include "lsp/store/sha256.h"
@@ -138,6 +139,14 @@ static void free_entry(IronLsp_IndexEntry *e) {
         free(e->arena);
     }
     ilsp_line_index_destroy(&e->line_idx);
+    /* Plan 04 Task 01: Pitfall 6 -- the refs sidemap's stb_ds array
+     * (`ref_contributed_hashes`) is freed by ilsp_refs_drop_for_entry
+     * via the caller prior to free_entry (see invalidate_path_locked);
+     * guard with a defensive arrfree in case a direct caller forgot. */
+    if (e->ref_contributed_hashes) {
+        arrfree(e->ref_contributed_hashes);
+        e->ref_contributed_hashes = NULL;
+    }
     if (e->canonical_path) free(e->canonical_path);
     if (e->source_bytes)   free(e->source_bytes);
     free(e);
@@ -168,6 +177,10 @@ static void invalidate_path_locked(IronLsp_WorkspaceIndex *wi,
     if (idx < 0) return;
     IronLsp_IndexEntry *e = wi->entries[idx].value;
     bool was_analyzed = e ? e->analyzed : false;
+    /* Plan 04 Task 01 (NAV-06, Pitfall 6): remove this entry's
+     * reverse-ref contributions BEFORE freeing its arena. The
+     * ilsp_refs_drop_for_entry helper tolerates NULL refs state. */
+    if (e) ilsp_refs_drop_for_entry(wi, e);
     free_entry(e);
     shdel(wi->entries, canonical_path);
     if (was_analyzed && wi->analyzed_count > 0) wi->analyzed_count--;
@@ -310,6 +323,10 @@ IronLsp_WorkspaceIndex *ilsp_workspace_index_create(const char *workspace_root) 
     wi->analyzed_count = 0;
     wi->stdlib = NULL;
     wi->deps   = NULL;
+    /* Plan 04 Task 01: zero-init reverse-ref state. The refs map is
+     * lazily populated on first hmput inside references_index.c. */
+    wi->refs = NULL;
+    wi->bulk_analyze_done = false;
     return wi;
 }
 
@@ -322,6 +339,8 @@ void ilsp_workspace_index_destroy(IronLsp_WorkspaceIndex *wi) {
         }
         shfree(wi->entries);
     }
+    /* Plan 04 Task 01: drain + free the reverse-ref map. */
+    ilsp_refs_index_destroy(wi);
     IRON_MUTEX_UNLOCK(wi->lock);
     IRON_MUTEX_DESTROY(wi->lock);
     if (wi->workspace_root) free(wi->workspace_root);
@@ -388,7 +407,7 @@ Iron_Program *ilsp_workspace_index_analyze_lazy(IronLsp_WorkspaceIndex *wi,
     if (entry->analyzed) return entry->program;
 
     /* Build a minimal IronLsp_Document-shaped input for the facade seam.
-     * ilsp_facade_compile_pure reads doc->text / doc->text_len /
+     * ilsp_facade_compile_for_nav reads doc->text / doc->text_len /
      * doc->uri only -- we synthesise a stack document. */
     IronLsp_Document doc = {0};
     doc.text     = entry->source_bytes;
@@ -397,16 +416,23 @@ Iron_Program *ilsp_workspace_index_analyze_lazy(IronLsp_WorkspaceIndex *wi,
 
     IronLsp_CompileRequest req = { .version = 0, .cancel_flag = cancel };
 
-    Iron_Arena analyze_arena = iron_arena_create(64 * 1024);
-    Iron_DiagList diags      = iron_diaglist_create();
-    ilsp_facade_compile_pure(&doc, &req, &analyze_arena, &diags);
-    /* Facade runs iron_analyze_buffer on its own arena; we capture nothing
-     * from its result here -- the sealed Iron_Program pointer we keep is
-     * the parse-only one from warm-seed, which is all nav-endpoints need
-     * for span lookup.  Resolved-symbol walks (Plan 03+) will read the
-     * analyzer annotations on the fresh program. */
+    /* Plan 04 Task 01: route through ilsp_facade_compile_for_nav so we
+     * capture the annotated Iron_Program. Both _pure and _for_nav share
+     * the same private static facade_analyze helper in compile.c, so
+     * the CORE-22 single-call-site grep stays at 1 hit. We analyze
+     * into the ENTRY's arena so the freshly-annotated AST outlives
+     * this function -- the entry already owns the parse-only arena
+     * from warm-seed; the analyzer just writes annotations onto the
+     * same AST root into the same arena. */
+    Iron_DiagList diags = iron_diaglist_create();
+    Iron_Program *fresh = ilsp_facade_compile_for_nav(
+        &doc, &req, entry->arena, &diags);
     iron_diaglist_free(&diags);
-    iron_arena_free(&analyze_arena);
+
+    /* Swap in the annotated program on success. If the analyze
+     * cancelled or errored badly, fall back to the parse-only
+     * program so downstream lookups still have something to walk. */
+    if (fresh) entry->program = fresh;
 
     IRON_MUTEX_LOCK(wi->lock);
     if (!entry->analyzed) {
@@ -433,6 +459,15 @@ Iron_Program *ilsp_workspace_index_analyze_lazy(IronLsp_WorkspaceIndex *wi,
     }
     entry->last_used_tick = atomic_fetch_add(&wi->tick, 1);
     IRON_MUTEX_UNLOCK(wi->lock);
+
+    /* Plan 04 Task 01 (NAV-06): after a successful re-analyze,
+     * walk the annotated AST and re-populate this entry's
+     * reverse-ref contributions in the workspace map. The
+     * populate call itself drops prior contributions first
+     * (Pitfall 6). Held outside wi->lock because populate uses
+     * stb_ds macros that may reallocate the map. */
+    if (fresh) ilsp_refs_populate_for_entry(wi, entry);
+
     return entry->program;
 }
 
@@ -443,4 +478,60 @@ int ilsp_workspace_index_analyzed_count(const IronLsp_WorkspaceIndex *wi) {
 size_t ilsp_workspace_index_entry_count(const IronLsp_WorkspaceIndex *wi) {
     if (!wi || !wi->entries) return 0;
     return (size_t)shlen(wi->entries);
+}
+
+char **ilsp_workspace_index_snapshot_paths(IronLsp_WorkspaceIndex *wi,
+                                             size_t                 *out_n) {
+    if (out_n) *out_n = 0;
+    if (!wi || !wi->entries) return NULL;
+    IRON_MUTEX_LOCK(wi->lock);
+    ptrdiff_t n = shlen(wi->entries);
+    char **paths = NULL;
+    if (n > 0) {
+        paths = (char **)malloc((size_t)n * sizeof(*paths));
+        if (paths) {
+            for (ptrdiff_t i = 0; i < n; i++) {
+                const char *k = wi->entries[i].key;
+                paths[i] = k ? strdup(k) : NULL;
+            }
+            if (out_n) *out_n = (size_t)n;
+        }
+    }
+    IRON_MUTEX_UNLOCK(wi->lock);
+    return paths;
+}
+
+void ilsp_workspace_index_bulk_analyze_for_refs(IronLsp_WorkspaceIndex *wi,
+                                                  _Atomic bool           *cancel) {
+    if (!wi) return;
+    if (wi->bulk_analyze_done) return;
+
+    size_t n = 0;
+    char **paths = ilsp_workspace_index_snapshot_paths(wi, &n);
+    if (!paths) {
+        /* No entries; consider bulk done so we don't retry on every
+         * request. */
+        wi->bulk_analyze_done = true;
+        return;
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        /* D-16: cancel polled between every per-file boundary.
+         * Returning early leaves bulk_analyze_done == false so the
+         * next request will retry (T-03-09 cap + retry). */
+        if (cancel && atomic_load(cancel)) break;
+        if (!paths[i]) continue;
+        IronLsp_IndexEntry *e = ilsp_workspace_index_lookup(wi, paths[i]);
+        if (!e) continue;
+        /* analyze_lazy is a no-op if entry->analyzed is already true. */
+        (void)ilsp_workspace_index_analyze_lazy(wi, e, cancel);
+    }
+
+    /* Only flip the done flag if we didn't bail out due to cancel. */
+    if (!(cancel && atomic_load(cancel))) {
+        wi->bulk_analyze_done = true;
+    }
+
+    for (size_t i = 0; i < n; i++) free(paths[i]);
+    free(paths);
 }
