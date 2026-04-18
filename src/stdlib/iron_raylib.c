@@ -5258,6 +5258,72 @@ struct Iron_Camera3D Iron_camera3d_update_pro(struct Iron_Camera3D camera,
     return out;
 }
 
+/* DRAW3D-03: Screen↔world + view matrix — raylib.h:1063-1070.
+ * First Ray-by-value RETURN shim in Phase 69 (24 B). First Matrix-64B
+ * return outside the raymath section (reuses Phase 65-03 template —
+ * Iron_matrix_look_at at line 2360-2369). raylib's Camera typedef is
+ * Camera3D at runtime; the local raylib-typed variable uses the full
+ * Camera3D name for clarity per Pitfall 1. */
+
+struct Iron_Ray Iron_camera3d_screen_to_world_ray(struct Iron_Camera3D camera,
+                                                   struct Iron_Vector2 position) {
+    Camera3D cam;
+    Vector2  p;
+    memcpy(&cam, &camera,   sizeof(Camera3D));
+    memcpy(&p,   &position, sizeof(Vector2));
+    Ray r = GetScreenToWorldRay(p, cam);
+    struct Iron_Ray out;
+    memcpy(&out, &r, sizeof(Ray));
+    return out;
+}
+
+struct Iron_Ray Iron_camera3d_screen_to_world_ray_ex(struct Iron_Camera3D camera,
+                                                      struct Iron_Vector2 position,
+                                                      int32_t width, int32_t height) {
+    Camera3D cam;
+    Vector2  p;
+    memcpy(&cam, &camera,   sizeof(Camera3D));
+    memcpy(&p,   &position, sizeof(Vector2));
+    Ray r = GetScreenToWorldRayEx(p, cam, (int)width, (int)height);
+    struct Iron_Ray out;
+    memcpy(&out, &r, sizeof(Ray));
+    return out;
+}
+
+struct Iron_Vector2 Iron_camera3d_world_to_screen(struct Iron_Camera3D camera,
+                                                   struct Iron_Vector3 position) {
+    Camera3D cam;
+    Vector3  p;
+    memcpy(&cam, &camera,   sizeof(Camera3D));
+    memcpy(&p,   &position, sizeof(Vector3));
+    Vector2 r = GetWorldToScreen(p, cam);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Vector2 Iron_camera3d_world_to_screen_ex(struct Iron_Camera3D camera,
+                                                      struct Iron_Vector3 position,
+                                                      int32_t width, int32_t height) {
+    Camera3D cam;
+    Vector3  p;
+    memcpy(&cam, &camera,   sizeof(Camera3D));
+    memcpy(&p,   &position, sizeof(Vector3));
+    Vector2 r = GetWorldToScreenEx(p, cam, (int)width, (int)height);
+    struct Iron_Vector2 out;
+    memcpy(&out, &r, sizeof(Vector2));
+    return out;
+}
+
+struct Iron_Matrix Iron_camera3d_matrix(struct Iron_Camera3D camera) {
+    Camera3D cam;
+    memcpy(&cam, &camera, sizeof(Camera3D));
+    Matrix r = GetCameraMatrix(cam);
+    struct Iron_Matrix out;
+    memcpy(&out, &r, sizeof(Matrix));
+    return out;
+}
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */

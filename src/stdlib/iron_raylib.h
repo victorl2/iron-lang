@@ -1659,6 +1659,19 @@ struct Iron_Camera3D Iron_camera3d_update_pro(struct Iron_Camera3D camera,
                                                struct Iron_Vector3 rotation,
                                                float zoom);
 
+/* DRAW3D-03 — struct returns */
+struct Iron_Ray     Iron_camera3d_screen_to_world_ray(struct Iron_Camera3D camera,
+                                                       struct Iron_Vector2 position);
+struct Iron_Ray     Iron_camera3d_screen_to_world_ray_ex(struct Iron_Camera3D camera,
+                                                          struct Iron_Vector2 position,
+                                                          int32_t width, int32_t height);
+struct Iron_Vector2 Iron_camera3d_world_to_screen(struct Iron_Camera3D camera,
+                                                   struct Iron_Vector3 position);
+struct Iron_Vector2 Iron_camera3d_world_to_screen_ex(struct Iron_Camera3D camera,
+                                                      struct Iron_Vector3 position,
+                                                      int32_t width, int32_t height);
+struct Iron_Matrix  Iron_camera3d_matrix(struct Iron_Camera3D camera);
+
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
