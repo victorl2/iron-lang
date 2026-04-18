@@ -372,7 +372,13 @@ Plans:
   4. The new `src/stdlib/iron_raylib.c` shim file (if introduced) is minimal — only wrapping raylib functions that Iron's FFI cannot call directly — and is compiled into both `src/cli/build.c` and `src/cli/build_web.c` pipelines.
   5. The integration test suite has at least one end-to-end test per in-scope raylib category (WIN, INPUT, DRAW2D, COLL, TEX, TEXT, AUDIO, DRAW3D, MODEL, SHADER, MATH, FILE) asserting compile + link + symbol resolution succeed on both native and web targets.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 73-01-PLAN.md — Deferral cleanup: receiver-method probe (blocking gate) + 18 deferrals (3 ironc compiler fixes + 7 [UInt8] + 1 [Float32] + 5 AUDIO-12 callbacks + 7 smoke dedents + receiver migration)
+- [ ] 73-02-PLAN.md — Idiomatic API polish: 5 constructor-sugar entries (Color.rgb/rgba, Vector2/3.of, Rectangle.of) + API-01..07 + API-13 compliance audit (API-01, 02, 03, 04, 05, 06, 07, 13)
+- [ ] 73-03-PLAN.md — raylib_showcase: examples/raylib_showcase/showcase.iron single-file 12-category demo on native + web (API-10)
+- [ ] 73-04-PLAN.md — Integration tests + pure-superset: 12 per-category compile-only tests + scripts/test-raylib-integration.sh driver + pong/game_raylib/hello_raylib_web unchanged-rebuild guard (API-11, API-12)
 
 ---
 
@@ -393,7 +399,7 @@ Plans:
 | 70. Models, Meshes, Materials | 4/4 | Complete   | 2026-04-18 |
 | 71. Shaders | 2/2 | Complete   | 2026-04-18 |
 | 72. File I/O & Utilities | 3/3 | Complete   | 2026-04-18 |
-| 73. Idiomatic API Polish & Showcase | 0/? | Not started | - |
+| 73. Idiomatic API Polish & Showcase | 0/4 | In progress | - |
 
 ## Coverage Summary
 
