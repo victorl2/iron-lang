@@ -93,8 +93,52 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_lsp_lifecycle_fsm PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
 
-    # (Tasks 02 + 03 add additional test executables below in their own
-    # commits; each reuses _LSP_PLAN03_SERVER_SRC / _LSP_PLAN03_TRANSPORT_SRC.)
+    # Task 02: capability matrix (derived from handler table)
+    add_executable(test_lsp_initialize_capabilities test_lsp_initialize_capabilities.c
+        ${_LSP_PLAN03_SERVER_SRC}
+        ${_LSP_PLAN03_TRANSPORT_SRC})
+    target_include_directories(test_lsp_initialize_capabilities PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_initialize_capabilities PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_initialize_capabilities
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_initialize_capabilities
+             COMMAND test_lsp_initialize_capabilities)
+    set_tests_properties(test_lsp_initialize_capabilities PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # Task 02: positionEncoding negotiation (4 canonical scenarios)
+    add_executable(test_lsp_position_encoding_negotiation
+        test_lsp_position_encoding_negotiation.c
+        ${_LSP_PLAN03_SERVER_SRC}
+        ${_LSP_PLAN03_TRANSPORT_SRC})
+    target_include_directories(test_lsp_position_encoding_negotiation PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_position_encoding_negotiation
+        PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_position_encoding_negotiation
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_position_encoding_negotiation
+             COMMAND test_lsp_position_encoding_negotiation)
+    set_tests_properties(test_lsp_position_encoding_negotiation PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # Task 02: dynamic registration (watched-files glob payload)
+    add_executable(test_lsp_dynamic_registration test_lsp_dynamic_registration.c
+        ${_LSP_PLAN03_SERVER_SRC}
+        ${_LSP_PLAN03_TRANSPORT_SRC})
+    target_include_directories(test_lsp_dynamic_registration PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_dynamic_registration PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_dynamic_registration
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_dynamic_registration
+             COMMAND test_lsp_dynamic_registration)
+    set_tests_properties(test_lsp_dynamic_registration PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
 
     # The yyjson vendor TU must survive the repo-global -Werror strictness.
     # One set_source_files_properties entry covers every test above that
