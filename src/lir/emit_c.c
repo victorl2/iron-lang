@@ -2764,28 +2764,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
 
-        /* Detect collection/timer method calls where self must be passed by pointer.
-         * The C runtime functions (Iron_List_*_len, Iron_timer_update, etc.) take
-         * a pointer to the struct, but the LIR passes self by value. Emit & for arg 0. */
-        bool coll_self_needs_addr = false;
-        {
-            IronLIR_ValueId fptr3 = instr->call.func_ptr;
-            if (fptr3 != IRON_LIR_VALUE_INVALID &&
-                fptr3 < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[fptr3] != NULL &&
-                fn->value_table[fptr3]->kind == IRON_LIR_FUNC_REF) {
-                const char *fn_name = fn->value_table[fptr3]->func_ref.func_name;
-                /* Check both raw name and mangled name (emit_mangle_func_name adds Iron_ prefix) */
-                const char *c_name = emit_resolve_func_c_name(ctx, fn_name);
-                if (c_name && (strncmp(c_name, "Iron_List_", 10) == 0 ||
-                               strncmp(c_name, "Iron_Map_", 9) == 0 ||
-                               strncmp(c_name, "Iron_Set_", 9) == 0 ||
-                               strncmp(c_name, "Iron_timer_update", 17) == 0 ||
-                               strncmp(c_name, "Iron_timer_reset", 16) == 0)) {
-                    coll_self_needs_addr = true;
-                }
-            }
-        }
+        /* Receiver ABI: the HIR→LIR lowering layer sets `self_by_addr` on
+         * calls whose target C function takes its first argument by pointer
+         * (collection method calls, mutating Timer methods). The old code
+         * here used a prefix-strncmp heuristic on the C name — that was a
+         * footgun because any future extern matching the prefix but taking
+         * a value receiver would silently miscompile. Metadata on the LIR
+         * call instruction is authoritative. See lir.h:IRON_LIR_CALL.
+         * self_by_addr + hir_to_lir.c for the two population sites. */
+        bool self_by_addr = instr->call.self_by_addr;
 
         bool first_arg = !has_env_arg;  /* false when .env was already emitted */
         for (int i = 0; i < instr->call.arg_count; i++) {
@@ -2793,8 +2780,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             first_arg = false;
             IronLIR_ValueId arg_id = instr->call.args[i];
 
-            /* Collection/timer self: emit &arg for first argument */
-            if (coll_self_needs_addr && i == 0) {
+            /* Pointer-receiver self: emit &arg for the first argument */
+            if (self_by_addr && i == 0) {
                 iron_strbuf_appendf(sb, "&");
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 continue;

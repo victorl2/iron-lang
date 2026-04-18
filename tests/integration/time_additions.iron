@@ -1,10 +1,9 @@
 -- Integration test: TIME-01..05
 -- time.since() returns Float — do not print directly.
--- KNOWN LIMITATION: Timer.update and Timer.reset cause a compile error
--- because Iron passes struct self by value but the C functions take Iron_Timer*.
--- Tests for Timer.update (TIME-04) and Timer.reset (TIME-05) are omitted from
--- automated coverage; they require a compiler fix to pass self by pointer.
--- TIME-04 and TIME-05 are verified to compile individually in iron_time.c only.
+-- Timer.update / Timer.reset now compile (post-Phase-73 residual D-coll fix
+-- in hir_to_lir.c: pointer-receiver calls carry a structured self_by_addr
+-- flag on the LIR call instruction, replacing the earlier prefix-strncmp
+-- heuristic). The TIME-04 / TIME-05 assertions below exercise both sites.
 import time
 
 func main() {
@@ -21,4 +20,14 @@ func main() {
     -- TIME-03: timer.done (false — elapsed=0, duration=5000ms)
     val d1 = Timer.done(t)
     println("{d1}")
+
+    -- TIME-04: Timer.update — the static-style call is the form compiled by
+    -- the existing lexer; it exercises the self_by_addr path on the
+    -- general method-call branch in hir_to_lir.c. dt is in seconds; the
+    -- shim accumulates dt * 1000 into t.elapsed_ms. 1.5 s → 1500 ms.
+    Timer.update(t, 1.5)
+
+    -- TIME-05: Timer.reset — zeroes t.elapsed_ms.
+    Timer.reset(t)
+    println("update+reset ok")
 }
