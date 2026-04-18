@@ -1911,4 +1911,30 @@ void Iron_shader_set_value_texture(struct Iron_Shader shader, int32_t loc,
  *    from Phase 67-03 Iron_List_int32_t RETURN). */
 Iron_List_uint8_t Iron_files_load_data(Iron_String path);
 
+/* FILE-01: Save + export (data I/O) */
+bool        Iron_files_save_data(Iron_String path, Iron_List_uint8_t data);
+bool        Iron_files_export_data_as_code(Iron_List_uint8_t data, Iron_String path);
+
+/* FILE-02: Text I/O */
+Iron_String Iron_files_load_text(Iron_String path);
+bool        Iron_files_save_text(Iron_String path, Iron_String text);
+
+/* FILE-03: Filesystem queries (16) */
+bool        Iron_files_exists(Iron_String path);
+bool        Iron_files_directory_exists(Iron_String path);
+bool        Iron_files_is_extension(Iron_String path, Iron_String ext);
+int32_t     Iron_files_length(Iron_String path);
+Iron_String Iron_files_extension(Iron_String path);
+Iron_String Iron_files_basename(Iron_String path);
+Iron_String Iron_files_stem(Iron_String path);
+Iron_String Iron_files_directory(Iron_String path);
+Iron_String Iron_files_parent_directory(Iron_String path);
+Iron_String Iron_files_working_directory(void);
+Iron_String Iron_files_application_directory(void);
+bool        Iron_files_change_directory(Iron_String path);
+bool        Iron_files_is_file(Iron_String path);
+bool        Iron_files_is_valid_name(Iron_String path);
+int64_t     Iron_files_mod_time(Iron_String path);
+int32_t     Iron_files_make_directory(Iron_String path);
+
 #endif /* IRON_RAYLIB_H */

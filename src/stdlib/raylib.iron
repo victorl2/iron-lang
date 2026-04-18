@@ -2956,3 +2956,29 @@ func Shader.set_value_texture(shader: Shader, loc: Int32, tex: Texture) {}
 
 -- FILE-01 Task 1 probe: first live Iron_List_uint8_t RETURN consumer.
 func Files.load_data(path: String) -> [UInt8] {}
+
+-- FILE-01: remaining data I/O (load_data probe landed in Task 1)
+func Files.save_data(path: String, data: [UInt8]) -> Bool {}
+func Files.export_data_as_code(data: [UInt8], path: String) -> Bool {}
+
+-- FILE-02: Text I/O
+func Files.load_text(path: String) -> String {}
+func Files.save_text(path: String, text: String) -> Bool {}
+
+-- FILE-03: Filesystem queries (16)
+func Files.exists(path: String) -> Bool {}
+func Files.directory_exists(path: String) -> Bool {}
+func Files.is_extension(path: String, ext: String) -> Bool {}
+func Files.length(path: String) -> Int32 {}
+func Files.extension(path: String) -> String {}
+func Files.basename(path: String) -> String {}               -- GetFileName
+func Files.stem(path: String) -> String {}                   -- GetFileNameWithoutExt
+func Files.directory(path: String) -> String {}              -- GetDirectoryPath
+func Files.parent_directory(path: String) -> String {}       -- GetPrevDirectoryPath
+func Files.working_directory() -> String {}
+func Files.application_directory() -> String {}
+func Files.change_directory(path: String) -> Bool {}
+func Files.is_file(path: String) -> Bool {}                  -- IsPathFile
+func Files.is_valid_name(path: String) -> Bool {}
+func Files.mod_time(path: String) -> Int64 {}
+func Files.make_directory(path: String) -> Int32 {}

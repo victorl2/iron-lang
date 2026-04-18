@@ -6257,3 +6257,133 @@ Iron_List_uint8_t Iron_files_load_data(Iron_String path) {
     UnloadFileData(buf);
     return out;
 }
+
+/* FILE-01: Save + Export (Iron_List_uint8_t INPUT — Phase 68-01 pattern). */
+bool Iron_files_save_data(Iron_String path, Iron_List_uint8_t data) {
+    const char *cpath = iron_string_cstr(&path);
+    return (bool)(SaveFileData(cpath, (void *)data.items, (int)data.count) != 0);
+}
+
+/* FILE-01: 2-arg Iron surface — raylib auto-derives the C identifier from
+ * the filename (RESEARCH.md Q4 — CONTEXT.md's 3-arg example was an oversight).
+ * raylib.h:1118 signature is (data, dataSize, fileName); size from data.count. */
+bool Iron_files_export_data_as_code(Iron_List_uint8_t data, Iron_String path) {
+    const char *cpath = iron_string_cstr(&path);
+    return (bool)(ExportDataAsCode((const unsigned char *)data.items,
+                                    (int)data.count, cpath) != 0);
+}
+
+/* FILE-02: Text I/O — heap char* → Iron_String (Phase 67-03 pattern).
+ * UnloadFileText is shim-internal; users never see it. */
+Iron_String Iron_files_load_text(Iron_String path) {
+    const char *cpath = iron_string_cstr(&path);
+    char *buf = LoadFileText(cpath);
+    Iron_String out = buf ? iron_string_from_cstr(buf, strlen(buf))
+                          : iron_string_from_literal("", 0);
+    UnloadFileText(buf);
+    return out;
+}
+
+bool Iron_files_save_text(Iron_String path, Iron_String text) {
+    const char *cpath = iron_string_cstr(&path);
+    const char *ctext = iron_string_cstr(&text);
+    /* SaveFileText takes non-const char* but does not mutate; cast is safe. */
+    return (bool)(SaveFileText(cpath, (char *)ctext) != 0);
+}
+
+/* FILE-03: Filesystem queries — 6 Bool predicates (Pitfall: bool coercion
+ * `(bool)(X != 0)` — Phase 62/68 precedent). */
+bool Iron_files_exists(Iron_String path) {
+    return (bool)(FileExists(iron_string_cstr(&path)) != 0);
+}
+
+bool Iron_files_directory_exists(Iron_String path) {
+    return (bool)(DirectoryExists(iron_string_cstr(&path)) != 0);
+}
+
+bool Iron_files_is_extension(Iron_String path, Iron_String ext) {
+    const char *cpath = iron_string_cstr(&path);
+    const char *cext  = iron_string_cstr(&ext);
+    return (bool)(IsFileExtension(cpath, cext) != 0);
+}
+
+bool Iron_files_change_directory(Iron_String path) {
+    return (bool)(ChangeDirectory(iron_string_cstr(&path)) != 0);
+}
+
+bool Iron_files_is_file(Iron_String path) {
+    return (bool)(IsPathFile(iron_string_cstr(&path)) != 0);
+}
+
+bool Iron_files_is_valid_name(Iron_String path) {
+    return (bool)(IsFileNameValid(iron_string_cstr(&path)) != 0);
+}
+
+/* FILE-03: 3 scalar returns — Int32 (length, make_directory) + Int64 (mod_time).
+ * Pitfall 5: GetFileModTime returns `long` (platform-dependent width) — cast
+ * to int64_t for portability. Pitfall 6: GetFileLength capped at ~2 GB by
+ * raylib's int return. raylib returns 0-on-success for MakeDirectory; we
+ * preserve the semantics instead of coercing to Bool. */
+int32_t Iron_files_length(Iron_String path) {
+    return (int32_t)GetFileLength(iron_string_cstr(&path));
+}
+
+int64_t Iron_files_mod_time(Iron_String path) {
+    return (int64_t)GetFileModTime(iron_string_cstr(&path));
+}
+
+int32_t Iron_files_make_directory(Iron_String path) {
+    return (int32_t)MakeDirectory(iron_string_cstr(&path));
+}
+
+/* FILE-03: 7 String returns — static-buffer const char* pattern.
+ * Pitfall 4: GetFileExtension returns NULL when path has no dot
+ * (rcore.c:1993). All 7 queries return pointers into raylib-owned
+ * static buffers — shim iron_string_from_cstr's immediately so Iron
+ * owns its copy before any subsequent raylib call could overwrite. */
+Iron_String Iron_files_extension(Iron_String path) {
+    const char *p = iron_string_cstr(&path);
+    const char *ext = GetFileExtension(p);
+    if (ext == NULL) return iron_string_from_literal("", 0);
+    return iron_string_from_cstr(ext, strlen(ext));
+}
+
+Iron_String Iron_files_basename(Iron_String path) {
+    const char *p = iron_string_cstr(&path);
+    const char *b = GetFileName(p);
+    if (b == NULL) return iron_string_from_literal("", 0);
+    return iron_string_from_cstr(b, strlen(b));
+}
+
+Iron_String Iron_files_stem(Iron_String path) {
+    const char *p = iron_string_cstr(&path);
+    const char *s = GetFileNameWithoutExt(p);
+    if (s == NULL) return iron_string_from_literal("", 0);
+    return iron_string_from_cstr(s, strlen(s));
+}
+
+Iron_String Iron_files_directory(Iron_String path) {
+    const char *p = iron_string_cstr(&path);
+    const char *d = GetDirectoryPath(p);
+    if (d == NULL) return iron_string_from_literal("", 0);
+    return iron_string_from_cstr(d, strlen(d));
+}
+
+Iron_String Iron_files_parent_directory(Iron_String path) {
+    const char *p = iron_string_cstr(&path);
+    const char *pd = GetPrevDirectoryPath(p);
+    if (pd == NULL) return iron_string_from_literal("", 0);
+    return iron_string_from_cstr(pd, strlen(pd));
+}
+
+Iron_String Iron_files_working_directory(void) {
+    const char *cwd = GetWorkingDirectory();
+    if (cwd == NULL) return iron_string_from_literal("", 0);
+    return iron_string_from_cstr(cwd, strlen(cwd));
+}
+
+Iron_String Iron_files_application_directory(void) {
+    const char *ad = GetApplicationDirectory();
+    if (ad == NULL) return iron_string_from_literal("", 0);
+    return iron_string_from_cstr(ad, strlen(ad));
+}
