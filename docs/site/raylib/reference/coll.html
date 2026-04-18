@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collision — Iron raylib Reference</title>
+  <meta name="description" content="2D & 3D collision detection — Rectangle, BoundingBox, Ray, sphere, line.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sidebar-width: 260px;
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-deep); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; background: rgba(8, 8, 15, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 1.5rem; gap: 2rem; }
+    .nav-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; color: var(--text); text-decoration: none; flex-shrink: 0; }
+    .nav-logo:hover { color: var(--text); }
+    .nav-logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; color: white; }
+    .nav-right { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+    .nav-right a { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; letter-spacing: -0.01em; transition: color 0.2s, background 0.2s; padding: 0.35rem 0.65rem; border-radius: 6px; }
+    .nav-right a:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+    .nav-right a.active-link { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+    .sidebar-toggle { display: none; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text); padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: var(--font-sans); }
+    .nav-hamburger { display: none; background: none; border: none; cursor: pointer; padding: 0.5rem; margin-left: auto; }
+    .nav-hamburger span { display: block; width: 20px; height: 2px; background: var(--text-secondary); margin: 4px 0; transition: 0.3s; transform-origin: center; }
+    .nav-hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(4px, 4px); }
+    .nav-hamburger.active span:nth-child(2) { opacity: 0; }
+    .nav-hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(4px, -4px); }
+    .sidebar-overlay { position: fixed; inset: 0; z-index: 49; background: rgba(0, 0, 0, 0.5); opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+    .sidebar-overlay.active { opacity: 1; visibility: visible; }
+    .nav-overlay { position: fixed; inset: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; }
+    .nav-overlay.active { opacity: 1; visibility: visible; }
+    .layout { display: flex; margin-top: 56px; min-height: calc(100vh - 56px); }
+    .sidebar { width: var(--sidebar-width); position: fixed; top: 56px; bottom: 0; left: 0; overflow-y: auto; padding: 1.5rem 1rem; border-right: 1px solid var(--border); background: var(--bg-primary); }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.5rem; padding-left: 0.75rem; }
+    .sidebar-section a { display: block; padding: 0.3rem 0.75rem; color: var(--text-secondary); font-size: 0.85rem; border-radius: 4px; transition: all 0.15s; }
+    .sidebar-section a:hover { color: var(--text); background: var(--bg-surface); }
+    .sidebar-section a.active-link { color: var(--accent); background: rgba(232, 89, 12, 0.08); font-weight: 600; }
+    .content { margin-left: var(--sidebar-width); flex: 1; min-width: 0; max-width: 900px; padding: 2.5rem 3rem 4rem; }
+    .content h1 { font-size: 2rem; font-weight: 800; margin-bottom: 0.5rem; line-height: 1.2; }
+    .content .subtitle { color: var(--text-secondary); font-size: 1.1rem; margin-bottom: 2rem; }
+    .content h2 { font-size: 1.4rem; font-weight: 700; margin-top: 3rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+    .content p { margin-bottom: 1rem; color: var(--text-secondary); }
+    .content ul, .content ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+    .content li { margin-bottom: 0.4rem; }
+    .content code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 0.15em 0.4em; border-radius: 4px; color: var(--accent); }
+    .content pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; line-height: 1.6; }
+    .content pre code { background: none; padding: 0; font-size: 0.85rem; color: var(--text); }
+    .syn-kw { color: var(--syn-kw); font-weight: 500; }
+    .syn-ty { color: var(--syn-ty); }
+    .syn-st { color: var(--syn-st); }
+    .syn-cm { color: var(--syn-cm); font-style: italic; }
+    .syn-fn { color: var(--syn-fn); }
+    .syn-nu { color: var(--syn-nu); }
+    .syn-pr { color: var(--syn-pr); }
+    .api-entry { margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+    .api-entry h3 { font-family: var(--font-mono); font-size: 0.98rem; font-weight: 500; color: var(--text); margin-bottom: 0.4rem; margin-top: 1.5rem; }
+    .api-entry h3 code { color: var(--text); background: none; padding: 0; font-size: 1em; }
+    .api-entry .signature-meta { color: var(--text-muted); font-size: 0.82rem; margin-bottom: 0.6rem; }
+    .api-entry .signature-meta code { font-size: 0.8rem; color: var(--text-secondary); background: none; padding: 0; }
+    .api-entry p { margin: 0.4rem 0; font-size: 0.95rem; }
+    .api-entry pre { margin: 0.5rem 0; }
+    .api-entry .sources { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem; }
+    .api-entry .sources a { color: var(--text-secondary); }
+    .api-entry .sources a:hover { color: var(--accent); }
+    .callout { background: var(--bg-surface); border-left: 3px solid var(--accent); padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin-bottom: 1.25rem; }
+    .callout p { margin-bottom: 0; }
+    .callout-title { font-weight: 700; color: var(--text); margin-bottom: 0.3rem; font-size: 0.9rem; }
+    footer { margin-left: var(--sidebar-width); background: var(--bg-primary); border-top: 1px solid var(--border); padding: 2.5rem 3rem 1.5rem; }
+    .footer-inner { max-width: 900px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 2rem; }
+    .footer-brand p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; max-width: 280px; }
+    .footer-col h4 { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); margin-bottom: 0.75rem; }
+    .footer-col ul { list-style: none; padding: 0; margin: 0; }
+    .footer-col li { margin-bottom: 0.4rem; }
+    .footer-col a { font-size: 0.85rem; color: var(--text-secondary); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-bottom { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); max-width: 900px; }
+    @media (max-width: 900px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; z-index: 50; width: 280px; }
+      .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3); }
+      .content { margin-left: 0; padding: 2rem 2rem 4rem; max-width: 100%; overflow-x: hidden; }
+      .sidebar-toggle { display: block; }
+      .content h1 { font-size: 1.75rem; }
+      .content h2 { font-size: 1.2rem; }
+      footer { margin-left: 0; padding: 2rem 2rem 1.5rem; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; }
+    }
+    @media (max-width: 640px) {
+      .nav-right { position: absolute; top: 56px; left: 0; right: 0; flex-direction: column; background: rgba(12, 12, 22, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; gap: 0; opacity: 0; visibility: hidden; transform: translateY(-8px); transition: opacity 0.25s, visibility 0.25s, transform 0.25s; }
+      .nav-right.open { opacity: 1; visibility: visible; transform: translateY(0); }
+      .nav-right a { padding: 0.6rem 0.5rem; font-size: 0.95rem; min-height: 44px; display: flex; align-items: center; border-radius: 8px; }
+      .nav-hamburger { display: block; }
+      .content { padding: 1.75rem 1.25rem 3rem; }
+      .content pre { font-size: 0.78rem; padding: 1rem; }
+      .content pre code { font-size: 0.78rem; }
+      nav { padding: 0 1rem; gap: 1rem; }
+      .sidebar { width: 85vw; max-width: 300px; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .content { padding: 1.25rem 1rem 2.5rem; }
+      .content h1 { font-size: 1.4rem; }
+      .content h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+      .content pre { font-size: 0.72rem; padding: 0.85rem; line-height: 1.5; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button class="sidebar-toggle" id="sidebarToggle">Menu</button>
+    <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+    <div class="nav-right" id="navRight">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="/guide/">Package Manager</a>
+      <a href="/raylib/" class="active-link">Raylib</a>
+      <a href="/install/">Install</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
+    </div>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+  </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Foundation</h3>
+        <a href="/raylib/reference/types.html">Types</a>
+        <a href="/raylib/reference/enums.html">Enums</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>System</h3>
+        <a href="/raylib/reference/window.html">Window &amp; System</a>
+        <a href="/raylib/reference/input.html">Input</a>
+        <a href="/raylib/reference/file.html">Files</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>2D</h3>
+        <a href="/raylib/reference/draw2d.html">2D Drawing</a>
+        <a href="/raylib/reference/coll.html" class="active-link">Collision</a>
+        <a href="/raylib/reference/tex.html">Textures &amp; Images</a>
+        <a href="/raylib/reference/text.html">Text &amp; Fonts</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>3D</h3>
+        <a href="/raylib/reference/draw3d.html">3D Drawing</a>
+        <a href="/raylib/reference/model.html">Models &amp; Meshes</a>
+        <a href="/raylib/reference/shader.html">Shaders</a>
+        <a href="/raylib/reference/math.html">Math</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Audio</h3>
+        <a href="/raylib/reference/audio.html">Audio</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Links</h3>
+        <a href="/raylib/">raylib home</a>
+        <a href="/raylib/guide/">Guide</a>
+        <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Collision</h1>
+      <p class="subtitle">2D &amp; 3D collision detection — Rectangle, BoundingBox, Ray, sphere, line.</p>
+      <div class="callout">
+        <div class="callout-title">COLL-01..02 reference</div>
+        <p>11 2D + 8 3D collision functions exposed as receiver methods on <code>Rectangle</code>, <code>Vector2</code>, <code>Ray</code>, <code>BoundingBox</code>, or via the <code>Collision</code> namespace for symmetric tests.</p>
+      </div>
+
+      <h2 id="2d">2D collision (COLL-01)</h2>
+
+      <article class="api-entry">
+        <h3 id="rectangle-collides"><code>Rectangle.collides(rect: Rectangle, other: Rectangle) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionRecs</code></p>
+        <p>Axis-aligned rect/rect overlap test. Workhorse for tile games, platformers, paddles.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">collides</span>(paddle, ball) { <span class="syn-cm">-- reverse velocity</span> }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2342">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="rectangle-intersection"><code>Rectangle.intersection(rect: Rectangle, other: Rectangle) -&gt; Rectangle</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>GetCollisionRec</code></p>
+        <p>Overlap rectangle between two rects. Returns zero-sized rect if no overlap.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> overlap = <span class="syn-ty">Rectangle</span>.<span class="syn-fn">intersection</span>(paddle, ball)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2343">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="rectangle-contains-point"><code>Rectangle.contains_point(rect: Rectangle, point: Vector2) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionPointRec</code></p>
+        <p>Point-in-rectangle test. Common for mouse hover / click regions.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">contains_point</span>(button, <span class="syn-ty">Mouse</span>.<span class="syn-fn">get_position</span>()) { <span class="syn-cm">-- hover</span> }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2344">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="rectangle-collides-circle"><code>Rectangle.collides_circle(rect: Rectangle, center: Vector2, radius: Float32) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionCircleRec</code></p>
+        <p>Circle-vs-rectangle overlap. Useful for circular hitboxes interacting with tile geometry.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">collides_circle</span>(wall, ball_center, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>)) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2345">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="vector2-inside-triangle"><code>Vector2.inside_triangle(point: Vector2, p1, p2, p3: Vector2) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionPointTriangle</code></p>
+        <p>Point-in-triangle test.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Vector2</span>.<span class="syn-fn">inside_triangle</span>(cursor, a, b, c) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2349">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="vector2-inside-polygon"><code>Vector2.inside_polygon(point: Vector2, points: [Vector2]) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionPointPoly</code></p>
+        <p>Ray-casting point-in-polygon algorithm. Works for any simple polygon.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Vector2</span>.<span class="syn-fn">inside_polygon</span>(cursor, hex_vertices) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2350">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="vector2-on-line"><code>Vector2.on_line(point: Vector2, p1, p2: Vector2, threshold: Int32) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionPointLine</code></p>
+        <p>Point-near-line-segment test. Threshold is pixel distance.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Vector2</span>.<span class="syn-fn">on_line</span>(cursor, start, finish, <span class="syn-ty">Int32</span>(<span class="syn-nu">5</span>)) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2351">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="collision-circles"><code>Collision.circles(c1: Vector2, r1: Float32, c2: Vector2, r2: Float32) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionCircles</code></p>
+        <p>Circle-circle intersection test. Symmetric; uses <code>Collision</code> namespace.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">circles</span>(a_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>), b_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>)) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2354">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="collision-circle-line"><code>Collision.circle_line(center: Vector2, radius: Float32, p1, p2: Vector2) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionCircleLine</code></p>
+        <p>Circle vs. line-segment intersection.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">circle_line</span>(ball, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>), wall_a, wall_b) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2355">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="collision-point-circle"><code>Collision.point_circle(point: Vector2, center: Vector2, radius: Float32) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionPointCircle</code></p>
+        <p>Point-in-circle test.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">point_circle</span>(cursor, center, <span class="syn-ty">Float32</span>(<span class="syn-nu">20.0</span>)) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2356">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="collision-lines"><code>Collision.lines(start_a, end_a, start_b, end_b: Vector2) -&gt; (Bool, Vector2)</code></h3>
+        <p class="signature-meta">Category: <a href="#2d">2D</a> &middot; raylib: <code>CheckCollisionLines</code></p>
+        <p>Line-segment vs line-segment intersection. Returns (hit, intersection-point).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> (hit, point) = <span class="syn-ty">Collision</span>.<span class="syn-fn">lines</span>(a1, a2, b1, b2)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2357">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="3d">3D collision (COLL-02)</h2>
+
+      <article class="api-entry">
+        <h3 id="boundingbox-collides"><code>BoundingBox.collides(box: BoundingBox, other: BoundingBox) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>CheckCollisionBoxes</code></p>
+        <p>AABB overlap. First-line broad-phase test for 3D worlds.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">BoundingBox</span>.<span class="syn-fn">collides</span>(player_bbox, enemy_bbox) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2368">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="boundingbox-collides-sphere"><code>BoundingBox.collides_sphere(box: BoundingBox, center: Vector3, radius: Float32) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>CheckCollisionBoxSphere</code></p>
+        <p>AABB vs sphere overlap.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">BoundingBox</span>.<span class="syn-fn">collides_sphere</span>(box, pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>)) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2369">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="collision-spheres"><code>Collision.spheres(c1: Vector3, r1: Float32, c2: Vector3, r2: Float32) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>CheckCollisionSpheres</code></p>
+        <p>Sphere-sphere overlap.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">spheres</span>(a_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), b_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>)) { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2379">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="ray-hit-sphere"><code>Ray.hit_sphere(ray: Ray, center: Vector3, radius: Float32) -&gt; RayCollision</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>GetRayCollisionSphere</code></p>
+        <p>Ray vs sphere intersection &mdash; <code>RayCollision{ hit, distance, point, normal }</code>.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_sphere</span>(ray, enemy, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>))
+<span class="syn-kw">if</span> hit.hit { }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2372">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="ray-hit-box"><code>Ray.hit_box(ray: Ray, box: BoundingBox) -&gt; RayCollision</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>GetRayCollisionBox</code></p>
+        <p>Ray vs axis-aligned bounding box.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_box</span>(ray, <span class="syn-ty">Model</span>.<span class="syn-fn">bounding_box</span>(model))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2373">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="ray-hit-mesh"><code>Ray.hit_mesh(ray: Ray, mesh: Mesh, transform: Matrix) -&gt; RayCollision</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>GetRayCollisionMesh</code></p>
+        <p>Ray vs per-triangle mesh test with world transform. Expensive &mdash; usually gated on BBox test first.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_mesh</span>(ray, mesh, <span class="syn-ty">Matrix</span>.<span class="syn-fn">identity</span>())</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2374">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="ray-hit-triangle"><code>Ray.hit_triangle(ray: Ray, p1, p2, p3: Vector3) -&gt; RayCollision</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>GetRayCollisionTriangle</code></p>
+        <p>Ray vs triangle.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_triangle</span>(ray, a, b, c)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2375">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="ray-hit-quad"><code>Ray.hit_quad(ray: Ray, p1, p2, p3, p4: Vector3) -&gt; RayCollision</code></h3>
+        <p class="signature-meta">Category: <a href="#3d">3D</a> &middot; raylib: <code>GetRayCollisionQuad</code></p>
+        <p>Ray vs quad (4 vertices). Raylib splits internally into two triangles.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_quad</span>(ray, tl, tr, br, bl)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2376">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="see-also">See also</h2>
+      <ul>
+        <li><a href="/raylib/reference/types.html#ray">Ray</a>, <a href="/raylib/reference/types.html#raycollision">RayCollision</a>, <a href="/raylib/reference/types.html#boundingbox">BoundingBox</a> type references.</li>
+        <li><a href="/raylib/reference/draw2d.html">2D Drawing</a> &mdash; render the shapes being tested.</li>
+        <li><a href="/raylib/reference/draw3d.html">3D Drawing</a> &mdash; <code>Camera3D.screen_to_world_ray</code> to build rays from mouse clicks.</li>
+        <li><a href="/raylib/reference/model.html">Model reference</a> &mdash; <code>Model.bounding_box</code> / <code>Mesh.bounding_box</code>.</li>
+      </ul>
+
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+        <p>Apache 2.0 licensed. Compiled, strongly-typed, built for games.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/guide/">Package Manager</a></li>
+          <li><a href="/raylib/">Raylib</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="/install/">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/" style="color: var(--text-secondary); text-decoration: underline;">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var sidebar = document.getElementById('sidebar');
+      var sidebarToggle = document.getElementById('sidebarToggle');
+      var sidebarOverlay = document.getElementById('sidebarOverlay');
+      var navToggle = document.getElementById('navToggle');
+      var navRight = document.getElementById('navRight');
+      var navOverlay = document.getElementById('navOverlay');
+      function closeSidebar() { sidebar.classList.remove('open'); sidebarOverlay.classList.remove('active'); }
+      sidebarToggle.addEventListener('click', function() { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('active'); });
+      sidebarOverlay.addEventListener('click', closeSidebar);
+      document.querySelectorAll('.sidebar a').forEach(function(link) { link.addEventListener('click', closeSidebar); });
+      function closeNav() { navRight.classList.remove('open'); navToggle.classList.remove('active'); navOverlay.classList.remove('active'); }
+      navToggle.addEventListener('click', function() { navRight.classList.toggle('open'); navToggle.classList.toggle('active'); navOverlay.classList.toggle('active'); });
+      navOverlay.addEventListener('click', closeNav);
+      navRight.querySelectorAll('a').forEach(function(a) { a.addEventListener('click', closeNav); });
+      document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeSidebar(); closeNav(); } });
+    })();
+  </script>
+</body>
+</html>

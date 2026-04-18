@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Drawing — Iron raylib Reference</title>
+  <meta name="description" content="3D camera, screen↔world conversion, 21 3D primitives.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sidebar-width: 260px;
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-deep); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; background: rgba(8, 8, 15, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 1.5rem; gap: 2rem; }
+    .nav-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; color: var(--text); text-decoration: none; flex-shrink: 0; }
+    .nav-logo:hover { color: var(--text); }
+    .nav-logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; color: white; }
+    .nav-right { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+    .nav-right a { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; letter-spacing: -0.01em; transition: color 0.2s, background 0.2s; padding: 0.35rem 0.65rem; border-radius: 6px; }
+    .nav-right a:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+    .nav-right a.active-link { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+    .sidebar-toggle { display: none; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text); padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: var(--font-sans); }
+    .nav-hamburger { display: none; background: none; border: none; cursor: pointer; padding: 0.5rem; margin-left: auto; }
+    .nav-hamburger span { display: block; width: 20px; height: 2px; background: var(--text-secondary); margin: 4px 0; transition: 0.3s; transform-origin: center; }
+    .nav-hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(4px, 4px); }
+    .nav-hamburger.active span:nth-child(2) { opacity: 0; }
+    .nav-hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(4px, -4px); }
+    .sidebar-overlay { position: fixed; inset: 0; z-index: 49; background: rgba(0, 0, 0, 0.5); opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+    .sidebar-overlay.active { opacity: 1; visibility: visible; }
+    .nav-overlay { position: fixed; inset: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; }
+    .nav-overlay.active { opacity: 1; visibility: visible; }
+    .layout { display: flex; margin-top: 56px; min-height: calc(100vh - 56px); }
+    .sidebar { width: var(--sidebar-width); position: fixed; top: 56px; bottom: 0; left: 0; overflow-y: auto; padding: 1.5rem 1rem; border-right: 1px solid var(--border); background: var(--bg-primary); }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.5rem; padding-left: 0.75rem; }
+    .sidebar-section a { display: block; padding: 0.3rem 0.75rem; color: var(--text-secondary); font-size: 0.85rem; border-radius: 4px; transition: all 0.15s; }
+    .sidebar-section a:hover { color: var(--text); background: var(--bg-surface); }
+    .sidebar-section a.active-link { color: var(--accent); background: rgba(232, 89, 12, 0.08); font-weight: 600; }
+    .content { margin-left: var(--sidebar-width); flex: 1; min-width: 0; max-width: 900px; padding: 2.5rem 3rem 4rem; }
+    .content h1 { font-size: 2rem; font-weight: 800; margin-bottom: 0.5rem; line-height: 1.2; }
+    .content .subtitle { color: var(--text-secondary); font-size: 1.1rem; margin-bottom: 2rem; }
+    .content h2 { font-size: 1.4rem; font-weight: 700; margin-top: 3rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+    .content p { margin-bottom: 1rem; color: var(--text-secondary); }
+    .content ul, .content ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+    .content li { margin-bottom: 0.4rem; }
+    .content code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 0.15em 0.4em; border-radius: 4px; color: var(--accent); }
+    .content pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; line-height: 1.6; }
+    .content pre code { background: none; padding: 0; font-size: 0.85rem; color: var(--text); }
+    .syn-kw { color: var(--syn-kw); font-weight: 500; }
+    .syn-ty { color: var(--syn-ty); }
+    .syn-st { color: var(--syn-st); }
+    .syn-cm { color: var(--syn-cm); font-style: italic; }
+    .syn-fn { color: var(--syn-fn); }
+    .syn-nu { color: var(--syn-nu); }
+    .syn-pr { color: var(--syn-pr); }
+    .api-entry { margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+    .api-entry h3 { font-family: var(--font-mono); font-size: 0.98rem; font-weight: 500; color: var(--text); margin-bottom: 0.4rem; margin-top: 1.5rem; }
+    .api-entry h3 code { color: var(--text); background: none; padding: 0; font-size: 1em; }
+    .api-entry .signature-meta { color: var(--text-muted); font-size: 0.82rem; margin-bottom: 0.6rem; }
+    .api-entry .signature-meta code { font-size: 0.8rem; color: var(--text-secondary); background: none; padding: 0; }
+    .api-entry p { margin: 0.4rem 0; font-size: 0.95rem; }
+    .api-entry pre { margin: 0.5rem 0; }
+    .api-entry .sources { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem; }
+    .api-entry .sources a { color: var(--text-secondary); }
+    .api-entry .sources a:hover { color: var(--accent); }
+    .callout { background: var(--bg-surface); border-left: 3px solid var(--accent); padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin-bottom: 1.25rem; }
+    .callout p { margin-bottom: 0; }
+    .callout-title { font-weight: 700; color: var(--text); margin-bottom: 0.3rem; font-size: 0.9rem; }
+    footer { margin-left: var(--sidebar-width); background: var(--bg-primary); border-top: 1px solid var(--border); padding: 2.5rem 3rem 1.5rem; }
+    .footer-inner { max-width: 900px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 2rem; }
+    .footer-brand p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; max-width: 280px; }
+    .footer-col h4 { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); margin-bottom: 0.75rem; }
+    .footer-col ul { list-style: none; padding: 0; margin: 0; }
+    .footer-col li { margin-bottom: 0.4rem; }
+    .footer-col a { font-size: 0.85rem; color: var(--text-secondary); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-bottom { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); max-width: 900px; }
+    @media (max-width: 900px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; z-index: 50; width: 280px; }
+      .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3); }
+      .content { margin-left: 0; padding: 2rem 2rem 4rem; max-width: 100%; overflow-x: hidden; }
+      .sidebar-toggle { display: block; }
+      .content h1 { font-size: 1.75rem; }
+      .content h2 { font-size: 1.2rem; }
+      footer { margin-left: 0; padding: 2rem 2rem 1.5rem; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; }
+    }
+    @media (max-width: 640px) {
+      .nav-right { position: absolute; top: 56px; left: 0; right: 0; flex-direction: column; background: rgba(12, 12, 22, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; gap: 0; opacity: 0; visibility: hidden; transform: translateY(-8px); transition: opacity 0.25s, visibility 0.25s, transform 0.25s; }
+      .nav-right.open { opacity: 1; visibility: visible; transform: translateY(0); }
+      .nav-right a { padding: 0.6rem 0.5rem; font-size: 0.95rem; min-height: 44px; display: flex; align-items: center; border-radius: 8px; }
+      .nav-hamburger { display: block; }
+      .content { padding: 1.75rem 1.25rem 3rem; }
+      .content pre { font-size: 0.78rem; padding: 1rem; }
+      .content pre code { font-size: 0.78rem; }
+      nav { padding: 0 1rem; gap: 1rem; }
+      .sidebar { width: 85vw; max-width: 300px; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .content { padding: 1.25rem 1rem 2.5rem; }
+      .content h1 { font-size: 1.4rem; }
+      .content h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+      .content pre { font-size: 0.72rem; padding: 0.85rem; line-height: 1.5; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button class="sidebar-toggle" id="sidebarToggle">Menu</button>
+    <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+    <div class="nav-right" id="navRight">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="/guide/">Package Manager</a>
+      <a href="/raylib/" class="active-link">Raylib</a>
+      <a href="/install/">Install</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
+    </div>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+  </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Foundation</h3>
+        <a href="/raylib/reference/types.html">Types</a>
+        <a href="/raylib/reference/enums.html">Enums</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>System</h3>
+        <a href="/raylib/reference/window.html">Window &amp; System</a>
+        <a href="/raylib/reference/input.html">Input</a>
+        <a href="/raylib/reference/file.html">Files</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>2D</h3>
+        <a href="/raylib/reference/draw2d.html">2D Drawing</a>
+        <a href="/raylib/reference/coll.html">Collision</a>
+        <a href="/raylib/reference/tex.html">Textures &amp; Images</a>
+        <a href="/raylib/reference/text.html">Text &amp; Fonts</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>3D</h3>
+        <a href="/raylib/reference/draw3d.html" class="active-link">3D Drawing</a>
+        <a href="/raylib/reference/model.html">Models &amp; Meshes</a>
+        <a href="/raylib/reference/shader.html">Shaders</a>
+        <a href="/raylib/reference/math.html">Math</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Audio</h3>
+        <a href="/raylib/reference/audio.html">Audio</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Links</h3>
+        <a href="/raylib/">raylib home</a>
+        <a href="/raylib/guide/">Guide</a>
+        <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>3D Drawing</h1>
+      <p class="subtitle">3D camera, screen↔world conversion, 21 3D primitives.</p>
+      <div class="callout">
+        <div class="callout-title">DRAW3D-01..04 reference</div>
+        <p>3D camera mode, 5 camera update helpers, 4 screen↔world conversions, 21 3D primitives (cube, sphere, cylinder, capsule, plane, ray, grid, ...).</p>
+      </div>
+
+      <h2 id="mode">3D mode (DRAW3D-01)</h2>
+
+      <article class="api-entry">
+        <h3 id="draw-begin-mode-3d"><code>Draw.begin_mode_3d(camera: Camera3D) / Draw.end_mode_3d()</code></h3>
+        <p class="signature-meta">Category: <a href="#mode">3D mode</a> &middot; raylib: <code>BeginMode3D / EndMode3D</code></p>
+        <p>Nest inside <code>Draw.begin / end</code>. Subsequent <code>Draw.*</code> primitives render in 3D using <code>camera</code>'s view/projection matrices.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">begin</span>()
+<span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">SKYBLUE</span>)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">begin_mode_3d</span>(cam)
+<span class="syn-cm">-- 3D primitives</span>
+<span class="syn-ty">Draw</span>.<span class="syn-fn">end_mode_3d</span>()
+<span class="syn-ty">Draw</span>.<span class="syn-fn">end</span>()</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2658">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="camera">Camera (DRAW3D-02)</h2>
+
+      <article class="api-entry">
+        <h3 id="camera3d-update"><code>Camera3D.update(camera: Camera3D, mode: CameraMode) -&gt; Camera3D</code></h3>
+        <p class="signature-meta">Category: <a href="#camera">Camera</a> &middot; raylib: <code>UpdateCamera</code></p>
+        <p>Auto-update camera based on mode + current mouse/keyboard. Orbital, free, first-person, third-person. Returns the updated camera; bind it back with <code>var</code>.</p>
+        <pre><code class="iron">cam = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">update</span>(cam, <span class="syn-ty">CameraMode</span>.<span class="syn-pr">ORBITAL</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2672">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="camera3d-update-pro"><code>Camera3D.update_pro(camera, movement: Vector3, rotation: Vector3, zoom: Float32) -&gt; Camera3D</code></h3>
+        <p class="signature-meta">Category: <a href="#camera">Camera</a> &middot; raylib: <code>UpdateCameraPro</code></p>
+        <p>Explicit movement/rotation/zoom inputs (no auto-sampling from input). Use for custom control schemes.</p>
+        <pre><code class="iron">cam = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">update_pro</span>(cam, move, <span class="syn-ty">Vector3</span>.<span class="syn-fn">zero</span>(), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2673">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="camera3d-matrix"><code>Camera3D.matrix(camera: Camera3D) -&gt; Matrix</code></h3>
+        <p class="signature-meta">Category: <a href="#camera">Camera</a> &middot; raylib: <code>GetCameraMatrix</code></p>
+        <p>Extract current view matrix for custom projection math.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> view = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">matrix</span>(cam)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2698">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="screen-world">Screen ↔ world (DRAW3D-03)</h2>
+
+      <article class="api-entry">
+        <h3 id="screen-to-world-ray"><code>Camera3D.screen_to_world_ray(camera, position: Vector2) -&gt; Ray</code></h3>
+        <p class="signature-meta">Category: <a href="#screen-world">Screen ↔ World</a> &middot; raylib: <code>GetScreenToWorldRay</code></p>
+        <p>Build a 3D world-space ray from a 2D screen pixel (mouse picking).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> ray = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">screen_to_world_ray</span>(cam, <span class="syn-ty">Mouse</span>.<span class="syn-fn">get_position</span>())</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2692">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="screen-to-world-ray-ex"><code>Camera3D.screen_to_world_ray_ex(camera, position, width, height: Int32) -&gt; Ray</code></h3>
+        <p class="signature-meta">Category: <a href="#screen-world">Screen ↔ World</a> &middot; raylib: <code>GetScreenToWorldRayEx</code></p>
+        <p>As above but with explicit viewport dimensions (for split-screen etc).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> ray = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">screen_to_world_ray_ex</span>(cam, pos, <span class="syn-ty">Int32</span>(<span class="syn-nu">400</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">300</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2693">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="world-to-screen"><code>Camera3D.world_to_screen(camera, position: Vector3) -&gt; Vector2 / world_to_screen_ex(camera, position, width, height)</code></h3>
+        <p class="signature-meta">Category: <a href="#screen-world">Screen ↔ World</a> &middot; raylib: <code>GetWorldToScreen / GetWorldToScreenEx</code></p>
+        <p>Project 3D world point to 2D screen pixel (for HUD overlays).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> screen_pos = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">world_to_screen</span>(cam, enemy_pos)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2695">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="primitives">3D primitives (DRAW3D-04)</h2>
+
+      <article class="api-entry">
+        <h3 id="draw-line-3d"><code>Draw.line_3d(start, end: Vector3, color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawLine3D</code></p>
+        <p>3D line between two world points.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">line_3d</span>(<span class="syn-ty">Vector3</span>.<span class="syn-fn">zero</span>(), <span class="syn-ty">Vector3</span>.<span class="syn-fn">of</span>(<span class="syn-nu">1.0</span>, <span class="syn-nu">0.0</span>, <span class="syn-nu">0.0</span>), <span class="syn-pr">RED</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2716">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-point-3d"><code>Draw.point_3d(position: Vector3, color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawPoint3D</code></p>
+        <p>Single world-space point.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">point_3d</span>(origin, <span class="syn-pr">YELLOW</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2717">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-circle-3d"><code>Draw.circle_3d(center, radius, rotation_axis, rotation_angle, color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawCircle3D</code></p>
+        <p>Circle in 3D space with arbitrary rotation axis.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">circle_3d</span>(center, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), axis, angle, <span class="syn-pr">GREEN</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2718">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-triangle-3d"><code>Draw.triangle_3d(v1, v2, v3: Vector3, color) / triangle_strip_3d(points: [Vector3], count, color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawTriangle3D / DrawTriangleStrip3D</code></p>
+        <p>Single 3D triangle or strip-batched 3D triangles.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">triangle_3d</span>(a, b, c, <span class="syn-pr">RED</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2721">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-cube"><code>Draw.cube(position: Vector3, width, height, length: Float32, color: Color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawCube</code></p>
+        <p>Filled 3D box with independent dimensions.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cube</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-pr">RED</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2725">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-cube-variants"><code>Draw.cube_v / cube_wires / cube_wires_v</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawCubeV / Wires / WiresV</code></p>
+        <p>Vector3 size (<code>_v</code>); wireframe-only (<code>_wires</code>); combo (<code>_wires_v</code>).</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cube_wires</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-pr">BLACK</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2728">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-sphere"><code>Draw.sphere(center, radius, color) / sphere_ex(center, radius, rings, slices, color) / sphere_wires(...)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawSphere / Ex / Wires</code></p>
+        <p>Filled or wireframe sphere with configurable tesselation.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">sphere</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-pr">BLUE</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2733">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-cylinder"><code>Draw.cylinder(position, radius_top, radius_bottom, height, slices: Int32, color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawCylinder</code></p>
+        <p>Cylinder (frustum if top/bottom radii differ).</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cylinder</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-pr">MAROON</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2754">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-cylinder-variants"><code>Draw.cylinder_ex / cylinder_wires / cylinder_wires_ex</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawCylinderEx / Wires / WiresEx</code></p>
+        <p>Start-end Vector3 endpoints (<code>_ex</code>); wireframe variants.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cylinder_ex</span>(start, finish, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-pr">RED</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2756">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-capsule"><code>Draw.capsule(start, end: Vector3, radius, slices, rings: Int32, color) / capsule_wires(...)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawCapsule / CapsuleWires</code></p>
+        <p>Cylinder with hemispherical caps. Common character-collision volume.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">capsule</span>(start, finish, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">8</span>), <span class="syn-pr">PURPLE</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2766">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-plane"><code>Draw.plane(center: Vector3, size: Vector2, color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawPlane</code></p>
+        <p>XZ-aligned ground plane.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">plane</span>(origin, <span class="syn-ty">Vector2</span>.<span class="syn-fn">of</span>(<span class="syn-nu">10.0</span>, <span class="syn-nu">10.0</span>), <span class="syn-pr">LIME</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2773">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-ray"><code>Draw.ray(ray: Ray, color)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawRay</code></p>
+        <p>Visualize a Ray. Useful for debug-rendering picking rays.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">ray</span>(mouse_ray, <span class="syn-pr">YELLOW</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2775">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="draw-grid"><code>Draw.grid(slices: Int32, spacing: Float32)</code></h3>
+        <p class="signature-meta">Category: <a href="#primitives">Primitives</a> &middot; raylib: <code>DrawGrid</code></p>
+        <p>XZ ground grid &mdash; no color parameter, raylib renders in a fixed gray.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">grid</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">10</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2777">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="see-also">See also</h2>
+      <ul>
+        <li><a href="/raylib/reference/types.html#camera3d">Camera3D</a>, <a href="/raylib/reference/types.html#ray">Ray</a>, <a href="/raylib/reference/types.html#boundingbox">BoundingBox</a>.</li>
+        <li><a href="/raylib/reference/enums.html#cameramode">CameraMode</a>, <a href="/raylib/reference/enums.html#cameraprojection">CameraProjection</a> enums.</li>
+        <li><a href="/raylib/reference/model.html">Models &amp; Meshes</a> &mdash; load full 3D models.</li>
+        <li><a href="/raylib/reference/coll.html#3d">3D Collision</a> &mdash; ray hit tests on spheres, boxes, meshes.</li>
+        <li><a href="/raylib/guide/#cube-loop">Guide → Rotating cube</a> for a working 3D scene walkthrough.</li>
+      </ul>
+
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+        <p>Apache 2.0 licensed. Compiled, strongly-typed, built for games.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/guide/">Package Manager</a></li>
+          <li><a href="/raylib/">Raylib</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="/install/">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/" style="color: var(--text-secondary); text-decoration: underline;">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var sidebar = document.getElementById('sidebar');
+      var sidebarToggle = document.getElementById('sidebarToggle');
+      var sidebarOverlay = document.getElementById('sidebarOverlay');
+      var navToggle = document.getElementById('navToggle');
+      var navRight = document.getElementById('navRight');
+      var navOverlay = document.getElementById('navOverlay');
+      function closeSidebar() { sidebar.classList.remove('open'); sidebarOverlay.classList.remove('active'); }
+      sidebarToggle.addEventListener('click', function() { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('active'); });
+      sidebarOverlay.addEventListener('click', closeSidebar);
+      document.querySelectorAll('.sidebar a').forEach(function(link) { link.addEventListener('click', closeSidebar); });
+      function closeNav() { navRight.classList.remove('open'); navToggle.classList.remove('active'); navOverlay.classList.remove('active'); }
+      navToggle.addEventListener('click', function() { navRight.classList.toggle('open'); navToggle.classList.toggle('active'); navOverlay.classList.toggle('active'); });
+      navOverlay.addEventListener('click', closeNav);
+      navRight.querySelectorAll('a').forEach(function(a) { a.addEventListener('click', closeNav); });
+      document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeSidebar(); closeNav(); } });
+    })();
+  </script>
+</body>
+</html>
