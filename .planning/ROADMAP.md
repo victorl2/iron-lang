@@ -427,13 +427,16 @@ Plans:
 
 ### Phase 74: Documentation Site — v2.0.0-alpha raylib reference
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Ship a complete v2.0.0-alpha raylib documentation site under `docs/site/raylib/` — landing page, 5-tutorial getting-started guide, 14 per-category API reference pages, examples gallery linking to 5 canonical consumers, and a `CONTRIBUTING.md` codifying the update process. All pages reuse the existing docs/site design system (inline CSS, dark theme, orange accent, Inter + JetBrains Mono) and lift code snippets verbatim from real Iron files so every example compiles on v2.0.0-alpha. Closes the milestone shipping story.
+
+**Requirements**: Net-new documentation phase — no REQ-NN mappings in REQUIREMENTS.md. Implicit requirement: "public-facing v2.0.0-alpha documentation exists for every Iron raylib binding across the 14 categories (TYPE, ENUM, WIN, INPUT, DRAW2D, COLL, TEX, TEXT, AUDIO, DRAW3D, MODEL, SHADER, MATH, FILE) covered by Phases 60-73."
 **Depends on:** Phase 73
-**Plans:** 5/4 plans complete
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 74 to break down)
+- [x] 74-01-PLAN.md — Landing + getting-started guide + nav integration across 4 existing site pages + CONTRIBUTING.md (wave 1)
+- [ ] 74-02-PLAN.md — 14 per-category API reference pages with shared 14-entry sidebar (wave 2, depends_on 74-01)
+- [ ] 74-03-PLAN.md — Examples gallery + 5 screenshots + link validation + mobile-responsive polish (wave 3, depends_on 74-02)
 
 ---
 *Roadmap created: 2026-04-13*
