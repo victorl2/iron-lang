@@ -9,6 +9,8 @@
  */
 
 #include "analyzer/resolve.h"
+#include "analyzer/typo_candidate.h"
+#include "parser/ast.h"
 #include "vendor/stb_ds.h"
 
 #include <string.h>
@@ -97,14 +99,18 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
     }
 }
 
-/* Emit an "undefined variable" diagnostic for an unresolved identifier. */
+/* Emit an "undefined variable" diagnostic for an unresolved identifier.
+ * Phase 4 Plan 04-01 (EDIT-07): enrich with .suggestion = best Levenshtein
+ * candidate from the visible scope chain (max distance 2). */
 static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
     char msg[256];
     snprintf(msg, sizeof(msg), "undefined identifier '%s'", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
     if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:emit_undefined msg) */ msg_copy = "analyzer error"; }
+    const char *suggestion = iron_best_typo_candidate(ctx->current_scope,
+                                                       ctx->arena, name);
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                   IRON_ERR_UNDEFINED_VAR, span, msg_copy, NULL);
+                   IRON_ERR_UNDEFINED_VAR, span, msg_copy, suggestion);
 }
 
 /* ── Pass 1a: Collect top-level declarations ─────────────────────────────── */
@@ -235,15 +241,21 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
 
     Iron_Symbol *owner = iron_scope_lookup(ctx->global_scope, md->type_name);
     if (!owner) {
+        /* Phase 4 Plan 04-01 (EDIT-07): seed .suggestion with typo candidate. */
+        const char *sug = iron_best_typo_candidate(ctx->global_scope,
+                                                    ctx->arena, md->type_name);
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
-                       "method declared on undeclared type", NULL);
+                       "method declared on undeclared type", sug);
         return;
     }
     if (owner->sym_kind != IRON_SYM_TYPE && owner->sym_kind != IRON_SYM_ENUM) {
+        /* Phase 4 Plan 04-01 (EDIT-07): seed .suggestion with typo candidate. */
+        const char *sug = iron_best_typo_candidate(ctx->global_scope,
+                                                    ctx->arena, md->type_name);
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
-                       "method declared on non-object type", NULL);
+                       "method declared on non-object type", sug);
         return;
     }
     md->owner_sym = owner;
@@ -1211,6 +1223,159 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
     free(reg);
 }
 
+
+/* ── Phase 4 Plan 04-01 (EDIT-07): unused-import post-pass walker ────────── */
+/* After Pass 2 completes, walk every Iron_Ident in the program AST looking
+ * for uses of an import alias. Any IMPORT_DECL whose alias was never
+ * referenced emits IRON_WARN_UNUSED_IMPORT with a non-NULL .suggestion
+ * (empty string acts as a sentinel meaning "delete the line" in the
+ * code-action dispatch layer of Plan 04-04; keeping it non-NULL satisfies
+ * the "every P1 emit site populates .suggestion" invariant). */
+
+typedef struct {
+    const char **used_alias_set;   /* stb_ds dynamic array of alias names */
+} UnusedImportScan;
+
+static void scan_collect_ident(UnusedImportScan *s, Iron_Node *node);
+
+static void scan_collect_list(UnusedImportScan *s, Iron_Node **nodes, int n) {
+    if (!nodes) return;
+    for (int i = 0; i < n; i++) if (nodes[i]) scan_collect_ident(s, nodes[i]);
+}
+
+/* Mark an import alias name as "used". O(n) dedup scan — alias sets are
+ * small (<~20 per file in practice). */
+static void mark_alias_used(UnusedImportScan *s, const char *alias) {
+    if (!alias) return;
+    for (ptrdiff_t i = 0; i < arrlen(s->used_alias_set); i++) {
+        if (strcmp(s->used_alias_set[i], alias) == 0) return;
+    }
+    arrput(s->used_alias_set, alias);
+}
+
+/* Walk node subtree collecting any Iron_Ident whose resolved_sym's decl_node
+ * kind is IRON_NODE_IMPORT_DECL. These are the "used import" names. */
+static void scan_collect_ident(UnusedImportScan *s, Iron_Node *node) {
+    if (!node) return;
+    switch ((int)node->kind) {
+        case IRON_NODE_IDENT: {
+            Iron_Ident *id = (Iron_Ident *)node;
+            if (id->resolved_sym && id->resolved_sym->decl_node &&
+                id->resolved_sym->decl_node->kind == IRON_NODE_IMPORT_DECL) {
+                /* The alias symbol's name *is* the alias. */
+                mark_alias_used(s, id->resolved_sym->name);
+            }
+            break;
+        }
+        case IRON_NODE_FUNC_DECL: {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
+            scan_collect_ident(s, fd->body);
+            break;
+        }
+        case IRON_NODE_METHOD_DECL: {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)node;
+            scan_collect_ident(s, md->body);
+            break;
+        }
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)node;
+            scan_collect_list(s, b->stmts, b->stmt_count);
+            break;
+        }
+        case IRON_NODE_VAL_DECL: {
+            Iron_ValDecl *vd = (Iron_ValDecl *)node;
+            scan_collect_ident(s, vd->init);
+            break;
+        }
+        case IRON_NODE_VAR_DECL: {
+            Iron_VarDecl *vd = (Iron_VarDecl *)node;
+            scan_collect_ident(s, vd->init);
+            break;
+        }
+        case IRON_NODE_RETURN: {
+            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
+            scan_collect_ident(s, rs->value);
+            break;
+        }
+        case IRON_NODE_BINARY: {
+            Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
+            scan_collect_ident(s, be->left);
+            scan_collect_ident(s, be->right);
+            break;
+        }
+        case IRON_NODE_UNARY: {
+            Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+            scan_collect_ident(s, ue->operand);
+            break;
+        }
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *ce = (Iron_CallExpr *)node;
+            scan_collect_ident(s, ce->callee);
+            scan_collect_list(s, ce->args, ce->arg_count);
+            break;
+        }
+        case IRON_NODE_FIELD_ACCESS: {
+            Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            scan_collect_ident(s, fa->object);
+            break;
+        }
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is = (Iron_IfStmt *)node;
+            scan_collect_ident(s, is->condition);
+            scan_collect_ident(s, is->body);
+            scan_collect_ident(s, is->else_body);
+            break;
+        }
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            scan_collect_ident(s, as->target);
+            scan_collect_ident(s, as->value);
+            break;
+        }
+        default:
+            /* Other kinds (literals, type decls, etc.) don't carry import refs. */
+            break;
+    }
+}
+
+/* Emit IRON_WARN_UNUSED_IMPORT for each import alias that was never
+ * referenced. Non-aliased imports have no in-scope symbol to track, so
+ * they are conservatively NOT flagged here (a future plan may extend
+ * the tracker to cover path-based references). */
+static void emit_unused_imports(ResolveCtx *ctx, Iron_Program *program) {
+    UnusedImportScan s = { NULL };
+
+    /* Build the "used alias" set by walking every declaration body. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        scan_collect_ident(&s, d);
+    }
+
+    /* Emit for every aliased IMPORT_DECL whose alias isn't in the used set. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_IMPORT_DECL) continue;
+        Iron_ImportDecl *imp = (Iron_ImportDecl *)d;
+        if (!imp->alias) continue; /* only aliased imports are tracked */
+
+        bool used = false;
+        for (ptrdiff_t k = 0; k < arrlen(s.used_alias_set); k++) {
+            if (strcmp(s.used_alias_set[k], imp->alias) == 0) { used = true; break; }
+        }
+        if (used) continue;
+
+        /* Empty-string suggestion is the "delete line" sentinel. arena-strdup
+         * so .suggestion is non-NULL and owned by the compilation arena. */
+        const char *sug = iron_arena_strdup(ctx->arena, "", 0);
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING,
+                       IRON_WARN_UNUSED_IMPORT, imp->span,
+                       "unused import", sug);
+    }
+
+    if (s.used_alias_set) arrfree(s.used_alias_set);
+}
+
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
 Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
@@ -1463,6 +1628,11 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
                 break;
         }
     }
+
+    /* Phase 4 Plan 04-01 (EDIT-07): post-pass — flag any aliased imports
+     * that never resolved a reference. Runs after Pass 2 so every
+     * Iron_Ident has its resolved_sym set (or NULL for unresolved). */
+    emit_unused_imports(&ctx, program);
 
     return ctx.global_scope;
 }
