@@ -29,6 +29,7 @@
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/iface_workspace.h"
+#include "lsp/facade/nav/type_hierarchy.h"
 #include "lsp/facade/types.h"
 #include "lsp/transport/writer.h"
 #include "lsp/transport/json.h"
@@ -606,4 +607,198 @@ void ilsp_handle_workspace_symbol(IronLsp_Server *s,
     yyjson_mut_doc_free(rd);
     iron_arena_free(&body_arena);
     iron_arena_free(&work_arena);
+}
+
+/* ── typeHierarchy handlers (Plan 05 Task 02, NAV-11, D-08) ─────── */
+
+/* Convert a TypeHierarchyItem to JSON. The `data` field carries the
+ * identity triple so clients can round-trip it back into super/
+ * subtypes requests without the server rediscovering the AST. */
+static yyjson_mut_val *type_hierarchy_item_to_json(
+    yyjson_mut_doc                  *rd,
+    const IronLsp_TypeHierarchyItem *it) {
+    yyjson_mut_val *o = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_strcpy(rd, o, "name", it->name ? it->name : "");
+    yyjson_mut_obj_add_int   (rd, o, "kind", it->kind);
+    yyjson_mut_obj_add_strcpy(rd, o, "uri",  it->uri  ? it->uri  : "");
+
+    yyjson_mut_val *range = yyjson_mut_obj(rd);
+    yyjson_mut_val *rs    = yyjson_mut_obj(rd);
+    yyjson_mut_val *re    = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_uint(rd, rs, "line",      it->range.start.line);
+    yyjson_mut_obj_add_uint(rd, rs, "character", it->range.start.character);
+    yyjson_mut_obj_add_uint(rd, re, "line",      it->range.end.line);
+    yyjson_mut_obj_add_uint(rd, re, "character", it->range.end.character);
+    yyjson_mut_obj_add_val(rd, range, "start", rs);
+    yyjson_mut_obj_add_val(rd, range, "end",   re);
+    yyjson_mut_obj_add_val(rd, o, "range", range);
+
+    yyjson_mut_val *srange = yyjson_mut_obj(rd);
+    yyjson_mut_val *ss     = yyjson_mut_obj(rd);
+    yyjson_mut_val *se     = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_uint(rd, ss, "line",      it->selection_range.start.line);
+    yyjson_mut_obj_add_uint(rd, ss, "character", it->selection_range.start.character);
+    yyjson_mut_obj_add_uint(rd, se, "line",      it->selection_range.end.line);
+    yyjson_mut_obj_add_uint(rd, se, "character", it->selection_range.end.character);
+    yyjson_mut_obj_add_val(rd, srange, "start", ss);
+    yyjson_mut_obj_add_val(rd, srange, "end",   se);
+    yyjson_mut_obj_add_val(rd, o, "selectionRange", srange);
+
+    /* data: embed the identity triple so clients echo it back to us
+     * on follow-up super/subtypes calls without us re-walking. */
+    yyjson_mut_val *data = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_strcpy(rd, data, "canonical_path",
+        it->triple.canonical_path ? it->triple.canonical_path : "");
+    yyjson_mut_obj_add_strcpy(rd, data, "name_path",
+        it->triple.name_path ? it->triple.name_path : "");
+    yyjson_mut_obj_add_int   (rd, data, "kind", (int)it->triple.kind);
+    yyjson_mut_obj_add_uint  (rd, data, "hash", it->triple.hash);
+    yyjson_mut_obj_add_val(rd, o, "data", data);
+    return o;
+}
+
+/* Extract the triple from params.item.data. On missing fields the
+ * zeroed triple is returned (which all facade endpoints handle as a
+ * "no results" case). The hash is recomputed defensively if absent
+ * so clients that strip unknown fields still work. */
+static IronLsp_SymbolId parse_item_triple(yyjson_val *item_obj,
+                                            Iron_Arena *arena) {
+    IronLsp_SymbolId t = { .canonical_path = "", .name_path = "",
+                            .kind = 0, .hash = 0 };
+    if (!item_obj) return t;
+    yyjson_val *data = yyjson_obj_get(item_obj, "data");
+    if (!data) return t;
+    yyjson_val *cp = yyjson_obj_get(data, "canonical_path");
+    yyjson_val *np = yyjson_obj_get(data, "name_path");
+    yyjson_val *kd = yyjson_obj_get(data, "kind");
+    yyjson_val *hv = yyjson_obj_get(data, "hash");
+    const char *cps = yyjson_get_str(cp);
+    const char *nps = yyjson_get_str(np);
+    if (cps) t.canonical_path = iron_arena_strdup(arena, cps, strlen(cps));
+    if (nps) t.name_path      = iron_arena_strdup(arena, nps, strlen(nps));
+    if (kd && yyjson_is_int(kd)) t.kind = (Iron_SymbolKind)yyjson_get_int(kd);
+    if (hv && (yyjson_is_uint(hv) || yyjson_is_int(hv) || yyjson_is_sint(hv))) {
+        t.hash = yyjson_get_uint(hv);
+    }
+    return t;
+}
+
+void ilsp_handle_text_document_prepare_type_hierarchy(
+    IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+    const char *uri = ilsp_nav_parse_uri(params);
+    IronLsp_Position pos = {0};
+    bool have_pos = ilsp_nav_parse_position(params, &pos);
+
+    Iron_Arena    body_arena = iron_arena_create(4 * 1024);
+    yyjson_alc    alc        = ilsp_json_alc(&body_arena);
+    yyjson_mut_doc *rd        = yyjson_mut_doc_new(&alc);
+    if (!rd) { iron_arena_free(&body_arena); return; }
+
+    IronLsp_Document *d = lookup_doc(s, uri);
+    if (!d || !have_pos) {
+        enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_null(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = register_cancel(s, id_v);
+
+    Iron_Arena work_arena = iron_arena_create(64 * 1024);
+    IronLsp_TypeHierarchyItem *items = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_prepare_type_hierarchy(s, d, pos, cancel,
+                                             &work_arena, &items, &n);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    yyjson_mut_val *result;
+    if (n == 0) {
+        result = yyjson_mut_null(rd);
+    } else {
+        result = yyjson_mut_arr(rd);
+        for (size_t i = 0; i < n; i++) {
+            yyjson_mut_arr_append(result,
+                type_hierarchy_item_to_json(rd, &items[i]));
+        }
+    }
+    enqueue_result(s, &body_arena, id_v, rd, result);
+
+    yyjson_mut_doc_free(rd);
+    iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
+}
+
+typedef void (*th_resolver_t)(IronLsp_Server *,
+                               IronLsp_SymbolId,
+                               _Atomic bool *,
+                               Iron_Arena *,
+                               IronLsp_TypeHierarchyItem **,
+                               size_t *);
+
+static void handle_type_hierarchy_followup(IronLsp_Server *s,
+                                             struct yyjson_doc *doc,
+                                             th_resolver_t resolver) {
+    if (!s || !doc) return;
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+    yyjson_val *item_obj = yyjson_obj_get(params, "item");
+
+    Iron_Arena    body_arena = iron_arena_create(4 * 1024);
+    yyjson_alc    alc        = ilsp_json_alc(&body_arena);
+    yyjson_mut_doc *rd        = yyjson_mut_doc_new(&alc);
+    if (!rd) { iron_arena_free(&body_arena); return; }
+
+    _Atomic bool *cancel = register_cancel(s, id_v);
+
+    Iron_Arena work_arena = iron_arena_create(64 * 1024);
+    IronLsp_SymbolId triple = parse_item_triple(item_obj, &work_arena);
+    IronLsp_TypeHierarchyItem *items = NULL;
+    size_t n = 0;
+    resolver(s, triple, cancel, &work_arena, &items, &n);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    yyjson_mut_val *arr = yyjson_mut_arr(rd);
+    for (size_t i = 0; i < n; i++) {
+        yyjson_mut_arr_append(arr,
+            type_hierarchy_item_to_json(rd, &items[i]));
+    }
+    enqueue_result(s, &body_arena, id_v, rd, arr);
+
+    yyjson_mut_doc_free(rd);
+    iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
+}
+
+void ilsp_handle_type_hierarchy_supertypes(
+    IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena) {
+    (void)arena;
+    handle_type_hierarchy_followup(s, doc,
+        ilsp_facade_nav_type_hierarchy_supertypes);
+}
+
+void ilsp_handle_type_hierarchy_subtypes(
+    IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena) {
+    (void)arena;
+    handle_type_hierarchy_followup(s, doc,
+        ilsp_facade_nav_type_hierarchy_subtypes);
 }
