@@ -81,6 +81,24 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         return;
     }
 
+    /* Phase 3 Plan 04 Task 03 (D-13): signatureHelpProvider expects
+     *   { triggerCharacters: ["(", ","], retriggerCharacters: [","] }.
+     * Handler-table auto-advertise cannot produce this shape (it only
+     * emits booleans + object-shape special cases), hence this explicit
+     * branch. */
+    if (strcmp(name, "signatureHelpProvider") == 0) {
+        yyjson_mut_val *shp = yyjson_mut_obj(d);
+        yyjson_mut_val *trig = yyjson_mut_arr(d);
+        yyjson_mut_arr_add_strcpy(d, trig, "(");
+        yyjson_mut_arr_add_strcpy(d, trig, ",");
+        yyjson_mut_obj_add_val(d, shp, "triggerCharacters", trig);
+        yyjson_mut_val *retr = yyjson_mut_arr(d);
+        yyjson_mut_arr_add_strcpy(d, retr, ",");
+        yyjson_mut_obj_add_val(d, shp, "retriggerCharacters", retr);
+        yyjson_mut_obj_add_val(d, caps, name, shp);
+        return;
+    }
+
     /* Default shape: boolean true. Covers hoverProvider / definitionProvider /
      * referencesProvider / documentSymbolProvider / etc. */
     yyjson_mut_obj_add_bool(d, caps, name, true);
