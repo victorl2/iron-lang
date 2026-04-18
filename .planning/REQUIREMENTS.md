@@ -187,8 +187,8 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **MODEL-01**: User can load and unload a `Model` — `Model.load(path), Model.fromMesh(mesh), model.unload(), model.isReady()`
 - [x] **MODEL-02**: User can query model bounds — `model.getBoundingBox()`
 - [x] **MODEL-03**: User can draw a model in every variant — `model.draw(position, scale, tint), model.drawEx(position, axis, angle, scale, tint), model.drawWires(...), model.drawWiresEx(...), model.drawPoints(...), model.drawPointsEx(...)`
-- [ ] **MODEL-04**: User can manipulate meshes — `mesh.upload(dynamic), mesh.updateBuffer(index, data, offset), mesh.unload(), mesh.export(path), mesh.exportAsCode(path), mesh.getBoundingBox(), mesh.genTangents()`
-- [ ] **MODEL-05**: User can draw individual meshes — `mesh.draw(material, transform), mesh.drawInstanced(material, transforms, instances)`
+- [x] **MODEL-04**: User can manipulate meshes — `mesh.upload(dynamic), mesh.updateBuffer(index, data, offset), mesh.unload(), mesh.export(path), mesh.exportAsCode(path), mesh.getBoundingBox(), mesh.genTangents()`
+- [x] **MODEL-05**: User can draw individual meshes — `mesh.draw(material, transform), mesh.drawInstanced(material, transforms, instances)`
 - [ ] **MODEL-06**: User can generate procedural meshes — `Mesh.poly(sides, radius), Mesh.plane(width, length, resX, resZ), Mesh.cube(w, h, l), Mesh.sphere(radius, rings, slices), Mesh.hemiSphere(...), Mesh.cylinder(...), Mesh.cone(...), Mesh.torus(...), Mesh.knot(...), Mesh.heightmap(image, size), Mesh.cubicmap(image, size)`
 - [ ] **MODEL-07**: User can load and use materials — `Material.load(path), Material.default(), material.unload(), material.setTexture(mapType, texture)` and apply via `model.setMeshMaterial(meshIndex, materialIndex)`
 - [ ] **MODEL-08**: User can load and play model animations — `ModelAnimation.load(path)` returns array, `model.updateAnimation(anim, frame), model.updateAnimationBones(anim, frame), animation.isValid(), ModelAnimation.unload(animations)`
@@ -412,8 +412,8 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | MODEL-01 | Phase 70 (Plan 01) | Complete |
 | MODEL-02 | Phase 70 (Plan 01) | Complete |
 | MODEL-03 | Phase 70 (Plan 01) | Complete |
-| MODEL-04 | Phase 70 | Pending |
-| MODEL-05 | Phase 70 | Pending |
+| MODEL-04 | Phase 70 | Complete |
+| MODEL-05 | Phase 70 | Complete |
 | MODEL-06 | Phase 70 | Pending |
 | MODEL-07 | Phase 70 | Pending |
 | MODEL-08 | Phase 70 | Pending |
