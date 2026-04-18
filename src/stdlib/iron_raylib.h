@@ -1766,6 +1766,37 @@ void Iron_model_draw_points_ex(struct Iron_Model model, struct Iron_Vector3 posi
                                struct Iron_Vector3 rotation_axis, float rotation_angle,
                                struct Iron_Vector3 scale, struct Iron_Color tint);
 
+/* Iron's [Matrix] lowers to Iron_List_Iron_Matrix in C (ARRAY_PARAM_LIST
+ * mode, first consumer is Iron_mesh_draw_instanced below — probed GREEN
+ * in Plan 70-01). Layout-compatible with the compiler-emitted
+ * IRON_LIST_DECL expansion. Same guard pattern as iron_raylib.h's
+ * IRON_LIST_IRON_VECTOR2 / IRON_LIST_IRON_VECTOR3 blocks. */
+#ifndef IRON_LIST_IRON_MATRIX_STRUCT_DEFINED
+#define IRON_LIST_IRON_MATRIX_STRUCT_DEFINED
+typedef struct Iron_List_Iron_Matrix {
+    struct Iron_Matrix *items;
+    int64_t             count;
+    int64_t             capacity;
+} Iron_List_Iron_Matrix;
+#endif
+
+/* MODEL-04: Mesh operations (7) */
+struct Iron_Mesh        Iron_mesh_upload(struct Iron_Mesh mesh, bool dynamic);
+void                    Iron_mesh_update_buffer(struct Iron_Mesh mesh, int32_t index,
+                                                Iron_List_uint8_t data, int32_t data_size,
+                                                int32_t offset);
+void                    Iron_mesh_unload(struct Iron_Mesh mesh);
+bool                    Iron_mesh_export(struct Iron_Mesh mesh, Iron_String file_name);
+bool                    Iron_mesh_export_as_code(struct Iron_Mesh mesh, Iron_String file_name);
+struct Iron_BoundingBox Iron_mesh_bounding_box(struct Iron_Mesh mesh);
+struct Iron_Mesh        Iron_mesh_gen_tangents(struct Iron_Mesh mesh);
+
+/* MODEL-05: Mesh draw (2) */
+void Iron_mesh_draw(struct Iron_Mesh mesh, struct Iron_Material material,
+                    struct Iron_Matrix transform);
+void Iron_mesh_draw_instanced(struct Iron_Mesh mesh, struct Iron_Material material,
+                              Iron_List_Iron_Matrix transforms, int32_t instances);
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 

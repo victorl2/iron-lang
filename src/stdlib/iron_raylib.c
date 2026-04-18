@@ -5695,6 +5695,104 @@ void Iron_model_draw_points_ex(struct Iron_Model model, struct Iron_Vector3 posi
     DrawModelPointsEx(rm, pos, ax, rotation_angle, sc, c);
 }
 
+/* MODEL-04: Mesh operations (7) — raylib.h:1572-1580
+ *
+ * Iron_mesh_upload / Iron_mesh_gen_tangents use mutating-return-by-value
+ * (Phase 66-03 template) since raylib's UploadMesh / GenMeshTangents take
+ * Mesh* and mutate in place. Iron val-fields are immutable; users rebind
+ * via `var mesh = Mesh.cube(...); mesh = mesh.upload(true)` or
+ * `val uploaded = Mesh.upload(mesh, true)`.
+ *
+ * Iron_mesh_update_buffer forwards Iron_List_uint8_t.items as (const void *)
+ * — ABI-UINT8 closed Phase 68-01.
+ */
+
+struct Iron_Mesh Iron_mesh_upload(struct Iron_Mesh mesh, bool dynamic) {
+    Mesh local;
+    memcpy(&local, &mesh, sizeof(Mesh));
+    UploadMesh(&local, dynamic);
+    struct Iron_Mesh out;
+    memcpy(&out, &local, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+void Iron_mesh_update_buffer(struct Iron_Mesh mesh, int32_t index,
+                             Iron_List_uint8_t data, int32_t data_size,
+                             int32_t offset) {
+    Mesh rm;
+    memcpy(&rm, &mesh, sizeof(Mesh));
+    UpdateMeshBuffer(rm, (int)index, (const void *)data.items,
+                     (int)data_size, (int)offset);
+}
+
+void Iron_mesh_unload(struct Iron_Mesh mesh) {
+    Mesh rm;
+    memcpy(&rm, &mesh, sizeof(Mesh));
+    UnloadMesh(rm);
+}
+
+bool Iron_mesh_export(struct Iron_Mesh mesh, Iron_String file_name) {
+    Mesh rm;
+    memcpy(&rm, &mesh, sizeof(Mesh));
+    return (bool)(ExportMesh(rm, iron_string_cstr(&file_name)) != 0);
+}
+
+bool Iron_mesh_export_as_code(struct Iron_Mesh mesh, Iron_String file_name) {
+    Mesh rm;
+    memcpy(&rm, &mesh, sizeof(Mesh));
+    return (bool)(ExportMeshAsCode(rm, iron_string_cstr(&file_name)) != 0);
+}
+
+struct Iron_BoundingBox Iron_mesh_bounding_box(struct Iron_Mesh mesh) {
+    Mesh rm;
+    memcpy(&rm, &mesh, sizeof(Mesh));
+    BoundingBox rl = GetMeshBoundingBox(rm);
+    struct Iron_BoundingBox out;
+    memcpy(&out, &rl, sizeof(struct Iron_BoundingBox));
+    return out;
+}
+
+struct Iron_Mesh Iron_mesh_gen_tangents(struct Iron_Mesh mesh) {
+    Mesh local;
+    memcpy(&local, &mesh, sizeof(Mesh));
+    GenMeshTangents(&local);
+    struct Iron_Mesh out;
+    memcpy(&out, &local, sizeof(struct Iron_Mesh));
+    return out;
+}
+
+/* MODEL-05: Mesh draw (2) — raylib.h:1575-1576
+ *
+ * Iron_mesh_draw — first simultaneous 120+40+64 = 224 B struct-by-value
+ * input across the FFI. Each arg independently under 120 B ceiling; clang
+ * evaluates per-struct, not cumulative. Phase 64-02 validated 120+64 B
+ * double input (Iron_ray_hit_mesh); this adds Material (40 B) to the mix.
+ *
+ * Iron_mesh_draw_instanced — first [Matrix] list input via
+ * Iron_List_Iron_Matrix (Scan B auto-emitted, verified by Plan 70-01).
+ * Forward .items as (const Matrix *).
+ */
+
+void Iron_mesh_draw(struct Iron_Mesh mesh, struct Iron_Material material,
+                    struct Iron_Matrix transform) {
+    Mesh     rm;
+    Material rmat;
+    Matrix   rt;
+    memcpy(&rm,   &mesh,      sizeof(Mesh));
+    memcpy(&rmat, &material,  sizeof(Material));
+    memcpy(&rt,   &transform, sizeof(Matrix));
+    DrawMesh(rm, rmat, rt);
+}
+
+void Iron_mesh_draw_instanced(struct Iron_Mesh mesh, struct Iron_Material material,
+                              Iron_List_Iron_Matrix transforms, int32_t instances) {
+    Mesh     rm;
+    Material rmat;
+    memcpy(&rm,   &mesh,     sizeof(Mesh));
+    memcpy(&rmat, &material, sizeof(Material));
+    DrawMeshInstanced(rm, rmat, (const Matrix *)transforms.items, (int)instances);
+}
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
