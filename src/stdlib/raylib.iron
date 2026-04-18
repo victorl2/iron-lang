@@ -2947,3 +2947,12 @@ func Shader.set_value(shader: Shader, loc: Int32, value: [UInt8], data_type: Sha
 func Shader.set_value_v(shader: Shader, loc: Int32, values: [UInt8], data_type: ShaderUniformDataType, count: Int32) {}
 func Shader.set_value_matrix(shader: Shader, loc: Int32, mat: Matrix) {}
 func Shader.set_value_texture(shader: Shader, loc: Int32, tex: Texture) {}
+
+-- ── Phase 72: File I/O & Utilities ──────────────────────────────
+-- 23 shims closing FILE-01 (3 data I/O — UnloadFileData shim-internal)
+-- + FILE-02 (2 text I/O — UnloadFileText shim-internal) + FILE-03 (16 fs queries).
+-- Pattern note: Iron_List_uint8_t RETURN is NOVEL — Task 1 probes via Files.load_data.
+-- Static-form dispatch throughout (Files is freestanding; no receiver methods).
+
+-- FILE-01 Task 1 probe: first live Iron_List_uint8_t RETURN consumer.
+func Files.load_data(path: String) -> [UInt8] {}

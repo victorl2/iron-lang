@@ -1907,4 +1907,8 @@ void Iron_shader_set_value_texture(struct Iron_Shader shader, int32_t loc,
 
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
+/* ── FILE-01 probe: Iron_List_uint8_t RETURN (first consumer — transitivity
+ *    from Phase 67-03 Iron_List_int32_t RETURN). */
+Iron_List_uint8_t Iron_files_load_data(Iron_String path);
+
 #endif /* IRON_RAYLIB_H */

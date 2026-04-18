@@ -6228,11 +6228,32 @@ void Iron_shader_set_value_texture(struct Iron_Shader shader, int32_t loc,
     SetShaderValueTexture(rs, (int)loc, rtex);
 }
 
-/* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════
+ * ── File I/O & Utils (Phase 72) ──────────────────────────────────────
+ * FILE-01 probe — Iron_List_uint8_t RETURN (FIRST live consumer).
+ * Pattern: Phase 67-03 Iron_text_load_codepoints — element type uint8_t,
+ * raylib entry LoadFileData, Unload entry UnloadFileData.
+ * Pitfall 1: dataSize is out-param — pass &size, read after call.
+ * Pitfall 11: shim owns raylib buffer end-to-end; no user-facing
+ * Files.unload_data stub.
+ * ═══════════════════════════════════════════════════════════════════ */
 
-/* Phase 60 leaves this file intentionally empty of wrapper functions.
- * A later Phase 60 plan (60-08 clean-break) may rewrite pong.iron /
- * game_raylib.iron / hello_raylib.iron to only use TYPE/ENUM
- * definitions — no wrapper calls — so zero-function iron_raylib.c
- * still links. If a rewrite needs a specific wrapper earlier than
- * Phase 61, that plan will add a single section-scoped shim here. */
+Iron_List_uint8_t Iron_files_load_data(Iron_String path) {
+    const char *cpath = iron_string_cstr(&path);
+    int size = 0;
+    unsigned char *buf = LoadFileData(cpath, &size);
+    Iron_List_uint8_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (size > 0) {
+        out.items    = (uint8_t *)calloc((size_t)size, sizeof(uint8_t));
+        out.capacity = (int64_t)size;
+        if (buf && out.items) {
+            memcpy(out.items, buf, (size_t)size);
+            out.count = (int64_t)size;
+        }
+    }
+    UnloadFileData(buf);
+    return out;
+}
