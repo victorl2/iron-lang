@@ -53,7 +53,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 69: 3D Drawing & Camera3D** — All 3D primitives, camera modes, screen↔world rays (completed 2026-04-18)
 - [x] **Phase 70: Models, Meshes, Materials, Animations** — Model load/draw, procedural meshes, materials, bones, billboards (completed 2026-04-18)
 - [x] **Phase 71: Shaders** — Shader load/unload, uniform setting by type, shader location indices (completed 2026-04-18)
-- [ ] **Phase 72: File I/O & Utilities** — File/text I/O, filesystem queries, compress/encode, random
+- [x] **Phase 72: File I/O & Utilities** — File/text I/O, filesystem queries, compress/encode, random (completed 2026-04-18)
 - [ ] **Phase 73: Idiomatic API Polish, Showcase & Integration Tests** — Cross-cutting sweep: methods-on-types, constructor sugar, typed enums everywhere, raylib showcase example, native + web parity, existing users still compile
 
 ## Phase Details
@@ -392,7 +392,7 @@ Plans:
 | 69. 3D Drawing & Camera3D | 4/4 | Complete    | 2026-04-18 |
 | 70. Models, Meshes, Materials | 4/4 | Complete   | 2026-04-18 |
 | 71. Shaders | 2/2 | Complete   | 2026-04-18 |
-| 72. File I/O & Utilities | 2/3 | In Progress|  |
+| 72. File I/O & Utilities | 3/3 | Complete   | 2026-04-18 |
 | 73. Idiomatic API Polish & Showcase | 0/? | Not started | - |
 
 ## Coverage Summary
@@ -424,7 +424,7 @@ Plans:
 **Goal:** [To be planned]
 **Requirements**: TBD
 **Depends on:** Phase 73
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 74 to break down)

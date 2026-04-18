@@ -222,7 +222,7 @@ raymath functions become **methods on Vector2/Vector3/Vector4/Matrix/Quaternion*
 - [x] **FILE-03**: User can query the filesystem — `fileExists, directoryExists, isFileExtension, getFileLength, getFileExtension, getFileName, getFileNameWithoutExt, getDirectoryPath, getPrevDirectoryPath, getWorkingDirectory, getApplicationDirectory, changeDirectory, isPathFile, isFileNameValid, getFileModTime, makeDirectory`
 - [x] **FILE-04**: User can list directories — `loadDirectoryFiles(path), loadDirectoryFilesEx(path, filter, scanSubdirs), unloadDirectoryFiles` returning `FilePathList`
 - [x] **FILE-05**: User can compress/decompress data and encode/decode base64 — `compressData, decompressData, encodeDataBase64, decodeDataBase64, computeCRC32, computeMD5, computeSHA1`
-- [ ] **FILE-06**: User can interact with random — `setRandomSeed, getRandomValue, loadRandomSequence, unloadRandomSequence`
+- [x] **FILE-06**: User can interact with random — `setRandomSeed, getRandomValue, loadRandomSequence, unloadRandomSequence`
 - [x] **FILE-07**: User can drive timing — `waitTime(seconds)` (covered by WIN-12 for the rest)
 
 ### Idiomatic API Layer (cross-cutting)
@@ -428,7 +428,7 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | FILE-03 | Phase 72 | Complete |
 | FILE-04 | Phase 72 | Complete |
 | FILE-05 | Phase 72 | Complete |
-| FILE-06 | Phase 72 | Pending |
+| FILE-06 | Phase 72 | Complete |
 | FILE-07 | Phase 61 | Complete |
 | API-01 | Phase 73 | Pending |
 | API-02 | Phase 73 | Pending |
