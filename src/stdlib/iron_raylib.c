@@ -6117,6 +6117,117 @@ void Iron_draw_bounding_box(struct Iron_BoundingBox box, struct Iron_Color color
 }
 
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
+
+/* SHADER-01: Load with empty-string → NULL fallback.
+ * See rcore.c:1302-1303: LoadShader calls LoadFileText only if path != NULL.
+ * Iron users pass "" to get raylib's default shader for that stage. */
+struct Iron_Shader Iron_shader_load(Iron_String vs_path, Iron_String fs_path) {
+    const char *vs_c = iron_string_cstr(&vs_path);
+    const char *fs_c = iron_string_cstr(&fs_path);
+    Shader rl = LoadShader(
+        (vs_c && *vs_c) ? vs_c : NULL,
+        (fs_c && *fs_c) ? fs_c : NULL
+    );
+    struct Iron_Shader out;
+    memcpy(&out, &rl, sizeof(struct Iron_Shader));
+    return out;
+}
+
+/* SHADER-01: Same NULL-fallback convention for inline source code strings.
+ * "vs_code" / "fs_code" are GLSL source text, NOT paths. */
+struct Iron_Shader Iron_shader_load_from_memory(Iron_String vs_code, Iron_String fs_code) {
+    const char *vs_c = iron_string_cstr(&vs_code);
+    const char *fs_c = iron_string_cstr(&fs_code);
+    Shader rl = LoadShaderFromMemory(
+        (vs_c && *vs_c) ? vs_c : NULL,
+        (fs_c && *fs_c) ? fs_c : NULL
+    );
+    struct Iron_Shader out;
+    memcpy(&out, &rl, sizeof(struct Iron_Shader));
+    return out;
+}
+
+/* SHADER-01: Validity probe; bool-coerce per Phase 62/68 precedent. */
+bool Iron_shader_is_valid(struct Iron_Shader shader) {
+    Shader rs;
+    memcpy(&rs, &shader, sizeof(Shader));
+    return (bool)(IsShaderValid(rs) != 0);
+}
+
+/* SHADER-01: Free GPU program + raylib-allocated locs array. */
+void Iron_shader_unload(struct Iron_Shader shader) {
+    Shader rs;
+    memcpy(&rs, &shader, sizeof(Shader));
+    UnloadShader(rs);
+}
+
+/* SHADER-02: Resolve uniform location by name; returns -1 if optimized out. */
+int32_t Iron_shader_get_location(struct Iron_Shader shader, Iron_String uniform_name) {
+    Shader rs;
+    memcpy(&rs, &shader, sizeof(Shader));
+    const char *name_c = iron_string_cstr(&uniform_name);
+    return (int32_t)GetShaderLocation(rs, name_c);
+}
+
+/* SHADER-02: Resolve vertex attribute location by name; returns -1 if missing. */
+int32_t Iron_shader_get_location_attrib(struct Iron_Shader shader, Iron_String attrib_name) {
+    Shader rs;
+    memcpy(&rs, &shader, sizeof(Shader));
+    const char *name_c = iron_string_cstr(&attrib_name);
+    return (int32_t)GetShaderLocationAttrib(rs, name_c);
+}
+
+/* SHADER-02: Iron-side invented helper. raylib exposes no C-side setter;
+ * users typically write `shader.locs[i] = loc` directly. Iron hides _locs
+ * as opaque Int; this shim does the cast + indexed write in C.
+ * Defensively no-op if _locs == NULL (shader never loaded, zeroed struct). */
+void Iron_shader_set_location(struct Iron_Shader shader, int32_t index, int32_t loc) {
+    int *locs = (int *)shader._locs;
+    if (locs == NULL) return;
+    locs[(int)index] = (int)loc;
+}
+
+/* SHADER-03: Scalar / vec uniform setter. `value.items` is already
+ * uint8_t *; cast to const void * for raylib's opaque-payload API.
+ * ABI-UINT8 pattern from Phase 68-01 (4th live consumer). */
+void Iron_shader_set_value(struct Iron_Shader shader, int32_t loc,
+                           Iron_List_uint8_t value, int32_t data_type) {
+    Shader rs;
+    memcpy(&rs, &shader, sizeof(Shader));
+    SetShaderValue(rs, (int)loc, (const void *)value.items, (int)data_type);
+}
+
+/* SHADER-03: Array variant — same payload form, explicit count. */
+void Iron_shader_set_value_v(struct Iron_Shader shader, int32_t loc,
+                             Iron_List_uint8_t values, int32_t data_type,
+                             int32_t count) {
+    Shader rs;
+    memcpy(&rs, &shader, sizeof(Shader));
+    SetShaderValueV(rs, (int)loc, (const void *)values.items, (int)data_type, (int)count);
+}
+
+/* SHADER-03: Dedicated 64 B Matrix path (Template F — simultaneous
+ * 16 B Shader + 64 B Matrix struct-by-value INPUT). */
+void Iron_shader_set_value_matrix(struct Iron_Shader shader, int32_t loc,
+                                  struct Iron_Matrix mat) {
+    Shader rs;
+    Matrix rmat;
+    memcpy(&rs,   &shader, sizeof(Shader));
+    memcpy(&rmat, &mat,    sizeof(Matrix));
+    SetShaderValueMatrix(rs, (int)loc, rmat);
+}
+
+/* SHADER-03: Dedicated 20 B Texture path (Template F — simultaneous
+ * 16 B Shader + 20 B Texture struct-by-value INPUT). */
+void Iron_shader_set_value_texture(struct Iron_Shader shader, int32_t loc,
+                                   struct Iron_Texture tex) {
+    Shader rs;
+    Texture2D rtex;
+    memcpy(&rs,   &shader, sizeof(Shader));
+    memcpy(&rtex, &tex,    sizeof(Texture2D));
+    SetShaderValueTexture(rs, (int)loc, rtex);
+}
+
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
 /* Phase 60 leaves this file intentionally empty of wrapper functions.

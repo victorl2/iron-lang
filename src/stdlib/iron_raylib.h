@@ -1882,6 +1882,29 @@ void Iron_draw_billboard_pro(struct Iron_Camera3D camera, struct Iron_Texture te
 void Iron_draw_bounding_box(struct Iron_BoundingBox box, struct Iron_Color color);
 
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
+
+/* SHADER-01: Load / valid / unload (4) */
+struct Iron_Shader Iron_shader_load(Iron_String vs_path, Iron_String fs_path);
+struct Iron_Shader Iron_shader_load_from_memory(Iron_String vs_code, Iron_String fs_code);
+bool               Iron_shader_is_valid(struct Iron_Shader shader);
+void               Iron_shader_unload(struct Iron_Shader shader);
+
+/* SHADER-02: Location resolution (3) */
+int32_t Iron_shader_get_location(struct Iron_Shader shader, Iron_String uniform_name);
+int32_t Iron_shader_get_location_attrib(struct Iron_Shader shader, Iron_String attrib_name);
+void    Iron_shader_set_location(struct Iron_Shader shader, int32_t index, int32_t loc);
+
+/* SHADER-03: Uniform setters (4) */
+void Iron_shader_set_value(struct Iron_Shader shader, int32_t loc,
+                           Iron_List_uint8_t value, int32_t data_type);
+void Iron_shader_set_value_v(struct Iron_Shader shader, int32_t loc,
+                             Iron_List_uint8_t values, int32_t data_type,
+                             int32_t count);
+void Iron_shader_set_value_matrix(struct Iron_Shader shader, int32_t loc,
+                                  struct Iron_Matrix mat);
+void Iron_shader_set_value_texture(struct Iron_Shader shader, int32_t loc,
+                                   struct Iron_Texture tex);
+
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
 #endif /* IRON_RAYLIB_H */
