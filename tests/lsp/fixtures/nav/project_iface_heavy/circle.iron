@@ -1,0 +1,6 @@
+import shapes
+
+object Circle implements Shape {
+    radius: Float
+    func area() -> Float { return 3.14 * radius * radius }
+}

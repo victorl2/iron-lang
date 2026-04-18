@@ -33,9 +33,27 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
                 --lsp-binary=$<TARGET_FILE:ironls>
                 -v --tb=short
                 -p no:cacheprovider
+                --ignore=${CMAKE_CURRENT_SOURCE_DIR}/nav
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_smoke PROPERTIES
             LABELS "smoke;phase-m1-invariant"
+            TIMEOUT 120
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
+        # Phase 3 Plan 01 Wave 0: lsp_nav_smoke -- 7 pytest stubs under
+        # tests/lsp/smoke/nav/ for the NAV endpoints. Stubs use
+        # pytestmark = pytest.mark.skip so the target exits 0 until Plans
+        # 02..06 flip them to real assertions.
+        add_test(
+            NAME lsp_nav_smoke
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/nav
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_nav_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m2-invariant"
             TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
     else()
@@ -48,6 +66,16 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
         set_tests_properties(lsp_smoke PROPERTIES
             LABELS "smoke;phase-m1-invariant"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30)
+
+        # Phase 3 Plan 01 Wave 0: same SKIP shim for the nav harness so
+        # ctest -L phase-m2-invariant stays green when pytest-lsp is absent.
+        add_test(
+            NAME lsp_nav_smoke
+            COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
+        set_tests_properties(lsp_nav_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m2-invariant"
             SKIP_RETURN_CODE 77
             TIMEOUT 30)
     endif()
