@@ -397,15 +397,13 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
         PROPERTIES COMPILE_FLAGS "-Wno-error -w")
 
-    # ── Phase 3 Plan 01 Wave 0: 18 Unity test stubs ───────────────────────
+    # ── Phase 3 Plan 01 Wave 0: Unity test stubs ─────────────────────────
     # Each stub file calls TEST_IGNORE_MESSAGE so Unity exits 0 and ctest
     # counts the test as PASS. Plans 01..06 swap TEST_IGNORE_MESSAGE for
     # real assertions one test at a time; when a stub flips to real, the
     # target's source list is extended below to pull in the TUs under test.
     # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
     set(_PHASE3_WAVE0_STUBS
-        test_lexer_doc_comment
-        test_lexer_doc_comment_parity
         test_ast_sealed
         test_symbol_id
         test_node_at
@@ -433,6 +431,35 @@ if(IRON_BUILD_LSP)
             LABELS "unit;phase-m2-invariant"
             TIMEOUT 30)
     endforeach()
+
+    # ── Phase 3 Plan 01 Task 02 (NAV-14): lexer doc-comment tests ────────
+    # test_lexer_doc_comment exercises the `///` tokenization + parser
+    # run-aggregation end-to-end; it links the lexer + parser surface from
+    # iron_compiler. iron_compiler also brings iron_runtime (stb_ds_impl).
+    add_executable(test_lexer_doc_comment test_lexer_doc_comment.c)
+    target_include_directories(test_lexer_doc_comment PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lexer_doc_comment
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_lexer_doc_comment COMMAND test_lexer_doc_comment)
+    set_tests_properties(test_lexer_doc_comment PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 30)
+
+    # test_lexer_doc_comment_parity asserts that stripping `///` lines
+    # produces a byte-equivalent Iron_DiagList to the unstripped source.
+    add_executable(test_lexer_doc_comment_parity test_lexer_doc_comment_parity.c)
+    target_include_directories(test_lexer_doc_comment_parity PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lexer_doc_comment_parity
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_lexer_doc_comment_parity
+             COMMAND test_lexer_doc_comment_parity)
+    set_tests_properties(test_lexer_doc_comment_parity PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 30)
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()

@@ -181,6 +181,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_IDENTIFIER]    = "IRON_TOK_IDENTIFIER",
     [IRON_TOK_WILDCARD]      = "IRON_TOK_WILDCARD",
     [IRON_TOK_AT]            = "IRON_TOK_AT",
+    [IRON_TOK_DOC_COMMENT]   = "IRON_TOK_DOC_COMMENT",
 };
 
 const char *iron_token_kind_str(Iron_TokenKind kind) {
@@ -707,6 +708,53 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 iron_advance_char(l);
                 return iron_make_token(l, IRON_TOK_SLASH_ASSIGN, NULL,
                                        start_line, start_col, 2);
+            }
+            /* Phase 3 NAV-14: `///` triple-slash doc-comment line. Consume
+             * the next two slashes, collect the body to EOL (not consuming
+             * the newline), strip one leading space if present, arena-intern
+             * as the token value. Cap body at 8192 bytes (T-03-01); truncate
+             * and emit a NOTE-level diagnostic if the user exceeds it. The
+             * newline itself is consumed by the top-level loop and emitted
+             * as IRON_TOK_NEWLINE in the normal flow. A bare `//` is NOT
+             * an Iron comment today; fall through to IRON_TOK_SLASH as
+             * before (the next `/` will then produce IRON_TOK_SLASH too;
+             * surface divergence from `ironc` is covered by parity). */
+            if (iron_peek_char(l) == '/' && iron_peek_next(l) == '/') {
+                iron_advance_char(l); /* consume 2nd '/' */
+                iron_advance_char(l); /* consume 3rd '/' */
+                /* Optional single leading space: `/// foo` -> "foo". */
+                if (iron_peek_char(l) == ' ') {
+                    iron_advance_char(l);
+                }
+                size_t body_start = l->pos;
+                while (l->pos < l->src_len && l->src[l->pos] != '\n') {
+                    l->pos++;
+                    l->col++;
+                }
+                size_t body_len = l->pos - body_start;
+                /* T-03-01: cap at 8192 bytes. If user wrote a pathological
+                 * line, truncate and emit a NOTE. */
+                bool truncated = false;
+                if (body_len > 8192) {
+                    body_len = 8192;
+                    truncated = true;
+                }
+                const char *body = iron_arena_strdup(l->arena,
+                                                      &l->src[body_start],
+                                                      body_len);
+                if (!body) body = "";
+                if (truncated) {
+                    Iron_Span span = iron_span_make(l->filename,
+                                                     start_line, start_col,
+                                                     l->line, l->col);
+                    iron_diag_emit(l->diags, l->arena, IRON_DIAG_NOTE,
+                                   IRON_WARN_DOC_COMMENT_TRUNCATED, span,
+                                   "doc comment truncated to 8 KB",
+                                   NULL);
+                }
+                return iron_make_token(l, IRON_TOK_DOC_COMMENT, body,
+                                       start_line, start_col,
+                                       (uint32_t)(l->pos - start_pos));
             }
             return iron_make_token(l, IRON_TOK_SLASH, NULL,
                                    start_line, start_col, 1);
