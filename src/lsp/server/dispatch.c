@@ -60,6 +60,11 @@ void ilsp_handle_text_document_signature_help(IronLsp_Server *s, yyjson_doc *doc
 /* Phase 3 Plan 05: implementation handler (handlers_nav.c). */
 void ilsp_handle_text_document_implementation(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 3 Plan 05 Task 02: typeHierarchy protocol (handlers_nav.c). */
+void ilsp_handle_text_document_prepare_type_hierarchy(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_type_hierarchy_supertypes          (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_type_hierarchy_subtypes            (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -105,12 +110,20 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "textDocument/hover",                ilsp_handle_text_document_hover,            true,  "hoverProvider"         },
     /* Plan 05 Task 01 (NAV-05): implementation. 'h' < 'i' < 'r' sort. */
     { "textDocument/implementation",       ilsp_handle_text_document_implementation,   true,  "implementationProvider"},
+    /* Plan 05 Task 02 (NAV-11): prepareTypeHierarchy. 'i' < 'p' < 'r'. */
+    { "textDocument/prepareTypeHierarchy", ilsp_handle_text_document_prepare_type_hierarchy, true, "typeHierarchyProvider"},
     /* Plan 04 Task 01 (NAV-06): references. */
     { "textDocument/references",           ilsp_handle_text_document_references,       true,  "referencesProvider"    },
     /* Plan 04 Task 03 (NAV-10): signatureHelp. */
     { "textDocument/signatureHelp",        ilsp_handle_text_document_signature_help,   true,  "signatureHelpProvider" },
     /* Plan 03 Task 02 (NAV-04): typeDefinition. */
     { "textDocument/typeDefinition",       ilsp_handle_text_document_type_definition,  true,  "typeDefinitionProvider"},
+    /* Plan 05 Task 02 (NAV-11): typeHierarchy sub/supertypes.
+     * Sort: textDocument/... < typeHierarchy/... because 'e' (0x65)
+     * < 'y' (0x79) in the 'x'/'y' position. subtypes < supertypes
+     * because 'b' (0x62) < 'p' (0x70) at the 15th char. */
+    { "typeHierarchy/subtypes",            ilsp_handle_type_hierarchy_subtypes,        true,  "typeHierarchyProvider" },
+    { "typeHierarchy/supertypes",          ilsp_handle_type_hierarchy_supertypes,      true,  "typeHierarchyProvider" },
     { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,          false, NULL                    },
     /* Plan 03 Task 03 (NAV-08): workspace/symbol. */
     { "workspace/symbol",                  ilsp_handle_workspace_symbol,               true,  "workspaceSymbolProvider"},

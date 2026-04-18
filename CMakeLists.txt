@@ -328,6 +328,7 @@ if(IRON_BUILD_LSP)
         # implementation + typeHierarchy facade TUs.
         src/lsp/facade/nav/iface_workspace.c
         src/lsp/facade/nav/implementation.c
+        src/lsp/facade/nav/type_hierarchy.c
         src/lsp/server/handlers_nav.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;

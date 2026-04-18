@@ -59,6 +59,14 @@ void ilsp_handle_text_document_implementation(struct IronLsp_Server *s,
                                                 struct yyjson_doc     *doc,
                                                 Iron_Arena            *arena);
 
+/* Phase 3 Plan 05 Task 02 (NAV-11): typeHierarchy protocol. */
+void ilsp_handle_text_document_prepare_type_hierarchy(
+    struct IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_type_hierarchy_supertypes(
+    struct IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_type_hierarchy_subtypes(
+    struct IronLsp_Server *s, struct yyjson_doc *doc, Iron_Arena *arena);
+
 #ifdef __cplusplus
 }
 #endif
