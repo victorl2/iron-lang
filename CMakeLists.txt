@@ -296,6 +296,8 @@ if(IRON_BUILD_LSP)
         src/lsp/obs/abort_handler.c
         src/lsp/server/notifications.c
         src/lsp/facade/compile.c
+        src/lsp/facade/span.c
+        src/lsp/facade/diagnostics.c
         src/vendor/yyjson/yyjson.c
     )
     target_include_directories(ironls PRIVATE src src/vendor)

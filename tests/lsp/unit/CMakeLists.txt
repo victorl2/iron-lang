@@ -78,11 +78,21 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/server/dyn_register.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_lifecycle.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace.c
+        # Plan 05: handlers_document.c now starts + stops per-doc workers;
+        # tests that link handlers_document.c must also link the worker
+        # subsystem and the facade stubs.
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/workers/ast_worker.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -297,6 +307,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
         ${_LSP_PLAN04_STORE_SRC}
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
@@ -310,6 +322,28 @@ if(IRON_BUILD_LSP)
         iron_compiler iron_runtime unity pthread)
     add_test(NAME test_lsp_sigabrt_boundary COMMAND test_lsp_sigabrt_boundary)
     set_tests_properties(test_lsp_sigabrt_boundary PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant"
+        TIMEOUT 30)
+
+    # Task 02 Unity: pull diagnostics via ilsp_facade_pull_diagnostic
+    # against a real IronLsp_Writer backed by open_memstream.
+    add_executable(test_lsp_pull_diagnostics test_lsp_pull_diagnostics.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        ${_LSP_PLAN04_STORE_SRC}
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    target_include_directories(test_lsp_pull_diagnostics PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_pull_diagnostics PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_pull_diagnostics
+        iron_compiler iron_runtime iron_stdlib unity pthread)
+    add_test(NAME test_lsp_pull_diagnostics COMMAND test_lsp_pull_diagnostics)
+    set_tests_properties(test_lsp_pull_diagnostics PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant"
         TIMEOUT 30)
 

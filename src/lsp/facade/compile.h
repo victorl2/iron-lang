@@ -31,10 +31,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Iron_Arena + Iron_DiagList are typedefs over anonymous structs in
+ * the analyzer headers, so we can't forward-declare them as
+ * `struct Iron_Arena`. Include the headers directly; they're small. */
+#include "util/arena.h"               /* Iron_Arena */
+#include "diagnostics/diagnostics.h"  /* Iron_DiagList */
+
 struct IronLsp_Server;
 struct IronLsp_Document;
-struct Iron_Arena;
-struct Iron_DiagList;
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,8 +65,8 @@ void ilsp_facade_pull_diagnostic(struct IronLsp_Server   *server,
  * the CLI path without touching the writer queue. */
 void ilsp_facade_compile_pure(struct IronLsp_Document      *doc,
                                const IronLsp_CompileRequest *req,
-                               struct Iron_Arena            *arena,
-                               struct Iron_DiagList         *diags);
+                               Iron_Arena                   *arena,
+                               Iron_DiagList                *diags);
 
 #ifdef __cplusplus
 }
