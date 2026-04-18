@@ -279,8 +279,8 @@ Plans:
   4. User can extract the camera's view matrix via `getCameraMatrix(camera)` and pass it to a shader or custom transform.
 
 **Plans**: 4 plans
-- [ ] 69-01-PLAN.md — Draw.begin/end_mode_3d + Camera3D.update / update_pro (DRAW3D-01 + DRAW3D-02)
-- [ ] 69-02-PLAN.md — Screen↔world + camera matrix + draw3d_smoke.iron creation (DRAW3D-03)
+- [x] 69-01-PLAN.md — Draw.begin/end_mode_3d + Camera3D.update / update_pro (DRAW3D-01 + DRAW3D-02)
+- [x] 69-02-PLAN.md — Screen↔world + camera matrix + draw3d_smoke.iron creation (DRAW3D-03)
 - [ ] 69-03-PLAN.md — 3D primitives batch 1: line / point / circle / triangle / triangle-strip / cube (4) / sphere (3) + Iron_List_Iron_Vector3 typedef (DRAW3D-04 partial)
 - [ ] 69-04-PLAN.md — 3D primitives batch 2: cylinder (4) / capsule (2) / plane / ray / grid + smoke finalization + rotating_cube showcase (DRAW3D-04 complete)
 
@@ -374,7 +374,7 @@ Plans:
 | 66. Textures & Images | 5/5 | Complete    | 2026-04-17 |
 | 67. Text & Fonts | 4/4 | Complete    | 2026-04-17 |
 | 68. Audio System | 5/5 | Complete    | 2026-04-17 |
-| 69. 3D Drawing & Camera3D | 1/4 | In Progress|  |
+| 69. 3D Drawing & Camera3D | 2/4 | In Progress|  |
 | 70. Models, Meshes, Materials | 0/? | Not started | - |
 | 71. Shaders | 0/? | Not started | - |
 | 72. File I/O & Utilities | 0/? | Not started | - |

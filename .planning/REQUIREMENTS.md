@@ -179,7 +179,7 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 
 - [x] **DRAW3D-01**: User can begin/end 3D camera mode — `beginMode3D(camera), endMode3D` taking `Camera3D`
 - [x] **DRAW3D-02**: User can update a `Camera3D` — `camera.update(mode), camera.updatePro(movement, rotation, zoom)` taking `CameraMode`
-- [ ] **DRAW3D-03**: User can convert screen positions to rays — `getScreenToWorldRay, getScreenToWorldRayEx, getWorldToScreen, getWorldToScreenEx, getCameraMatrix`
+- [x] **DRAW3D-03**: User can convert screen positions to rays — `getScreenToWorldRay, getScreenToWorldRayEx, getWorldToScreen, getWorldToScreenEx, getCameraMatrix`
 - [ ] **DRAW3D-04**: User can draw 3D primitives — `drawLine3D, drawPoint3D, drawCircle3D, drawTriangle3D, drawTriangleStrip3D, drawCube, drawCubeV, drawCubeWires, drawCubeWiresV, drawSphere, drawSphereEx, drawSphereWires, drawCylinder, drawCylinderEx, drawCylinderWires, drawCylinderWiresEx, drawCapsule, drawCapsuleWires, drawPlane, drawRay, drawGrid`
 
 ### Models, Meshes, Materials (`rmodels.c` — ~45 functions)
@@ -407,7 +407,7 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | AUDIO-12 | Phase 68 | Complete |
 | DRAW3D-01 | Phase 69 | Complete |
 | DRAW3D-02 | Phase 69 | Complete |
-| DRAW3D-03 | Phase 69 | Pending |
+| DRAW3D-03 | Phase 69 | Complete |
 | DRAW3D-04 | Phase 69 | Pending |
 | MODEL-01 | Phase 70 | Pending |
 | MODEL-02 | Phase 70 | Pending |
