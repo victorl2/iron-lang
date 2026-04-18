@@ -1,0 +1,28 @@
+-- tests/integration/raylib/win/win_test.iron
+-- WIN category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises the FFI surface without entering a main loop.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(320), Int32(240), "win_test")
+    Window.set_target_fps(Int32(60))
+    val ready = Window.is_ready()
+    val w = Window.get_screen_width()
+    val h = Window.get_screen_height()
+    val fps = Window.get_fps()
+    val dt = Window.get_frame_time()
+    val t = Window.get_time()
+    Window.close()
+
+    -- Keep-alive so ironc DCE doesn't elide the call sites.
+    val _k0 = ready
+    val _k1 = w
+    val _k2 = h
+    val _k3 = fps
+    val _k4 = dt
+    val _k5 = t
+
+    return Int32(0)
+}

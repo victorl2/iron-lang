@@ -1,0 +1,64 @@
+-- tests/integration/raylib/coll/coll_test.iron
+-- COLL category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Rectangle / Vector2 / Collision / Ray collision FFI.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    -- Rectangle receiver (2D)
+    val r1 = Rectangle.of(Float32(0.0), Float32(0.0), Float32(100.0), Float32(100.0))
+    val r2 = Rectangle.of(Float32(50.0), Float32(50.0), Float32(100.0), Float32(100.0))
+    val hit_rr = Rectangle.collides(r1, r2)
+    val inter = Rectangle.intersection(r1, r2)
+    val hit_pt = Rectangle.contains_point(r1, Vector2.of(Float32(25.0), Float32(25.0)))
+    val hit_rc = Rectangle.collides_circle(r1, Vector2.of(Float32(50.0), Float32(50.0)), Float32(10.0))
+
+    -- Collision namespace (2D pair-based)
+    val a = Vector2.of(Float32(0.0), Float32(0.0))
+    val b = Vector2.of(Float32(50.0), Float32(50.0))
+    val c = Vector2.of(Float32(100.0), Float32(0.0))
+    val hit_cc = Collision.circles(a, Float32(10.0), b, Float32(10.0))
+    val hit_cl = Collision.circle_line(b, Float32(5.0), a, c)
+    val hit_pc = Collision.point_circle(b, a, Float32(60.0))
+    val (hit_ll, ipt) = Collision.lines(a, c, Vector2.of(Float32(50.0), Float32(-20.0)), Vector2.of(Float32(50.0), Float32(20.0)))
+
+    -- 3D: BoundingBox + Ray
+    val box_a = BoundingBox(Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0)),
+                            Vector3.of(Float32(10.0), Float32(10.0), Float32(10.0)))
+    val box_b = BoundingBox(Vector3.of(Float32(5.0), Float32(5.0), Float32(5.0)),
+                            Vector3.of(Float32(15.0), Float32(15.0), Float32(15.0)))
+    val hit_bb = BoundingBox.collides(box_a, box_b)
+    val hit_bs = BoundingBox.collides_sphere(box_a, Vector3.of(Float32(20.0), Float32(0.0), Float32(0.0)), Float32(5.0))
+
+    val ray = Ray(Vector3.of(Float32(0.0), Float32(0.0), Float32(-10.0)),
+                  Vector3.of(Float32(0.0), Float32(0.0), Float32(1.0)))
+    val rc_s = Ray.hit_sphere(ray, Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0)), Float32(5.0))
+    val rc_b = Ray.hit_box(ray, box_a)
+    val rc_t = Ray.hit_triangle(ray,
+        Vector3.of(Float32(-5.0), Float32(-5.0), Float32(0.0)),
+        Vector3.of(Float32(5.0), Float32(-5.0), Float32(0.0)),
+        Vector3.of(Float32(0.0), Float32(5.0), Float32(0.0)))
+
+    val hit_ss = Collision.spheres(
+        Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0)), Float32(5.0),
+        Vector3.of(Float32(3.0), Float32(0.0), Float32(0.0)), Float32(5.0))
+
+    val _k0 = hit_rr
+    val _k1 = inter
+    val _k2 = hit_pt
+    val _k3 = hit_rc
+    val _k4 = hit_cc
+    val _k5 = hit_cl
+    val _k6 = hit_pc
+    val _k7 = hit_ll
+    val _k8 = ipt
+    val _k9 = hit_bb
+    val _k10 = hit_bs
+    val _k11 = rc_s
+    val _k12 = rc_b
+    val _k13 = rc_t
+    val _k14 = hit_ss
+
+    return Int32(0)
+}

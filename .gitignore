@@ -38,6 +38,32 @@ test_*
 /post_fx.c
 /raylib_showcase
 /raylib_showcase.c
+# Phase 73-04 per-category integration test binaries (root-anchored,
+# produced by ./build/ironc build tests/integration/raylib/<cat>/<cat>_test.iron).
+/win_test
+/win_test.c
+/input_test
+/input_test.c
+/draw2d_test
+/draw2d_test.c
+/coll_test
+/coll_test.c
+/tex_test
+/tex_test.c
+/text_test
+/text_test.c
+/audio_test
+/audio_test.c
+/draw3d_test
+/draw3d_test.c
+/model_test
+/model_test.c
+/shader_test
+/shader_test.c
+/math_test
+/math_test.c
+/file_test
+/file_test.c
 /abi_float32_probe
 /abi_float32_probe.c
 /abi_phase70_probe

@@ -1,0 +1,84 @@
+-- tests/integration/raylib/math/math_test.iron
+-- MATH category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises raymath (RMath / Vector2 / Vector3 / Vector4 /
+-- Matrix / Quaternion) FFI. No Window.init required — raymath is pure math.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    -- Scalar helpers
+    val lerped = RMath.lerp(Float32(0.0), Float32(10.0), Float32(0.5))
+    val clamped = RMath.clamp(Float32(-3.0), Float32(0.0), Float32(5.0))
+    val feq = RMath.float_equals(Float32(3.0), Float32(3.0))
+
+    -- Vector2
+    val v2 = Vector2.of(Float32(3.0), Float32(4.0))
+    val w2 = Vector2.of(Float32(1.0), Float32(2.0))
+    val v2_add = Vector2.add(v2, w2)
+    val v2_len = Vector2.length(v2)
+    val v2_dot = Vector2.dot_product(v2, w2)
+    val v2_norm = Vector2.normalize(v2)
+
+    -- Vector3
+    val v3 = Vector3.of(Float32(3.0), Float32(4.0), Float32(0.0))
+    val w3 = Vector3.of(Float32(1.0), Float32(2.0), Float32(2.0))
+    val v3_add = Vector3.add(v3, w3)
+    val v3_cross = Vector3.cross_product(v3, w3)
+    val v3_len = Vector3.length(v3)
+    val v3_norm = Vector3.normalize(v3)
+    val v3_lerp = Vector3.lerp(v3, w3, Float32(0.5))
+
+    -- Vector4
+    val v4a = Vector4(Float32(1.0), Float32(2.0), Float32(3.0), Float32(4.0))
+    val v4b = Vector4(Float32(0.5), Float32(0.5), Float32(0.5), Float32(0.5))
+    val v4_add = Vector4.add(v4a, v4b)
+    val v4_len = Vector4.length(v4a)
+    val v4_dot = Vector4.dot_product(v4a, v4b)
+
+    -- Matrix
+    val mi = Matrix.identity()
+    val mt = Matrix.translate(Float32(1.0), Float32(2.0), Float32(3.0))
+    val mr_y = Matrix.rotate_y(Float32(0.5))
+    val m_mul = Matrix.multiply(mi, mt)
+    val m_f16 = Matrix.to_float_v(mi)
+
+    -- Quaternion
+    val q_id = Quaternion.identity()
+    val q_a = Quaternion(Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0))
+    val q_norm = Quaternion.normalize(q_a)
+    val q_mul = Quaternion.multiply(q_a, q_id)
+    val q_fmat = Quaternion.from_matrix(mi)
+    val q_faa = Quaternion.from_axis_angle(Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(0.0))
+
+    -- Tuple return (Decompose = 3-tuple)
+    val (d_trans, d_rot, d_scale) = Matrix.decompose(mi)
+
+    val _k0 = lerped
+    val _k1 = clamped
+    val _k2 = feq
+    val _k3 = v2_add
+    val _k4 = v2_len
+    val _k5 = v2_dot
+    val _k6 = v2_norm
+    val _k7 = v3_add
+    val _k8 = v3_cross
+    val _k9 = v3_len
+    val _k10 = v3_norm
+    val _k11 = v3_lerp
+    val _k12 = v4_add
+    val _k13 = v4_len
+    val _k14 = v4_dot
+    val _k15 = mr_y
+    val _k16 = m_mul
+    val _k17 = m_f16
+    val _k18 = q_norm
+    val _k19 = q_mul
+    val _k20 = q_fmat
+    val _k21 = q_faa
+    val _k22 = d_trans
+    val _k23 = d_rot
+    val _k24 = d_scale
+
+    return Int32(0)
+}

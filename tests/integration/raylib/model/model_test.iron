@@ -1,0 +1,72 @@
+-- tests/integration/raylib/model/model_test.iron
+-- MODEL category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Model / Mesh / Material / ModelAnimation / Billboard FFI.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(320), Int32(240), "model_test")
+
+    val cam = Camera3D(
+        Vector3.of(Float32(10.0), Float32(10.0), Float32(10.0)),
+        Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0)),
+        Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0)),
+        Float32(45.0),
+        Int32(0)
+    )
+
+    -- Mesh generators
+    val m_cube = Mesh.cube(Float32(1.0), Float32(1.0), Float32(1.0))
+    val m_sphere = Mesh.sphere(Float32(1.0), Int32(16), Int32(32))
+    val m_cyl = Mesh.cylinder(Float32(1.0), Float32(2.0), Int32(16))
+
+    -- Model from mesh
+    val model = Model.from_mesh(m_cube)
+    val mv = Model.is_valid(model)
+    val bbox = Model.bounding_box(model)
+
+    -- Material
+    var mat = Material.default()
+    val mat_valid = Material.is_valid(mat)
+    val placeholder_img = Image.color(Int32(2), Int32(2), RED)
+    val placeholder_tex = Image.to_texture(placeholder_img)
+    mat = Material.set_texture(mat, MaterialMapIndex.ALBEDO, placeholder_tex)
+
+    -- ModelAnimation (empty list on nonexistent file)
+    val anims = ModelAnimation.load("nonexistent.iqm")
+
+    -- Billboard + Model.draw inside 3D mode
+    val src_rec = Rectangle.of(Float32(0.0), Float32(0.0), Float32(2.0), Float32(2.0))
+    val b_size = Vector2.of(Float32(2.0), Float32(2.0))
+    val origin = Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0))
+    val unit_scale = Vector3.of(Float32(1.0), Float32(1.0), Float32(1.0))
+    val axis_y = Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0))
+
+    Draw.begin()
+    Draw.clear(RAYWHITE)
+    Draw.begin_mode_3d(cam)
+    Model.draw(model, origin, Float32(1.0), WHITE)
+    Model.draw_ex(model, origin, axis_y, Float32(45.0), unit_scale, RED)
+    Model.draw_wires(model, origin, Float32(1.0), BLACK)
+    Draw.billboard(cam, placeholder_tex, origin, Float32(2.0), WHITE)
+    Draw.billboard_rec(cam, placeholder_tex, src_rec, origin, b_size, WHITE)
+    Draw.bounding_box(bbox, GREEN)
+    Draw.end_mode_3d()
+    Draw.end()
+
+    -- Cleanup
+    ModelAnimation.unload_all(anims)
+    Mesh.unload(m_sphere)
+    Mesh.unload(m_cyl)
+    Model.unload(model)
+    Texture.unload(placeholder_tex)
+    Image.unload(placeholder_img)
+
+    Window.close()
+
+    val _k0 = mv
+    val _k1 = mat_valid
+
+    return Int32(0)
+}

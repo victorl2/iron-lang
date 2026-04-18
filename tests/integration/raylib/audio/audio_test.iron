@@ -1,0 +1,46 @@
+-- tests/integration/raylib/audio/audio_test.iron
+-- AUDIO category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Audio / Wave / Sound / Music / AudioStream FFI.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Audio.init()
+    val ready = Audio.is_ready()
+    Audio.set_master_volume(Float32(0.5))
+
+    -- Wave
+    val w = Wave.load("nonexistent.wav")
+    val ok_w = Wave.is_valid(w)
+
+    -- Sound
+    val s = Sound.load("nonexistent.wav")
+    val ok_s = Sound.is_valid(s)
+    Sound.set_volume(s, Float32(0.8))
+
+    -- Music
+    val m = Music.load("nonexistent.ogg")
+    val ok_m = Music.is_valid(m)
+
+    -- AudioStream
+    val stream = AudioStream.load(UInt32(44100), UInt32(16), UInt32(2))
+    val ok_st = AudioStream.is_valid(stream)
+    AudioStream.set_volume(stream, Float32(0.8))
+    AudioStream.set_pitch(stream, Float32(1.0))
+
+    -- Cleanup (no play calls — compile-only, no real device required)
+    Wave.unload(w)
+    Sound.unload(s)
+    Music.unload(m)
+    AudioStream.unload(stream)
+    Audio.close()
+
+    val _k0 = ready
+    val _k1 = ok_w
+    val _k2 = ok_s
+    val _k3 = ok_m
+    val _k4 = ok_st
+
+    return Int32(0)
+}

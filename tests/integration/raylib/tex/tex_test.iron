@@ -1,0 +1,57 @@
+-- tests/integration/raylib/tex/tex_test.iron
+-- TEX category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Image / Texture / Color FFI without a main loop.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(64), Int32(64), "tex_test")
+
+    -- Color math
+    val hsv = Color.to_hsv(RED)
+    val back = Color.from_hsv(hsv.x, hsv.y, hsv.z)
+    val faded = Color.fade(BLUE, Float32(0.5))
+    val tinted = Color.tint(WHITE, GREEN)
+    val lerp_c = Color.lerp(RED, BLUE, Float32(0.5))
+
+    -- Procedural image generation
+    val img_color = Image.color(Int32(32), Int32(32), BLUE)
+    val img_check = Image.checked(Int32(16), Int32(16), Int32(4), Int32(4), WHITE, BLACK)
+    val img_noise = Image.white_noise(Int32(16), Int32(16), Float32(0.5))
+
+    -- Image ops
+    val img_copy = Image.copy(img_color)
+    val flipped = Image.flip_vertical(img_copy)
+    val cropped = Image.crop(flipped, Rectangle.of(Float32(0.0), Float32(0.0), Float32(16.0), Float32(16.0)))
+    val valid = Image.is_valid(cropped)
+
+    -- Texture / RenderTexture
+    val tex = Image.to_texture(img_color)
+    val tex_valid = Texture.is_valid(tex)
+    Texture.set_filter(tex, TextureFilter.BILINEAR)
+    Texture.set_wrap(tex, TextureWrap.CLAMP)
+
+    val rt = RenderTexture.load(Int32(64), Int32(64))
+    val rt_valid = RenderTexture.is_valid(rt)
+
+    -- Cleanup
+    Image.unload(img_color)
+    Image.unload(img_check)
+    Image.unload(img_noise)
+    Image.unload(cropped)
+    Texture.unload(tex)
+    RenderTexture.unload(rt)
+
+    Window.close()
+
+    val _k0 = back
+    val _k1 = faded
+    val _k2 = tinted
+    val _k3 = lerp_c
+    val _k4 = valid
+    val _k5 = tex_valid
+    val _k6 = rt_valid
+
+    return Int32(0)
+}
