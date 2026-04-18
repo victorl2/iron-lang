@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>raylib Guide — Iron</title>
+  <meta name="description" content="Getting started with raylib in Iron: install, first window, pong, rotating cube, post-FX shader.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sidebar-width: 260px;
+
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+
+    /* ── Navigation ──────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      height: 56px;
+      background: rgba(8, 8, 15, 0.9);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 1.5rem;
+      gap: 2rem;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: var(--text);
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .nav-logo:hover { color: var(--text); }
+
+    .nav-logo-icon {
+      width: 26px;
+      height: 26px;
+      background: var(--accent);
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 800;
+      color: white;
+    }
+
+    .nav-right {
+      margin-left: auto;
+      display: flex;
+      gap: 0.25rem;
+      align-items: center;
+    }
+
+    .nav-right a {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      transition: color 0.2s, background 0.2s;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+    }
+
+    .nav-right a:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .nav-right a.active-link {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .sidebar-toggle {
+      display: none;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-sans);
+    }
+
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.5rem;
+      margin-left: auto;
+    }
+
+    .nav-hamburger span {
+      display: block;
+      width: 20px;
+      height: 2px;
+      background: var(--text-secondary);
+      margin: 4px 0;
+      transition: 0.3s;
+      transform-origin: center;
+    }
+
+    .nav-hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(4px, 4px); }
+    .nav-hamburger.active span:nth-child(2) { opacity: 0; }
+    .nav-hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(4px, -4px); }
+
+    /* ── Overlays ───────────────────────────────── */
+    .sidebar-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 49;
+      background: rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s, visibility 0.3s;
+    }
+
+    .sidebar-overlay.active { opacity: 1; visibility: visible; }
+
+    .nav-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 89;
+      background: rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s, visibility 0.25s;
+    }
+
+    .nav-overlay.active { opacity: 1; visibility: visible; }
+
+    /* ── Layout ──────────────────────────────────── */
+    .layout {
+      display: flex;
+      margin-top: 56px;
+      min-height: calc(100vh - 56px);
+    }
+
+    .sidebar {
+      width: var(--sidebar-width);
+      position: fixed;
+      top: 56px;
+      bottom: 0;
+      left: 0;
+      overflow-y: auto;
+      padding: 1.5rem 1rem;
+      border-right: 1px solid var(--border);
+      background: var(--bg-primary);
+    }
+
+    .sidebar-section { margin-bottom: 1.5rem; }
+
+    .sidebar-section h3 {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      padding-left: 0.75rem;
+    }
+
+    .sidebar-section a {
+      display: block;
+      padding: 0.3rem 0.75rem;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .sidebar-section a:hover {
+      color: var(--text);
+      background: var(--bg-surface);
+    }
+
+    .sidebar-section a.active {
+      color: var(--accent);
+      background: rgba(232, 89, 12, 0.08);
+    }
+
+    /* ── Main content ────────────────────────────── */
+    .content {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      min-width: 0;
+      max-width: 860px;
+      padding: 2.5rem 3rem 4rem;
+    }
+
+    .content h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+
+    .content .subtitle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .content h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .content h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .content p { margin-bottom: 1rem; color: var(--text-secondary); }
+
+    .content ul, .content ol {
+      margin-bottom: 1rem;
+      padding-left: 1.5rem;
+      color: var(--text-secondary);
+    }
+
+    .content li { margin-bottom: 0.4rem; }
+
+    .content code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      background: var(--bg-code);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .content pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin-bottom: 1.5rem;
+      line-height: 1.6;
+    }
+
+    .content pre code {
+      background: none;
+      padding: 0;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+
+    .callout {
+      background: var(--bg-surface);
+      border-left: 3px solid var(--accent);
+      padding: 1rem 1.25rem;
+      border-radius: 0 6px 6px 0;
+      margin-bottom: 1.5rem;
+    }
+
+    .callout p { margin-bottom: 0; }
+
+    .callout-title {
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.3rem;
+      font-size: 0.9rem;
+    }
+
+    .source-link {
+      display: inline-block;
+      margin-top: -0.5rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .source-link a { color: var(--accent); }
+
+    /* Syntax highlighting */
+    .syn-kw { color: var(--syn-kw); font-weight: 500; }
+    .syn-ty { color: var(--syn-ty); }
+    .syn-st { color: var(--syn-st); }
+    .syn-cm { color: var(--syn-cm); font-style: italic; }
+    .syn-fn { color: var(--syn-fn); }
+    .syn-nu { color: var(--syn-nu); }
+    .syn-pr { color: var(--syn-pr); }
+
+    /* ── Footer ─────────────────────────────────── */
+    footer {
+      margin-left: var(--sidebar-width);
+      background: var(--bg-primary);
+      border-top: 1px solid var(--border);
+      padding: 2.5rem 3rem 1.5rem;
+    }
+
+    .footer-inner {
+      max-width: 860px;
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 2rem;
+    }
+
+    .footer-brand p {
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      margin-top: 0.75rem;
+      max-width: 280px;
+    }
+
+    .footer-col h4 {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+
+    .footer-col ul { list-style: none; padding: 0; margin: 0; }
+
+    .footer-col li { margin-bottom: 0.4rem; }
+
+    .footer-col a {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .footer-col a:hover { color: var(--accent); }
+
+    .footer-bottom {
+      margin-top: 2rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      max-width: 860px;
+    }
+
+    /* ── Responsive ──────────────────────────────── */
+    @media (max-width: 900px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        z-index: 50;
+        position: fixed;
+        top: 56px;
+        bottom: 0;
+        left: 0;
+        box-shadow: none;
+        width: 280px;
+      }
+      .sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+      }
+      .content {
+        margin-left: 0;
+        padding: 2rem 2rem 4rem;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      .sidebar-toggle { display: block; }
+      .content h1 { font-size: 1.75rem; }
+      .content h2 { font-size: 1.2rem; }
+      footer { margin-left: 0; padding: 2rem 2rem 1.5rem; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; }
+    }
+
+    @media (max-width: 640px) {
+      .nav-right {
+        position: absolute;
+        top: 56px;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        background: rgba(12, 12, 22, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border);
+        padding: 0.75rem 1.5rem;
+        gap: 0;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-8px);
+        transition: opacity 0.25s, visibility 0.25s, transform 0.25s;
+      }
+      .nav-right.open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+      .nav-right a {
+        padding: 0.6rem 0.5rem;
+        font-size: 0.95rem;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        border-radius: 8px;
+      }
+      .nav-hamburger { display: block; }
+      .content {
+        padding: 1.75rem 1.25rem 3rem;
+      }
+      .content h1 { font-size: 1.6rem; }
+      .content pre {
+        font-size: 0.78rem;
+        padding: 1rem;
+      }
+      .content pre code { font-size: 0.78rem; }
+      nav { padding: 0 1rem; gap: 1rem; }
+      .sidebar { width: 85vw; max-width: 300px; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 480px) {
+      .content {
+        padding: 1.25rem 1rem 2.5rem;
+      }
+      .content h1 { font-size: 1.4rem; }
+      .content h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+      .content h3 { font-size: 1rem; }
+      .content p { font-size: 0.92rem; }
+      .content li { font-size: 0.92rem; }
+      .content pre {
+        font-size: 0.72rem;
+        padding: 0.85rem;
+        line-height: 1.5;
+      }
+      nav { padding: 0 0.75rem; }
+      .sidebar-toggle { font-size: 0.75rem; padding: 0.35rem 0.55rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button class="sidebar-toggle" id="sidebarToggle">Menu</button>
+    <a href="/" class="nav-logo">
+      <div class="nav-logo-icon">Fe</div>
+      Iron
+    </a>
+    <div class="nav-right" id="navRight">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="/guide/">Package Manager</a>
+      <a href="/raylib/" class="active-link">Raylib</a>
+      <a href="/install/">Install</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
+    </div>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+  </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Getting Started</h3>
+        <a href="#overview">Overview</a>
+        <a href="#install">Install</a>
+        <a href="#your-first-window">Your first window</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>2D Tutorial</h3>
+        <a href="#pong-intro">Pong — Intro</a>
+        <a href="#pong-setup">Setup &amp; state</a>
+        <a href="#pong-ball">The ball</a>
+        <a href="#pong-paddles">Paddles &amp; input</a>
+        <a href="#pong-collision">Collision</a>
+        <a href="#pong-audio">Audio</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>3D Tutorial</h3>
+        <a href="#cube-intro">Rotating cube — Intro</a>
+        <a href="#cube-camera">Camera3D</a>
+        <a href="#cube-loop">3D render loop</a>
+        <a href="#cube-run">Build &amp; run</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Shaders</h3>
+        <a href="#postfx-intro">Post-FX — Intro</a>
+        <a href="#postfx-pipeline">The pipeline</a>
+        <a href="#postfx-uniforms">Uniforms</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Next Steps</h3>
+        <a href="#reference">API Reference</a>
+        <a href="#examples">Examples gallery</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>External</h3>
+        <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a>
+        <a href="https://github.com/victorl2/iron-lang">Iron on GitHub</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>raylib Guide</h1>
+      <p class="subtitle">Install Iron, open a window, then ship a 2D game, a 3D scene, and a post-FX shader pipeline.</p>
+
+      <div class="callout">
+        <div class="callout-title">Every snippet is real</div>
+        <p>All code in this guide is lifted verbatim from working files under <code>examples/</code>. Copy-paste works out of the box on v2.0.0-alpha.</p>
+      </div>
+
+      <h2 id="overview">Overview</h2>
+      <p>The Iron standard library binds <a href="https://www.raylib.com/">raylib 5.5</a>. Every 2D primitive, 3D camera, texture, font, sound, and shader from upstream raylib is callable as idiomatic Iron (<code>Draw.rectangle(...)</code>, <code>Texture.load(...)</code>, <code>Camera3D(...)</code>). Both native (<code>iron build</code>) and web (<code>iron build --target=web</code>) compile against the same binding.</p>
+      <p>The binding ships under 14 categories: <strong>Types, Enums, Window, Input, 2D Drawing, Collision, Textures, Text, Audio, 3D Drawing, Models, Shaders, Math, Files</strong>. This guide walks the 2D / 3D / shader path through three real example files. For per-function reference, jump to <a href="/raylib/reference/types.html">the API reference</a>.</p>
+
+      <h2 id="install">Install</h2>
+      <p>Install Iron via the one-line installer (see <a href="/install/">the Install page</a> for full platform details):</p>
+      <pre><code>curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/victorl2/iron-lang/main/scripts/install.sh | sh</code></pre>
+      <p>Then confirm the raylib binding ships with the stdlib by creating <code>hello.iron</code>:</p>
+      <pre><code><span class="syn-kw">import</span> raylib
+
+<span class="syn-kw">func</span> <span class="syn-fn">main</span>() {
+    <span class="syn-ty">Window</span>.<span class="syn-fn">init</span>(<span class="syn-nu">640</span>, <span class="syn-nu">480</span>, <span class="syn-st">"hello"</span>)
+    <span class="syn-ty">Window</span>.<span class="syn-fn">close</span>()
+}</code></pre>
+      <p>Run with <code>iron run hello.iron</code> &mdash; a window flashes open and closes cleanly. If it exits 0, the binding is wired and you're ready to go.</p>
+
+      <h2 id="your-first-window">Your first window</h2>
+      <p>A raylib program is always the same shape: initialize a window, set a target frame rate, loop until the user closes the window, tear down. Here is the minimal skeleton adapted from <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">examples/pong/pong.iron</a>:</p>
+      <pre><code><span class="syn-kw">import</span> raylib
+
+<span class="syn-kw">func</span> <span class="syn-fn">main</span>() {
+    <span class="syn-ty">Window</span>.<span class="syn-fn">init</span>(<span class="syn-nu">800</span>, <span class="syn-nu">600</span>, <span class="syn-st">"first window"</span>)
+    <span class="syn-ty">Window</span>.<span class="syn-fn">set_target_fps</span>(<span class="syn-nu">60</span>)
+
+    <span class="syn-kw">while not</span> <span class="syn-ty">Window</span>.<span class="syn-fn">should_close</span>() {
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">begin</span>()
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">BLACK</span>)
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">text</span>(<span class="syn-st">"Hello, Iron + raylib"</span>, <span class="syn-ty">Int32</span>(<span class="syn-nu">200</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">280</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">24</span>), <span class="syn-pr">WHITE</span>)
+        <span class="syn-ty">Draw</span>.<span class="syn-fn">end</span>()
+    }
+
+    <span class="syn-ty">Window</span>.<span class="syn-fn">close</span>()
+}</code></pre>
+      <p>Breaking it down, line by line:</p>
+      <ul>
+        <li><code>Window.init(w, h, title)</code> &mdash; opens the window; <code>raylib</code> handles platform specifics.</li>
+        <li><code>Window.set_target_fps(60)</code> &mdash; caps the main loop at 60 FPS (delta time is handled internally).</li>
+        <li><code>while not Window.should_close()</code> &mdash; loop until the user closes the window or presses ESC. <strong>Iron uses <code>not</code>, not <code>!</code></strong>.</li>
+        <li><code>Draw.begin()</code> / <code>Draw.end()</code> &mdash; bracket every frame's render commands.</li>
+        <li><code>Draw.clear(BLACK)</code> &mdash; wipe the framebuffer. <code>BLACK</code>, <code>WHITE</code>, <code>RED</code>, etc. are canonical <code>Color</code> constants from the binding.</li>
+        <li><code>Draw.text(str, x, y, size, color)</code> &mdash; draws text using the default font. Every integer argument is explicitly boxed (<code>Int32(200)</code>) because raylib's C ABI takes <code>int</code>, and Iron is strict about integer widths at foreign boundaries.</li>
+        <li><code>Window.close()</code> &mdash; releases the GL context, audio device, and window handle.</li>
+      </ul>
+
+      <h2 id="pong-intro">Pong &mdash; a complete 2D game</h2>
+      <p>The canonical <code>examples/pong/pong.iron</code> file exercises the whole 2D surface: state machine, paddles, ball, collision, audio. It's the Iron raylib reference 2D game &mdash; when you want to see how <em>everything</em> fits, read pong first. We'll walk through the structural pieces here.</p>
+      <p class="source-link">Source: <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">examples/pong/pong.iron</a></p>
+
+      <h3 id="pong-setup">Setup &amp; state</h3>
+      <p>Pong's top of file sets up the state machine (title / playing / game over), color constants, input bindings, and starting positions:</p>
+      <pre><code><span class="syn-kw">import</span> raylib
+
+<span class="syn-cm">-- Game state enum for the title -&gt; play -&gt; game over -&gt; restart state machine</span>
+<span class="syn-kw">enum</span> <span class="syn-ty">GameState</span> {
+    <span class="syn-pr">TITLE</span>    = <span class="syn-nu">0</span>,
+    <span class="syn-pr">PLAYING</span>  = <span class="syn-nu">1</span>,
+    <span class="syn-pr">GAME_OVER</span> = <span class="syn-nu">2</span>,
+}
+
+<span class="syn-kw">func</span> <span class="syn-fn">main</span>() {
+    <span class="syn-kw">val</span> title: <span class="syn-ty">String</span> = <span class="syn-st">"Iron Pong"</span>
+    <span class="syn-kw">val</span> bg: <span class="syn-ty">Color</span> = <span class="syn-pr">BLACK</span>
+    <span class="syn-kw">val</span> fg: <span class="syn-ty">Color</span> = <span class="syn-pr">WHITE</span>
+    <span class="syn-kw">val</span> accent: <span class="syn-ty">Color</span> = <span class="syn-pr">RED</span>
+    <span class="syn-kw">val</span> divider: <span class="syn-ty">Color</span> = <span class="syn-pr">DARKGRAY</span>
+    <span class="syn-kw">val</span> ball_origin: <span class="syn-ty">Vector2</span> = <span class="syn-ty">Vector2</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">400.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">300.0</span>))
+    <span class="syn-kw">val</span> start_key: <span class="syn-ty">KeyboardKey</span> = <span class="syn-ty">KeyboardKey</span>.<span class="syn-pr">SPACE</span>
+    <span class="syn-kw">val</span> left_up: <span class="syn-ty">KeyboardKey</span>    = <span class="syn-ty">KeyboardKey</span>.<span class="syn-pr">W</span>
+    <span class="syn-kw">val</span> left_down: <span class="syn-ty">KeyboardKey</span>  = <span class="syn-ty">KeyboardKey</span>.<span class="syn-pr">S</span>
+    <span class="syn-kw">val</span> right_up: <span class="syn-ty">KeyboardKey</span>   = <span class="syn-ty">KeyboardKey</span>.<span class="syn-pr">UP</span>
+    <span class="syn-kw">val</span> right_down: <span class="syn-ty">KeyboardKey</span> = <span class="syn-ty">KeyboardKey</span>.<span class="syn-pr">DOWN</span>
+    <span class="syn-kw">val</span> initial_state: <span class="syn-ty">GameState</span> = <span class="syn-ty">GameState</span>.<span class="syn-pr">TITLE</span>
+
+    <span class="syn-ty">Window</span>.<span class="syn-fn">init</span>(<span class="syn-nu">800</span>, <span class="syn-nu">600</span>, title)
+    <span class="syn-ty">Window</span>.<span class="syn-fn">set_target_fps</span>(<span class="syn-nu">60</span>)
+    <span class="syn-cm">-- ...</span>
+}</code></pre>
+      <p>Iron has no stdlib <code>Int.to_string()</code>, so pong also declares <code>int_to_str</code> locally &mdash; a pattern worth copying whenever you need to format a score:</p>
+      <pre><code><span class="syn-kw">func</span> <span class="syn-fn">int_to_str</span>(n: <span class="syn-ty">Int</span>) -&gt; <span class="syn-ty">String</span> {
+    <span class="syn-kw">if</span> n == <span class="syn-nu">0</span> { <span class="syn-kw">return</span> <span class="syn-st">"0"</span> }
+    <span class="syn-kw">var</span> x = n
+    <span class="syn-kw">var</span> s = <span class="syn-st">""</span>
+    <span class="syn-kw">while</span> x &gt; <span class="syn-nu">0</span> {
+        <span class="syn-kw">val</span> d = x % <span class="syn-nu">10</span>
+        <span class="syn-kw">val</span> digit_char = <span class="syn-ty">String</span>.<span class="syn-fn">from_byte</span>(<span class="syn-nu">48</span> + d)
+        s = <span class="syn-st">"{digit_char}{s}"</span>
+        x = x / <span class="syn-nu">10</span>
+    }
+    <span class="syn-kw">return</span> s
+}</code></pre>
+
+      <h3 id="pong-ball">The ball</h3>
+      <p>The ball's origin is captured in a <code>Vector2</code>; its velocity is updated each frame and its position is drawn as a filled rectangle. The plain <code>Vector2</code> constructor takes <code>Float32</code> components &mdash; raylib is float-first at the ABI boundary:</p>
+      <pre><code><span class="syn-kw">val</span> ball_origin: <span class="syn-ty">Vector2</span> = <span class="syn-ty">Vector2</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">400.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">300.0</span>))
+
+<span class="syn-cm">-- Inside the Draw.begin() / Draw.end() block:</span>
+<span class="syn-ty">Draw</span>.<span class="syn-fn">rectangle</span>(<span class="syn-nu">0</span>, <span class="syn-nu">250</span>, <span class="syn-nu">10</span>, <span class="syn-nu">100</span>, fg)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">line</span>(<span class="syn-nu">400</span>, <span class="syn-nu">0</span>, <span class="syn-nu">400</span>, <span class="syn-nu">600</span>, divider)</code></pre>
+      <p>For the full ball update loop (velocity integration + bounds reflection) see the pong source on GitHub; the key binding calls are <code>Draw.rectangle</code> for the ball body, <code>Draw.line</code> for the divider, and <code>Rectangle.collides</code> for edge/paddle overlap checks.</p>
+
+      <h3 id="pong-paddles">Paddles &amp; input</h3>
+      <p>Player input is polled with <code>Keyboard.is_down</code> (held) and <code>Keyboard.is_pressed</code> (edge). Every Iron raylib program reuses the same <code>KeyboardKey</code> enum from the Phase 60 binding:</p>
+      <pre><code><span class="syn-kw">val</span> _kb_start: <span class="syn-ty">Bool</span>      = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_pressed</span>(start_key)
+<span class="syn-kw">val</span> _kb_left_up: <span class="syn-ty">Bool</span>    = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_down</span>(left_up)
+<span class="syn-kw">val</span> _kb_left_down: <span class="syn-ty">Bool</span>  = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_down</span>(left_down)
+<span class="syn-kw">val</span> _kb_right_up: <span class="syn-ty">Bool</span>   = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_down</span>(right_up)
+<span class="syn-kw">val</span> _kb_right_down: <span class="syn-ty">Bool</span> = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_down</span>(right_down)</code></pre>
+      <p>In the real game loop these drive the paddle <code>y</code> positions and the SPACE press transitions <code>GameState.TITLE -&gt; PLAYING</code>. Paddles themselves are drawn with <code>Draw.rectangle(x, y, w, h, color)</code> &mdash; the same primitive that renders the ball.</p>
+
+      <h3 id="pong-collision">Collision</h3>
+      <p>Pong uses axis-aligned rectangle intersection to bounce the ball off the paddles and the top/bottom walls. The binding exposes this as a receiver method on <code>Rectangle</code>:</p>
+      <pre><code><span class="syn-kw">val</span> paddle = <span class="syn-ty">Rectangle</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">250</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">10</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">100</span>))
+<span class="syn-kw">val</span> ball   = <span class="syn-ty">Rectangle</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">395</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">295</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">10</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">10</span>))
+
+<span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">collides</span>(paddle, ball) {
+    <span class="syn-cm">-- reverse ball velocity, play bounce sound</span>
+}</code></pre>
+      <p>See the <a href="/raylib/reference/coll.html">Collision reference</a> for the full set (rect/rect, rect/circle, circle/circle, point-in-rect, 3D sphere/box/ray).</p>
+
+      <h3 id="pong-audio">Audio</h3>
+      <p>Audio in raylib is a two-step dance: initialize the audio device, then load and play sounds. Pong wires up a bounce effect:</p>
+      <pre><code><span class="syn-ty">Audio</span>.<span class="syn-fn">init</span>()
+<span class="syn-kw">val</span> bounce: <span class="syn-ty">Sound</span> = <span class="syn-ty">Sound</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/bounce.wav"</span>)
+
+<span class="syn-cm">-- In the collision handler:</span>
+<span class="syn-kw">if</span> <span class="syn-ty">Sound</span>.<span class="syn-fn">is_valid</span>(bounce) {
+    <span class="syn-ty">Sound</span>.<span class="syn-fn">play</span>(bounce)
+}
+
+<span class="syn-cm">-- Teardown: unload the sound, then close the audio device</span>
+<span class="syn-ty">Sound</span>.<span class="syn-fn">unload</span>(bounce)
+<span class="syn-ty">Audio</span>.<span class="syn-fn">close</span>()</code></pre>
+      <p>The <code>Sound.is_valid</code> guard is the Iron idiom for "asset failed to load at runtime (missing file, wrong format, headless CI)" &mdash; a missing bounce.wav should not crash the game. For streaming / music / mixed-pool audio, see the <a href="/raylib/reference/audio.html">Audio reference</a>.</p>
+      <p class="source-link">Full source: <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">pong.iron on GitHub</a></p>
+
+      <h2 id="cube-intro">Rotating cube &mdash; your first 3D scene</h2>
+      <p>The file <code>examples/rotating_cube/rotating_cube.iron</code> is 62 lines end-to-end &mdash; window + orbital camera + cube + wireframe + grid + main loop. It's the Iron version of raylib's "hello 3D" example and it's the cleanest template for any 3D program.</p>
+      <p class="source-link">Source: <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">examples/rotating_cube/rotating_cube.iron</a></p>
+
+      <h3 id="cube-camera">Camera3D</h3>
+      <p>A <code>Camera3D</code> is constructed from position, target, up vector, FOV, and projection mode. Note the <code>var</code> keyword &mdash; raylib's orbital update rebinds the camera each frame, so it needs to be mutable:</p>
+      <pre><code><span class="syn-kw">var</span> cam = <span class="syn-ty">Camera3D</span>(
+    <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">10.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">10.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">10.0</span>)),
+    <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>)),
+    <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>)),
+    <span class="syn-ty">Float32</span>(<span class="syn-nu">45.0</span>),
+    <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>)  <span class="syn-cm">-- projection = PERSPECTIVE</span>
+)</code></pre>
+      <div class="callout">
+        <div class="callout-title">Why <code>Int32(0)</code> and not <code>CameraProjection.PERSPECTIVE</code>?</div>
+        <p>ironc v2.0.0-alpha has a known codegen bug when an enum ordinal is used inside a struct initializer. Passing <code>Int32(0)</code> is byte-identical at the C ABI and matches <code>CameraProjection.PERSPECTIVE</code>. Deferred to a post-alpha codegen fix.</p>
+      </div>
+
+      <h3 id="cube-loop">The 3D render loop</h3>
+      <p>3D drawing is bracketed by <code>Draw.begin_mode_3d(cam) / Draw.end_mode_3d()</code>, nested inside the normal <code>Draw.begin() / Draw.end()</code> frame. Between them, every <code>Draw.*</code> call renders in 3D space:</p>
+      <pre><code><span class="syn-kw">val</span> origin = <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>))
+<span class="syn-kw">val</span> size   = <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>)
+
+<span class="syn-kw">while not</span> <span class="syn-ty">Window</span>.<span class="syn-fn">should_close</span>() {
+    cam = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">update</span>(cam, <span class="syn-ty">CameraMode</span>.<span class="syn-pr">ORBITAL</span>)
+
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">begin</span>()
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">SKYBLUE</span>)
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">begin_mode_3d</span>(cam)
+
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">cube</span>(origin, size, size, size, <span class="syn-pr">RED</span>)
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">cube_wires</span>(origin, size, size, size, <span class="syn-pr">BLACK</span>)
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">grid</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">10</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>))
+
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">end_mode_3d</span>()
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">end</span>()
+}</code></pre>
+      <p>Things to notice:</p>
+      <ul>
+        <li><code>Camera3D.update(cam, CameraMode.ORBITAL)</code> &mdash; raylib supplies the rotation; no explicit angle math needed.</li>
+        <li><code>Draw.cube</code> / <code>Draw.cube_wires</code> &mdash; filled plus wireframe for that classic look.</li>
+        <li><code>Draw.grid(slices, spacing)</code> &mdash; the ground plane. Takes no <code>Color</code> (raylib draws it in a fixed gray).</li>
+      </ul>
+
+      <h3 id="cube-run">Build &amp; run</h3>
+      <pre><code>iron build examples/rotating_cube/rotating_cube.iron
+./rotating_cube</code></pre>
+      <p>A window opens at 800x600 with a red cube orbiting over a gray grid under a sky-blue backdrop. ESC or window-close exits cleanly. For the full 3D surface &mdash; cylinders, capsules, planes, rays, more camera modes &mdash; see the <a href="/raylib/reference/draw3d.html">3D Drawing reference</a>.</p>
+
+      <h2 id="postfx-intro">Post-FX &mdash; the shader pipeline</h2>
+      <p>The file <code>examples/post_fx/post_fx.iron</code> demonstrates the full multi-pass pipeline: render a 3D scene to an offscreen texture, then draw that texture through a fragment shader. It's the blueprint for screen-space effects, bloom, color grading, anything post-processing. Press SPACE at runtime to toggle between grayscale and invert shaders.</p>
+      <p class="source-link">Source: <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">examples/post_fx/post_fx.iron</a> &middot; Shaders: <a href="https://github.com/victorl2/iron-lang/tree/main/tests/assets/shaders">tests/assets/shaders/</a></p>
+
+      <h3 id="postfx-pipeline">The pipeline</h3>
+      <p>Two <code>Shader</code> resources loaded at startup with <code>Shader.load</code>, then per frame: begin texture mode -&gt; draw 3D -&gt; end texture mode -&gt; begin shader mode -&gt; draw the texture full-screen -&gt; end shader mode:</p>
+      <pre><code><span class="syn-cm">-- Offscreen render target for 3D scene</span>
+<span class="syn-kw">val</span> rt = <span class="syn-ty">RenderTexture</span>.<span class="syn-fn">load</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">800</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">600</span>))
+
+<span class="syn-cm">-- Empty VS string uses raylib's default vertex stage (full-screen quad)</span>
+<span class="syn-kw">val</span> fx_grayscale = <span class="syn-ty">Shader</span>.<span class="syn-fn">load</span>(<span class="syn-st">""</span>, <span class="syn-st">"tests/assets/shaders/grayscale.fs"</span>)
+<span class="syn-kw">val</span> fx_invert    = <span class="syn-ty">Shader</span>.<span class="syn-fn">load</span>(<span class="syn-st">""</span>, <span class="syn-st">"tests/assets/shaders/invert.fs"</span>)
+
+<span class="syn-kw">while not</span> <span class="syn-ty">Window</span>.<span class="syn-fn">should_close</span>() {
+    <span class="syn-cm">-- Pass 1: render 3D scene into offscreen RenderTexture</span>
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">begin_texture_mode</span>(rt)
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">RAYWHITE</span>)
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">begin_mode_3d</span>(cam)
+    <span class="syn-ty">Model</span>.<span class="syn-fn">draw</span>(model, origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-pr">WHITE</span>)
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">end_mode_3d</span>()
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">end_texture_mode</span>()
+
+    <span class="syn-cm">-- Pass 2: draw RenderTexture through selected post-FX shader</span>
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">begin</span>()
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">BLACK</span>)
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">begin_shader_mode</span>(active_shader)
+    <span class="syn-cm">-- Y-flip via negative-height Rectangle — OpenGL RT origin is bottom-left</span>
+    <span class="syn-ty">Texture</span>.<span class="syn-fn">draw_rec</span>(
+        rt.texture,
+        <span class="syn-ty">Rectangle</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">800.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">-600.0</span>)),
+        <span class="syn-ty">Vector2</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>)),
+        <span class="syn-pr">WHITE</span>
+    )
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">end_shader_mode</span>()
+    <span class="syn-ty">Draw</span>.<span class="syn-fn">end</span>()
+}</code></pre>
+      <p>The Y-flip via negative-height Rectangle is a raylib idiom: OpenGL RenderTexture origins are bottom-left, but screen origins are top-left. Drawing with a negative height mirrors the texture on output.</p>
+
+      <h3 id="postfx-uniforms">Uniforms</h3>
+      <p>Shader uniforms in Iron are resolved by name once at load time, then written per frame. The invert shader takes a <code>u_intensity</code> float; we pack it as an IEEE-754 little-endian byte buffer and call <code>Shader.set_value</code> every frame:</p>
+      <pre><code><span class="syn-cm">-- Resolve invert.fs's u_intensity uniform once at load</span>
+<span class="syn-kw">val</span> loc_intensity = <span class="syn-ty">Shader</span>.<span class="syn-fn">get_location</span>(fx_invert, <span class="syn-st">"u_intensity"</span>)
+
+<span class="syn-cm">-- Float32(1.0) IEEE-754 LE = 0x3F800000 = [0x00, 0x00, 0x80, 0x3F]</span>
+<span class="syn-kw">val</span> intensity_bytes: [<span class="syn-ty">UInt8</span>] = [<span class="syn-ty">UInt8</span>(<span class="syn-nu">0</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">0</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">128</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">63</span>)]
+
+<span class="syn-kw">while not</span> <span class="syn-ty">Window</span>.<span class="syn-fn">should_close</span>() {
+    <span class="syn-cm">-- SPACE key toggles between shaders</span>
+    <span class="syn-kw">if</span> <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_pressed</span>(<span class="syn-ty">KeyboardKey</span>.<span class="syn-pr">SPACE</span>) {
+        <span class="syn-kw">if</span> current_fx == <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>) {
+            current_fx = <span class="syn-ty">Int32</span>(<span class="syn-nu">1</span>)
+        } <span class="syn-kw">else</span> {
+            current_fx = <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>)
+        }
+    }
+
+    <span class="syn-cm">-- raylib no-ops if loc_intensity == -1 (uniform not found)</span>
+    <span class="syn-kw">if</span> loc_intensity &gt;= <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>) {
+        <span class="syn-ty">Shader</span>.<span class="syn-fn">set_value</span>(fx_invert, loc_intensity, intensity_bytes, <span class="syn-ty">ShaderUniformDataType</span>.<span class="syn-pr">FLOAT</span>)
+    }
+    <span class="syn-cm">-- ... render passes ...</span>
+}</code></pre>
+      <p>For matrix uniforms, texture samplers, and the full <code>ShaderUniformDataType</code> enum, see the <a href="/raylib/reference/shader.html">Shader reference</a>.</p>
+
+      <h2 id="reference">API Reference</h2>
+      <p>When you know <em>what</em> you need but not the exact signature, jump into the reference. Start with <a href="/raylib/reference/types.html">Types</a> for the core value types (<code>Vector2</code>, <code>Vector3</code>, <code>Color</code>, <code>Rectangle</code>, <code>Camera3D</code>), then <a href="/raylib/reference/enums.html">Enums</a>, then the category you need. Every entry lists signature, one-line description, a 3-5 line example, and 3 cross-links (raylib.h upstream, Iron source line, test usage).</p>
+
+      <h2 id="examples">Examples gallery</h2>
+      <p>Five canonical consumers under <code>examples/</code> exercise every category of the binding. Read their source for "how it's actually done" patterns:</p>
+      <ul>
+        <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron"><code>pong</code></a> &mdash; 2D game: window, input, draw, collision, audio.</li>
+        <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron"><code>rotating_cube</code></a> &mdash; 3D scene: Camera3D, 3D drawing, orbital camera mode.</li>
+        <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron"><code>model_viewer</code></a> &mdash; 3D model loading with procedural fallback.</li>
+        <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron"><code>post_fx</code></a> &mdash; shader pipeline with RenderTexture and interactive uniforms.</li>
+        <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron"><code>raylib_showcase</code></a> &mdash; single-file 12-category canonical demo.</li>
+      </ul>
+      <p>When the <a href="/raylib/examples/">examples gallery</a> ships (Plan 74-03), each of these gets a screenshot card.</p>
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">
+          <div class="nav-logo-icon">Fe</div>
+          Iron
+        </a>
+        <p>Apache 2.0 licensed. Compiled, strongly-typed, built for games.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/guide/">Package Manager</a></li>
+          <li><a href="/raylib/">Raylib</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="/install/">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/" style="color: var(--text-secondary); text-decoration: underline;">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var sidebar = document.getElementById('sidebar');
+      var sidebarToggle = document.getElementById('sidebarToggle');
+      var sidebarOverlay = document.getElementById('sidebarOverlay');
+      var navToggle = document.getElementById('navToggle');
+      var navRight = document.getElementById('navRight');
+      var navOverlay = document.getElementById('navOverlay');
+
+      function closeSidebar() {
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('active');
+      }
+
+      sidebarToggle.addEventListener('click', function() {
+        sidebar.classList.toggle('open');
+        sidebarOverlay.classList.toggle('active');
+      });
+
+      sidebarOverlay.addEventListener('click', closeSidebar);
+
+      document.querySelectorAll('.sidebar a').forEach(function(link) {
+        link.addEventListener('click', closeSidebar);
+      });
+
+      function closeNav() {
+        navRight.classList.remove('open');
+        navToggle.classList.remove('active');
+        navOverlay.classList.remove('active');
+      }
+
+      navToggle.addEventListener('click', function() {
+        navRight.classList.toggle('open');
+        navToggle.classList.toggle('active');
+        navOverlay.classList.toggle('active');
+      });
+
+      navOverlay.addEventListener('click', closeNav);
+
+      navRight.querySelectorAll('a').forEach(function(a) {
+        a.addEventListener('click', closeNav);
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          closeSidebar();
+          closeNav();
+        }
+      });
+
+      // Highlight active sidebar link on scroll
+      var sections = document.querySelectorAll('h2[id], h3[id]');
+      var sidebarLinks = document.querySelectorAll('.sidebar-section a');
+
+      function updateActive() {
+        var current = '';
+        sections.forEach(function(section) {
+          if (window.scrollY >= section.offsetTop - 100) {
+            current = section.id;
+          }
+        });
+        sidebarLinks.forEach(function(link) {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+        });
+      }
+
+      window.addEventListener('scroll', updateActive);
+      updateActive();
+    })();
+  </script>
+</body>
+</html>
