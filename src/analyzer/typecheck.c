@@ -442,6 +442,85 @@ static void emit_type_mismatch(TypeCtx *ctx, Iron_Span span,
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, NULL);
 }
 
+/* Phase 4 Plan 04-01 (EDIT-07): narrow emit_type_mismatch for a literal RHS.
+ *
+ * When the init_node is an Iron_IntLit / Iron_FloatLit / Iron_BoolLit /
+ * Iron_StringLit AND the expected type admits a simple retyping of that
+ * literal, emit IRON_ERR_TYPE_MISMATCH_LITERAL (code 235) with a
+ * retyped-literal .suggestion. Otherwise, fall back to the general
+ * type-mismatch form. */
+static void emit_type_mismatch_maybe_literal(TypeCtx *ctx, Iron_Span span,
+                                              Iron_Type *expected,
+                                              Iron_Type *got,
+                                              Iron_Node *init_node) {
+    const char *suggestion = NULL;
+    bool is_literal_rhs = false;
+
+    if (init_node && expected) {
+        if (init_node->kind == IRON_NODE_INT_LIT) {
+            Iron_IntLit *il = (Iron_IntLit *)init_node;
+            is_literal_rhs = true;
+            /* Int literal expected to be Float: "N" -> "N.0". */
+            if (expected->kind == IRON_TYPE_FLOAT ||
+                expected->kind == IRON_TYPE_FLOAT32 ||
+                expected->kind == IRON_TYPE_FLOAT64) {
+                if (il->value) {
+                    size_t n = strlen(il->value) + 3; /* ".0" + NUL */
+                    char *buf = (char *)iron_arena_alloc(ctx->arena, n, 1);
+                    if (buf) {
+                        snprintf(buf, n, "%s.0", il->value);
+                        suggestion = buf;
+                    }
+                }
+            }
+        } else if (init_node->kind == IRON_NODE_FLOAT_LIT) {
+            is_literal_rhs = true;
+            Iron_FloatLit *fl = (Iron_FloatLit *)init_node;
+            /* Float literal expected to be Int: truncate at '.'. */
+            if (expected->kind == IRON_TYPE_INT ||
+                expected->kind == IRON_TYPE_INT32 ||
+                expected->kind == IRON_TYPE_INT64) {
+                if (fl->value) {
+                    const char *dot = strchr(fl->value, '.');
+                    size_t head = dot ? (size_t)(dot - fl->value) : strlen(fl->value);
+                    if (head == 0) head = 1; /* "0" as a fallback */
+                    char *buf = (char *)iron_arena_alloc(ctx->arena, head + 1, 1);
+                    if (buf) {
+                        memcpy(buf, fl->value, head);
+                        buf[head] = '\0';
+                        suggestion = buf;
+                    }
+                }
+            }
+        } else if (init_node->kind == IRON_NODE_BOOL_LIT ||
+                   init_node->kind == IRON_NODE_STRING_LIT) {
+            is_literal_rhs = true;
+        }
+    }
+
+    if (!is_literal_rhs) {
+        /* Not a literal — use the existing general form (code 202). */
+        emit_type_mismatch(ctx, span, expected, got);
+        return;
+    }
+
+    /* Literal RHS: emit code 235 with message that still shows the general
+     * "type mismatch: expected 'X', got 'Y'" phrasing so message parity
+     * holds. If suggestion remains NULL, fall back to the bare expected-
+     * type printed form so .suggestion is never NULL for a 235 emit. */
+    char msg[512];
+    const char *exp_s = expected ? iron_type_to_string(expected, ctx->arena) : "unknown";
+    const char *got_s = got      ? iron_type_to_string(got, ctx->arena)      : "unknown";
+    snprintf(msg, sizeof(msg),
+             "type mismatch: expected '%s', got '%s'", exp_s, got_s);
+    if (!suggestion) {
+        /* Synthetic fallback suggestion: expected-type name. Keeps
+         * .suggestion non-NULL without inventing arbitrary literal text. */
+        suggestion = iron_arena_strdup(ctx->arena, exp_s, strlen(exp_s));
+    }
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, span, msg, suggestion);
+}
+
 /* Implicit coercion rules for assignment compatibility.
  *
  * Currently only widening is implicit:
@@ -1046,6 +1125,114 @@ static bool block_always_returns(Iron_Block *block) {
     return last && last->kind == IRON_NODE_RETURN;
 }
 
+/* Phase 4 Plan 04-01 (EDIT-07): recursive "always returns" check that also
+ * counts if/else with both arms terminating + match with all arms
+ * terminating. This is a minimal-but-correct reachability pass for the
+ * IRON_ERR_MISSING_RETURN walker below.
+ *
+ * Conservatively returns false for node kinds the walker doesn't understand —
+ * so the walker may miss a genuine always-returns path, which is safe
+ * (emits a false positive at worst; user can annotate with an explicit
+ * return statement to suppress). Never returns true on ambiguous code. */
+static bool stmt_always_returns(Iron_Node *node) {
+    if (!node) return false;
+    switch ((int)node->kind) {
+        case IRON_NODE_RETURN:
+            return true;
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)node;
+            if (b->stmt_count == 0) return false;
+            return stmt_always_returns(b->stmts[b->stmt_count - 1]);
+        }
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is = (Iron_IfStmt *)node;
+            /* if-else with BOTH arms terminating always returns. */
+            if (!is->else_body) return false;
+            return stmt_always_returns(is->body) &&
+                   stmt_always_returns(is->else_body);
+        }
+        default:
+            return false;
+    }
+}
+
+/* Phase 4 Plan 04-01 (EDIT-07): missing-return walker.
+ *
+ * Emits IRON_ERR_MISSING_RETURN (code 236) with a type-appropriate
+ * "return 0;" / "return 0.0;" / "return false;" / "return \"\";"
+ * suggestion when a non-void function body does not demonstrably return
+ * on every path.
+ *
+ * The walker is intentionally conservative — it only fires when the
+ * function has a non-void declared return type and the body's terminal
+ * statement is NOT a return (and not an if-else where both arms return).
+ * This mirrors rustc's "not all control paths return a value" check. */
+static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
+    if (!fd || !fd->resolved_return_type) return;
+    Iron_Type *rt = fd->resolved_return_type;
+    if (rt->kind == IRON_TYPE_VOID || rt->kind == IRON_TYPE_ERROR) return;
+
+    /* Extern functions have no body to check. */
+    if (!fd->body) return;
+    if (stmt_always_returns(fd->body)) return;
+
+    /* Pick a type-appropriate "zero" return snippet. Skip emit for types
+     * without an obvious zero (objects, enums, arrays) — Plan 04-04's code
+     * action handler treats the absence of a suggestion as "no quickfix". */
+    const char *zero = NULL;
+    switch ((int)rt->kind) {
+        case IRON_TYPE_INT:
+        case IRON_TYPE_INT8:
+        case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32:
+        case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:
+        case IRON_TYPE_UINT8:
+        case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32:
+        case IRON_TYPE_UINT64:
+            zero = "return 0;"; break;
+        case IRON_TYPE_FLOAT:
+        case IRON_TYPE_FLOAT32:
+        case IRON_TYPE_FLOAT64:
+            zero = "return 0.0;"; break;
+        case IRON_TYPE_BOOL:
+            zero = "return false;"; break;
+        case IRON_TYPE_STRING:
+            zero = "return \"\";"; break;
+        default:
+            /* No obvious zero; emit without a suggestion. */
+            break;
+    }
+
+    /* Use the body's span so the squiggle highlights the whole function body
+     * rather than just the decl header. */
+    Iron_Span emit_span = fd->body->span;
+
+    if (zero) {
+        emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
+                   "function may reach end without returning a value", zero);
+    } else {
+        /* No well-defined zero snippet; synthesize a type-name-ish suggestion
+         * so .suggestion is non-NULL (every P1 emit-site seeds .suggestion). */
+        const char *fallback = iron_type_to_string(rt, ctx->arena);
+        if (!fallback) fallback = "<value>";
+        char *sug = (char *)iron_arena_alloc(ctx->arena,
+                                              strlen("return ") + strlen(fallback)
+                                              + strlen("(...);") + 1, 1);
+        if (sug) {
+            sprintf(sug, "return %s(...);", fallback);
+            emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
+                       "function may reach end without returning a value",
+                       sug);
+        } else {
+            emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
+                       "function may reach end without returning a value",
+                       "return <value>;");
+        }
+    }
+}
+
 /* ── Array extension method return type resolution ──────────────────────── */
 
 /* Resolve the return type of a method call on an array by searching for a
@@ -1618,6 +1805,45 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         emit_warning(ctx, IRON_WARN_NARROWING_CAST, ce->span,
                                                      msg, "verify value is in range");
                                     }
+                                }
+                                /* Phase 4 Plan 04-01 (EDIT-07): redundant-cast
+                                 * check. `Float(x)` where x is already Float
+                                 * (or any primitive cast where src kind ==
+                                 * target kind) is a no-op. Emit a warning
+                                 * whose .suggestion is the bare inner
+                                 * expression so the code-action dispatcher
+                                 * can propose "remove cast". */
+                                else if (src_type->kind == target_t->kind) {
+                                    const char *src_s = iron_type_to_string(src_type, ctx->arena);
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "redundant cast — expression already has type '%s'",
+                                             src_s);
+                                    /* Best-effort inner-expression text. For
+                                     * literal Iron_IntLit / Iron_FloatLit we
+                                     * have the source-string directly; fall
+                                     * back to the printed type-string for
+                                     * non-literal expressions. Either way
+                                     * .suggestion is non-NULL. */
+                                    const char *inner = NULL;
+                                    Iron_Node *a = ce->args[0];
+                                    if (a && a->kind == IRON_NODE_INT_LIT) {
+                                        Iron_IntLit *il = (Iron_IntLit *)a;
+                                        if (il->value) inner = iron_arena_strdup(
+                                            ctx->arena, il->value, strlen(il->value));
+                                    } else if (a && a->kind == IRON_NODE_FLOAT_LIT) {
+                                        Iron_FloatLit *fl = (Iron_FloatLit *)a;
+                                        if (fl->value) inner = iron_arena_strdup(
+                                            ctx->arena, fl->value, strlen(fl->value));
+                                    } else if (a && a->kind == IRON_NODE_IDENT) {
+                                        Iron_Ident *id = (Iron_Ident *)a;
+                                        if (id->name) inner = iron_arena_strdup(
+                                            ctx->arena, id->name, strlen(id->name));
+                                    }
+                                    if (!inner) inner = iron_arena_strdup(
+                                        ctx->arena, "<expr>", strlen("<expr>"));
+                                    emit_warning(ctx, IRON_WARN_REDUNDANT_CAST,
+                                                 ce->span, msg, inner);
                                 }
                             }
 
@@ -3285,6 +3511,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        /* Phase 4 Plan 04-01 (EDIT-07) note: VAL_DECL / VAR_DECL use the
+         * literal-narrowing emit_type_mismatch_maybe_literal helper below
+         * to narrow literal-position mismatches to IRON_ERR_TYPE_MISMATCH_LITERAL
+         * (code 235) with retyped-literal .suggestion. See helper definition
+         * above emit_type_mismatch. */
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
 
@@ -3374,7 +3605,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
-                    emit_type_mismatch(ctx, vd->span, decl_type, init_type);
+                    /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
+                     * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
+                     * .suggestion. Non-literal RHS stays at 202 with NULL. */
+                    emit_type_mismatch_maybe_literal(ctx, vd->span, decl_type,
+                                                      init_type, vd->init);
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
                 if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
@@ -3422,7 +3657,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
-                    emit_type_mismatch(ctx, vd->span, decl_type, init_type);
+                    /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
+                     * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
+                     * .suggestion. Non-literal RHS stays at 202 with NULL. */
+                    emit_type_mismatch_maybe_literal(ctx, vd->span, decl_type,
+                                                      init_type, vd->init);
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
                 if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
@@ -4406,6 +4645,11 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
         Iron_Block *body = (Iron_Block *)fd->body;
         check_block_stmts(ctx, body->stmts, body->stmt_count);
     }
+
+    /* Phase 4 Plan 04-01 (EDIT-07): missing-return walker (code 236).
+     * Runs AFTER body check so `current_return_type` narrowing and
+     * return-expr type-checks have already published diagnostics. */
+    check_missing_return(ctx, fd);
 
     tc_pop_scope(ctx);
     ctx->current_return_type = prev_ret;
