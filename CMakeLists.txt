@@ -304,6 +304,9 @@ if(IRON_BUILD_LSP)
         # AST Iron_Node by walking the sealed Iron_Program.
         src/lsp/facade/nav/symbol_id.c
         src/lsp/facade/nav/node_at.c
+        # Phase 3 Plan 03 Task 01 (D-11): fzy-algorithm fuzzy scorer
+        # shared by workspace/symbol + future completion ranking.
+        src/lsp/facade/nav/fuzzy.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
         # stdlib_cache.c is the process-lifetime pre-parsed surface-file
