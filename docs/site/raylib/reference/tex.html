@@ -114,6 +114,13 @@
       .footer-inner { grid-template-columns: 1fr 1fr; }
       .footer-bottom { flex-direction: column; gap: 0.5rem; }
     }
+    @media (max-width: 768px) {
+      .content { padding: 1.75rem 1.5rem 3rem; }
+      .content h1 { font-size: 1.55rem; }
+      .content h2 { font-size: 1.15rem; margin-top: 2.25rem; }
+      .content pre { font-size: 0.78rem; padding: 1rem; overflow-x: auto; }
+      .api-entry h3 { font-size: 0.92rem; word-break: break-word; }
+    }
     @media (max-width: 640px) {
       .nav-right { position: absolute; top: 56px; left: 0; right: 0; flex-direction: column; background: rgba(12, 12, 22, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; gap: 0; opacity: 0; visibility: hidden; transform: translateY(-8px); transition: opacity 0.25s, visibility 0.25s, transform 0.25s; }
       .nav-right.open { opacity: 1; visibility: visible; transform: translateY(0); }
