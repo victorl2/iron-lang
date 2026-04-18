@@ -54,6 +54,11 @@ void ilsp_handle_text_document_signature_help(struct IronLsp_Server *s,
                                                 struct yyjson_doc     *doc,
                                                 Iron_Arena            *arena);
 
+/* Phase 3 Plan 05 Task 01 (NAV-05): textDocument/implementation. */
+void ilsp_handle_text_document_implementation(struct IronLsp_Server *s,
+                                                struct yyjson_doc     *doc,
+                                                Iron_Arena            *arena);
+
 #ifdef __cplusplus
 }
 #endif
