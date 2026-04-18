@@ -87,6 +87,10 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace.c
+        # Phase 3 Plan 02: handlers_document.c invalidates workspace_index
+        # entries on didChangeWatchedFiles; every test linking
+        # handlers_document.c must link workspace_index.c too.
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace_index.c
         # Plan 05: handlers_document.c now starts + stops per-doc workers;
         # tests that link handlers_document.c must also link the worker
         # subsystem and the facade stubs.
@@ -404,9 +408,6 @@ if(IRON_BUILD_LSP)
     # target's source list is extended below to pull in the TUs under test.
     # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
     set(_PHASE3_WAVE0_STUBS
-        test_workspace_index
-        test_stdlib_cache
-        test_dep_map
         test_nav_definition
         test_nav_references
         test_document_symbol
@@ -508,6 +509,35 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_node_at PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 30)
+
+    # ── Phase 3 Plan 02 Task 01 (NAV-01): workspace_index ────────────────
+    # Per-file arena-scoped IndexEntry map with warm-seed, lazy analyze,
+    # LRU cap, and path + dep invalidation.  Test drives the store API
+    # directly against a /tmp fixture workspace.
+    add_executable(test_workspace_index test_workspace_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    target_include_directories(test_workspace_index PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_workspace_index PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_workspace_index
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_workspace_index COMMAND test_workspace_index)
+    set_tests_properties(test_workspace_index PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()

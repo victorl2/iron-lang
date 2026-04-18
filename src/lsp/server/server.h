@@ -33,6 +33,7 @@ typedef struct IronLsp_CancelRegistry IronLsp_CancelRegistry;
 typedef struct IronLsp_DynRegister    IronLsp_DynRegister;
 typedef struct IronLsp_Document       IronLsp_Document;   /* Plan 04 */
 typedef struct IronLsp_WorkerPool     IronLsp_WorkerPool; /* Plan 05 */
+typedef struct IronLsp_WorkspaceIndex IronLsp_WorkspaceIndex; /* Phase 3 Plan 02 */
 
 /* Compile-time shared server state. Singleton; owned by main.c (Plan 06);
  * mutated ONLY before transport threads start and AFTER they join. */
@@ -63,6 +64,13 @@ typedef struct IronLsp_Server {
      * top-level pool is introduced (not required in the document-owned
      * worker model actually used by handlers_document.c). */
     IronLsp_WorkerPool       *workers;
+
+    /* Phase 3 Plan 02: workspace index (per-file parsed/analyzed cache,
+     * stdlib cache pointer, dep map). Created in handlers_lifecycle.c on
+     * `initialize` once workspace_root is known; warm-seeded on a
+     * detached thread after `initialized`; destroyed in main.c teardown.
+     * NULL until `initialize` resolves a workspace root. */
+    IronLsp_WorkspaceIndex   *workspace_index;
 
     /* Atomic request-id counter for server-originated requests
      * (e.g., client/registerCapability from the dyn-register subsystem). */
