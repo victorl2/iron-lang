@@ -5208,6 +5208,81 @@ void Iron_audiostream_set_buffer_size_default(int32_t size) {
     SetAudioStreamBufferSizeDefault((int)size);
 }
 
+/* ── AUDIO-12 callback wirings (Phase 73-01) ───────────────────────────
+ *
+ * Closes the 5 AUDIO-12 callback entries deferred in Phase 68-05 by
+ * consuming the 16-slot Iron_Closure → AudioCallback trampoline
+ * registry built at iron_raylib.c:4518-4591. AUDIO-12 now reads
+ * 19/19 bound (14 standard + 5 callback).
+ *
+ * FFI contract:
+ *   Iron `cb: func(Int, UInt32)` lowers to Iron_Closure cb (verified
+ *   by a probe: `.iron-build/<file>.c` emits `Iron_Closure cb` for
+ *   the foreign-method stub). Trampoline unwraps the closure's
+ *   (env, fn) pair and calls fn(env, buffer, frames).
+ *
+ * Detach semantics (CRITICAL — plan-text documented "NULL detaches all"
+ * is INCORRECT per raylib source at src/vendor/raylib/raudio.c:2264.
+ * raylib's DetachAudio{Stream,Mixed}Processor matches by function
+ * pointer; passing NULL silently no-ops):
+ *
+ *   For `detach_processor(stream)` we iterate all 16 slots and call
+ *   DetachAudioStreamProcessor(stream, audio_cb_fns[slot]) for each
+ *   used slot — raylib no-ops for processor pointers not attached to
+ *   THIS stream (rAudioProcessor list walk at raudio.c:2258-2274).
+ *   This is a "detach-all-my-processors-from-this-stream" semantic.
+ *
+ *   Slots are NOT freed by detach because the registry is global
+ *   (no per-stream tracking). Over a long runtime slot-exhaustion
+ *   can occur; v2.0.0-alpha accepts this trade-off (16 slots, detach
+ *   rare in game loops). A dedicated post-alpha slot-GC pass can add
+ *   per-stream bookkeeping if user feedback demands.
+ *
+ *   Same iterate-and-detach pattern for the mixed pipeline. */
+
+void Iron_audiostream_set_callback(struct Iron_AudioStream stream, Iron_Closure cb) {
+    int slot = audio_cb_alloc(cb);
+    if (slot < 0) return;  /* registry full — silent no-op per 68-01 design */
+    AudioStream s;
+    memcpy(&s, &stream, sizeof(AudioStream));
+    SetAudioStreamCallback(s, g_audio_cb_fns[slot]);
+}
+
+void Iron_audiostream_attach_processor(struct Iron_AudioStream stream, Iron_Closure cb) {
+    int slot = audio_cb_alloc(cb);
+    if (slot < 0) return;
+    AudioStream s;
+    memcpy(&s, &stream, sizeof(AudioStream));
+    AttachAudioStreamProcessor(s, g_audio_cb_fns[slot]);
+}
+
+void Iron_audiostream_detach_processor(struct Iron_AudioStream stream) {
+    AudioStream s;
+    memcpy(&s, &stream, sizeof(AudioStream));
+    /* Iterate all registry slots; raylib no-ops non-matching pointers. */
+    for (int slot = 0; slot < IRON_AUDIO_CB_SLOTS; slot++) {
+        if (g_audio_cb_used[slot]) {
+            DetachAudioStreamProcessor(s, g_audio_cb_fns[slot]);
+        }
+    }
+    /* Slots intentionally NOT freed — see header comment. */
+}
+
+void Iron_audio_attach_mixed_processor(Iron_Closure cb) {
+    int slot = audio_cb_alloc(cb);
+    if (slot < 0) return;
+    AttachAudioMixedProcessor(g_audio_cb_fns[slot]);
+}
+
+void Iron_audio_detach_mixed_processor(void) {
+    for (int slot = 0; slot < IRON_AUDIO_CB_SLOTS; slot++) {
+        if (g_audio_cb_used[slot]) {
+            DetachAudioMixedProcessor(g_audio_cb_fns[slot]);
+        }
+    }
+    /* Slots intentionally NOT freed — see header comment. */
+}
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 
 /* DRAW3D-01: 3D draw-mode stack — raylib.h:1032-1033.

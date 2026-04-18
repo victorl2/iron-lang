@@ -2589,37 +2589,29 @@ func AudioStream.set_pan(stream: AudioStream, pan: Float32) {}
 func AudioStream.set_buffer_size_default(size: Int32) {}
 
 -- ══════════════════════════════════════════════════════════════════════
--- AUDIO-12 CALLBACK ENTRIES DEFERRED (5 methods; 14 of 19 AUDIO-12 land)
+-- AUDIO-12 CALLBACK ENTRIES (Phase 73-01 — AUDIO-12 closes at 19/19)
 -- ══════════════════════════════════════════════════════════════════════
 --
--- The following 5 callback-accepting entries are NOT bound in Phase 68:
+-- Wired through the 16-slot Iron_Closure → AudioCallback trampoline
+-- registry built in Plan 68-01 Task 3 (iron_raylib.c:4518-4591).
+-- Phase 73-01 probe confirmed Iron `cb: func(Int, UInt32)` lowers to
+-- `Iron_Closure cb` at the foreign-method boundary.
 --
---   • AudioStream.set_callback(stream, cb)        — SetAudioStreamCallback
---   • AudioStream.attach_processor(stream, cb)    — AttachAudioStreamProcessor
---   • AudioStream.detach_processor(stream, cb)    — DetachAudioStreamProcessor
---   • Audio.attach_mixed_processor(cb)            — AttachAudioMixedProcessor
---   • Audio.detach_mixed_processor(cb)            — DetachAudioMixedProcessor
+-- Detach semantics: DetachAudioStreamProcessor / DetachAudioMixedProcessor
+-- match by function pointer (raudio.c:2264). Iron's detach iterates
+-- registry slots and calls Detach for each used slot — raylib silently
+-- no-ops non-matching pointers. Slots are NOT freed (registry is global;
+-- no per-stream tracking). Slot-exhaustion is a post-alpha refinement
+-- target (16 slots, detach rare in typical game loops).
 --
--- Runtime infrastructure (16-slot Iron_Closure → AudioCallback trampoline)
--- shipped in Plan 68-01 Task 3 (iron_raylib.c:4497-4599) and is ready to
--- be consumed. The deferral is at the Iron-side FFI boundary only:
---
---   The Iron `func(data: Int, frames: UInt32)` closure type is not
---   currently accepted as a foreign-method-stub parameter type whose C
---   counterpart is `Iron_Closure`. Establishing this binding requires
---   either an Iron-side opaque `object Iron_AudioCallback` declaration
---   or codegen work to auto-emit Iron_Closure when a lambda type appears
---   in a foreign-method extern. Either path is Phase 73 cleanup scope,
---   not the last-plan-of-Phase-68 scope.
---
--- Users needing audio callbacks today can:
---   (a) drive AudioStream buffers via AudioStream.update(stream, data,
---       frameCount) from the main loop — identical functional result
---       without the audio-thread-scheduled callback path;
---   (b) wait for the Phase 73 cleanup plan that closes the FFI gap.
---
--- See .planning/phases/68-audio-system/68-05-SUMMARY.md for the full
--- rationale. AUDIO-12 status: 14 of 19 bound (callbacks deferred).
+-- Thread safety: raylib invokes callbacks from miniaudio's audio thread.
+-- Iron closure bodies MUST be audio-thread-safe (no Iron heap allocation,
+-- no GC, no blocking). Violating this is undefined behavior.
+func AudioStream.set_callback(stream: AudioStream, cb: func(Int, UInt32)) {}
+func AudioStream.attach_processor(stream: AudioStream, cb: func(Int, UInt32)) {}
+func AudioStream.detach_processor(stream: AudioStream) {}
+func Audio.attach_mixed_processor(cb: func(Int, UInt32)) {}
+func Audio.detach_mixed_processor() {}
 
 
 -- ══════════════════════════════════════════════════════════════════════

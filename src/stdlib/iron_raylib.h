@@ -1646,6 +1646,16 @@ void Iron_audiostream_set_pitch(struct Iron_AudioStream stream, float pitch);
 void Iron_audiostream_set_pan(struct Iron_AudioStream stream, float pan);
 void Iron_audiostream_set_buffer_size_default(int32_t size);
 
+/* Phase 73-01: AUDIO-12 callback wirings (5) — close AUDIO-12 at 19/19.
+ * Consume the 16-slot Iron_Closure → AudioCallback trampoline built in
+ * Plan 68-01 Task 3.  Iron `func(Int, UInt32)` lowers to Iron_Closure
+ * at foreign-method boundary (verified via debug-build probe). */
+void Iron_audiostream_set_callback(struct Iron_AudioStream stream, Iron_Closure cb);
+void Iron_audiostream_attach_processor(struct Iron_AudioStream stream, Iron_Closure cb);
+void Iron_audiostream_detach_processor(struct Iron_AudioStream stream);
+void Iron_audio_attach_mixed_processor(Iron_Closure cb);
+void Iron_audio_detach_mixed_processor(void);
+
 /* ── 3D Drawing (Phase 69) ────────────────────────────────────────── */
 
 /* DRAW3D-01 */
