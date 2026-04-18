@@ -407,4 +407,27 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_completion_keyword_mirror PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
+
+    # Phase 4 Plan 04-02 Task 02 (EDIT-01, D-01): 6-bucket builder tests.
+    # Compiles the facade bucket TUs directly so the test can exercise the
+    # internal API without booting ironls; links the fuzzy scorer + lexer
+    # + parser + yyjson-ish deps via iron_compiler.
+    add_executable(test_completion_buckets
+        test_completion_buckets.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c
+    )
+    target_include_directories(test_completion_buckets PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_completion_buckets
+        iron_compiler iron_runtime unity m)
+    add_test(NAME test_completion_buckets
+        COMMAND test_completion_buckets)
+    set_tests_properties(test_completion_buckets PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
 endif()
