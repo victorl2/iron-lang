@@ -1,0 +1,86 @@
+-- tests/manual/draw3d_smoke.iron
+-- Phase 69 canonical regression test. Walks DRAW3D-01..04 via tagged
+-- sections (grep-countable for traceability).
+--
+-- Invocation: ./build/ironc build tests/manual/draw3d_smoke.iron
+--             ./draw3d_smoke
+-- Expected:   exit 0 with the final PHASE 69 SMOKE confirmation line.
+--
+-- Plan progression: 69-02 creates this file with DRAW3D-01..03 sections.
+--   Plans 69-03 and 69-04 append DRAW3D-04 primitive call sites +
+--   keep-alive bindings + the final PHASE 69 SMOKE print line.
+--
+-- Call style: all Camera3D instance methods use the static form
+-- Camera3D.method(cam, ...) per Plan 68-05 Rule-3 precedent.
+--
+-- Canonical template: tests/manual/audio_smoke.iron (Phase 68-05).
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(800), Int32(600), "Phase 69 draw3d_smoke")
+
+    -- Camera3D setup — shared across all four DRAW3D-NN sections.
+    -- Pitfall 9: 5 fields — position, target, up, fovy, projection.ordinal.
+    val cam = Camera3D(
+        Vector3(Float32(10.0), Float32(10.0), Float32(10.0)),  -- position
+        Vector3(Float32(0.0),  Float32(0.0),  Float32(0.0)),   -- target
+        Vector3(Float32(0.0),  Float32(1.0),  Float32(0.0)),   -- up (Y-up)
+        Float32(45.0),                                          -- fovy (degrees)
+        CameraProjection.PERSPECTIVE.ordinal                    -- Pitfall 10: .ordinal
+    )
+
+    -- ── DRAW3D-01: begin/end 3D mode ─────────────────────────────
+    Draw.begin()
+    Draw.clear(RAYWHITE)
+    Draw.begin_mode_3d(cam)
+    Draw.end_mode_3d()
+    Draw.end()
+    print("DRAW3D-01: Draw.begin_mode_3d / end_mode_3d exercised")
+
+    -- ── DRAW3D-02: camera update — all 5 modes + update_pro ─────
+    -- Pitfall 2: CameraMode.CUSTOM is a no-op; we exercise it for
+    -- call-site coverage only (not a field-diff assertion).
+    val cam_free   = Camera3D.update(cam, CameraMode.FREE)
+    val cam_orb    = Camera3D.update(cam, CameraMode.ORBITAL)
+    val cam_fp     = Camera3D.update(cam, CameraMode.FIRST_PERSON)
+    val cam_tp     = Camera3D.update(cam, CameraMode.THIRD_PERSON)
+    val cam_custom = Camera3D.update(cam, CameraMode.CUSTOM)
+    val zero_v     = Vector3(Float32(0.0), Float32(0.0), Float32(0.0))
+    val cam_pro    = Camera3D.update_pro(cam, zero_v, zero_v, Float32(0.0))
+    print("DRAW3D-02: Camera3D.update (5 modes) + update_pro exercised")
+
+    -- ── DRAW3D-03: screen↔world + view matrix ────────────────────
+    val mouse  = Vector2(Float32(400.0), Float32(300.0))
+    val ray    = Camera3D.screen_to_world_ray(cam, mouse)
+    val ray_ex = Camera3D.screen_to_world_ray_ex(cam, mouse,
+                                                 Int32(800), Int32(600))
+    val world     = Vector3(Float32(0.0), Float32(0.0), Float32(-5.0))
+    val screen    = Camera3D.world_to_screen(cam, world)
+    val screen_ex = Camera3D.world_to_screen_ex(cam, world,
+                                                Int32(800), Int32(600))
+    val view_m    = Camera3D.matrix(cam)
+    print("DRAW3D-03: screen_to_world_ray + _ex / world_to_screen + _ex / matrix exercised")
+
+    -- Plans 69-03 and 69-04 append DRAW3D-04 primitive call sites
+    -- and the keep-alive val _kN block + final PHASE 69 SMOKE print
+    -- immediately below this line.
+
+    Window.close()
+
+    -- Keep values alive (DCE guard; Phase 68 precedent).
+    val _k0 = cam_free
+    val _k1 = cam_orb
+    val _k2 = cam_fp
+    val _k3 = cam_tp
+    val _k4 = cam_custom
+    val _k5 = cam_pro
+    val _k6 = ray
+    val _k7 = ray_ex
+    val _k8 = screen
+    val _k9 = screen_ex
+    val _k10 = view_m
+
+    print("PHASE 69 SMOKE: DRAW3D-01..03 exercised (DRAW3D-04 pending plans 69-03/04)")
+    return Int32(0)
+}
