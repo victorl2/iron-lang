@@ -113,6 +113,14 @@ def _install_register_capability_handler(client: LanguageClient) -> None:
     def _on_unregister_capability(_c: LanguageClient, _params):
         return None
 
+    # Phase 3 Plan 06 (NAV-13, D-12): the server may emit
+    # `workspace/diagnostic/refresh` (a server->client request) on
+    # watched-file invalidation of non-open files. Respond with null so
+    # pygls doesn't raise MethodNotFound and corrupt the test future.
+    @client.feature("workspace/diagnostic/refresh")
+    def _on_workspace_diagnostic_refresh(_c: LanguageClient, _params):
+        return None
+
 
 @pytest_asyncio.fixture
 async def client(lsp_binary):

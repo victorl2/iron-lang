@@ -330,6 +330,12 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/nav/implementation.c
         src/lsp/facade/nav/type_hierarchy.c
         src/lsp/server/handlers_nav.c
+        # Phase 3 Plan 06 Task 01 (NAV-12, NAV-13, D-12): workspace/diagnostic
+        # facade + pull handler + refresh push. Cache is keyed on
+        # canonical_path; facade is a HandlerBridgeFacade delegate preserving
+        # the single iron_analyze_buffer call site (CORE-22).
+        src/lsp/facade/workspace_diagnostic.c
+        src/lsp/server/handlers_workspace_diag.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
         # stdlib_cache.c is the process-lifetime pre-parsed surface-file

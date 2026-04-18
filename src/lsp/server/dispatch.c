@@ -65,6 +65,9 @@ void ilsp_handle_text_document_prepare_type_hierarchy(IronLsp_Server *s, yyjson_
 void ilsp_handle_type_hierarchy_supertypes          (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_type_hierarchy_subtypes            (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 3 Plan 06 (NAV-12): workspace/diagnostic pull handler. */
+void ilsp_handle_workspace_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -124,6 +127,11 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
      * because 'b' (0x62) < 'p' (0x70) at the 15th char. */
     { "typeHierarchy/subtypes",            ilsp_handle_type_hierarchy_subtypes,        true,  "typeHierarchyProvider" },
     { "typeHierarchy/supertypes",          ilsp_handle_type_hierarchy_supertypes,      true,  "typeHierarchyProvider" },
+    /* Plan 06 (NAV-12): workspace/diagnostic pull. Sort: 'a' (0x61) < 'd'
+     * (0x64) so "workspace/diagnostic" precedes "workspace/didChangeWatchedFiles".
+     * Capability handled by capabilities.c's diagnosticProvider special-case
+     * (workspaceDiagnostics=true in Plan 06). caps_has dedups. */
+    { "workspace/diagnostic",              ilsp_handle_workspace_diagnostic,           true,  "diagnosticProvider"    },
     { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,          false, NULL                    },
     /* Plan 03 Task 03 (NAV-08): workspace/symbol. */
     { "workspace/symbol",                  ilsp_handle_workspace_symbol,               true,  "workspaceSymbolProvider"},
