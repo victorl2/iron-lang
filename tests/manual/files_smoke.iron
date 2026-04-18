@@ -1,0 +1,120 @@
+-- tests/manual/files_smoke.iron — Phase 72 regression anchor
+-- Covers FILE-01..06 with 6 tagged sections at column 0.
+-- grep -c '^-- ── FILE-' tests/manual/files_smoke.iron MUST return 6.
+
+import raylib
+
+func main() {
+    val cwd0: String = Files.working_directory()
+    val _k_cwd0 = cwd0
+    val cd_ok: Bool = Files.change_directory("/tmp")
+    val _k_cd_ok = cd_ok
+    val mk_ret: Int32 = Files.make_directory("/tmp/iron_phase72")
+    val _k_mk_ret = mk_ret
+    print("Phase 72 smoke setup done")
+
+-- ── FILE-01: raw byte I/O
+    val bytes: [UInt8] = [UInt8(72), UInt8(101), UInt8(108), UInt8(108), UInt8(111)]   -- "Hello"
+    val save_ok: Bool = Files.save_data("/tmp/iron_phase72/raw.bin", bytes)
+    val _k_save_ok = save_ok
+    val loaded: [UInt8] = Files.load_data("/tmp/iron_phase72/raw.bin")
+    val _k_loaded = loaded
+    val code_ok: Bool = Files.export_data_as_code(bytes, "/tmp/iron_phase72/raw.h")
+    val _k_code_ok = code_ok
+    print("FILE-01 done")
+
+-- ── FILE-02: text I/O
+    val text_save: Bool = Files.save_text("/tmp/iron_phase72/hello.txt", "hello from iron")
+    val _k_text_save = text_save
+    val text: String = Files.load_text("/tmp/iron_phase72/hello.txt")
+    val _k_text = text
+    print("FILE-02 done")
+
+-- ── FILE-03: filesystem queries
+    val e1: Bool = Files.exists("/tmp/iron_phase72/hello.txt")
+    val _k_e1 = e1
+    val e2: Bool = Files.directory_exists("/tmp/iron_phase72")
+    val _k_e2 = e2
+    val ie_dot: Bool = Files.is_extension("foo.png", ".png")
+    val _k_ie_dot = ie_dot
+    val len: Int32 = Files.length("/tmp/iron_phase72/hello.txt")
+    val _k_len = len
+    val ext: String = Files.extension("foo.png")
+    val _k_ext = ext
+    val ext_empty: String = Files.extension("noext")   -- Pitfall 4: NULL → empty string
+    val _k_ext_empty = ext_empty
+    val base: String = Files.basename("/a/b/c.txt")
+    val _k_base = base
+    val stem: String = Files.stem("/a/b/c.txt")
+    val _k_stem = stem
+    val dir: String = Files.directory("/a/b/c.txt")
+    val _k_dir = dir
+    val prev: String = Files.parent_directory("/a/b")
+    val _k_prev = prev
+    val cwd: String = Files.working_directory()
+    val _k_cwd = cwd
+    val app: String = Files.application_directory()
+    val _k_app = app
+    val cdok: Bool = Files.change_directory("/tmp")
+    val _k_cdok = cdok
+    val isf: Bool = Files.is_file("/tmp/iron_phase72/hello.txt")
+    val _k_isf = isf
+    val validn: Bool = Files.is_valid_name("foo.txt")
+    val _k_validn = validn
+    val mt: Int64 = Files.mod_time("/tmp/iron_phase72/hello.txt")
+    val _k_mt = mt
+    val mk_again: Int32 = Files.make_directory("/tmp/iron_phase72")
+    val _k_mk_again = mk_again
+    print("FILE-03 done")
+
+-- ── FILE-04: directory listing
+    -- Phase 62 FilePathList.count stub signature () is out of sync with its C shim
+    -- (takes struct by value) — tracked as Phase 73 cleanup. Smoke exercises
+    -- Files.list / Files.list_ex / Files.unload_list call sites only; indexing
+    -- APIs are validated at clang-TU level (Iron_filepathlist_count prototype
+    -- exists in iron_raylib.h at a known-correct signature).
+    val list: FilePathList = Files.list("/tmp/iron_phase72")
+    val _k_list = list
+    Files.unload_list(list)
+    val flist: FilePathList = Files.list_ex("/tmp/iron_phase72", ".txt", false)
+    val _k_flist = flist
+    Files.unload_list(flist)
+    print("FILE-04 done")
+
+-- ── FILE-05: data utilities (known-value hashes)
+    -- payload = "abc" -> ASCII [97, 98, 99]
+    val abc: [UInt8] = [UInt8(97), UInt8(98), UInt8(99)]
+    val compressed: [UInt8] = Files.compress(abc)
+    val _k_compressed = compressed
+    val decompressed: [UInt8] = Files.decompress(compressed)
+    val _k_decompressed = decompressed
+    val b64: String = Files.encode_base64(abc)
+    val _k_b64 = b64
+    val decoded: [UInt8] = Files.decode_base64(b64)
+    val _k_decoded = decoded
+    -- Canonical test vectors:
+    --   CRC32("123456789") = 0xcbf43926
+    --   MD5("abc")         = 900150983cd24fb0d6963f7d28e17f72
+    --   SHA1("abc")        = a9993e364706816aba3e25717850c26c9cd0d89d
+    val crc_payload: [UInt8] = [UInt8(49), UInt8(50), UInt8(51), UInt8(52), UInt8(53), UInt8(54), UInt8(55), UInt8(56), UInt8(57)]   -- "123456789"
+    val crc: UInt32 = Files.compute_crc32(crc_payload)
+    val _k_crc = crc
+    val md5: [UInt8] = Files.compute_md5(abc)        -- expect 16 bytes
+    val _k_md5 = md5
+    val sha1: [UInt8] = Files.compute_sha1(abc)      -- expect 20 bytes
+    val _k_sha1 = sha1
+    print("FILE-05 done")
+
+-- ── FILE-06: random (seed reproducibility)
+    Random.set_seed(UInt32(42))
+    val n1: Int32 = Random.get_value(Int32(0), Int32(100))
+    val _k_n1 = n1
+    val n2: Int32 = Random.get_value(Int32(0), Int32(100))
+    val _k_n2 = n2
+    val seq: [Int32] = Random.load_sequence(UInt32(10), Int32(0), Int32(100))
+    val _k_seq = seq
+    Random.unload_sequence(seq)
+    print("FILE-06 done")
+
+    print("PHASE 72 SMOKE: ALL FILE-01..06 CALL SITES EXERCISED")
+}

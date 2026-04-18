@@ -24,6 +24,8 @@ test_*
 /audio_smoke.c
 /draw3d_smoke
 /draw3d_smoke.c
+/files_smoke
+/files_smoke.c
 /rotating_cube
 /rotating_cube.c
 /models_smoke
