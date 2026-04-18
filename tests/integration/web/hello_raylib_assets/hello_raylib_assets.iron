@@ -5,12 +5,17 @@ import raylib
 -- forwards --preload-file <abs>@/assets to emcc. The Iron source only
 -- needs to be a valid raylib program that compiles + links on the web
 -- target; no asset API call is required.
+--
+-- Mirrors the Phase 60 placeholder shape used by hello_raylib.iron —
+-- single init / draw-frame / close sequence, no main-loop — so emit_web
+-- takes the "no canonical loop" branch and produces a valid WASM module.
 func main() {
-    InitWindow(800, 600, "Hello Raylib Assets")
-    while not WindowShouldClose() {
-        BeginDrawing()
-        ClearBackground(WHITE)
-        EndDrawing()
-    }
-    CloseWindow()
+    val title: String = "Hello Raylib Assets"
+    Window.init(800, 600, title)
+    val _should: Bool = Window.should_close()
+    Draw.begin()
+    Draw.clear(WHITE)
+    Draw.end()
+    Window.close()
+    val _unused_title = title
 }
