@@ -17,11 +17,9 @@
 --   • Cube size: 2.0 units (visible against the grid background).
 --   • Rotation rate: inherent in CameraMode.ORBITAL (raylib handles; no
 --     explicit rate needed).
---   • projection field passed as Int32(0) (PERSPECTIVE) per the Plan
---     69-04 Rule-3 draw3d_smoke.iron workaround — ironc codegen breaks
---     on `CameraProjection.PERSPECTIVE.ordinal` inside a struct
---     initializer (treats Iron_CameraProjection as struct w/ .ordinal
---     field, but emits it as a C enum typedef). Deferred to Phase 73.
+--   • projection field uses CameraProjection.PERSPECTIVE directly —
+--     D5 residual was fixed by typing Camera3D.projection as the
+--     enum instead of Int32. No `.ordinal` needed.
 --
 -- Canonical template: examples/pong/pong.iron structure.
 
@@ -36,7 +34,7 @@ func main() -> Int32 {
         Vector3(Float32(0.0),  Float32(0.0),  Float32(0.0)),
         Vector3(Float32(0.0),  Float32(1.0),  Float32(0.0)),
         Float32(45.0),
-        Int32(0)  -- projection = PERSPECTIVE
+        CameraProjection.PERSPECTIVE
     )
 
     val origin = Vector3(Float32(0.0), Float32(0.0), Float32(0.0))

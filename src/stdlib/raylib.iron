@@ -712,13 +712,17 @@ object Camera {
 }
 
 -- 3D scene camera — maps to raylib's C `Camera3D`. `projection` is
--- a CameraProjection enum ordinal (Plan 60-07). (TYPE-14)
+-- typed as the CameraProjection enum directly so users can construct
+-- with `CameraProjection.PERSPECTIVE` rather than `Int32(0)`. The C
+-- layout is preserved: iron_raylib_layout.c pins offsetof(projection)
+-- identically whether the Iron field is Int32 or a 4-byte enum, and
+-- the static assert there catches any drift. (TYPE-14, D5 residual fix)
 object Camera3D {
     val position: Vector3
     val target: Vector3
     val up: Vector3
     val fovy: Float32
-    val projection: Int32
+    val projection: CameraProjection
 }
 
 -- Vertex transformation — embeds Vector3 / Quaternion / Vector3. (TYPE-19)

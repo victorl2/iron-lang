@@ -34,12 +34,11 @@
 -- (12 total). Each category hits 1–2 API calls sufficient to prove the
 -- binding compiles + links + resolves symbols at runtime.
 --
--- Ironc workaround notes:
---   • Camera3D's projection field passes `Int32(0)` for PERSPECTIVE
---     (enum-in-struct-initializer codegen bug — Phase 73 D5 residual;
---     deferred to a post-alpha ironc milestone).
+-- Conveniences used:
 --   • 73-02 shipped Color.rgb / Vector2.of / Vector3.of / Rectangle.of
 --     constructor sugar — adopted here for ergonomic rect + vector setup.
+--   • Camera3D.projection is typed as CameraProjection (D5 closed) so
+--     the enum variant is passed directly, no Int32(0) workaround.
 --
 -- Canonical template chain:
 --   examples/pong/pong.iron (Phase 68-05, 2D + audio idiom)
@@ -83,13 +82,12 @@ func main() -> Int32 {
 -- ── FILE: Files.exists asset probe pre-loop ──────────────────────────
     val bounce_exists = Files.exists("tests/assets/bounce.wav")
 
-    -- Camera3D with Int32(0) PERSPECTIVE workaround (D5 residual).
     var cam = Camera3D(
         Vector3.of(Float32(5.0), Float32(5.0), Float32(5.0)),
         Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0)),
         Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0)),
         Float32(45.0),
-        Int32(0)
+        CameraProjection.PERSPECTIVE
     )
 
     -- Collision rectangles (two overlapping) + origin reused across frames.

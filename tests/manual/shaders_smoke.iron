@@ -18,7 +18,6 @@
 --     `_k_*` keep-alive bindings.
 --   - Iron has no `if`-expression form — use `var x = default; if { ... }`.
 --   - `not` keyword, NOT `!` prefix (Phase 69-04 Rule-3).
---   - `Int32(0)` for Camera3D projection field (Phase 69-04 Rule-3).
 
 import raylib
 
@@ -117,7 +116,7 @@ func main() -> Int32 {
         Vector3(Float32(0.0), Float32(0.0), Float32(0.0)),
         Vector3(Float32(0.0), Float32(1.0), Float32(0.0)),
         Float32(45.0),
-        Int32(0)
+        CameraProjection.PERSPECTIVE
     )
     val scene_mesh = Mesh.cube(Float32(2.0), Float32(2.0), Float32(2.0))
     val scene_model = Model.from_mesh(scene_mesh)

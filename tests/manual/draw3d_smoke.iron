@@ -22,20 +22,15 @@ func main() -> Int32 {
     Window.init(Int32(800), Int32(600), "Phase 69 draw3d_smoke")
 
     -- Camera3D setup — shared across all four DRAW3D-NN sections.
-    -- Pitfall 9: 5 fields — position, target, up, fovy, projection (Int32).
-    -- [Rule 3 Blocking fix — Plan 69-04] The documented Pitfall 10 form
-    -- `CameraProjection.PERSPECTIVE.ordinal` fails at ironc codegen with
-    -- "member reference base type 'Iron_CameraProjection' is not a
-    -- structure or union" because ironc lowers enum variants to a C
-    -- enum typedef (not a struct with .ordinal). The struct field is
-    -- already Int32, so pass Int32(0) directly for PERSPECTIVE and
-    -- Int32(1) for ORTHOGRAPHIC. Deferred to a Phase 73 ironc fix.
+    -- Pitfall 9: 5 fields — position, target, up, fovy, projection.
+    -- The projection field is now typed as CameraProjection (D5 fix) so
+    -- users pass the enum variant directly — no `.ordinal` workaround.
     val cam = Camera3D(
         Vector3(Float32(10.0), Float32(10.0), Float32(10.0)),  -- position
         Vector3(Float32(0.0),  Float32(0.0),  Float32(0.0)),   -- target
         Vector3(Float32(0.0),  Float32(1.0),  Float32(0.0)),   -- up (Y-up)
         Float32(45.0),                                          -- fovy (degrees)
-        Int32(0)                                                -- projection = PERSPECTIVE
+        CameraProjection.PERSPECTIVE                            -- projection
     )
 
 -- ── DRAW3D-01: begin/end 3D mode ─────────────────────────────
