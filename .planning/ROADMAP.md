@@ -392,7 +392,7 @@ Plans:
 | 69. 3D Drawing & Camera3D | 4/4 | Complete    | 2026-04-18 |
 | 70. Models, Meshes, Materials | 4/4 | Complete   | 2026-04-18 |
 | 71. Shaders | 2/2 | Complete   | 2026-04-18 |
-| 72. File I/O & Utilities | 1/3 | In Progress|  |
+| 72. File I/O & Utilities | 2/3 | In Progress|  |
 | 73. Idiomatic API Polish & Showcase | 0/? | Not started | - |
 
 ## Coverage Summary
@@ -418,6 +418,16 @@ Plans:
 | **Total** | **183** | **14 phases** |
 
 **Coverage: 183/183 v2.0.0-alpha requirements mapped ✓ — 0 unmapped**
+
+### Phase 74: Documentation Site — v2.0.0-alpha raylib reference
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 73
+**Plans:** 2/3 plans executed
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 74 to break down)
 
 ---
 *Roadmap created: 2026-04-13*
