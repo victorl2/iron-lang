@@ -404,8 +404,6 @@ if(IRON_BUILD_LSP)
     # target's source list is extended below to pull in the TUs under test.
     # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
     set(_PHASE3_WAVE0_STUBS
-        test_symbol_id
-        test_node_at
         test_workspace_index
         test_stdlib_cache
         test_dep_map
@@ -473,6 +471,41 @@ if(IRON_BUILD_LSP)
         iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_ast_sealed COMMAND test_ast_sealed)
     set_tests_properties(test_ast_sealed PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 30)
+
+    # ── Phase 3 Plan 01 Task 04 (NAV-16): symbol_id + node_at ────────────
+    # test_symbol_id exercises the (canonical_path, name_path, kind) +
+    # precomputed FNV-1a 64-bit hash, including determinism across a
+    # re-analyze into a fresh arena.
+    add_executable(test_symbol_id test_symbol_id.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c)
+    target_include_directories(test_symbol_id PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_symbol_id
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_symbol_id COMMAND test_symbol_id)
+    set_tests_properties(test_symbol_id PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 30)
+
+    # test_node_at resolves LSP Position to the innermost Iron_Node
+    # whose Iron_Span covers the cursor. Links the document store for
+    # line_idx + utf conversion plus the nav helper itself.
+    add_executable(test_node_at test_node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c)
+    target_include_directories(test_node_at PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_node_at
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_node_at COMMAND test_node_at)
+    set_tests_properties(test_node_at PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 30)
 else()
