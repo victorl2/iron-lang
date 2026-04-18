@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/abi_phase70_probe.iron
 -- Phase 70 Scan B auto-emit probe. Declares 3 throwaway foreign-method
 -- stubs that force ironc to emit Iron_List_Iron_Matrix,

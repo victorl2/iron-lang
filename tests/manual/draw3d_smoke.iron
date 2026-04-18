@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/draw3d_smoke.iron
 -- Phase 69 canonical regression test. Walks DRAW3D-01..04 via tagged
 -- sections (grep-countable for traceability).

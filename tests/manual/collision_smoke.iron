@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/collision_smoke.iron
 --
 -- Phase 64 Plan 01 smoke test. Exercises every Phase 64 2D binding

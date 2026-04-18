@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/raymath_smoke.iron — Phase 65 canonical regression test
 -- Plan 65-01 creates; Plans 65-02/03/04 APPEND (never replace).
 -- MATH-01 (RMath.*) + MATH-02 (Vector2.*) + MATH-03 (Vector3.*)

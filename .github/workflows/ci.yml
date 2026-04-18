@@ -43,7 +43,15 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang gdb
+          # Base build toolchain + raylib link deps. The raylib deps
+          # (libgl, libx11*, libasound2) are needed by the manual smoke
+          # suite (@compile-only tests that exercise the raylib stdlib
+          # link path). GitHub's ubuntu-latest image usually has these,
+          # but installing them explicitly removes the "works today,
+          # breaks when the runner image rotates" failure mode.
+          sudo apt-get install -y cmake ninja-build clang gdb \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -109,7 +117,9 @@ jobs:
       - name: Install dependencies (Linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang gdb
+          sudo apt-get install -y cmake ninja-build clang gdb \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
 
       - name: Configure (Release, no sanitizers)
         run: |

@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- game_raylib.iron: Manual raylib smoke test — Phase 60 placeholder.
 --
 -- PHASE 60 NOTE (Plan 60-08): This file was rewritten during the

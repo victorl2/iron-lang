@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/models_smoke.iron
 -- Phase 70 canonical regression — 10 tagged MODEL-NN sections covering
 -- every MODEL-NN requirement end-to-end. Follows Phase 67/68/69 smoke

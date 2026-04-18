@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/text_smoke.iron — Phase 67 canonical regression test
 --
 -- Walks every TEXT-01..13 requirement via grep-countable tagged

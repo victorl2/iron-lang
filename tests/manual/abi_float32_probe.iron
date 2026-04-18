@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/abi_float32_probe.iron
 -- Plan 68-01 Task 2 validation probe. Declares foreign-method stubs
 -- whose signatures reference [Float32] (input + return) and [UInt8]

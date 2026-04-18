@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/texture_smoke.iron — Phase 66 canonical regression test
 --
 -- Plan 66-05 closes Phase 66 (Textures & Images) with a single end-to-end

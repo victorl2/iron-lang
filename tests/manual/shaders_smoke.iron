@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/shaders_smoke.iron
 -- Phase 71 canonical regression — 4 tagged SHADER-NN sections covering
 -- every SHADER-NN requirement end-to-end. Follows Phase 67/68/69/70

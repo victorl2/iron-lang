@@ -1,3 +1,4 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
 -- tests/manual/audio_smoke.iron
 -- Phase 68 canonical regression test. Walks AUDIO-01..12 via tagged
 -- sections (grep-countable for traceability). Plus 3 ABI probe sections
