@@ -65,13 +65,24 @@ if(IRON_BUILD_LSP)
     # writer. The yyjson vendor TU is compiled per-executable with
     # -Wno-error -w (mirrors the ironls target).
 
+    # Plan 03 server source list. Plan 04 extends dispatch.c with 5 new
+    # document-sync handler-table rows; those reference ilsp_handle_did*
+    # symbols which live in handlers_document.c, which in turn pulls in
+    # the store/ subsystem. Tests that link the dispatcher therefore also
+    # link the store/ TUs.
     set(_LSP_PLAN03_SERVER_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/server/dispatch.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/lifecycle.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/capabilities.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/cancel.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/dyn_register.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_lifecycle.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_lifecycle.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -198,6 +209,33 @@ if(IRON_BUILD_LSP)
     target_link_libraries(test_lsp_sync_integrity_hash iron_compiler iron_runtime unity)
     add_test(NAME test_lsp_sync_integrity_hash COMMAND test_lsp_sync_integrity_hash)
     set_tests_properties(test_lsp_sync_integrity_hash PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # Task 02a: document sync corpus (11 RUN_TESTs)
+    add_executable(test_lsp_document_sync_corpus test_lsp_document_sync_corpus.c
+        ${_LSP_PLAN04_STORE_SRC})
+    target_include_directories(test_lsp_document_sync_corpus PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_lsp_document_sync_corpus
+        iron_compiler iron_runtime unity)
+    add_test(NAME test_lsp_document_sync_corpus
+             COMMAND test_lsp_document_sync_corpus)
+    set_tests_properties(test_lsp_document_sync_corpus PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant")
+
+    # Task 02b: watched files (4 RUN_TESTs; dispatcher-driven for the 4th)
+    add_executable(test_lsp_watched_files test_lsp_watched_files.c
+        ${_LSP_PLAN03_SERVER_SRC}
+        ${_LSP_PLAN03_TRANSPORT_SRC})
+    target_include_directories(test_lsp_watched_files PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_watched_files PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_watched_files
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_watched_files COMMAND test_lsp_watched_files)
+    set_tests_properties(test_lsp_watched_files PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
 
     # The yyjson vendor TU must survive the repo-global -Werror strictness.
