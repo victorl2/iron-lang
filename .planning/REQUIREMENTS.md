@@ -164,21 +164,21 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 
 - [x] **AUDIO-01**: User can initialize and shut down the audio device — `Audio.init()`, `Audio.close()` / `initAudioDevice, closeAudioDevice, isAudioDeviceReady, setMasterVolume, getMasterVolume`
 - [x] **AUDIO-02**: User can load and unload a `Wave` from file or memory — `Wave.load(path)`, `wave.unload()`, `Wave.loadFromMemory(type, data)`
-- [ ] **AUDIO-03**: User can convert a wave to/from a sound — `wave.toSound(), wave.copy(), wave.crop(initFrame, finalFrame), wave.format(sampleRate, sampleSize, channels), wave.loadSamples(), wave.unloadSamples()` (Wave-side 4-of-5 closed in Plan 68-02 — wave.copy / wave.crop / wave.format / wave.load_samples; wave.to_sound bridge deferred to Plan 68-03 alongside Sound.from_wave alias)
+- [x] **AUDIO-03**: User can convert a wave to/from a sound — `wave.toSound(), wave.copy(), wave.crop(initFrame, finalFrame), wave.format(sampleRate, sampleSize, channels), wave.loadSamples(), wave.unloadSamples()` (Wave-side 4-of-5 closed in Plan 68-02 — wave.copy / wave.crop / wave.format / wave.load_samples; wave.to_sound bridge deferred to Plan 68-03 alongside Sound.from_wave alias)
 - [x] **AUDIO-04**: User can export waves — `wave.export(path), wave.exportAsCode(path)`
-- [ ] **AUDIO-05**: User can load a `Sound` — `Sound.load(path), Sound.fromWave(wave), Sound.loadAlias(source)` — and unload via `sound.unload()`, `sound.unloadAlias()`
-- [ ] **AUDIO-06**: User can play, stop, pause, resume sounds — `sound.play(), sound.stop(), sound.pause(), sound.resume(), sound.isPlaying()`
-- [ ] **AUDIO-07**: User can configure sound playback — `sound.setVolume(v), sound.setPitch(p), sound.setPan(p)`
-- [ ] **AUDIO-08**: User can update sound buffer data — `sound.update(data, sampleCount)`
-- [ ] **AUDIO-09**: User can load `Music` streams from file or memory — `Music.load(path), Music.loadFromMemory(type, data)` — and unload via `music.unload()`
-- [ ] **AUDIO-10**: User can play, stop, pause, resume, update music — `music.play(), music.update(), music.stop(), music.pause(), music.resume(), music.isPlaying()`
-- [ ] **AUDIO-11**: User can configure music playback — `music.setVolume(v), music.setPitch(p), music.setPan(p), music.seek(position), music.getTimeLength(), music.getTimePlayed()`
-- [ ] **AUDIO-12**: User can work with `AudioStream` directly — `AudioStream.load(sampleRate, sampleSize, channels), stream.unload(), stream.update(data, frameCount), stream.isProcessed(), stream.play/pause/resume/stop/isPlaying, stream.setVolume/Pitch/Pan, stream.setBufferSizeDefault, stream.setCallback, stream.attachProcessor, stream.detachProcessor, attachAudioMixedProcessor, detachAudioMixedProcessor`
+- [x] **AUDIO-05**: User can load a `Sound` — `Sound.load(path), Sound.fromWave(wave), Sound.loadAlias(source)` — and unload via `sound.unload()`, `sound.unloadAlias()`
+- [x] **AUDIO-06**: User can play, stop, pause, resume sounds — `sound.play(), sound.stop(), sound.pause(), sound.resume(), sound.isPlaying()`
+- [x] **AUDIO-07**: User can configure sound playback — `sound.setVolume(v), sound.setPitch(p), sound.setPan(p)`
+- [x] **AUDIO-08**: User can update sound buffer data — `sound.update(data, sampleCount)`
+- [x] **AUDIO-09**: User can load `Music` streams from file or memory — `Music.load(path), Music.loadFromMemory(type, data)` — and unload via `music.unload()`
+- [x] **AUDIO-10**: User can play, stop, pause, resume, update music — `music.play(), music.update(), music.stop(), music.pause(), music.resume(), music.isPlaying()`
+- [x] **AUDIO-11**: User can configure music playback — `music.setVolume(v), music.setPitch(p), music.setPan(p), music.seek(position), music.getTimeLength(), music.getTimePlayed()`
+- [x] **AUDIO-12**: User can work with `AudioStream` directly — `AudioStream.load(sampleRate, sampleSize, channels), stream.unload(), stream.update(data, frameCount), stream.isProcessed(), stream.play/pause/resume/stop/isPlaying, stream.setVolume/Pitch/Pan, stream.setBufferSizeDefault, stream.setCallback, stream.attachProcessor, stream.detachProcessor, attachAudioMixedProcessor, detachAudioMixedProcessor`
 
 ### 3D Drawing (`rmodels.c` 3D draw section — ~25 functions)
 
-- [ ] **DRAW3D-01**: User can begin/end 3D camera mode — `beginMode3D(camera), endMode3D` taking `Camera3D`
-- [ ] **DRAW3D-02**: User can update a `Camera3D` — `camera.update(mode), camera.updatePro(movement, rotation, zoom)` taking `CameraMode`
+- [x] **DRAW3D-01**: User can begin/end 3D camera mode — `beginMode3D(camera), endMode3D` taking `Camera3D`
+- [x] **DRAW3D-02**: User can update a `Camera3D` — `camera.update(mode), camera.updatePro(movement, rotation, zoom)` taking `CameraMode`
 - [ ] **DRAW3D-03**: User can convert screen positions to rays — `getScreenToWorldRay, getScreenToWorldRayEx, getWorldToScreen, getWorldToScreenEx, getCameraMatrix`
 - [ ] **DRAW3D-04**: User can draw 3D primitives — `drawLine3D, drawPoint3D, drawCircle3D, drawTriangle3D, drawTriangleStrip3D, drawCube, drawCubeV, drawCubeWires, drawCubeWiresV, drawSphere, drawSphereEx, drawSphereWires, drawCylinder, drawCylinderEx, drawCylinderWires, drawCylinderWiresEx, drawCapsule, drawCapsuleWires, drawPlane, drawRay, drawGrid`
 
@@ -395,18 +395,18 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | TEXT-13 | Phase 67 | Complete |
 | AUDIO-01 | Phase 68 | Complete |
 | AUDIO-02 | Phase 68 | Complete |
-| AUDIO-03 | Phase 68 | Partial (Plan 02 — 4-of-5 Wave-side; wave.to_sound in Plan 03) |
+| AUDIO-03 | Phase 68 | Complete (Plan 02 — 4-of-5 Wave-side; Plan 03 — wave.to_sound bridge via Path B forwarding stub) |
 | AUDIO-04 | Phase 68 | Complete |
-| AUDIO-05 | Phase 68 | Pending |
-| AUDIO-06 | Phase 68 | Pending |
-| AUDIO-07 | Phase 68 | Pending |
-| AUDIO-08 | Phase 68 | Pending |
-| AUDIO-09 | Phase 68 | Pending |
-| AUDIO-10 | Phase 68 | Pending |
-| AUDIO-11 | Phase 68 | Pending |
-| AUDIO-12 | Phase 68 | Pending |
-| DRAW3D-01 | Phase 69 | Pending |
-| DRAW3D-02 | Phase 69 | Pending |
+| AUDIO-05 | Phase 68 | Complete |
+| AUDIO-06 | Phase 68 | Complete |
+| AUDIO-07 | Phase 68 | Complete |
+| AUDIO-08 | Phase 68 | Complete |
+| AUDIO-09 | Phase 68 | Complete |
+| AUDIO-10 | Phase 68 | Complete |
+| AUDIO-11 | Phase 68 | Complete |
+| AUDIO-12 | Phase 68 | Complete |
+| DRAW3D-01 | Phase 69 | Complete |
+| DRAW3D-02 | Phase 69 | Complete |
 | DRAW3D-03 | Phase 69 | Pending |
 | DRAW3D-04 | Phase 69 | Pending |
 | MODEL-01 | Phase 70 | Pending |

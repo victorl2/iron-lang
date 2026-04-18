@@ -49,7 +49,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 65: raymath** — All 143 raymath helpers as idiomatic methods on Vector2/3/4, Matrix, Quaternion (completed 2026-04-17)
 - [x] **Phase 66: Textures & Images** — Full image + texture + render-texture + n-patch + color palette bindings (completed 2026-04-17)
 - [x] **Phase 67: Text & Fonts** — Custom font loading, glyph access, codepoint utilities, draw/measure text (completed 2026-04-17)
-- [ ] **Phase 68: Audio System** — Device init, Wave, Sound, Music, AudioStream (fully independent of graphics)
+- [x] **Phase 68: Audio System** — Device init, Wave, Sound, Music, AudioStream (fully independent of graphics) (completed 2026-04-17)
 - [ ] **Phase 69: 3D Drawing & Camera3D** — All 3D primitives, camera modes, screen↔world rays
 - [ ] **Phase 70: Models, Meshes, Materials, Animations** — Model load/draw, procedural meshes, materials, bones, billboards
 - [ ] **Phase 71: Shaders** — Shader load/unload, uniform setting by type, shader location indices
@@ -278,7 +278,11 @@ Plans:
   3. User can convert a mouse screen position to a world ray via `getScreenToWorldRay(mouse, camera)` and project a world position back to screen via `getWorldToScreen(world, camera)`.
   4. User can extract the camera's view matrix via `getCameraMatrix(camera)` and pass it to a shader or custom transform.
 
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 69-01-PLAN.md — Draw.begin/end_mode_3d + Camera3D.update / update_pro (DRAW3D-01 + DRAW3D-02)
+- [ ] 69-02-PLAN.md — Screen↔world + camera matrix + draw3d_smoke.iron creation (DRAW3D-03)
+- [ ] 69-03-PLAN.md — 3D primitives batch 1: line / point / circle / triangle / triangle-strip / cube (4) / sphere (3) + Iron_List_Iron_Vector3 typedef (DRAW3D-04 partial)
+- [ ] 69-04-PLAN.md — 3D primitives batch 2: cylinder (4) / capsule (2) / plane / ray / grid + smoke finalization + rotating_cube showcase (DRAW3D-04 complete)
 
 ---
 
@@ -369,8 +373,8 @@ Plans:
 | 65. raymath | 4/4 | Complete    | 2026-04-17 |
 | 66. Textures & Images | 5/5 | Complete    | 2026-04-17 |
 | 67. Text & Fonts | 4/4 | Complete    | 2026-04-17 |
-| 68. Audio System | 2/5 | In Progress|  |
-| 69. 3D Drawing & Camera3D | 0/? | Not started | - |
+| 68. Audio System | 5/5 | Complete    | 2026-04-17 |
+| 69. 3D Drawing & Camera3D | 1/4 | In Progress|  |
 | 70. Models, Meshes, Materials | 0/? | Not started | - |
 | 71. Shaders | 0/? | Not started | - |
 | 72. File I/O & Utilities | 0/? | Not started | - |
