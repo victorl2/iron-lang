@@ -22,12 +22,14 @@
  * invariant "no dropped response while logs exist" is worth the cost. */
 #include "lsp/transport/writer.h"
 
+#include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "runtime/iron_runtime.h"   /* IRON_MUTEX_* / IRON_COND_* / IRON_THREAD_* */
+#include "lsp/obs/log.h"            /* Plan 06: EPIPE logging */
 
 struct IronLsp_Writer {
     FILE                 *sink;
@@ -41,15 +43,48 @@ struct IronLsp_Writer {
     atomic_bool           shutdown;
 };
 
-/* Write one framed message to the sink. Caller holds NO lock. */
-static void writer_write_one(IronLsp_Writer *w, IronLsp_OutboundItem *item) {
-    fprintf(w->sink, "Content-Length: %zu\r\n\r\n", item->len);
-    if (item->len > 0 && item->body != NULL) {
-        fwrite(item->body, 1, item->len, w->sink);
+/* Write one framed message to the sink. Caller holds NO lock.
+ *
+ * Plan 06 (CORE-19): every write-path syscall is checked for EPIPE /
+ * short-write / ferror. When the downstream sink goes away (editor
+ * crashed, stdout closed) we flip the shutdown flag and broadcast so
+ * the writer main loop exits at its next iteration. SIGPIPE is ignored
+ * process-wide in main.c, so write(2) returns -1 with errno == EPIPE
+ * instead of terminating us. Returns true if the sink is still viable,
+ * false if the writer should stop draining. */
+static bool writer_write_one(IronLsp_Writer *w, IronLsp_OutboundItem *item) {
+    bool sink_ok = true;
+    errno = 0;
+    int hdr_n = fprintf(w->sink, "Content-Length: %zu\r\n\r\n", item->len);
+    if (hdr_n < 0 || ferror(w->sink) || errno == EPIPE) {
+        sink_ok = false;
     }
-    fflush(w->sink);
+    if (sink_ok && item->len > 0 && item->body != NULL) {
+        errno = 0;
+        size_t wn = fwrite(item->body, 1, item->len, w->sink);
+        if (wn != item->len || ferror(w->sink) || errno == EPIPE) {
+            sink_ok = false;
+        }
+    }
+    if (sink_ok) {
+        errno = 0;
+        if (fflush(w->sink) != 0 || ferror(w->sink) || errno == EPIPE) {
+            sink_ok = false;
+        }
+    }
     free(item->body);
     item->body = NULL;
+
+    if (!sink_ok) {
+        ilsp_log(ILSP_LOG_WARN, "writer-epipe",
+                 "sink closed (errno=%d); initiating shutdown", errno);
+        atomic_store(&w->shutdown, true);
+        clearerr(w->sink);
+        IRON_MUTEX_LOCK(w->lock);
+        IRON_COND_BROADCAST(w->cv);
+        IRON_MUTEX_UNLOCK(w->lock);
+    }
+    return sink_ok;
 }
 
 /* Writer thread entry. */

@@ -44,11 +44,14 @@ if(IRON_BUILD_LSP)
 
     # Phase 2 Plan 02 Task 03: Writer queue + reader thread.
     # Requires pthread for the writer/reader thread primitives and _GNU_SOURCE
-    # for fmemopen / open_memstream / memmem on glibc.
+    # for fmemopen / open_memstream / memmem on glibc. Plan 06: reader +
+    # writer use ilsp_log for EPIPE/EOF events, so obs/log.c is now part
+    # of the link set for any TU that pulls in transport sources.
     add_executable(test_lsp_writer_queue test_lsp_writer_queue.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
     target_include_directories(test_lsp_writer_queue PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor)
@@ -98,6 +101,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        # Plan 06: reader+writer use ilsp_log for EPIPE/EOF events.
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
 
     # Task 01: lifecycle FSM (6 RUN_TESTs)
@@ -279,6 +284,7 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c
         ${CMAKE_SOURCE_DIR}/src/lsp/workers/ast_worker.c
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c   # Plan 06: writer uses ilsp_log
         ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c
         ${_LSP_PLAN04_STORE_SRC}
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
@@ -305,6 +311,7 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c
         ${CMAKE_SOURCE_DIR}/src/lsp/workers/ast_worker.c
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c   # Plan 06: writer uses ilsp_log
         ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
@@ -331,6 +338,7 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c   # Plan 06: writer uses ilsp_log
         ${_LSP_PLAN04_STORE_SRC}
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
@@ -360,6 +368,25 @@ if(IRON_BUILD_LSP)
         iron_compiler iron_runtime unity pthread)
     add_test(NAME test_lsp_log_path_xdg COMMAND test_lsp_log_path_xdg)
     set_tests_properties(test_lsp_log_path_xdg PROPERTIES
+        LABELS "unit;lsp-unit;phase-m1-invariant"
+        TIMEOUT 30)
+
+    # Task 02: SIGPIPE / EOF detection in writer + reader. Uses real
+    # pipe(2) FDs wrapped in FILE* via fdopen so the production
+    # writer_write_one / reader_thread_main paths are exercised.
+    add_executable(test_lsp_sigpipe_shutdown test_lsp_sigpipe_shutdown.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
+    target_include_directories(test_lsp_sigpipe_shutdown PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_lsp_sigpipe_shutdown PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_lsp_sigpipe_shutdown
+        iron_compiler iron_runtime unity pthread)
+    add_test(NAME test_lsp_sigpipe_shutdown COMMAND test_lsp_sigpipe_shutdown)
+    set_tests_properties(test_lsp_sigpipe_shutdown PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant"
         TIMEOUT 30)
 

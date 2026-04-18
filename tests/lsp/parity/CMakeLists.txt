@@ -26,6 +26,8 @@ add_executable(test_parity_ironc_lsp
     ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
     ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
     ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+    # Plan 06: transport writer uses ilsp_log for EPIPE events.
+    ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
     ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
 target_include_directories(test_parity_ironc_lsp PRIVATE
     ${CMAKE_SOURCE_DIR}/src
