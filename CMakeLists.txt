@@ -318,6 +318,12 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/nav/type_definition.c
         src/lsp/facade/nav/document_symbol.c
         src/lsp/facade/nav/workspace_symbol.c
+        # Phase 3 Plan 04 Task 01/02/03: references + hover +
+        # signatureHelp facade TUs + reverse-ref index.
+        src/lsp/facade/nav/references_index.c
+        src/lsp/facade/nav/references.c
+        src/lsp/facade/hover.c
+        src/lsp/facade/signature_help.c
         src/lsp/server/handlers_nav.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
