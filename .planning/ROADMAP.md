@@ -431,7 +431,7 @@ Plans:
 
 **Requirements**: Net-new documentation phase — no REQ-NN mappings in REQUIREMENTS.md. Implicit requirement: "public-facing v2.0.0-alpha documentation exists for every Iron raylib binding across the 14 categories (TYPE, ENUM, WIN, INPUT, DRAW2D, COLL, TEX, TEXT, AUDIO, DRAW3D, MODEL, SHADER, MATH, FILE) covered by Phases 60-73."
 **Depends on:** Phase 73
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [x] 74-01-PLAN.md — Landing + getting-started guide + nav integration across 4 existing site pages + CONTRIBUTING.md (wave 1)
