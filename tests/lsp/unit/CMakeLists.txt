@@ -119,7 +119,14 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/hover.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/signature_help.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/signature_help.c
+        # Phase 3 Plan 05: iface_workspace + implementation. Tests
+        # linking dispatch.c (now with textDocument/implementation
+        # row) must also resolve ilsp_facade_nav_implementation +
+        # the aggregator's ilsp_iface_ws_* symbols used by
+        # workspace_index.c.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/iface_workspace.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/implementation.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -430,8 +437,9 @@ if(IRON_BUILD_LSP)
     set(_PHASE3_WAVE0_STUBS
         # Plan 04 flipped: test_nav_references, test_hover_formatter,
         # test_signature_help now have real targets further below.
+        # Plan 05 Task 01 flipped: test_iface_workspace now has a real
+        # target further below.
         test_type_hierarchy
-        test_iface_workspace
         test_workspace_diagnostic)
     foreach(_stub IN LISTS _PHASE3_WAVE0_STUBS)
         add_executable(${_stub} ${_stub}.c)
@@ -584,6 +592,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
+        # Plan 05 Task 01: workspace_index.c now also calls into
+        # iface_workspace for drop/populate; link the aggregator TU.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/iface_workspace.c
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
@@ -635,6 +646,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/references.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/hover.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/signature_help.c
+        # Phase 3 Plan 05: iface_workspace + implementation + type_hierarchy.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/iface_workspace.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/implementation.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
@@ -739,6 +753,25 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_signature_help PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
+
+    # ── Phase 3 Plan 05: iface_workspace + type_hierarchy ───────────────
+    # iface_workspace aggregates per-compile Iron_IfaceRegistry across
+    # files; type_hierarchy drives prepare + supertypes + subtypes per
+    # D-08. Both link the full NAV facade stack via _LSP_PHASE3_NAV_FACADE_SRC
+    # (which now includes iface_workspace.c + implementation.c).
+    add_executable(test_iface_workspace test_iface_workspace.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_iface_workspace PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_compile_definitions(test_iface_workspace PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_iface_workspace
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_iface_workspace COMMAND test_iface_workspace)
+    set_tests_properties(test_iface_workspace PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()
