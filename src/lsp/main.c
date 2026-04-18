@@ -61,6 +61,7 @@
 #include "lsp/server/dyn_register.h"
 #include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h" /* Phase 3 Plan 02: workspace index teardown */
+#include "lsp/facade/workspace_diagnostic.h" /* Phase 3 Plan 06: ws_diag cache */
 #include "lsp/workers/ast_worker.h"
 #include "lsp/transport/reader.h"
 #include "lsp/transport/writer.h"
@@ -184,6 +185,10 @@ int main(int argc, char **argv) {
     g_server.workspace_root    = NULL;
     g_server.workers           = NULL;
     g_server.workspace_index   = NULL;              /* created in `initialize` handler */
+    /* Plan 06 (NAV-12, D-12): workspace/diagnostic per-file cache.
+     * Created eagerly so the handler's first call finds a non-NULL cache
+     * even when no workspace_index exists (pull gracefully returns empty). */
+    g_server.ws_diag_cache     = ilsp_ws_diag_cache_create();
     atomic_store(&g_server.next_request_id, 1);
 
     if (!g_server.writer || !g_server.cancels || !g_server.dyn_reg) {
@@ -258,6 +263,10 @@ int main(int argc, char **argv) {
     if (g_server.workspace_index) {
         ilsp_workspace_index_destroy(g_server.workspace_index);
         g_server.workspace_index = NULL;
+    }
+    if (g_server.ws_diag_cache) {
+        ilsp_ws_diag_cache_destroy(g_server.ws_diag_cache);
+        g_server.ws_diag_cache = NULL;
     }
 
     /* ── g. Trace dump ────────────────────────────────────────────────── */

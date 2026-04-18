@@ -200,9 +200,22 @@ static void test_watched_files_dispatcher(void) {
         "]}}";
     ilsp_dispatch_route(&h.server, body4, strlen(body4), &h.arena);
 
-    /* None of these should enqueue a response (notifications don't
-     * produce JSON-RPC responses). */
-    TEST_ASSERT_FALSE(ilsp_writer_drain_one(h.writer));
+    /* JSON-RPC responses are never enqueued here (these are all
+     * notifications, not requests).  However, starting in Phase 3 Plan
+     * 06 (NAV-13, D-12), the server DOES enqueue a
+     * workspace/diagnostic/refresh notification for every manifest /
+     * lockfile event and for every non-open source invalidation.  Drain
+     * every queued item and verify:
+     *   - Any drained body must be a notification body (no "id" field).
+     *   - 4b (unknown non-open source) and 4c/4d emit one
+     *     workspace/diagnostic/refresh each.
+     *   - 4a (open source) does NOT emit refresh (open docs use
+     *     publishDiagnostics push). */
+    int drained_count = 0;
+    while (ilsp_writer_drain_one(h.writer)) { drained_count++; }
+    /* 4b + 4c + 4d -> 3 refresh notifications. 4a is open so it does
+     * not emit; manifest/lockfile events always emit. */
+    TEST_ASSERT_EQUAL_INT(3, drained_count);
 
     /* Document map should still contain the tracked URI. */
     TEST_ASSERT_TRUE(shgeti(h.server.documents, "file:///tmp/tracked.iron") >= 0);

@@ -29,11 +29,13 @@
 #include "lsp/server/server.h"
 #include "lsp/server/dispatch.h"
 #include "lsp/server/cancel.h"
+#include "lsp/server/handlers_workspace_diag.h"  /* Plan 06: refresh emitter */
 #include "lsp/store/document.h"
 #include "lsp/store/workspace.h"
 #include "lsp/store/workspace_index.h" /* Phase 3 Plan 02: invalidation */
 #include "lsp/store/sha256.h"
 #include "lsp/facade/types.h"
+#include "lsp/facade/workspace_diagnostic.h"      /* Plan 06: cache evict */
 #include "lsp/workers/ast_worker.h"    /* Plan 05: start/shutdown worker */
 #include "lsp/workers/mailbox.h"       /* Plan 05: post COMPILE / PULL */
 
@@ -373,8 +375,15 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                  * entry so the next nav request reparses the fresh bytes. */
                 if (s->workspace_index) {
                     char *canon = ilsp_workspace_path_from_uri(uri);
+                    const char *evict_key = canon ? canon : uri;
                     ilsp_workspace_index_invalidate_path(
-                        s->workspace_index, canon ? canon : uri);
+                        s->workspace_index, evict_key);
+                    /* Plan 06 (NAV-12, D-12): drop the workspace/diagnostic
+                     * cache slot so the next pull re-analyzes. */
+                    if (s->ws_diag_cache) {
+                        ilsp_ws_diag_cache_evict_path(
+                            s->ws_diag_cache, evict_key);
+                    }
                     if (canon) free(canon);
                 }
                 if (open_doc) {
@@ -385,6 +394,11 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                     fprintf(stderr,
                             "ironls: did-change-watched source invalidated %s\n",
                             uri);
+                    /* Plan 06 (NAV-13, D-12): emit workspace/diagnostic/refresh
+                     * when a NON-OPEN file is invalidated. Open docs already
+                     * get publishDiagnostics push; only non-open files need
+                     * the workspace-pull re-trigger. */
+                    ilsp_send_workspace_diagnostic_refresh(s);
                 }
                 break; }
             case ILSP_WATCHED_MANIFEST:
@@ -397,6 +411,9 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                 fprintf(stderr,
                         "ironls: workspace-reindex-pending (iron.toml) %s\n",
                         uri);
+                /* Manifest rewrite invalidates every file's diagnostics --
+                 * push refresh so the client re-pulls the whole workspace. */
+                ilsp_send_workspace_diagnostic_refresh(s);
                 break;
             case ILSP_WATCHED_LOCKFILE:
                 if (s->workspace_index) {
@@ -406,6 +423,7 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                 fprintf(stderr,
                         "ironls: workspace-reindex-pending (iron.lock) %s\n",
                         uri);
+                ilsp_send_workspace_diagnostic_refresh(s);
                 break;
             case ILSP_WATCHED_UNKNOWN:
                 /* Silent no-op. */
