@@ -56,8 +56,13 @@ typedef struct IronLsp_Server {
      * up the tree). */
     char                     *workspace_root;
 
-    /* Plan 05 adds: */
-    /* IronLsp_WorkerPool *workers; */
+    /* Plan 05: optional per-document worker pool abstraction. main.c may
+     * manage per-doc workers directly via the `documents` map's
+     * `IronLsp_Document.worker_thread` field; either discipline is
+     * acceptable. For Plan 05 this pointer is only initialized when a
+     * top-level pool is introduced (not required in the document-owned
+     * worker model actually used by handlers_document.c). */
+    IronLsp_WorkerPool       *workers;
 
     /* Atomic request-id counter for server-originated requests
      * (e.g., client/registerCapability from the dyn-register subsystem). */
