@@ -154,8 +154,8 @@ static void test_response_capabilities_all_registered(void) {
     harness_destroy(&h);
 }
 
-/* ── Test 3: unregistered provider is absent ────────────────────────── */
-static void test_unregistered_provider_absent(void) {
+/* ── Test 3: Plan 04 providers now present with correct shapes ────── */
+static void test_plan04_providers_present(void) {
     Harness h; harness_init(&h);
 
     const char *body =
@@ -168,14 +168,23 @@ static void test_unregistered_provider_absent(void) {
         yyjson_obj_get(yyjson_doc_get_root(d), "result"), "capabilities");
     TEST_ASSERT_NOT_NULL(caps);
 
-    /* Providers registered only by later plans must remain absent.
-     * Phase 3 Plan 03 introduces definition/declaration/typeDefinition/
-     * documentSymbol/workspaceSymbol, so those are NOT asserted absent
-     * any more. Hover (Plan 04) and references (Plan 05) are still
-     * unregistered. */
-    TEST_ASSERT_NULL(yyjson_obj_get(caps, "hoverProvider"));
-    TEST_ASSERT_NULL(yyjson_obj_get(caps, "referencesProvider"));
-    TEST_ASSERT_NULL(yyjson_obj_get(caps, "signatureHelpProvider"));
+    /* Plan 04 Task 02/01/03 register hover, references, signatureHelp.
+     * hoverProvider + referencesProvider default to boolean true;
+     * signatureHelpProvider has the object shape override in
+     * capabilities.c per D-13. */
+    TEST_ASSERT_NOT_NULL(yyjson_obj_get(caps, "hoverProvider"));
+    TEST_ASSERT_NOT_NULL(yyjson_obj_get(caps, "referencesProvider"));
+    yyjson_val *shp = yyjson_obj_get(caps, "signatureHelpProvider");
+    TEST_ASSERT_NOT_NULL(shp);
+    TEST_ASSERT_TRUE(yyjson_is_obj(shp));
+    yyjson_val *trig = yyjson_obj_get(shp, "triggerCharacters");
+    TEST_ASSERT_NOT_NULL(trig);
+    TEST_ASSERT_TRUE(yyjson_is_arr(trig));
+    TEST_ASSERT_EQUAL_size_t(2, yyjson_arr_size(trig));
+    yyjson_val *retr = yyjson_obj_get(shp, "retriggerCharacters");
+    TEST_ASSERT_NOT_NULL(retr);
+    TEST_ASSERT_TRUE(yyjson_is_arr(retr));
+    TEST_ASSERT_EQUAL_size_t(1, yyjson_arr_size(retr));
 
     iron_arena_free(&pa);
     harness_destroy(&h);
@@ -206,7 +215,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_table_capabilities_present_in_response);
     RUN_TEST(test_response_capabilities_all_registered);
-    RUN_TEST(test_unregistered_provider_absent);
+    RUN_TEST(test_plan04_providers_present);
     RUN_TEST(test_server_info_populated);
     return UNITY_END();
 }

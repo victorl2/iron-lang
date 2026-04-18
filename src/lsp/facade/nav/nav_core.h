@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "lsp/facade/nav/nav_common.h"   /* IronLsp_LocationLink */
+#include "lsp/facade/nav/references_index.h"  /* IronLsp_RefSite */
 #include "lsp/facade/types.h"
 #include "util/arena.h"
 
@@ -100,6 +101,63 @@ void ilsp_facade_nav_workspace_symbol(struct IronLsp_Server          *server,
                                        Iron_Arena                     *arena,
                                        IronLsp_WorkspaceSymbol       **out,
                                        size_t                         *out_n);
+
+/* ── References (Plan 04 Task 01, NAV-06, D-09) ─────────────────── */
+
+/* Facade entry for textDocument/references. Triggers bulk-analyze
+ * of every non-open workspace entry on first call; queries the
+ * reverse-ref index; optionally prepends the decl span (when
+ * include_declaration == true); returns arena-allocated array of
+ * {uri, range}. Stdlib/dep use-sites are filtered UNCONDITIONALLY
+ * (D-09 LOCKED). Returns empty on missing resolved_sym / cursor
+ * outside any ident. Cancel flag polled between files. */
+void ilsp_facade_nav_references(struct IronLsp_Server         *server,
+                                  struct IronLsp_Document       *doc,
+                                  IronLsp_Position               pos,
+                                  bool                           include_declaration,
+                                  _Atomic bool                  *cancel,
+                                  Iron_Arena                    *arena,
+                                  IronLsp_RefSite              **out_sites,
+                                  size_t                        *out_n);
+
+/* ── Hover (Plan 04 Task 02, NAV-09, D-04) ──────────────────────── */
+
+typedef struct IronLsp_HoverResult {
+    const char    *markdown;    /* arena-allocated; NULL on no-hover */
+    IronLsp_Range  range;        /* target ident span; zeroed on no-hover */
+    bool           has_range;
+} IronLsp_HoverResult;
+
+void ilsp_facade_hover(struct IronLsp_Server   *server,
+                        struct IronLsp_Document *doc,
+                        IronLsp_Position         pos,
+                        _Atomic bool            *cancel,
+                        Iron_Arena              *arena,
+                        IronLsp_HoverResult     *out);
+
+/* ── SignatureHelp (Plan 04 Task 03, NAV-10, D-13) ───────────────── */
+
+typedef struct IronLsp_SigParam {
+    int start;    /* byte offset in label (inclusive) */
+    int end;      /* byte offset in label (exclusive) */
+} IronLsp_SigParam;
+
+typedef struct IronLsp_SignatureInfo {
+    const char        *label;            /* arena-allocated full signature */
+    const char        *documentation;    /* arena-allocated doc_comment; may be NULL */
+    IronLsp_SigParam  *parameter_offsets;/* stb_ds / arena array */
+    int                parameter_count;
+} IronLsp_SignatureInfo;
+
+void ilsp_facade_signature_help(struct IronLsp_Server    *server,
+                                  struct IronLsp_Document  *doc,
+                                  IronLsp_Position          pos,
+                                  _Atomic bool             *cancel,
+                                  Iron_Arena               *arena,
+                                  IronLsp_SignatureInfo   **out_sigs,
+                                  size_t                   *out_n,
+                                  int                      *out_active_sig,
+                                  int                      *out_active_param);
 
 #ifdef __cplusplus
 }
