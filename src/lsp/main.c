@@ -60,6 +60,7 @@
 #include "lsp/server/cancel.h"
 #include "lsp/server/dyn_register.h"
 #include "lsp/store/document.h"
+#include "lsp/store/workspace_index.h" /* Phase 3 Plan 02: workspace index teardown */
 #include "lsp/workers/ast_worker.h"
 #include "lsp/transport/reader.h"
 #include "lsp/transport/writer.h"
@@ -182,6 +183,7 @@ int main(int argc, char **argv) {
     g_server.documents         = NULL;              /* lazy sh_new_strdup on didOpen */
     g_server.workspace_root    = NULL;
     g_server.workers           = NULL;
+    g_server.workspace_index   = NULL;              /* created in `initialize` handler */
     atomic_store(&g_server.next_request_id, 1);
 
     if (!g_server.writer || !g_server.cancels || !g_server.dyn_reg) {
@@ -252,6 +254,10 @@ int main(int argc, char **argv) {
     if (g_server.workspace_root) {
         free(g_server.workspace_root);
         g_server.workspace_root = NULL;
+    }
+    if (g_server.workspace_index) {
+        ilsp_workspace_index_destroy(g_server.workspace_index);
+        g_server.workspace_index = NULL;
     }
 
     /* ── g. Trace dump ────────────────────────────────────────────────── */

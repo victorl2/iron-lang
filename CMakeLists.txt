@@ -304,6 +304,12 @@ if(IRON_BUILD_LSP)
         # AST Iron_Node by walking the sealed Iron_Program.
         src/lsp/facade/nav/symbol_id.c
         src/lsp/facade/nav/node_at.c
+        # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
+        # workspace_index.c owns per-file arena-scoped IndexEntry map;
+        # stdlib_cache.c is the process-lifetime pre-parsed surface-file
+        # cache (pthread_once-guarded); dep_map.c wraps the library-linked
+        # src/pkg/resolver.c.
+        src/lsp/store/workspace_index.c
         # Phase 2 Plan 06: observability (XDG JSON-line log sink,
         # in-memory trace histogram) used by main.c + transport threads.
         src/lsp/obs/log.c

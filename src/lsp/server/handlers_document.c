@@ -31,6 +31,7 @@
 #include "lsp/server/cancel.h"
 #include "lsp/store/document.h"
 #include "lsp/store/workspace.h"
+#include "lsp/store/workspace_index.h" /* Phase 3 Plan 02: invalidation */
 #include "lsp/store/sha256.h"
 #include "lsp/facade/types.h"
 #include "lsp/workers/ast_worker.h"    /* Plan 05: start/shutdown worker */
@@ -367,23 +368,41 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
         }
 
         switch (kind) {
-            case ILSP_WATCHED_SOURCE:
+            case ILSP_WATCHED_SOURCE: {
+                /* Phase 3 Plan 02: invalidate the matching workspace-index
+                 * entry so the next nav request reparses the fresh bytes. */
+                if (s->workspace_index) {
+                    char *canon = ilsp_workspace_path_from_uri(uri);
+                    ilsp_workspace_index_invalidate_path(
+                        s->workspace_index, canon ? canon : uri);
+                    if (canon) free(canon);
+                }
                 if (open_doc) {
                     fprintf(stderr,
                             "ironls: watched-files source stale-on-disk %s\n",
                             uri);
                 } else {
                     fprintf(stderr,
-                            "ironls: did-change-watched noop (source not open) %s\n",
+                            "ironls: did-change-watched source invalidated %s\n",
                             uri);
                 }
-                break;
+                break; }
             case ILSP_WATCHED_MANIFEST:
+                /* Phase 3 Plan 02: invalidate ALL user-workspace entries +
+                 * drop the dep map (cascades to dep_map in Plan 02-03). */
+                if (s->workspace_index) {
+                    ilsp_workspace_index_invalidate_dep(
+                        s->workspace_index, NULL);
+                }
                 fprintf(stderr,
                         "ironls: workspace-reindex-pending (iron.toml) %s\n",
                         uri);
                 break;
             case ILSP_WATCHED_LOCKFILE:
+                if (s->workspace_index) {
+                    ilsp_workspace_index_invalidate_dep(
+                        s->workspace_index, NULL);
+                }
                 fprintf(stderr,
                         "ironls: workspace-reindex-pending (iron.lock) %s\n",
                         uri);
