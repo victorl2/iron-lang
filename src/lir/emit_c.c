@@ -6673,90 +6673,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
 
     /* Phase 61 B: Auto-generate prototypes for foreign-method stubs in
      * stdlib .iron files whose C symbols are NOT already declared by an
-     * included header or by a hand-maintained block above. This is the
-     * general-purpose path that replaces per-function strcmp tables for
-     * the raylib bindings in Phases 61+.
-     *
-     * Included-header declarations we must NOT duplicate:
-     *   - runtime/iron_runtime.h  → Iron_string_*, Iron_list_*, Iron_array_*
-     *   - stdlib/iron_math.h      → Iron_math_*
-     *   - stdlib/iron_io.h        → Iron_io_*
-     *   - stdlib/iron_time.h      → Iron_time_*
-     *   - stdlib/iron_log.h       → Iron_log_*
-     *   - stdlib/iron_hint.h      → Iron_hint_*
-     *
-     * iron_net.h and iron_raylib.h are intentionally NOT included in the
-     * generated C (they would double-define the compiler-emitted Iron_*
-     * struct bodies), so the net and raylib stubs need their prototypes
-     * emitted here or by the hand-maintained blocks above.
-     *
-     * hir_to_lir.c:2158 populates LIR stub param types from the HIR
-     * function declarations, so emit_type_to_c can reconstruct the full
-     * prototype without a strcmp table. Note that hir_lower.c:1562 drops
-     * the `self` parameter from empty-body stubs on built-in types
-     * (String, List, Math, etc.) — that mismatches iron_runtime.h which
-     * declares them WITH self. We skip those via the prefix filter below.
-     *
-     * Duplicate extern prototypes in C are harmless as long as their
-     * types match, so emission order relative to the hand-maintained
-     * blocks does not matter — the hand-maintained blocks emit first
-     * (with their prerequisite typedefs pre-emitted into struct_bodies),
-     * and this block emits the same prototypes plus any new ones. */
-    {
-        static const char *k_header_declared_prefixes[] = {
-            "Iron_string_",
-            "Iron_list_",
-            "Iron_array_",
-            "Iron_math_",
-            "Iron_io_",
-            "Iron_time_",
-            "Iron_log_",
-            "Iron_hint_",
-            NULL
-        };
-        struct { const char *key; int value; } *emitted_fms = NULL;
-        for (int fi = 0; fi < module->func_count; fi++) {
-            IronLIR_Func *fn = module->funcs[fi];
-            if (!fn || !fn->is_extern || fn->extern_c_name) continue;
-            const char *mangled = emit_mangle_func_name(fn->name, ctx.arena);
-            if (!mangled) continue;
-            /* Skip lifted lambdas / internal names — they have bodies
-             * emitted elsewhere; not foreign-method stubs. */
-            if (strncmp(mangled, "Iron_", 5) != 0) continue;
-            /* Skip functions already declared by an included header (see
-             * comment block above). */
-            bool header_declared = false;
-            for (int pi = 0; k_header_declared_prefixes[pi]; pi++) {
-                size_t plen = strlen(k_header_declared_prefixes[pi]);
-                if (strncmp(mangled, k_header_declared_prefixes[pi], plen) == 0) {
-                    header_declared = true;
-                    break;
-                }
-            }
-            if (header_declared) continue;
-            if (shgeti(emitted_fms, mangled) >= 0) continue;
-            shput(emitted_fms, mangled, 1);
-
-            const char *ret_c = fn->return_type
-                ? emit_type_to_c(fn->return_type, &ctx)
-                : "void";
-            iron_strbuf_appendf(&ctx.prototypes, "%s %s(", ret_c, mangled);
-            if (fn->param_count == 0) {
-                iron_strbuf_appendf(&ctx.prototypes, "void");
-            } else {
-                for (int p = 0; p < fn->param_count; p++) {
-                    if (p > 0) iron_strbuf_appendf(&ctx.prototypes, ", ");
-                    const char *pt_c = emit_type_to_c(fn->params[p].type, &ctx);
-                    const char *pname = fn->params[p].name
-                        ? fn->params[p].name
-                        : "";
-                    iron_strbuf_appendf(&ctx.prototypes, "%s %s", pt_c, pname);
-                }
-            }
-            iron_strbuf_appendf(&ctx.prototypes, ");\n");
-        }
-        shfree(emitted_fms);
-    }
+     * included header or by a hand-maintained block above. Implementation
+     * lives in emit_structs.c so emit_web.c can share it; see the header
+     * for the skip-list and hir_to_lir contract. */
+    emit_foreign_method_prototypes(&ctx);
 
     if (ctx.prototypes.len > 0) {
         iron_strbuf_appendf(&ctx.prototypes, "\n");

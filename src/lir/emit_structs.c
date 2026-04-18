@@ -990,6 +990,68 @@ void emit_type_decls(EmitCtx *ctx) {
  * generated C declares InitWindow, ClearBackground, and friends regardless of
  * which target the user picked.
  */
+/* See header: auto-generates prototypes for foreign-method stubs whose C
+ * symbols are not declared by an included stdlib header. Extracted from
+ * emit_c.c so emit_web.c can share the same logic — otherwise the web
+ * emitter would miss declarations for Iron_window_* / Iron_draw_* etc. and
+ * emcc would fail with implicit-function-declaration errors. */
+void emit_foreign_method_prototypes(EmitCtx *ctx) {
+    IronLIR_Module *module = ctx->module;
+    static const char *k_header_declared_prefixes[] = {
+        "Iron_string_",
+        "Iron_list_",
+        "Iron_array_",
+        "Iron_math_",
+        "Iron_io_",
+        "Iron_time_",
+        /* Iron_timer_* is declared in iron_time.h with pointer receivers
+         * for the mutating methods (update/reset). The LIR stub params are
+         * value-typed, so auto-gen would emit a conflicting prototype. */
+        "Iron_timer_",
+        "Iron_log_",
+        "Iron_hint_",
+        NULL
+    };
+    struct { const char *key; int value; } *emitted_fms = NULL;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn || !fn->is_extern || fn->extern_c_name) continue;
+        const char *mangled = emit_mangle_func_name(fn->name, ctx->arena);
+        if (!mangled) continue;
+        if (strncmp(mangled, "Iron_", 5) != 0) continue;
+        bool header_declared = false;
+        for (int pi = 0; k_header_declared_prefixes[pi]; pi++) {
+            size_t plen = strlen(k_header_declared_prefixes[pi]);
+            if (strncmp(mangled, k_header_declared_prefixes[pi], plen) == 0) {
+                header_declared = true;
+                break;
+            }
+        }
+        if (header_declared) continue;
+        if (shgeti(emitted_fms, mangled) >= 0) continue;
+        shput(emitted_fms, mangled, 1);
+
+        const char *ret_c = fn->return_type
+            ? emit_type_to_c(fn->return_type, ctx)
+            : "void";
+        iron_strbuf_appendf(&ctx->prototypes, "%s %s(", ret_c, mangled);
+        if (fn->param_count == 0) {
+            iron_strbuf_appendf(&ctx->prototypes, "void");
+        } else {
+            for (int p = 0; p < fn->param_count; p++) {
+                if (p > 0) iron_strbuf_appendf(&ctx->prototypes, ", ");
+                const char *pt_c = emit_type_to_c(fn->params[p].type, ctx);
+                const char *pname = fn->params[p].name
+                    ? fn->params[p].name
+                    : "";
+                iron_strbuf_appendf(&ctx->prototypes, "%s %s", pt_c, pname);
+            }
+        }
+        iron_strbuf_appendf(&ctx->prototypes, ");\n");
+    }
+    shfree(emitted_fms);
+}
+
 void emit_extern_prototypes(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
     for (int ei = 0; ei < module->extern_decl_count; ei++) {
