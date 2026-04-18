@@ -408,11 +408,7 @@ if(IRON_BUILD_LSP)
     # target's source list is extended below to pull in the TUs under test.
     # Label "unit;phase-m2-invariant" marks these as the Phase 3 gate.
     set(_PHASE3_WAVE0_STUBS
-        test_nav_definition
         test_nav_references
-        test_document_symbol
-        test_workspace_symbol
-        test_fuzzy_matcher
         test_hover_formatter
         test_signature_help
         test_type_hierarchy
@@ -578,6 +574,21 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_workspace_index PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
+
+    # ── Phase 3 Plan 03 Task 01 (D-11): fuzzy matcher ───────────────────
+    # Pure-C17 scorer; golden corpus unit-tests against 100+ (query,
+    # candidate) rows. No facade or store dependency.
+    add_executable(test_fuzzy_matcher test_fuzzy_matcher.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c)
+    target_include_directories(test_fuzzy_matcher PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor)
+    target_link_libraries(test_fuzzy_matcher
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_fuzzy_matcher COMMAND test_fuzzy_matcher)
+    set_tests_properties(test_fuzzy_matcher PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 30)
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")
 endif()
