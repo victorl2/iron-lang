@@ -156,6 +156,7 @@ add_library(iron_compiler STATIC
     src/analyzer/scope.c
     src/analyzer/resolve.c
     src/analyzer/typecheck.c
+    src/analyzer/typo_candidate.c
     src/analyzer/escape.c
     src/analyzer/capture.c
     src/analyzer/concurrency.c
