@@ -2871,3 +2871,49 @@ func Mesh.torus(radius: Float32, size: Float32, rad_seg: Int32, sides: Int32) ->
 func Mesh.knot(radius: Float32, size: Float32, rad_seg: Int32, sides: Int32) -> Mesh {}
 func Mesh.heightmap(heightmap: Image, size: Vector3) -> Mesh {}
 func Mesh.cubicmap(cubicmap: Image, cube_size: Vector3) -> Mesh {}
+
+-- ── MODEL-07: Materials (6) — raylib.h:1596-1601 ──────────────────────
+-- Material is 40 B (CORRECTION: CONTEXT.md said ~296 B — verified 40 B
+-- against raylib 5.5). Same memcpy template as Image (40 B, Phase 66).
+-- set_texture + set_mesh_material use mutating-return-by-value (Phase 66-03).
+-- MaterialMapIndex enum at call site: `material.set_texture(MaterialMapIndex.ALBEDO, tex)`
+-- (Pitfall 1 — NO .ordinal suffix, NO .albedo shorthand).
+func Material.load(file_name: String) -> [Material] {}
+func Material.default() -> Material {}
+func Material.is_valid(material: Material) -> Bool {}
+func Material.unload(material: Material) {}
+func Material.set_texture(material: Material, map_type: MaterialMapIndex,
+                           texture: Texture) -> Material {}
+func Model.set_mesh_material(model: Model, mesh_id: Int32, material_id: Int32) -> Model {}
+
+-- ── MODEL-08: Model animations (6) — raylib.h:1604-1609 ──────────────
+-- LoadModelAnimations returns raylib-owned ModelAnimation*; Iron deep-copies
+-- into Iron_List_Iron_ModelAnimation (56 B × count) and free()s only the
+-- outer wrapper, preserving interior _bones / _framePoses for unload_all.
+-- IsModelAnimationValid takes Model + ModelAnimation per raylib (Pitfall 11);
+-- bound as model.animation_valid(anim) — NOT anim.is_valid() (which would
+-- require implicit Model context raylib does not accept).
+-- anim.unload() — singular variant for non-list-owned animations.
+-- ModelAnimation.unload_all(anims) — namespace-level for list-cleanup.
+func ModelAnimation.load(file_name: String) -> [ModelAnimation] {}
+func Model.animation_valid(model: Model, anim: ModelAnimation) -> Bool {}
+func Model.update_animation(model: Model, anim: ModelAnimation, frame: Int32) {}
+func Model.update_animation_bones(model: Model, anim: ModelAnimation, frame: Int32) {}
+func ModelAnimation.unload(anim: ModelAnimation) {}
+func ModelAnimation.unload_all(anims: [ModelAnimation]) {}
+
+-- ── MODEL-09: Billboards (3) — raylib.h:1567-1569 ────────────────────
+-- Every raylib variant preserved (_rec / _pro). Camera is 44 B, Texture
+-- is 20 B, Rectangle is 16 B, Vector2 is 8 B, Vector3 is 12 B.
+-- DrawBillboardPro has 7 struct inputs (44+20+16+12+12+8+8 = 120 B worst
+-- at Camera — well under Phase 64-02 ceiling).
+func Draw.billboard(camera: Camera3D, texture: Texture,
+                    position: Vector3, scale: Float32, tint: Color) {}
+func Draw.billboard_rec(camera: Camera3D, texture: Texture, source: Rectangle,
+                        position: Vector3, size: Vector2, tint: Color) {}
+func Draw.billboard_pro(camera: Camera3D, texture: Texture, source: Rectangle,
+                        position: Vector3, up: Vector3, size: Vector2,
+                        origin: Vector2, rotation: Float32, tint: Color) {}
+
+-- ── MODEL-10: Bounding box draw (1) — raylib.h:1566 ──────────────────
+func Draw.bounding_box(box: BoundingBox, color: Color) {}
