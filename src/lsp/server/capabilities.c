@@ -85,6 +85,23 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         return;
     }
 
+    /* Phase 4 Plan 04-02 (D-01 + D-04 + D-16): completionProvider expects
+     *   { resolveProvider: true, triggerCharacters: [".", ":", "/"] }.
+     * The trigger-char list is locked by D-16; "/" catches import-path
+     * continuation. resolveProvider=true is required for EDIT-03 lazy
+     * markdown fill. */
+    if (strcmp(name, "completionProvider") == 0) {
+        yyjson_mut_val *cp = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_bool(d, cp, "resolveProvider", true);
+        yyjson_mut_val *trig = yyjson_mut_arr(d);
+        yyjson_mut_arr_add_strcpy(d, trig, ".");
+        yyjson_mut_arr_add_strcpy(d, trig, ":");
+        yyjson_mut_arr_add_strcpy(d, trig, "/");
+        yyjson_mut_obj_add_val(d, cp, "triggerCharacters", trig);
+        yyjson_mut_obj_add_val(d, caps, name, cp);
+        return;
+    }
+
     /* Phase 3 Plan 04 Task 03 (D-13): signatureHelpProvider expects
      *   { triggerCharacters: ["(", ","], retriggerCharacters: [","] }.
      * Handler-table auto-advertise cannot produce this shape (it only
