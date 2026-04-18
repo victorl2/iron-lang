@@ -222,6 +222,10 @@ void iron_diaglist_free(Iron_DiagList *list);
  * (Phase 80 MUT). */
 #define IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE 291
 
+/* Phase 4 Plan 04-01 (D-06) — P1 quickfix set for LSP code actions. */
+#define IRON_ERR_TYPE_MISMATCH_LITERAL 235   /* narrowing of IRON_ERR_TYPE_MISMATCH for literal RHS */
+#define IRON_ERR_MISSING_RETURN        236   /* function body reaches end without returning a value */
+
 /* Cancellation meta-diagnostic — emitted by iron_analyze_buffer on cancel.
  * Level is IRON_DIAG_NOTE so it does NOT bump error_count and does NOT change
  * exit-code semantics for CLI. HARD-05 (Plan 03).
@@ -269,6 +273,10 @@ void iron_diaglist_free(Iron_DiagList *list);
  * cap. Body is truncated; a NOTE-level diagnostic is emitted so the user can
  * see why their `///` text stopped mid-sentence. */
 #define IRON_WARN_DOC_COMMENT_TRUNCATED 610
+
+/* Phase 4 Plan 04-01 (D-06) — P1 quickfix warnings. */
+#define IRON_WARN_UNUSED_IMPORT        611   /* import referenced zero times in module */
+#define IRON_WARN_REDUNDANT_CAST       612   /* `expr as T` where expr is already of type T */
 
 /* Type validation warnings (601+ range) */
 #define IRON_WARN_NARROWING_CAST        601
