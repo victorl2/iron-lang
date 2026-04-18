@@ -2824,3 +2824,27 @@ func Model.draw_wires_ex(model: Model, position: Vector3, rotation_axis: Vector3
 func Model.draw_points(model: Model, position: Vector3, scale: Float32, tint: Color) {}
 func Model.draw_points_ex(model: Model, position: Vector3, rotation_axis: Vector3,
                           rotation_angle: Float32, scale: Vector3, tint: Color) {}
+
+-- ── MODEL-04: Mesh operations (7) — raylib.h:1572-1580 ────────────────
+-- Mutating-return-by-value for UploadMesh + GenMeshTangents (Phase 66-03
+-- template). UpdateMeshBuffer takes `void *data` — Iron binding accepts
+-- [UInt8] which ironc lowers to Iron_List_uint8_t (ABI-UINT8 closed
+-- Phase 68-01); shim casts to (const void *) at the raylib call site.
+func Mesh.upload(mesh: Mesh, dynamic: Bool) -> Mesh {}
+func Mesh.update_buffer(mesh: Mesh, index: Int32, data: [UInt8],
+                        data_size: Int32, offset: Int32) {}
+func Mesh.unload(mesh: Mesh) {}
+func Mesh.export(mesh: Mesh, file_name: String) -> Bool {}
+func Mesh.export_as_code(mesh: Mesh, file_name: String) -> Bool {}
+func Mesh.bounding_box(mesh: Mesh) -> BoundingBox {}
+func Mesh.gen_tangents(mesh: Mesh) -> Mesh {}
+
+-- ── MODEL-05: Mesh draw (2) — raylib.h:1575-1576 ──────────────────────
+-- DrawMesh: first simultaneous 120+40+64 = 224 B struct-by-value input
+-- across the FFI. Each arg is independently under the Phase 64-02 120 B
+-- ceiling; clang evaluates per-struct, not cumulative.
+-- DrawMeshInstanced: first [Matrix] list input — Scan B auto-emits
+-- Iron_List_Iron_Matrix (probed Plan 70-01).
+func Mesh.draw(mesh: Mesh, material: Material, transform: Matrix) {}
+func Mesh.draw_instanced(mesh: Mesh, material: Material,
+                         transforms: [Matrix], instances: Int32) {}
