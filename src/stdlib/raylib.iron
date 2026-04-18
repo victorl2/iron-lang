@@ -2782,3 +2782,45 @@ func Draw.plane(center: Vector3, size: Vector2, color: Color) {}
 func Draw.ray(ray: Ray, color: Color) {}
 -- DrawGrid draws with raylib's built-in gray; NO Color override (Pitfall 6).
 func Draw.grid(slices: Int32, spacing: Float32) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 70: Models / Meshes / Materials / Animations — rmodels.c
+-- ══════════════════════════════════════════════════════════════════════
+-- Binds the rmodels.c surface as idiomatic Iron methods on Model / Mesh /
+-- Material / ModelAnimation + freestanding Draw.* for billboards and
+-- bounding-box rendering. Every raylib function's suffix preserved verbatim
+-- (_ex / _wires / _points / _rec / _pro).
+--
+-- Struct ABI: Model = 120 B, Mesh = 120 B, Material = 40 B, MaterialMap =
+-- 28 B, ModelAnimation = 56 B, BoundingBox = 24 B — all pinned by Phase
+-- 60-04 _Static_assert grid; all under the 120 B ceiling validated in
+-- Phase 64-02 (Mesh ARG) and Phase 65-03 (Matrix RETURN). No new layout
+-- work.
+--
+-- CORRECTION to CONTEXT.md: Material is 40 B (not ~296 B). Same memcpy
+-- template as Image applies; NO pass-by-const-ref needed.
+
+-- ── MODEL-01: Model load/unload/valid — raylib.h:1553-1556 ─────────────
+-- Dual constructors per Phase 66/68 precedent (Image.load / Image.from_memory).
+func Model.load(file_name: String) -> Model {}
+func Model.from_mesh(mesh: Mesh) -> Model {}
+func Model.is_valid(model: Model) -> Bool {}
+func Model.unload(model: Model) {}
+
+-- ── MODEL-02: Bounding box — raylib.h:1557 ─────────────────────────────
+-- First 24 B BoundingBox struct-by-value RETURN (Ray / RayCollision
+-- 24/32 B RETURN validated Phase 64-02; identical memcpy template).
+func Model.bounding_box(model: Model) -> BoundingBox {}
+
+-- ── MODEL-03: Draw variants (6) — raylib.h:1560-1565 ───────────────────
+-- Every suffix preserved: _ex (rotation axis + angle + Vector3 scale),
+-- _wires (wireframe), _points (vertex points). No sugar, no merging.
+func Model.draw(model: Model, position: Vector3, scale: Float32, tint: Color) {}
+func Model.draw_ex(model: Model, position: Vector3, rotation_axis: Vector3,
+                   rotation_angle: Float32, scale: Vector3, tint: Color) {}
+func Model.draw_wires(model: Model, position: Vector3, scale: Float32, tint: Color) {}
+func Model.draw_wires_ex(model: Model, position: Vector3, rotation_axis: Vector3,
+                         rotation_angle: Float32, scale: Vector3, tint: Color) {}
+func Model.draw_points(model: Model, position: Vector3, scale: Float32, tint: Color) {}
+func Model.draw_points_ex(model: Model, position: Vector3, rotation_axis: Vector3,
+                          rotation_angle: Float32, scale: Vector3, tint: Color) {}
