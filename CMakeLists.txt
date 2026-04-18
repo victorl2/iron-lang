@@ -279,6 +279,15 @@ if(IRON_BUILD_LSP)
         src/lsp/server/dyn_register.c
         src/lsp/server/cancel.c
         src/lsp/server/handlers_lifecycle.c
+        # Phase 2 Plan 04: document store (per-doc buffer, line_starts,
+        # UTF math, SHA-256 drift detection, workspace root discovery,
+        # didOpen/didChange/didClose/didSave/didChangeWatchedFiles).
+        src/lsp/store/document.c
+        src/lsp/store/line_index.c
+        src/lsp/store/utf.c
+        src/lsp/store/sha256.c
+        src/lsp/store/workspace.c
+        src/lsp/server/handlers_document.c
         src/vendor/yyjson/yyjson.c
     )
     target_include_directories(ironls PRIVATE src src/vendor)
