@@ -190,16 +190,16 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **MODEL-04**: User can manipulate meshes — `mesh.upload(dynamic), mesh.updateBuffer(index, data, offset), mesh.unload(), mesh.export(path), mesh.exportAsCode(path), mesh.getBoundingBox(), mesh.genTangents()`
 - [x] **MODEL-05**: User can draw individual meshes — `mesh.draw(material, transform), mesh.drawInstanced(material, transforms, instances)`
 - [x] **MODEL-06**: User can generate procedural meshes — `Mesh.poly(sides, radius), Mesh.plane(width, length, resX, resZ), Mesh.cube(w, h, l), Mesh.sphere(radius, rings, slices), Mesh.hemiSphere(...), Mesh.cylinder(...), Mesh.cone(...), Mesh.torus(...), Mesh.knot(...), Mesh.heightmap(image, size), Mesh.cubicmap(image, size)`
-- [ ] **MODEL-07**: User can load and use materials — `Material.load(path), Material.default(), material.unload(), material.setTexture(mapType, texture)` and apply via `model.setMeshMaterial(meshIndex, materialIndex)`
-- [ ] **MODEL-08**: User can load and play model animations — `ModelAnimation.load(path)` returns array, `model.updateAnimation(anim, frame), model.updateAnimationBones(anim, frame), animation.isValid(), ModelAnimation.unload(animations)`
-- [ ] **MODEL-09**: User can draw billboards — `drawBillboard(camera, texture, position, size, tint), drawBillboardRec, drawBillboardPro`
-- [ ] **MODEL-10**: User can draw bounding boxes — `drawBoundingBox(box, color)`
+- [x] **MODEL-07**: User can load and use materials — `Material.load(path), Material.default(), material.unload(), material.setTexture(mapType, texture)` and apply via `model.setMeshMaterial(meshIndex, materialIndex)`
+- [x] **MODEL-08**: User can load and play model animations — `ModelAnimation.load(path)` returns array, `model.updateAnimation(anim, frame), model.updateAnimationBones(anim, frame), animation.isValid(), ModelAnimation.unload(animations)`
+- [x] **MODEL-09**: User can draw billboards — `drawBillboard(camera, texture, position, size, tint), drawBillboardRec, drawBillboardPro`
+- [x] **MODEL-10**: User can draw bounding boxes — `drawBoundingBox(box, color)`
 
 ### Shaders (`rcore.c` shader section — ~15 functions)
 
-- [ ] **SHADER-01**: User can load a `Shader` from file or memory — `Shader.load(vsPath, fsPath), Shader.loadFromMemory(vsCode, fsCode), shader.unload(), shader.isValid()`
-- [ ] **SHADER-02**: User can resolve shader locations — `shader.getLocation(uniformName), shader.getLocationAttrib(attribName), shader.setLocation(index, location)`
-- [ ] **SHADER-03**: User can set shader uniforms by type — `shader.setValue(loc, value, dataType), shader.setValueV(loc, values, dataType, count), shader.setValueMatrix(loc, mat), shader.setValueTexture(loc, texture)` — supports all `ShaderUniformDataType` values
+- [x] **SHADER-01**: User can load a `Shader` from file or memory — `Shader.load(vsPath, fsPath), Shader.loadFromMemory(vsCode, fsCode), shader.unload(), shader.isValid()`
+- [x] **SHADER-02**: User can resolve shader locations — `shader.getLocation(uniformName), shader.getLocationAttrib(attribName), shader.setLocation(index, location)`
+- [x] **SHADER-03**: User can set shader uniforms by type — `shader.setValue(loc, value, dataType), shader.setValueV(loc, values, dataType, count), shader.setValueMatrix(loc, mat), shader.setValueTexture(loc, texture)` — supports all `ShaderUniformDataType` values
 - [ ] **SHADER-04**: User can begin/end shader mode (covered by DRAW2D-05) and combine shaders with render textures (covered by DRAW2D-04, TEX-09)
 
 ### Math — raymath helpers (`raymath.h` — 143 functions)
@@ -415,13 +415,13 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | MODEL-04 | Phase 70 | Complete |
 | MODEL-05 | Phase 70 | Complete |
 | MODEL-06 | Phase 70 | Complete |
-| MODEL-07 | Phase 70 | Pending |
-| MODEL-08 | Phase 70 | Pending |
-| MODEL-09 | Phase 70 | Pending |
-| MODEL-10 | Phase 70 | Pending |
-| SHADER-01 | Phase 71 | Pending |
-| SHADER-02 | Phase 71 | Pending |
-| SHADER-03 | Phase 71 | Pending |
+| MODEL-07 | Phase 70 | Complete |
+| MODEL-08 | Phase 70 | Complete |
+| MODEL-09 | Phase 70 | Complete |
+| MODEL-10 | Phase 70 | Complete |
+| SHADER-01 | Phase 71 | Complete |
+| SHADER-02 | Phase 71 | Complete |
+| SHADER-03 | Phase 71 | Complete |
 | SHADER-04 | Phase 71 | Pending |
 | FILE-01 | Phase 72 | Pending |
 | FILE-02 | Phase 72 | Pending |

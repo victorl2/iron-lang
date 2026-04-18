@@ -51,7 +51,7 @@ Phase 60 unblocks every other phase. After 60, phases 61/62/65/68/72 can run in 
 - [x] **Phase 67: Text & Fonts** — Custom font loading, glyph access, codepoint utilities, draw/measure text (completed 2026-04-17)
 - [x] **Phase 68: Audio System** — Device init, Wave, Sound, Music, AudioStream (fully independent of graphics) (completed 2026-04-17)
 - [x] **Phase 69: 3D Drawing & Camera3D** — All 3D primitives, camera modes, screen↔world rays (completed 2026-04-18)
-- [ ] **Phase 70: Models, Meshes, Materials, Animations** — Model load/draw, procedural meshes, materials, bones, billboards
+- [x] **Phase 70: Models, Meshes, Materials, Animations** — Model load/draw, procedural meshes, materials, bones, billboards (completed 2026-04-18)
 - [ ] **Phase 71: Shaders** — Shader load/unload, uniform setting by type, shader location indices
 - [ ] **Phase 72: File I/O & Utilities** — File/text I/O, filesystem queries, compress/encode, random
 - [ ] **Phase 73: Idiomatic API Polish, Showcase & Integration Tests** — Cross-cutting sweep: methods-on-types, constructor sugar, typed enums everywhere, raylib showcase example, native + web parity, existing users still compile
@@ -325,7 +325,11 @@ Plans:
   3. User can set uniforms of every type — `shader.setValue(loc, 1.0, .float)`, `shader.setValue(loc, v2, .vec2)`, `shader.setValue(loc, iv3, .ivec3)`, `shader.setValueMatrix(loc, mat)`, `shader.setValueTexture(loc, tex)` — and the shader receives the correct data.
   4. User can combine `beginTextureMode(rt)` + draw + `endTextureMode` + `beginShaderMode(postFx)` + `drawTexture(rt.texture, ...)` + `endShaderMode` to implement a post-processing pipeline end-to-end.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 71-01-PLAN.md — SHADER-01 + SHADER-02 + SHADER-03: 11 shims (Shader load/unload/valid + 2 location getters + 1 set_location helper + 4 uniform setters)
+- [ ] 71-02-PLAN.md — SHADER-04: post-FX composition via Phase 63+66+71 + 3 GLSL assets + smoke + post_fx showcase (zero new shims)
 
 ---
 
@@ -381,8 +385,8 @@ Plans:
 | 67. Text & Fonts | 4/4 | Complete    | 2026-04-17 |
 | 68. Audio System | 5/5 | Complete    | 2026-04-17 |
 | 69. 3D Drawing & Camera3D | 4/4 | Complete    | 2026-04-18 |
-| 70. Models, Meshes, Materials | 3/4 | In Progress|  |
-| 71. Shaders | 0/? | Not started | - |
+| 70. Models, Meshes, Materials | 4/4 | Complete   | 2026-04-18 |
+| 71. Shaders | 1/2 | In Progress|  |
 | 72. File I/O & Utilities | 0/? | Not started | - |
 | 73. Idiomatic API Polish & Showcase | 0/? | Not started | - |
 
