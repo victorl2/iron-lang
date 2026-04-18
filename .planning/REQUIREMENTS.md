@@ -200,7 +200,7 @@ raylib's enums become Iron enums with explicit ordinal values that match the C c
 - [x] **SHADER-01**: User can load a `Shader` from file or memory — `Shader.load(vsPath, fsPath), Shader.loadFromMemory(vsCode, fsCode), shader.unload(), shader.isValid()`
 - [x] **SHADER-02**: User can resolve shader locations — `shader.getLocation(uniformName), shader.getLocationAttrib(attribName), shader.setLocation(index, location)`
 - [x] **SHADER-03**: User can set shader uniforms by type — `shader.setValue(loc, value, dataType), shader.setValueV(loc, values, dataType, count), shader.setValueMatrix(loc, mat), shader.setValueTexture(loc, texture)` — supports all `ShaderUniformDataType` values
-- [ ] **SHADER-04**: User can begin/end shader mode (covered by DRAW2D-05) and combine shaders with render textures (covered by DRAW2D-04, TEX-09)
+- [x] **SHADER-04**: User can begin/end shader mode (covered by DRAW2D-05) and combine shaders with render textures (covered by DRAW2D-04, TEX-09)
 
 ### Math — raymath helpers (`raymath.h` — 143 functions)
 
@@ -422,7 +422,7 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | SHADER-01 | Phase 71 | Complete |
 | SHADER-02 | Phase 71 | Complete |
 | SHADER-03 | Phase 71 | Complete |
-| SHADER-04 | Phase 71 | Pending |
+| SHADER-04 | Phase 71 | Complete |
 | FILE-01 | Phase 72 | Pending |
 | FILE-02 | Phase 72 | Pending |
 | FILE-03 | Phase 72 | Pending |
