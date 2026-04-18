@@ -6560,3 +6560,39 @@ Iron_List_uint8_t Iron_files_compute_sha1(Iron_List_uint8_t data) {
     }
     return out;
 }
+
+/* ── FILE-06 Random (new object Random {} namespace) ────────────────── */
+
+void Iron_random_set_seed(uint32_t seed) {
+    SetRandomSeed((unsigned int)seed);
+}
+
+int32_t Iron_random_get_value(int32_t min, int32_t max) {
+    return (int32_t)GetRandomValue((int)min, (int)max);
+}
+
+/* Pattern 6: Iron_List_int32_t RETURN with Unload (Phase 67-03 template).
+ * Pitfall 9: raylib returns NULL when count > (max - min + 1); shim returns empty list. */
+Iron_List_int32_t Iron_random_load_sequence(uint32_t count, int32_t min, int32_t max) {
+    int *seq = LoadRandomSequence((unsigned int)count, (int)min, (int)max);
+    Iron_List_int32_t out;
+    out.items    = NULL;
+    out.count    = 0;
+    out.capacity = 0;
+    if (count > 0 && seq != NULL) {
+        out.items    = (int32_t *)calloc((size_t)count, sizeof(int32_t));
+        out.capacity = (int64_t)count;
+        if (out.items) {
+            memcpy(out.items, seq, (size_t)count * sizeof(int32_t));
+            out.count = (int64_t)count;
+        }
+    }
+    UnloadRandomSequence(seq);
+    return out;
+}
+
+/* Q3: intentional no-op for raylib parity. Iron's [Int32] is GC-managed;
+ * raylib's int* was already freed internally by Iron_random_load_sequence. */
+void Iron_random_unload_sequence(Iron_List_int32_t seq) {
+    (void)seq;
+}

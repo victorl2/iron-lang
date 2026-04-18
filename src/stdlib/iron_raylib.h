@@ -1956,4 +1956,10 @@ uint32_t          Iron_files_compute_crc32(Iron_List_uint8_t data);
 Iron_List_uint8_t Iron_files_compute_md5(Iron_List_uint8_t data);   /* 16 bytes */
 Iron_List_uint8_t Iron_files_compute_sha1(Iron_List_uint8_t data);  /* 20 bytes */
 
+/* FILE-06: Random (4) — new Random.* namespace; Iron_List_int32_t RETURN proven Phase 67-03 */
+void              Iron_random_set_seed(uint32_t seed);
+int32_t           Iron_random_get_value(int32_t min, int32_t max);
+Iron_List_int32_t Iron_random_load_sequence(uint32_t count, int32_t min, int32_t max);
+void              Iron_random_unload_sequence(Iron_List_int32_t seq);
+
 #endif /* IRON_RAYLIB_H */
