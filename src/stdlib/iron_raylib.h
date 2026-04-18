@@ -1737,6 +1737,35 @@ void Iron_draw_ray(struct Iron_Ray ray, struct Iron_Color color);
 void Iron_draw_grid(int32_t slices, float spacing);
 
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
+
+/* Phase 70 prototypes — MODEL-01/02/03 (11 entries landed Plan 70-01). */
+
+/* MODEL-01: Model load / from_mesh / is_valid / unload */
+struct Iron_Model Iron_model_load(Iron_String file_name);
+struct Iron_Model Iron_model_from_mesh(struct Iron_Mesh mesh);
+bool              Iron_model_is_valid(struct Iron_Model model);
+void              Iron_model_unload(struct Iron_Model model);
+
+/* MODEL-02: Bounding box */
+struct Iron_BoundingBox Iron_model_bounding_box(struct Iron_Model model);
+
+/* MODEL-03: Draw variants (6) */
+void Iron_model_draw(struct Iron_Model model, struct Iron_Vector3 position,
+                     float scale, struct Iron_Color tint);
+void Iron_model_draw_ex(struct Iron_Model model, struct Iron_Vector3 position,
+                        struct Iron_Vector3 rotation_axis, float rotation_angle,
+                        struct Iron_Vector3 scale, struct Iron_Color tint);
+void Iron_model_draw_wires(struct Iron_Model model, struct Iron_Vector3 position,
+                           float scale, struct Iron_Color tint);
+void Iron_model_draw_wires_ex(struct Iron_Model model, struct Iron_Vector3 position,
+                              struct Iron_Vector3 rotation_axis, float rotation_angle,
+                              struct Iron_Vector3 scale, struct Iron_Color tint);
+void Iron_model_draw_points(struct Iron_Model model, struct Iron_Vector3 position,
+                            float scale, struct Iron_Color tint);
+void Iron_model_draw_points_ex(struct Iron_Model model, struct Iron_Vector3 position,
+                               struct Iron_Vector3 rotation_axis, float rotation_angle,
+                               struct Iron_Vector3 scale, struct Iron_Color tint);
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 

@@ -5558,6 +5558,143 @@ void Iron_draw_grid(int32_t slices, float spacing) {
 }
 
 /* ── Models (Phase 70) ────────────────────────────────────────────── */
+
+/* Phase 70 binds rmodels.c: Model / Mesh / Material / ModelAnimation +
+ * billboard + bounding-box draws. All struct sizes under the Phase 64-02
+ * 120 B validated ceiling. Model = 120 B, Mesh = 120 B, Material = 40 B,
+ * BoundingBox = 24 B, ModelAnimation = 56 B.
+ *
+ * Templates used (all proven in Phase 63-69):
+ *   B — struct-in (memcpy-in)
+ *   E — scalar + Color
+ *   F — Vector3 + Color
+ *   G — struct-by-value RETURN (Phase 65-03 validated 64 B; Plan 70-03
+ *       probes 120 B direction)
+ *   Mutating-return-by-value (Phase 66-03 / 68-02) — for raylib APIs
+ *       that take Type* and mutate in place (mesh.upload, material.set_texture)
+ *
+ * Memory disciplined: each shim makes at most one `memcpy` per struct arg
+ * plus one `memcpy` per struct return. Zero heap allocation in MODEL-01/02/03.
+ */
+
+/* MODEL-01: Model load / from_mesh / is_valid / unload — raylib.h:1553-1556 */
+
+struct Iron_Model Iron_model_load(Iron_String file_name) {
+    Model rl = LoadModel(iron_string_cstr(&file_name));
+    struct Iron_Model out;
+    memcpy(&out, &rl, sizeof(struct Iron_Model));
+    return out;
+}
+
+struct Iron_Model Iron_model_from_mesh(struct Iron_Mesh mesh) {
+    Mesh rm;
+    memcpy(&rm, &mesh, sizeof(Mesh));
+    Model rl = LoadModelFromMesh(rm);
+    struct Iron_Model out;
+    memcpy(&out, &rl, sizeof(struct Iron_Model));
+    return out;
+}
+
+bool Iron_model_is_valid(struct Iron_Model model) {
+    Model rm;
+    memcpy(&rm, &model, sizeof(Model));
+    return (bool)(IsModelValid(rm) != 0);
+}
+
+void Iron_model_unload(struct Iron_Model model) {
+    Model rm;
+    memcpy(&rm, &model, sizeof(Model));
+    UnloadModel(rm);
+}
+
+/* MODEL-02: Bounding box — raylib.h:1557 */
+
+struct Iron_BoundingBox Iron_model_bounding_box(struct Iron_Model model) {
+    Model rm;
+    memcpy(&rm, &model, sizeof(Model));
+    BoundingBox rl = GetModelBoundingBox(rm);
+    struct Iron_BoundingBox out;
+    memcpy(&out, &rl, sizeof(struct Iron_BoundingBox));
+    return out;
+}
+
+/* MODEL-03: Draw variants (6) — raylib.h:1560-1565 */
+
+void Iron_model_draw(struct Iron_Model model, struct Iron_Vector3 position,
+                     float scale, struct Iron_Color tint) {
+    Model   rm;
+    Vector3 pos;
+    Color   c;
+    memcpy(&rm,  &model,    sizeof(Model));
+    memcpy(&pos, &position, sizeof(Vector3));
+    memcpy(&c,   &tint,     sizeof(Color));
+    DrawModel(rm, pos, scale, c);
+}
+
+void Iron_model_draw_ex(struct Iron_Model model, struct Iron_Vector3 position,
+                        struct Iron_Vector3 rotation_axis, float rotation_angle,
+                        struct Iron_Vector3 scale, struct Iron_Color tint) {
+    Model   rm;
+    Vector3 pos, ax, sc;
+    Color   c;
+    memcpy(&rm,  &model,         sizeof(Model));
+    memcpy(&pos, &position,      sizeof(Vector3));
+    memcpy(&ax,  &rotation_axis, sizeof(Vector3));
+    memcpy(&sc,  &scale,         sizeof(Vector3));
+    memcpy(&c,   &tint,          sizeof(Color));
+    DrawModelEx(rm, pos, ax, rotation_angle, sc, c);
+}
+
+void Iron_model_draw_wires(struct Iron_Model model, struct Iron_Vector3 position,
+                           float scale, struct Iron_Color tint) {
+    Model   rm;
+    Vector3 pos;
+    Color   c;
+    memcpy(&rm,  &model,    sizeof(Model));
+    memcpy(&pos, &position, sizeof(Vector3));
+    memcpy(&c,   &tint,     sizeof(Color));
+    DrawModelWires(rm, pos, scale, c);
+}
+
+void Iron_model_draw_wires_ex(struct Iron_Model model, struct Iron_Vector3 position,
+                              struct Iron_Vector3 rotation_axis, float rotation_angle,
+                              struct Iron_Vector3 scale, struct Iron_Color tint) {
+    Model   rm;
+    Vector3 pos, ax, sc;
+    Color   c;
+    memcpy(&rm,  &model,         sizeof(Model));
+    memcpy(&pos, &position,      sizeof(Vector3));
+    memcpy(&ax,  &rotation_axis, sizeof(Vector3));
+    memcpy(&sc,  &scale,         sizeof(Vector3));
+    memcpy(&c,   &tint,          sizeof(Color));
+    DrawModelWiresEx(rm, pos, ax, rotation_angle, sc, c);
+}
+
+void Iron_model_draw_points(struct Iron_Model model, struct Iron_Vector3 position,
+                            float scale, struct Iron_Color tint) {
+    Model   rm;
+    Vector3 pos;
+    Color   c;
+    memcpy(&rm,  &model,    sizeof(Model));
+    memcpy(&pos, &position, sizeof(Vector3));
+    memcpy(&c,   &tint,     sizeof(Color));
+    DrawModelPoints(rm, pos, scale, c);
+}
+
+void Iron_model_draw_points_ex(struct Iron_Model model, struct Iron_Vector3 position,
+                               struct Iron_Vector3 rotation_axis, float rotation_angle,
+                               struct Iron_Vector3 scale, struct Iron_Color tint) {
+    Model   rm;
+    Vector3 pos, ax, sc;
+    Color   c;
+    memcpy(&rm,  &model,         sizeof(Model));
+    memcpy(&pos, &position,      sizeof(Vector3));
+    memcpy(&ax,  &rotation_axis, sizeof(Vector3));
+    memcpy(&sc,  &scale,         sizeof(Vector3));
+    memcpy(&c,   &tint,          sizeof(Color));
+    DrawModelPointsEx(rm, pos, ax, rotation_angle, sc, c);
+}
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
