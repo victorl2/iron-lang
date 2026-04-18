@@ -2848,3 +2848,9 @@ func Mesh.gen_tangents(mesh: Mesh) -> Mesh {}
 func Mesh.draw(mesh: Mesh, material: Material, transform: Matrix) {}
 func Mesh.draw_instanced(mesh: Mesh, material: Material,
                          transforms: [Matrix], instances: Int32) {}
+
+-- ── MODEL-06: Mesh generation (probe — Plan 70-03 Task 1) ─────────────
+-- 120 B Mesh struct-by-value RETURN probe. If clang -Wall -Wextra raises
+-- -Wlarge-by-value-copy, refactor to hidden-out-param pattern and update
+-- this stub accordingly. Expected GREEN per Phase 64-02 / 65-03 priors.
+func Mesh.cube(width: Float32, height: Float32, length: Float32) -> Mesh {}

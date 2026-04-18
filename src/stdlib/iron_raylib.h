@@ -1797,6 +1797,11 @@ void Iron_mesh_draw(struct Iron_Mesh mesh, struct Iron_Material material,
 void Iron_mesh_draw_instanced(struct Iron_Mesh mesh, struct Iron_Material material,
                               Iron_List_Iron_Matrix transforms, int32_t instances);
 
+/* MODEL-06: Mesh generation (Plan 70-03) — 11 procedural mesh constructors.
+ * Plan 70-03 Task 1 lands Iron_mesh_cube as the 120 B Mesh RETURN probe.
+ * Task 2 appends the remaining 10 after clang validation. */
+struct Iron_Mesh Iron_mesh_cube(float width, float height, float length);
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 

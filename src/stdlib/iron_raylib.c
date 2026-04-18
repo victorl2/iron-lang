@@ -5793,6 +5793,27 @@ void Iron_mesh_draw_instanced(struct Iron_Mesh mesh, struct Iron_Material materi
     DrawMeshInstanced(rm, rmat, (const Matrix *)transforms.items, (int)instances);
 }
 
+/* MODEL-06: Mesh generation (Plan 70-03 Task 1 probe) — raylib.h:1585
+ *
+ * First 120 B struct-by-value RETURN in the Iron stdlib. Phase 64-02
+ * validated 120 B ARG clean; Phase 65-03 validated 64 B RETURN clean.
+ * clang -Wall -Wextra may fire -Wlarge-by-value-copy (default threshold
+ * strictly > 64 B); if it does, refactor to hidden-out-param.
+ * AAPCS64 / SysV both transparently use indirect return slots for large
+ * structs at the ABI level — warning is about the source-level signature,
+ * not the lowered ABI, so GREEN is the expected outcome.
+ *
+ * Template G: no memcpy-in (scalar args only); call raylib; memcpy-out
+ * the Iron struct return.
+ */
+
+struct Iron_Mesh Iron_mesh_cube(float width, float height, float length) {
+    Mesh rl = GenMeshCube(width, height, length);
+    struct Iron_Mesh out;
+    memcpy(&out, &rl, sizeof(struct Iron_Mesh));
+    return out;
+}
+
 /* ── Shaders (Phase 71) ───────────────────────────────────────────── */
 /* ── File I/O & Utils (Phase 72) ──────────────────────────────────── */
 
