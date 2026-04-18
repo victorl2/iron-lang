@@ -227,19 +227,19 @@ raymath functions become **methods on Vector2/Vector3/Vector4/Matrix/Quaternion*
 
 ### Idiomatic API Layer (cross-cutting)
 
-- [ ] **API-01**: Where a raylib function takes a struct as its primary subject (Texture, Sound, Music, Image, Mesh, Model, Shader, Font, Wave, AudioStream, Camera2D, Camera3D, Material, Vector2/3/4, Matrix, Rectangle, Ray, BoundingBox), the binding exposes that operation as a **method on the type** — not a freestanding function — when the receiver is unambiguous
-- [ ] **API-02**: Resource lifecycle uses the idiomatic Iron form: types with `Load*` / `Unload*` C pairs become `Type.load(...)` constructors and `instance.unload()` methods
-- [ ] **API-03**: Constructor sugar: `Color.rgb(r, g, b)` defaults `a=255`; `Color.rgba(r, g, b, a)` is explicit; `Vector2.of(x, y)`, `Vector3.of(x, y, z)`, `Rectangle.of(x, y, w, h)` are short constructors that use `Float32` literals
-- [ ] **API-04**: All raylib enum parameters in the Iron API use the typed Iron enum, never raw `Int` (e.g., `texture.setFilter(.bilinear)` not `texture.setFilter(1)`)
-- [ ] **API-05**: Functions returning multiple `Float`/`Int` values use Iron tuple returns where natural (e.g., `getMousePosition() -> (Float32, Float32)` if a Vector2 wrapper is awkward, otherwise return `Vector2`)
-- [ ] **API-06**: Functions that take out-params in C use Iron return values (e.g., raylib's `MeasureTextEx` writes to a `Vector2*`; Iron's version returns the `Vector2`)
-- [ ] **API-07**: A `Window` type wraps the implicit window state where it improves ergonomics — e.g., `Window.init(...)` returning a value that supports `.shouldClose()`, `.close()` — without breaking the freestanding form for users who prefer it
+- [x] **API-01**: Where a raylib function takes a struct as its primary subject (Texture, Sound, Music, Image, Mesh, Model, Shader, Font, Wave, AudioStream, Camera2D, Camera3D, Material, Vector2/3/4, Matrix, Rectangle, Ray, BoundingBox), the binding exposes that operation as a **method on the type** — not a freestanding function — when the receiver is unambiguous
+- [x] **API-02**: Resource lifecycle uses the idiomatic Iron form: types with `Load*` / `Unload*` C pairs become `Type.load(...)` constructors and `instance.unload()` methods
+- [x] **API-03**: Constructor sugar: `Color.rgb(r, g, b)` defaults `a=255`; `Color.rgba(r, g, b, a)` is explicit; `Vector2.of(x, y)`, `Vector3.of(x, y, z)`, `Rectangle.of(x, y, w, h)` are short constructors that use `Float32` literals
+- [x] **API-04**: All raylib enum parameters in the Iron API use the typed Iron enum, never raw `Int` (e.g., `texture.setFilter(.bilinear)` not `texture.setFilter(1)`)
+- [x] **API-05**: Functions returning multiple `Float`/`Int` values use Iron tuple returns where natural (e.g., `getMousePosition() -> (Float32, Float32)` if a Vector2 wrapper is awkward, otherwise return `Vector2`)
+- [x] **API-06**: Functions that take out-params in C use Iron return values (e.g., raylib's `MeasureTextEx` writes to a `Vector2*`; Iron's version returns the `Vector2`)
+- [x] **API-07**: A `Window` type wraps the implicit window state where it improves ergonomics — e.g., `Window.init(...)` returning a value that supports `.shouldClose()`, `.close()` — without breaking the freestanding form for users who prefer it
 - [x] **API-08**: A new C shim file `src/stdlib/iron_raylib.c` is introduced when (and only when) raylib's API cannot be called directly from Iron — e.g., for `TextFormat` varargs, struct-by-value returns that don't fit Iron's ABI, or out-param translation. The shim keeps wrappers minimal and is built into both native and web targets
 - [x] **API-09**: Both native and web (`iron build` and `iron build --target=web`) targets compile and link successfully against the expanded binding; no native-only or web-only binding is introduced
 - [ ] **API-10**: A canonical example program (`examples/raylib_showcase/showcase.iron` or similar) exercises a representative slice of every category — window, input, 2D draw, texture, font, audio, 3D draw, model, shader, math — and builds + runs on both targets
 - [x] **API-11** (override, closed by Phase 60 Plan 08): Existing raylib users (`examples/pong/pong.iron`, `tests/manual/game_raylib.iron`, `tests/integration/web/hello_raylib.iron`) MAY be rewritten during the v2.0.0-alpha clean break. Original text said "continue to compile without modification" — Phase 60 (60-CONTEXT.md "Backward Compatibility — Clean Break") relaxes this to "may be rewritten in the same commit that lands the new binding surface" because the new API is strictly better, the existing files are few and under our control, and maintaining deprecated names as aliases would fork the docs. Closed by Plan 60-08 which rewrote all three files to use canonical Phase 60 names (Vector2 not Vec2, KeyboardKey.SPACE not Key.SPACE, Color(r,g,b,a) not extern constants).
 - [ ] **API-12**: The integration test suite gains end-to-end coverage for at least one function from every in-scope raylib category, asserting compile + link + symbol resolution succeeds
-- [ ] **API-13**: All bound functions appear in `src/stdlib/raylib.iron` (or are included from a sibling `.iron` file imported by it) and are discoverable through the existing `import raylib` mechanism in `src/cli/build.c`
+- [x] **API-13**: All bound functions appear in `src/stdlib/raylib.iron` (or are included from a sibling `.iron` file imported by it) and are discoverable through the existing `import raylib` mechanism in `src/cli/build.c`
 
 ## Out of Scope
 
@@ -430,19 +430,19 @@ Which phases cover which requirements. Filled in by roadmapper on 2026-04-13.
 | FILE-05 | Phase 72 | Complete |
 | FILE-06 | Phase 72 | Complete |
 | FILE-07 | Phase 61 | Complete |
-| API-01 | Phase 73 | Pending |
-| API-02 | Phase 73 | Pending |
-| API-03 | Phase 73 | Pending |
-| API-04 | Phase 73 | Pending |
-| API-05 | Phase 73 | Pending |
-| API-06 | Phase 73 | Pending |
-| API-07 | Phase 73 | Pending |
+| API-01 | Phase 73 | Complete |
+| API-02 | Phase 73 | Complete |
+| API-03 | Phase 73 | Complete |
+| API-04 | Phase 73 | Complete |
+| API-05 | Phase 73 | Complete |
+| API-06 | Phase 73 | Complete |
+| API-07 | Phase 73 | Complete |
 | API-08 | Phase 73 | Complete |
 | API-09 | Phase 73 | Complete |
 | API-10 | Phase 73 | Pending |
 | API-11 | Phase 60 (Plan 08, override) | Complete |
 | API-12 | Phase 73 | Pending |
-| API-13 | Phase 73 | Pending |
+| API-13 | Phase 73 | Complete |
 
 **Coverage:**
 - v2.0.0-alpha requirements: 183 total (explicit REQ-ID entries in this document)

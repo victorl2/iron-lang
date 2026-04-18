@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 73-01-PLAN.md — 17 of 18 deferrals closed (1 SVG → raylib vendor bump). AUDIO-12 closes at 19/19. Receiver-method probe RED → Task 4 deferred to post-alpha ironc milestone. Pong regression GREEN (2,745,416 B, within ±5% of 2,743,992 baseline).
-last_updated: "2026-04-18T14:10:38.614Z"
+stopped_at: "Completed 73-02-PLAN.md — API-03 closed (5 constructor sugar entries: Color.rgb/rgba, Vector2/3.of, Rectangle.of). API-01..07 + API-13 compliance audit recorded in 73-02-SUMMARY.md: all 8 PASS or partial-with-documented-residual (6 CameraProjection Int32(0) sites carried as D5). Pong regression GREEN 2,745,656 B (+240 from 73-01 baseline). Constructor sugar follows Phase 66 Image.color flat static-constructor precedent. Ready for Plan 73-03 showcase."
+last_updated: "2026-04-18T14:21:22.848Z"
 last_activity: "2026-04-18 — Phase 72 Plan 02 complete. **FILE-04 + FILE-05 closed at Iron-side API surface** — 10 new Iron_files_* C shims bound (3 FILE-04 directory listing + 7 FILE-05 data utilities) + 10 Files.* Iron stubs. FilePathList struct-by-value RETURN extends Phase 62 precedent verbatim (`(void *)src.paths` cast — matches existing code, not plan's `(int64_t)(intptr_t)` documentation drift that would have mismatched Iron_FilePathList._paths `void *` declaration). 5 new Iron_List_uint8_t RETURN consumers (compress / decompress / decode_base64 / compute_md5 / compute_sha1) — pattern proven across 6 live call sites with 3 disposal models (UnloadFileData / MemFree / static-buffer no-free). Pitfall 2 (MD5/SHA1 static-buffer memcpy WITHOUT free; grep-verified memcpy(out.items,hash,16) × 1 + memcpy(out.items,hash,20) × 1, NO adjacent MemFree) and Pitfall 3 (compress/base64 MemFree pairing; grep-verified 4 MemFree(buf|b64) call sites) both validated in live code. Pong regression GREEN (2,743,720 B, +608 B from Plan 72-01 baseline, well under ±100 KB tolerance). Task 3 checkpoint auto-approved under autonomous hint (all 4 guards GREEN: pong builds, header Iron_files_ count == 35, Files.* stub count == 34, ironc check exit 0). Zero deviations. 2 code commits: 21aa5de (Task 1: 10 Iron Files.* stubs), b948c05 (Task 2: 10 C shims). Both pushed to origin/feat/v2-raylib-milestone. Requirements closed: **FILE-04, FILE-05**. Plan 72-03 next: 4 Random.* entries + smoke test."
 progress:
   total_phases: 15
   completed_phases: 12
   total_plans: 57
-  completed_plans: 50
+  completed_plans: 51
   percent: 89
 ---
 
@@ -131,6 +131,7 @@ Progress: [█████████░] 89%
 | Phase 72 P72-03 | ~4 min 28s | 4 tasks | 5 files |
 | Phase 73 P73-01 | ~18 min | 5 tasks | 13 files | 830ef2d, 3e5d5b3, c54c5af, fe945b5, 71fac34 |
 | Phase 73-idiomatic-api-polish-showcase-integration-tests P01 | 18 min | 5 tasks | 13 files |
+| Phase 73 P73-02 | ~4 min | 3 tasks | 3 files |
 
 ## Roadmap Evolution
 
@@ -350,7 +351,7 @@ Phases 61, 62, 65, 68, 72 can run in parallel after 60. 73 runs last as a cross-
 
 ## Session Continuity
 
-Last session: 2026-04-18T14:10:38.609Z
-Stopped at: Completed 73-01-PLAN.md — 17 of 18 deferrals closed (1 SVG → raylib vendor bump). AUDIO-12 closes at 19/19. Receiver-method probe RED → Task 4 deferred to post-alpha ironc milestone. Pong regression GREEN (2,745,416 B, within ±5% of 2,743,992 baseline).
+Last session: 2026-04-18T14:21:22.843Z
+Stopped at: Completed 73-02-PLAN.md — API-03 closed (5 constructor sugar entries: Color.rgb/rgba, Vector2/3.of, Rectangle.of). API-01..07 + API-13 compliance audit recorded in 73-02-SUMMARY.md: all 8 PASS or partial-with-documented-residual (6 CameraProjection Int32(0) sites carried as D5). Pong regression GREEN 2,745,656 B (+240 from 73-01 baseline). Constructor sugar follows Phase 66 Image.color flat static-constructor precedent. Ready for Plan 73-03 showcase.
 Next action: Plan 72-02 — FILE-04 + FILE-05 (3 FilePathList struct-by-value RETURN shims + 7 data utilities including 5 more Iron_List_uint8_t RETURN consumers — compress/decompress/decode_base64/compute_md5/compute_sha1). Iron_List_uint8_t RETURN now proven; MD5/SHA1 static-buffer memcpy per Pitfall 2; compress/decompress/base64 MemFree per Pitfall 3. Wave 2 of Phase 72; depends_on [72-01]. Autonomous mode can proceed to `/gsd:execute-phase 72`.
 Resume file: None

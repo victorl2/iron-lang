@@ -399,7 +399,7 @@ Plans:
 | 70. Models, Meshes, Materials | 4/4 | Complete   | 2026-04-18 |
 | 71. Shaders | 2/2 | Complete   | 2026-04-18 |
 | 72. File I/O & Utilities | 3/3 | Complete   | 2026-04-18 |
-| 73. Idiomatic API Polish & Showcase | 1/4 | In Progress|  |
+| 73. Idiomatic API Polish & Showcase | 2/4 | In Progress|  |
 
 ## Coverage Summary
 
@@ -430,7 +430,7 @@ Plans:
 **Goal:** [To be planned]
 **Requirements**: TBD
 **Depends on:** Phase 73
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 74 to break down)
