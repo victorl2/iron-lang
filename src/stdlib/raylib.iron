@@ -2679,3 +2679,27 @@ func Draw.end_mode_3d() {}
 func Camera3D.update(camera: Camera3D, mode: CameraMode) -> Camera3D {}
 func Camera3D.update_pro(camera: Camera3D, movement: Vector3,
                          rotation: Vector3, zoom: Float32) -> Camera3D {}
+
+-- ── DRAW3D-03: Screen↔world conversion + view matrix — raylib.h:1063-1070 ──
+--
+-- The Camera3D is the coordinate-space authority, so these live as
+-- instance methods on Camera3D (receiver-sugar dispatch accepted at call
+-- site; static form required in stub declarations per Pitfall 0).
+--
+-- screen_to_world_ray returns a Ray (24 B — first Phase 69 Ray return).
+-- world_to_screen returns a Vector2.
+-- matrix returns the view Matrix (64 B — Phase 65-03 pattern reused).
+--
+-- _ex variants take explicit (width, height) screen dimensions; the
+-- non-_ex variants read raylib's internal screen size via GetScreenWidth
+-- / GetScreenHeight (raylib.c:rcore.c).
+--
+-- raylib's GetMouseRay (raylib.h:1063) is a backward-compat alias for
+-- GetScreenToWorldRay — Iron binds only the canonical name.
+func Camera3D.screen_to_world_ray(camera: Camera3D, position: Vector2) -> Ray {}
+func Camera3D.screen_to_world_ray_ex(camera: Camera3D, position: Vector2,
+                                     width: Int32, height: Int32) -> Ray {}
+func Camera3D.world_to_screen(camera: Camera3D, position: Vector3) -> Vector2 {}
+func Camera3D.world_to_screen_ex(camera: Camera3D, position: Vector3,
+                                 width: Int32, height: Int32) -> Vector2 {}
+func Camera3D.matrix(camera: Camera3D) -> Matrix {}
