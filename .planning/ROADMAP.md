@@ -348,7 +348,12 @@ Plans:
   4. User can compress a byte buffer via `compressData`, decompress it back via `decompressData` and get byte-identical output; user can base64-encode and decode round-trip; user can compute CRC32/MD5/SHA1 hashes that match reference values.
   5. User can seed a random generator via `setRandomSeed(seed)`, pull values via `getRandomValue(lo, hi)`, and generate/release a `loadRandomSequence` buffer.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 72-01-PLAN.md — FILE-01 + FILE-02 + FILE-03: Raw byte I/O + Text I/O + Filesystem queries (23 shims; Task 1 probes Iron_List_uint8_t RETURN via Iron_files_load_data — first live consumer in Iron stdlib; Task 2 bulk-binds remaining 22)
+- [ ] 72-02-PLAN.md — FILE-04 + FILE-05: Directory listing + Data utilities (10 shims; 3 FilePathList struct-by-value RETURN + 7 data utilities including 5 Iron_List_uint8_t RETURN consumers; MD5/SHA1 static-buffer memcpy per Pitfall 2; compress/decompress/base64 MemFree per Pitfall 3)
+- [ ] 72-03-PLAN.md — FILE-06 Random + smoke (4 shims + tests/manual/files_smoke.iron; new `object Random {}` namespace; 6 tagged FILE-NN sections with known-value hash vectors RFC 1321/FIPS 180/ISO 3309)
 
 ---
 
@@ -387,7 +392,7 @@ Plans:
 | 69. 3D Drawing & Camera3D | 4/4 | Complete    | 2026-04-18 |
 | 70. Models, Meshes, Materials | 4/4 | Complete   | 2026-04-18 |
 | 71. Shaders | 2/2 | Complete   | 2026-04-18 |
-| 72. File I/O & Utilities | 0/? | Not started | - |
+| 72. File I/O & Utilities | 1/3 | In Progress|  |
 | 73. Idiomatic API Polish & Showcase | 0/? | Not started | - |
 
 ## Coverage Summary
