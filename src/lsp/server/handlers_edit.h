@@ -60,6 +60,24 @@ void ilsp_handle_text_document_rename(struct IronLsp_Server *s,
                                          struct yyjson_doc     *doc,
                                          Iron_Arena            *arena);
 
+/* Phase 4 Plan 04-07 Task 03 (EDIT-13, EDIT-14, EDIT-15, D-12, D-13,
+ * D-14) -- parser-only "always-on" editing endpoints. Same 7-step
+ * pattern as the nav handlers. documentHighlight is analyzer-backed
+ * (needs resolved_sym via ilsp_facade_compile_for_nav -- CORE-22
+ * invariant preserved). foldingRange + selectionRange are strict
+ * parse-only: they keep working on syntactically broken files. */
+void ilsp_handle_text_document_document_highlight(struct IronLsp_Server *s,
+                                                     struct yyjson_doc     *doc,
+                                                     Iron_Arena            *arena);
+
+void ilsp_handle_text_document_folding_range    (struct IronLsp_Server *s,
+                                                     struct yyjson_doc     *doc,
+                                                     Iron_Arena            *arena);
+
+void ilsp_handle_text_document_selection_range  (struct IronLsp_Server *s,
+                                                     struct yyjson_doc     *doc,
+                                                     Iron_Arena            *arena);
+
 #ifdef __cplusplus
 }
 #endif

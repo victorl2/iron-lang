@@ -80,6 +80,13 @@ void ilsp_handle_code_action_resolve        (IronLsp_Server *s, yyjson_doc *doc,
 void ilsp_handle_text_document_prepare_rename(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_text_document_rename        (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 4 Plan 04-07 (EDIT-13, EDIT-14, EDIT-15): parser-only
+ * always-on editing endpoints (documentHighlight, foldingRange,
+ * selectionRange). */
+void ilsp_handle_text_document_document_highlight(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_folding_range    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_selection_range  (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -135,8 +142,16 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "textDocument/didClose",             ilsp_handle_didClose,                       false, "textDocumentSync"      },
     { "textDocument/didOpen",              ilsp_handle_didOpen,                        false, "textDocumentSync"      },
     { "textDocument/didSave",              ilsp_handle_didSave,                        false, "textDocumentSync"      },
+    /* Phase 4 Plan 04-07 (EDIT-13): documentHighlight. Sort:
+     * "documentHighlight" vs "documentSymbol" — common "document",
+     * then 'H'(0x48) < 'S'(0x53), so documentHighlight precedes
+     * documentSymbol. */
+    { "textDocument/documentHighlight",    ilsp_handle_text_document_document_highlight, true, "documentHighlightProvider"},
     /* Plan 03 Task 03 (NAV-07): documentSymbol. */
     { "textDocument/documentSymbol",       ilsp_handle_text_document_document_symbol,  true,  "documentSymbolProvider"},
+    /* Phase 4 Plan 04-07 (EDIT-14): foldingRange. Sort: 'f' (0x66)
+     * sits between 'documentSymbol' ('d'<'f') and 'hover' ('f'<'h'). */
+    { "textDocument/foldingRange",         ilsp_handle_text_document_folding_range,    true,  "foldingRangeProvider"  },
     /* Plan 04 Task 02 (NAV-09): hover. */
     { "textDocument/hover",                ilsp_handle_text_document_hover,            true,  "hoverProvider"         },
     /* Plan 05 Task 01 (NAV-05): implementation. 'h' < 'i' < 'r' sort. */
@@ -154,6 +169,11 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
      * references precedes rename; 'rename' vs 'signatureHelp' — 'r'
      * (0x72) < 's' (0x73). */
     { "textDocument/rename",               ilsp_handle_text_document_rename,           true,  "renameProvider"        },
+    /* Phase 4 Plan 04-07 (EDIT-15): selectionRange. Sort:
+     * "selectionRange" vs "signatureHelp" — common "s", then 'e'
+     * (0x65) < 'i' (0x69), so selectionRange precedes signatureHelp.
+     * "rename" vs "selectionRange" — 'r' (0x72) < 's' (0x73). */
+    { "textDocument/selectionRange",       ilsp_handle_text_document_selection_range,  true,  "selectionRangeProvider"},
     /* Plan 04 Task 03 (NAV-10): signatureHelp. */
     { "textDocument/signatureHelp",        ilsp_handle_text_document_signature_help,   true,  "signatureHelpProvider" },
     /* Plan 03 Task 02 (NAV-04): typeDefinition. */
