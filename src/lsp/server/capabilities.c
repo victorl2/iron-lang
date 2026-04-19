@@ -102,6 +102,25 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         return;
     }
 
+    /* Phase 4 Plan 04-04 (D-07): codeActionProvider expects
+     *   { resolveProvider: true,
+     *     codeActionKinds: ["quickfix", "source.organizeImports"] }.
+     * resolveProvider=true gates the lazy codeAction/resolve flow
+     * (EDIT-08). codeActionKinds advertises both "quickfix" (this plan)
+     * and "source.organizeImports" (forward-advertised for Plan 04-05;
+     * shipping both here lets clients light up the Source Actions menu
+     * without a capability bump when Plan 04-05 lands). */
+    if (strcmp(name, "codeActionProvider") == 0) {
+        yyjson_mut_val *cap = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_bool(d, cap, "resolveProvider", true);
+        yyjson_mut_val *kinds = yyjson_mut_arr(d);
+        yyjson_mut_arr_add_strcpy(d, kinds, "quickfix");
+        yyjson_mut_arr_add_strcpy(d, kinds, "source.organizeImports");
+        yyjson_mut_obj_add_val(d, cap, "codeActionKinds", kinds);
+        yyjson_mut_obj_add_val(d, caps, name, cap);
+        return;
+    }
+
     /* Phase 3 Plan 04 Task 03 (D-13): signatureHelpProvider expects
      *   { triggerCharacters: ["(", ","], retriggerCharacters: [","] }.
      * Handler-table auto-advertise cannot produce this shape (it only

@@ -31,6 +31,18 @@ void ilsp_handle_completion_item_resolve(struct IronLsp_Server *s,
                                            struct yyjson_doc     *doc,
                                            Iron_Arena            *arena);
 
+/* Phase 4 Plan 04-04 Task 02 (EDIT-07, EDIT-08) — code-action handlers.
+ * Same 7-step pattern. codeAction builds lightweight actions without
+ * the edit field; codeAction/resolve re-runs the quickfix handler to
+ * materialize the edit lazily, guarded on the file version. */
+void ilsp_handle_text_document_code_action(struct IronLsp_Server *s,
+                                             struct yyjson_doc     *doc,
+                                             Iron_Arena            *arena);
+
+void ilsp_handle_code_action_resolve(struct IronLsp_Server *s,
+                                       struct yyjson_doc     *doc,
+                                       Iron_Arena            *arena);
+
 #ifdef __cplusplus
 }
 #endif
