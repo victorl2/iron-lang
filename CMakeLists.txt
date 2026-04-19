@@ -417,6 +417,17 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/rename/prepare.c
         src/lsp/facade/edit/rename/collision.c
         src/lsp/facade/edit/rename/apply.c
+        # Phase 4 Plan 04-07 (EDIT-13, EDIT-14, EDIT-15, D-12, D-13, D-14):
+        # parser-only "always-on" editing endpoints. highlight.c classifies
+        # use-sites through the AST parent-kind table (needs analyzer for
+        # resolved_sym — routes through ilsp_facade_compile_for_nav so
+        # CORE-22 single-call-site invariant is preserved). folding_range.c
+        # + selection_range.c are strict parse-only — fresh lexer+parser
+        # walk, never hit iron_analyze_buffer so they keep working on
+        # syntactically broken files.
+        src/lsp/facade/edit/highlight.c
+        src/lsp/facade/edit/folding_range.c
+        src/lsp/facade/edit/selection_range.c
         src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
