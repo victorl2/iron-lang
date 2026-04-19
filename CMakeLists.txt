@@ -434,6 +434,11 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/folding_range.c
         src/lsp/facade/edit/selection_range.c
         src/lsp/server/handlers_edit.c
+        # Phase 5 Plan 05-02 (FMT-02, D-10, D-11, D-12): formatting
+        # facade. format.c is the SINGLE iron_format_source( call
+        # site under src/lsp/ -- enforced by test_fmt_single_call_site
+        # CTest grep-invariant. handlers_fmt.c registered in Task 2.
+        src/lsp/facade/fmt/format.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
         # stdlib_cache.c is the process-lifetime pre-parsed surface-file

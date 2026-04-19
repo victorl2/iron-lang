@@ -16,7 +16,10 @@
 #include "lsp/store/workspace_index.h"
 
 #include "analyzer/analyzer.h"
+#include "cli/toml.h"                          /* Phase 5 Plan 05-02: iron_toml_parse */
 #include "diagnostics/diagnostics.h"
+#include "fmt/config_load.h"                   /* Phase 5 Plan 05-02: iron_fmt_options_from_toml */
+#include "fmt/options.h"                       /* Phase 5 Plan 05-02: defaults */
 #include "lexer/lexer.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/nav/references_index.h"  /* Plan 04: ref-index hooks */
@@ -334,6 +337,11 @@ IronLsp_WorkspaceIndex *ilsp_workspace_index_create(const char *workspace_root) 
     /* Plan 05 Task 01: create the iface workspace aggregator. NULL
      * on OOM is tolerated by all query paths (they no-op). */
     wi->iface_ws = ilsp_iface_ws_create();
+    /* Phase 5 Plan 05-02 (D-13): seed fmt_opts with defaults. The
+     * lifecycle handler will call ilsp_workspace_fmt_opts_load to
+     * overlay [fmt] from iron.toml if one is found. */
+    wi->fmt_opts = iron_fmt_options_default();
+    atomic_store(&wi->fmt_opts_version, 1);
     return wi;
 }
 
@@ -559,4 +567,41 @@ void ilsp_workspace_index_bulk_analyze_for_refs(IronLsp_WorkspaceIndex *wi,
 
     for (size_t i = 0; i < n; i++) free(paths[i]);
     free(paths);
+}
+
+/* ── Phase 5 Plan 05-02 (D-13): [fmt] options caching ────────────── */
+
+void ilsp_workspace_fmt_opts_load(IronLsp_WorkspaceIndex *wi,
+                                   const char             *workspace_root) {
+    if (!wi) return;
+    /* Always start from defaults so a removed [fmt] block reverts to
+     * default behaviour rather than retaining stale config. */
+    wi->fmt_opts = iron_fmt_options_default();
+    atomic_fetch_add(&wi->fmt_opts_version, 1);
+
+    if (!workspace_root) return;
+
+    size_t rlen = strlen(workspace_root);
+    /* "/iron.toml" + NUL == 11 bytes; size sanity-cap to 1 MiB to keep
+     * a malicious environment variable from blowing the alloca/heap. */
+    if (rlen == 0 || rlen > (1u << 20)) return;
+    size_t plen = rlen + sizeof("/iron.toml");
+    char *path = (char *)malloc(plen);
+    if (!path) return;
+    snprintf(path, plen, "%s/iron.toml", workspace_root);
+
+    if (access(path, F_OK) == 0) {
+        IronProject *proj = iron_toml_parse(path);
+        if (proj) {
+            wi->fmt_opts = iron_fmt_options_from_toml(proj);
+            atomic_fetch_add(&wi->fmt_opts_version, 1);
+            iron_toml_free(proj);
+        }
+    }
+    free(path);
+}
+
+void ilsp_workspace_fmt_opts_reload(IronLsp_WorkspaceIndex *wi) {
+    if (!wi) return;
+    ilsp_workspace_fmt_opts_load(wi, wi->workspace_root);
 }
