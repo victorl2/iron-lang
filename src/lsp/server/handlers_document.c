@@ -407,6 +407,10 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                 if (s->workspace_index) {
                     ilsp_workspace_index_invalidate_dep(
                         s->workspace_index, NULL);
+                    /* Phase 5 Plan 05-02 (D-13): iron.toml change ->
+                     * reload cached [fmt] options. Subsequent
+                     * textDocument/formatting picks up the new options. */
+                    ilsp_workspace_fmt_opts_reload(s->workspace_index);
                 }
                 fprintf(stderr,
                         "ironls: workspace-reindex-pending (iron.toml) %s\n",

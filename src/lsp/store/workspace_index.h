@@ -49,6 +49,7 @@
 
 #include "analyzer/analyzer.h"        /* Iron_AnalyzeResult */
 #include "diagnostics/diagnostics.h"  /* Iron_DiagList */
+#include "fmt/options.h"              /* IronFmtOptions (Phase 5 Plan 05-02 D-13) */
 #include "parser/ast.h"               /* Iron_Program */
 #include "runtime/iron_runtime.h"     /* iron_mutex_t */
 #include "lsp/store/line_index.h"     /* IronLsp_LineIndex */
@@ -127,6 +128,16 @@ typedef struct IronLsp_WorkspaceIndex {
      * by ilsp_iface_ws_drop_for_entry at invalidation. Created in
      * _create, destroyed in _destroy. */
     struct IronLsp_IfaceWorkspace *iface_ws;
+
+    /* Phase 5 Plan 05-02 (FMT-05, D-13): cached [fmt] options loaded
+     * at `initialize` from the workspace root's iron.toml. Invalidated
+     * (re-read) on workspace/didChangeWatchedFiles for iron.toml.
+     * fmt_opts_version is bumped on each reload so concurrent reads
+     * may detect a stale snapshot if needed (current handlers take a
+     * pointer-snapshot at entry; one-format lag is tolerated per the
+     * threat-register T-05-02-05 mitigation). */
+    IronFmtOptions       fmt_opts;
+    _Atomic int_least64_t fmt_opts_version;
 } IronLsp_WorkspaceIndex;
 
 /* Tuning knobs: exposed so tests can override via a separate helper. */
@@ -203,6 +214,19 @@ void                    ilsp_workspace_index_bulk_analyze_for_refs(
  * wi is NULL. */
 struct IronLsp_IfaceWorkspace *ilsp_workspace_index_iface_ws(
     IronLsp_WorkspaceIndex *wi);
+
+/* Phase 5 Plan 05-02 (D-13) -- load [fmt] options from the workspace
+ * root's iron.toml (if present) into wi->fmt_opts; bumps fmt_opts_version.
+ * If workspace_root is NULL or no iron.toml is found, populates with
+ * iron_fmt_options_default(). Idempotent. Safe from the dispatcher
+ * thread; no locking required because the caller is the only mutator. */
+void ilsp_workspace_fmt_opts_load(IronLsp_WorkspaceIndex *wi,
+                                   const char             *workspace_root);
+
+/* Phase 5 Plan 05-02 (D-13) -- re-load [fmt] from wi->workspace_root.
+ * Called from the workspace/didChangeWatchedFiles handler when an
+ * iron.toml change event fires. */
+void ilsp_workspace_fmt_opts_reload(IronLsp_WorkspaceIndex *wi);
 
 #ifdef __cplusplus
 }

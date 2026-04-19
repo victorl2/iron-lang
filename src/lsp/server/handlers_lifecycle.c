@@ -24,6 +24,8 @@
 #include "lsp/server/capabilities.h"
 #include "lsp/server/cancel.h"
 #include "lsp/server/dyn_register.h"
+#include "lsp/store/workspace.h"          /* Phase 5 Plan 05-02 (D-13): URI->path */
+#include "lsp/store/workspace_index.h"   /* Phase 5 Plan 05-02 (D-13): fmt_opts load */
 #include "lsp/transport/json.h"
 #include "lsp/transport/writer.h"
 #include "lsp/transport/types.h"
@@ -129,6 +131,44 @@ void ilsp_handle_initialize(IronLsp_Server    *s,
                 }
             }
         }
+    }
+
+    /* Phase 5 Plan 05-02 (D-13): resolve workspace root from initialize
+     * params (workspaceFolders[0].uri preferred; rootUri fallback) and
+     * stand up the workspace index so [fmt] options can be cached for
+     * the formatting endpoints. The index is created here even when a
+     * prior phase did not populate it; existing handlers (handlers_document
+     * iron.toml watcher, nav handlers) defensively guard against NULL,
+     * so creating it strictly improves their fidelity.  */
+    if (params && !s->workspace_root) {
+        const char *root_uri = NULL;
+        yyjson_val *folders = yyjson_obj_get(params, "workspaceFolders");
+        if (folders && yyjson_is_arr(folders) && yyjson_arr_size(folders) > 0) {
+            yyjson_val *first = yyjson_arr_get(folders, 0);
+            if (first && yyjson_is_obj(first)) {
+                root_uri = yyjson_get_str(yyjson_obj_get(first, "uri"));
+            }
+        }
+        if (!root_uri) {
+            root_uri = yyjson_get_str(yyjson_obj_get(params, "rootUri"));
+        }
+        if (root_uri) {
+            char *path = ilsp_workspace_path_from_uri(root_uri);
+            if (path) {
+                s->workspace_root = path;   /* takes ownership */
+                if (!s->workspace_index) {
+                    s->workspace_index =
+                        ilsp_workspace_index_create(s->workspace_root);
+                }
+            }
+        }
+    }
+    /* Phase 5 Plan 05-02 (D-13): load [fmt] from workspace iron.toml.
+     * No-op when workspace_index is NULL (no rootUri / no workspace
+     * folder) -- fmt facade falls back to defaults in that case. */
+    if (s->workspace_index) {
+        ilsp_workspace_fmt_opts_load(s->workspace_index,
+                                      s->workspace_root);
     }
 
     /* Build response doc: { jsonrpc: "2.0", id, result: { capabilities, serverInfo } }. */
