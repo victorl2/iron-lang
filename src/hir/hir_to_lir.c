@@ -1128,6 +1128,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 /* String: "string" is already lowercase — lowercasing loop is a no-op.
                  * Result: snprintf → "string_upper" → mangle_func_name → "Iron_string_upper" */
                 type_name = "string";
+            } else if (obj_type->kind == IRON_TYPE_INT) {
+                /* Phase 78 FMT-01: Int (signed 64-bit) receiver methods dispatch
+                 * to Iron_int_<method>. Currently the only in-scope method is
+                 * to_string — runtime shim at src/runtime/iron_fmt.c exports
+                 * Iron_int_to_string(int64_t). */
+                type_name = "int";
+            } else if (obj_type->kind == IRON_TYPE_INT32) {
+                /* Phase 78 FMT-02: Int32 receiver methods dispatch to
+                 * Iron_int32_<method>. Runtime exports Iron_int32_to_string(int32_t). */
+                type_name = "int32";
+            } else if (obj_type->kind == IRON_TYPE_FLOAT) {
+                /* Phase 78 FMT-03: Float (double) receiver methods dispatch to
+                 * Iron_float_<method>. Runtime exports Iron_float_to_string(double). */
+                type_name = "float";
             } else if (obj_type->kind == IRON_TYPE_ARRAY) {
                 /* Collection: build the full "Iron_List_<elem_suffix>_<method>" name
                  * directly and return early. mangle_func_name() skips names that
