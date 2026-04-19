@@ -540,9 +540,23 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "-framework";
         argv_buf[ai++] = "CoreVideo";
 #elif defined(__linux__)
+        /* Pick X11 as raylib's GLFW backend on Linux. rglfw.c hard-errors
+         * if neither _GLFW_X11 nor _GLFW_WAYLAND is defined (see
+         * src/vendor/raylib/rglfw.c:56-58). X11 is the broader-compat
+         * choice — works on both X.Org and Wayland sessions (via XWayland)
+         * and only requires libx11-dev at build time. */
+        argv_buf[ai++] = "-D_GLFW_X11";
         argv_buf[ai++] = "-lGL";
         argv_buf[ai++] = "-ldl";
         argv_buf[ai++] = "-lrt";
+        /* GLFW X11 backend link deps. Packages: libx11-dev libxrandr-dev
+         * libxinerama-dev libxcursor-dev libxi-dev (+ libasound2-dev if
+         * raylib audio is used). pthread is already linked earlier. */
+        argv_buf[ai++] = "-lX11";
+        argv_buf[ai++] = "-lXrandr";
+        argv_buf[ai++] = "-lXinerama";
+        argv_buf[ai++] = "-lXcursor";
+        argv_buf[ai++] = "-lXi";
 #endif
     }
     argv_buf[ai] = NULL;
@@ -709,6 +723,11 @@ static int invoke_clang(const char *c_file, const char *output,
             cc_argv[ci++] = rl_i_flag;
             cc_argv[ci++] = rl_glfw_i_flag;
             cc_argv[ci++] = "-DPLATFORM_DESKTOP";
+#ifdef __linux__
+            /* raylib's rglfw.c requires _GLFW_X11 or _GLFW_WAYLAND on
+             * Linux (see comment at the link step above). */
+            cc_argv[ci++] = "-D_GLFW_X11";
+#endif
             cc_argv[ci++] = "-w";
             if (opts.release) cc_argv[ci++] = "-O2";
             cc_argv[ci++] = "-o";
