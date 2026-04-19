@@ -138,6 +138,9 @@ func Url.hex_digit_value(b: Int) -> Int {
 -- because adding a stdlib-wide Int.to_string is out of scope for Phase 59
 -- and would require runtime C support. Iron has no `+` operator on String,
 -- so every concatenation uses interpolation (`"{a}{b}"`).
+-- TODO(v2.3): migrate this to stdlib Int.to_string — Phase 78 (v2.2) shipped
+-- the stdlib variant but mass migration is out-of-scope for v2.2 per
+-- REQUIREMENTS.md "Out of Scope". Intentional duplication until v2.3.
 func Url.int_to_string(n: Int) -> String {
     if n == 0 { return "0" }
     var x = n

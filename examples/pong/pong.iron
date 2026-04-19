@@ -22,22 +22,6 @@ enum GameState {
     GAME_OVER = 2,
 }
 
--- Convert a non-negative Int to its decimal String representation.
--- Iron has no stdlib Int→String; implemented locally (pattern from url.iron).
--- Used for the per-player scoreboard overlay.
-func int_to_str(n: Int) -> String {
-    if n == 0 { return "0" }
-    var x = n
-    var s = ""
-    while x > 0 {
-        val d = x % 10
-        val digit_char = String.from_byte(48 + d)
-        s = "{digit_char}{s}"
-        x = x / 10
-    }
-    return s
-}
-
 func main() {
     -- Screen dimensions + tunables. Kept as Int (int64_t) so arithmetic
     -- stays branchless and wrap-free; cast to Int32 at the Draw.* call sites
@@ -183,9 +167,12 @@ func main() {
                             Int32(BALL_SIZE), Int32(BALL_SIZE), WHITE)
         }
 
-        -- Scores.
-        val left_str = int_to_str(left_score)
-        val right_str = int_to_str(right_score)
+        -- Scores. Phase 78 FMT-05: use stdlib Int.to_string + pad_left(3, " ")
+        -- so the scoreboard is fixed-width (no horizontal jitter as scores
+        -- cross single → double digits). pad_left with space fill preserves
+        -- the existing visual layout vs v2.1's hand-rolled conversion helper.
+        val left_str = left_score.to_string().pad_left(3, " ")
+        val right_str = right_score.to_string().pad_left(3, " ")
         Draw.text(left_str,  Int32(SCREEN_W / 4),     Int32(20), Int32(40), WHITE)
         Draw.text(right_str, Int32(3 * SCREEN_W / 4), Int32(20), Int32(40), WHITE)
 
