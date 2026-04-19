@@ -594,4 +594,40 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_organize_imports PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
+
+    # Phase 4 Plan 04-07 Task 01 (EDIT-13, D-12) — documentHighlight.
+    # Drives the classifier end-to-end through a real IronLsp_Document
+    # and the compile facade (analyzer-backed — needs resolved_sym).
+    # Links the full transport + observability stack because
+    # ilsp_facade_compile_for_nav pulls in compile.c which pulls in
+    # publishDiagnostics serialization.
+    add_executable(test_document_highlight
+        test_document_highlight.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/highlight.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+    )
+    target_include_directories(test_document_highlight PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_compile_definitions(test_document_highlight PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_document_highlight
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_document_highlight COMMAND test_document_highlight)
+    set_tests_properties(test_document_highlight PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
 endif()
