@@ -8,7 +8,8 @@ if(IRON_BUILD_LSP)
     add_executable(test_lsp_build_smoke test_lsp_build_smoke.c)
     target_include_directories(test_lsp_build_smoke PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_build_smoke iron_compiler iron_runtime unity)
     add_test(NAME test_lsp_build_smoke COMMAND test_lsp_build_smoke)
     set_tests_properties(test_lsp_build_smoke PROPERTIES
@@ -19,7 +20,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c)
     target_include_directories(test_lsp_frame PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_frame iron_compiler iron_runtime unity)
     add_test(NAME test_lsp_frame COMMAND test_lsp_frame)
     set_tests_properties(test_lsp_frame PROPERTIES
@@ -33,7 +35,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_lsp_json PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_json iron_compiler iron_runtime unity)
     set_source_files_properties(
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
@@ -54,10 +57,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
     target_include_directories(test_lsp_writer_queue PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_writer_queue PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_writer_queue
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_writer_queue COMMAND test_lsp_writer_queue)
     set_tests_properties(test_lsp_writer_queue PROPERTIES
         LABELS "unit;phase-m1-invariant")
@@ -91,6 +95,17 @@ if(IRON_BUILD_LSP)
         # entries on didChangeWatchedFiles; every test linking
         # handlers_document.c must link workspace_index.c too.
         ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace_index.c
+        # Phase 3 Plan 02/03 + Phase 4 Plans 04-02/05: completion buckets
+        # and organize_imports query stdlib_cache + dep_map. These were
+        # previously only linked through ironls; tests that link
+        # facade/edit/**.c must also link them.
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/stdlib_cache.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/dep_map.c
+        # dep_map.c consumes src/pkg/resolver + src/cli/toml — pull them in.
+        ${CMAKE_SOURCE_DIR}/src/pkg/resolver.c
+        ${CMAKE_SOURCE_DIR}/src/pkg/fetcher.c
+        ${CMAKE_SOURCE_DIR}/src/pkg/lockfile.c
+        ${CMAKE_SOURCE_DIR}/src/cli/toml.c
         # Plan 05: handlers_document.c now starts + stops per-doc workers;
         # tests that link handlers_document.c must also link the worker
         # subsystem and the facade stubs.
@@ -133,7 +148,37 @@ if(IRON_BUILD_LSP)
         # handlers_document.c calls ilsp_send_workspace_diagnostic_refresh
         # + ilsp_ws_diag_cache_evict_path.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/workspace_diagnostic.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_workspace_diag.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_workspace_diag.c
+        # Phase 4 (M3 Editing Assistance): dispatch.c adds 9 EDIT handler
+        # rows (textDocument/completion, completionItem/resolve,
+        # textDocument/codeAction, codeAction/resolve,
+        # textDocument/prepareRename, textDocument/rename,
+        # textDocument/documentHighlight, textDocument/foldingRange,
+        # textDocument/selectionRange). handlers_edit.c hosts all 9
+        # handlers; they delegate to facade/edit/ TUs. Every test linking
+        # dispatch.c must resolve these symbols.
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_edit.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/complete.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/registry.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/resolve.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/organize_imports.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_undefined_var.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_import.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/prepare.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/collision.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/apply.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/highlight.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/folding_range.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -149,10 +194,11 @@ if(IRON_BUILD_LSP)
         ${_LSP_PLAN03_TRANSPORT_SRC})
     target_include_directories(test_lsp_lifecycle_fsm PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_lifecycle_fsm PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_lifecycle_fsm
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_lifecycle_fsm COMMAND test_lsp_lifecycle_fsm)
     set_tests_properties(test_lsp_lifecycle_fsm PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
@@ -163,10 +209,11 @@ if(IRON_BUILD_LSP)
         ${_LSP_PLAN03_TRANSPORT_SRC})
     target_include_directories(test_lsp_initialize_capabilities PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_initialize_capabilities PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_initialize_capabilities
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_initialize_capabilities
              COMMAND test_lsp_initialize_capabilities)
     set_tests_properties(test_lsp_initialize_capabilities PROPERTIES
@@ -179,11 +226,12 @@ if(IRON_BUILD_LSP)
         ${_LSP_PLAN03_TRANSPORT_SRC})
     target_include_directories(test_lsp_position_encoding_negotiation PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_position_encoding_negotiation
         PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_position_encoding_negotiation
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_position_encoding_negotiation
              COMMAND test_lsp_position_encoding_negotiation)
     set_tests_properties(test_lsp_position_encoding_negotiation PROPERTIES
@@ -195,10 +243,11 @@ if(IRON_BUILD_LSP)
         ${_LSP_PLAN03_TRANSPORT_SRC})
     target_include_directories(test_lsp_dynamic_registration PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_dynamic_registration PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_dynamic_registration
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_dynamic_registration
              COMMAND test_lsp_dynamic_registration)
     set_tests_properties(test_lsp_dynamic_registration PROPERTIES
@@ -210,10 +259,11 @@ if(IRON_BUILD_LSP)
         ${_LSP_PLAN03_TRANSPORT_SRC})
     target_include_directories(test_lsp_cancel_request_e2e PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_cancel_request_e2e PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_cancel_request_e2e
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_cancel_request_e2e
              COMMAND test_lsp_cancel_request_e2e)
     set_tests_properties(test_lsp_cancel_request_e2e PROPERTIES
@@ -235,7 +285,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c)
     target_include_directories(test_lsp_utf_translation PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_utf_translation iron_compiler iron_runtime unity)
     add_test(NAME test_lsp_utf_translation COMMAND test_lsp_utf_translation)
     set_tests_properties(test_lsp_utf_translation PROPERTIES
@@ -247,7 +298,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c)
     target_include_directories(test_lsp_line_starts_index PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_line_starts_index iron_compiler iron_runtime unity)
     add_test(NAME test_lsp_line_starts_index COMMAND test_lsp_line_starts_index)
     set_tests_properties(test_lsp_line_starts_index PROPERTIES
@@ -258,7 +310,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c)
     target_include_directories(test_lsp_sync_integrity_hash PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_sync_integrity_hash iron_compiler iron_runtime unity)
     add_test(NAME test_lsp_sync_integrity_hash COMMAND test_lsp_sync_integrity_hash)
     set_tests_properties(test_lsp_sync_integrity_hash PROPERTIES
@@ -269,7 +322,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PLAN04_STORE_SRC})
     target_include_directories(test_lsp_document_sync_corpus PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_document_sync_corpus
         iron_compiler iron_runtime unity)
     add_test(NAME test_lsp_document_sync_corpus
@@ -283,10 +337,11 @@ if(IRON_BUILD_LSP)
         ${_LSP_PLAN03_TRANSPORT_SRC})
     target_include_directories(test_lsp_watched_files PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_watched_files PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_watched_files
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_watched_files COMMAND test_lsp_watched_files)
     set_tests_properties(test_lsp_watched_files PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
@@ -304,9 +359,10 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c)
     target_include_directories(test_lsp_mailbox_coalesce PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lsp_mailbox_coalesce
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_mailbox_coalesce COMMAND test_lsp_mailbox_coalesce)
     set_tests_properties(test_lsp_mailbox_coalesce PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant")
@@ -331,10 +387,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_lsp_diagnostic_debounce PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_diagnostic_debounce PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_diagnostic_debounce
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_diagnostic_debounce
              COMMAND test_lsp_diagnostic_debounce)
     set_tests_properties(test_lsp_diagnostic_debounce PROPERTIES
@@ -361,10 +418,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_lsp_sigabrt_boundary PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_sigabrt_boundary PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_sigabrt_boundary
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_sigabrt_boundary COMMAND test_lsp_sigabrt_boundary)
     set_tests_properties(test_lsp_sigabrt_boundary PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant"
@@ -384,7 +442,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_lsp_pull_diagnostics PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_pull_diagnostics PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_pull_diagnostics
         iron_compiler iron_runtime iron_stdlib unity pthread)
@@ -400,10 +459,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
     target_include_directories(test_lsp_log_path_xdg PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_log_path_xdg PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_log_path_xdg
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_log_path_xdg COMMAND test_lsp_log_path_xdg)
     set_tests_properties(test_lsp_log_path_xdg PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant"
@@ -419,10 +479,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
     target_include_directories(test_lsp_sigpipe_shutdown PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_lsp_sigpipe_shutdown PRIVATE _GNU_SOURCE)
     target_link_libraries(test_lsp_sigpipe_shutdown
-        iron_compiler iron_runtime unity pthread)
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_lsp_sigpipe_shutdown COMMAND test_lsp_sigpipe_shutdown)
     set_tests_properties(test_lsp_sigpipe_shutdown PROPERTIES
         LABELS "unit;lsp-unit;phase-m1-invariant"
@@ -470,7 +531,8 @@ if(IRON_BUILD_LSP)
     add_executable(test_lexer_doc_comment test_lexer_doc_comment.c)
     target_include_directories(test_lexer_doc_comment PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lexer_doc_comment
         iron_compiler iron_runtime unity pthread m)
     add_test(NAME test_lexer_doc_comment COMMAND test_lexer_doc_comment)
@@ -483,7 +545,8 @@ if(IRON_BUILD_LSP)
     add_executable(test_lexer_doc_comment_parity test_lexer_doc_comment_parity.c)
     target_include_directories(test_lexer_doc_comment_parity PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_lexer_doc_comment_parity
         iron_compiler iron_runtime unity pthread m)
     add_test(NAME test_lexer_doc_comment_parity
@@ -500,7 +563,8 @@ if(IRON_BUILD_LSP)
     add_executable(test_ast_sealed test_ast_sealed.c)
     target_include_directories(test_ast_sealed PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_ast_sealed
         iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_ast_sealed COMMAND test_ast_sealed)
@@ -516,7 +580,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c)
     target_include_directories(test_symbol_id PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_symbol_id
         iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_symbol_id COMMAND test_symbol_id)
@@ -535,7 +600,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c)
     target_include_directories(test_node_at PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_node_at
         iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_node_at COMMAND test_node_at)
@@ -555,7 +621,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/stdlib_cache.c)
     target_include_directories(test_stdlib_cache PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_stdlib_cache PRIVATE
         _GNU_SOURCE
         IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src")
@@ -578,7 +645,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/cli/toml.c)
     target_include_directories(test_dep_map PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_dep_map PRIVATE _GNU_SOURCE)
     target_link_libraries(test_dep_map
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -612,7 +680,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_workspace_index PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_workspace_index PRIVATE _GNU_SOURCE)
     target_link_libraries(test_workspace_index
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -628,7 +697,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c)
     target_include_directories(test_fuzzy_matcher PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(test_fuzzy_matcher
         iron_compiler iron_runtime unity pthread m)
     add_test(NAME test_fuzzy_matcher COMMAND test_fuzzy_matcher)
@@ -691,7 +761,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_nav_definition PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_nav_definition PRIVATE _GNU_SOURCE)
     target_link_libraries(test_nav_definition
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -704,7 +775,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_document_symbol PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_document_symbol PRIVATE _GNU_SOURCE)
     target_link_libraries(test_document_symbol
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -717,7 +789,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_workspace_symbol PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_workspace_symbol PRIVATE _GNU_SOURCE)
     target_link_libraries(test_workspace_symbol
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -736,7 +809,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_nav_references PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_nav_references PRIVATE _GNU_SOURCE)
     target_link_libraries(test_nav_references
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -749,7 +823,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_hover_formatter PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_hover_formatter PRIVATE _GNU_SOURCE)
     target_link_libraries(test_hover_formatter
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -762,7 +837,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_signature_help PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_signature_help PRIVATE _GNU_SOURCE)
     target_link_libraries(test_signature_help
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -780,7 +856,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_iface_workspace PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_iface_workspace PRIVATE _GNU_SOURCE)
     target_link_libraries(test_iface_workspace
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -793,7 +870,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_type_hierarchy PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_type_hierarchy PRIVATE _GNU_SOURCE)
     target_link_libraries(test_type_hierarchy
         iron_compiler iron_runtime iron_stdlib unity pthread m)
@@ -822,10 +900,37 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/workers/mailbox.c
         ${CMAKE_SOURCE_DIR}/src/lsp/workers/ast_worker.c
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/abort_handler.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
+        # Phase 4 (M3 Editing Assistance): dispatch.c registers 9 EDIT
+        # handler rows; handlers_edit.c hosts them and delegates to
+        # facade/edit/ TUs. Every test linking dispatch.c must resolve
+        # these symbols.
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_edit.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/complete.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/registry.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/resolve.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/organize_imports.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_undefined_var.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_import.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/prepare.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/collision.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/apply.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/highlight.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/folding_range.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c)
     target_include_directories(test_workspace_diagnostic PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor)
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
     target_compile_definitions(test_workspace_diagnostic PRIVATE _GNU_SOURCE)
     target_link_libraries(test_workspace_diagnostic
         iron_compiler iron_runtime iron_stdlib unity pthread m)
