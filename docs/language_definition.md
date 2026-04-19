@@ -335,7 +335,7 @@ func (p: Player) is_alive() -> Bool {
 }
 ```
 
-The receiver is declared in parentheses after `func` and is available in the body under its chosen name (`p` above). The receiver type must be a named object or enum — tuples, arrays, function types, and generics are rejected.
+The receiver is declared in parentheses after `func` and is available in the body under its chosen name (`p` above). The receiver type must be a named object or enum — tuples, arrays, function types, and generics are rejected. Note that `self` is **not** defined inside a receiver-form method; use the receiver's declared name (`p` in the examples above). Referencing `self` in a receiver-form body is a compile-time error.
 
 **Static form (all versions; required for type-level utilities)**
 
