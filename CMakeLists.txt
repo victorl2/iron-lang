@@ -383,10 +383,13 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/complete/buckets.c
         src/lsp/facade/edit/complete/complete.c
         src/lsp/facade/edit/complete/resolve.c
-        # Phase 4 Plan 04-03 Task 01 (EDIT-05, D-02): auto-import
-        # additionalTextEdits builder. Wired into complete.c's
-        # orchestrator by Task 03.
+        # Phase 4 Plan 04-03 (EDIT-04, EDIT-05, D-02, D-15):
+        # auto-import additionalTextEdits builder (Task 01) + snippet
+        # renderer (Task 02). Wired into complete.c's orchestrator
+        # by Task 03; client snippetSupport cap gating lives in
+        # handlers_edit.c + handlers_lifecycle.c.
         src/lsp/facade/edit/complete/auto_import.c
+        src/lsp/facade/edit/complete/snippet.c
         src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
