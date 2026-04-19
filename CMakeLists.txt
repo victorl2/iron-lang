@@ -400,6 +400,10 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
+        # facade (lazy edit compute, version-gated per D-07).
+        src/lsp/facade/edit/codeaction/codeaction.c
+        src/lsp/facade/edit/codeaction/resolve.c
         src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
