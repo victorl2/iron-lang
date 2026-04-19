@@ -1,0 +1,6 @@
+import lib
+
+func main() {
+    val x = lib.do_work(42)
+    println(x)
+}
