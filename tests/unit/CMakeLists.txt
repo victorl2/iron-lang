@@ -510,4 +510,30 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_codeaction_registry PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
+
+    # Phase 4 Plan 04-05 Task 01 (EDIT-09, D-08): organizeImports facade
+    # unit tests. Links the organize_imports facade TU directly alongside
+    # the workspace-index store modules it consults (stdlib_cache for
+    # classification; dep_map left NULL in tests). Uses pthread for
+    # stdlib_cache's pthread_once singleton init.
+    add_executable(test_organize_imports
+        test_organize_imports.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/organize_imports.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/stdlib_cache.c
+    )
+    target_include_directories(test_organize_imports PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_organize_imports
+        iron_compiler iron_runtime unity pthread)
+    target_compile_definitions(test_organize_imports PRIVATE
+        IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
+    )
+    add_test(NAME test_organize_imports
+        COMMAND test_organize_imports)
+    set_tests_properties(test_organize_imports PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
 endif()

@@ -404,6 +404,10 @@ if(IRON_BUILD_LSP)
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c
         src/lsp/facade/edit/codeaction/resolve.c
+        # Plan 04-05 Task 01 (EDIT-09, D-08): source.organizeImports facade.
+        # Classifies + sorts + dedups + optionally unused-removes the leading
+        # Iron_ImportDecl run and emits a single TextEdit replacing its span.
+        src/lsp/facade/edit/codeaction/organize_imports.c
         src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
