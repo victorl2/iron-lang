@@ -20,9 +20,11 @@
 
 #include "lsp/facade/edit/codeaction/codeaction.h"
 #include "lsp/facade/edit/codeaction/registry.h"
+#include "lsp/facade/edit/codeaction/organize_imports.h"
 #include "lsp/facade/compile.h"
 #include "lsp/store/document.h"
 #include "lsp/server/server.h"
+#include "lsp/server/notifications.h"
 #include "util/arena.h"
 
 #include <stdatomic.h>
@@ -46,6 +48,29 @@ static bool only_allows_quickfix(const IronLsp_CodeActionOnly *only) {
          * — it doesn't (we emit bare "quickfix"). But if filter is
          * strictly "quickfix" it matches; any broader filter string
          * like "source.organizeImports" does NOT match "quickfix". */
+    }
+    return false;
+}
+
+/* Phase 4 Plan 04-05 (D-08) -- organizeImports is EXPLICIT-trigger only.
+ * The action surfaces ONLY when `only` explicitly contains
+ * "source.organizeImports" (or a prefix match per LSP 3.17). An absent
+ * or unrelated filter returns false so plain codeAction requests at a
+ * random cursor position don't leak the source-action into the quickfix
+ * dropdown. This matches VSCode's Source Actions right-click path and
+ * the editor.codeActionsOnSave:{"source.organizeImports":true} hook. */
+static bool only_explicitly_requests_organize_imports(
+        const IronLsp_CodeActionOnly *only) {
+    if (!only || !only->kinds || only->kind_n == 0) return false;
+    for (size_t i = 0; i < only->kind_n; i++) {
+        const char *k = only->kinds[i];
+        if (!k) continue;
+        if (strcmp(k, "source.organizeImports") == 0) return true;
+        /* Broader filters like "source" also match organizeImports per
+         * LSP CodeActionKind prefix semantics. Our emitted kind is the
+         * full "source.organizeImports" string; the filter matches when
+         * the filter is a prefix delimited by '.'. */
+        if (strcmp(k, "source") == 0) return true;
     }
     return false;
 }
@@ -78,9 +103,11 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
     if (out_n)       *out_n       = 0;
     if (!server || !doc || !arena || !out_actions || !out_n) return;
 
-    /* Filter enforcement — if the client explicitly only wants
-     * organizeImports (or some future kind) we return an empty list. */
-    if (!only_allows_quickfix(only)) return;
+    bool emit_quickfixes     = only_allows_quickfix(only);
+    bool emit_organize       = only_explicitly_requests_organize_imports(only);
+
+    /* Nothing to compute when both paths are filtered out. */
+    if (!emit_quickfixes && !emit_organize) return;
 
     if (cancel && atomic_load(cancel)) return;
 
@@ -90,35 +117,91 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
                                      .cancel_flag = cancel };
     Iron_Program *program = ilsp_facade_compile_for_nav(doc, &req,
                                                            &walk_arena, &walk_diags);
-    (void)program;
 
     if (cancel && atomic_load(cancel)) goto done;
-    if (walk_diags.count <= 0)          goto done;
 
-    /* Upper bound: one action per diagnostic. */
+    /* Upper bound: one quickfix per diagnostic + one organize slot. */
+    size_t cap = (size_t)(walk_diags.count > 0 ? walk_diags.count : 0) + 1;
     IronLsp_CodeAction *arr = (IronLsp_CodeAction *)iron_arena_alloc(
-        arena, (size_t)walk_diags.count * sizeof(IronLsp_CodeAction),
+        arena, cap * sizeof(IronLsp_CodeAction),
         _Alignof(IronLsp_CodeAction));
     if (!arr) goto done;
 
     size_t n = 0;
-    for (int i = 0; i < walk_diags.count; i++) {
-        if (cancel && atomic_load(cancel)) break;
-        const Iron_Diagnostic *d = &walk_diags.items[i];
-        if (!span_intersects(d->span, range)) continue;
-        IronLsp_QuickfixFn handler = ilsp_quickfix_lookup(d->code);
-        if (!handler) continue;
 
-        IronLsp_CodeAction tmp;
-        handler(d, doc, server->workspace_index, arena, &tmp);
-        /* Handler may refuse (NULL edit_new_text). */
-        if (!tmp.edit_new_text) continue;
+    /* Quickfix path: iterate diagnostics in [range], dispatch to the
+     * registered quickfix handler, stamp data for lazy-resolve. */
+    if (emit_quickfixes && walk_diags.count > 0) {
+        for (int i = 0; i < walk_diags.count; i++) {
+            if (cancel && atomic_load(cancel)) break;
+            const Iron_Diagnostic *d = &walk_diags.items[i];
+            if (!span_intersects(d->span, range)) continue;
+            IronLsp_QuickfixFn handler = ilsp_quickfix_lookup(d->code);
+            if (!handler) continue;
 
-        tmp.data_file_version   = doc->version;
-        tmp.data_code           = d->code;
-        tmp.data_diagnostic_idx = i;
+            IronLsp_CodeAction tmp;
+            handler(d, doc, server->workspace_index, arena, &tmp);
+            /* Handler may refuse (NULL edit_new_text). */
+            if (!tmp.edit_new_text) continue;
 
-        arr[n++] = tmp;
+            tmp.data_file_version   = doc->version;
+            tmp.data_code           = d->code;
+            tmp.data_diagnostic_idx = i;
+
+            arr[n++] = tmp;
+        }
+    }
+
+    /* Organize-imports path: emit a single lightweight CodeAction
+     * (no edit field -- the edit is computed lazily via
+     * codeAction/resolve, per D-07). Pre-flight a facade call so we
+     * don't surface the action on documents with zero imports; this
+     * keeps the action list uncluttered on code that has nothing to
+     * organize. */
+    if (emit_organize && !(cancel && atomic_load(cancel)) && program) {
+        IronLsp_OrganizeImportsResult pre = {0};
+        Iron_Arena pre_arena = iron_arena_create(8 * 1024);
+        ilsp_organize_imports(program, doc, &walk_diags,
+                                server->workspace_index,
+                                cancel, &pre_arena, &pre);
+        bool has_imports = (pre.new_text != NULL);
+        bool cold_flagged = pre.cold_workspace_warning;
+        iron_arena_free(&pre_arena);
+
+        if (has_imports) {
+            IronLsp_CodeAction org;
+            memset(&org, 0, sizeof(org));
+            org.title               = "Organize Imports";
+            org.kind                = "source.organizeImports";
+            org.originating_diag    = NULL;
+            org.is_preferred        = false;
+            /* Placeholder edit_new_text: non-NULL so downstream
+             * filtering doesn't drop the action. handlers_edit.c's
+             * serializer only includes the edit field on resolve
+             * (include_edit=false for the initial codeAction reply),
+             * so this string never reaches the wire. */
+            org.edit_new_text       = "";
+            org.edit_start_line     = 0;
+            org.edit_start_char     = 0;
+            org.edit_end_line       = 0;
+            org.edit_end_char       = 0;
+            org.data_file_version   = doc->version;
+            org.data_code           = ILSP_ORGANIZE_IMPORTS_SENTINEL;
+            org.data_diagnostic_idx = 0;
+            arr[n++] = org;
+
+            /* Cold-workspace heads-up: emit Info showMessage once here
+             * so users see the explanation even if they cancel the
+             * resolve round-trip. The resolve path re-emits the same
+             * message on the final edit compute (D-08). */
+            if (cold_flagged) {
+                ilsp_send_window_showmessage(server, doc->uri,
+                    ILSP_MESSAGE_TYPE_INFO,
+                    "organizeImports: full unused-removal pending "
+                    "workspace analysis. Invoke Find References first, "
+                    "or re-run organizeImports later.");
+            }
+        }
     }
 
     if (n > 0) {

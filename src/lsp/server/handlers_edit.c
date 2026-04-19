@@ -15,6 +15,13 @@
 #include "lsp/facade/edit/complete/buckets.h"
 #include "lsp/facade/edit/codeaction/codeaction.h"
 #include "lsp/facade/edit/codeaction/registry.h"
+/* Phase 4 Plan 04-05 (EDIT-09, D-08): organizeImports sentinel code
+ * routes codeAction/resolve into the organize_imports facade. The
+ * serializer below stamps data.code = ILSP_ORGANIZE_IMPORTS_SENTINEL
+ * on the organizeImports action so the round-trip resolve can
+ * distinguish it from quickfix codes. The action's kind string is
+ * "source.organizeImports" per LSP 3.17 CodeActionKind. */
+#include "lsp/facade/edit/codeaction/organize_imports.h"
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/span.h"
 #include "lsp/facade/types.h"
