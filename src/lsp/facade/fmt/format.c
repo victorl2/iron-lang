@@ -1,8 +1,11 @@
 /* Phase 5 Plan 05-02 (FMT-02, D-10, D-11, D-12) -- LSP formatting facade.
  *
- * THE SINGLE iron_format_source CALL SITE FOR src/lsp/.
+ * THE SINGLE iron_format_source CALL SITE FOR src/lsp.
  *
- *   grep -rn 'iron_format_source(' src/lsp/ | wc -l   ==   1
+ * Grep invariant: exactly one line in src/lsp matches the literal
+ * symbol name followed by an opening paren. See
+ * test_fmt_single_call_site in the root CMakeLists.txt; a failure there
+ * means someone added a second call site.
  *
  * Mirrors src/lsp/facade/compile.c lines 47-80 (CORE-22 analog for the
  * analyze pipeline). Plans 05-03 (range_format) and 05-04
@@ -32,15 +35,14 @@
 #include "util/arena.h"
 
 /* ───────────────────────────────────────────────────────────────────────
- * THE SINGLE iron_format_source CALL SITE FOR src/lsp/.
+ * THE SINGLE iron_format_source CALL SITE FOR src/lsp.
  *
- * Enforced by tests/lsp/invariant/test_fmt_single_call_site:
- *   count=$(grep -rn 'iron_format_source(' src/lsp/ | wc -l)
- *   [ "$count" = "1" ] || fail
+ * Enforced by the CTest `test_fmt_single_call_site` grep-invariant in
+ * the root CMakeLists.txt; the count must stay at 1.
  *
  * All public facade entries (_full this plan, _range Plan 05-03,
  * _on_type Plan 05-04) MUST route through facade_format below. Adding
- * new sibling TUs in this directory that call iron_format_source
+ * new sibling TUs in this directory that invoke the compiler primitive
  * directly will trip the grep invariant.
  * ─────────────────────────────────────────────────────────────────── */
 static IronFmtResult facade_format(const struct IronLsp_Document *doc,

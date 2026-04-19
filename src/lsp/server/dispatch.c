@@ -87,6 +87,14 @@ void ilsp_handle_text_document_document_highlight(IronLsp_Server *s, yyjson_doc 
 void ilsp_handle_text_document_folding_range    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_text_document_selection_range  (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 5 Plan 05-02 (FMT-02, FMT-03, FMT-04): formatting endpoints.
+ * formatting is substantive; rangeFormatting + onTypeFormatting are
+ * empty-TextEdit[] stubs that Plans 05-03 and 05-04 replace with real
+ * facade calls (handlers_fmt.c). */
+void ilsp_handle_text_document_formatting         (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_range_formatting   (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_on_type_formatting (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -152,16 +160,31 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     /* Phase 4 Plan 04-07 (EDIT-14): foldingRange. Sort: 'f' (0x66)
      * sits between 'documentSymbol' ('d'<'f') and 'hover' ('f'<'h'). */
     { "textDocument/foldingRange",         ilsp_handle_text_document_folding_range,    true,  "foldingRangeProvider"  },
+    /* Phase 5 Plan 05-02 (FMT-02): textDocument/formatting. Sort:
+     * "foldingRange" vs "formatting" -- common "fo", then 'l'(0x6C) <
+     * 'r'(0x72), so foldingRange precedes formatting; formatting vs
+     * hover -- 'f'(0x66) < 'h'(0x68). */
+    { "textDocument/formatting",           ilsp_handle_text_document_formatting,       true,  "documentFormattingProvider" },
     /* Plan 04 Task 02 (NAV-09): hover. */
     { "textDocument/hover",                ilsp_handle_text_document_hover,            true,  "hoverProvider"         },
     /* Plan 05 Task 01 (NAV-05): implementation. 'h' < 'i' < 'r' sort. */
     { "textDocument/implementation",       ilsp_handle_text_document_implementation,   true,  "implementationProvider"},
+    /* Phase 5 Plan 05-02 (FMT-04 STUB; Plan 05-04 fills body):
+     * textDocument/onTypeFormatting. Sort: 'i'(0x69) < 'o'(0x6F) <
+     * 'p'(0x70). */
+    { "textDocument/onTypeFormatting",     ilsp_handle_text_document_on_type_formatting, true, "documentOnTypeFormattingProvider" },
     /* Phase 4 Plan 04-06 (EDIT-10): prepareRename. Sort: 'prepareR' vs
      * 'prepareT' — common 'prepare', then 'R'(0x52) < 'T'(0x54), so
      * prepareRename precedes prepareTypeHierarchy. */
     { "textDocument/prepareRename",        ilsp_handle_text_document_prepare_rename,   true,  "renameProvider"        },
     /* Plan 05 Task 02 (NAV-11): prepareTypeHierarchy. 'i' < 'p' < 'r'. */
     { "textDocument/prepareTypeHierarchy", ilsp_handle_text_document_prepare_type_hierarchy, true, "typeHierarchyProvider"},
+    /* Phase 5 Plan 05-02 (FMT-03 STUB; Plan 05-03 fills body):
+     * textDocument/rangeFormatting. Sort: 'p'(0x70) < 'r'(0x72);
+     * within r-prefix, "rangeFormatting" vs "references" -- common 'r',
+     * then 'a'(0x61) < 'e'(0x65), so rangeFormatting precedes
+     * references. */
+    { "textDocument/rangeFormatting",      ilsp_handle_text_document_range_formatting, true,  "documentRangeFormattingProvider" },
     /* Plan 04 Task 01 (NAV-06): references. */
     { "textDocument/references",           ilsp_handle_text_document_references,       true,  "referencesProvider"    },
     /* Phase 4 Plan 04-06 (EDIT-11): rename. Sort: 'references' vs
