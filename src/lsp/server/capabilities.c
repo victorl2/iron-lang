@@ -121,6 +121,20 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         return;
     }
 
+    /* Phase 4 Plan 04-06 Task 03 (EDIT-10, D-09): renameProvider expects
+     *   { prepareProvider: true }
+     * to signal that textDocument/prepareRename is supported (so the
+     * client does a round-trip classification before asking the user
+     * for a new name). Without prepareProvider, the client rename UI
+     * never gates the call — it dispatches textDocument/rename on
+     * every cursor, regardless of whether the target is renameable. */
+    if (strcmp(name, "renameProvider") == 0) {
+        yyjson_mut_val *rp = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_bool(d, rp, "prepareProvider", true);
+        yyjson_mut_obj_add_val(d, caps, name, rp);
+        return;
+    }
+
     /* Phase 3 Plan 04 Task 03 (D-13): signatureHelpProvider expects
      *   { triggerCharacters: ["(", ","], retriggerCharacters: [","] }.
      * Handler-table auto-advertise cannot produce this shape (it only

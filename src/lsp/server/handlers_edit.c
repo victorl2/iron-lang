@@ -22,9 +22,13 @@
  * distinguish it from quickfix codes. The action's kind string is
  * "source.organizeImports" per LSP 3.17 CodeActionKind. */
 #include "lsp/facade/edit/codeaction/organize_imports.h"
+/* Phase 4 Plan 04-06 (EDIT-10, EDIT-11, EDIT-12): rename surface. */
+#include "lsp/facade/edit/rename/prepare.h"
+#include "lsp/facade/edit/rename/apply.h"
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/span.h"
 #include "lsp/facade/types.h"
+#include "lsp/server/notifications.h"
 #include "lsp/transport/writer.h"
 #include "lsp/transport/json.h"
 #include "lsp/transport/types.h"
@@ -674,6 +678,280 @@ void ilsp_handle_code_action_resolve(IronLsp_Server    *s,
         }
     }
     enqueue_result(s, &body_arena, id_v, rd, item);
+
+    yyjson_mut_doc_free(rd);
+    iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
+}
+
+/* ── textDocument/prepareRename (Plan 04-06 Task 03, D-09) ────────── */
+
+/* Attach a Range {start:{line,character}, end:{line,character}} to
+ * parent under `name`. */
+static void attach_range(yyjson_mut_doc *d, yyjson_mut_val *parent,
+                          const char *name, IronLsp_Range r) {
+    yyjson_mut_val *range = yyjson_mut_obj(d);
+    yyjson_mut_val *start = yyjson_mut_obj(d);
+    yyjson_mut_val *end   = yyjson_mut_obj(d);
+    yyjson_mut_obj_add_uint(d, start, "line",      r.start.line);
+    yyjson_mut_obj_add_uint(d, start, "character", r.start.character);
+    yyjson_mut_obj_add_uint(d, end,   "line",      r.end.line);
+    yyjson_mut_obj_add_uint(d, end,   "character", r.end.character);
+    yyjson_mut_obj_add_val(d, range, "start", start);
+    yyjson_mut_obj_add_val(d, range, "end",   end);
+    yyjson_mut_obj_add_val(d, parent, name, range);
+}
+
+void ilsp_handle_text_document_prepare_rename(IronLsp_Server    *s,
+                                                 struct yyjson_doc *doc,
+                                                 Iron_Arena        *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+
+    const char *uri = ilsp_nav_parse_uri(params);
+    IronLsp_Position pos = {0};
+    bool have_pos = ilsp_nav_parse_position(params, &pos);
+
+    Iron_Arena      body_arena = iron_arena_create(8 * 1024);
+    yyjson_alc      alc        = ilsp_json_alc(&body_arena);
+    yyjson_mut_doc *rd         = yyjson_mut_doc_new(&alc);
+    if (!rd) { iron_arena_free(&body_arena); return; }
+
+    IronLsp_Document *d = lookup_doc(s, uri);
+    if (!d || !have_pos) {
+        enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_null(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = register_cancel(s, id_v);
+
+    Iron_Arena work_arena = iron_arena_create(32 * 1024);
+    IronLsp_PrepareRenameResult result;
+    memset(&result, 0, sizeof(result));
+    ilsp_facade_prepare_rename(s, d, pos, cancel, &work_arena, &result);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    switch ((int)result.kind) {
+        case ILSP_PREPARE_RENAME_ACCEPT: {
+            yyjson_mut_val *obj = yyjson_mut_obj(rd);
+            attach_range(rd, obj, "range", result.range);
+            yyjson_mut_obj_add_strcpy(rd, obj, "placeholder",
+                result.placeholder ? result.placeholder : "");
+            enqueue_result(s, &body_arena, id_v, rd, obj);
+            break;
+        }
+        case ILSP_PREPARE_RENAME_REJECT_STDLIB:
+        case ILSP_PREPARE_RENAME_REJECT_DEP:
+        case ILSP_PREPARE_RENAME_REJECT_EXTERN:
+        case ILSP_PREPARE_RENAME_REJECT_BUILTIN_TYPE: {
+            if (result.show_message) {
+                ilsp_send_window_showmessage(
+                    s, d->uri, ILSP_MESSAGE_TYPE_INFO, result.show_message);
+            }
+            enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_null(rd));
+            break;
+        }
+        case ILSP_PREPARE_RENAME_REJECT_SILENT:
+        default:
+            enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_null(rd));
+            break;
+    }
+
+    yyjson_mut_doc_free(rd);
+    iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
+}
+
+/* ── textDocument/rename (Plan 04-06 Task 03, D-11) ───────────────── */
+
+/* Build WorkspaceEdit JSON from IronLsp_RenameResult (SUCCESS path).
+ * Emits documentChanges when the client advertised that cap; legacy
+ * changes map otherwise. */
+static yyjson_mut_val *workspace_edit_to_json(yyjson_mut_doc              *rd,
+                                                 const IronLsp_RenameResult *res) {
+    yyjson_mut_val *we = yyjson_mut_obj(rd);
+    if (res->use_document_changes) {
+        yyjson_mut_val *arr = yyjson_mut_arr(rd);
+        for (size_t f = 0; f < res->files_n; f++) {
+            const IronLsp_RenameFileEdit *fe = &res->files[f];
+            yyjson_mut_val *tde = yyjson_mut_obj(rd);
+            yyjson_mut_val *td  = yyjson_mut_obj(rd);
+            yyjson_mut_obj_add_strcpy(rd, td, "uri", fe->uri ? fe->uri : "");
+            if (fe->version >= 0) {
+                yyjson_mut_obj_add_int(rd, td, "version", fe->version);
+            } else {
+                yyjson_mut_obj_add_val(rd, td, "version", yyjson_mut_null(rd));
+            }
+            yyjson_mut_obj_add_val(rd, tde, "textDocument", td);
+            yyjson_mut_val *edits = yyjson_mut_arr(rd);
+            for (size_t i = 0; i < fe->edits_n; i++) {
+                const IronLsp_RenameTextEdit *te = &fe->edits[i];
+                yyjson_mut_val *ej = yyjson_mut_obj(rd);
+                attach_range(rd, ej, "range", te->range);
+                yyjson_mut_obj_add_strcpy(rd, ej, "newText",
+                    te->new_text ? te->new_text : "");
+                yyjson_mut_arr_append(edits, ej);
+            }
+            yyjson_mut_obj_add_val(rd, tde, "edits", edits);
+            yyjson_mut_arr_append(arr, tde);
+        }
+        yyjson_mut_obj_add_val(rd, we, "documentChanges", arr);
+    } else {
+        yyjson_mut_val *changes = yyjson_mut_obj(rd);
+        for (size_t f = 0; f < res->files_n; f++) {
+            const IronLsp_RenameFileEdit *fe = &res->files[f];
+            yyjson_mut_val *edits = yyjson_mut_arr(rd);
+            for (size_t i = 0; i < fe->edits_n; i++) {
+                const IronLsp_RenameTextEdit *te = &fe->edits[i];
+                yyjson_mut_val *ej = yyjson_mut_obj(rd);
+                attach_range(rd, ej, "range", te->range);
+                yyjson_mut_obj_add_strcpy(rd, ej, "newText",
+                    te->new_text ? te->new_text : "");
+                yyjson_mut_arr_append(edits, ej);
+            }
+            yyjson_mut_obj_add_val(rd, changes, fe->uri ? fe->uri : "", edits);
+        }
+        yyjson_mut_obj_add_val(rd, we, "changes", changes);
+    }
+    return we;
+}
+
+/* Enqueue a JSON-RPC -32803 RequestFailed response. */
+static void enqueue_request_failed(IronLsp_Server *s, Iron_Arena *body_arena,
+                                      yyjson_val *id_v, const char *message) {
+    yyjson_alc      alc = ilsp_json_alc(body_arena);
+    yyjson_mut_doc *rd  = yyjson_mut_doc_new(&alc);
+    if (!rd) return;
+    yyjson_mut_val *root = yyjson_mut_obj(rd);
+    yyjson_mut_doc_set_root(rd, root);
+    yyjson_mut_obj_add_strcpy(rd, root, "jsonrpc", "2.0");
+    if (!id_v || yyjson_is_null(id_v)) {
+        yyjson_mut_obj_add_val(rd, root, "id", yyjson_mut_null(rd));
+    } else if (yyjson_is_int(id_v) || yyjson_is_sint(id_v)) {
+        yyjson_mut_obj_add_int(rd, root, "id", yyjson_get_sint(id_v));
+    } else if (yyjson_is_uint(id_v)) {
+        yyjson_mut_obj_add_uint(rd, root, "id", yyjson_get_uint(id_v));
+    } else if (yyjson_is_str(id_v)) {
+        yyjson_mut_obj_add_strcpy(rd, root, "id", yyjson_get_str(id_v));
+    } else {
+        yyjson_mut_obj_add_val(rd, root, "id", yyjson_mut_null(rd));
+    }
+    yyjson_mut_val *err = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_int   (rd, err, "code",    -32803);
+    yyjson_mut_obj_add_strcpy(rd, err, "message", message ? message : "");
+    yyjson_mut_obj_add_val   (rd, root, "error", err);
+    enqueue_json(s, rd, body_arena);
+    yyjson_mut_doc_free(rd);
+}
+
+void ilsp_handle_text_document_rename(IronLsp_Server    *s,
+                                         struct yyjson_doc *doc,
+                                         Iron_Arena        *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
+
+    const char *uri = ilsp_nav_parse_uri(params);
+    IronLsp_Position pos = {0};
+    bool have_pos = ilsp_nav_parse_position(params, &pos);
+    const char *new_name = NULL;
+    yyjson_val *nn_v = yyjson_obj_get(params, "newName");
+    if (nn_v && yyjson_is_str(nn_v)) new_name = yyjson_get_str(nn_v);
+
+    Iron_Arena      body_arena = iron_arena_create(16 * 1024);
+    yyjson_alc      alc        = ilsp_json_alc(&body_arena);
+    yyjson_mut_doc *rd         = yyjson_mut_doc_new(&alc);
+    if (!rd) { iron_arena_free(&body_arena); return; }
+
+    IronLsp_Document *d = lookup_doc(s, uri);
+    if (!d || !have_pos || !new_name) {
+        /* Missing params — empty WorkspaceEdit (graceful). */
+        yyjson_mut_val *we = yyjson_mut_obj(rd);
+        enqueue_result(s, &body_arena, id_v, rd, we);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = register_cancel(s, id_v);
+
+    Iron_Arena work_arena = iron_arena_create(128 * 1024);
+    IronLsp_RenameResult result;
+    memset(&result, 0, sizeof(result));
+    ilsp_facade_rename(s, d, pos, new_name, cancel, &work_arena, &result);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    switch ((int)result.outcome) {
+        case ILSP_RENAME_SUCCESS: {
+            yyjson_mut_val *we = workspace_edit_to_json(rd, &result);
+            enqueue_result(s, &body_arena, id_v, rd, we);
+            break;
+        }
+        case ILSP_RENAME_FAIL_COLLISION: {
+            yyjson_mut_doc_free(rd);
+            char msg[512];
+            if (result.collision.kind == ILSP_COLLISION_KEYWORD) {
+                snprintf(msg, sizeof(msg),
+                    "rename would conflict with Iron keyword '%s'",
+                    new_name);
+            } else if (result.collision.kind == ILSP_COLLISION_EMPTY_NAME) {
+                snprintf(msg, sizeof(msg),
+                    "rename requires a non-empty newName");
+            } else {
+                const char *cn = result.collision.conflict_name
+                    ? result.collision.conflict_name : "";
+                const char *cf = result.collision.conflict_file
+                    ? result.collision.conflict_file : "";
+                snprintf(msg, sizeof(msg),
+                    "rename would conflict with '%s' at %s:%u:%u",
+                    cn, cf, result.collision.conflict_line,
+                    result.collision.conflict_col);
+            }
+            enqueue_request_failed(s, &body_arena, id_v, msg);
+            iron_arena_free(&body_arena);
+            iron_arena_free(&work_arena);
+            return;
+        }
+        case ILSP_RENAME_FAIL_STDLIB_IMPLEMENTOR:
+        case ILSP_RENAME_FAIL_DEP_IMPLEMENTOR: {
+            yyjson_mut_doc_free(rd);
+            const char *msg = result.fail_message
+                ? result.fail_message
+                : "rename rejected: affected stdlib/dep implementor";
+            enqueue_request_failed(s, &body_arena, id_v, msg);
+            iron_arena_free(&body_arena);
+            iron_arena_free(&work_arena);
+            return;
+        }
+        case ILSP_RENAME_FAIL_CANCELLED:
+        default:
+            /* Drop silently. */
+            yyjson_mut_doc_free(rd);
+            iron_arena_free(&body_arena);
+            iron_arena_free(&work_arena);
+            return;
+    }
 
     yyjson_mut_doc_free(rd);
     iron_arena_free(&body_arena);
