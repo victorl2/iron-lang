@@ -258,6 +258,20 @@ int64_t Iron_max(int64_t a, int64_t b);
 int64_t Iron_clamp(int64_t val, int64_t lo, int64_t hi);
 int64_t Iron_abs(int64_t val);
 void    Iron_assert(bool cond, Iron_String msg);
+
+/* ── Phase 78 FMT — Int/Int32/Float → String conversion ─────────────────
+ * Defined in src/runtime/iron_fmt.c. Consumed by the Iron-side stubs in
+ * src/stdlib/int.iron and src/stdlib/float.iron (landed in Plan 78-02).
+ *
+ * Iron_int_to_string   — signed 64-bit decimal (INT64_MIN safe).
+ * Iron_int32_to_string — signed 32-bit decimal (INT32_MIN safe).
+ * Iron_float_to_string — libc %.6g (6 sig digits, trailing zeros trimmed);
+ *                        NaN/±Inf/-0.0 normalize to "NaN"/"inf"/"-inf"/"0".
+ */
+Iron_String Iron_int_to_string(int64_t n);
+Iron_String Iron_int32_to_string(int32_t n);
+Iron_String Iron_float_to_string(double f);
+
 static inline int64_t Iron_range(int64_t n) { return n; }
 
 /* ── Iron_Pool (fixed-size thread pool) ──────────────────────────────────────
