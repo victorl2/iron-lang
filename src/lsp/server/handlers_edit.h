@@ -43,6 +43,23 @@ void ilsp_handle_code_action_resolve(struct IronLsp_Server *s,
                                        struct yyjson_doc     *doc,
                                        Iron_Arena            *arena);
 
+/* Phase 4 Plan 04-06 Task 03 (EDIT-10, EDIT-11, EDIT-12, D-09, D-10,
+ * D-11) — rename handlers. prepareRename classifies the cursor and
+ * emits {range, placeholder} (accept) or null + optional window/
+ * showMessage (reject). rename builds the full WorkspaceEdit via
+ * the apply facade, emitting either documentChanges (preferred) or
+ * the legacy changes map based on the sniffed client capability.
+ * Collision / stdlib-implementor / dep-implementor failures emit
+ * JSON-RPC -32803 RequestFailed with the offender location in the
+ * message. */
+void ilsp_handle_text_document_prepare_rename(struct IronLsp_Server *s,
+                                                 struct yyjson_doc     *doc,
+                                                 Iron_Arena            *arena);
+
+void ilsp_handle_text_document_rename(struct IronLsp_Server *s,
+                                         struct yyjson_doc     *doc,
+                                         Iron_Arena            *arena);
+
 #ifdef __cplusplus
 }
 #endif
