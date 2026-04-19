@@ -1671,6 +1671,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* String instance method: resolve via string.iron wrapper decls */
                     type_name_mc = "String";
                 } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_INT) {
+                    /* Phase 78 FMT-01: Int instance method (e.g. n.to_string()).
+                     * Resolve via int.iron wrapper decls (unconditionally prepended
+                     * by build.c / check.c — parallel to string.iron). */
+                    type_name_mc = "Int";
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_INT32) {
+                    /* Phase 78 FMT-02: Int32 instance method (e.g. n.to_string()).
+                     * Int32.to_string is a distinct method, NOT a widening delegate
+                     * through Int (CONTEXT.md: type-first design). */
+                    type_name_mc = "Int32";
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_FLOAT) {
+                    /* Phase 78 FMT-03: Float instance method (e.g. f.to_string()).
+                     * Resolve via float.iron wrapper decls. */
+                    type_name_mc = "Float";
+                } else if (obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_ARRAY) {
                     /* Collection method: try extension method decls first,
                      * fall back to built-in heuristics for push/pop/len/etc. */
@@ -1766,6 +1783,30 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, "String") == 0 &&
+                            strcmp(md->method_name, mc->method) == 0) {
+                            if (md->resolved_return_type) {
+                                result = md->resolved_return_type;
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else if (obj_type_mc && (obj_type_mc->kind == IRON_TYPE_INT   ||
+                                        obj_type_mc->kind == IRON_TYPE_INT32 ||
+                                        obj_type_mc->kind == IRON_TYPE_FLOAT)) {
+                /* Phase 78 FMT-01/02/03: non-ident receiver with primitive numeric type.
+                 * Covers integer/float literals as receivers (42.to_string()) and
+                 * chained calls ((a + b).to_string()). */
+                const char *tn =
+                    (obj_type_mc->kind == IRON_TYPE_INT)   ? "Int"   :
+                    (obj_type_mc->kind == IRON_TYPE_INT32) ? "Int32" :
+                                                              "Float";
+                if (ctx->program) {
+                    for (int i = 0; i < ctx->program->decl_count; i++) {
+                        Iron_Node *d = ctx->program->decls[i];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, tn) == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
