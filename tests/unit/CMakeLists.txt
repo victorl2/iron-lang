@@ -511,6 +511,64 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
 
+    # Phase 4 Plan 04-06 Task 01 (EDIT-10, EDIT-12, D-09, D-10): rename
+    # prepare + collision facade unit tests. prepare.c drives the full
+    # cursor→ident→classification path (links document, compile facade,
+    # nav plumbing); collision.c is a pure scope-walker (no document
+    # needed), tested against hand-built Iron_Scope + Iron_Symbol values.
+
+    add_executable(test_rename_prepare
+        test_rename_prepare.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/prepare.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+        # compile.c pulls in json + writer + frame + log; diagnostics.c
+        # pulls in json. Link the full transport + obs stack.
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+    )
+    target_include_directories(test_rename_prepare PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_compile_definitions(test_rename_prepare PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_rename_prepare
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+        PROPERTIES COMPILE_FLAGS "-Wno-error -w")
+    add_test(NAME test_rename_prepare COMMAND test_rename_prepare)
+    set_tests_properties(test_rename_prepare PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
+
+    add_executable(test_rename_collision
+        test_rename_collision.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/collision.c
+    )
+    target_include_directories(test_rename_collision PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_rename_collision
+        iron_compiler iron_runtime unity)
+    add_test(NAME test_rename_collision COMMAND test_rename_collision)
+    set_tests_properties(test_rename_collision PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
+
     # Phase 4 Plan 04-05 Task 01 (EDIT-09, D-08): organizeImports facade
     # unit tests. Links the organize_imports facade TU directly alongside
     # the workspace-index store modules it consults (stdlib_cache for
