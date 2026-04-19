@@ -1,0 +1,5 @@
+func main() {
+  val n: Int = 5
+  val m: Int = Int(n)
+  println("m")
+}

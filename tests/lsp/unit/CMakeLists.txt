@@ -178,7 +178,17 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/apply.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/highlight.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/folding_range.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c
+        # Phase 5 (M4 Formatting): dispatch.c adds 3 fmt handler rows
+        # (textDocument/formatting, textDocument/rangeFormatting,
+        # textDocument/onTypeFormatting). handlers_fmt.c hosts all 3
+        # and delegates to facade/fmt/ TUs. Every test linking
+        # dispatch.c must resolve these symbols (Plan 05-05 deviation
+        # Rule 3: blocking link-graph fix inherited from Plans 05-02..05-04).
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_fmt.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/range_format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/on_type_format.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -677,6 +687,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        # Phase 5 Plan 05-02: workspace_index.c now calls iron_toml_parse
+        # via ilsp_workspace_fmt_opts_load (fmt_opts cache for iron.toml
+        # [fmt]). Link cli/toml.c for the TOML parser and dependent
+        # package-resolution sources.
+        ${CMAKE_SOURCE_DIR}/src/cli/toml.c
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_workspace_index PRIVATE
         ${CMAKE_SOURCE_DIR}/src
@@ -926,7 +941,12 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/apply.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/highlight.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/folding_range.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c
+        # Phase 5 (M4 Formatting): 3 fmt handler rows + facade TUs.
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_fmt.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/range_format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/on_type_format.c)
     target_include_directories(test_workspace_diagnostic PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
