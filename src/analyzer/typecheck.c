@@ -3367,8 +3367,10 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
 
     tc_push_scope(ctx, IRON_SCOPE_FUNCTION);
 
-    /* Define 'self' */
-    if (md->owner_sym) {
+    /* Define 'self' — classic form only. Receiver form has no implicit
+     * `self`; the receiver is bound under its declared name via the
+     * params[0] entry below. */
+    if (md->owner_sym && !md->is_receiver_form) {
         tc_define(ctx, "self", IRON_SYM_VARIABLE, (Iron_Node *)md, md->span,
                   true, md->owner_sym->type);
     }
