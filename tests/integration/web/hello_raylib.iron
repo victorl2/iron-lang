@@ -1,27 +1,25 @@
--- hello_raylib.iron: PHASE 60 clean-break placeholder for the web
--- integration test. Restored to a working Hello World in Phase 61.
+-- hello_raylib.iron: canonical raylib hello-world for the --target=web
+-- integration test (Phase 8 WEB-BUILD-05). Single init → one-frame
+-- render → close sequence; emit_web takes the 'no canonical loop'
+-- branch and produces a valid WASM module that emcc can link.
+--
+-- Deliberately minimal — the point is to prove the Iron → wasm path
+-- for raylib compiles, links, and produces dist/web/index.{html,js,wasm}.
+-- For a real animation on web see tests/manual/game_raylib.iron (not
+-- in web CI because it needs a display) or examples/pong/pong.iron.
 
 import raylib
 
 func main() {
-    -- Phase 60 type surface only:
-    val title: String = "Hello Raylib Web — Phase 60 placeholder"
+    val title: String = "Hello Raylib Web"
     val bg: Color = WHITE
     val fg: Color = BLACK
 
-    -- Phase 61: init/close. Phase 63 renders one frame below.
     Window.init(800, 600, title)
     val _should: Bool = Window.should_close()
-    -- Phase 63: render a single frame to exercise the Draw namespace.
     Draw.begin()
     Draw.clear(bg)
     Draw.rectangle(10, 10, 20, 20, fg)
     Draw.end()
     Window.close()
-
-    -- bg and fg are consumed by Draw.clear / Draw.rectangle above
-    -- (Plan 63-04); title is still consumed by Window.init above.
-    -- Keep _unused_0 defensively in case Iron's DCE treats the
-    -- init-time reference as eligible for elimination.
-    val _unused_0 = title
 }
