@@ -2,6 +2,7 @@
 #include "parser/ast.h"
 #include "util/strbuf.h"
 #include "util/arena.h"
+#include "fmt/options.h"   /* IronFmtOptions */
 #include "lexer/lexer.h"   /* Iron_TokenKind for operator names */
 
 #include <stdio.h>
@@ -11,15 +12,28 @@
 /* ── Printer context ─────────────────────────────────────────────────────── */
 
 typedef struct {
-    Iron_StrBuf *sb;
-    int          indent_level;
+    Iron_StrBuf          *sb;
+    int                   indent_level;
+    const IronFmtOptions *opts;   /* Phase 5 Plan 05-01: NULL means defaults */
 } PrintCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
+/* Phase 5 Plan 05-01 (D-01, FMT-05): honor opts->use_tabs and
+ * opts->indent_width. NULL opts or opts->indent_width <= 0 fall back
+ * to 2 spaces -- byte-identical to pre-Phase-5 behavior (RESEARCH A1). */
 static void print_indent(PrintCtx *ctx) {
-    for (int i = 0; i < ctx->indent_level; i++) {
-        iron_strbuf_appendf(ctx->sb, "  ");
+    if (ctx->opts && ctx->opts->use_tabs) {
+        for (int i = 0; i < ctx->indent_level; i++) {
+            iron_strbuf_appendf(ctx->sb, "\t");
+        }
+    } else {
+        int width = (ctx->opts && ctx->opts->indent_width > 0)
+                    ? ctx->opts->indent_width
+                    : 2;    /* preserve pre-Phase-5 default */
+        for (int i = 0; i < ctx->indent_level; i++) {
+            for (int j = 0; j < width; j++) iron_strbuf_appendf(ctx->sb, " ");
+        }
     }
 }
 
@@ -773,9 +787,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
-char *iron_print_ast(Iron_Node *root, Iron_Arena *arena) {
+char *iron_print_ast(Iron_Node *root, const IronFmtOptions *opts, Iron_Arena *arena) {
     Iron_StrBuf sb  = iron_strbuf_create(512);
-    PrintCtx    ctx = { &sb, 0 };
+    PrintCtx    ctx = { &sb, 0, opts };
     print_node(&ctx, root);
 
     /* Copy result into arena */
@@ -788,9 +802,9 @@ char *iron_print_ast(Iron_Node *root, Iron_Arena *arena) {
     return out;
 }
 
-void iron_print_ast_to_file(Iron_Node *root, FILE *out) {
+void iron_print_ast_to_file(Iron_Node *root, const IronFmtOptions *opts, FILE *out) {
     Iron_StrBuf sb  = iron_strbuf_create(512);
-    PrintCtx    ctx = { &sb, 0 };
+    PrintCtx    ctx = { &sb, 0, opts };
     print_node(&ctx, root);
     fprintf(out, "%s", iron_strbuf_get(&sb));
     iron_strbuf_free(&sb);

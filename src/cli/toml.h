@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "cli/web_config.h"
+#include "fmt/options.h"
 
 /* Parsed representation of a single dependency from [dependencies]. */
 typedef struct {
@@ -30,6 +31,13 @@ typedef struct {
     int    dep_capacity;
     /* [web] section (parsed in toml.c section==3 branch, Plan 02) */
     IronWebConfig web;
+
+    /* Phase 5 Plan 05-01 (D-02, FMT-05): [fmt] section options.
+     * Populated by iron_toml_parse section == 4 branch (added in Plan
+     * 05-01 Task 2). Silently absent in iron.toml -> struct stays at
+     * calloc-zeroed zero values, which iron_fmt_options_from_toml
+     * interprets as "use defaults for each field whose value is <= 0". */
+    IronFmtOptions fmt;
 
     /* Directory containing the iron.toml file passed to iron_toml_parse.
      * Populated by iron_toml_parse. Never NULL on a successful parse —

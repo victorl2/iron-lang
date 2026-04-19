@@ -184,6 +184,11 @@ add_library(iron_compiler STATIC
     src/lir/verify.c
     src/lir/lir_optimize.c
     src/lir/web_main_loop_split.c
+    # Phase 5 Plan 05-01 (FMT-01, FMT-05, D-01, D-02): src/fmt/ module.
+    # Single library entry point for both `iron fmt` CLI and `ironls` LSP.
+    src/fmt/format.c
+    src/fmt/options.c
+    src/fmt/config_load.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
 target_link_libraries(iron_compiler iron_runtime)
