@@ -655,4 +655,29 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_folding_range PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
+
+    # Phase 4 Plan 04-07 Task 03 (EDIT-15, D-14) — selectionRange.
+    # Parser-only — links selection_range.c + document store only.
+    # Covers 7-rung ladder construction, EOF handling, strict
+    # containment invariant, Iron_ErrorNode tolerance, leaf literal
+    # rung, and multiple positions in one call.
+    add_executable(test_selection_range
+        test_selection_range.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+    )
+    target_include_directories(test_selection_range PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_selection_range
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_selection_range COMMAND test_selection_range)
+    set_tests_properties(test_selection_range PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
 endif()
