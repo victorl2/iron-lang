@@ -2324,7 +2324,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
          * diagnostics (GRAMMAR-05) instead of a cryptic downstream error. */
         Iron_TypeAnnotation *recv_ann = (Iron_TypeAnnotation *)recv_type_ann;
         if (recv_ann->is_tuple || recv_ann->is_array || recv_ann->is_func ||
-            !recv_ann->name) {
+            !recv_ann->name || recv_ann->generic_arg_count > 0) {
             iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN, recv_ann->span,
                            "receiver type must be a named object or enum type "
                            "(tuples, arrays, function types, and generics are not receivers)");
