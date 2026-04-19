@@ -222,6 +222,8 @@ set_tests_properties(test_stdlib_net_cross_platform PROPERTIES LABELS "unit")
 add_executable(test_toml_web
     test_toml_web.c
     ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+    # Phase 5 Plan 05-01 fix: toml.c calls iron_fmt_options_default()
+    ${CMAKE_SOURCE_DIR}/src/fmt/options.c
 )
 target_include_directories(test_toml_web PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -285,6 +287,8 @@ set_tests_properties(test_shell_subst PROPERTIES LABELS "unit;phase13")
 add_executable(test_asset_path
     test_asset_path.c
     ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+    # Phase 5 Plan 05-01 fix: toml.c calls iron_fmt_options_default()
+    ${CMAKE_SOURCE_DIR}/src/fmt/options.c
 )
 target_include_directories(test_asset_path PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_asset_path unity)
@@ -708,7 +712,11 @@ set_tests_properties(test_fmt_options_honored PROPERTIES
     LABELS "unit;phase-m4-invariant"
     TIMEOUT 30)
 
-add_executable(test_fmt_options_parse test_fmt_options_parse.c)
+add_executable(test_fmt_options_parse
+    test_fmt_options_parse.c
+    # Phase 5 Plan 05-01 fix: pull cli/toml.c directly (not in iron_compiler lib)
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+)
 target_link_libraries(test_fmt_options_parse iron_compiler iron_runtime unity)
 add_test(NAME test_fmt_options_parse COMMAND test_fmt_options_parse)
 set_tests_properties(test_fmt_options_parse PROPERTIES
