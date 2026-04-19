@@ -435,10 +435,13 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/selection_range.c
         src/lsp/server/handlers_edit.c
         # Phase 5 Plan 05-02 (FMT-02, D-10, D-11, D-12): formatting
-        # facade. format.c is the SINGLE iron_format_source( call
-        # site under src/lsp/ -- enforced by test_fmt_single_call_site
-        # CTest grep-invariant. handlers_fmt.c registered in Task 2.
+        # facade + dispatch handlers. format.c is the SINGLE
+        # iron_format_source( call site under src/lsp/ -- enforced by
+        # test_fmt_single_call_site CTest grep-invariant. handlers_fmt.c
+        # routes textDocument/formatting through ilsp_facade_format_full;
+        # range/on_type are empty-TextEdit stubs (Plans 05-03/04 fill).
         src/lsp/facade/fmt/format.c
+        src/lsp/server/handlers_fmt.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
         # stdlib_cache.c is the process-lifetime pre-parsed surface-file
@@ -758,6 +761,24 @@ add_test(NAME benchmark_smoke
 set_tests_properties(benchmark_smoke PROPERTIES
     TIMEOUT 300
     LABELS "benchmark")
+
+# Phase 5 Plan 05-02 (D-10) -- test_fmt_single_call_site grep-invariant.
+#
+# Asserts exactly ONE call to iron_format_source( exists under src/lsp/.
+# Mirrors the CORE-22 single-call-site discipline that governs
+# iron_analyze_buffer: the compiler primitive has exactly one entry point
+# from LSP code (in src/lsp/facade/fmt/format.c's facade_format static
+# helper). Any new sibling TU that calls iron_format_source directly
+# will trip this invariant; planner-approved reuse must route through
+# the existing static helper.
+if(IRON_BUILD_LSP)
+    add_test(
+        NAME test_fmt_single_call_site
+        COMMAND sh -c "count=$(grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/ 2>/dev/null | wc -l); if [ \"$count\" != \"1\" ]; then echo 'CORE-22 ANALOG VIOLATED: expected 1 iron_format_source( call site under src/lsp/, found '$count; grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/; exit 1; fi; exit 0"
+    )
+    set_tests_properties(test_fmt_single_call_site PROPERTIES
+        LABELS "invariant;phase-m4-invariant")
+endif()
 
 # ---- Install rules ----
 if(IRON_BUILD_LSP)

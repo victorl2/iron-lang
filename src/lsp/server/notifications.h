@@ -47,6 +47,18 @@ void ilsp_send_window_showmessage(struct IronLsp_Server *server,
                                    int                    message_type,
                                    const char            *message);
 
+/* Phase 5 Plan 05-02 (FMT-02, D-03) -- Build and enqueue a
+ * `window/logMessage` notification. Same params shape as showMessage
+ * but routes to the editor's log channel instead of the user-visible
+ * popup; used by the formatting handlers to whisper refusal notices
+ * without being noisy during keystroke-driven editing. `uri` is
+ * interpolated into `message` by the caller for context; the LSP spec
+ * does not define a uri field on window/logMessage params. */
+void ilsp_send_window_logmessage (struct IronLsp_Server *server,
+                                   const char            *uri,
+                                   int                    message_type,
+                                   const char            *message);
+
 #ifdef __cplusplus
 }
 #endif
