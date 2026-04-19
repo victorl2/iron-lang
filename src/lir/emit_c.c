@@ -751,8 +751,32 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_String ");
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = iron_string_from_literal(\"%s\", %zu);\n",
-                            sv, slen);
+        /* Escape the literal for C source embedding. Iron's lexer decodes
+         * `\n` / `\t` / `\"` / `\\` into the raw byte, so `sv` may contain
+         * newlines, quotes, backslashes, and arbitrary control characters
+         * (e.g. inline GLSL with embedded newlines, D6 residual). Emitting
+         * with `%s` broke on the first newline — the C compiler can't
+         * parse a raw LF inside a string literal. Emit each byte through
+         * a minimal C-escape table. */
+        iron_strbuf_appendf(sb, " = iron_string_from_literal(\"");
+        for (size_t i = 0; i < slen; i++) {
+            unsigned char ch = (unsigned char)sv[i];
+            switch (ch) {
+                case '\n': iron_strbuf_appendf(sb, "\\n");  break;
+                case '\r': iron_strbuf_appendf(sb, "\\r");  break;
+                case '\t': iron_strbuf_appendf(sb, "\\t");  break;
+                case '\\': iron_strbuf_appendf(sb, "\\\\"); break;
+                case '"':  iron_strbuf_appendf(sb, "\\\""); break;
+                default:
+                    if (ch < 0x20 || ch == 0x7f) {
+                        iron_strbuf_appendf(sb, "\\x%02x", ch);
+                    } else {
+                        iron_strbuf_appendf(sb, "%c", (int)ch);
+                    }
+                    break;
+            }
+        }
+        iron_strbuf_appendf(sb, "\", %zu);\n", slen);
         break;
     }
 

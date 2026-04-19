@@ -35,13 +35,8 @@ func main() -> Int32 {
         print("WARN: grayscale.fs failed to load; raylib default substituted internally")
     }
 
-    -- Inline memory load — empty-string arg => raylib default stages
-    -- (both NULL in C), exercising the load_from_memory shim's
-    -- dual-NULL-fallback path without risking ironc lexer quirks on
-    -- GLSL source strings containing braces/newlines (Rule-3 Blocking
-    -- fix: ironc's string lexer does not round-trip `\n` + `{ }` cleanly,
-    -- misreading the body as Iron code with spurious E0200 identifier
-    -- errors. Phase 73 string-literal lexer fix slot.) Default-both
+    -- Inline memory load — first with empty-string args to exercise the
+    -- raylib-default-stage fallback path (both NULL in C). Default-both
     -- still validates the shim path end-to-end: two iron_string_cstr
     -- calls + 2x empty-string→NULL fallback in C.
     val sh_mem = Shader.load_from_memory("", "")
@@ -49,6 +44,17 @@ func main() -> Int32 {
     if not ok_mem {
         print("WARN: memory shader failed to compile")
     }
+
+    -- Inline GLSL source as a real string literal, using the `\{` / `\}`
+    -- escapes added for D6 residual. This proves the lexer round-trips
+    -- brace-heavy shader text without misreading `{ gl_FragColor = ... }`
+    -- as Iron interpolation. The compiled shader is discarded; we only
+    -- care that Shader.load_from_memory accepts the string and the Iron
+    -- source type-checks + links.
+    val fs_src: String = "#version 330\nvoid main() \{ gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); \}"
+    val sh_inline = Shader.load_from_memory("", fs_src)
+    val _k_inline = sh_inline
+    Shader.unload(sh_inline)
 
 -- ── SHADER-02: Shader.get_location / get_location_attrib / set_location ─
     print("-- ── SHADER-02: get_location / get_location_attrib / set_location")

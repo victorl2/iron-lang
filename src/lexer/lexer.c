@@ -307,7 +307,15 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                 case 't':  PUSH_CHAR('\t'); break;
                 case '\\': PUSH_CHAR('\\'); break;
                 case '"':  PUSH_CHAR('"');  break;
+                /* `\{` and `\}` escape the interpolation delimiters to a
+                 * literal brace. The `\{` escape also prevents has_interp
+                 * from firing (see the unescaped-`{` branch below), so a
+                 * string containing ONLY `\{` / `\}` is tokenised as
+                 * IRON_TOK_STRING and never re-scanned by the parser's
+                 * interp-splitter. Needed for inline GLSL / JSON / C-like
+                 * source text — the D6 residual before this fix. */
                 case '{':  PUSH_CHAR('{');  break;
+                case '}':  PUSH_CHAR('}');  break;
                 default:   PUSH_CHAR('\\'); PUSH_CHAR(esc); break;
             }
             continue;
