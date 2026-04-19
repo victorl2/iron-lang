@@ -966,7 +966,15 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
  * the caller, which in every case assigns it into an arena-allocated call-
  * expression node (e.g., `call->args = arr;`). Ownership transfers to the
  * arena AST node; stb_ds backing buffer lives for the compilation unit. */
-static Iron_Node **iron_parse_call_args(Iron_Parser *p, int *out_count) {
+/* Phase 5 Plan 05-05: `out_rparen_span` (optional) receives the span
+ * of the closing `)` token. Callers that build CallExpr / MethodCallExpr
+ * / EnumConstruct spans should pass a non-NULL pointer and merge with
+ * their left-span -- the previous convention of using iron_current(p)
+ * after iron_parse_call_args returned pointed at the NEXT token (which
+ * may be on the following line), producing broken multi-line spans
+ * that broke the D-07 quickfix fmt-clean gate. */
+static Iron_Node **iron_parse_call_args_ex(Iron_Parser *p, int *out_count,
+                                             Iron_Span *out_rparen_span) {
     Iron_Node **arr = NULL;
     *out_count = 0;
 
@@ -983,8 +991,26 @@ static Iron_Node **iron_parse_call_args(Iron_Parser *p, int *out_count) {
         iron_skip_newlines(p);
     }
 
+    /* Capture the RPAREN span BEFORE iron_expect consumes it. */
+    if (out_rparen_span) {
+        if (iron_check(p, IRON_TOK_RPAREN)) {
+            *out_rparen_span = iron_token_span(p, iron_current(p));
+        } else {
+            /* Missing RPAREN (error recovery path): fall back to the
+             * current token's span so at least filename + line are set. */
+            *out_rparen_span = iron_token_span(p, iron_current(p));
+        }
+    }
     iron_expect(p, IRON_TOK_RPAREN);
     return arr;
+}
+
+/* Thin wrapper kept for callers that don't need the RPAREN span. */
+#ifdef __GNUC__
+__attribute__((unused))
+#endif
+static Iron_Node **iron_parse_call_args(Iron_Parser *p, int *out_count) {
+    return iron_parse_call_args_ex(p, out_count, NULL);
 }
 
 /* ── Lambda: func(params) [-> Type] { body } ─────────────────────────────── */
@@ -1474,12 +1500,13 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
                     if (looks_like_type && looks_like_variant) {
                         int arg_count = 0;
-                        Iron_Node **args = iron_parse_call_args(p, &arg_count);
+                        Iron_Span rp_sp = {0};
+                        Iron_Node **args = iron_parse_call_args_ex(p, &arg_count, &rp_sp);
                         Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
                         if (!ec) { /* HARD-09 REPLACE (iron_parse_expr_prec EnumConstruct call) */ p->in_error_recovery = true; return iron_make_error(p); }
                         ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
-                        ec->span          = iron_span_merge(left->span,
-                                                iron_token_span(p, iron_current(p)));
+                        /* Phase 5 Plan 05-05: span ends at RPAREN. */
+                        ec->span          = iron_span_merge(left->span, rp_sp);
                         ec->resolved_type = NULL;
                         ec->enum_name     = ident->name;
                         ec->variant_name  = name;
@@ -1488,12 +1515,13 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         left = (Iron_Node *)ec;
                     } else {
                         int arg_count = 0;
-                        Iron_Node **args = iron_parse_call_args(p, &arg_count);
+                        Iron_Span rp_sp = {0};
+                        Iron_Node **args = iron_parse_call_args_ex(p, &arg_count, &rp_sp);
                         Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
                         if (!mc) { /* HARD-09 REPLACE (iron_parse_expr_prec MethodCall ident) */ p->in_error_recovery = true; return iron_make_error(p); }
                         mc->kind      = IRON_NODE_METHOD_CALL;
-                        mc->span      = iron_span_merge(left->span,
-                                                        iron_token_span(p, iron_current(p)));
+                        /* Phase 5 Plan 05-05: span ends at RPAREN. */
+                        mc->span      = iron_span_merge(left->span, rp_sp);
                         mc->resolved_type = NULL;
                         mc->object    = left;
                         mc->method    = name;
@@ -1504,12 +1532,13 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 } else {
                     /* Non-ident LHS: always a method call */
                     int arg_count = 0;
-                    Iron_Node **args = iron_parse_call_args(p, &arg_count);
+                    Iron_Span rp_sp = {0};
+                    Iron_Node **args = iron_parse_call_args_ex(p, &arg_count, &rp_sp);
                     Iron_MethodCallExpr *mc = ARENA_ALLOC(p->arena, Iron_MethodCallExpr);
                     if (!mc) { /* HARD-09 REPLACE (iron_parse_expr_prec MethodCall nonident) */ p->in_error_recovery = true; return iron_make_error(p); }
                     mc->kind      = IRON_NODE_METHOD_CALL;
-                    mc->span      = iron_span_merge(left->span,
-                                                    iron_token_span(p, iron_current(p)));
+                    /* Phase 5 Plan 05-05: span ends at RPAREN. */
+                    mc->span      = iron_span_merge(left->span, rp_sp);
                     mc->resolved_type = NULL;
                     mc->object    = left;
                     mc->method    = name;
@@ -1594,15 +1623,18 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         /* Function call: expr(args) */
         if (cur == IRON_TOK_LPAREN) {
             int arg_count = 0;
-            Iron_Node **args = iron_parse_call_args(p, &arg_count);
+            Iron_Span rparen_sp = {0};
+            Iron_Node **args = iron_parse_call_args_ex(p, &arg_count, &rparen_sp);
 
             /* If callee is an Ident, may be construct or call.
              * We emit a CallExpr regardless; semantic analysis disambiguates. */
             Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
             if (!call) { /* HARD-09 REPLACE (iron_parse_expr_prec CallExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
             call->kind      = IRON_NODE_CALL;
-            call->span      = iron_span_merge(left->span,
-                                              iron_token_span(p, iron_current(p)));
+            /* Phase 5 Plan 05-05: span ends at the RPAREN, not at
+             * iron_current(p) which is the NEXT token (possibly on
+             * the following line). */
+            call->span      = iron_span_merge(left->span, rparen_sp);
             call->callee    = left;
             call->args      = args;
             call->arg_count = arg_count;

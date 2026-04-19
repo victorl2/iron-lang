@@ -149,11 +149,16 @@ static void test_quickfix_undefined_var_shape(void) {
     TEST_ASSERT_EQUAL_STRING("println", out.edit_new_text);
     TEST_ASSERT_EQUAL_PTR(&d, out.originating_diag);
 
-    /* Span to LSP range: Iron (2, 3..9) 1-indexed -> LSP (1, 2..8) 0-indexed. */
+    /* Span to LSP range: Iron (2, 3..9) 1-indexed -> LSP (1, 2..9) 0-indexed.
+     * Phase 5 Plan 05-05: ilsp_span_to_lsp_range now emits LSP-spec
+     * exclusive ends (end.character = iron_end_col when iron_end_col
+     * is 1-indexed INCLUSIVE). The test author originally passed
+     * end_col=9 meaning "one past the last char of prinln" (exclusive);
+     * under the inclusive-end fix, 9 maps to 9 (exclusive), not 8. */
     TEST_ASSERT_EQUAL_UINT(1u, out.edit_start_line);
     TEST_ASSERT_EQUAL_UINT(2u, out.edit_start_char);
     TEST_ASSERT_EQUAL_UINT(1u, out.edit_end_line);
-    TEST_ASSERT_EQUAL_UINT(8u, out.edit_end_char);
+    TEST_ASSERT_EQUAL_UINT(9u, out.edit_end_char);
 
     ilsp_document_destroy(doc);
 }
