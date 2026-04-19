@@ -630,4 +630,29 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_document_highlight PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
+
+    # Phase 4 Plan 04-07 Task 02 (EDIT-14, D-13) — foldingRange. Strict
+    # parser-only — the facade links folding_range.c + the lsp store
+    # document helpers only; NO compile.c, NO facade/diagnostics, NO
+    # transport. The test fixtures include a syntactically broken
+    # program to prove Iron_ErrorNode tolerance.
+    add_executable(test_folding_range
+        test_folding_range.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/folding_range.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+    )
+    target_include_directories(test_folding_range PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_folding_range
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_folding_range COMMAND test_folding_range)
+    set_tests_properties(test_folding_range PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
 endif()
