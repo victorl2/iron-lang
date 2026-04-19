@@ -30,8 +30,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "lsp/facade/edit/complete/auto_import.h"
 #include "lsp/facade/edit/complete/context_classify.h"
-#include "parser/ast.h"      /* Iron_Program typedef (anonymous struct) */
+#include "parser/ast.h"      /* Iron_Program typedef (anonymous struct); Iron_Node */
 #include "util/arena.h"      /* Iron_Arena typedef (anonymous struct) */
 
 #ifdef __cplusplus
@@ -61,6 +62,14 @@ typedef struct {
     uint64_t     content_hash;
     bool         is_extern;
     bool         needs_auto_import;   /* buckets 4+5 = true */
+    /* Plan 04-03 Task 03: snippet + auto-import wiring. */
+    int          insert_text_format;  /* LSP InsertTextFormat: 1=PlainText, 2=Snippet */
+    const IronLsp_AutoImportEdit *additional_text_edit; /* arena-owned; NULLable */
+    /* Optional AST node pointer for snippet metadata extraction (param
+     * names on func calls, field names on object literals, etc.).
+     * May be NULL for candidates that originate from a bucket with no
+     * backing decl (e.g. keyword bucket). */
+    const Iron_Node *decl_node;
 } IronLsp_CompletionCandidate;
 
 /* Opaque forward decls for types that ARE struct-named. */

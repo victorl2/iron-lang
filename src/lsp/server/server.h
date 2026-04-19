@@ -83,6 +83,22 @@ typedef struct IronLsp_Server {
     /* Atomic request-id counter for server-originated requests
      * (e.g., client/registerCapability from the dyn-register subsystem). */
     _Atomic uint64_t          next_request_id;
+
+    /* Phase 4 Plan 04-03 Task 03 (EDIT-04 D-15, RESEARCH §3.1): client
+     * capability sniff results cached at `initialize` time. Both
+     * default to false; populated only when the corresponding
+     * capability path is present + true in the client's
+     * ClientCapabilities JSON.
+     *   client_supports_snippet -- textDocument.completion
+     *       .completionItem.snippetSupport. Gates snippet-format
+     *       insertText; when false the orchestrator falls back to
+     *       PlainText with the plain label.
+     *   client_supports_document_changes -- workspace.workspaceEdit
+     *       .documentChanges. Observed here for Plan 04-06 rename +
+     *       future WorkspaceEdit.documentChanges emissions.
+     * const-after-initialize (mutated only in ilsp_handle_initialize). */
+    bool                      client_supports_snippet;
+    bool                      client_supports_document_changes;
 } IronLsp_Server;
 
 #endif /* IRON_LSP_SERVER_SERVER_H */
