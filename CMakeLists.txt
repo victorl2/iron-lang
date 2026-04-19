@@ -390,6 +390,16 @@ if(IRON_BUILD_LSP)
         # handlers_edit.c + handlers_lifecycle.c.
         src/lsp/facade/edit/complete/auto_import.c
         src/lsp/facade/edit/complete/snippet.c
+        # Phase 4 Plan 04-04 (EDIT-07, EDIT-08, D-06, D-07): code-action
+        # registry + 5 P1 quickfix handler TUs. handlers_edit.c hosts the
+        # textDocument/codeAction + codeAction/resolve handlers that
+        # delegate to the registry + per-code handlers below.
+        src/lsp/facade/edit/codeaction/registry.c
+        src/lsp/facade/edit/codeaction/quickfix_undefined_var.c
+        src/lsp/facade/edit/codeaction/quickfix_unused_import.c
+        src/lsp/facade/edit/codeaction/quickfix_missing_return.c
+        src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
+        src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
         src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
