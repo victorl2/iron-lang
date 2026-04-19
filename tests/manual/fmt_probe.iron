@@ -1,3 +1,4 @@
+-- @compile-only
 -- tests/manual/fmt_probe.iron
 -- Phase 78-02 end-to-end probe. Exercises the full stack landed by
 -- Plan 78-01 (runtime shim) + Plan 78-02 (compiler dispatch + stubs):
