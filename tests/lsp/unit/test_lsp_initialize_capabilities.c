@@ -190,6 +190,59 @@ static void test_plan04_providers_present(void) {
     harness_destroy(&h);
 }
 
+/* ── Test 5 (Phase 5 Plan 05-02/04): formatting capability shapes ───
+ *
+ * Plan 05-02 wires documentFormattingProvider + documentRangeFormattingProvider
+ * as boolean true (auto-derived from the handler table).
+ *
+ * Plan 05-04 overrides documentOnTypeFormattingProvider to the object shape
+ *   { firstTriggerCharacter: "}", moreTriggerCharacter: [] }
+ * per D-14. Handler-table auto-advertise would emit boolean true; the
+ * explicit branch in capabilities.c emits the required object shape
+ * (mirrors signatureHelpProvider branch). */
+static void test_plan05_formatting_providers_present(void) {
+    Harness h; harness_init(&h);
+
+    const char *body =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
+        "\"params\":{\"capabilities\":{}}}";
+    Iron_Arena pa = iron_arena_create(16 * 1024);
+    yyjson_doc *d = send_initialize_and_parse(&h, body, &pa);
+
+    yyjson_val *caps = yyjson_obj_get(
+        yyjson_obj_get(yyjson_doc_get_root(d), "result"), "capabilities");
+    TEST_ASSERT_NOT_NULL(caps);
+
+    /* Boolean providers (auto-derived). */
+    yyjson_val *fc = yyjson_obj_get(caps, "documentFormattingProvider");
+    TEST_ASSERT_NOT_NULL(fc);
+    TEST_ASSERT_TRUE(yyjson_is_bool(fc));
+    TEST_ASSERT_TRUE(yyjson_get_bool(fc));
+
+    yyjson_val *rc = yyjson_obj_get(caps, "documentRangeFormattingProvider");
+    TEST_ASSERT_NOT_NULL(rc);
+    TEST_ASSERT_TRUE(yyjson_is_bool(rc));
+    TEST_ASSERT_TRUE(yyjson_get_bool(rc));
+
+    /* Object-shape provider (Plan 05-04 D-14 override). */
+    yyjson_val *ot = yyjson_obj_get(caps, "documentOnTypeFormattingProvider");
+    TEST_ASSERT_NOT_NULL(ot);
+    TEST_ASSERT_TRUE(yyjson_is_obj(ot));
+
+    yyjson_val *first = yyjson_obj_get(ot, "firstTriggerCharacter");
+    TEST_ASSERT_NOT_NULL(first);
+    TEST_ASSERT_TRUE(yyjson_is_str(first));
+    TEST_ASSERT_EQUAL_STRING("}", yyjson_get_str(first));
+
+    yyjson_val *more = yyjson_obj_get(ot, "moreTriggerCharacter");
+    TEST_ASSERT_NOT_NULL(more);
+    TEST_ASSERT_TRUE(yyjson_is_arr(more));
+    TEST_ASSERT_EQUAL_size_t(0, yyjson_arr_size(more));
+
+    iron_arena_free(&pa);
+    harness_destroy(&h);
+}
+
 /* ── Test 4: serverInfo is populated ────────────────────────────────── */
 static void test_server_info_populated(void) {
     Harness h; harness_init(&h);
@@ -216,6 +269,7 @@ int main(void) {
     RUN_TEST(test_table_capabilities_present_in_response);
     RUN_TEST(test_response_capabilities_all_registered);
     RUN_TEST(test_plan04_providers_present);
+    RUN_TEST(test_plan05_formatting_providers_present);
     RUN_TEST(test_server_info_populated);
     return UNITY_END();
 }
