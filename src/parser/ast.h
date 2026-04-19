@@ -248,6 +248,16 @@ typedef struct {
     const char   *name;
     Iron_Node    *type_ann;  /* NULL if inferred */
     bool          is_var;
+    /* Phase 79 MUT-01: true when this param is a receiver-binding declared
+     * with the `mut` prefix (`func (mut t: Timer) update(...)`). Always
+     * false for non-receiver params — the parser rejects `mut` on regular
+     * parameters per REQUIREMENTS.md Out-of-Scope table. Phase 79 stops at
+     * the AST level (this field's presence + correct population); Phase 80
+     * adds resolver/typechecker enforcement.
+     *
+     * Field name locked by CONTEXT.md Decisions section; mirrors the
+     * existing `bool is_mutable` pattern on capture entries at line 19. */
+    bool          is_mut_receiver;
 } Iron_Param;
 
 typedef struct {

@@ -565,9 +565,10 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
         Iron_Token *name_tok = iron_advance(p);
         Iron_Param *param    = ARENA_ALLOC(p->arena, Iron_Param);
         if (!param) iron_oom_abort("parser.c:iron_parse_param_list");
-        param->kind          = IRON_NODE_PARAM;
-        param->span          = iron_token_span(p, name_tok);
-        param->is_var        = is_var;
+        param->kind            = IRON_NODE_PARAM;
+        param->span            = iron_token_span(p, name_tok);
+        param->is_var          = is_var;
+        param->is_mut_receiver = false;  /* Phase 79: regular params never get mut */
         param->name = iron_arena_strdup(p->arena, name_tok->value,
                                         strlen(name_tok->value));
         if (!param->name) iron_oom_abort("parser.c:iron_parse_param_list name");
@@ -2374,10 +2375,11 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
          * to writing `func <Type>.<method>(<receiver_name>: <Type>, ...)`. */
         Iron_Param *synth_recv = ARENA_ALLOC(p->arena, Iron_Param);
         if (!synth_recv) iron_oom_abort("parser.c:iron_parse_func_or_method receiver param");
-        synth_recv->kind     = IRON_NODE_PARAM;
-        synth_recv->span     = iron_token_span(p, recv_name_tok);
-        synth_recv->is_var   = recv_is_var;
-        synth_recv->name     = iron_arena_strdup(p->arena, recv_name_tok->value,
+        synth_recv->kind            = IRON_NODE_PARAM;
+        synth_recv->span            = iron_token_span(p, recv_name_tok);
+        synth_recv->is_var          = recv_is_var;
+        synth_recv->is_mut_receiver = false;  /* Phase 79: default; Task 2 parses `mut` and flips to recv_is_mut */
+        synth_recv->name            = iron_arena_strdup(p->arena, recv_name_tok->value,
                                                   strlen(recv_name_tok->value));
         if (!synth_recv->name) iron_oom_abort("parser.c:iron_parse_func_or_method receiver name");
         synth_recv->type_ann = recv_type_ann;
