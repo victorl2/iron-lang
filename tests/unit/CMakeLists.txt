@@ -681,3 +681,36 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
 endif()
+
+# ── Phase 5 Plan 05-01 (FMT-01, FMT-05, D-01, D-02) — phase-m4-invariant ──
+# Compiler-side foundations: src/fmt/ library + extended printer.
+# Tests for the [fmt] toml parser scaffolded in Task 1; live assertions
+# land in Task 2 once src/cli/toml.c gains the section==4 branch.
+
+add_executable(test_fmt_options_defaults test_fmt_options_defaults.c)
+target_link_libraries(test_fmt_options_defaults iron_compiler iron_runtime unity)
+add_test(NAME test_fmt_options_defaults COMMAND test_fmt_options_defaults)
+set_tests_properties(test_fmt_options_defaults PROPERTIES
+    LABELS "unit;phase-m4-invariant"
+    TIMEOUT 30)
+
+add_executable(test_fmt_format_source_unit test_fmt_format_source_unit.c)
+target_link_libraries(test_fmt_format_source_unit iron_compiler iron_runtime unity)
+add_test(NAME test_fmt_format_source_unit COMMAND test_fmt_format_source_unit)
+set_tests_properties(test_fmt_format_source_unit PROPERTIES
+    LABELS "unit;phase-m4-invariant"
+    TIMEOUT 30)
+
+add_executable(test_fmt_options_honored test_fmt_options_honored.c)
+target_link_libraries(test_fmt_options_honored iron_compiler iron_runtime unity)
+add_test(NAME test_fmt_options_honored COMMAND test_fmt_options_honored)
+set_tests_properties(test_fmt_options_honored PROPERTIES
+    LABELS "unit;phase-m4-invariant"
+    TIMEOUT 30)
+
+add_executable(test_fmt_options_parse test_fmt_options_parse.c)
+target_link_libraries(test_fmt_options_parse iron_compiler iron_runtime unity)
+add_test(NAME test_fmt_options_parse COMMAND test_fmt_options_parse)
+set_tests_properties(test_fmt_options_parse PROPERTIES
+    LABELS "unit;phase-m4-invariant"
+    TIMEOUT 30)
