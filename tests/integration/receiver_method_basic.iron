@@ -1,0 +1,57 @@
+-- v2.1 receiver-method grammar (Phase 75, TEST-01).
+--
+-- Covers: declaration in the new `func (r: Type) method(...)` form;
+-- instance-style call; static-style call on the same method; field read
+-- through the receiver; method call chained through the receiver; mix
+-- of the new form and the classic `func Type.method(...)` form on the
+-- same object.
+
+object Point {
+    var x: Int
+    var y: Int
+}
+
+-- New receiver form.
+func (p: Point) sum() -> Int {
+    return p.x + p.y
+}
+
+func (p: Point) scale(factor: Int) -> Int {
+    return (p.x + p.y) * factor
+}
+
+-- Method that calls another receiver-method through the receiver name.
+func (p: Point) double() -> Int {
+    return p.sum() * 2
+}
+
+-- Mutation through the receiver-method's explicit param. Iron `var` at
+-- the receiver binding site mirrors regular-param mutability; the
+-- mutation is local to the method call, but field reads / writes
+-- through `p` work the same as any bound object value.
+func (p: Point) xy_swapped() -> Point {
+    return Point(p.y, p.x)
+}
+
+-- Classic form on the same object — ensures old + new coexist.
+func Point.manhattan(a: Point, b: Point) -> Int {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return dx + dy
+}
+
+func main() {
+    val pt = Point(3, 4)
+    println("{pt.sum()}")              -- 7 (instance call, new form)
+    println("{pt.scale(10)}")          -- 70
+    println("{pt.double()}")           -- 14
+    println("{Point.sum(pt)}")         -- 7 (static call, new form)
+    println("{Point.scale(pt, 5)}")    -- 35
+
+    val swapped = pt.xy_swapped()
+    println("{swapped.x}")             -- 4
+    println("{swapped.y}")             -- 3
+
+    val other = Point(1, 1)
+    println("{Point.manhattan(pt, other)}")  -- (3-1) + (4-1) = 5
+}

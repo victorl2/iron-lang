@@ -220,6 +220,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    "'self' used outside of method", NULL);
                     return;
                 }
+                /* Receiver-form methods have no implicit `self`; the receiver
+                 * is bound under its declared name. Emit a clean Iron
+                 * diagnostic here so we don't leak `Iron_self_x` into clang. */
+                if (ctx->current_method->is_receiver_form) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_SELF_OUTSIDE_METHOD, id->span,
+                                   "'self' is not defined in a receiver-form "
+                                   "method — use the receiver's declared name",
+                                   NULL);
+                    return;
+                }
                 /* self is defined in the method scope — just look it up */
                 Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, "self");
                 if (sym) id->resolved_sym = sym;
@@ -336,8 +347,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             push_scope(ctx, IRON_SCOPE_FUNCTION);
             ctx->current_scope->owner_name = md->method_name;
 
-            /* Define implicit 'self' */
-            if (md->owner_sym) {
+            /* Define implicit 'self' — classic form only. Receiver form
+             * uses the declared receiver name (e.g. `t` in `func (t: Timer) ...`)
+             * and has no implicit `self`; references to `self` in the body
+             * should fall through to the normal undefined-identifier path. */
+            if (md->owner_sym && !md->is_receiver_form) {
                 Iron_Symbol *self_sym = iron_symbol_create(ctx->arena, "self",
                                                             IRON_SYM_VARIABLE,
                                                             node, md->span);

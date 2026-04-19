@@ -2270,6 +2270,154 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'func' */
 
+    /* v2.1 receiver-method form: `func (name: Type) method(...) {...}`.
+     * Desugars to the existing `func Type.method(name: Type, ...)`
+     * MethodDecl — the receiver becomes the first positional param, and
+     * the body references it by the declared name the same way that
+     * Duration.to_ms (stdlib/time.iron) already does. Zero HIR/LIR
+     * changes required; the resolver and lowerer see an ordinary method
+     * declaration. See `.planning/REQUIREMENTS.md` GRAMMAR-01..05. */
+    if (iron_check(p, IRON_TOK_LPAREN)) {
+        iron_advance(p);  /* consume '(' */
+
+        bool recv_is_var = false;
+        if (iron_check(p, IRON_TOK_VAR)) {
+            iron_advance(p);
+            recv_is_var = true;
+        } else if (iron_check(p, IRON_TOK_VAL)) {
+            iron_advance(p);
+        }
+
+        if (!iron_check_name(p)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected receiver parameter name after 'func ('");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+        Iron_Token *recv_name_tok = iron_advance(p);
+
+        if (!iron_match(p, IRON_TOK_COLON)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected ':' after receiver name — "
+                           "receiver syntax is `func (name: Type) method(...)`");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        Iron_Node *recv_type_ann = iron_parse_type_annotation(p);
+        if (!recv_type_ann ||
+            recv_type_ann->kind != IRON_NODE_TYPE_ANNOTATION) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected receiver type after ':'");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        /* Receiver type must be a simple named type — no tuples, arrays,
+         * func types, or generics. Rejecting these early gives clear
+         * diagnostics (GRAMMAR-05) instead of a cryptic downstream error. */
+        Iron_TypeAnnotation *recv_ann = (Iron_TypeAnnotation *)recv_type_ann;
+        if (recv_ann->is_tuple || recv_ann->is_array || recv_ann->is_func ||
+            !recv_ann->name || recv_ann->generic_arg_count > 0) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN, recv_ann->span,
+                           "receiver type must be a named object or enum type "
+                           "(tuples, arrays, function types, and generics are not receivers)");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        if (!iron_match(p, IRON_TOK_RPAREN)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected ')' after receiver type");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
+        if (!iron_check_name(p)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected method name after '(receiver: Type)'");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+        Iron_Token *recv_method_tok = iron_advance(p);
+
+        /* Optional method-level generics (e.g. `func (l: List) map[U](...)`) */
+        int         recv_generic_count  = 0;
+        Iron_Node **recv_generic_params = NULL;
+        if (iron_check(p, IRON_TOK_LBRACKET)) {
+            recv_generic_params = iron_parse_generic_params(p, &recv_generic_count, p->arena);
+        }
+
+        int recv_explicit_count = 0;
+        Iron_Node **recv_explicit_params = iron_parse_param_list(p, &recv_explicit_count);
+
+        Iron_Node *recv_ret = NULL;
+        if (iron_match(p, IRON_TOK_ARROW)) {
+            recv_ret = iron_parse_type_annotation(p);
+        }
+
+        Iron_Node *recv_body = iron_parse_block(p);
+
+        /* Build the synthetic receiver Param node and prepend it to the
+         * params list. The result is a MethodDecl that looks identical
+         * to writing `func <Type>.<method>(<receiver_name>: <Type>, ...)`. */
+        Iron_Param *synth_recv = ARENA_ALLOC(p->arena, Iron_Param);
+        if (!synth_recv) iron_oom_abort("parser.c:iron_parse_func_or_method receiver param");
+        synth_recv->kind     = IRON_NODE_PARAM;
+        synth_recv->span     = iron_token_span(p, recv_name_tok);
+        synth_recv->is_var   = recv_is_var;
+        synth_recv->name     = iron_arena_strdup(p->arena, recv_name_tok->value,
+                                                  strlen(recv_name_tok->value));
+        if (!synth_recv->name) iron_oom_abort("parser.c:iron_parse_func_or_method receiver name");
+        synth_recv->type_ann = recv_type_ann;
+
+        int recv_total = recv_explicit_count + 1;
+        Iron_Node **recv_all_params = (Iron_Node **)iron_arena_alloc(
+            p->arena, sizeof(Iron_Node *) * (size_t)recv_total,
+            _Alignof(Iron_Node *));
+        if (!recv_all_params) iron_oom_abort("parser.c:iron_parse_func_or_method receiver params");
+        recv_all_params[0] = (Iron_Node *)synth_recv;
+        for (int i = 0; i < recv_explicit_count; i++) {
+            recv_all_params[i + 1] = recv_explicit_params[i];
+        }
+
+        Iron_MethodDecl *rm = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+        if (!rm) iron_oom_abort("parser.c:iron_parse_func_or_method receiver MethodDecl");
+        rm->kind                 = IRON_NODE_METHOD_DECL;
+        rm->span                 = iron_span_merge(iron_token_span(p, start), recv_body->span);
+        rm->type_name            = iron_arena_strdup(p->arena, recv_ann->name,
+                                                      strlen(recv_ann->name));
+        if (!rm->type_name) iron_oom_abort("parser.c:iron_parse_func_or_method receiver type_name");
+        rm->method_name          = iron_arena_strdup(p->arena, recv_method_tok->value,
+                                                      strlen(recv_method_tok->value));
+        if (!rm->method_name) iron_oom_abort("parser.c:iron_parse_func_or_method receiver method_name");
+        rm->params               = recv_all_params;
+        rm->param_count          = recv_total;
+        rm->return_type          = recv_ret;
+        rm->body                 = recv_body;
+        rm->is_private           = is_private;
+        rm->generic_params       = recv_generic_params;
+        rm->generic_param_count  = recv_generic_count;
+        rm->resolved_return_type = NULL;
+        rm->owner_sym            = NULL;
+        rm->is_array_extension   = false;
+        rm->elem_type_name       = NULL;
+        rm->is_fusible           = false;
+        rm->is_receiver_form     = true;
+        return (Iron_Node *)rm;
+    }
+
     /* Check for array extension method: func [T].method_name(...) */
     if (iron_check(p, IRON_TOK_LBRACKET)) {
         iron_advance(p);  /* consume '[' */
@@ -2351,6 +2499,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->elem_type_name       = iron_arena_strdup(p->arena, elem_type_tok->value,
                                                      strlen(elem_type_tok->value));
         if (!m->elem_type_name) iron_oom_abort("parser.c:iron_parse_func_or_method array elem_type_name");
+        m->is_receiver_form     = false;
         return (Iron_Node *)m;
     }
 
@@ -2421,6 +2570,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->owner_sym            = NULL;  /* set by resolver */
         m->is_array_extension   = false;
         m->elem_type_name       = NULL;
+        m->is_receiver_form     = false;
         return (Iron_Node *)m;
     }
 

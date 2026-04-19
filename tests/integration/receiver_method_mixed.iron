@@ -1,0 +1,56 @@
+-- v2.1 Phase 76 regression (TEST-02): mixed old and new method forms on
+-- the same type, calling both styles interchangeably.
+--
+-- Exercises the stdlib migration guarantee: existing `func Type.method(...)`
+-- declarations keep their semantics regardless of whether sibling methods
+-- on the same type are migrated to the `func (r: Type) method(...)` form.
+-- The resolver, lowerer, and call emitter must not distinguish them at
+-- the call site.
+
+object Box {
+    var w: Int
+    var h: Int
+}
+
+-- Classic form. Auto-prepends `self`.
+func Box.area() -> Int {
+    return self.w * self.h
+}
+
+-- New receiver form. Uses declared name.
+func (b: Box) perimeter() -> Int {
+    return 2 * (b.w + b.h)
+}
+
+-- Classic form with explicit first-param-of-receiver-type. This pattern
+-- coexists with both `self` (auto-prepended) and `other` (the explicit
+-- param). Exercised by tests/integration/hir_edge_method_on_heap.iron
+-- in existing Iron today; reproduced here to guard the mixed scenario.
+func Box.same_shape(other: Box) -> Bool {
+    return self.w == other.w and self.h == other.h
+}
+
+-- Receiver form that takes another Box as a regular param — the receiver
+-- is `b`, the argument is `q`. Both are Box-typed. With the
+-- `is_receiver_form` flag, hir_lower does NOT auto-prepend `self` —
+-- only `b` and `q` exist in the body.
+func (b: Box) covers(q: Box) -> Bool {
+    return b.w >= q.w and b.h >= q.h
+}
+
+func main() {
+    val a = Box(4, 5)
+    val b = Box(4, 5)
+    val c = Box(2, 3)
+
+    -- Classic instance-style; static form on classic self-using methods
+    -- is not a supported pattern (goes through synth-self which assumes
+    -- the body doesn't reference self, matching stdlib/url.iron).
+    println("{a.area()}")              -- 20
+    println("{b.perimeter()}")         -- receiver, instance:      18
+    println("{Box.perimeter(b)}")      -- receiver, static:        18
+    println("{a.same_shape(b)}")       -- classic + self: true
+    println("{a.same_shape(c)}")       --                   false
+    println("{a.covers(c)}")           -- receiver + extra arg: true
+    println("{c.covers(a)}")           --                         false
+}

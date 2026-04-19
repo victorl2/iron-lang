@@ -1641,8 +1641,27 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                         params[p].var_id = IRON_HIR_VAR_INVALID;
                     }
                 }
+            } else if (md->is_receiver_form) {
+                /* v2.1 receiver-method form: `func (r: Type) method(...)`.
+                 * The parser desugars into a MethodDecl whose first param
+                 * IS the receiver (declared name kept). Don't auto-prepend
+                 * `self` — the receiver is visible in the body under the
+                 * declared name, matching the existing stdlib pattern
+                 * `func Duration.to_ms(d: Duration) { return d.ms }`. */
+                total_params = md->param_count;
+                params = (IronHIR_Param *)iron_arena_alloc(
+                    mod->arena,
+                    (size_t)total_params * sizeof(IronHIR_Param),
+                    _Alignof(IronHIR_Param));
+                if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir receiver_method_params");
+                for (int p = 0; p < md->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)md->params[p];
+                    params[p].name   = ap->name;
+                    params[p].type   = resolve_type_ann(ctx, ap->type_ann);
+                    params[p].var_id = IRON_HIR_VAR_INVALID;
+                }
             } else {
-                /* Instance method: self + explicit params */
+                /* Classic `func Type.method(...)` form: prepend self + explicit params */
                 total_params = md->param_count + 1;
                 params = (IronHIR_Param *)iron_arena_alloc(
                     mod->arena,

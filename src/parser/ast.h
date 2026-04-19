@@ -231,6 +231,13 @@ typedef struct {
     bool               is_array_extension;    /* true for func [T].method(...) */
     const char        *elem_type_name;        /* generic element type param name, e.g. "T" */
     bool               is_fusible;            /* Phase 49: @fusible annotation */
+    /* v2.1: true when the method was declared with the new receiver syntax
+     * `func (r: Type) method(...)`. In that case, `params[0]` is the
+     * receiver (parser desugaring), `self` is NOT auto-prepended by
+     * hir_lower, and the receiver is visible in the body under the
+     * declared name. False for the classic `func Type.method(...)`
+     * form where hir_lower prepends an implicit self. */
+    bool               is_receiver_form;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
