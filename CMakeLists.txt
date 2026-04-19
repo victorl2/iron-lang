@@ -408,6 +408,15 @@ if(IRON_BUILD_LSP)
         # Classifies + sorts + dedups + optionally unused-removes the leading
         # Iron_ImportDecl run and emits a single TextEdit replacing its span.
         src/lsp/facade/edit/codeaction/organize_imports.c
+        # Phase 4 Plan 04-06 (EDIT-10, EDIT-11, EDIT-12, D-09, D-10, D-11):
+        # rename surface. prepare.c classifies the cursor (6-category reject
+        # + 4-category accept); collision.c wraps iron_scope_lookup + keyword
+        # guard + same-name short-circuit; apply.c builds the WorkspaceEdit
+        # (documentChanges vs changes, per-file DESC sort, cross-file ASC
+        # sort, iface fan-out with stdlib/dep PITFALL B guard).
+        src/lsp/facade/edit/rename/prepare.c
+        src/lsp/facade/edit/rename/collision.c
+        src/lsp/facade/edit/rename/apply.c
         src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
