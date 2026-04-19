@@ -264,22 +264,74 @@ void ilsp_handle_text_document_range_formatting(IronLsp_Server    *s,
     iron_arena_free(&work_arena);
 }
 
-/* ── textDocument/onTypeFormatting (FMT-04, STUB -> Plan 05-04) ──────── */
+/* ── textDocument/onTypeFormatting (FMT-04, Plan 05-04, D-05, D-14) ── */
 
 void ilsp_handle_text_document_on_type_formatting(IronLsp_Server    *s,
                                                     struct yyjson_doc *doc,
                                                     Iron_Arena        *arena) {
     (void)arena;
     if (!s || !doc) return;
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    yyjson_val *id_v = yyjson_obj_get(root, "id");
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
 
-    Iron_Arena      body_arena = iron_arena_create(4 * 1024);
+    const char *uri = ilsp_nav_parse_uri(params);
+
+    Iron_Arena      body_arena = iron_arena_create(8 * 1024);
     yyjson_alc      alc        = ilsp_json_alc(&body_arena);
     yyjson_mut_doc *rd         = yyjson_mut_doc_new(&alc);
     if (!rd) { iron_arena_free(&body_arena); return; }
 
-    fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+    /* Parse params.position + params.ch. Missing fields = empty edits
+     * (spec-violation on the client side; we emit empty TextEdit[]
+     * rather than MethodNotFound). */
+    yyjson_val *pos_v = yyjson_obj_get(params, "position");
+    yyjson_val *ch_v  = yyjson_obj_get(params, "ch");
+    if (!pos_v || !ch_v) {
+        fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    IronLsp_Position position;
+    position.line      =
+        (uint32_t)yyjson_get_uint(yyjson_obj_get(pos_v, "line"));
+    position.character =
+        (uint32_t)yyjson_get_uint(yyjson_obj_get(pos_v, "character"));
+
+    const char *ch_str = yyjson_get_str(ch_v);
+    char trigger = (ch_str && ch_str[0]) ? ch_str[0] : '\0';
+
+    IronLsp_Document *d = fmt_lookup_doc(s, uri);
+    if (!d) {
+        fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = fmt_register_cancel(s, id_v);
+
+    /* Per-request 64 KB work arena (D-12, HARD-06). */
+    Iron_Arena work_arena = iron_arena_create(64 * 1024);
+
+    IronLsp_TextEditList result = ilsp_facade_format_on_type(
+        d, s->workspace_index, position, trigger, /* opts */ NULL,
+        &work_arena, cancel);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    yyjson_mut_val *arr = serialize_text_edits(rd, &result);
+    fmt_enqueue_result(s, &body_arena, id_v, rd, arr);
+
     yyjson_mut_doc_free(rd);
     iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
 }

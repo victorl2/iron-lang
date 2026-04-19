@@ -93,6 +93,41 @@ IronLsp_TextEditList ilsp_facade_format_range(
     Iron_Arena                          *arena,
     const _Atomic bool                  *cancel);
 
+/* Phase 5 Plan 05-04 (FMT-04, D-05, D-14): on-type formatting.
+ *
+ * When the user types `}` inside an enclosing block and the editor has
+ * `editor.formatOnType` enabled, the client sends
+ * textDocument/onTypeFormatting with the trigger char and the caret
+ * position. We walk the AST from Iron_Program.decls[] to find the
+ * deepest enclosing block whose span covers `pos`, re-compute per-line
+ * minimal indent edits for every non-blank line in that block whose
+ * current leading whitespace differs from the canonical indent, and
+ * return those edits sorted descending by line (D-06).
+ *
+ * Returns an empty list on:
+ *   - trigger_char != '}' (v1 policy per D-05; other triggers deferred)
+ *   - parse error (D-03 refusal mirrors full-doc)
+ *   - no enclosing block at `pos` (typed in string literal, between
+ *     decls, malformed source, `}` typed before an existing brace --
+ *     RESEARCH Pitfall 5 + Claude's Discretion §381)
+ *   - NULL doc / NULL arena
+ *   - cancel observed at any stage / per-line boundary (D-12 / D-17)
+ *
+ * Option resolution priority: explicit `opts_in` > `ws->fmt_opts` cached
+ * snapshot > built-in defaults.
+ *
+ * Single-call-site preservation (D-10): this entry uses the
+ * ilsp_facade_fmt_lex_parse helper from format_internal.h -- it does
+ * NOT call iron_format_source. The grep invariant stays at 1. */
+IronLsp_TextEditList ilsp_facade_format_on_type(
+    const struct IronLsp_Document       *doc,
+    const struct IronLsp_WorkspaceIndex *ws,
+    IronLsp_Position                     pos,
+    char                                 trigger_char,
+    const IronFmtOptions                *opts_in,  /* may be NULL */
+    Iron_Arena                          *arena,
+    const _Atomic bool                  *cancel);
+
 #ifdef __cplusplus
 }
 #endif
