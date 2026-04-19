@@ -97,6 +97,40 @@ void ilsp_handle_initialize(IronLsp_Server    *s,
         ilsp_capabilities_negotiate_position_encoding(client_caps);
     s->position_encoding = enc;
 
+    /* Phase 4 Plan 04-03 Task 03: sniff two client capabilities used
+     * by the completion orchestrator + WorkspaceEdit emission.
+     *   textDocument.completion.completionItem.snippetSupport
+     *   workspace.workspaceEdit.documentChanges
+     * Both default false; only set when present AND true in the
+     * client-supplied JSON. */
+    s->client_supports_snippet = false;
+    s->client_supports_document_changes = false;
+    if (client_caps && yyjson_is_obj(client_caps)) {
+        yyjson_val *td = yyjson_obj_get(client_caps, "textDocument");
+        if (td && yyjson_is_obj(td)) {
+            yyjson_val *comp = yyjson_obj_get(td, "completion");
+            if (comp && yyjson_is_obj(comp)) {
+                yyjson_val *ci = yyjson_obj_get(comp, "completionItem");
+                if (ci && yyjson_is_obj(ci)) {
+                    yyjson_val *snip = yyjson_obj_get(ci, "snippetSupport");
+                    if (snip && yyjson_is_bool(snip) && yyjson_get_bool(snip)) {
+                        s->client_supports_snippet = true;
+                    }
+                }
+            }
+        }
+        yyjson_val *ws = yyjson_obj_get(client_caps, "workspace");
+        if (ws && yyjson_is_obj(ws)) {
+            yyjson_val *we = yyjson_obj_get(ws, "workspaceEdit");
+            if (we && yyjson_is_obj(we)) {
+                yyjson_val *dc = yyjson_obj_get(we, "documentChanges");
+                if (dc && yyjson_is_bool(dc) && yyjson_get_bool(dc)) {
+                    s->client_supports_document_changes = true;
+                }
+            }
+        }
+    }
+
     /* Build response doc: { jsonrpc: "2.0", id, result: { capabilities, serverInfo } }. */
     yyjson_alc      alc = ilsp_json_alc(arena);
     yyjson_mut_doc *rd  = yyjson_mut_doc_new(&alc);

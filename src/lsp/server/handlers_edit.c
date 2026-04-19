@@ -98,14 +98,41 @@ static yyjson_mut_val *candidate_to_json(yyjson_mut_doc *rd,
     yyjson_mut_obj_add_strcpy(rd, o, "filterText", c->label ? c->label : "");
     yyjson_mut_obj_add_strcpy(rd, o, "insertText",
         c->insert_text ? c->insert_text : (c->label ? c->label : ""));
-    yyjson_mut_obj_add_int   (rd, o, "insertTextFormat", 1 /* PlainText */);
+    /* Phase 4 Plan 04-03 Task 03: insertTextFormat comes from the
+     * candidate. The orchestrator sets 2 (Snippet) only when the
+     * client advertised snippetSupport AND the candidate mapped to
+     * one of the D-15 template shapes; 1 (PlainText) otherwise. */
+    int itf = c->insert_text_format > 0 ? c->insert_text_format : 1;
+    yyjson_mut_obj_add_int   (rd, o, "insertTextFormat", itf);
     if (c->detail && *c->detail) {
         yyjson_mut_obj_add_strcpy(rd, o, "detail", c->detail);
     }
-    /* additionalTextEdits: empty array in Plan 04-02 (auto-import is
-     * deferred to Plan 04-03). */
-    yyjson_mut_val *empty_edits = yyjson_mut_arr(rd);
-    yyjson_mut_obj_add_val(rd, o, "additionalTextEdits", empty_edits);
+    /* Phase 4 Plan 04-03 Task 03: additionalTextEdits carries a
+     * single zero-width-range insertion TextEdit when the candidate
+     * needs a new `import <mod>` line injected at the top of the
+     * file (D-02 EDIT-05 auto-import). When empty we still emit `[]`
+     * per LSP 3.17 spec -- clients can rely on the array field
+     * existing. Dedup race (PITFALL E): if two completions accept
+     * quickly, the client may linearize two identical import
+     * insertions; organizeImports (Plan 04-05) cleans up. */
+    yyjson_mut_val *edits = yyjson_mut_arr(rd);
+    if (c->additional_text_edit && c->additional_text_edit->new_text) {
+        const IronLsp_AutoImportEdit *te = c->additional_text_edit;
+        yyjson_mut_val *edit = yyjson_mut_obj(rd);
+        yyjson_mut_val *range = yyjson_mut_obj(rd);
+        yyjson_mut_val *start = yyjson_mut_obj(rd);
+        yyjson_mut_val *end   = yyjson_mut_obj(rd);
+        yyjson_mut_obj_add_uint(rd, start, "line",      te->line);
+        yyjson_mut_obj_add_uint(rd, start, "character", te->character);
+        yyjson_mut_obj_add_uint(rd, end,   "line",      te->line);
+        yyjson_mut_obj_add_uint(rd, end,   "character", te->character);
+        yyjson_mut_obj_add_val (rd, range, "start", start);
+        yyjson_mut_obj_add_val (rd, range, "end",   end);
+        yyjson_mut_obj_add_val (rd, edit,  "range",   range);
+        yyjson_mut_obj_add_strcpy(rd, edit, "newText", te->new_text);
+        yyjson_mut_arr_append(edits, edit);
+    }
+    yyjson_mut_obj_add_val(rd, o, "additionalTextEdits", edits);
 
     /* data: opaque round-trip handle consumed by completionItem/resolve. */
     yyjson_mut_val *data = yyjson_mut_obj(rd);
