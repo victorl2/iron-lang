@@ -317,26 +317,53 @@ func add(a: Float, b: Float) -> Float {
 
 ### Methods
 
-Methods are `func TypeName.method_name(...)`. Not nested inside the object block.
-`self` is implicit and always available inside methods. It is always mutable. No need to declare it in the signature.
+Iron supports two method declaration forms. Both compile to the same underlying function and are interchangeable at the call site.
+
+**Receiver-method form (v2.1+, preferred for instance methods)**
+
+```
+func (p: Player) update(dt: Float) {
+  if is_key_down(.RIGHT) { p.pos.x += p.speed * dt }
+}
+
+func (p: Player) draw() {
+  draw_texture(p.sprite, p.pos)
+}
+
+func (p: Player) is_alive() -> Bool {
+  return p.hp > 0
+}
+```
+
+The receiver is declared in parentheses after `func` and is available in the body under its chosen name (`p` above). The receiver type must be a named object or enum — tuples, arrays, function types, and generics are rejected.
+
+**Static form (all versions; required for type-level utilities)**
+
+Static-form methods are written `func TypeName.method_name(...)`. Inside the body, `self` is implicit for non-stub methods — it's auto-bound to the receiver and is always mutable. Use this form for factories and utility helpers that don't need a receiver (constructors, static queries, conversion helpers).
 
 ```
 func Player.new(name: String) -> Player {
   return Player(vec2(100.0, 100.0), 100, 200.0, name)
 }
 
-func Player.update(dt: Float) {
-  if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
-}
-
-func Player.draw() {
-  draw_texture(self.sprite, self.pos)
-}
-
-func Player.is_alive() -> Bool {
-  return self.hp > 0
+func Player.from_spawn(spawn: SpawnPoint) -> Player {
+  return Player.new(spawn.name)
 }
 ```
+
+**Call sites**
+
+Both forms support instance-style and static-style calls interchangeably:
+
+```
+player.update(dt)         -- instance-style (most natural)
+Player.update(player, dt) -- static-style equivalent
+Player.new("Iron")        -- static utility (only form that makes sense)
+```
+
+**Migration note (v2.0 → v2.1)**
+
+The stdlib migrated most instance-method stubs (`Timer.update(t: Timer, dt: Float)`) to the receiver form (`func (t: Timer) update(dt: Float)`) in v2.1. Existing user code written in the static form keeps working identically — there is no breaking change.
 
 ### Passing Convention
 
