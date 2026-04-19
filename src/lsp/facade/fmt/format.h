@@ -67,6 +67,32 @@ IronLsp_TextEditList ilsp_facade_format_full(
  * declared here; they share the same in-TU static helper so the
  * single-call-site grep stays at exactly 1 hit. */
 
+/* Phase 5 Plan 05-03 (FMT-03, D-04, D-06): range formatting.
+ *
+ * For every top-level Iron_Program decl whose line-span intersects
+ * `range` (any overlap), re-render that decl via
+ * iron_print_ast(decl, opts, arena) and emit ONE TextEdit replacing
+ * the decl's full-line span.
+ *
+ * Sorts emitted edits descending by span start offset so clients
+ * apply later edits first (prevents offset invalidation during apply).
+ *
+ * Returns an empty list on:
+ *   - parse error (D-03 refusal mirrors full-doc)
+ *   - range covers only blank lines / between decls
+ *   - NULL doc / NULL arena / inverted range
+ *   - cancel observed at any stage boundary (4 polls + per-decl poll)
+ *
+ * Option resolution priority: explicit `opts_in` > `ws->fmt_opts`
+ * cached snapshot > built-in defaults. */
+IronLsp_TextEditList ilsp_facade_format_range(
+    const struct IronLsp_Document       *doc,
+    const struct IronLsp_WorkspaceIndex *ws,
+    IronLsp_Range                        range,    /* LSP coords, 0-based */
+    const IronFmtOptions                *opts_in,  /* may be NULL */
+    Iron_Arena                          *arena,
+    const _Atomic bool                  *cancel);
+
 #ifdef __cplusplus
 }
 #endif

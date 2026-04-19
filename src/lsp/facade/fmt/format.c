@@ -19,6 +19,7 @@
  * boundaries listed in D-12. */
 
 #include "lsp/facade/fmt/format.h"
+#include "lsp/facade/fmt/format_internal.h"
 
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -28,11 +29,15 @@
 #include "diagnostics/diagnostics.h"
 #include "fmt/format.h"        /* iron_format_source -- the single call site below */
 #include "fmt/options.h"
+#include "lexer/lexer.h"
+#include "parser/parser.h"
+#include "parser/ast.h"
 #include "lsp/facade/types.h"
 #include "lsp/store/document.h"
 #include "lsp/store/utf.h"
 #include "lsp/store/workspace_index.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 /* ───────────────────────────────────────────────────────────────────────
  * THE SINGLE iron_format_source CALL SITE FOR src/lsp.
@@ -214,4 +219,67 @@ IronLsp_TextEditList ilsp_facade_format_full(
 
     iron_diaglist_free(&diags);
     return out;
+}
+
+/* ── Phase 5 Plan 05-03 / 05-04 (D-10): lex+parse-only helper ────────
+ *
+ * Range formatting and on-type formatting need the parsed AST root to
+ * walk decls (range) or descend to an enclosing block (on-type). They
+ * do NOT call the compiler-side format primitive -- each walker calls
+ * iron_print_ast on selected sub-nodes itself.
+ *
+ * Exposing this helper here (as a function in the same TU that owns
+ * the single compile-format-primitive call site) keeps the grep
+ * invariant enforced by test_fmt_single_call_site at exactly one hit.
+ * Sibling TUs in src/lsp/facade/fmt/ include format_internal.h and
+ * consume this helper instead of re-running lex+parse themselves. */
+IronFmtParseResult ilsp_facade_fmt_lex_parse(
+    const struct IronLsp_Document *doc,
+    Iron_Arena                    *arena,
+    Iron_DiagList                 *diags,
+    const _Atomic bool            *cancel)
+{
+    IronFmtParseResult r;
+    r.program     = NULL;
+    r.ok          = false;
+    r.error_count = 0;
+
+    if (cancel && atomic_load(cancel)) return r;
+    if (!doc || !doc->text || !arena || !diags) return r;
+
+    const char *uri = doc->uri ? doc->uri : "<buffer>";
+
+    /* 1. Lex -- D-03 refusal on any lexer error. */
+    Iron_Lexer  lexer  = iron_lexer_create(doc->text, uri, arena, diags);
+    iron_lexer_set_cancel_flag(&lexer, cancel);
+    Iron_Token *tokens = iron_lex_all(&lexer);
+    if (diags->error_count > 0) {
+        arrfree(tokens);
+        r.error_count = diags->error_count;
+        return r;
+    }
+
+    if (cancel && atomic_load(cancel)) { arrfree(tokens); return r; }
+
+    /* 2. Parse -- D-03 refusal on any parser error. */
+    int         token_count = (int)arrlen(tokens);
+    Iron_Parser parser      = iron_parser_create(tokens, token_count,
+                                                   doc->text, uri,
+                                                   arena, diags);
+    iron_parser_set_mode(&parser, IRON_ANALYSIS_MODE_LSP);
+    iron_parser_set_cancel_flag(&parser, cancel);
+    Iron_Node *ast = iron_parse(&parser);
+    arrfree(tokens);
+
+    if (diags->error_count > 0) {
+        r.error_count = diags->error_count;
+        return r;
+    }
+
+    if (cancel && atomic_load(cancel)) return r;
+
+    r.program     = ast;
+    r.ok          = true;
+    r.error_count = 0;
+    return r;
 }
