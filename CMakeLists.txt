@@ -116,6 +116,7 @@ endif()
 add_library(iron_runtime STATIC
     src/util/stb_ds_impl.c
     src/runtime/iron_string.c
+    src/runtime/iron_fmt.c
     src/runtime/iron_rc.c
     src/runtime/iron_builtins.c
     src/runtime/iron_threads.c
