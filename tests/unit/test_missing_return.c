@@ -41,7 +41,9 @@ static void analyze(const char *src) {
                                &g_arena, &g_diags, NULL);
 }
 
-/* Non-void function body reaches end without returning -> 236 + "return 0;". */
+/* Non-void function body reaches end without returning -> 236 + "return 0".
+ * Phase 5 Plan 05-05: suggestion is semicolon-free (Iron grammar does not
+ * accept trailing `;` on return statements; D-07 fmt-clean gate). */
 static void test_non_void_return_reaches_end(void) {
     const char *src =
         "func f() -> Int {\n"
@@ -51,7 +53,7 @@ static void test_non_void_return_reaches_end(void) {
     const Iron_Diagnostic *d = find_diag(&g_diags, IRON_ERR_MISSING_RETURN);
     TEST_ASSERT_NOT_NULL(d);
     TEST_ASSERT_NOT_NULL(d->suggestion);
-    TEST_ASSERT_EQUAL_STRING("return 0;", d->suggestion);
+    TEST_ASSERT_EQUAL_STRING("return 0", d->suggestion);
 }
 
 /* Void function body with no return is fine; walker must stay quiet. */

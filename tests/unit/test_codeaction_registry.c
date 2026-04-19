@@ -215,21 +215,23 @@ static void test_quickfix_missing_return_shape(void) {
                                                    src, strlen(src), 1);
     TEST_ASSERT_NOT_NULL(doc);
     /* diag->span = body span: (1, 17) .. (3, 1) in Iron 1-indexed. */
+    /* Phase 5 Plan 05-05: suggestion is semicolon-free (Iron grammar
+     * does not accept trailing `;` on return statements; D-07). */
     Iron_Diagnostic d = make_diag(IRON_ERR_MISSING_RETURN,
                                      mk_span(1, 17, 3, 1),
                                      "missing return",
-                                     "return 0;");
+                                     "return 0");
 
     IronLsp_CodeAction out;
     ilsp_quickfix_missing_return(&d, doc, NULL, &g_arena, &out);
 
     TEST_ASSERT_NOT_NULL(out.title);
-    TEST_ASSERT_NOT_NULL(strstr(out.title, "return 0;"));
+    TEST_ASSERT_NOT_NULL(strstr(out.title, "return 0"));
     TEST_ASSERT_EQUAL_STRING("quickfix", out.kind);
     TEST_ASSERT_FALSE(out.is_preferred);
     TEST_ASSERT_NOT_NULL(out.edit_new_text);
     /* newText should contain the suggestion text and end with a \n. */
-    TEST_ASSERT_NOT_NULL(strstr(out.edit_new_text, "return 0;"));
+    TEST_ASSERT_NOT_NULL(strstr(out.edit_new_text, "return 0"));
     size_t nt_len = strlen(out.edit_new_text);
     TEST_ASSERT_EQUAL_CHAR('\n', out.edit_new_text[nt_len - 1]);
 

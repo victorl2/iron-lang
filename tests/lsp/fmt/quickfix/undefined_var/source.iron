@@ -1,0 +1,4 @@
+func main() {
+  val count = 1
+  val total = (conut + 1)
+}
