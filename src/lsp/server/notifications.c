@@ -17,12 +17,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-void ilsp_send_window_showmessage(IronLsp_Server *server,
-                                   const char     *uri,
-                                   int             message_type,
-                                   const char     *message) {
-    (void)uri;  /* LSP window/showMessage params have no uri field. */
-    if (!server || !server->writer || !message) return;
+/* Shared builder for window/showMessage + window/logMessage. Both have
+ * identical params shape per LSP 3.17; only the method string differs. */
+static void send_window_message(IronLsp_Server *server,
+                                 const char     *method,
+                                 const char     *uri,
+                                 int             message_type,
+                                 const char     *message) {
+    (void)uri;  /* LSP window message params have no uri field. */
+    if (!server || !server->writer || !method || !message) return;
 
     /* Build the notification body on a short-lived per-call arena. The
      * yyjson alc routes all internal allocations through the arena, so
@@ -38,7 +41,7 @@ void ilsp_send_window_showmessage(IronLsp_Server *server,
     yyjson_mut_doc_set_root(doc, root);
 
     yyjson_mut_obj_add_strcpy(doc, root, "jsonrpc", "2.0");
-    yyjson_mut_obj_add_strcpy(doc, root, "method",  "window/showMessage");
+    yyjson_mut_obj_add_strcpy(doc, root, "method",  method);
 
     yyjson_mut_val *params = yyjson_mut_obj(doc);
     yyjson_mut_obj_add_int   (doc, params, "type",    message_type);
@@ -66,4 +69,20 @@ void ilsp_send_window_showmessage(IronLsp_Server *server,
     /* Ownership of `heap` is now the writer's; we must not touch it. */
 
     iron_arena_free(&arena);
+}
+
+void ilsp_send_window_showmessage(IronLsp_Server *server,
+                                   const char     *uri,
+                                   int             message_type,
+                                   const char     *message) {
+    send_window_message(server, "window/showMessage",
+                         uri, message_type, message);
+}
+
+void ilsp_send_window_logmessage(IronLsp_Server *server,
+                                  const char     *uri,
+                                  int             message_type,
+                                  const char     *message) {
+    send_window_message(server, "window/logMessage",
+                         uri, message_type, message);
 }

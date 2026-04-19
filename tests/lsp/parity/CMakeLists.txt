@@ -55,3 +55,40 @@ add_test(NAME test_parity_ironc_lsp
 set_tests_properties(test_parity_ironc_lsp PROPERTIES
     LABELS "integration;phase-m0-invariant;phase-m1-invariant"
     TIMEOUT 300)
+
+# Phase 5 Plan 05-02 (D-08, FMT-02) -- CLI <-> LSP formatter parity.
+#
+# Sweeps tests/integration/*.iron and, for every fixture that parses
+# cleanly, asserts iron_format_source (CLI path) and
+# ilsp_facade_format_full (LSP facade path) produce byte-for-byte
+# identical formatted output. Both route through the same
+# iron_format_source primitive underneath -- this test protects the
+# facade's post-processing (trailing newline + BOM normalization)
+# from drifting out of lockstep with the CLI.
+add_executable(test_parity_ironc_lsp_fmt
+    test_parity_ironc_lsp_fmt.c
+    ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/format.c
+    ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+    ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+    ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+    ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+    ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c)
+target_include_directories(test_parity_ironc_lsp_fmt PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/vendor)
+target_compile_definitions(test_parity_ironc_lsp_fmt PRIVATE
+    _GNU_SOURCE
+    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration\"")
+target_link_libraries(test_parity_ironc_lsp_fmt
+    iron_compiler
+    iron_runtime
+    iron_stdlib
+    unity
+    m
+    pthread)
+add_test(NAME test_parity_ironc_lsp_fmt
+         COMMAND test_parity_ironc_lsp_fmt
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(test_parity_ironc_lsp_fmt PROPERTIES
+    LABELS "integration;phase-m4-invariant"
+    TIMEOUT 300)
