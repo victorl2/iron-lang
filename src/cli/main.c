@@ -197,11 +197,30 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(cmd, "fmt") == 0) {
-        if (!source_file) {
-            fprintf(stderr, "%s fmt: missing file argument\nUsage: %s fmt <file.iron>\n", IRON_BINARY_NAME, IRON_BINARY_NAME);
+        /* Phase 5 Plan 05-01 (D-15): scan argv for --check flag.
+         * Supported invocations:
+         *   iron fmt <file>
+         *   iron fmt --check <file>
+         *   iron fmt <file> --check
+         * Multi-file --check deferred to v1.x. */
+        bool check_mode = false;
+        const char *file_arg = NULL;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--check") == 0) {
+                check_mode = true;
+            } else if (strncmp(argv[i], "--", 2) == 0) {
+                /* Skip unrelated global flags already consumed above. */
+                continue;
+            } else if (file_arg == NULL) {
+                file_arg = argv[i];
+            }
+        }
+        if (!file_arg) {
+            fprintf(stderr, "%s fmt: missing file argument\nUsage: %s fmt [--check] <file.iron>\n",
+                    IRON_BINARY_NAME, IRON_BINARY_NAME);
             return 1;
         }
-        return iron_fmt(source_file);
+        return check_mode ? iron_fmt_check(file_arg) : iron_fmt(file_arg);
     }
 
     if (strcmp(cmd, "test") == 0) {
