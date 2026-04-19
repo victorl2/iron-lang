@@ -383,6 +383,10 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/complete/buckets.c
         src/lsp/facade/edit/complete/complete.c
         src/lsp/facade/edit/complete/resolve.c
+        # Phase 4 Plan 04-03 Task 01 (EDIT-05, D-02): auto-import
+        # additionalTextEdits builder. Wired into complete.c's
+        # orchestrator by Task 03.
+        src/lsp/facade/edit/complete/auto_import.c
         src/lsp/server/handlers_edit.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;

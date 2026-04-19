@@ -430,4 +430,28 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_completion_buckets PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
+
+    # Phase 4 Plan 04-03 Task 01 (EDIT-05, D-02): auto-import
+    # additionalTextEdits builder. Fixture-driven Unity test --
+    # parses small Iron sources in-process, walks the decl list for
+    # top-of-file imports, and asserts insertion site / dedup / alias
+    # honor / nested-path carve-out / PITFALL C error-recovery anchor
+    # skip.
+    add_executable(test_completion_auto_import
+        test_completion_auto_import.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
+    )
+    target_include_directories(test_completion_auto_import PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_completion_auto_import
+        iron_compiler iron_runtime unity)
+    add_test(NAME test_completion_auto_import
+        COMMAND test_completion_auto_import)
+    set_tests_properties(test_completion_auto_import PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
+
 endif()
