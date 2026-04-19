@@ -289,9 +289,25 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *n = (Iron_MethodDecl *)node;
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
-            iron_strbuf_appendf(ctx->sb, "func %s.%s", n->type_name, n->method_name);
-            print_generic_params(ctx, n->generic_params, n->generic_param_count);
-            print_params(ctx, n->params, n->param_count);
+            if (n->is_receiver_form && n->param_count > 0) {
+                /* Receiver form: `func (recv: Type) method[G](rest...)`.
+                 * By parser invariant, params[0] is the receiver. */
+                Iron_Param *recv = (Iron_Param *)n->params[0];
+                iron_strbuf_appendf(ctx->sb, "func (");
+                if (recv->is_var) iron_strbuf_appendf(ctx->sb, "var ");
+                iron_strbuf_appendf(ctx->sb, "%s", recv->name);
+                if (recv->type_ann) {
+                    iron_strbuf_appendf(ctx->sb, ": ");
+                    print_type_ann(ctx, recv->type_ann);
+                }
+                iron_strbuf_appendf(ctx->sb, ") %s", n->method_name);
+                print_generic_params(ctx, n->generic_params, n->generic_param_count);
+                print_params(ctx, n->params + 1, n->param_count - 1);
+            } else {
+                iron_strbuf_appendf(ctx->sb, "func %s.%s", n->type_name, n->method_name);
+                print_generic_params(ctx, n->generic_params, n->generic_param_count);
+                print_params(ctx, n->params, n->param_count);
+            }
             if (n->return_type) {
                 iron_strbuf_appendf(ctx->sb, " -> ");
                 print_type_ann(ctx, n->return_type);
