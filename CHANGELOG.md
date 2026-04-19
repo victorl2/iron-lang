@@ -3,6 +3,50 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v2.0.0-alpha — Iron Builds Real Games (2026-04-19)
+
+### Iron Builds Real Games
+
+First-class **raylib** binding for Iron. You can now write games in Iron that compile to native binaries and WebAssembly from the same source.
+
+#### What's in the box
+
+- **698 raylib functions** bound across namespaced receivers — `Window.*`, `Draw.*`, `Audio.*`, `Keyboard.*` / `Mouse.*` / `Gamepad.*` / `Touch.*` / `Gestures.*`, `Camera3D.*`, `Math3D.*` (raymath), `Models.*`, `Shader.*`, `Image.*` / `Texture.*`, `Font.*` / `Text.*`, `Sound.*` / `Music.*`, `Files.*` / `Random.*`.
+- **Vendored raylib 5.5** — builds per-source (no amalgamation), compile-time ABI enforcement (413 `_Static_assert`s pin every `sizeof` + `offsetof` between `Iron_<T>` and raylib `<T>` so any drift is a hard clang error).
+- **5 canonical examples**: `pong` (full state machine + paddles + bounce audio + web-ready frame-loop split), `rotating_cube`, `model_viewer`, `post_fx`, `raylib_showcase` (12-category end-to-end demo).
+- **Web target**: `iron build --target=web` produces `dist/web/index.{html,js,wasm}` from the same Iron source, including canonical `while not Window.should_close()` main-loop lifting into a web-safe frame state.
+- **Documentation site** (docs.ironlang.org/raylib): landing, getting-started guide, 14-page category API reference, examples gallery.
+
+#### Runtime improvements that landed with this milestone
+
+- **Structured pointer-receiver metadata** — the call-emitter now reads an authoritative `self_by_addr` flag on each LIR call instruction instead of pattern-matching the callee's C name. No more silent-miscompile hazard when a future `Iron_List_*` symbol happened to share a prefix but take its receiver by value.
+- **Shared foreign-method prototype auto-gen** between the native and web emitters — the entire namespaced raylib surface works identically on both targets without per-function hand-maintained tables.
+- **Lexer + C-emitter escape fixes** (`\{`, `\}`, newlines in inline strings) — makes inline GLSL / JSON / C-like source text in Iron literals round-trip cleanly.
+- **Linux build flags** — raylib on Linux now picks X11 as its GLFW backend and links `libX11/Xrandr/Xinerama/Xcursor/Xi` automatically. Linux distribution builds work out of the box.
+- **Test infrastructure**: `tests/run_tests.sh` hard-fails on missing `.expected` unless a `-- @compile-only` marker is present (previously silently skipped, rotting fixtures); manual smoke suite (12 raylib/ABI compile-only tests) now runs in CI.
+
+#### Stdlib polish (v2 API)
+
+- `Camera3D.projection` is typed as `CameraProjection` enum — `Camera3D(..., CameraProjection.PERSPECTIVE)` instead of `Int32(0)`.
+- `FilePathList.count()` / `.get(i)` fixed signature.
+- `Timer.update(t, dt)` / `Timer.reset(t)` compile and run (were previously documented as KNOWN LIMITATION).
+- Constructor sugar: `Color.rgb/rgba`, `Vector2.of`, `Vector3.of`, `Rectangle.of`.
+- Audio callback trampoline with 16-slot registry + detach-all semantics.
+
+#### Still deferred
+
+- **D1** proper receiver-method grammar (`func (t: Timer) update(dt: Float)`) — dedicated ironc grammar milestone.
+- **D2** `Image.load_svg` — waiting on raylib 5.6+ vendor bump.
+- **D4** per-stream AUDIO-12 slot bookkeeping refinement — awaiting user feedback on realistic workloads.
+
+#### Install
+
+```bash
+curl -fsSL https://ironlang.org/install.sh | bash
+```
+
+See the [Raylib getting-started guide](https://ironlang.org/raylib/guide/) for building your first game.
+
 ## v1.2.0-alpha — Networking Foundation, URL Module & Tuple Returns (2026-04-11)
 
 ### Summary
