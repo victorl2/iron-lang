@@ -488,6 +488,10 @@ add_executable(iron
     src/pkg/resolver.c
     src/pkg/lockfile.c
     src/cli/toml.c
+    # Phase 5 Plan 05-01 fix: src/cli/toml.c calls iron_fmt_options_default()
+    # to initialize IronProject.fmt; src/fmt/options.c is self-contained
+    # (no iron_compiler/iron_runtime deps), safe to link into `iron`.
+    src/fmt/options.c
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE
