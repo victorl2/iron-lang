@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio — Iron raylib Reference</title>
+  <meta name="description" content="Audio device, Wave, Sound, Music, AudioStream — every raudio.c binding.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sidebar-width: 260px;
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-deep); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; background: rgba(8, 8, 15, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 1.5rem; gap: 2rem; }
+    .nav-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; color: var(--text); text-decoration: none; flex-shrink: 0; }
+    .nav-logo:hover { color: var(--text); }
+    .nav-logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; color: white; }
+    .nav-right { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+    .nav-right a { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; letter-spacing: -0.01em; transition: color 0.2s, background 0.2s; padding: 0.35rem 0.65rem; border-radius: 6px; }
+    .nav-right a:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+    .nav-right a.active-link { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+    .sidebar-toggle { display: none; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text); padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: var(--font-sans); }
+    .nav-hamburger { display: none; background: none; border: none; cursor: pointer; padding: 0.5rem; margin-left: auto; }
+    .nav-hamburger span { display: block; width: 20px; height: 2px; background: var(--text-secondary); margin: 4px 0; transition: 0.3s; transform-origin: center; }
+    .nav-hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(4px, 4px); }
+    .nav-hamburger.active span:nth-child(2) { opacity: 0; }
+    .nav-hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(4px, -4px); }
+    .sidebar-overlay { position: fixed; inset: 0; z-index: 49; background: rgba(0, 0, 0, 0.5); opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+    .sidebar-overlay.active { opacity: 1; visibility: visible; }
+    .nav-overlay { position: fixed; inset: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; }
+    .nav-overlay.active { opacity: 1; visibility: visible; }
+    .layout { display: flex; margin-top: 56px; min-height: calc(100vh - 56px); }
+    .sidebar { width: var(--sidebar-width); position: fixed; top: 56px; bottom: 0; left: 0; overflow-y: auto; padding: 1.5rem 1rem; border-right: 1px solid var(--border); background: var(--bg-primary); }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.5rem; padding-left: 0.75rem; }
+    .sidebar-section a { display: block; padding: 0.3rem 0.75rem; color: var(--text-secondary); font-size: 0.85rem; border-radius: 4px; transition: all 0.15s; }
+    .sidebar-section a:hover { color: var(--text); background: var(--bg-surface); }
+    .sidebar-section a.active-link { color: var(--accent); background: rgba(232, 89, 12, 0.08); font-weight: 600; }
+    .content { margin-left: var(--sidebar-width); flex: 1; min-width: 0; max-width: 900px; padding: 2.5rem 3rem 4rem; }
+    .content h1 { font-size: 2rem; font-weight: 800; margin-bottom: 0.5rem; line-height: 1.2; }
+    .content .subtitle { color: var(--text-secondary); font-size: 1.1rem; margin-bottom: 2rem; }
+    .content h2 { font-size: 1.4rem; font-weight: 700; margin-top: 3rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+    .content p { margin-bottom: 1rem; color: var(--text-secondary); }
+    .content ul, .content ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+    .content li { margin-bottom: 0.4rem; }
+    .content code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 0.15em 0.4em; border-radius: 4px; color: var(--accent); }
+    .content pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; line-height: 1.6; }
+    .content pre code { background: none; padding: 0; font-size: 0.85rem; color: var(--text); }
+    .syn-kw { color: var(--syn-kw); font-weight: 500; }
+    .syn-ty { color: var(--syn-ty); }
+    .syn-st { color: var(--syn-st); }
+    .syn-cm { color: var(--syn-cm); font-style: italic; }
+    .syn-fn { color: var(--syn-fn); }
+    .syn-nu { color: var(--syn-nu); }
+    .syn-pr { color: var(--syn-pr); }
+    .api-entry { margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+    .api-entry h3 { font-family: var(--font-mono); font-size: 0.98rem; font-weight: 500; color: var(--text); margin-bottom: 0.4rem; margin-top: 1.5rem; }
+    .api-entry h3 code { color: var(--text); background: none; padding: 0; font-size: 1em; }
+    .api-entry .signature-meta { color: var(--text-muted); font-size: 0.82rem; margin-bottom: 0.6rem; }
+    .api-entry .signature-meta code { font-size: 0.8rem; color: var(--text-secondary); background: none; padding: 0; }
+    .api-entry p { margin: 0.4rem 0; font-size: 0.95rem; }
+    .api-entry pre { margin: 0.5rem 0; }
+    .api-entry .sources { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem; }
+    .api-entry .sources a { color: var(--text-secondary); }
+    .api-entry .sources a:hover { color: var(--accent); }
+    .callout { background: var(--bg-surface); border-left: 3px solid var(--accent); padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin-bottom: 1.25rem; }
+    .callout p { margin-bottom: 0; }
+    .callout-title { font-weight: 700; color: var(--text); margin-bottom: 0.3rem; font-size: 0.9rem; }
+    footer { margin-left: var(--sidebar-width); background: var(--bg-primary); border-top: 1px solid var(--border); padding: 2.5rem 3rem 1.5rem; }
+    .footer-inner { max-width: 900px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 2rem; }
+    .footer-brand p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; max-width: 280px; }
+    .footer-col h4 { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); margin-bottom: 0.75rem; }
+    .footer-col ul { list-style: none; padding: 0; margin: 0; }
+    .footer-col li { margin-bottom: 0.4rem; }
+    .footer-col a { font-size: 0.85rem; color: var(--text-secondary); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-bottom { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); max-width: 900px; }
+    @media (max-width: 900px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; z-index: 50; width: 280px; }
+      .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3); }
+      .content { margin-left: 0; padding: 2rem 2rem 4rem; max-width: 100%; overflow-x: hidden; }
+      .sidebar-toggle { display: block; }
+      .content h1 { font-size: 1.75rem; }
+      .content h2 { font-size: 1.2rem; }
+      footer { margin-left: 0; padding: 2rem 2rem 1.5rem; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; }
+    }
+    @media (max-width: 768px) {
+      .content { padding: 1.75rem 1.5rem 3rem; }
+      .content h1 { font-size: 1.55rem; }
+      .content h2 { font-size: 1.15rem; margin-top: 2.25rem; }
+      .content pre { font-size: 0.78rem; padding: 1rem; overflow-x: auto; }
+      .api-entry h3 { font-size: 0.92rem; word-break: break-word; }
+    }
+    @media (max-width: 640px) {
+      .nav-right { position: absolute; top: 56px; left: 0; right: 0; flex-direction: column; background: rgba(12, 12, 22, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; gap: 0; opacity: 0; visibility: hidden; transform: translateY(-8px); transition: opacity 0.25s, visibility 0.25s, transform 0.25s; }
+      .nav-right.open { opacity: 1; visibility: visible; transform: translateY(0); }
+      .nav-right a { padding: 0.6rem 0.5rem; font-size: 0.95rem; min-height: 44px; display: flex; align-items: center; border-radius: 8px; }
+      .nav-hamburger { display: block; }
+      .content { padding: 1.75rem 1.25rem 3rem; }
+      .content pre { font-size: 0.78rem; padding: 1rem; }
+      .content pre code { font-size: 0.78rem; }
+      nav { padding: 0 1rem; gap: 1rem; }
+      .sidebar { width: 85vw; max-width: 300px; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .content { padding: 1.25rem 1rem 2.5rem; }
+      .content h1 { font-size: 1.4rem; }
+      .content h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+      .content pre { font-size: 0.72rem; padding: 0.85rem; line-height: 1.5; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button class="sidebar-toggle" id="sidebarToggle">Menu</button>
+    <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+    <div class="nav-right" id="navRight">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="/guide/">Package Manager</a>
+      <a href="/raylib/" class="active-link">Raylib</a>
+      <a href="/install/">Install</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
+    </div>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+  </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Foundation</h3>
+        <a href="/raylib/reference/types.html">Types</a>
+        <a href="/raylib/reference/enums.html">Enums</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>System</h3>
+        <a href="/raylib/reference/window.html">Window &amp; System</a>
+        <a href="/raylib/reference/input.html">Input</a>
+        <a href="/raylib/reference/file.html">Files</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>2D</h3>
+        <a href="/raylib/reference/draw2d.html">2D Drawing</a>
+        <a href="/raylib/reference/coll.html">Collision</a>
+        <a href="/raylib/reference/tex.html">Textures &amp; Images</a>
+        <a href="/raylib/reference/text.html">Text &amp; Fonts</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>3D</h3>
+        <a href="/raylib/reference/draw3d.html">3D Drawing</a>
+        <a href="/raylib/reference/model.html">Models &amp; Meshes</a>
+        <a href="/raylib/reference/shader.html">Shaders</a>
+        <a href="/raylib/reference/math.html">Math</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Audio</h3>
+        <a href="/raylib/reference/audio.html" class="active-link">Audio</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Links</h3>
+        <a href="/raylib/">raylib home</a>
+        <a href="/raylib/guide/">Guide</a>
+        <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Audio</h1>
+      <p class="subtitle">Audio device, Wave, Sound, Music, AudioStream — every raudio.c binding.</p>
+      <div class="callout">
+        <div class="callout-title">AUDIO-01..12 reference</div>
+        <p>Every <code>raudio.c</code> binding &mdash; audio device, Wave (CPU), Sound (short GPU one-shot), Music (streaming BGM), AudioStream (low-level).</p>
+      </div>
+
+      <h2 id="device">Audio device (AUDIO-01)</h2>
+
+      <article class="api-entry">
+        <h3 id="audio-init"><code>Audio.init() / Audio.close() / Audio.is_ready() -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#device">Device</a> &middot; raylib: <code>InitAudioDevice / CloseAudioDevice / IsAudioDeviceReady</code></p>
+        <p>Open/close the audio device. Required before any Sound/Music/Wave call.</p>
+        <pre><code class="iron"><span class="syn-ty">Audio</span>.<span class="syn-fn">init</span>()
+<span class="syn-cm">-- ... audio calls ...</span>
+<span class="syn-ty">Audio</span>.<span class="syn-fn">close</span>()</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2392">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audio-master-volume"><code>Audio.set_master_volume(volume: Float32) / get_master_volume() -&gt; Float32</code></h3>
+        <p class="signature-meta">Category: <a href="#device">Device</a> &middot; raylib: <code>SetMasterVolume / GetMasterVolume</code></p>
+        <p>Global output volume in [0, 1].</p>
+        <pre><code class="iron"><span class="syn-ty">Audio</span>.<span class="syn-fn">set_master_volume</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2395">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="wave">Wave (AUDIO-02..04)</h2>
+
+      <article class="api-entry">
+        <h3 id="wave-load"><code>Wave.load(filePath: String) -&gt; Wave</code></h3>
+        <p class="signature-meta">Category: <a href="#wave">Wave</a> &middot; raylib: <code>LoadWave</code></p>
+        <p>Load WAV/OGG/MP3/FLAC/QOA/XM/MOD from disk.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> w = <span class="syn-ty">Wave</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/bounce.wav"</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2405">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="wave-load-from-memory"><code>Wave.load_from_memory(fileType: String, data: [UInt8], dataSize: Int32) -&gt; Wave</code></h3>
+        <p class="signature-meta">Category: <a href="#wave">Wave</a> &middot; raylib: <code>LoadWaveFromMemory</code></p>
+        <p>Load Wave from in-memory byte buffer (first live <code>[UInt8]</code> FFI consumer).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> w = <span class="syn-ty">Wave</span>.<span class="syn-fn">load_from_memory</span>(<span class="syn-st">".wav"</span>, bytes, <span class="syn-ty">Int32</span>(bytes.length))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2406">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="wave-is-valid"><code>Wave.is_valid(wave) -&gt; Bool / Wave.unload(wave)</code></h3>
+        <p class="signature-meta">Category: <a href="#wave">Wave</a> &middot; raylib: <code>IsWaveValid / UnloadWave</code></p>
+        <p>Validity guard + release sample buffer.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Wave</span>.<span class="syn-fn">is_valid</span>(w) { <span class="syn-ty">Wave</span>.<span class="syn-fn">unload</span>(w) }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2408">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="wave-copy"><code>Wave.copy(wave) -&gt; Wave / crop(wave, initFrame, finalFrame) / format(wave, sampleRate, sampleSize, channels)</code></h3>
+        <p class="signature-meta">Category: <a href="#wave">Wave</a> &middot; raylib: <code>WaveCopy / Crop / Format</code></p>
+        <p>Deep copy; frame-range crop; sample-rate / bit-depth / channel conversion.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> short = <span class="syn-ty">Wave</span>.<span class="syn-fn">crop</span>(w, <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">22050</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2431">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="wave-samples"><code>Wave.load_samples(wave) -&gt; [Float32]</code></h3>
+        <p class="signature-meta">Category: <a href="#wave">Wave</a> &middot; raylib: <code>LoadWaveSamples</code></p>
+        <p>Read PCM samples into a Float32 array for inspection/DSP.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> samples = <span class="syn-ty">Wave</span>.<span class="syn-fn">load_samples</span>(w)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2434">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="wave-export"><code>Wave.export(wave, filePath) -&gt; Bool / Wave.export_as_code(wave, filePath) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#wave">Wave</a> &middot; raylib: <code>ExportWave / ExportWaveAsCode</code></p>
+        <p>Write Wave to disk as WAV; emit as C source.</p>
+        <pre><code class="iron"><span class="syn-ty">Wave</span>.<span class="syn-fn">export</span>(w, <span class="syn-st">"bounce.wav"</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2410">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="wave-to-sound"><code>Wave.to_sound(wave) -&gt; Sound</code></h3>
+        <p class="signature-meta">Category: <a href="#wave">Wave</a> &middot; raylib: <code>LoadSoundFromWave</code></p>
+        <p>Upload Wave → GPU Sound for playback. The Wave itself is still owned by you.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> s = <span class="syn-ty">Wave</span>.<span class="syn-fn">to_sound</span>(w)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2442">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="sound">Sound (AUDIO-05..08)</h2>
+
+      <article class="api-entry">
+        <h3 id="sound-load"><code>Sound.load(filePath: String) -&gt; Sound</code></h3>
+        <p class="signature-meta">Category: <a href="#sound">Sound</a> &middot; raylib: <code>LoadSound</code></p>
+        <p>Load sound file directly (internally = <code>LoadWave</code> + <code>LoadSoundFromWave</code>).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> bounce = <span class="syn-ty">Sound</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/bounce.wav"</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2457">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="sound-alias"><code>Sound.from_wave(wave) / alias(source) / unload_alias(alias)</code></h3>
+        <p class="signature-meta">Category: <a href="#sound">Sound</a> &middot; raylib: <code>LoadSoundFromWave / LoadSoundAlias / UnloadSoundAlias</code></p>
+        <p>Aliases share sample buffer &mdash; cheap way to play overlapping copies of the same one-shot.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> copy = <span class="syn-ty">Sound</span>.<span class="syn-fn">alias</span>(bounce)
+<span class="syn-ty">Sound</span>.<span class="syn-fn">play</span>(copy)
+<span class="syn-ty">Sound</span>.<span class="syn-fn">unload_alias</span>(copy)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2459">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="sound-is-valid"><code>Sound.is_valid(sound) / unload(sound)</code></h3>
+        <p class="signature-meta">Category: <a href="#sound">Sound</a> &middot; raylib: <code>IsSoundValid / UnloadSound</code></p>
+        <p>Guard + release.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Sound</span>.<span class="syn-fn">is_valid</span>(bounce) { <span class="syn-ty">Sound</span>.<span class="syn-fn">unload</span>(bounce) }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2460">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="sound-play"><code>Sound.play / stop / pause / resume(sound) / is_playing(sound) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#sound">Sound</a> &middot; raylib: <code>PlaySound / StopSound / PauseSound / ResumeSound / IsSoundPlaying</code></p>
+        <p>Playback controls for one-shots.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">collides</span>(paddle, ball) {
+    <span class="syn-ty">Sound</span>.<span class="syn-fn">play</span>(bounce)
+}</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2468">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="sound-set-params"><code>Sound.set_volume / set_pitch / set_pan(sound, value: Float32)</code></h3>
+        <p class="signature-meta">Category: <a href="#sound">Sound</a> &middot; raylib: <code>SetSoundVolume / Pitch / Pan</code></p>
+        <p>Per-sound volume [0..1], pitch multiplier (1.0 = normal), pan [0..1] (0.5 = center).</p>
+        <pre><code class="iron"><span class="syn-ty">Sound</span>.<span class="syn-fn">set_volume</span>(bounce, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.8</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2477">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="sound-update"><code>Sound.update(sound, data: [Float32], sampleCount: Int32)</code></h3>
+        <p class="signature-meta">Category: <a href="#sound">Sound</a> &middot; raylib: <code>UpdateSound</code></p>
+        <p>Overwrite the sample buffer with new data. Useful for generated sounds.</p>
+        <pre><code class="iron"><span class="syn-ty">Sound</span>.<span class="syn-fn">update</span>(s, samples, <span class="syn-ty">Int32</span>(samples.length))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2489">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="music">Music (AUDIO-09..11)</h2>
+
+      <article class="api-entry">
+        <h3 id="music-load"><code>Music.load(filePath: String) -&gt; Music / Music.load_from_memory(fileType, data: [UInt8], dataSize)</code></h3>
+        <p class="signature-meta">Category: <a href="#music">Music</a> &middot; raylib: <code>LoadMusicStream / LoadMusicStreamFromMemory</code></p>
+        <p>Streaming long audio from file or memory.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> bgm = <span class="syn-ty">Music</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/loop.ogg"</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2502">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="music-is-valid"><code>Music.is_valid(music) / unload(music)</code></h3>
+        <p class="signature-meta">Category: <a href="#music">Music</a> &middot; raylib: <code>IsMusicValid / UnloadMusicStream</code></p>
+        <p>Guard + release.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Music</span>.<span class="syn-fn">is_valid</span>(bgm) { <span class="syn-ty">Music</span>.<span class="syn-fn">unload</span>(bgm) }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2504">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="music-play"><code>Music.play / is_playing / update / stop / pause / resume(music)</code></h3>
+        <p class="signature-meta">Category: <a href="#music">Music</a> &middot; raylib: <code>PlayMusicStream / IsMusicStreamPlaying / UpdateMusicStream / StopMusicStream / PauseMusicStream / ResumeMusicStream</code></p>
+        <p><strong>Call <code>Music.update(m)</code> every frame</strong> to feed the decoder's circular buffer.</p>
+        <pre><code class="iron"><span class="syn-ty">Music</span>.<span class="syn-fn">play</span>(bgm)
+<span class="syn-kw">while not</span> <span class="syn-ty">Window</span>.<span class="syn-fn">should_close</span>() {
+    <span class="syn-ty">Music</span>.<span class="syn-fn">update</span>(bgm)
+}</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2543">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="music-seek"><code>Music.seek(music, position: Float32) / get_time_length(music) / get_time_played(music) -&gt; Float32</code></h3>
+        <p class="signature-meta">Category: <a href="#music">Music</a> &middot; raylib: <code>SeekMusicStream / GetMusicTimeLength / GetMusicTimePlayed</code></p>
+        <p>Seconds-based transport controls.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> t = <span class="syn-ty">Music</span>.<span class="syn-fn">get_time_played</span>(bgm)
+<span class="syn-ty">Music</span>.<span class="syn-fn">seek</span>(bgm, <span class="syn-ty">Float32</span>(<span class="syn-nu">30.0</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2556">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="music-set-params"><code>Music.set_volume / set_pitch / set_pan / set_looping(music, value)</code></h3>
+        <p class="signature-meta">Category: <a href="#music">Music</a> &middot; raylib: <code>SetMusicVolume / Pitch / Pan + SetMusicStreamLooping</code></p>
+        <p>Per-track mixer params + loop flag. <code>set_looping</code> returns the updated Music (mutating-return fallback).</p>
+        <pre><code class="iron"><span class="syn-kw">var</span> bgm2 = <span class="syn-ty">Music</span>.<span class="syn-fn">set_looping</span>(bgm, <span class="syn-kw">true</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2524">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="audiostream">AudioStream (AUDIO-12)</h2>
+
+      <article class="api-entry">
+        <h3 id="audiostream-load"><code>AudioStream.load(sampleRate: UInt32, sampleSize: UInt32, channels: UInt32) -&gt; AudioStream</code></h3>
+        <p class="signature-meta">Category: <a href="#audiostream">AudioStream</a> &middot; raylib: <code>LoadAudioStream</code></p>
+        <p>Low-level PCM stream you feed manually. Used internally by Music and exposed for synthesis.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> st = <span class="syn-ty">AudioStream</span>.<span class="syn-fn">load</span>(<span class="syn-ty">UInt32</span>(<span class="syn-nu">44100</span>), <span class="syn-ty">UInt32</span>(<span class="syn-nu">16</span>), <span class="syn-ty">UInt32</span>(<span class="syn-nu">2</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2576">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audiostream-update"><code>AudioStream.update(stream, data: [Float32], frameCount: Int32) / is_processed(stream) -&gt; Bool</code></h3>
+        <p class="signature-meta">Category: <a href="#audiostream">AudioStream</a> &middot; raylib: <code>UpdateAudioStream / IsAudioStreamProcessed</code></p>
+        <p>Supply new PCM data when <code>is_processed</code> says the next buffer is free.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">AudioStream</span>.<span class="syn-fn">is_processed</span>(st) {
+    <span class="syn-ty">AudioStream</span>.<span class="syn-fn">update</span>(st, samples, <span class="syn-ty">Int32</span>(samples.length))
+}</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2579">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audiostream-is-valid"><code>AudioStream.is_valid(stream) / unload(stream)</code></h3>
+        <p class="signature-meta">Category: <a href="#audiostream">AudioStream</a> &middot; raylib: <code>IsAudioStreamValid / UnloadAudioStream</code></p>
+        <p>Guard + release.</p>
+        <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">unload</span>(st)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2577">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audiostream-play"><code>AudioStream.play / pause / resume / stop / is_playing(stream)</code></h3>
+        <p class="signature-meta">Category: <a href="#audiostream">AudioStream</a> &middot; raylib: <code>PlayAudioStream / PauseAudioStream / ResumeAudioStream / StopAudioStream / IsAudioStreamPlaying</code></p>
+        <p>Playback transport.</p>
+        <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">play</span>(st)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2581">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audiostream-params"><code>AudioStream.set_volume / set_pitch / set_pan(stream, value: Float32)</code></h3>
+        <p class="signature-meta">Category: <a href="#audiostream">AudioStream</a> &middot; raylib: <code>SetAudioStream*</code></p>
+        <p>Per-stream mixer params.</p>
+        <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">set_volume</span>(st, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.7</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2586">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audiostream-buffer-size"><code>AudioStream.set_buffer_size_default(size: Int32)</code></h3>
+        <p class="signature-meta">Category: <a href="#audiostream">AudioStream</a> &middot; raylib: <code>SetAudioStreamBufferSizeDefault</code></p>
+        <p>Tweak the default frame-size for newly-loaded streams (affects latency / CPU).</p>
+        <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">set_buffer_size_default</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">4096</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2589">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="callbacks">Audio callbacks (AUDIO-12 deferred)</h2>
+
+      <div class="callout">
+        <div class="callout-title">Phase 73 deferral &mdash; 5 callback entries</div>
+        <p>The following 5 callback-accepting entries ship as Iron surface declarations in <code>raylib.iron</code>, with runtime trampoline infrastructure wired (16-slot registry, iron_raylib.c:4497-4599). The <code>func(Int, UInt32)</code> lambda ↔ <code>Iron_Closure</code> foreign-method FFI lowering is the final piece — deferred to a post-alpha ironc codegen milestone. Use <code>AudioStream.update</code> in the main loop as the working alternative.</p>
+      </div>
+
+      <article class="api-entry">
+        <h3 id="audiostream-set-callback"><code>AudioStream.set_callback(stream, cb: func(Int, UInt32))</code> <em>(Phase 73 deferral)</em></h3>
+        <p class="signature-meta">Category: <a href="#callbacks">Callbacks</a> &middot; raylib: <code>SetAudioStreamCallback</code></p>
+        <p>Per-stream audio-thread callback. Deferred — use the <code>update</code> pattern.</p>
+        <pre><code class="iron"><span class="syn-cm">-- Surface declared; FFI lowering deferred to post-alpha.</span></code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2610">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audiostream-attach-processor"><code>AudioStream.attach_processor(stream, cb) / detach_processor(stream)</code> <em>(Phase 73 deferral)</em></h3>
+        <p class="signature-meta">Category: <a href="#callbacks">Callbacks</a> &middot; raylib: <code>AttachAudioStreamProcessor / Detach</code></p>
+        <p>Add/remove per-stream DSP processor. Deferred &mdash; same FFI lowering concern.</p>
+        <pre><code class="iron"><span class="syn-cm">-- Surface declared; FFI lowering deferred to post-alpha.</span></code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2611">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="audio-attach-mixed"><code>Audio.attach_mixed_processor(cb) / detach_mixed_processor()</code> <em>(Phase 73 deferral)</em></h3>
+        <p class="signature-meta">Category: <a href="#callbacks">Callbacks</a> &middot; raylib: <code>AttachAudioMixedProcessor / DetachAudioMixedProcessor</code></p>
+        <p>Master-bus DSP processor applied to every stream. Deferred.</p>
+        <pre><code class="iron"><span class="syn-cm">-- Surface declared; FFI lowering deferred to post-alpha.</span></code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2613">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="see-also">See also</h2>
+      <ul>
+        <li><a href="/raylib/reference/types.html#wave">Wave</a>, <a href="/raylib/reference/types.html#sound">Sound</a>, <a href="/raylib/reference/types.html#music">Music</a>, <a href="/raylib/reference/types.html#audiostream">AudioStream</a> types.</li>
+        <li><a href="/raylib/reference/file.html">Files reference</a> &mdash; loading byte buffers for <code>*.load_from_memory</code> APIs.</li>
+        <li><a href="/raylib/guide/#pong-audio">Guide → Pong audio</a> for a working bounce-sound example.</li>
+      </ul>
+
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+        <p>Apache 2.0 licensed. Compiled, strongly-typed, built for games.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/guide/">Package Manager</a></li>
+          <li><a href="/raylib/">Raylib</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="/install/">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/" style="color: var(--text-secondary); text-decoration: underline;">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var sidebar = document.getElementById('sidebar');
+      var sidebarToggle = document.getElementById('sidebarToggle');
+      var sidebarOverlay = document.getElementById('sidebarOverlay');
+      var navToggle = document.getElementById('navToggle');
+      var navRight = document.getElementById('navRight');
+      var navOverlay = document.getElementById('navOverlay');
+      function closeSidebar() { sidebar.classList.remove('open'); sidebarOverlay.classList.remove('active'); }
+      sidebarToggle.addEventListener('click', function() { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('active'); });
+      sidebarOverlay.addEventListener('click', closeSidebar);
+      document.querySelectorAll('.sidebar a').forEach(function(link) { link.addEventListener('click', closeSidebar); });
+      function closeNav() { navRight.classList.remove('open'); navToggle.classList.remove('active'); navOverlay.classList.remove('active'); }
+      navToggle.addEventListener('click', function() { navRight.classList.toggle('open'); navToggle.classList.toggle('active'); navOverlay.classList.toggle('active'); });
+      navOverlay.addEventListener('click', closeNav);
+      navRight.querySelectorAll('a').forEach(function(a) { a.addEventListener('click', closeNav); });
+      document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeSidebar(); closeNav(); } });
+    })();
+  </script>
+</body>
+</html>

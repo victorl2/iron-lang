@@ -1219,6 +1219,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 IronLIR_Instr *coll_call = iron_lir_call(ctx->current_func, ctx->current_block,
                                                            NULL, coll_fref->id,
                                                            coll_args, coll_argc, type, span);
+                /* Collection methods take the list/map/set by pointer on the
+                 * C side (Iron_List_<T>_* etc.); the LIR passes it by value.
+                 * Flag the call so emit_c.c wraps args[0] with '&'. Applies
+                 * to both instance-style calls (xs.len()) and static-style
+                 * (List.len(xs)) — the C signature is the same either way. */
+                coll_call->call.self_by_addr = true;
                 arrfree(coll_args);
                 return coll_call->id;
             } else if (obj_type->kind == IRON_TYPE_ENUM && obj_type->enu.decl) {
@@ -1356,6 +1362,19 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
                                               NULL, fref->id,
                                               args, arg_count, type, span);
+        /* Pointer-receiver stdlib methods — the C impl takes the receiver by
+         * pointer (Iron_Timer *) while the Iron method signature takes it by
+         * value. Only the mutating Timer methods need this; Iron_timer_done
+         * takes value in both places so it stays off-list.
+         *
+         * Applies to both instance-style (t.update(dt)) and static-style
+         * (Timer.update(t, dt)) calls — the C signature is the same. If a
+         * future stdlib adds a pointer-receiver method, add its mangled name
+         * here (or wire structured metadata on the HIR func decl). */
+        if (strcmp(mangled, "timer_update") == 0 ||
+            strcmp(mangled, "timer_reset")  == 0) {
+            call->call.self_by_addr = true;
+        }
         arrfree(args);
         return call->id;
     }

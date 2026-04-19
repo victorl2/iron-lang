@@ -1,0 +1,47 @@
+-- tests/integration/raylib/input/input_test.iron
+-- INPUT category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Keyboard / Mouse / Gamepad / Touch / Gestures FFI.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(320), Int32(240), "input_test")
+
+    -- Keyboard
+    val kp = Keyboard.is_pressed(KeyboardKey.SPACE)
+    val kd = Keyboard.is_down(KeyboardKey.A)
+    val ku = Keyboard.is_released(KeyboardKey.S)
+    val kk = Keyboard.get_pressed()
+
+    -- Mouse
+    val mp = Mouse.is_button_pressed(MouseButton.LEFT)
+    val mpos = Mouse.get_position()
+    val mwheel = Mouse.get_wheel_move()
+
+    -- Gamepad
+    val gavail = Gamepad.is_available(Int32(0))
+    val gname = Gamepad.get_name(Int32(0))
+    val gaxis = Gamepad.get_axis_movement(Int32(0), GamepadAxis.LEFT_X)
+
+    -- Touch + Gestures
+    val tcount = Touch.get_point_count()
+    val gesture = Gestures.get_detected()
+
+    Window.close()
+
+    val _k0 = kp
+    val _k1 = kd
+    val _k2 = ku
+    val _k3 = kk
+    val _k4 = mp
+    val _k5 = mpos
+    val _k6 = mwheel
+    val _k7 = gavail
+    val _k8 = gname
+    val _k9 = gaxis
+    val _k10 = tcount
+    val _k11 = gesture
+
+    return Int32(0)
+}

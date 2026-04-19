@@ -1,0 +1,167 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
+-- tests/manual/shaders_smoke.iron
+-- Phase 71 canonical regression — 4 tagged SHADER-NN sections covering
+-- every SHADER-NN requirement end-to-end. Follows Phase 67/68/69/70
+-- smoke file conventions: Window.init + tagged sections + PHASE 71
+-- SMOKE confirmation + Window.close. On headless CI, Window.init may
+-- succeed without display; all draw calls no-op safely.
+--
+-- Every section prints a `-- ── SHADER-NN: ...` status line; the final
+-- `PHASE 71 SMOKE` line confirms full pass.
+--
+-- Static-form calls throughout (Shader.set_value(sh, ...) not
+-- sh.set_value(...)) per Rule-3 convention established Phase 68-05 /
+-- 70-04.
+--
+-- Iron language notes (Phase 70-04 Rule-1 fixes in effect):
+--   - Iron has no `.toString()` on primitives — use static-tag prints +
+--     `_k_*` keep-alive bindings.
+--   - Iron has no `if`-expression form — use `var x = default; if { ... }`.
+--   - `not` keyword, NOT `!` prefix (Phase 69-04 Rule-3).
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(800), Int32(600), "Phase 71 shaders_smoke")
+    Window.set_target_fps(Int32(60))
+
+-- ── SHADER-01: Shader.load / load_from_memory / is_valid / unload ─
+    print("-- ── SHADER-01: load / is_valid / unload")
+
+    -- File-path load. Empty VS string => raylib default vertex stage.
+    val sh_gray = Shader.load("", "tests/assets/shaders/grayscale.fs")
+    val ok_file = Shader.is_valid(sh_gray)
+    if not ok_file {
+        print("WARN: grayscale.fs failed to load; raylib default substituted internally")
+    }
+
+    -- Inline memory load — first with empty-string args to exercise the
+    -- raylib-default-stage fallback path (both NULL in C). Default-both
+    -- still validates the shim path end-to-end: two iron_string_cstr
+    -- calls + 2x empty-string→NULL fallback in C.
+    val sh_mem = Shader.load_from_memory("", "")
+    val ok_mem = Shader.is_valid(sh_mem)
+    if not ok_mem {
+        print("WARN: memory shader failed to compile")
+    }
+
+    -- Inline GLSL source as a real string literal, using the `\{` / `\}`
+    -- escapes added for D6 residual. This proves the lexer round-trips
+    -- brace-heavy shader text without misreading `{ gl_FragColor = ... }`
+    -- as Iron interpolation. The compiled shader is discarded; we only
+    -- care that Shader.load_from_memory accepts the string and the Iron
+    -- source type-checks + links.
+    val fs_src: String = "#version 330\nvoid main() \{ gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); \}"
+    val sh_inline = Shader.load_from_memory("", fs_src)
+    val _k_inline = sh_inline
+    Shader.unload(sh_inline)
+
+-- ── SHADER-02: Shader.get_location / get_location_attrib / set_location ─
+    print("-- ── SHADER-02: get_location / get_location_attrib / set_location")
+
+    -- Standard raylib-bound uniform / attribute names.
+    val loc_mvp      = Shader.get_location(sh_gray, "mvp")
+    val loc_tex      = Shader.get_location(sh_gray, "texture0")
+    val loc_col      = Shader.get_location(sh_gray, "colDiffuse")
+    val loc_attr_pos = Shader.get_location_attrib(sh_gray, "vertexPosition")
+
+    -- Pitfall 3: get_location returns -1 if uniform is optimized out.
+    -- Smoke asserts loc >= 0 pattern (raylib no-ops set_value if loc <= -1 anyway).
+    if loc_mvp >= Int32(0) {
+        print("mvp location resolved")
+    }
+
+    -- Iron-side set_location helper (the only "invented" Phase 71 entry).
+    -- Writes to shader._locs[(int)MATRIX_MVP] = loc_mvp in C via opaque pointer.
+    Shader.set_location(sh_gray, ShaderLocationIndex.MATRIX_MVP, loc_mvp)
+
+-- ── SHADER-03: uniform setters (set_value / set_value_matrix / set_value_texture) ─
+    print("-- ── SHADER-03: set_value (FLOAT + VEC2 + INT) / set_value_matrix / set_value_texture")
+
+    -- Minimal-viable byte-packing coverage (Research Q1).
+    -- .float path — Float32(0.5) = 0x3F000000 little-endian = [0x00, 0x00, 0x00, 0x3F].
+    val intensity_bytes: [UInt8] = [UInt8(0), UInt8(0), UInt8(0), UInt8(63)]
+    val loc_intensity = Shader.get_location(sh_gray, "u_intensity")
+    if loc_intensity >= Int32(0) {
+        Shader.set_value(sh_gray, loc_intensity, intensity_bytes, ShaderUniformDataType.FLOAT)
+    }
+
+    -- .vec2 path — Vector2(0.0, 1.0) = 8 bytes [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F].
+    val vec2_bytes: [UInt8] = [UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(128), UInt8(63)]
+    if loc_col >= Int32(0) {
+        Shader.set_value(sh_gray, loc_col, vec2_bytes, ShaderUniformDataType.VEC2)
+    }
+
+    -- .int path — Int32(7) = [0x07, 0x00, 0x00, 0x00].
+    val int_bytes: [UInt8] = [UInt8(7), UInt8(0), UInt8(0), UInt8(0)]
+    -- No stock int uniform on grayscale.fs; test the binding path, not visual effect.
+    -- raylib no-ops set_value when loc <= -1 (rcore.c:1433) — safe on -1.
+    Shader.set_value(sh_gray, Int32(-1), int_bytes, ShaderUniformDataType.INT)
+
+    -- set_value_v — one-element array, same FLOAT payload.
+    Shader.set_value_v(sh_gray, Int32(-1), intensity_bytes, ShaderUniformDataType.FLOAT, Int32(1))
+
+    -- Dedicated Matrix path — no byte packing. Pitfall 7: use Matrix.identity(), not hand-built.
+    val identity = Matrix.identity()
+    Shader.set_value_matrix(sh_gray, loc_mvp, identity)
+
+    -- Dedicated Texture path — no byte packing. Uses RenderTexture's color attachment.
+    val rt = RenderTexture.load(Int32(800), Int32(600))
+    Shader.set_value_texture(sh_gray, loc_tex, rt.texture)
+
+    -- Remaining ShaderUniformDataType variants (VEC3/4, IVEC2/3/4, SAMPLER2D)
+    -- are structurally identical to FLOAT/VEC2/INT above; omitted for brevity.
+    -- Phase 73 polish candidate: per-type convenience wrappers.
+
+-- ── SHADER-04: post-FX composition (no new shims; validates Phase 63+66+71 combo) ─
+    print("-- ── SHADER-04: begin_texture_mode -> 3D draw -> end -> begin_shader_mode -> Texture.draw_rec -> end")
+
+    -- Minimal 3D scene inside the RenderTexture.
+    val cam = Camera3D(
+        Vector3(Float32(4.0), Float32(4.0), Float32(4.0)),
+        Vector3(Float32(0.0), Float32(0.0), Float32(0.0)),
+        Vector3(Float32(0.0), Float32(1.0), Float32(0.0)),
+        Float32(45.0),
+        CameraProjection.PERSPECTIVE
+    )
+    val scene_mesh = Mesh.cube(Float32(2.0), Float32(2.0), Float32(2.0))
+    val scene_model = Model.from_mesh(scene_mesh)
+
+    -- Pass 1: render scene into RenderTexture
+    Draw.begin_texture_mode(rt)
+    Draw.clear(RAYWHITE)
+    Draw.begin_mode_3d(cam)
+    Model.draw(scene_model, Vector3(Float32(0.0), Float32(0.0), Float32(0.0)), Float32(1.0), WHITE)
+    Draw.end_mode_3d()
+    Draw.end_texture_mode()
+
+    -- Pass 2: draw RenderTexture through shader (Y-flip via negative height — Pitfall 6)
+    Draw.begin()
+    Draw.clear(BLACK)
+    Draw.begin_shader_mode(sh_gray)
+    Texture.draw_rec(
+        rt.texture,
+        Rectangle(Float32(0.0), Float32(0.0), Float32(800.0), Float32(-600.0)),
+        Vector2(Float32(0.0), Float32(0.0)),
+        WHITE
+    )
+    Draw.end_shader_mode()
+    Draw.end()
+
+    -- Cleanup
+    Shader.unload(sh_gray)
+    Shader.unload(sh_mem)
+    Model.unload(scene_model)
+    RenderTexture.unload(rt)
+
+    -- Keep-alive bindings so unused vals don't get optimized out by ironc.
+    val _k_ok_file  = ok_file
+    val _k_ok_mem   = ok_mem
+    val _k_loc_tex  = loc_tex
+    val _k_loc_attr = loc_attr_pos
+
+    print("PHASE 71 SMOKE: ALL SHADER-01..04 CALL SITES EXERCISED")
+
+    Window.close()
+    return Int32(0)
+}

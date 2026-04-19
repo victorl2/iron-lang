@@ -29,6 +29,15 @@ void emit_type_decls(EmitCtx *ctx);
  * generated C declares InitWindow, ClearBackground, and friends. */
 void emit_extern_prototypes(EmitCtx *ctx);
 
+/* Auto-generate prototypes for foreign-method stubs in stdlib .iron files
+ * whose C symbols are not already declared by an included header. This
+ * replaces per-function strcmp tables for the raylib bindings. Skips
+ * runtime/stdlib header-declared prefixes (Iron_string_, Iron_list_,
+ * Iron_math_, Iron_io_, Iron_time_, Iron_timer_, Iron_log_, Iron_hint_).
+ * Called from both emit_c.c and emit_web.c so the native and web emitters
+ * share the same surface for Iron_window_*, Iron_draw_*, Iron_audio_*, etc. */
+void emit_foreign_method_prototypes(EmitCtx *ctx);
+
 /* Estimate size of a concrete type in bytes (for variant split decisions). */
 int emit_estimate_type_size(Iron_ObjectDecl *od);
 

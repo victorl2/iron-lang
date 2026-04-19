@@ -1,0 +1,65 @@
+-- tests/integration/raylib/draw3d/draw3d_test.iron
+-- DRAW3D category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Camera3D + Draw.* 3D primitives FFI.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(320), Int32(240), "draw3d_test")
+
+    val cam = Camera3D(
+        Vector3.of(Float32(10.0), Float32(10.0), Float32(10.0)),
+        Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0)),
+        Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0)),
+        Float32(45.0),
+        CameraProjection.PERSPECTIVE
+    )
+
+    -- Camera3D methods
+    val cam_orb = Camera3D.update(cam, CameraMode.ORBITAL)
+    val ray = Camera3D.screen_to_world_ray(cam, Vector2.of(Float32(100.0), Float32(100.0)))
+    val screen = Camera3D.world_to_screen(cam, Vector3.of(Float32(0.0), Float32(0.0), Float32(-5.0)))
+    val view_m = Camera3D.matrix(cam)
+
+    val origin = Vector3.of(Float32(0.0), Float32(0.0), Float32(0.0))
+    val p1 = Vector3.of(Float32(1.0), Float32(0.0), Float32(0.0))
+    val p2 = Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0))
+    val p3 = Vector3.of(Float32(0.0), Float32(0.0), Float32(1.0))
+    val axis_y = Vector3.of(Float32(0.0), Float32(1.0), Float32(0.0))
+    val size3 = Vector3.of(Float32(2.0), Float32(2.0), Float32(2.0))
+    val size2 = Vector2.of(Float32(10.0), Float32(10.0))
+
+    Draw.begin()
+    Draw.clear(RAYWHITE)
+    Draw.begin_mode_3d(cam)
+
+    Draw.line_3d(origin, p1, RED)
+    Draw.point_3d(origin, BLACK)
+    Draw.circle_3d(origin, Float32(1.0), axis_y, Float32(0.0), BLUE)
+    Draw.triangle_3d(p1, p2, p3, GREEN)
+
+    Draw.cube(origin, Float32(2.0), Float32(2.0), Float32(2.0), RED)
+    Draw.cube_v(origin, size3, RED)
+    Draw.cube_wires(origin, Float32(2.0), Float32(2.0), Float32(2.0), BLACK)
+
+    Draw.sphere(origin, Float32(1.0), PURPLE)
+    Draw.sphere_wires(origin, Float32(1.0), Int32(8), Int32(8), BLACK)
+
+    Draw.cylinder(origin, Float32(1.0), Float32(1.0), Float32(2.0), Int32(16), ORANGE)
+    Draw.capsule(origin, p2, Float32(0.5), Int32(8), Int32(8), DARKGREEN)
+    Draw.plane(origin, size2, LIGHTGRAY)
+    Draw.ray(ray, MAGENTA)
+    Draw.grid(Int32(10), Float32(1.0))
+
+    Draw.end_mode_3d()
+    Draw.end()
+
+    Window.close()
+
+    val _k0 = cam_orb
+    val _k1 = screen
+    val _k2 = view_m
+
+    return Int32(0)
+}

@@ -354,6 +354,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **sl_time_out, char **sl_log_out,
                            char **sl_hint_out,
                            char **sl_net_out,
+                           char **sl_rl_out,           /* Phase 60: raylib shim */
+                           char **sl_rl_layout_out,   /* Phase 60: ABI asserts */
                            IronBuildOpts opts,
                            char **rl_src_out, char **rl_i_flag_out,
                            char **rl_glfw_src_out, char **rl_glfw_i_flag_out,
@@ -428,6 +430,15 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         if (!glfw_i_flag) return 1;
         snprintf(glfw_i_flag, glfw_i_len, "-I%s/vendor/raylib/external/glfw/include", base_dir);
         *rl_glfw_i_flag_out = glfw_i_flag;
+
+        /* Phase 60 Plan 01: raylib shim scaffold — iron_raylib.c (wrapper
+         * impls) and iron_raylib_layout.c (compile-time ABI assertions).
+         * Both are unconditional siblings of raylib.h and compile into
+         * every native raylib-enabled build. Plan 60-01 ships them as
+         * empty scaffolds; Plans 60-02..05 + 60-07 populate them. */
+        *sl_rl_out        = make_path(base_dir, "stdlib/iron_raylib.c");
+        *sl_rl_layout_out = make_path(base_dir, "stdlib/iron_raylib_layout.c");
+        if (!*sl_rl_out || !*sl_rl_layout_out) return 1;
     }
 
     int ai = 0;
@@ -510,6 +521,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
      * raylib .c files here. The pre-compiled .o paths are added to argv in
      * invoke_clang after the pre-step completes. */
     if (opts.use_raylib && *rl_src_out) {
+        /* Phase 60 Plan 01: pass the raylib shim + layout TUs to clang
+         * alongside the raylib flags. They are Iron-side source files
+         * (not vendored raylib), so they go through the normal
+         * single-invocation compile path, not the pre-compile loop. */
+        argv_buf[ai++] = *sl_rl_out;
+        argv_buf[ai++] = *sl_rl_layout_out;
         argv_buf[ai++] = *rl_i_flag_out;
         argv_buf[ai++] = *rl_glfw_i_flag_out;
         argv_buf[ai++] = "-DPLATFORM_DESKTOP";
@@ -523,9 +540,23 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "-framework";
         argv_buf[ai++] = "CoreVideo";
 #elif defined(__linux__)
+        /* Pick X11 as raylib's GLFW backend on Linux. rglfw.c hard-errors
+         * if neither _GLFW_X11 nor _GLFW_WAYLAND is defined (see
+         * src/vendor/raylib/rglfw.c:56-58). X11 is the broader-compat
+         * choice — works on both X.Org and Wayland sessions (via XWayland)
+         * and only requires libx11-dev at build time. */
+        argv_buf[ai++] = "-D_GLFW_X11";
         argv_buf[ai++] = "-lGL";
         argv_buf[ai++] = "-ldl";
         argv_buf[ai++] = "-lrt";
+        /* GLFW X11 backend link deps. Packages: libx11-dev libxrandr-dev
+         * libxinerama-dev libxcursor-dev libxi-dev (+ libasound2-dev if
+         * raylib audio is used). pthread is already linked earlier. */
+        argv_buf[ai++] = "-lX11";
+        argv_buf[ai++] = "-lXrandr";
+        argv_buf[ai++] = "-lXinerama";
+        argv_buf[ai++] = "-lXcursor";
+        argv_buf[ai++] = "-lXi";
 #endif
     }
     argv_buf[ai] = NULL;
@@ -542,6 +573,7 @@ static void free_src_list(char *base_dir,
                            char *rt_netinit, char *rt_oom,
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *sl_hint, char *sl_net,
+                           char *sl_rl, char *sl_rl_layout,    /* Phase 60 */
                            char *rl_src, char *rl_i_flag,
                            char *rl_glfw_src, char *rl_glfw_i_flag) {
     free(base_dir);
@@ -553,6 +585,7 @@ static void free_src_list(char *base_dir,
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(sl_hint);
     free(sl_net);
+    free(sl_rl); free(sl_rl_layout);
     free(rl_src); free(rl_i_flag);
     free(rl_glfw_src); free(rl_glfw_i_flag);
 }
@@ -569,6 +602,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rt_oom = NULL;
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *sl_hint = NULL, *sl_net = NULL;
+    char *sl_rl = NULL, *sl_rl_layout = NULL;  /* Phase 60 Plan 01 */
     char *rl_src = NULL, *rl_i_flag = NULL;
     char *rl_glfw_src = NULL, *rl_glfw_i_flag = NULL;
 
@@ -584,6 +618,7 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_threads, &rt_collect, &rt_netinit, &rt_oom,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        &sl_hint, &sl_net,
+                       &sl_rl, &sl_rl_layout,
                        opts, &rl_src, &rl_i_flag,
                        &rl_glfw_src, &rl_glfw_i_flag, &base_dir) != 0) {
         free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
@@ -591,6 +626,7 @@ static int invoke_clang(const char *c_file, const char *output,
                       rt_string, rt_rc, rt_builtin,
                       rt_threads, rt_collect, rt_netinit, rt_oom,
                       sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
+                      sl_rl, sl_rl_layout,
                       rl_src, rl_i_flag,
                       rl_glfw_src, rl_glfw_i_flag);
         return 1;
@@ -623,6 +659,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit, rt_oom,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
+                  sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
                   rl_glfw_src, rl_glfw_i_flag);
 
@@ -686,6 +723,11 @@ static int invoke_clang(const char *c_file, const char *output,
             cc_argv[ci++] = rl_i_flag;
             cc_argv[ci++] = rl_glfw_i_flag;
             cc_argv[ci++] = "-DPLATFORM_DESKTOP";
+#ifdef __linux__
+            /* raylib's rglfw.c requires _GLFW_X11 or _GLFW_WAYLAND on
+             * Linux (see comment at the link step above). */
+            cc_argv[ci++] = "-D_GLFW_X11";
+#endif
             cc_argv[ci++] = "-w";
             if (opts.release) cc_argv[ci++] = "-O2";
             cc_argv[ci++] = "-o";
@@ -729,6 +771,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit, rt_oom,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
+                  sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
                   rl_glfw_src, rl_glfw_i_flag);
 

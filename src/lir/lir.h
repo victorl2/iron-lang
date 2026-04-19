@@ -175,6 +175,17 @@ struct IronLIR_Instr {
             IronLIR_ValueId  func_ptr;    /* for indirect calls (lambda/fn pointer) */
             IronLIR_ValueId *args;        /* stb_ds array */
             int             arg_count;
+            /* Receiver ABI: when true, the emitter takes the address of args[0]
+             * at the call site ("&args[0]") because the target C function takes
+             * its first parameter by pointer while the LIR represents it by
+             * value. Set by the HIR→LIR lowering layer for collection method
+             * calls (Iron_List_<T>_*, Iron_Map_*, Iron_Set_*) and for the two
+             * mutating Timer methods (Iron_timer_update, Iron_timer_reset).
+             * Replaces a prefix-strncmp heuristic in emit_c.c — metadata on
+             * the call is authoritative and doesn't produce silent miscompiles
+             * if a future extern happens to share a prefix but takes its
+             * receiver by value. */
+            bool            self_by_addr;
         } call;
 
         /* IRON_LIR_JUMP */

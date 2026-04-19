@@ -1,0 +1,60 @@
+-- examples/rotating_cube/rotating_cube.iron
+-- Phase 69 canonical 3D showcase — proves "Iron builds real 3D games."
+--
+-- Invocation: ./build/ironc build examples/rotating_cube/rotating_cube.iron
+--             ./rotating_cube
+-- Expected:   window opens, orbital camera rotates around a red cube over
+--             a gray grid, closes cleanly on window-close / ESC.
+--
+-- No pong integration — pong stays 2D (Phase 68-05 was the last pong
+-- addition until Phase 73 polish). Phase 69 ships its own 3D example.
+--
+-- Design notes:
+--   • var cam (not val) — the orbital-update re-binds cam per frame.
+--     Iron's val fields are immutable, but `cam = Camera3D.update(cam, ...)`
+--     is a local-variable reassignment, not a field mutation — legal.
+--   • Grid: 10 slices × 1.0 spacing (CONTEXT.md Claude's Discretion).
+--   • Cube size: 2.0 units (visible against the grid background).
+--   • Rotation rate: inherent in CameraMode.ORBITAL (raylib handles; no
+--     explicit rate needed).
+--   • projection field uses CameraProjection.PERSPECTIVE directly —
+--     D5 residual was fixed by typing Camera3D.projection as the
+--     enum instead of Int32. No `.ordinal` needed.
+--
+-- Canonical template: examples/pong/pong.iron structure.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(800), Int32(600), "Rotating Cube — Iron + raylib")
+    Window.set_target_fps(Int32(60))
+
+    var cam = Camera3D(
+        Vector3(Float32(10.0), Float32(10.0), Float32(10.0)),
+        Vector3(Float32(0.0),  Float32(0.0),  Float32(0.0)),
+        Vector3(Float32(0.0),  Float32(1.0),  Float32(0.0)),
+        Float32(45.0),
+        CameraProjection.PERSPECTIVE
+    )
+
+    val origin = Vector3(Float32(0.0), Float32(0.0), Float32(0.0))
+    val size   = Float32(2.0)
+
+    while not Window.should_close() {
+        cam = Camera3D.update(cam, CameraMode.ORBITAL)
+
+        Draw.begin()
+        Draw.clear(SKYBLUE)
+        Draw.begin_mode_3d(cam)
+
+        Draw.cube(origin, size, size, size, RED)
+        Draw.cube_wires(origin, size, size, size, BLACK)
+        Draw.grid(Int32(10), Float32(1.0))
+
+        Draw.end_mode_3d()
+        Draw.end()
+    }
+
+    Window.close()
+    return Int32(0)
+}

@@ -1,0 +1,44 @@
+-- tests/integration/raylib/shader/shader_test.iron
+-- SHADER category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Shader load/valid/unload + 4 setter forms.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(320), Int32(240), "shader_test")
+
+    val sh_file = Shader.load("", "tests/assets/shaders/grayscale.fs")
+    val ok_file = Shader.is_valid(sh_file)
+
+    val sh_mem = Shader.load_from_memory("", "")
+    val ok_mem = Shader.is_valid(sh_mem)
+
+    val loc_mvp = Shader.get_location(sh_file, "mvp")
+    val loc_tex = Shader.get_location(sh_file, "texture0")
+    val loc_attr = Shader.get_location_attrib(sh_file, "vertexPosition")
+    Shader.set_location(sh_file, ShaderLocationIndex.MATRIX_MVP, loc_mvp)
+
+    -- set_value / set_value_v / set_value_matrix / set_value_texture
+    val bytes_f: [UInt8] = [UInt8(0), UInt8(0), UInt8(0), UInt8(63)]   -- 0.5f LE
+    Shader.set_value(sh_file, loc_mvp, bytes_f, ShaderUniformDataType.FLOAT)
+    Shader.set_value_v(sh_file, loc_mvp, bytes_f, ShaderUniformDataType.FLOAT, Int32(1))
+
+    val ident = Matrix.identity()
+    Shader.set_value_matrix(sh_file, loc_mvp, ident)
+
+    val rt = RenderTexture.load(Int32(64), Int32(64))
+    Shader.set_value_texture(sh_file, loc_tex, rt.texture)
+
+    Shader.unload(sh_file)
+    Shader.unload(sh_mem)
+    RenderTexture.unload(rt)
+
+    Window.close()
+
+    val _k0 = ok_file
+    val _k1 = ok_mem
+    val _k2 = loc_attr
+
+    return Int32(0)
+}

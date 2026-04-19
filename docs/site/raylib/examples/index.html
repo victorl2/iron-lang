@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Examples — Iron raylib</title>
+  <meta name="description" content="5 canonical programs exercising the v2.0.0-alpha raylib surface: pong, rotating_cube, model_viewer, post_fx, raylib_showcase. Every example builds with iron build and runs on native + web.">
+  <meta property="og:title" content="Examples — Iron raylib">
+  <meta property="og:description" content="Canonical consumers showing the full raylib binding in action — 2D games, 3D scenes, shader pipelines, audio, and a 12-category end-to-end showcase.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ironlang.dev/raylib/examples/">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --accent-subtle: rgba(232, 89, 12, 0.08);
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sidebar-width: 260px;
+      --radius: 10px;
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-deep); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; background: rgba(8, 8, 15, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 1.5rem; gap: 2rem; }
+    .nav-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; color: var(--text); text-decoration: none; flex-shrink: 0; }
+    .nav-logo:hover { color: var(--text); }
+    .nav-logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; color: white; }
+    .nav-right { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+    .nav-right a { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; letter-spacing: -0.01em; transition: color 0.2s, background 0.2s; padding: 0.35rem 0.65rem; border-radius: 6px; }
+    .nav-right a:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+    .nav-right a.active-link { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+    .sidebar-toggle { display: none; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text); padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: var(--font-sans); }
+    .nav-hamburger { display: none; background: none; border: none; cursor: pointer; padding: 0.5rem; margin-left: auto; }
+    .nav-hamburger span { display: block; width: 20px; height: 2px; background: var(--text-secondary); margin: 4px 0; transition: 0.3s; transform-origin: center; }
+    .nav-hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(4px, 4px); }
+    .nav-hamburger.active span:nth-child(2) { opacity: 0; }
+    .nav-hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(4px, -4px); }
+    .sidebar-overlay { position: fixed; inset: 0; z-index: 49; background: rgba(0, 0, 0, 0.5); opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+    .sidebar-overlay.active { opacity: 1; visibility: visible; }
+    .nav-overlay { position: fixed; inset: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; }
+    .nav-overlay.active { opacity: 1; visibility: visible; }
+    .layout { display: flex; margin-top: 56px; min-height: calc(100vh - 56px); }
+    .sidebar { width: var(--sidebar-width); position: fixed; top: 56px; bottom: 0; left: 0; overflow-y: auto; padding: 1.5rem 1rem; border-right: 1px solid var(--border); background: var(--bg-primary); }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.5rem; padding-left: 0.75rem; }
+    .sidebar-section a { display: block; padding: 0.3rem 0.75rem; color: var(--text-secondary); font-size: 0.85rem; border-radius: 4px; transition: all 0.15s; }
+    .sidebar-section a:hover { color: var(--text); background: var(--bg-surface); }
+    .sidebar-section a.active-link { color: var(--accent); background: rgba(232, 89, 12, 0.08); font-weight: 600; }
+    .content { margin-left: var(--sidebar-width); flex: 1; min-width: 0; max-width: 1100px; padding: 2.5rem 3rem 4rem; }
+    .content h1 { font-size: 2rem; font-weight: 800; margin-bottom: 0.5rem; line-height: 1.2; }
+    .content .subtitle { color: var(--text-secondary); font-size: 1.05rem; margin-bottom: 2rem; max-width: 780px; }
+    .content h2 { font-size: 1.4rem; font-weight: 700; margin-top: 3rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+    .content p { margin-bottom: 1rem; color: var(--text-secondary); }
+    .content ul, .content ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+    .content li { margin-bottom: 0.4rem; }
+    .content code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 0.15em 0.4em; border-radius: 4px; color: var(--accent); }
+    .content pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; line-height: 1.6; }
+    .content pre code { background: none; padding: 0; font-size: 0.85rem; color: var(--text); white-space: pre; }
+    .syn-kw { color: var(--syn-kw); font-weight: 500; }
+    .syn-ty { color: var(--syn-ty); }
+    .syn-st { color: var(--syn-st); }
+    .syn-cm { color: var(--syn-cm); font-style: italic; }
+    .syn-fn { color: var(--syn-fn); }
+    .syn-nu { color: var(--syn-nu); }
+    .syn-pr { color: var(--syn-pr); }
+
+    /* Shared button styles */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.55rem 1rem; font-size: 0.88rem; font-weight: 600; border-radius: 6px; transition: background 0.2s, color 0.2s, border-color 0.2s; border: 1px solid transparent; font-family: var(--font-sans); cursor: pointer; text-decoration: none; }
+    .btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent-hover); color: white; border-color: var(--accent-hover); }
+    .btn-secondary { background: transparent; color: var(--text); border-color: var(--border-light); }
+    .btn-secondary:hover { background: var(--bg-surface); color: var(--text); border-color: var(--accent); }
+    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+
+    /* Gallery */
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+    .example-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.2s, transform 0.2s;
+      scroll-margin-top: 80px;
+    }
+    .example-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .example-card-screenshot { display: block; background: var(--bg-code); aspect-ratio: 16 / 10; overflow: hidden; }
+    .example-card-screenshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .example-card-body { padding: 1.25rem; display: flex; flex-direction: column; flex: 1; gap: 0.5rem; }
+    .example-card-body h3 { font-size: 1.05rem; font-family: var(--font-mono); font-weight: 500; color: var(--text); margin: 0; }
+    .example-card-body h3 a { color: var(--text); }
+    .example-card-body h3 a:hover { color: var(--accent); }
+    .example-card-body p { color: var(--text-secondary); font-size: 0.88rem; margin: 0.3rem 0 0.5rem; line-height: 1.55; }
+    .example-card-tags { list-style: none; display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0; margin: 0.25rem 0 0.5rem; }
+    .example-card-tags li {
+      font-size: 0.72rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      background: var(--accent-subtle);
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .example-card-actions { margin-top: auto; display: flex; gap: 0.5rem; padding-top: 0.5rem; flex-wrap: wrap; }
+
+    footer { margin-left: var(--sidebar-width); background: var(--bg-primary); border-top: 1px solid var(--border); padding: 2.5rem 3rem 1.5rem; }
+    .footer-inner { max-width: 1100px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 2rem; }
+    .footer-brand p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; max-width: 280px; }
+    .footer-col h4 { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); margin-bottom: 0.75rem; }
+    .footer-col ul { list-style: none; padding: 0; margin: 0; }
+    .footer-col li { margin-bottom: 0.4rem; }
+    .footer-col a { font-size: 0.85rem; color: var(--text-secondary); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-bottom { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); max-width: 1100px; }
+
+    @media (max-width: 900px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; z-index: 50; width: 280px; }
+      .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3); }
+      .content { margin-left: 0; padding: 2rem 2rem 4rem; max-width: 100%; overflow-x: hidden; }
+      .sidebar-toggle { display: block; }
+      .content h1 { font-size: 1.75rem; }
+      .content h2 { font-size: 1.2rem; }
+      footer { margin-left: 0; padding: 2rem 2rem 1.5rem; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; }
+    }
+    @media (max-width: 768px) {
+      .gallery { grid-template-columns: 1fr; gap: 1.25rem; }
+      .content { padding: 1.75rem 1.5rem 3rem; }
+      .content h1 { font-size: 1.65rem; }
+      .content .subtitle { font-size: 0.95rem; }
+      .content pre { overflow-x: auto; font-size: 0.78rem; }
+    }
+    @media (max-width: 640px) {
+      .nav-right { position: absolute; top: 56px; left: 0; right: 0; flex-direction: column; background: rgba(12, 12, 22, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; gap: 0; opacity: 0; visibility: hidden; transform: translateY(-8px); transition: opacity 0.25s, visibility 0.25s, transform 0.25s; }
+      .nav-right.open { opacity: 1; visibility: visible; transform: translateY(0); }
+      .nav-right a { padding: 0.6rem 0.5rem; font-size: 0.95rem; min-height: 44px; display: flex; align-items: center; border-radius: 8px; }
+      .nav-hamburger { display: block; }
+      .content { padding: 1.5rem 1.1rem 2.5rem; }
+      .content pre { font-size: 0.75rem; padding: 1rem; overflow-x: auto; }
+      nav { padding: 0 1rem; gap: 1rem; }
+      .sidebar { width: 85vw; max-width: 300px; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .content { padding: 1.25rem 1rem 2.5rem; }
+      .content h1 { font-size: 1.4rem; }
+      .content h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+      .content pre { font-size: 0.7rem; padding: 0.85rem; line-height: 1.5; overflow-x: auto; }
+      .example-card-body { padding: 1rem; }
+      .example-card-body h3 { font-size: 0.95rem; word-break: break-all; }
+      .btn { padding: 0.5rem 0.85rem; font-size: 0.82rem; }
+      .btn-sm { padding: 0.38rem 0.7rem; font-size: 0.78rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button class="sidebar-toggle" id="sidebarToggle">Menu</button>
+    <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+    <div class="nav-right" id="navRight">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="/guide/">Package Manager</a>
+      <a href="/raylib/" class="active-link">Raylib</a>
+      <a href="/install/">Install</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
+    </div>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+  </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Foundation</h3>
+        <a href="/raylib/reference/types.html">Types</a>
+        <a href="/raylib/reference/enums.html">Enums</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>System</h3>
+        <a href="/raylib/reference/window.html">Window &amp; System</a>
+        <a href="/raylib/reference/input.html">Input</a>
+        <a href="/raylib/reference/file.html">Files</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>2D</h3>
+        <a href="/raylib/reference/draw2d.html">2D Drawing</a>
+        <a href="/raylib/reference/coll.html">Collision</a>
+        <a href="/raylib/reference/tex.html">Textures &amp; Images</a>
+        <a href="/raylib/reference/text.html">Text &amp; Fonts</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>3D</h3>
+        <a href="/raylib/reference/draw3d.html">3D Drawing</a>
+        <a href="/raylib/reference/model.html">Models &amp; Meshes</a>
+        <a href="/raylib/reference/shader.html">Shaders</a>
+        <a href="/raylib/reference/math.html">Math</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Audio</h3>
+        <a href="/raylib/reference/audio.html">Audio</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Links</h3>
+        <a href="/raylib/">raylib home</a>
+        <a href="/raylib/guide/">Guide</a>
+        <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>On this page</h3>
+        <a href="#pong">pong</a>
+        <a href="#rotating-cube">rotating_cube</a>
+        <a href="#model-viewer">model_viewer</a>
+        <a href="#post-fx">post_fx</a>
+        <a href="#raylib-showcase">raylib_showcase</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Examples</h1>
+      <p class="subtitle">5 canonical programs exercising the v2.0.0-alpha raylib surface. Every example builds with <code>iron build examples/&lt;name&gt;/&lt;name&gt;.iron</code> and runs on both native and web targets.</p>
+
+      <section class="gallery" aria-label="Example gallery">
+
+        <article class="example-card" id="pong">
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron" class="example-card-screenshot" aria-label="pong source on GitHub">
+            <img src="screenshots/pong.png" alt="pong — 2D paddle game screenshot" loading="lazy" width="1280" height="800">
+          </a>
+          <div class="example-card-body">
+            <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">pong</a></h3>
+            <p>2D paddle game. Player uses W/S, AI tracks the ball, collisions play a bounce sound. Title / play / game-over state machine driven by a single <code>while(!WindowShouldClose())</code> loop. ~145 lines.</p>
+            <ul class="example-card-tags" aria-label="Categories exercised">
+              <li>Window</li>
+              <li>Input</li>
+              <li>2D Drawing</li>
+              <li>Collision</li>
+              <li>Audio</li>
+            </ul>
+            <div class="example-card-actions">
+              <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron" class="btn btn-primary btn-sm">View source</a>
+              <a href="/raylib/guide/#pong-setup" class="btn btn-secondary btn-sm">Read tutorial</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="example-card" id="rotating-cube">
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron" class="example-card-screenshot" aria-label="rotating_cube source on GitHub">
+            <img src="screenshots/rotating_cube.png" alt="rotating_cube — 3D primitives + orbital camera screenshot" loading="lazy" width="1280" height="800">
+          </a>
+          <div class="example-card-body">
+            <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">rotating_cube</a></h3>
+            <p>Orbital <code>Camera3D</code> rendering a colored cube with wireframe overlay over a 10&times;10 grid. The canonical 3D primitives demo. ~62 lines.</p>
+            <ul class="example-card-tags" aria-label="Categories exercised">
+              <li>Window</li>
+              <li>3D Drawing</li>
+              <li>Math</li>
+            </ul>
+            <div class="example-card-actions">
+              <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron" class="btn btn-primary btn-sm">View source</a>
+              <a href="/raylib/guide/#cube-intro" class="btn btn-secondary btn-sm">Read tutorial</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="example-card" id="model-viewer">
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron" class="example-card-screenshot" aria-label="model_viewer source on GitHub">
+            <img src="screenshots/model_viewer.png" alt="model_viewer — 3D model loading with bounding box screenshot" loading="lazy" width="1280" height="800">
+          </a>
+          <div class="example-card-body">
+            <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">model_viewer</a></h3>
+            <p>Loads an OBJ model with a procedural fallback, draws a wireframe mesh and bounding box under an orbital camera. Shows the <code>Model.is_valid</code> asset-safety pattern. ~65 lines.</p>
+            <ul class="example-card-tags" aria-label="Categories exercised">
+              <li>Window</li>
+              <li>3D Drawing</li>
+              <li>Models</li>
+              <li>Math</li>
+            </ul>
+            <div class="example-card-actions">
+              <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron" class="btn btn-primary btn-sm">View source</a>
+              <a href="/raylib/reference/model.html" class="btn btn-secondary btn-sm">Model reference</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="example-card" id="post-fx">
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron" class="example-card-screenshot" aria-label="post_fx source on GitHub">
+            <img src="screenshots/post_fx.png" alt="post_fx — GLSL shader pipeline screenshot" loading="lazy" width="1280" height="800">
+          </a>
+          <div class="example-card-body">
+            <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">post_fx</a></h3>
+            <p>3D scene rendered to a <code>RenderTexture</code> then post-processed through GLSL shaders. SPACE toggles between grayscale and invert; demonstrates per-frame uniform setting (<code>u_intensity</code>). ~133 lines.</p>
+            <ul class="example-card-tags" aria-label="Categories exercised">
+              <li>Window</li>
+              <li>2D Drawing</li>
+              <li>Textures</li>
+              <li>Shaders</li>
+            </ul>
+            <div class="example-card-actions">
+              <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron" class="btn btn-primary btn-sm">View source</a>
+              <a href="/raylib/guide/#postfx-intro" class="btn btn-secondary btn-sm">Read tutorial</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="example-card" id="raylib-showcase">
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron" class="example-card-screenshot" aria-label="raylib_showcase source on GitHub">
+            <img src="screenshots/raylib_showcase.png" alt="raylib_showcase — 12-category canonical end-to-end demo screenshot" loading="lazy" width="1280" height="800">
+          </a>
+          <div class="example-card-body">
+            <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron">raylib_showcase</a></h3>
+            <p>Single-file demo exercising every in-scope raylib category end-to-end: window, input, 2D drawing, collision, textures, text, audio, 3D drawing, models, shaders, math, files. Builds on native + web from the same source.</p>
+            <ul class="example-card-tags" aria-label="Categories exercised">
+              <li>Window</li>
+              <li>Input</li>
+              <li>2D Drawing</li>
+              <li>Collision</li>
+              <li>Textures</li>
+              <li>Text</li>
+              <li>Audio</li>
+              <li>3D Drawing</li>
+              <li>Models</li>
+              <li>Shaders</li>
+              <li>Math</li>
+              <li>Files</li>
+            </ul>
+            <div class="example-card-actions">
+              <a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron" class="btn btn-primary btn-sm">View source</a>
+              <a href="/raylib/reference/types.html" class="btn btn-secondary btn-sm">Types reference</a>
+            </div>
+          </div>
+        </article>
+
+      </section>
+
+      <h2 id="build-and-run">Build and run</h2>
+      <p>Every example compiles to a native binary from the repository root. The <code>.iron</code> file's basename becomes the output binary name (e.g. <code>rotating_cube.iron</code> &rarr; <code>./rotating_cube</code>).</p>
+      <pre><code class="iron"><span class="syn-cm"># Clone + build the compiler once</span>
+<span class="syn-fn">git clone</span> https://github.com/victorl2/iron-lang.git
+<span class="syn-fn">cd</span> iron-lang &amp;&amp; <span class="syn-fn">make</span>
+
+<span class="syn-cm"># Build and run any of the 5 examples</span>
+./build/ironc <span class="syn-fn">build</span> examples/rotating_cube/rotating_cube.iron
+./rotating_cube
+
+<span class="syn-cm"># Web target from the same source</span>
+./build/ironc <span class="syn-fn">build</span> --target=web examples/raylib_showcase/raylib_showcase.iron</code></pre>
+      <p>Each example is designed to be self-contained &mdash; copy the source, swap the asset paths, and the file still builds.</p>
+
+      <h2 id="see-also">See also</h2>
+      <ul>
+        <li><a href="/raylib/guide/">Getting-started guide</a> &mdash; progressive walk-through from first window through pong, rotating_cube, and post_fx.</li>
+        <li><a href="/raylib/reference/types.html">Types reference</a> &mdash; the 30 Iron-bound raylib structs that every example above uses.</li>
+        <li><a href="/raylib/">Raylib home</a> &mdash; category overview with links to all 14 reference pages.</li>
+        <li><a href="https://github.com/victorl2/iron-lang/tree/main/examples">examples/ on GitHub</a> &mdash; full source tree with assets.</li>
+      </ul>
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+        <p>Apache 2.0 licensed. Compiled, strongly-typed, built for games.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/guide/">Package Manager</a></li>
+          <li><a href="/raylib/">Raylib</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="/install/">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/" style="color: var(--text-secondary); text-decoration: underline;">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var sidebar = document.getElementById('sidebar');
+      var sidebarToggle = document.getElementById('sidebarToggle');
+      var sidebarOverlay = document.getElementById('sidebarOverlay');
+      var navToggle = document.getElementById('navToggle');
+      var navRight = document.getElementById('navRight');
+      var navOverlay = document.getElementById('navOverlay');
+      function closeSidebar() { sidebar.classList.remove('open'); sidebarOverlay.classList.remove('active'); }
+      sidebarToggle.addEventListener('click', function() { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('active'); });
+      sidebarOverlay.addEventListener('click', closeSidebar);
+      document.querySelectorAll('.sidebar a').forEach(function(link) { link.addEventListener('click', closeSidebar); });
+      function closeNav() { navRight.classList.remove('open'); navToggle.classList.remove('active'); navOverlay.classList.remove('active'); }
+      navToggle.addEventListener('click', function() { navRight.classList.toggle('open'); navToggle.classList.toggle('active'); navOverlay.classList.toggle('active'); });
+      navOverlay.addEventListener('click', closeNav);
+      navRight.querySelectorAll('a').forEach(function(a) { a.addEventListener('click', closeNav); });
+      document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeSidebar(); closeNav(); } });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+-- tests/integration/raylib/draw2d/draw2d_test.iron
+-- DRAW2D category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Draw.* 2D primitives inside Draw.begin/end.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    Window.init(Int32(320), Int32(240), "draw2d_test")
+
+    Draw.begin()
+    Draw.clear(RAYWHITE)
+
+    Draw.pixel(Int32(10), Int32(10), RED)
+    Draw.pixel_v(Vector2.of(Float32(12.0), Float32(12.0)), RED)
+
+    Draw.line(Int32(0), Int32(0), Int32(100), Int32(100), BLUE)
+    Draw.line_v(Vector2.of(Float32(0.0), Float32(20.0)), Vector2.of(Float32(100.0), Float32(20.0)), BLUE)
+    Draw.line_ex(Vector2.of(Float32(0.0), Float32(50.0)), Vector2.of(Float32(100.0), Float32(50.0)), Float32(2.0), GREEN)
+
+    Draw.circle(Int32(50), Int32(50), Float32(20.0), YELLOW)
+    Draw.circle_v(Vector2.of(Float32(80.0), Float32(80.0)), Float32(10.0), YELLOW)
+    Draw.circle_lines(Int32(100), Int32(100), Float32(15.0), ORANGE)
+
+    Draw.rectangle(Int32(150), Int32(150), Int32(50), Int32(50), PURPLE)
+    Draw.rectangle_rec(Rectangle.of(Float32(10.0), Float32(100.0), Float32(40.0), Float32(30.0)), LIME)
+    Draw.rectangle_lines(Int32(200), Int32(200), Int32(30), Int32(30), PINK)
+    Draw.rectangle_rounded(Rectangle.of(Float32(10.0), Float32(150.0), Float32(50.0), Float32(30.0)),
+                           Float32(0.3), Int32(8), LIME)
+
+    Draw.triangle(Vector2.of(Float32(0.0), Float32(0.0)),
+                  Vector2.of(Float32(20.0), Float32(0.0)),
+                  Vector2.of(Float32(10.0), Float32(20.0)), MAROON)
+    Draw.triangle_lines(Vector2.of(Float32(30.0), Float32(30.0)),
+                        Vector2.of(Float32(50.0), Float32(30.0)),
+                        Vector2.of(Float32(40.0), Float32(50.0)), MAROON)
+
+    Draw.poly(Vector2.of(Float32(100.0), Float32(100.0)),
+              Int32(6), Float32(20.0), Float32(0.0), BEIGE)
+    Draw.poly_lines(Vector2.of(Float32(120.0), Float32(120.0)),
+                    Int32(5), Float32(10.0), Float32(0.0), BEIGE)
+
+    Draw.ellipse(Int32(60), Int32(180), Float32(15.0), Float32(8.0), SKYBLUE)
+    Draw.ellipse_lines(Int32(60), Int32(200), Float32(15.0), Float32(8.0), SKYBLUE)
+
+    Draw.end()
+    Window.close()
+    return Int32(0)
+}

@@ -240,6 +240,107 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
         }
     }
 
+    /* Plan 63-04: also scan every extern decl AND every foreign-method
+     * stub (is_extern funcs without extern_c_name, emitted as
+     * prototypes at emit_c.c Phase 3) parameter and return type.
+     * When user code never constructs a [T] literal and never triggers
+     * mono collapse on it, the previous two scans miss the type, yet
+     * the emitted prototype still references Iron_List_Iron_<T> ->
+     * undeclared-identifier.  Scan these surfaces so the typedef gets
+     * emitted whenever a stdlib foreign-method-stub signature demands
+     * it. */
+    #define PLAN_63_04_EMIT_LIST_FOR(elem_type_expr, scan_label)                 \
+        do {                                                                     \
+            Iron_Type *__et = (elem_type_expr);                                  \
+            if (__et && __et->kind == IRON_TYPE_OBJECT &&                        \
+                __et->object.decl && __et->object.decl->name) {                  \
+                const char *__mangled = emit_mangle_name(                        \
+                    __et->object.decl->name, ctx->arena);                        \
+                if (shgeti(emitted_mono_list_types, __mangled) < 0) {            \
+                    shput(emitted_mono_list_types, __mangled, true);             \
+                    iron_strbuf_appendf(&ctx->struct_bodies,                     \
+                        "/* Phase 56: Iron_List type for mono-collapsed %s ("    \
+                        scan_label ") */\n"                                      \
+                        "typedef struct Iron_List_%s {\n"                        \
+                        "    %s    *items;\n"                                    \
+                        "    int64_t count;\n"                                   \
+                        "    int64_t capacity;\n"                                \
+                        "} Iron_List_%s;\n",                                     \
+                        __mangled, __mangled, __mangled, __mangled);             \
+                    iron_strbuf_appendf(&ctx->struct_bodies,                     \
+                        "IRON_LIST_DECL(%s, %s)\n",                              \
+                        __mangled, __mangled);                                   \
+                    iron_strbuf_appendf(&ctx->struct_bodies,                     \
+                        "IRON_LIST_IMPL(%s, %s)\n\n",                            \
+                        __mangled, __mangled);                                   \
+                }                                                                \
+            }                                                                    \
+        } while (0)
+
+    /* Scan A: ctx->module->extern_decls (explicit `extern func` bindings
+     * — raylib.iron doesn't use these today but other stdlib modules might). */
+    for (int ei = 0; ei < module->extern_decl_count; ei++) {
+        IronLIR_ExternDecl *ed = module->extern_decls[ei];
+        if (!ed) continue;
+        for (int pi = 0; pi < ed->param_count; pi++) {
+            Iron_Type *pt = ed->param_types[pi];
+            if (!pt || pt->kind != IRON_TYPE_ARRAY) continue;
+            PLAN_63_04_EMIT_LIST_FOR(pt->array.elem, "via extern-decl param scan");
+        }
+        if (ed->return_type && ed->return_type->kind == IRON_TYPE_ARRAY) {
+            PLAN_63_04_EMIT_LIST_FOR(ed->return_type->array.elem,
+                                      "via extern-decl return scan");
+        }
+    }
+
+    /* Scan B: ctx->module->funcs where fn->is_extern && !fn->extern_c_name
+     * — foreign-method stubs (empty-body `func Draw.triangle_fan(points:
+     * [Vector2], ...)` lowered by hir_to_lir.c). These are the prototypes
+     * emitted by emit_c.c Phase 3 at line ~6718. */
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn || !fn->is_extern || fn->extern_c_name) continue;
+        for (int pi = 0; pi < fn->param_count; pi++) {
+            Iron_Type *pt = fn->params[pi].type;
+            if (!pt) continue;
+            if (pt->kind == IRON_TYPE_ARRAY) {
+                PLAN_63_04_EMIT_LIST_FOR(pt->array.elem,
+                                          "via foreign-method-stub param scan");
+            } else if (pt->kind == IRON_TYPE_TUPLE) {
+                /* Plan 67-04: tuple param may contain an array element type
+                 * whose Iron_List_<T> typedef must be visible before the
+                 * emitted tuple typedef references it. See Font.gen_image_atlas
+                 * (Image, [Rectangle]) — same machinery applies to any future
+                 * tuple stub with an array element. */
+                for (int ti = 0; ti < pt->tuple.elem_count; ti++) {
+                    Iron_Type *te = pt->tuple.elem_types[ti];
+                    if (te && te->kind == IRON_TYPE_ARRAY) {
+                        PLAN_63_04_EMIT_LIST_FOR(te->array.elem,
+                            "via foreign-method-stub tuple-param scan");
+                    }
+                }
+            }
+        }
+        if (fn->return_type) {
+            if (fn->return_type->kind == IRON_TYPE_ARRAY) {
+                PLAN_63_04_EMIT_LIST_FOR(fn->return_type->array.elem,
+                                          "via foreign-method-stub return scan");
+            } else if (fn->return_type->kind == IRON_TYPE_TUPLE) {
+                /* Plan 67-04: tuple return may contain an array element
+                 * type — same as tuple-param case above. */
+                for (int ti = 0; ti < fn->return_type->tuple.elem_count; ti++) {
+                    Iron_Type *te = fn->return_type->tuple.elem_types[ti];
+                    if (te && te->kind == IRON_TYPE_ARRAY) {
+                        PLAN_63_04_EMIT_LIST_FOR(te->array.elem,
+                            "via foreign-method-stub tuple-return scan");
+                    }
+                }
+            }
+        }
+    }
+
+    #undef PLAN_63_04_EMIT_LIST_FOR
+
     shfree(emitted_mono_list_types);
 }
 
@@ -889,6 +990,79 @@ void emit_type_decls(EmitCtx *ctx) {
  * generated C declares InitWindow, ClearBackground, and friends regardless of
  * which target the user picked.
  */
+/* See header: auto-generates prototypes for foreign-method stubs whose C
+ * symbols are not declared by an included stdlib header. Extracted from
+ * emit_c.c so emit_web.c can share the same logic — otherwise the web
+ * emitter would miss declarations for Iron_window_* / Iron_draw_* etc. and
+ * emcc would fail with implicit-function-declaration errors. */
+void emit_foreign_method_prototypes(EmitCtx *ctx) {
+    IronLIR_Module *module = ctx->module;
+    static const char *k_header_declared_prefixes[] = {
+        "Iron_string_",
+        "Iron_list_",
+        "Iron_array_",
+        "Iron_math_",
+        "Iron_io_",
+        "Iron_time_",
+        /* Iron_timer_* is fully declared in iron_time.h. Auto-gen must
+         * skip the whole prefix because update/reset take pointer
+         * receivers there while the LIR stubs are value-typed — emitting
+         * a conflicting prototype is a hard clang error. Iron_timer_done
+         * is value-typed in both places so it's just redundant, not
+         * conflicting, but skipping is cleaner.
+         *
+         * Note: src/runtime/iron_runtime.h also declares ~40 Iron_<lower>_*
+         * symbols (Iron_pool_, Iron_channel_, Iron_mutex_, …). None of
+         * those are reachable as foreign-method stubs today because no
+         * stdlib .iron file declares Pool / Channel / Mutex objects. If
+         * any future stdlib adds such stubs, add the matching prefix here
+         * or accept duplicate-prototype emission (safe when types match,
+         * a hard error when they don't). */
+        "Iron_timer_",
+        "Iron_log_",
+        "Iron_hint_",
+        NULL
+    };
+    struct { const char *key; int value; } *emitted_fms = NULL;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn || !fn->is_extern || fn->extern_c_name) continue;
+        const char *mangled = emit_mangle_func_name(fn->name, ctx->arena);
+        if (!mangled) continue;
+        if (strncmp(mangled, "Iron_", 5) != 0) continue;
+        bool header_declared = false;
+        for (int pi = 0; k_header_declared_prefixes[pi]; pi++) {
+            size_t plen = strlen(k_header_declared_prefixes[pi]);
+            if (strncmp(mangled, k_header_declared_prefixes[pi], plen) == 0) {
+                header_declared = true;
+                break;
+            }
+        }
+        if (header_declared) continue;
+        if (shgeti(emitted_fms, mangled) >= 0) continue;
+        shput(emitted_fms, mangled, 1);
+
+        const char *ret_c = fn->return_type
+            ? emit_type_to_c(fn->return_type, ctx)
+            : "void";
+        iron_strbuf_appendf(&ctx->prototypes, "%s %s(", ret_c, mangled);
+        if (fn->param_count == 0) {
+            iron_strbuf_appendf(&ctx->prototypes, "void");
+        } else {
+            for (int p = 0; p < fn->param_count; p++) {
+                if (p > 0) iron_strbuf_appendf(&ctx->prototypes, ", ");
+                const char *pt_c = emit_type_to_c(fn->params[p].type, ctx);
+                const char *pname = fn->params[p].name
+                    ? fn->params[p].name
+                    : "";
+                iron_strbuf_appendf(&ctx->prototypes, "%s %s", pt_c, pname);
+            }
+        }
+        iron_strbuf_appendf(&ctx->prototypes, ");\n");
+    }
+    shfree(emitted_fms);
+}
+
 void emit_extern_prototypes(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
     for (int ei = 0; ei < module->extern_decl_count; ei++) {

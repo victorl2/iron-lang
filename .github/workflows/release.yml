@@ -33,7 +33,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang
+          # Base toolchain + raylib link deps (see comment in ci.yml).
+          sudo apt-get install -y cmake ninja-build clang \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
 
       - name: Configure
         run: |

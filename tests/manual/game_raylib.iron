@@ -1,41 +1,95 @@
--- game_raylib.iron: Manual raylib smoke test
--- Opens a window, draws text and a frame counter.
--- Run manually: ctest --test-dir build -L manual
--- NOT included in CI (requires display and raylib).
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
+-- game_raylib.iron: Manual raylib smoke test.
+--
+-- Bouncing-ball animation with keyboard-controlled paddle. Originally a
+-- Phase 60 placeholder that only exercised the type/enum surface; now
+-- restored to a full frame-loop smoke that catches regressions across:
+--
+--   - Window lifecycle     (Window.init / set_target_fps / should_close / close)
+--   - Single canonical loop (`while not Window.should_close()`)
+--   - 2D draw primitives    (Draw.begin / clear / rectangle / circle / text / end)
+--   - Keyboard polling      (Keyboard.is_down)
+--   - Int → Int32 narrowing at Draw.* call sites
+--
+-- Not included in CI runtime (needs a display + graphics stack); CI
+-- exercises the BUILD path via the `manual` ctest label (run_tests.sh
+-- sees the @compile-only marker on line 1 and stops after the build
+-- succeeds). Local devs run it directly for a visual sanity check.
 
 import raylib
 
-object Ball {
-  var x: Float
-  var y: Float
-  var speed: Float
-}
-
 func main() {
-  raylib.init_window(800, 600, "Iron Language Test")
-  raylib.set_target_fps(60)
+    val SCREEN_W: Int = 800
+    val SCREEN_H: Int = 600
+    val BALL_R:   Int = 16
+    val PADDLE_W: Int = 100
+    val PADDLE_H: Int = 16
+    val PADDLE_Y: Int = SCREEN_H - 40
+    val PADDLE_SPEED: Int = 8
 
-  var frame = 0
-  var ball = Ball(400.0, 300.0, 2.0)
+    Window.init(Int32(SCREEN_W), Int32(SCREEN_H), "Iron raylib smoke — bouncing ball")
+    Window.set_target_fps(Int32(60))
 
-  while not raylib.window_should_close() {
-    frame = frame + 1
+    -- Captured locals lifted into FrameState for --target=web.
+    var ball_x:  Int = SCREEN_W / 2
+    var ball_y:  Int = SCREEN_H / 2
+    var ball_vx: Int = 4
+    var ball_vy: Int = 3
+    var paddle_x: Int = SCREEN_W / 2 - PADDLE_W / 2
+    var bounces: Int = 0
 
-    -- Update: simple vertical bounce
-    ball.y = ball.y + ball.speed
-    if ball.y > 550.0 {
-      ball.speed = 0.0 - ball.speed
+    while not Window.should_close() {
+        -- Paddle input.
+        if Keyboard.is_down(KeyboardKey.LEFT)  { paddle_x = paddle_x - PADDLE_SPEED }
+        if Keyboard.is_down(KeyboardKey.RIGHT) { paddle_x = paddle_x + PADDLE_SPEED }
+        if paddle_x < 0 { paddle_x = 0 }
+        if paddle_x > SCREEN_W - PADDLE_W { paddle_x = SCREEN_W - PADDLE_W }
+
+        -- Ball motion.
+        ball_x = ball_x + ball_vx
+        ball_y = ball_y + ball_vy
+
+        -- Wall reflection.
+        if ball_x < BALL_R {
+            ball_x = BALL_R
+            ball_vx = -ball_vx
+            bounces = bounces + 1
+        }
+        if ball_x > SCREEN_W - BALL_R {
+            ball_x = SCREEN_W - BALL_R
+            ball_vx = -ball_vx
+            bounces = bounces + 1
+        }
+        if ball_y < BALL_R {
+            ball_y = BALL_R
+            ball_vy = -ball_vy
+            bounces = bounces + 1
+        }
+        -- Paddle reflection.
+        if ball_y + BALL_R > PADDLE_Y and ball_y < PADDLE_Y + PADDLE_H {
+            if ball_x > paddle_x and ball_x < paddle_x + PADDLE_W {
+                ball_y = PADDLE_Y - BALL_R
+                ball_vy = -ball_vy
+                bounces = bounces + 1
+            }
+        }
+        -- Floor reset (ball fell off below paddle).
+        if ball_y > SCREEN_H + BALL_R {
+            ball_x = SCREEN_W / 2
+            ball_y = SCREEN_H / 2
+            ball_vx = 4
+            ball_vy = 3
+        }
+
+        -- Render.
+        Draw.begin()
+        Draw.clear(BLACK)
+        Draw.rectangle(Int32(paddle_x), Int32(PADDLE_Y),
+                        Int32(PADDLE_W), Int32(PADDLE_H), WHITE)
+        Draw.circle(Int32(ball_x), Int32(ball_y), Float32(16.0), RED)
+        Draw.text("← / → to move paddle", Int32(10), Int32(10), Int32(20), DARKGRAY)
+        Draw.end()
     }
-    if ball.y < 50.0 {
-      ball.speed = 0.0 - ball.speed
-    }
 
-    raylib.begin_drawing()
-    raylib.clear_background(raylib.RAYWHITE)
-    raylib.draw_text("Iron Language Test", 200, 250, 30, raylib.DARKGRAY)
-    raylib.draw_text("Frame: {frame}", 200, 300, 20, raylib.GRAY)
-    raylib.end_drawing()
-  }
-
-  raylib.close_window()
+    Window.close()
 }

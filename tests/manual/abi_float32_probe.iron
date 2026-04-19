@@ -1,0 +1,34 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
+-- tests/manual/abi_float32_probe.iron
+-- Plan 68-01 Task 2 validation probe. Declares foreign-method stubs
+-- whose signatures reference [Float32] (input + return) and [UInt8]
+-- (input). Ironc must emit Iron_List_Iron_Float32 + Iron_List_uint8_t
+-- typedefs via Scan B + link against the runtime's IMPL instantiations.
+--
+-- Invocation: ./build/ironc build tests/manual/abi_float32_probe.iron
+-- Expected: exit 0. Binary need not run (stubs are empty).
+
+import raylib
+
+-- Namespace object for the foreign-method-stub declarations below.
+-- Follows the same pattern as `object Audio {}` / `object Draw {}` in
+-- raylib.iron.
+object Probe {}
+
+-- [Float32] INPUT — foreign-method-stub param scan must fire.
+func Probe.f32_input(data: [Float32]) {}
+
+-- [Float32] RETURN — foreign-method-stub return scan must fire.
+func Probe.f32_return() -> [Float32] {}
+
+-- [UInt8] INPUT — foreign-method-stub param scan must fire for
+-- primitive element types.
+func Probe.u8_input(data: [UInt8]) {}
+
+func main() -> Int32 {
+    -- Empty main — probe validates COMPILATION, not runtime behavior.
+    -- Stubs above are declared but not invoked; their mere presence
+    -- forces emit_structs.c Scan B to emit (or reference) the
+    -- Iron_List_Iron_Float32 and Iron_List_uint8_t typedefs.
+    return Int32(0)
+}

@@ -1,0 +1,295 @@
+-- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
+-- tests/manual/raymath_smoke.iron — Phase 65 canonical regression test
+-- Plan 65-01 creates; Plans 65-02/03/04 APPEND (never replace).
+-- MATH-01 (RMath.*) + MATH-02 (Vector2.*) + MATH-03 (Vector3.*)
+-- + MATH-04 (Vector4.*) + MATH-05 (Matrix.*) + MATH-06 (Quaternion.*)
+-- + ToFloatV + 3 tuple returns = 143 call sites.
+
+import raylib
+
+func main() -> Int32 {
+-- ── MATH-01: scalar helpers (6 call sites) ──────────────────────
+    val lerped  = RMath.lerp(Float32(0.0), Float32(10.0), Float32(0.5))        -- 5.0
+    val clamped = RMath.clamp(Float32(-3.0), Float32(0.0), Float32(5.0))       -- 0.0
+    val wrapped = RMath.wrap(Float32(370.0), Float32(0.0), Float32(360.0))     -- 10.0
+    val remap1  = RMath.remap(Float32(5.0), Float32(0.0), Float32(10.0), Float32(100.0), Float32(200.0))  -- 150.0
+    val normd   = RMath.normalize(Float32(7.5), Float32(5.0), Float32(10.0))   -- 0.5
+    val feq     = RMath.float_equals(Float32(3.0), Float32(3.0))               -- true
+
+-- ── MATH-02: Vector2 methods (30 call sites) ────────────────────
+    val v  = Vector2(Float32(3.0), Float32(4.0))
+    val w  = Vector2(Float32(1.0), Float32(2.0))
+    val mat_id = Matrix(
+        Float32(1.0), Float32(0.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(1.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(1.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0)
+    )
+
+    val v_zero   = Vector2.zero()                                   -- (0, 0)
+    val v_one    = Vector2.one()                                    -- (1, 1)
+    val v_add    = v.add(w)                                         -- (4, 6)
+    val v_addval = v.add_value(Float32(1.0))                        -- (4, 5)
+    val v_sub    = v.subtract(w)                                    -- (2, 2)
+    val v_subval = v.subtract_value(Float32(1.0))                   -- (2, 3)
+    val v_len    = v.length()                                       -- 5.0
+    val v_lensq  = v.length_sqr()                                   -- 25.0
+    val v_dot    = v.dot_product(w)                                 -- 3 + 8 = 11.0
+    val v_dist   = v.distance(w)                                    -- sqrt(4+4) = 2.828...
+    val v_distsq = v.distance_sqr(w)                                -- 8.0
+    val v_angle  = v.angle(w)                                       -- non-zero radians
+    val v_langle = v.line_angle(w)                                  -- atan2(2-4, 1-3)
+    val v_scale  = v.scale(Float32(2.0))                            -- (6, 8)
+    val v_mul    = v.multiply(w)                                    -- (3, 8)
+    val v_neg    = v.negate()                                       -- (-3, -4)
+    val v_div    = v.divide(w)                                      -- (3, 2)
+    val v_norm   = v.normalize()                                    -- length 1
+    val v_xform  = v.transform(mat_id)                              -- (3, 4) (identity)
+    val v_lerp   = v.lerp(w, Float32(0.5))                          -- (2, 3)
+    val v_refl   = v.reflect(Vector2(Float32(0.0), Float32(1.0)))   -- (3, -4)
+    val v_min    = v.min(w)                                         -- (1, 2)
+    val v_max    = v.max(w)                                         -- (3, 4)
+    val v_rot    = v.rotate(Float32(0.0))                           -- (3, 4) (0 angle)
+    val v_mtow   = v.move_towards(w, Float32(1.0))                  -- toward w by 1
+    val v_inv    = v.invert()                                       -- (1/3, 1/4)
+    val v_clamp  = v.clamp(Vector2(Float32(0.0), Float32(0.0)), Vector2(Float32(2.0), Float32(2.0)))  -- (2, 2)
+    val v_clampv = v.clamp_value(Float32(0.0), Float32(2.0))        -- length clamped
+    val v_eq     = v.equals(v)                                      -- true
+    val v_refr   = v.refract(Vector2(Float32(0.0), Float32(1.0)), Float32(1.0))
+
+-- ── MATH-03: Vector3 methods (37 call sites; 2 deferred to 65-03/04) ─
+    val v3     = Vector3(Float32(3.0), Float32(4.0), Float32(0.0))
+    val w3     = Vector3(Float32(1.0), Float32(2.0), Float32(2.0))
+    val axis_y = Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    val q_id   = Quaternion(Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0))
+    val mat_id3 = Matrix(
+        Float32(1.0), Float32(0.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(1.0), Float32(0.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(1.0), Float32(0.0),
+        Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0)
+    )
+
+    val v3_zero   = Vector3.zero()                                          -- (0, 0, 0)
+    val v3_one    = Vector3.one()                                           -- (1, 1, 1)
+    val v3_add    = v3.add(w3)                                              -- (4, 6, 2)
+    val v3_addval = v3.add_value(Float32(1.0))                              -- (4, 5, 1)
+    val v3_sub    = v3.subtract(w3)                                         -- (2, 2, -2)
+    val v3_subval = v3.subtract_value(Float32(1.0))                         -- (2, 3, -1)
+    val v3_scale  = v3.scale(Float32(2.0))                                  -- (6, 8, 0)
+    val v3_mul    = v3.multiply(w3)                                         -- (3, 8, 0)
+    val v3_cross  = v3.cross_product(w3)                                    -- (8, -6, 2)
+    val v3_perp   = v3.perpendicular()                                      -- orthogonal
+    val v3_len    = v3.length()                                             -- 5.0
+    val v3_lensq  = v3.length_sqr()                                         -- 25.0
+    val v3_dot    = v3.dot_product(w3)                                      -- 11.0
+    val v3_dist   = v3.distance(w3)                                         -- sqrt(12)
+    val v3_distsq = v3.distance_sqr(w3)                                     -- 12.0
+    val v3_angle  = v3.angle(w3)                                            -- non-zero
+    val v3_neg    = v3.negate()                                             -- (-3, -4, 0)
+    val v3_div    = v3.divide(w3)                                           -- (3, 2, 0)
+    val v3_norm   = v3.normalize()                                          -- length 1
+    val v3_proj   = v3.project(w3)                                          -- onto w3
+    val v3_rej    = v3.reject(w3)                                           -- v3 - proj
+    val v3_xform  = v3.transform(mat_id3)                                   -- identity -> (3, 4, 0)
+    val v3_rotq   = v3.rotate_by_quaternion(q_id)                           -- identity quat -> (3, 4, 0)
+    val v3_rotaa  = v3.rotate_by_axis_angle(axis_y, Float32(0.0))           -- 0 angle -> (3, 4, 0)
+    val v3_mtow   = v3.move_towards(w3, Float32(1.0))                       -- toward w3 by 1
+    val v3_lerp   = v3.lerp(w3, Float32(0.5))                               -- midpoint
+    val v3_ch     = v3.cubic_hermite(axis_y, w3, axis_y, Float32(0.5))      -- 4-Vector3 + float
+    val v3_refl   = v3.reflect(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)))
+    val v3_min    = v3.min(w3)                                              -- (1, 2, 0)
+    val v3_max    = v3.max(w3)                                              -- (3, 4, 2)
+    val v3_bary   = v3.barycenter(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)), Vector3(Float32(1.0), Float32(0.0), Float32(0.0)), Vector3(Float32(0.0), Float32(1.0), Float32(0.0)))
+    val v3_unproj = v3.unproject(mat_id3, mat_id3)                          -- identity*identity -> (3, 4, 0)
+    val v3_inv    = v3.invert()                                             -- (1/3, 1/4, inf-guarded)
+    val v3_clamp  = v3.clamp(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)), Vector3(Float32(2.0), Float32(2.0), Float32(2.0)))
+    val v3_clampv = v3.clamp_value(Float32(0.0), Float32(10.0))             -- length in range
+    val v3_eq     = v3.equals(v3)                                           -- true
+    val v3_refr   = v3.refract(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(1.0))
+
+-- ── MATH-04: Vector4 methods (22 call sites) ───────────────────────
+    val v4a = Vector4(Float32(1.0), Float32(2.0), Float32(3.0), Float32(4.0))
+    val v4b = Vector4(Float32(0.5), Float32(0.5), Float32(0.5), Float32(0.5))
+
+    val v4_zero   = Vector4.zero()
+    val v4_one    = Vector4.one()
+    val v4_add    = v4a.add(v4b)                            -- (1.5, 2.5, 3.5, 4.5)
+    val v4_addval = v4a.add_value(Float32(1.0))             -- (2, 3, 4, 5)
+    val v4_sub    = v4a.subtract(v4b)                       -- (0.5, 1.5, 2.5, 3.5)
+    val v4_subval = v4a.subtract_value(Float32(0.5))        -- (0.5, 1.5, 2.5, 3.5)
+    val v4_len    = v4a.length()                            -- sqrt(30)
+    val v4_lensq  = v4a.length_sqr()                        -- 30.0
+    val v4_dot    = v4a.dot_product(v4b)                    -- 0.5+1+1.5+2 = 5.0
+    val v4_dist   = v4a.distance(v4b)
+    val v4_distsq = v4a.distance_sqr(v4b)
+    val v4_scale  = v4a.scale(Float32(2.0))                 -- (2, 4, 6, 8)
+    val v4_mul    = v4a.multiply(v4b)                       -- (0.5, 1, 1.5, 2)
+    val v4_neg    = v4a.negate()                            -- (-1, -2, -3, -4)
+    val v4_div    = v4a.divide(v4b)                         -- (2, 4, 6, 8)
+    val v4_norm   = v4a.normalize()                         -- length 1
+    val v4_min    = v4a.min(v4b)                            -- (0.5, 0.5, 0.5, 0.5)
+    val v4_max    = v4a.max(v4b)                            -- (1, 2, 3, 4)
+    val v4_lerp   = v4a.lerp(v4b, Float32(0.5))
+    val v4_mtow   = v4a.move_towards(v4b, Float32(0.1))
+    val v4_inv    = v4a.invert()                            -- (1, 0.5, 0.333..., 0.25)
+    val v4_eq     = v4a.equals(v4a)                         -- true
+
+-- ── MATH-05: Matrix methods (21 call sites; Decompose -> Plan 65-04) ─
+    val m_id = Matrix.identity()
+    val m_a  = Matrix(
+        Float32(1.0), Float32(0.0), Float32(0.0), Float32(1.0),
+        Float32(0.0), Float32(1.0), Float32(0.0), Float32(2.0),
+        Float32(0.0), Float32(0.0), Float32(1.0), Float32(3.0),
+        Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0)
+    )
+
+    val m_det    = m_id.determinant()                                    -- 1.0
+    val m_trace  = m_id.trace()                                          -- 4.0
+    val m_trans  = m_a.transpose()
+    val m_inv    = m_id.invert()
+    val m_add    = m_id.add(m_id)
+    val m_sub    = m_id.subtract(m_id)
+    val m_mul    = m_id.multiply(m_id)
+    val m_trl    = Matrix.translate(Float32(1.0), Float32(2.0), Float32(3.0))
+    val m_rot    = Matrix.rotate(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(0.0))
+    val m_rotx   = Matrix.rotate_x(Float32(0.0))
+    val m_roty   = Matrix.rotate_y(Float32(0.0))
+    val m_rotz   = Matrix.rotate_z(Float32(0.0))
+    val m_rxyz   = Matrix.rotate_xyz(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)))
+    val m_rzyx   = Matrix.rotate_zyx(Vector3(Float32(0.0), Float32(0.0), Float32(0.0)))
+    val m_scale  = Matrix.scale(Float32(1.0), Float32(1.0), Float32(1.0))
+    val m_frst   = Matrix.frustum(Float32(-1.0), Float32(1.0), Float32(-1.0), Float32(1.0), Float32(1.0), Float32(10.0))
+    val m_pers   = Matrix.perspective(Float32(1.0), Float32(1.777), Float32(0.1), Float32(100.0))
+    val m_ortho  = Matrix.ortho(Float32(-1.0), Float32(1.0), Float32(-1.0), Float32(1.0), Float32(0.1), Float32(100.0))
+    val m_look   = Matrix.look_at(
+        Vector3(Float32(0.0), Float32(0.0), Float32(5.0)),
+        Vector3(Float32(0.0), Float32(0.0), Float32(0.0)),
+        Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    )
+    val m_f16    = m_id.to_float_v()
+
+-- ── Vector3.to_float_v (MATH-03 carried from Plan 65-02) ───────────
+    val v3_f3    = v3.to_float_v()
+
+-- ── MATH-06: Quaternion methods (24 call sites) ────────────────────
+    -- Plan 65-04 binds all 24 raymath Quaternion RMAPI functions.
+    -- Static: identity; instance: 23 + to_axis_angle (2-tuple below).
+    val q_a     = Quaternion(Float32(0.0), Float32(0.0), Float32(0.0), Float32(1.0))
+    val q_b     = Quaternion(Float32(0.1), Float32(0.0), Float32(0.0), Float32(0.995))
+
+    val q_ident  = Quaternion.identity()
+    val q_add    = q_a.add(q_b)
+    val q_addval = q_a.add_value(Float32(0.1))
+    val q_sub    = q_a.subtract(q_b)
+    val q_subval = q_a.subtract_value(Float32(0.1))
+    val q_len    = q_a.length()
+    val q_norm   = q_a.normalize()
+    val q_inv    = q_a.invert()
+    val q_mul    = q_a.multiply(q_b)
+    val q_scale  = q_a.scale(Float32(2.0))
+    val q_div    = q_a.divide(q_b)
+    val q_lerp   = q_a.lerp(q_b, Float32(0.5))
+    val q_nlerp  = q_a.nlerp(q_b, Float32(0.5))
+    val q_slerp  = q_a.slerp(q_b, Float32(0.5))
+    val q_ch     = q_a.cubic_hermite_spline(q_b, q_a, q_b, Float32(0.5))
+    val q_fv3v3  = Quaternion.from_vector3_to_vector3(
+        Vector3(Float32(1.0), Float32(0.0), Float32(0.0)),
+        Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    )
+    val q_fmat   = Quaternion.from_matrix(Matrix.identity())
+    val q_tomat  = q_a.to_matrix()
+    val q_faxang = Quaternion.from_axis_angle(Vector3(Float32(0.0), Float32(1.0), Float32(0.0)), Float32(0.0))
+    val q_feuler = Quaternion.from_euler(Float32(0.0), Float32(0.0), Float32(0.0))
+    val q_teuler = q_a.to_euler()
+    val q_xform  = q_a.transform(Matrix.identity())
+    val q_eq     = q_a.equals(q_a)
+
+-- ── Tuple returns (3 call sites — closes MATH-05 Decompose,
+    --    MATH-03 ortho_normalize, MATH-06 to_axis_angle) ────────────
+    -- 2-tuple: Quaternion.to_axis_angle -> (Vector3, Float32)
+    val (axis_out, angle_out) = q_a.to_axis_angle()
+
+    -- 2-tuple: Vector3.ortho_normalize -> (Vector3, Vector3)
+    val v3u = Vector3(Float32(1.0), Float32(0.0), Float32(0.0))
+    val v3v = Vector3(Float32(0.0), Float32(1.0), Float32(0.0))
+    val (ortho_a, ortho_b) = v3u.ortho_normalize(v3v)
+
+    -- 3-tuple: Matrix.decompose -> (Vector3, Quaternion, Vector3)
+    -- (First 3-tuple return in the Iron codebase; Plan 65-04 Task 1
+    -- probe confirmed Branch A auto-emit GREEN.)
+    val m_for_decomp = Matrix.identity()
+    val (d_trans, d_rot, d_scale) = m_for_decomp.decompose()
+
+-- ── MATH-08: ABI round-trip assertions (~15 sites across return shapes) ─
+    val pass_lerp    = RMath.float_equals(lerped, Float32(5.0))
+    val pass_clamped = RMath.float_equals(clamped, Float32(0.0))
+    val pass_wrapped = RMath.float_equals(wrapped, Float32(10.0))
+    val pass_remap   = RMath.float_equals(remap1, Float32(150.0))
+    val pass_normd   = RMath.float_equals(normd, Float32(0.5))
+    val pass_feq     = feq
+    val pass_vlen    = RMath.float_equals(v_len, Float32(5.0))
+    val pass_vlensq  = RMath.float_equals(v_lensq, Float32(25.0))
+    val pass_vdot    = RMath.float_equals(v_dot, Float32(11.0))
+    val pass_vdistsq = RMath.float_equals(v_distsq, Float32(8.0))
+    val pass_vaddx   = RMath.float_equals(v_add.x, Float32(4.0))
+    val pass_vaddy   = RMath.float_equals(v_add.y, Float32(6.0))
+    val pass_vzerox  = RMath.float_equals(v_zero.x, Float32(0.0))
+    val pass_vonex   = RMath.float_equals(v_one.x, Float32(1.0))
+    val pass_veq     = v_eq
+
+    -- MATH-08 Vector3 ABI asserts (13 sites across return shapes)
+    val pass_v3addx   = RMath.float_equals(v3_add.x,   Float32(4.0))
+    val pass_v3addy   = RMath.float_equals(v3_add.y,   Float32(6.0))
+    val pass_v3addz   = RMath.float_equals(v3_add.z,   Float32(2.0))
+    val pass_v3len    = RMath.float_equals(v3_len,     Float32(5.0))
+    val pass_v3lensq  = RMath.float_equals(v3_lensq,   Float32(25.0))
+    val pass_v3dot    = RMath.float_equals(v3_dot,     Float32(11.0))
+    val pass_v3distsq = RMath.float_equals(v3_distsq,  Float32(12.0))
+    val pass_v3crossx = RMath.float_equals(v3_cross.x, Float32(8.0))
+    val pass_v3crossy = RMath.float_equals(v3_cross.y, Float32(-6.0))
+    val pass_v3crossz = RMath.float_equals(v3_cross.z, Float32(2.0))
+    val pass_v3rotqx  = RMath.float_equals(v3_rotq.x,  Float32(3.0))
+    val pass_v3xformx = RMath.float_equals(v3_xform.x, Float32(3.0))
+    val pass_v3eq     = v3_eq
+
+    -- MATH-08 Vector4 + Matrix + ToFloatV ABI asserts (15 sites)
+    val pass_v4addx  = RMath.float_equals(v4_add.x,  Float32(1.5))
+    val pass_v4addy  = RMath.float_equals(v4_add.y,  Float32(2.5))
+    val pass_v4addz  = RMath.float_equals(v4_add.z,  Float32(3.5))
+    val pass_v4addw  = RMath.float_equals(v4_add.w,  Float32(4.5))
+    val pass_v4lensq = RMath.float_equals(v4_lensq,  Float32(30.0))
+    val pass_v4dot   = RMath.float_equals(v4_dot,    Float32(5.0))
+    val pass_v4eq    = v4_eq
+    val pass_mdet    = RMath.float_equals(m_det,     Float32(1.0))
+    val pass_mtrace  = RMath.float_equals(m_trace,   Float32(4.0))
+    val pass_mf16_0  = RMath.float_equals(m_f16.m0,  Float32(1.0))   -- identity m[0] = 1
+    val pass_mf16_5  = RMath.float_equals(m_f16.m5,  Float32(1.0))   -- identity m[5] = 1
+    val pass_mf16_1  = RMath.float_equals(m_f16.m1,  Float32(0.0))   -- identity m[1] = 0
+    val pass_v3f3_x  = RMath.float_equals(v3_f3.x,   Float32(3.0))   -- v3 was (3, 4, 0)
+    val pass_v3f3_y  = RMath.float_equals(v3_f3.y,   Float32(4.0))
+    val pass_v3f3_z  = RMath.float_equals(v3_f3.z,   Float32(0.0))
+
+    -- MATH-08 Quaternion + tuple ABI asserts (10 sites — every tuple shape)
+    val pass_q_identw    = RMath.float_equals(q_ident.w,      Float32(1.0))      -- identity w = 1
+    val pass_q_eq        = q_eq                                                   -- equals reflexive
+    val pass_q_len       = RMath.float_equals(q_len,          Float32(1.0))      -- |(0,0,0,1)| = 1
+    val pass_q_teulerx   = RMath.float_equals(q_teuler.x,     Float32(0.0))      -- identity -> zero euler
+    val pass_q_axang_y   = RMath.float_equals(axis_out.y,     axis_out.y)        -- non-NaN self-equality
+    val pass_q_axang_ang = RMath.float_equals(angle_out,      angle_out)         -- non-NaN self-equality
+    val pass_ortho_a_x   = RMath.float_equals(ortho_a.x,      Float32(1.0))      -- orthonormal unit preserved
+    val pass_ortho_b_y   = RMath.float_equals(ortho_b.y,      Float32(1.0))      -- orthonormal unit preserved
+    val pass_d_trans_x   = RMath.float_equals(d_trans.x,      Float32(0.0))      -- identity decomposes zero trans
+    val pass_d_rot_w     = RMath.float_equals(d_rot.w,        Float32(1.0))      -- identity rotation -> (0,0,0,1)
+    val pass_d_scale_x   = RMath.float_equals(d_scale.x,      Float32(1.0))      -- identity scale -> 1
+
+    val all_pass = pass_lerp and pass_clamped and pass_wrapped and pass_remap and pass_normd and pass_feq and pass_vlen and pass_vlensq and pass_vdot and pass_vdistsq and pass_vaddx and pass_vaddy and pass_vzerox and pass_vonex and pass_veq and pass_v3addx and pass_v3addy and pass_v3addz and pass_v3len and pass_v3lensq and pass_v3dot and pass_v3distsq and pass_v3crossx and pass_v3crossy and pass_v3crossz and pass_v3rotqx and pass_v3xformx and pass_v3eq and pass_v4addx and pass_v4addy and pass_v4addz and pass_v4addw and pass_v4lensq and pass_v4dot and pass_v4eq and pass_mdet and pass_mtrace and pass_mf16_0 and pass_mf16_5 and pass_mf16_1 and pass_v3f3_x and pass_v3f3_y and pass_v3f3_z and pass_q_identw and pass_q_eq and pass_q_len and pass_q_teulerx and pass_q_axang_y and pass_q_axang_ang and pass_ortho_a_x and pass_ortho_b_y and pass_d_trans_x and pass_d_rot_w and pass_d_scale_x
+
+    if all_pass {
+        print("ALL MATH-08 ASSERTS PASS")
+    } else {
+        print("MATH-08 FAILURE")
+        return Int32(1)
+    }
+
+    return Int32(0)
+}

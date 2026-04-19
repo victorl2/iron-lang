@@ -1,68 +1,3077 @@
 -- raylib.iron — Iron bindings for raylib 5.5
--- Ships with the Iron compiler; loaded when user writes: import raylib
+--
+-- Ships with the Iron compiler; loaded when user writes `import raylib`.
+--
+-- ──────────────────────────────────────────────────────────────────────
+-- Convention notes (see .planning/phases/60-type-enum-foundation/60-CONTEXT.md)
+-- ──────────────────────────────────────────────────────────────────────
+--
+-- 1. Snake_case method names. Example: `window.should_close()`,
+--    `texture.set_filter(.bilinear)`. Matches iron_net.iron and math.iron.
+--
+-- 2. Type name suffixes: dropped by default. `Texture` (not Texture2D),
+--    `RenderTexture`, `Font`, `Sound`. Where a 2D vs 3D pair truly exists
+--    as distinct raylib types, the 3D version gets the suffix — `Camera`
+--    is the 2D scene camera, `Camera3D` is the 3D scene camera. THIS
+--    INVERTS raylib's C convention where `Camera = Camera3D` typedef.
+--
+-- 3. Vectors keep numeric suffixes (Vector2/3/4) because they are
+--    distinct math types, not 2D/3D variants of each other.
+--
+-- 4. Quaternion is a separate type alias for Vector4 to preserve
+--    math-domain meaning. Same layout, different name.
+--
+-- 5. Opaque pointers (Image.data, Mesh vertex pointers, Font glyphs,
+--    audio buffers, etc.) are stored as `_`-prefixed `val: Int` fields.
+--    The underscore signals "raw pointer, do not touch". Iron has no
+--    language-level privacy; this is a convention.
+--
+-- 6. Resource lifecycle is MANUAL. Every `Type.load(...)` returns a
+--    handle; the user MUST call `handle.unload()` to release. Forgetting
+--    to unload leaks until process exit. There is no automatic cleanup.
+--
+-- 7. Every raylib type in this file has its C layout verified at build
+--    time by `_Static_assert` in src/stdlib/iron_raylib_layout.c. Drift
+--    is impossible to ship.
+--
+-- 8. Float fields use `Float32` (NOT `Float`) because raylib's C types
+--    use `float`. Iron's `Float` maps to `double` which would shift
+--    every field offset.
+--
+-- ──────────────────────────────────────────────────────────────────────
+-- Phase 60 scope: types + enums only. Function bindings land in Phases
+-- 61–72. Phase 60 Plan 02 defines the core math types (Vector*, Matrix,
+-- Rectangle, Color, Quaternion). Remaining types come in Plans 60-03,
+-- 60-04, 60-05. Enums come in Plan 60-07.
+--
+-- API-11 override: The original API-11 requirement ("existing files
+-- continue to compile unmodified") is explicitly relaxed in Phase 60
+-- to "existing files may be rewritten during the clean break." See
+-- .planning/phases/60-type-enum-foundation/60-CONTEXT.md, section
+-- "Backward Compatibility — Clean Break". The old raylib.iron
+-- symbols (Vec2, Key, InitWindow, ...) are gone; the three existing
+-- user files (examples/pong/pong.iron, tests/manual/game_raylib.iron,
+-- tests/integration/web/hello_raylib.iron) are being rewritten to
+-- the new canonical names in Plan 60-08.
+-- ──────────────────────────────────────────────────────────────────────
 
--- Types (match C struct layout exactly)
--- Note: Vec2 uses Float32 (not Float) because raylib's Vector2 uses C `float`.
--- Iron's Float maps to double which would cause wrong struct layout.
-object Vec2 {
-  var x: Float32
-  var y: Float32
+-- ══════════════════════════════════════════════════════════════════════
+-- TYPE-31 / TYPE-32 compliance audit (Plan 60-06)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- TYPE-31 — Positional constructors in C-struct field order:
+--   Every `object` below declares its `val` fields in the exact order
+--   raylib.h declares the corresponding C struct. Iron's positional
+--   constructor `Vector3(1.0, 2.0, 3.0)` therefore produces the same
+--   memory layout as the C literal `(Vector3){1.0f, 2.0f, 3.0f}`. This
+--   is enforced by the compile-time `_Static_assert` in
+--   iron_raylib_layout.c — any re-ordering fires a field offset
+--   mismatch and breaks the build.
+--
+-- TYPE-32 — Opaque pointer hiding:
+--   Every raylib C struct field of type `void *`, `<Type> *`, or
+--   `<Type> **` maps to an `_`-prefixed `val: Int` field on the Iron
+--   side. Users cannot accidentally dereference these from Iron code
+--   because Iron has no pointer primitive — the Int value is just a
+--   number, and no Iron operation will cast it back. Accessor helpers
+--   (`image.get_color(x, y)`, `mesh.vertex_at(i)`, `font.glyph_at(i)`,
+--   `wave.to_samples()`, etc.) land in the phases that bind the
+--   surrounding functionality:
+--
+--     Image._data         → Phase 66 accessors (image.get_color, ...)
+--     Mesh._vertices, etc → Phase 70 accessors (mesh.vertex_at, ...)
+--     Font._recs, _glyphs → Phase 67 accessors (font.glyph_at, ...)
+--     Shader._locs        → Phase 71 accessors (shader.location, ...)
+--     Material._maps      → Phase 70 accessors
+--     Model._* (5 fields) → Phase 70 accessors
+--     ModelAnimation._*   → Phase 70 accessors
+--     Wave._data          → Phase 68 (wave.to_samples)
+--     FilePathList._paths → Phase 72 (Files.list_ex iteration)
+--
+--   Kind 2 opaque fields (raylib-internal decoder/mixer state) get NO
+--   Iron accessors — they are passed through the FFI opaquely:
+--
+--     AudioStream._buffer
+--     AudioStream._processor
+--     Music._ctxData
+--
+--   Plain GPU handles are NOT opaque — they are integer IDs, so they
+--   keep their raylib field name without underscore:
+--
+--     Texture.id, RenderTexture.id, Shader.id, Mesh.vaoId
+--
+-- ══════════════════════════════════════════════════════════════════════
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Core math types (TYPE-01..06)
+-- ══════════════════════════════════════════════════════════════════════
+
+-- 2D vector — matches C `struct Vector2 { float x; float y; }` (TYPE-01).
+object Vector2 {
+    val x: Float32
+    val y: Float32
 }
 
+-- 3D vector — matches C `struct Vector3 { float x; float y; float z; }` (TYPE-02).
+object Vector3 {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+}
+
+-- 4D vector — matches C `struct Vector4 { float x; float y; float z; float w; }` (TYPE-03).
+object Vector4 {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+    val w: Float32
+}
+
+-- Quaternion — separate Iron type alias for Vector4, same C layout.
+-- Reads as a rotation in math signatures, while `Vector4` reads as a
+-- generic 4-vec. Both are layout-verified against C `Vector4`. (TYPE-03).
+object Quaternion {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+    val w: Float32
+}
+
+-- raymath helper types (Phase 65 Plan 03) — byte-identical to raymath's
+-- float3 / float16 (see raymath.h lines 163-169). Out-params for
+-- Vector3.to_float_v and Matrix.to_float_v respectively. Layout pinned
+-- at compile time by ~21 _Static_assert entries in iron_raylib_layout.c.
+object Float3 {
+    val x: Float32
+    val y: Float32
+    val z: Float32
+}
+
+object Float16 {
+    val m0:  Float32
+    val m1:  Float32
+    val m2:  Float32
+    val m3:  Float32
+    val m4:  Float32
+    val m5:  Float32
+    val m6:  Float32
+    val m7:  Float32
+    val m8:  Float32
+    val m9:  Float32
+    val m10: Float32
+    val m11: Float32
+    val m12: Float32
+    val m13: Float32
+    val m14: Float32
+    val m15: Float32
+}
+
+-- 4x4 column-major matrix — matches C `struct Matrix` from raylib.h
+-- line 239. raylib's matrix stores floats in the order m0 m4 m8 m12
+-- m1 m5 m9 m13 m2 m6 m10 m14 m3 m7 m11 m15, and that is exactly the
+-- order in the Iron struct. (TYPE-04)
+object Matrix {
+    val m0: Float32
+    val m4: Float32
+    val m8: Float32
+    val m12: Float32
+    val m1: Float32
+    val m5: Float32
+    val m9: Float32
+    val m13: Float32
+    val m2: Float32
+    val m6: Float32
+    val m10: Float32
+    val m14: Float32
+    val m3: Float32
+    val m7: Float32
+    val m11: Float32
+    val m15: Float32
+}
+
+-- Axis-aligned rectangle — matches C `struct Rectangle` (TYPE-05).
+object Rectangle {
+    val x: Float32
+    val y: Float32
+    val width: Float32
+    val height: Float32
+}
+
+-- 32-bit RGBA color — matches C `struct Color` (TYPE-06).
 object Color {
-  var r: UInt8
-  var g: UInt8
-  var b: UInt8
-  var a: UInt8
+    val r: UInt8
+    val g: UInt8
+    val b: UInt8
+    val a: UInt8
 }
 
--- Color constants
-val RED      = Color(230, 41, 55, 255)
-val BLUE     = Color(0, 121, 241, 255)
-val GREEN    = Color(0, 228, 48, 255)
-val DARKGRAY = Color(80, 80, 80, 255)
-val WHITE    = Color(255, 255, 255, 255)
-val BLACK    = Color(0, 0, 0, 255)
-val YELLOW   = Color(253, 249, 0, 255)
-val ORANGE   = Color(255, 161, 0, 255)
+-- ══════════════════════════════════════════════════════════════════════
+-- Enums (ENUM-01..22)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Every value's ordinal is hand-copied from src/vendor/raylib/raylib.h
+-- and verified at build time by `_Static_assert` in
+-- iron_raylib_layout.c. Any drift between raylib's C constants and
+-- these Iron values fires a compile error.
+--
+-- Naming: C `KEY_SPACE` → Iron `KeyboardKey.SPACE`. The type prefix
+-- (KEY_, MOUSE_, TEXTURE_) is dropped; the tail is kept in
+-- SCREAMING_SNAKE_CASE. Bitflag enums (ConfigFlags, Gesture) use hex
+-- literals so the bit pattern stays visible.
 
--- Key codes — explicit ordinal values match raylib KEY_* constants exactly.
--- This is what makes is_key_down(.RIGHT) pass the correct integer to C.
-enum Key {
-  SPACE     = 32,
-  ESCAPE    = 256,
-  ENTER     = 257,
-  BACKSPACE = 259,
-  RIGHT     = 262,
-  LEFT      = 263,
-  DOWN      = 264,
-  UP        = 265,
-  A = 65, B = 66, C = 67, D = 68, E = 69, F = 70,
-  G = 71, H = 72, I = 73, J = 74, K = 75, L = 76,
-  M = 77, N = 78, O = 79, P = 80, Q = 81, R = 82,
-  S = 83, T = 84, U = 85, V = 86, W = 87, X = 88,
-  Y = 89, Z = 90,
+-- ── ConfigFlags (ENUM-06) — raylib.h:541-558 ────────────────────────
+-- Bitmask of window / graphics config bits. Usable as |-combined int.
+enum ConfigFlags {
+    VSYNC_HINT               = 0x00000040,
+    FULLSCREEN_MODE          = 0x00000002,
+    WINDOW_RESIZABLE         = 0x00000004,
+    WINDOW_UNDECORATED       = 0x00000008,
+    WINDOW_HIDDEN            = 0x00000080,
+    WINDOW_MINIMIZED         = 0x00000200,
+    WINDOW_MAXIMIZED         = 0x00000400,
+    WINDOW_UNFOCUSED         = 0x00000800,
+    WINDOW_TOPMOST           = 0x00001000,
+    WINDOW_ALWAYS_RUN        = 0x00000100,
+    WINDOW_TRANSPARENT       = 0x00000010,
+    WINDOW_HIGHDPI           = 0x00002000,
+    WINDOW_MOUSE_PASSTHROUGH = 0x00004000,
+    BORDERLESS_WINDOWED_MODE = 0x00008000,
+    MSAA_4X_HINT             = 0x00000020,
+    INTERLACED_HINT          = 0x00010000,
 }
 
--- Window management
-extern func InitWindow(w: Int, h: Int, title: String)
-extern func CloseWindow()
-extern func WindowShouldClose() -> Bool
-extern func SetTargetFPS(fps: Int)
-extern func GetFrameTime() -> Float32
+-- ── TraceLogLevel (ENUM-07) — raylib.h:562-571 ──────────────────────
+enum TraceLogLevel {
+    ALL     = 0,
+    TRACE   = 1,
+    DEBUG   = 2,
+    INFO    = 3,
+    WARNING = 4,
+    ERROR   = 5,
+    FATAL   = 6,
+    NONE    = 7,
+}
 
--- Drawing
-extern func ClearBackground(color: Color)
-extern func BeginDrawing()
-extern func EndDrawing()
-extern func DrawText(text: String, x: Int, y: Int, size: Int, color: Color)
-extern func DrawRectangle(x: Int, y: Int, w: Int, h: Int, color: Color)
-extern func DrawCircle(x: Int, y: Int, radius: Float32, color: Color)
-extern func DrawLine(x1: Int, y1: Int, x2: Int, y2: Int, color: Color)
+-- ── KeyboardKey (ENUM-01) — raylib.h:576-691, 110 values ────────────
+-- Transcribed in raylib.h field order, grouped by section. Only
+-- raylib's explicit = assignments are preserved; implicit numbering
+-- is NOT used in Iron (every ordinal is spelled out).
+enum KeyboardKey {
+    NULL          = 0,
+    -- Alphanumeric keys
+    APOSTROPHE    = 39,
+    COMMA         = 44,
+    MINUS         = 45,
+    PERIOD        = 46,
+    SLASH         = 47,
+    ZERO          = 48,
+    ONE           = 49,
+    TWO           = 50,
+    THREE         = 51,
+    FOUR          = 52,
+    FIVE          = 53,
+    SIX           = 54,
+    SEVEN         = 55,
+    EIGHT         = 56,
+    NINE          = 57,
+    SEMICOLON     = 59,
+    EQUAL         = 61,
+    A             = 65,
+    B             = 66,
+    C             = 67,
+    D             = 68,
+    E             = 69,
+    F             = 70,
+    G             = 71,
+    H             = 72,
+    I             = 73,
+    J             = 74,
+    K             = 75,
+    L             = 76,
+    M             = 77,
+    N             = 78,
+    O             = 79,
+    P             = 80,
+    Q             = 81,
+    R             = 82,
+    S             = 83,
+    T             = 84,
+    U             = 85,
+    V             = 86,
+    W             = 87,
+    X             = 88,
+    Y             = 89,
+    Z             = 90,
+    LEFT_BRACKET  = 91,
+    BACKSLASH     = 92,
+    RIGHT_BRACKET = 93,
+    GRAVE         = 96,
+    -- Function keys
+    SPACE         = 32,
+    ESCAPE        = 256,
+    ENTER         = 257,
+    TAB           = 258,
+    BACKSPACE     = 259,
+    INSERT        = 260,
+    DELETE        = 261,
+    RIGHT         = 262,
+    LEFT          = 263,
+    DOWN          = 264,
+    UP            = 265,
+    PAGE_UP       = 266,
+    PAGE_DOWN     = 267,
+    HOME          = 268,
+    END           = 269,
+    CAPS_LOCK     = 280,
+    SCROLL_LOCK   = 281,
+    NUM_LOCK      = 282,
+    PRINT_SCREEN  = 283,
+    PAUSE         = 284,
+    F1            = 290,
+    F2            = 291,
+    F3            = 292,
+    F4            = 293,
+    F5            = 294,
+    F6            = 295,
+    F7            = 296,
+    F8            = 297,
+    F9            = 298,
+    F10           = 299,
+    F11           = 300,
+    F12           = 301,
+    LEFT_SHIFT    = 340,
+    LEFT_CONTROL  = 341,
+    LEFT_ALT      = 342,
+    LEFT_SUPER    = 343,
+    RIGHT_SHIFT   = 344,
+    RIGHT_CONTROL = 345,
+    RIGHT_ALT     = 346,
+    RIGHT_SUPER   = 347,
+    KB_MENU       = 348,
+    -- Keypad keys
+    KP_0          = 320,
+    KP_1          = 321,
+    KP_2          = 322,
+    KP_3          = 323,
+    KP_4          = 324,
+    KP_5          = 325,
+    KP_6          = 326,
+    KP_7          = 327,
+    KP_8          = 328,
+    KP_9          = 329,
+    KP_DECIMAL    = 330,
+    KP_DIVIDE     = 331,
+    KP_MULTIPLY   = 332,
+    KP_SUBTRACT   = 333,
+    KP_ADD        = 334,
+    KP_ENTER      = 335,
+    KP_EQUAL      = 336,
+    -- Android key buttons
+    BACK          = 4,
+    MENU          = 5,
+    VOLUME_UP     = 24,
+    VOLUME_DOWN   = 25,
+}
 
--- Input — Key enum used here (not Int) per user decision
-extern func IsKeyDown(key: Key) -> Bool
-extern func IsKeyPressed(key: Key) -> Bool
-extern func GetMouseX() -> Int
-extern func GetMouseY() -> Int
-extern func IsMouseButtonPressed(button: Int) -> Bool
+-- ── MouseButton (ENUM-02) — raylib.h:699-707 ────────────────────────
+enum MouseButton {
+    LEFT    = 0,
+    RIGHT   = 1,
+    MIDDLE  = 2,
+    SIDE    = 3,
+    EXTRA   = 4,
+    FORWARD = 5,
+    BACK    = 6,
+}
+
+-- ── MouseCursor (ENUM-03) — raylib.h:710-722 ────────────────────────
+enum MouseCursor {
+    DEFAULT       = 0,
+    ARROW         = 1,
+    IBEAM         = 2,
+    CROSSHAIR     = 3,
+    POINTING_HAND = 4,
+    RESIZE_EW     = 5,
+    RESIZE_NS     = 6,
+    RESIZE_NWSE   = 7,
+    RESIZE_NESW   = 8,
+    RESIZE_ALL    = 9,
+    NOT_ALLOWED   = 10,
+}
+
+-- ── GamepadButton (ENUM-04) — raylib.h:725-744 ──────────────────────
+enum GamepadButton {
+    UNKNOWN           = 0,
+    LEFT_FACE_UP      = 1,
+    LEFT_FACE_RIGHT   = 2,
+    LEFT_FACE_DOWN    = 3,
+    LEFT_FACE_LEFT    = 4,
+    RIGHT_FACE_UP     = 5,
+    RIGHT_FACE_RIGHT  = 6,
+    RIGHT_FACE_DOWN   = 7,
+    RIGHT_FACE_LEFT   = 8,
+    LEFT_TRIGGER_1    = 9,
+    LEFT_TRIGGER_2    = 10,
+    RIGHT_TRIGGER_1   = 11,
+    RIGHT_TRIGGER_2   = 12,
+    MIDDLE_LEFT       = 13,
+    MIDDLE            = 14,
+    MIDDLE_RIGHT      = 15,
+    LEFT_THUMB        = 16,
+    RIGHT_THUMB       = 17,
+}
+
+-- ── GamepadAxis (ENUM-05) — raylib.h:747-754 ────────────────────────
+enum GamepadAxis {
+    LEFT_X        = 0,
+    LEFT_Y        = 1,
+    RIGHT_X       = 2,
+    RIGHT_Y       = 3,
+    LEFT_TRIGGER  = 4,
+    RIGHT_TRIGGER = 5,
+}
+
+-- ── MaterialMapIndex (ENUM-16) — raylib.h:757-769 ───────────────────
+enum MaterialMapIndex {
+    ALBEDO     = 0,
+    METALNESS  = 1,
+    NORMAL     = 2,
+    ROUGHNESS  = 3,
+    OCCLUSION  = 4,
+    EMISSION   = 5,
+    HEIGHT     = 6,
+    CUBEMAP    = 7,
+    IRRADIANCE = 8,
+    PREFILTER  = 9,
+    BRDF       = 10,
+}
+
+-- ── ShaderLocationIndex (ENUM-17) — raylib.h:775-805 ────────────────
+enum ShaderLocationIndex {
+    VERTEX_POSITION   = 0,
+    VERTEX_TEXCOORD01 = 1,
+    VERTEX_TEXCOORD02 = 2,
+    VERTEX_NORMAL     = 3,
+    VERTEX_TANGENT    = 4,
+    VERTEX_COLOR      = 5,
+    MATRIX_MVP        = 6,
+    MATRIX_VIEW       = 7,
+    MATRIX_PROJECTION = 8,
+    MATRIX_MODEL      = 9,
+    MATRIX_NORMAL     = 10,
+    VECTOR_VIEW       = 11,
+    COLOR_DIFFUSE     = 12,
+    COLOR_SPECULAR    = 13,
+    COLOR_AMBIENT     = 14,
+    MAP_ALBEDO        = 15,
+    MAP_METALNESS     = 16,
+    MAP_NORMAL        = 17,
+    MAP_ROUGHNESS     = 18,
+    MAP_OCCLUSION     = 19,
+    MAP_EMISSION      = 20,
+    MAP_HEIGHT        = 21,
+    MAP_CUBEMAP       = 22,
+    MAP_IRRADIANCE    = 23,
+    MAP_PREFILTER     = 24,
+    MAP_BRDF          = 25,
+    VERTEX_BONEIDS    = 26,
+    VERTEX_BONEWEIGHTS = 27,
+    BONE_MATRICES     = 28,
+}
+
+-- ── ShaderUniformDataType (ENUM-18) — raylib.h:811-821 ──────────────
+enum ShaderUniformDataType {
+    FLOAT     = 0,
+    VEC2      = 1,
+    VEC3      = 2,
+    VEC4      = 3,
+    INT       = 4,
+    IVEC2     = 5,
+    IVEC3     = 6,
+    IVEC4     = 7,
+    SAMPLER2D = 8,
+}
+
+-- ── ShaderAttributeDataType (ENUM-19) — raylib.h:824-829 ────────────
+enum ShaderAttributeDataType {
+    FLOAT = 0,
+    VEC2  = 1,
+    VEC3  = 2,
+    VEC4  = 3,
+}
+
+-- ── PixelFormat (ENUM-09) — raylib.h:833-858 ────────────────────────
+-- NOTE: raylib starts this enum at 1, not 0.
+enum PixelFormat {
+    UNCOMPRESSED_GRAYSCALE    = 1,
+    UNCOMPRESSED_GRAY_ALPHA   = 2,
+    UNCOMPRESSED_R5G6B5       = 3,
+    UNCOMPRESSED_R8G8B8       = 4,
+    UNCOMPRESSED_R5G5B5A1     = 5,
+    UNCOMPRESSED_R4G4B4A4     = 6,
+    UNCOMPRESSED_R8G8B8A8     = 7,
+    UNCOMPRESSED_R32          = 8,
+    UNCOMPRESSED_R32G32B32    = 9,
+    UNCOMPRESSED_R32G32B32A32 = 10,
+    UNCOMPRESSED_R16          = 11,
+    UNCOMPRESSED_R16G16B16    = 12,
+    UNCOMPRESSED_R16G16B16A16 = 13,
+    COMPRESSED_DXT1_RGB       = 14,
+    COMPRESSED_DXT1_RGBA      = 15,
+    COMPRESSED_DXT3_RGBA      = 16,
+    COMPRESSED_DXT5_RGBA      = 17,
+    COMPRESSED_ETC1_RGB       = 18,
+    COMPRESSED_ETC2_RGB       = 19,
+    COMPRESSED_ETC2_EAC_RGBA  = 20,
+    COMPRESSED_PVRT_RGB       = 21,
+    COMPRESSED_PVRT_RGBA      = 22,
+    COMPRESSED_ASTC_4x4_RGBA  = 23,
+    COMPRESSED_ASTC_8x8_RGBA  = 24,
+}
+
+-- ── TextureFilter (ENUM-10) — raylib.h:863-870 ──────────────────────
+enum TextureFilter {
+    POINT          = 0,
+    BILINEAR       = 1,
+    TRILINEAR      = 2,
+    ANISOTROPIC_4X = 3,
+    ANISOTROPIC_8X = 4,
+    ANISOTROPIC_16X = 5,
+}
+
+-- ── TextureWrap (ENUM-11) — raylib.h:873-878 ────────────────────────
+enum TextureWrap {
+    REPEAT        = 0,
+    CLAMP         = 1,
+    MIRROR_REPEAT = 2,
+    MIRROR_CLAMP  = 3,
+}
+
+-- ── CubemapLayout (ENUM-12) — raylib.h:881-887 ──────────────────────
+enum CubemapLayout {
+    AUTO_DETECT     = 0,
+    LINE_VERTICAL   = 1,
+    LINE_HORIZONTAL = 2,
+    CROSS_THREE_BY_FOUR = 3,
+    CROSS_FOUR_BY_THREE = 4,
+}
+
+-- ── FontType (ENUM-13) — raylib.h:890-894 ───────────────────────────
+enum FontType {
+    DEFAULT = 0,
+    BITMAP  = 1,
+    SDF     = 2,
+}
+
+-- ── BlendMode (ENUM-08) — raylib.h:897-906 ──────────────────────────
+enum BlendMode {
+    ALPHA             = 0,
+    ADDITIVE          = 1,
+    MULTIPLIED        = 2,
+    ADD_COLORS        = 3,
+    SUBTRACT_COLORS   = 4,
+    ALPHA_PREMULTIPLY = 5,
+    CUSTOM            = 6,
+    CUSTOM_SEPARATE   = 7,
+}
+
+-- ── Gesture (ENUM-20) — raylib.h:910-922 ────────────────────────────
+-- Bitmask (hex literals match raylib.h exactly).
+enum Gesture {
+    NONE        = 0,
+    TAP         = 1,
+    DOUBLETAP   = 2,
+    HOLD        = 4,
+    DRAG        = 8,
+    SWIPE_RIGHT = 16,
+    SWIPE_LEFT  = 32,
+    SWIPE_UP    = 64,
+    SWIPE_DOWN  = 128,
+    PINCH_IN    = 256,
+    PINCH_OUT   = 512,
+}
+
+-- ── CameraMode (ENUM-14) — raylib.h:925-931 ─────────────────────────
+enum CameraMode {
+    CUSTOM       = 0,
+    FREE         = 1,
+    ORBITAL      = 2,
+    FIRST_PERSON = 3,
+    THIRD_PERSON = 4,
+}
+
+-- ── CameraProjection (ENUM-15) — raylib.h:934-937 ───────────────────
+enum CameraProjection {
+    PERSPECTIVE  = 0,
+    ORTHOGRAPHIC = 1,
+}
+
+-- ── NPatchLayout (ENUM-21) — raylib.h:940-944 ───────────────────────
+enum NPatchLayout {
+    NINE_PATCH             = 0,
+    THREE_PATCH_VERTICAL   = 1,
+    THREE_PATCH_HORIZONTAL = 2,
+}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Image / Texture / Font types (TYPE-07..12)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Integer width note: raylib uses C `int` (32-bit) and `unsigned int`
+-- (32-bit) for scalar fields. Iron's `Int` is `int64_t` which would
+-- destroy struct layout, so these objects use `Int32` and `UInt32`
+-- explicitly. Opaque pointers (raylib's `void *` / `Type *`) are stored
+-- as `Int` because pointers are 8 bytes on every 64-bit target Iron
+-- supports, matching `int64_t`.
+
+-- CPU-side image pixel data — `_data` is raylib's `void *data` pointer,
+-- hidden behind the underscore convention. `format` carries a
+-- `PixelFormat` enum value (defined in Plan 60-07); stored as Int32
+-- here and tightened to the enum type in a follow-up cleanup. (TYPE-07)
+object Image {
+    val _data: Int
+    val width: Int32
+    val height: Int32
+    val mipmaps: Int32
+    val format: Int32
+}
+
+-- GPU texture — `id` is the OpenGL texture name (a plain GPU handle,
+-- not an opaque pointer, so no underscore). `format` is a PixelFormat
+-- ordinal carried as Int32. (TYPE-08)
+-- Note: raylib's Texture2D and TextureCubemap are C typedefs for
+-- Texture. Iron has a single `Texture` type for all three; functions
+-- that distinguish cubemaps vs 2D handle it via parameter/doc text.
+object Texture {
+    val id: UInt32
+    val width: Int32
+    val height: Int32
+    val mipmaps: Int32
+    val format: Int32
+}
+
+-- Framebuffer object wrapping a color and depth texture. Embedded
+-- Texture fields are stored by value — Iron's nested-object layout
+-- MUST match C's struct-by-value embedding. The _Static_assert in
+-- iron_raylib_layout.c enforces this. (TYPE-09)
+object RenderTexture {
+    val id: UInt32
+    val texture: Texture
+    val depth: Texture
+}
+
+-- 9-patch layout info — source Rectangle is embedded by value.
+-- `layout` carries an `NPatchLayout` enum ordinal (Plan 60-07). (TYPE-10)
+object NPatchInfo {
+    val source: Rectangle
+    val left: Int32
+    val top: Int32
+    val right: Int32
+    val bottom: Int32
+    val layout: Int32
+}
+
+-- Per-glyph font metadata — `image` is a full Image struct embedded
+-- by value (not a pointer). (TYPE-11)
+object GlyphInfo {
+    val value: Int32
+    val offsetX: Int32
+    val offsetY: Int32
+    val advanceX: Int32
+    val image: Image
+}
+
+-- Font atlas — `texture` is a Texture embedded by value. `_recs` and
+-- `_glyphs` are `Rectangle *` / `GlyphInfo *` pointers hidden behind
+-- the underscore convention. Access via font.glyph_at(i) / font.rec_at(i)
+-- helpers to be added in Phase 67. (TYPE-12)
+object Font {
+    val baseSize: Int32
+    val glyphCount: Int32
+    val glyphPadding: Int32
+    val texture: Texture
+    val _recs: Int
+    val _glyphs: Int
+}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Camera / Mesh / Material / Model types (TYPE-13..22)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- NAMING INVERSION: Iron `Camera` is the 2D scene camera (raylib's
+-- C `Camera2D`). Iron `Camera3D` is the 3D scene camera (raylib's
+-- C `Camera3D` / `Camera` typedef). This inverts raylib's
+-- `typedef Camera3D Camera` convention.
+
+-- 2D scene camera — maps to raylib's C `Camera2D`. (TYPE-13)
+object Camera {
+    val offset: Vector2
+    val target: Vector2
+    val rotation: Float32
+    val zoom: Float32
+}
+
+-- 3D scene camera — maps to raylib's C `Camera3D`. `projection` is
+-- typed as the CameraProjection enum directly so users can construct
+-- with `CameraProjection.PERSPECTIVE` rather than `Int32(0)`. The C
+-- layout is preserved: iron_raylib_layout.c pins offsetof(projection)
+-- identically whether the Iron field is Int32 or a 4-byte enum, and
+-- the static assert there catches any drift. (TYPE-14, D5 residual fix)
+object Camera3D {
+    val position: Vector3
+    val target: Vector3
+    val up: Vector3
+    val fovy: Float32
+    val projection: CameraProjection
+}
+
+-- Vertex transformation — embeds Vector3 / Quaternion / Vector3. (TYPE-19)
+object Transform {
+    val translation: Vector3
+    val rotation: Quaternion
+    val scale: Vector3
+}
+
+-- Skeletal bone metadata. raylib stores `char name[32]` inline.
+-- Iron flattens into 32 underscore-prefixed UInt8 fields. (TYPE-20)
+object BoneInfo {
+    val _name_00: UInt8
+    val _name_01: UInt8
+    val _name_02: UInt8
+    val _name_03: UInt8
+    val _name_04: UInt8
+    val _name_05: UInt8
+    val _name_06: UInt8
+    val _name_07: UInt8
+    val _name_08: UInt8
+    val _name_09: UInt8
+    val _name_10: UInt8
+    val _name_11: UInt8
+    val _name_12: UInt8
+    val _name_13: UInt8
+    val _name_14: UInt8
+    val _name_15: UInt8
+    val _name_16: UInt8
+    val _name_17: UInt8
+    val _name_18: UInt8
+    val _name_19: UInt8
+    val _name_20: UInt8
+    val _name_21: UInt8
+    val _name_22: UInt8
+    val _name_23: UInt8
+    val _name_24: UInt8
+    val _name_25: UInt8
+    val _name_26: UInt8
+    val _name_27: UInt8
+    val _name_28: UInt8
+    val _name_29: UInt8
+    val _name_30: UInt8
+    val _name_31: UInt8
+    val parent: Int32
+}
+
+-- Mesh vertex data. 14 opaque pointer fields plus plain `vaoId` GPU
+-- handle. `_vboId` is `unsigned int *` (array of GPU IDs), opaque. (TYPE-15)
+object Mesh {
+    val vertexCount: Int32
+    val triangleCount: Int32
+    val _vertices: Int
+    val _texcoords: Int
+    val _texcoords2: Int
+    val _normals: Int
+    val _tangents: Int
+    val _colors: Int
+    val _indices: Int
+    val _animVertices: Int
+    val _animNormals: Int
+    val _boneIds: Int
+    val _boneWeights: Int
+    val _boneMatrices: Int
+    val boneCount: Int32
+    val vaoId: UInt32
+    val _vboId: Int
+}
+
+-- GPU shader. `_locs` is `int *` (opaque). (TYPE-16)
+object Shader {
+    val id: UInt32
+    val _locs: Int
+}
+
+-- Material map. (TYPE-17)
+object MaterialMap {
+    val texture: Texture
+    val color: Color
+    val value: Float32
+}
+
+-- Material. `_maps` is opaque `MaterialMap *`. `_params_0.._params_3`
+-- flatten the inline `float params[4]`. (TYPE-18)
+object Material {
+    val shader: Shader
+    val _maps: Int
+    val _params_0: Float32
+    val _params_1: Float32
+    val _params_2: Float32
+    val _params_3: Float32
+}
+
+-- 3D model — embeds `transform: Matrix` plus 5 opaque pointer fields. (TYPE-21)
+object Model {
+    val transform: Matrix
+    val meshCount: Int32
+    val materialCount: Int32
+    val _meshes: Int
+    val _materials: Int
+    val _meshMaterial: Int
+    val boneCount: Int32
+    val _bones: Int
+    val _bindPose: Int
+}
+
+-- Skeletal animation. `_framePoses` mirrors C `Transform **`. (TYPE-22)
+object ModelAnimation {
+    val boneCount: Int32
+    val frameCount: Int32
+    val _bones: Int
+    val _framePoses: Int
+    val _name_00: UInt8
+    val _name_01: UInt8
+    val _name_02: UInt8
+    val _name_03: UInt8
+    val _name_04: UInt8
+    val _name_05: UInt8
+    val _name_06: UInt8
+    val _name_07: UInt8
+    val _name_08: UInt8
+    val _name_09: UInt8
+    val _name_10: UInt8
+    val _name_11: UInt8
+    val _name_12: UInt8
+    val _name_13: UInt8
+    val _name_14: UInt8
+    val _name_15: UInt8
+    val _name_16: UInt8
+    val _name_17: UInt8
+    val _name_18: UInt8
+    val _name_19: UInt8
+    val _name_20: UInt8
+    val _name_21: UInt8
+    val _name_22: UInt8
+    val _name_23: UInt8
+    val _name_24: UInt8
+    val _name_25: UInt8
+    val _name_26: UInt8
+    val _name_27: UInt8
+    val _name_28: UInt8
+    val _name_29: UInt8
+    val _name_30: UInt8
+    val _name_31: UInt8
+}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- 3D helpers / audio / file types (TYPE-23..30)
+-- ══════════════════════════════════════════════════════════════════════
+
+-- Ray for raycasting — origin + normalized direction. (TYPE-23)
+object Ray {
+    val position: Vector3
+    val direction: Vector3
+}
+
+-- Ray hit information — `hit` is a Bool (C bool, 1 byte + padding).
+-- `distance` / `point` / `normal` follow after padding. (TYPE-24)
+object RayCollision {
+    val hit: Bool
+    val distance: Float32
+    val point: Vector3
+    val normal: Vector3
+}
+
+-- Axis-aligned bounding box. (TYPE-25)
+object BoundingBox {
+    val min: Vector3
+    val max: Vector3
+}
+
+-- CPU-side audio wave data. `_data` is raylib's `void *data`. (TYPE-26)
+object Wave {
+    val frameCount: UInt32
+    val sampleRate: UInt32
+    val sampleSize: UInt32
+    val channels: UInt32
+    val _data: Int
+}
+
+-- Audio stream — both `_buffer` and `_processor` are raylib-internal
+-- opaque pointers (Kind 2 — NO Iron accessors). sampleRate/sampleSize/
+-- channels are plain UInt32. (TYPE-27)
+object AudioStream {
+    val _buffer: Int
+    val _processor: Int
+    val sampleRate: UInt32
+    val sampleSize: UInt32
+    val channels: UInt32
+}
+
+-- Sound effect — embeds AudioStream by value. (TYPE-28)
+object Sound {
+    val stream: AudioStream
+    val frameCount: UInt32
+}
+
+-- Music stream — embeds AudioStream plus metadata plus an opaque
+-- `_ctxData` pointer (Kind 2 — NO Iron accessors). (TYPE-29)
+object Music {
+    val stream: AudioStream
+    val frameCount: UInt32
+    val looping: Bool
+    val ctxType: Int32
+    val _ctxData: Int
+}
+
+-- File path list — `_paths` is `char **` (opaque double-indirect). (TYPE-30)
+object FilePathList {
+    val capacity: UInt32
+    val count: UInt32
+    val _paths: Int
+}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Namespace types (receivers for free functions — no instances)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- These empty `object`s exist solely as method receivers for raylib's
+-- free-function groups. No user code ever constructs a Window or Draw
+-- value; calls are always type-level:
+--
+--     Window.init(800, 600, "Demo")   -- not val w = Window(...)
+--     Draw.begin()
+--     Draw.end()
+--     Audio.init()
+--     Files.exists("path.txt")
+--
+-- The methods themselves are added in later phases:
+--   Phase 61 → Window.* (init, close, should_close, ...)
+--   Phase 61 → Draw.* (placeholder — actual 2D draw in Phase 63)
+--   Phase 63 → Draw.begin / Draw.end / Draw.clear / begin_mode_2d / ...
+--   Phase 68 → Audio.init, Audio.close, Audio.set_master_volume, ...
+--   Phase 72 → Files.exists, Files.read_text, Files.list_ex, ...
+--
+-- Phase 60 only DECLARES these. The methods are empty-body stubs added
+-- plan-by-plan as each subsequent phase lands.
+
+object Window {}
+object Draw {}
+object Audio {}
+object Files {}
+object Random {}    -- Phase 72 FILE-06 — RNG namespace receiver (parallels Audio/Window/Files)
+
+-- Phase 67 text-utility namespace. Receives measure + line-spacing
+-- default-font methods in Plan 67-02 (Text.measure, Text.set_line_spacing)
+-- and the codepoint/UTF-8 + string-manipulation helpers in Plan 67-03.
+-- Pure static-dispatch target — no fields.
+object Text {}
+
+-- ── Phase 62 input namespaces ──────────────────────────────────────
+--
+-- These five namespace `object`s receive the keyboard / mouse /
+-- gamepad / touch / gesture method bindings added in Plans 62-01..04.
+--
+-- COLLISION NOTE — RESOLVED (Plan 62-01, 2026-04-14):
+-- `enum Gesture {}` already exists at line ~551 from Plan 60-07.
+-- Plan 62-01 attempted to declare `object Gesture {}` alongside it;
+-- ironc rejected with `E0201: duplicate type declaration`, proving
+-- Iron's module scope does NOT allow an `enum` and an `object` to
+-- share a name. The fallback name `object Gestures {}` (plural —
+-- matches raylib's internal rgestures.c module) was adopted in
+-- Plan 62-01 and will be extended in Plan 62-04. The Iron-side
+-- `enum Gesture` is unchanged; only the namespace is plural.
+object Keyboard {}
+object Mouse {}
+object Gamepad {}
+object Touch {}
+object Gestures {}
+
+-- ── Phase 65 raymath (Plan 65-01) ─────────────────────────────────
+--
+-- RMath namespace hosts the 6 freestanding scalar helpers from
+-- raymath.h (Clamp, Lerp, Normalize, Wrap, Remap, FloatEquals).
+-- Vector2.* method bindings land below alongside other
+-- instance-method-on-data-carrying-object surfaces.
+--
+-- NOTE: Namespace is RMath (raylib-math), NOT Math. The Iron stdlib
+-- already exposes an `object Math` in src/stdlib/math.iron with
+-- PI/TAU/E/sin/cos/lerp etc., and codegen auto-includes iron_math.h
+-- which reserves the Iron_math_* symbol prefix (emit_c.c:6710 skips
+-- auto-prototyping symbols that match). RMath lowers to Iron_rmath_*,
+-- sidestepping the collision entirely and preserving the symmetry
+-- with raylib's own R-prefix (raylib/raymath/rlgl).
+
+-- Namespace type for freestanding scalar helpers (MATH-01).
+object RMath {}
+
+-- Module-level constants mirroring raymath.h EPSILON / DEG2RAD / RAD2DEG.
+-- Users write `angle * DEG2RAD`, `Math.clamp(x, -EPSILON, EPSILON)`.
+-- Values are single-precision-representable literals; the Float32(...)
+-- cast pins them to 32-bit.
+val DEG2RAD: Float32 = Float32(0.017453293)
+val RAD2DEG: Float32 = Float32(57.29578)
+val EPSILON: Float32 = Float32(0.000001)
+
+-- MATH-01: scalar helpers (6 functions, raymath.h lines 178-228)
+func RMath.clamp(value: Float32, min: Float32, max: Float32) -> Float32 {}
+func RMath.lerp(start: Float32, end: Float32, amount: Float32) -> Float32 {}
+func RMath.normalize(value: Float32, start: Float32, end: Float32) -> Float32 {}
+func RMath.wrap(value: Float32, min: Float32, max: Float32) -> Float32 {}
+func RMath.remap(value: Float32, in_start: Float32, in_end: Float32, out_start: Float32, out_end: Float32) -> Float32 {}
+func RMath.float_equals(x: Float32, y: Float32) -> Bool {}
+
+-- MATH-02: Vector2 methods (30 functions, raymath.h lines 236-620).
+-- Receiver param MUST be `v` (or start/v1/v2) — `self` is reserved
+-- (E0101) per the Phase 64 dispatch rules. Instance methods take v as
+-- the first positional param; static methods (zero, one) take none.
+func Vector2.zero() -> Vector2 {}
+func Vector2.one() -> Vector2 {}
+func Vector2.add(v: Vector2, other: Vector2) -> Vector2 {}
+func Vector2.add_value(v: Vector2, add: Float32) -> Vector2 {}
+func Vector2.subtract(v: Vector2, other: Vector2) -> Vector2 {}
+func Vector2.subtract_value(v: Vector2, sub: Float32) -> Vector2 {}
+func Vector2.length(v: Vector2) -> Float32 {}
+func Vector2.length_sqr(v: Vector2) -> Float32 {}
+func Vector2.dot_product(v: Vector2, other: Vector2) -> Float32 {}
+func Vector2.distance(v: Vector2, other: Vector2) -> Float32 {}
+func Vector2.distance_sqr(v: Vector2, other: Vector2) -> Float32 {}
+func Vector2.angle(v: Vector2, other: Vector2) -> Float32 {}
+func Vector2.line_angle(start: Vector2, end: Vector2) -> Float32 {}
+func Vector2.scale(v: Vector2, scale: Float32) -> Vector2 {}
+func Vector2.multiply(v: Vector2, other: Vector2) -> Vector2 {}
+func Vector2.negate(v: Vector2) -> Vector2 {}
+func Vector2.divide(v: Vector2, other: Vector2) -> Vector2 {}
+func Vector2.normalize(v: Vector2) -> Vector2 {}
+func Vector2.transform(v: Vector2, mat: Matrix) -> Vector2 {}
+func Vector2.lerp(v: Vector2, other: Vector2, amount: Float32) -> Vector2 {}
+func Vector2.reflect(v: Vector2, normal: Vector2) -> Vector2 {}
+func Vector2.min(v: Vector2, other: Vector2) -> Vector2 {}
+func Vector2.max(v: Vector2, other: Vector2) -> Vector2 {}
+func Vector2.rotate(v: Vector2, angle: Float32) -> Vector2 {}
+func Vector2.move_towards(v: Vector2, target: Vector2, max_distance: Float32) -> Vector2 {}
+func Vector2.invert(v: Vector2) -> Vector2 {}
+func Vector2.clamp(v: Vector2, min: Vector2, max: Vector2) -> Vector2 {}
+func Vector2.clamp_value(v: Vector2, min: Float32, max: Float32) -> Vector2 {}
+func Vector2.equals(v: Vector2, other: Vector2) -> Bool {}
+func Vector2.refract(v: Vector2, n: Vector2, r: Float32) -> Vector2 {}
+
+-- MATH-03: Vector3 methods (38 functions in Plan 65-02; 2 deferred:
+--   to_float_v → Plan 65-03 (Float3 return type),
+--   ortho_normalize → Plan 65-04 (out-param 2-tuple return)).
+-- Symbol mangling Iron_vector3_<method> per hir_to_lir lowercase-type
+-- naming. Cross-type args (Quaternion, Matrix) follow Phase 64's
+-- Iron_ray_hit_mesh precedent (one memcpy per struct-kind arg).
+func Vector3.zero() -> Vector3 {}
+func Vector3.one() -> Vector3 {}
+func Vector3.add(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.add_value(v: Vector3, add: Float32) -> Vector3 {}
+func Vector3.subtract(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.subtract_value(v: Vector3, sub: Float32) -> Vector3 {}
+func Vector3.scale(v: Vector3, scalar: Float32) -> Vector3 {}
+func Vector3.multiply(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.cross_product(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.perpendicular(v: Vector3) -> Vector3 {}
+func Vector3.length(v: Vector3) -> Float32 {}
+func Vector3.length_sqr(v: Vector3) -> Float32 {}
+func Vector3.dot_product(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.distance(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.distance_sqr(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.angle(v: Vector3, other: Vector3) -> Float32 {}
+func Vector3.negate(v: Vector3) -> Vector3 {}
+func Vector3.divide(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.normalize(v: Vector3) -> Vector3 {}
+func Vector3.project(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.reject(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.transform(v: Vector3, mat: Matrix) -> Vector3 {}
+func Vector3.rotate_by_quaternion(v: Vector3, q: Quaternion) -> Vector3 {}
+func Vector3.rotate_by_axis_angle(v: Vector3, axis: Vector3, angle: Float32) -> Vector3 {}
+func Vector3.move_towards(v: Vector3, target: Vector3, max_distance: Float32) -> Vector3 {}
+func Vector3.lerp(v: Vector3, other: Vector3, amount: Float32) -> Vector3 {}
+func Vector3.cubic_hermite(v1: Vector3, tangent1: Vector3, v2: Vector3, tangent2: Vector3, amount: Float32) -> Vector3 {}
+func Vector3.reflect(v: Vector3, normal: Vector3) -> Vector3 {}
+func Vector3.min(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.max(v: Vector3, other: Vector3) -> Vector3 {}
+func Vector3.barycenter(p: Vector3, a: Vector3, b: Vector3, c: Vector3) -> Vector3 {}
+func Vector3.unproject(source: Vector3, projection: Matrix, view: Matrix) -> Vector3 {}
+func Vector3.invert(v: Vector3) -> Vector3 {}
+func Vector3.clamp(v: Vector3, min: Vector3, max: Vector3) -> Vector3 {}
+func Vector3.clamp_value(v: Vector3, min: Float32, max: Float32) -> Vector3 {}
+func Vector3.equals(v: Vector3, other: Vector3) -> Bool {}
+func Vector3.refract(v: Vector3, n: Vector3, r: Float32) -> Vector3 {}
+-- MATH-03 (carried from Plan 65-02): Vector3ToFloatV — lands now that
+-- Float3 exists (Plan 65-03 Task 1).
+func Vector3.to_float_v(v: Vector3) -> Float3 {}
+-- Vector3.ortho_normalize landed in Plan 65-04 below (2-tuple out-param).
+
+-- MATH-04: Vector4 methods (22 functions, raymath.h lines 1232-1440).
+-- Same 16 B struct-by-value in/out template as Rectangle (Phase 63).
+-- Receiver param `v` (or v1 — E0101 guard; `self` is reserved).
+func Vector4.zero() -> Vector4 {}
+func Vector4.one() -> Vector4 {}
+func Vector4.add(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.add_value(v: Vector4, add: Float32) -> Vector4 {}
+func Vector4.subtract(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.subtract_value(v: Vector4, sub: Float32) -> Vector4 {}
+func Vector4.length(v: Vector4) -> Float32 {}
+func Vector4.length_sqr(v: Vector4) -> Float32 {}
+func Vector4.dot_product(v: Vector4, other: Vector4) -> Float32 {}
+func Vector4.distance(v: Vector4, other: Vector4) -> Float32 {}
+func Vector4.distance_sqr(v: Vector4, other: Vector4) -> Float32 {}
+func Vector4.scale(v: Vector4, scale: Float32) -> Vector4 {}
+func Vector4.multiply(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.negate(v: Vector4) -> Vector4 {}
+func Vector4.divide(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.normalize(v: Vector4) -> Vector4 {}
+func Vector4.min(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.max(v: Vector4, other: Vector4) -> Vector4 {}
+func Vector4.lerp(v: Vector4, other: Vector4, amount: Float32) -> Vector4 {}
+func Vector4.move_towards(v: Vector4, target: Vector4, max_distance: Float32) -> Vector4 {}
+func Vector4.invert(v: Vector4) -> Vector4 {}
+func Vector4.equals(v: Vector4, other: Vector4) -> Bool {}
+
+-- MATH-05: Matrix methods (21 of 22 functions — Decompose deferred to
+-- Plan 65-04 for 3-tuple out-param pattern). raymath.h lines 1459-1985.
+-- First 64 B struct-by-value RETURN surface in the codebase. Frustum /
+-- Perspective / Ortho take double in raymath; Iron-side is Float32 and
+-- the shim widens via (double) casts. Receiver param `m` (or m1/m2).
+func Matrix.determinant(m: Matrix) -> Float32 {}
+func Matrix.trace(m: Matrix) -> Float32 {}
+func Matrix.transpose(m: Matrix) -> Matrix {}
+func Matrix.invert(m: Matrix) -> Matrix {}
+func Matrix.identity() -> Matrix {}
+func Matrix.add(m: Matrix, other: Matrix) -> Matrix {}
+func Matrix.subtract(m: Matrix, other: Matrix) -> Matrix {}
+func Matrix.multiply(m: Matrix, other: Matrix) -> Matrix {}
+func Matrix.translate(x: Float32, y: Float32, z: Float32) -> Matrix {}
+func Matrix.rotate(axis: Vector3, angle: Float32) -> Matrix {}
+func Matrix.rotate_x(angle: Float32) -> Matrix {}
+func Matrix.rotate_y(angle: Float32) -> Matrix {}
+func Matrix.rotate_z(angle: Float32) -> Matrix {}
+func Matrix.rotate_xyz(angle: Vector3) -> Matrix {}
+func Matrix.rotate_zyx(angle: Vector3) -> Matrix {}
+func Matrix.scale(x: Float32, y: Float32, z: Float32) -> Matrix {}
+func Matrix.frustum(left: Float32, right: Float32, bottom: Float32, top: Float32, near: Float32, far: Float32) -> Matrix {}
+func Matrix.perspective(fovy: Float32, aspect: Float32, near_plane: Float32, far_plane: Float32) -> Matrix {}
+func Matrix.ortho(left: Float32, right: Float32, bottom: Float32, top: Float32, near_plane: Float32, far_plane: Float32) -> Matrix {}
+func Matrix.look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix {}
+func Matrix.to_float_v(m: Matrix) -> Float16 {}
+
+-- MATH-05 carried from Plan 65-03: MatrixDecompose 3-tuple out-param.
+-- Plan 65-04 Task 1 probe confirmed Branch A (GREEN) — ironc auto-emits
+-- canonical typedef `Iron_Tuple_Vector3_Quaternion_Vector3` with 3 fields
+-- (Iron_Vector3 v0; Iron_Quaternion v1; Iron_Vector3 v2) via the generic
+-- arity-agnostic loop at emit_helpers.c:260-294.
+func Matrix.decompose(m: Matrix) -> (Vector3, Quaternion, Vector3) {}
+
+-- MATH-03 carried from Plan 65-02: Vector3OrthoNormalize 2-tuple
+-- out-param (mutates both args). Raymath signature:
+-- `void Vector3OrthoNormalize(Vector3 *v1, Vector3 *v2)`.
+func Vector3.ortho_normalize(v: Vector3, other: Vector3) -> (Vector3, Vector3) {}
+
+-- MATH-06: Quaternion methods (24 of 24 functions, raymath.h lines
+-- 1731-2170). Raymath 5.5 exposes exactly 24 Quaternion RMAPI functions
+-- (verified via `grep -cE '^RMAPI [A-Za-z0-9_]+ Quaternion[A-Z]' raymath.h`).
+-- Plan text claimed 26 pre-emptively — resolved GREEN at 24.
+--
+-- Same 16 B struct-by-value in/out template as Vector4 (Quaternion is
+-- layout-identical to Vector4 via Phase 60-02 _Static_assert).
+-- QuaternionEquals returns int → shim coerces to Bool (matches
+-- Vector2/3/4 Equals pattern). Cross-type: QuaternionFromMatrix takes
+-- Matrix (64 B) in; QuaternionToMatrix returns Matrix (64 B) out;
+-- QuaternionTransform takes Matrix as second arg; QuaternionToEuler
+-- returns Vector3; QuaternionFromVector3ToVector3 takes 2 Vector3s.
+-- QuaternionToAxisAngle is the 2-tuple out-param case → declared above
+-- alongside Matrix.decompose as a tuple return.
+func Quaternion.add(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.add_value(q: Quaternion, add: Float32) -> Quaternion {}
+func Quaternion.subtract(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.subtract_value(q: Quaternion, sub: Float32) -> Quaternion {}
+func Quaternion.identity() -> Quaternion {}
+func Quaternion.length(q: Quaternion) -> Float32 {}
+func Quaternion.normalize(q: Quaternion) -> Quaternion {}
+func Quaternion.invert(q: Quaternion) -> Quaternion {}
+func Quaternion.multiply(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.scale(q: Quaternion, mul: Float32) -> Quaternion {}
+func Quaternion.divide(q: Quaternion, other: Quaternion) -> Quaternion {}
+func Quaternion.lerp(q: Quaternion, other: Quaternion, amount: Float32) -> Quaternion {}
+func Quaternion.nlerp(q: Quaternion, other: Quaternion, amount: Float32) -> Quaternion {}
+func Quaternion.slerp(q: Quaternion, other: Quaternion, amount: Float32) -> Quaternion {}
+func Quaternion.cubic_hermite_spline(q1: Quaternion, out_tangent1: Quaternion, q2: Quaternion, in_tangent2: Quaternion, t: Float32) -> Quaternion {}
+func Quaternion.from_vector3_to_vector3(from: Vector3, to: Vector3) -> Quaternion {}
+func Quaternion.from_matrix(mat: Matrix) -> Quaternion {}
+func Quaternion.to_matrix(q: Quaternion) -> Matrix {}
+func Quaternion.from_axis_angle(axis: Vector3, angle: Float32) -> Quaternion {}
+func Quaternion.to_axis_angle(q: Quaternion) -> (Vector3, Float32) {}
+func Quaternion.from_euler(pitch: Float32, yaw: Float32, roll: Float32) -> Quaternion {}
+func Quaternion.to_euler(q: Quaternion) -> Vector3 {}
+func Quaternion.transform(q: Quaternion, mat: Matrix) -> Quaternion {}
+func Quaternion.equals(q: Quaternion, other: Quaternion) -> Bool {}
+
+-- Matrix.decompose landed immediately below (Plan 65-04 Task 2).
+
+-- ── Phase 64 namespace type ───────────────────────────────────────
+--
+-- Collision namespace holds pair-based 2D/3D collision tests that
+-- have no single natural receiver (circle-circle, sphere-sphere,
+-- line-line, point-circle). Natural-receiver collision methods
+-- attach to Rectangle / Vector2 / Ray / BoundingBox directly.
+object Collision {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Textures & Images (Phase 66) — Color math (TEX-13, Plan 66-01)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- 18 raylib Color-math functions (raylib.h:1437-1453) bound as idiomatic
+-- Iron methods on the Color namespace. Every stub lowers to
+-- Iron_color_<name>(...) in iron_raylib.c.
+--
+-- Return-by-value semantics: raylib's ColorFade/ColorTint/... all take
+-- Color by value and return Color by value — Iron mirrors this exactly.
+-- Users rebind: val faded = original.fade(0.5).
+--
+-- Receiver param names: c / other / tint / dst / src — NEVER `self`
+-- (E0101 reserved). Phase 64-01 precedent.
+--
+-- Color.from_int takes UInt32 to exercise the primitive-arg path with
+-- raylib's GetColor. Color.from_pixel_data / Color.to_pixel_data take
+-- `data: Int` (Iron int64_t); the shim reinterprets via
+-- (void *)(intptr_t)data. First opaque-pointer function argument in
+-- the raylib binding.
+--
+-- PixelFormat enum is lowered to int32_t by the Phase 62 enum-cast
+-- convention; the shim casts to raylib's `int` at the boundary.
+
+func Color.is_equal(c: Color, other: Color) -> Bool {}
+func Color.fade(c: Color, alpha: Float32) -> Color {}
+func Color.to_int(c: Color) -> Int32 {}
+func Color.normalize(c: Color) -> Vector4 {}
+func Color.from_normalized(v: Vector4) -> Color {}
+func Color.to_hsv(c: Color) -> Vector3 {}
+func Color.from_hsv(hue: Float32, saturation: Float32, value: Float32) -> Color {}
+func Color.tint(c: Color, tint: Color) -> Color {}
+func Color.brightness(c: Color, factor: Float32) -> Color {}
+func Color.contrast(c: Color, contrast: Float32) -> Color {}
+func Color.alpha(c: Color, alpha: Float32) -> Color {}
+func Color.alpha_blend(dst: Color, src: Color, tint: Color) -> Color {}
+func Color.lerp(c: Color, other: Color, factor: Float32) -> Color {}
+func Color.from_int(hex_value: UInt32) -> Color {}
+func Color.from_pixel_data(data: Int, format: PixelFormat) -> Color {}
+func Color.to_pixel_data(data: Int, c: Color, format: PixelFormat) {}
+func Color.pixel_data_size(width: Int32, height: Int32, format: PixelFormat) -> Int32 {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Image I/O + Generation + Extraction (Plan 66-02)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Closes TEX-01 (file-path load/unload/valid), narrowed TEX-02 (from
+-- Texture / from Screen / animated-from-file), TEX-03 (9 procedural
+-- generators), narrowed TEX-04 (file export), TEX-06 (colors / palette
+-- / alpha border / pixel color).
+--
+-- Deferred to a follow-up phase (memory-buffer surface blocked by the
+-- [UInt8] FFI gap per Phase 66 RESEARCH Pitfall 7):
+--   LoadImageRaw, LoadImageFromMemory, LoadImageAnimFromMemory,
+--   ExportImageToMemory.
+--
+-- Receiver naming: `img` for Image receivers, `tex` for Texture
+-- receivers. Never `self` (E0101 reserved).
+--
+-- TEX-06 is the first reverse-direction `-> [Color]` in raylib.iron —
+-- Task 1 probe confirmed GREEN (emit_structs.c:309-312 auto-emits
+-- Iron_List_Iron_Color via the foreign-method-stub return scan).
+
+-- Image load/unload/valid (TEX-01) + narrowed TEX-02
+func Image.load(path: String) -> Image {}
+func Image.unload(img: Image) {}
+func Image.is_valid(img: Image) -> Bool {}
+func Image.load_anim(path: String) -> Image {}
+func Image.from_texture(tex: Texture) -> Image {}
+func Image.from_screen() -> Image {}
+
+-- Image generation (TEX-03)
+func Image.color(width: Int32, height: Int32, color: Color) -> Image {}
+func Image.gradient_linear(width: Int32, height: Int32, direction: Int32, start: Color, finish: Color) -> Image {}
+func Image.gradient_radial(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
+func Image.gradient_square(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
+func Image.checked(width: Int32, height: Int32, checks_x: Int32, checks_y: Int32, c1: Color, c2: Color) -> Image {}
+func Image.white_noise(width: Int32, height: Int32, factor: Float32) -> Image {}
+func Image.perlin_noise(width: Int32, height: Int32, offset_x: Int32, offset_y: Int32, scale: Float32) -> Image {}
+func Image.cellular(width: Int32, height: Int32, tile_size: Int32) -> Image {}
+func Image.text(width: Int32, height: Int32, text: String) -> Image {}
+
+-- Image export (narrowed TEX-04)
+func Image.export(img: Image, path: String) -> Bool {}
+func Image.export_as_code(img: Image, path: String) -> Bool {}
+
+-- Image data extraction (TEX-06) — reverse-direction `-> [Color]`
+func Image.load_colors(img: Image) -> [Color] {}
+func Image.load_palette(img: Image, max_palette_size: Int32) -> [Color] {}
+func Image.get_alpha_border(img: Image, threshold: Float32) -> Rectangle {}
+func Image.get_color(img: Image, x: Int32, y: Int32) -> Color {}
+
+-- ──────────────────────────────────────────────────────────────────────
+-- Image transforms (Plan 66-03 — TEX-05, 27 bindings)
+-- ──────────────────────────────────────────────────────────────────────
+--
+-- Mutating-transform return-by-value idiom locked in Phase 66 CONTEXT.md.
+-- Every method takes Image by value, returns a fresh Image by value —
+-- chain-style composition in Iron:
+--
+--   Image.color(64, 64, BLACK)
+--     .flip_vertical()
+--     .color_tint(RED)
+--     .crop(Rectangle(0, 0, 32, 32))
+--
+-- ImageKernelConvolution DEFERRED: takes `[Float32]` which Iron's runtime
+-- does not yet pre-declare in iron_runtime.h's primitive list types
+-- (Iron_List_float / Iron_List_double absent; Pitfall 7 variant). Rebind
+-- in the phase that lands the Float list primitive.
+-- ImageTextEx: Phase 66 deferral CLOSED in Phase 67 Plan 01 Task 2 —
+-- see Image.text_ex / Image.draw_text_ex in the Phase 67 section below.
+
+-- Group A — 3 by-value returns (Pattern 1)
+func Image.copy(img: Image) -> Image {}
+func Image.from_rectangle(img: Image, rec: Rectangle) -> Image {}
+func Image.from_channel(img: Image, selected_channel: Int32) -> Image {}
+
+-- Group B — 24 mutating transforms (Pattern 2)
+func Image.format(img: Image, new_format: PixelFormat) -> Image {}
+func Image.to_pot(img: Image, fill: Color) -> Image {}
+func Image.crop(img: Image, crop: Rectangle) -> Image {}
+func Image.alpha_crop(img: Image, threshold: Float32) -> Image {}
+func Image.alpha_clear(img: Image, color: Color, threshold: Float32) -> Image {}
+func Image.alpha_mask(img: Image, mask: Image) -> Image {}
+func Image.alpha_premultiply(img: Image) -> Image {}
+func Image.blur_gaussian(img: Image, blur_size: Int32) -> Image {}
+func Image.resize(img: Image, new_width: Int32, new_height: Int32) -> Image {}
+func Image.resize_nn(img: Image, new_width: Int32, new_height: Int32) -> Image {}
+func Image.resize_canvas(img: Image, new_width: Int32, new_height: Int32, offset_x: Int32, offset_y: Int32, fill: Color) -> Image {}
+func Image.mipmaps(img: Image) -> Image {}
+func Image.dither(img: Image, r_bpp: Int32, g_bpp: Int32, b_bpp: Int32, a_bpp: Int32) -> Image {}
+func Image.flip_vertical(img: Image) -> Image {}
+func Image.flip_horizontal(img: Image) -> Image {}
+func Image.rotate(img: Image, degrees: Int32) -> Image {}
+func Image.rotate_cw(img: Image) -> Image {}
+func Image.rotate_ccw(img: Image) -> Image {}
+func Image.color_tint(img: Image, color: Color) -> Image {}
+func Image.color_invert(img: Image) -> Image {}
+func Image.color_grayscale(img: Image) -> Image {}
+func Image.color_contrast(img: Image, contrast: Float32) -> Image {}
+func Image.color_brightness(img: Image, brightness: Int32) -> Image {}
+func Image.color_replace(img: Image, color: Color, replace: Color) -> Image {}
+
+-- ──────────────────────────────────────────────────────────────────────
+-- Image CPU draw (Plan 66-03 — TEX-07, 21 bindings)
+-- ──────────────────────────────────────────────────────────────────────
+--
+-- Chain-style CPU-side image composition. Every method takes Image by
+-- value, returns a fresh Image by value. Raylib mutates an internal
+-- `dst` copy; the shim memcpys it back out as the return value.
+--
+--   canvas
+--     .clear_background(BLACK)
+--     .draw_rectangle(8, 8, 48, 16, RED)
+--     .draw_text("hello", 12, 12, 10, WHITE)
+--
+-- `draw_text` uses raylib's default font — requires Window.init() to
+-- have loaded it first (Pitfall 4).
+--
+-- `draw_triangle_fan` / `draw_triangle_strip` reuse the Iron_List_Iron_Vector2
+-- by-value ABI proven in Phase 63-03 (triangle_fan/strip / line_strip).
+--
+-- ImageDrawTextEx: Phase 66 deferral CLOSED in Phase 67 Plan 01 Task 2 —
+-- see Image.draw_text_ex in the Phase 67 section below.
+
+func Image.clear_background(img: Image, color: Color) -> Image {}
+func Image.draw_pixel(img: Image, pos_x: Int32, pos_y: Int32, color: Color) -> Image {}
+func Image.draw_pixel_v(img: Image, position: Vector2, color: Color) -> Image {}
+func Image.draw_line(img: Image, start_x: Int32, start_y: Int32, end_x: Int32, end_y: Int32, color: Color) -> Image {}
+func Image.draw_line_v(img: Image, start: Vector2, finish: Vector2, color: Color) -> Image {}
+func Image.draw_line_ex(img: Image, start: Vector2, finish: Vector2, thick: Int32, color: Color) -> Image {}
+func Image.draw_circle(img: Image, center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
+func Image.draw_circle_v(img: Image, center: Vector2, radius: Int32, color: Color) -> Image {}
+func Image.draw_circle_lines(img: Image, center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
+func Image.draw_circle_lines_v(img: Image, center: Vector2, radius: Int32, color: Color) -> Image {}
+func Image.draw_rectangle(img: Image, pos_x: Int32, pos_y: Int32, width: Int32, height: Int32, color: Color) -> Image {}
+func Image.draw_rectangle_v(img: Image, position: Vector2, size: Vector2, color: Color) -> Image {}
+func Image.draw_rectangle_rec(img: Image, rec: Rectangle, color: Color) -> Image {}
+func Image.draw_rectangle_lines(img: Image, rec: Rectangle, thick: Int32, color: Color) -> Image {}
+func Image.draw_triangle(img: Image, v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
+func Image.draw_triangle_ex(img: Image, v1: Vector2, v2: Vector2, v3: Vector2, c1: Color, c2: Color, c3: Color) -> Image {}
+func Image.draw_triangle_lines(img: Image, v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
+func Image.draw_triangle_fan(img: Image, points: [Vector2], point_count: Int32, color: Color) -> Image {}
+func Image.draw_triangle_strip(img: Image, points: [Vector2], point_count: Int32, color: Color) -> Image {}
+func Image.draw(img: Image, src: Image, src_rec: Rectangle, dst_rec: Rectangle, tint: Color) -> Image {}
+func Image.draw_text(img: Image, text: String, pos_x: Int32, pos_y: Int32, font_size: Int32, color: Color) -> Image {}
+
+-- Phase 66 Font-dependent deferrals closed in Phase 67 Plan 01 Task 2
+-- (TEX-05 / TEX-07). ImageTextEx allocates a fresh Image rendered with
+-- the given Font. ImageDrawTextEx mutates an existing Image in place
+-- (Phase 66-03 Pattern 2 mutating-return-by-value). Font lifetime MUST
+-- outlive the call — raylib reads Font._recs / _glyphs internally.
+func Image.text_ex(font: Font, text: String, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
+func Image.draw_text_ex(img: Image, font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
+
+-- Texture + RenderTexture load/update/config (Plan 66-04 — TEX-08/09/10/11, 12 bindings)
+--
+-- First Texture-by-value INPUT at scale in config methods; first
+-- RenderTexture-by-value RETURN (44 B, under Phase 64's 120 B ceiling).
+-- Opaque void* args via Int → (void *)(intptr_t) cast (Pattern 4 from
+-- Plan 66-01 Color.from_pixel_data probe). TextureCubemap and
+-- RenderTexture2D are raylib typedef aliases of Texture / RenderTexture
+-- so the Iron mirror is shared across load_cubemap and RenderTexture.
+
+-- TEX-08 Texture load/unload/valid
+func Texture.load(path: String) -> Texture {}
+func Image.to_texture(img: Image) -> Texture {}
+func Texture.unload(tex: Texture) {}
+func Texture.is_valid(tex: Texture) -> Bool {}
+
+-- TEX-09 Cubemap + RenderTexture
+func Texture.load_cubemap(img: Image, layout: CubemapLayout) -> Texture {}
+func RenderTexture.load(width: Int32, height: Int32) -> RenderTexture {}
+func RenderTexture.unload(rt: RenderTexture) {}
+func RenderTexture.is_valid(rt: RenderTexture) -> Bool {}
+
+-- TEX-10 Texture update (opaque void* via Int pointer cast)
+func Texture.update(tex: Texture, pixels: Int) {}
+func Texture.update_rec(tex: Texture, rec: Rectangle, pixels: Int) {}
+
+-- TEX-11 Config (filter / wrap / mipmaps)
+func Texture.set_filter(tex: Texture, filter: TextureFilter) {}
+func Texture.set_wrap(tex: Texture, wrap: TextureWrap) {}
+func Texture.gen_mipmaps(tex: Texture) -> Texture {}
+
+-- Texture draw variants (Plan 66-04 — TEX-12, 6 bindings)
+--
+-- Texture-by-value INPUT exercised across 6 draw entry points. draw_n_patch
+-- introduces the first NPatchInfo-by-value INPUT (36 B, under the
+-- -Wlarge-by-value-copy 64 B threshold). Vector2 / Rectangle / Color by-
+-- value args reuse the memcpy template from Phase 63-02/03/04 draws.
+
+-- TEX-12 draw variants
+func Texture.draw(tex: Texture, pos_x: Int32, pos_y: Int32, tint: Color) {}
+func Texture.draw_v(tex: Texture, position: Vector2, tint: Color) {}
+func Texture.draw_ex(tex: Texture, position: Vector2, rotation: Float32, scale: Float32, tint: Color) {}
+func Texture.draw_rec(tex: Texture, source: Rectangle, position: Vector2, tint: Color) {}
+func Texture.draw_pro(tex: Texture, source: Rectangle, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
+func Texture.draw_n_patch(tex: Texture, n_patch_info: NPatchInfo, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Text & Fonts (Phase 67) — Font loading surface (TEXT-01..06, Plan 67-01)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Font loading, lifecycle, and data probes. Font struct-by-value crossing
+-- the FFI (48 B) proven at Phase 60-03 _Static_assert grid; memcpy
+-- patterns reuse Phase 66-04 Texture/RenderTexture templates.
+--
+-- Instance methods follow the existing stdlib convention:
+-- `func TypeName.method(receiver: TypeName, ...)` with explicit receiver
+-- parameter — matching Texture.unload / RenderTexture.unload and every
+-- other instance method in raylib.iron. (The plan's initial draft used
+-- lowercase receivers `func font.is_valid()`, but the analyzer resolves
+-- method type_names via global scope lookup — lowercase `font` is not a
+-- declared type and would fail with E0101 / "method declared on
+-- undeclared type". Rule 1 auto-fix applied.)
+--
+-- PITFALLS (see 67-RESEARCH.md for full detail):
+-- • Font.default requires Window.init() first — raylib loads the default
+--   atlas inside InitWindow via rtext.c:LoadFontDefault.
+-- • Font.load returns a Font with baseSize=0 on failure; no exception.
+--   Callers MUST check with Font.is_valid before drawing.
+-- • Font.unload invalidates the Font's _recs / _glyphs pointers (and the
+--   embedded texture); do not use the value after unload.
+--
+-- DEFERRED (awaiting [UInt8] FFI / Iron_List_uint8_t in iron_runtime.h):
+-- • Font.from_memory — takes `[UInt8] fileData`. Same blocker as Phase 66
+--   LoadImageFromMemory / LoadImageAnimFromMemory (5 existing deferrals).
+-- • Font.load_data — takes `[UInt8] fileData`, returns `[GlyphInfo]`.
+--   Re-bind once Iron_List_uint8_t lands alongside the above.
+
+-- TEXT-01..03 static constructors
+func Font.default() -> Font {}
+func Font.load(filePath: String) -> Font {}
+func Font.load_ex(filePath: String, fontSize: Int32, codepoints: [Int32]) -> Font {}
+func Font.from_image(image: Image, keyColor: Color, firstChar: Int32) -> Font {}
+
+-- TEXT-02 / TEXT-04 / TEXT-06 lifecycle + validity + export
+func Font.is_valid(font: Font) -> Bool {}
+func Font.unload(font: Font) {}
+func Font.export_as_code(font: Font, filePath: String) -> Bool {}
+
+-- TEXT-05 Font data operations. gen_image_atlas bakes an atlas Image +
+-- per-glyph source Rectangles from an input [GlyphInfo] array, returning
+-- both as a tuple. unload_data releases a [GlyphInfo] array allocated by
+-- raylib (Font.load_data, deferred). First (Image, [Rectangle]) tuple
+-- RETURN and first [GlyphInfo] INPUT in the raylib binding.
+func Font.gen_image_atlas(glyphs: [GlyphInfo], fontSize: Int32, padding: Int32, packMethod: Int32) -> (Image, [Rectangle]) {}
+func Font.unload_data(glyphs: [GlyphInfo]) {}
+
+-- ── Plan 67-02 Task 1: Text.* default-font utilities (TEXT-09, TEXT-10 default)
+--
+-- Text.measure: width in pixels of `text` at `fontSize` using raylib's
+-- embedded default font. Requires Window.init() (same Pitfall 1 as
+-- Draw.text above). For custom-font measurement use Font.measure_ex
+-- (Plan 67-02 Task 2 below).
+--
+-- Text.set_line_spacing: vertical gap in pixels between lines when
+-- raylib draws multi-line text. Applies to every draw (default and
+-- custom font) that follows. Mutates raylib's internal global state.
+func Text.measure(text: String, fontSize: Int32) -> Int32 {}
+func Text.set_line_spacing(spacing: Int32) {}
+
+-- ── Plan 67-02 Task 2: Font.* instance methods — custom-font draws (TEXT-08)
+--
+-- Explicit-receiver convention: `func Font.method(font: Font, ...)`
+-- matches Font.is_valid / Font.unload above + Texture.unload /
+-- RenderTexture.unload (Phases 66-04/05) + every other instance method
+-- in this file. Lowercase-receiver form (e.g. `func font.draw_ex(...)`)
+-- would fail analyzer resolution because `font` is not a declared type.
+-- Rule 1 auto-fix carried over from Plan 67-01.
+
+-- draw_ex: axis-aligned custom-font draw at `position` with horizontal
+-- glyph spacing.
+func Font.draw_ex(font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
+
+-- draw_pro: same as draw_ex but rotates the baseline around `origin`.
+-- `rotation` is in degrees (raylib convention).
+func Font.draw_pro(font: Font, text: String, position: Vector2, origin: Vector2, rotation: Float32, fontSize: Float32, spacing: Float32, tint: Color) {}
+
+-- draw_codepoint: render a single codepoint at an exact pixel position.
+-- Use for manual glyph layout (kerning pairs, baseline alignment, ...).
+func Font.draw_codepoint(font: Font, codepoint: Int32, position: Vector2, fontSize: Float32, tint: Color) {}
+
+-- draw_codepoints: render an explicit sequence of codepoints with
+-- fixed `spacing` between each glyph (no kerning, no line breaks).
+-- Second Iron_List_int32_t INPUT call site in the raylib binding.
+func Font.draw_codepoints(font: Font, codepoints: [Int32], position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
+
+-- ── Plan 67-02 Task 2: Font.* custom-font measure (TEXT-10 custom variant)
+--
+-- Returns exact text bounds as Vector2(width, height) — height
+-- includes line spacing. Unlike Text.measure, accepts Float32 sizes
+-- and per-glyph `spacing`.
+func Font.measure_ex(font: Font, text: String, fontSize: Float32, spacing: Float32) -> Vector2 {}
+
+-- ── Plan 67-02 Task 2: Font.* glyph lookup (TEXT-11)
+--
+-- get_glyph_index: 0-based atlas slot for `codepoint`; returns the `?`
+-- fallback index on miss.
+-- get_glyph_info: FIRST GlyphInfo struct-by-value RETURN in the
+-- binding. WARNING: the returned GlyphInfo.image.data aliases the
+-- parent Font's heap glyph array — do NOT read after Font.unload.
+-- (Pitfall 7, 67-RESEARCH.md.)
+-- get_glyph_atlas_rec: source Rectangle inside the font's atlas
+-- texture; useful for manual Texture.draw_rec uploads of a single
+-- glyph bitmap.
+func Font.get_glyph_index(font: Font, codepoint: Int32) -> Int32 {}
+func Font.get_glyph_info(font: Font, codepoint: Int32) -> GlyphInfo {}
+func Font.get_glyph_atlas_rec(font: Font, codepoint: Int32) -> Rectangle {}
+
+-- ── UTF-8 / codepoint utilities (TEXT-12) — Plan 67-03 ────────────────
+--
+-- Task 1 probe: [Int32] RETURN from a foreign-method stub. Iron_List_int32_t
+-- is pre-declared in iron_runtime.h:826, so no compiler scan extension is
+-- needed — the primitive-element list bypasses emit_structs.c Scan B
+-- (which only fires for IRON_TYPE_OBJECT elements) and relies on the
+-- runtime pre-declaration that's already in every TU.
+
+-- Text.load_codepoints: extract codepoints from a UTF-8 string. Shim
+-- owns raylib's buffer lifecycle (calls UnloadCodepoints after memcpy) —
+-- no user-facing unload needed.
+func Text.load_codepoints(text: String) -> [Int32] {}
+
+-- Task 2 probe: Iron String allocation from raylib's 6-byte static
+-- char buffer (CodepointToUTF8 writes into `static char utf8[6]` at
+-- rtext.c:1914 and zeroes it BEFORE the next call). Shim copies the
+-- bytes into a fresh Iron String immediately — Phase 61
+-- Iron_window_get_clipboard_text pattern extended to a second static
+-- buffer site.
+--
+-- Text.codepoint_to_utf8: convert a single codepoint to its UTF-8 byte
+-- sequence (1-4 bytes for valid codepoints). Shim copies raylib's
+-- 6-byte static buffer into a fresh Iron String.
+func Text.codepoint_to_utf8(codepoint: Int32) -> String {}
+
+-- Text.load_utf8: build a UTF-8 string from an array of codepoints.
+-- Shim owns raylib's caller-must-free char* (LoadUTF8 allocates;
+-- UnloadUTF8 frees) — no user-facing unload.
+func Text.load_utf8(codepoints: [Int32]) -> String {}
+
+-- Text.codepoint_count: count codepoints (not bytes) in a UTF-8 string.
+func Text.codepoint_count(text: String) -> Int32 {}
+
+-- Text.codepoint_at: read codepoint at byte-offset. Returns
+-- (codepoint, byteSize). Invalid UTF-8 returns (0x3F, 1) — the '?'
+-- fallback (raylib convention).
+func Text.codepoint_at(text: String, offset: Int32) -> (Int32, Int32) {}
+
+-- Text.codepoint_next: read next codepoint from byte-offset. Returns
+-- (codepoint, byteSize). Typical iteration pattern:
+--   val (cp, step) = Text.codepoint_next(s, pos); pos = pos + step
+func Text.codepoint_next(text: String, offset: Int32) -> (Int32, Int32) {}
+
+-- Text.codepoint_previous: read previous codepoint from byte-offset.
+-- Returns (codepoint, byteSize). byteSize is the size of the PREVIOUS
+-- codepoint (the one ending at `offset`); caller decrements by that
+-- many bytes to step backward.
+func Text.codepoint_previous(text: String, offset: Int32) -> (Int32, Int32) {}
+
+-- ── TEXT-13 string utilities (20 methods; Text.append OMITTED) ────────
+--
+-- 17 Text.* utilities + 3 TextFormat overloads. Iron has no varargs FFI,
+-- so TextFormat is exposed as three fixed-arity shims (format_i /
+-- format_f / format_s). Each overload covers the most common single-
+-- scalar interpolation pattern — for multi-argument formats, compose
+-- multiple Text.format_* calls or use Iron's built-in `"{x}"` interp
+-- outside the Text.* API.
+--
+-- NOTE: Text.append OMITTED — raylib's TextAppend mutates a caller
+-- buffer and advances int *position (no clean Iron mapping since Iron
+-- Strings are immutable). Use Text.insert for the same semantics with
+-- a cleaner API. See 67-RESEARCH.md Open Question 3.
+--
+-- NOTE: Text.copy is a PURE-FUNCTIONAL alternative to raylib's mutating
+-- TextCopy — returns a fresh String copy of the source. Mainly useful
+-- for FFI parity; Iron Strings are already immutable + copy-on-reference
+-- so this is rarely needed at the Iron level.
+--
+-- NOTE: Text.join + Text.split use Iron_List_Iron_String on both sides
+-- of the FFI (first [String] INPUT + [String] RETURN in the raylib
+-- binding). Runtime helpers at iron_string.c:434-491.
+
+func Text.copy(source: String) -> String {}
+func Text.is_equal(a: String, b: String) -> Bool {}
+func Text.length(text: String) -> Int32 {}
+
+-- TextFormat -> 3 fixed-arity overloads (scalar-only). Pick the
+-- overload matching the single interpolated value's type:
+--   format_i for %d / %u / %x / %o integer formats
+--   format_f for %f / %.Nf float formats (promoted to double internally)
+--   format_s for %s string formats
+func Text.format_i(fmt: String, value: Int32) -> String {}
+func Text.format_f(fmt: String, value: Float32) -> String {}
+func Text.format_s(fmt: String, value: String) -> String {}
+
+func Text.subtext(text: String, position: Int32, length: Int32) -> String {}
+func Text.replace(text: String, replace: String, by: String) -> String {}
+func Text.insert(text: String, insert: String, position: Int32) -> String {}
+
+-- [String] INPUT / RETURN — first Iron_List_Iron_String crossing the
+-- raylib FFI boundary.
+func Text.join(parts: [String], delimiter: String) -> String {}
+func Text.split(text: String, delimiter: String) -> [String] {}
+
+func Text.find_index(text: String, find: String) -> Int32 {}
+
+-- Case conversion + identifier-shape transforms.
+func Text.to_upper(text: String) -> String {}
+func Text.to_lower(text: String) -> String {}
+func Text.to_pascal(text: String) -> String {}
+func Text.to_snake(text: String) -> String {}
+func Text.to_camel(text: String) -> String {}
+func Text.to_integer(text: String) -> Int32 {}
+func Text.to_float(text: String) -> Float32 {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- RGBA values copied verbatim from src/vendor/raylib/raylib.h lines 175-201.
+-- Integer literals only — Iron narrows to UInt8 via typecheck.c:1326.
+-- DO NOT add float suffixes (would trigger E0217 per Phase 66 RESEARCH
+-- Pitfall 2). All 6 Plan 60-08 rescue palette names (RED/BLUE/GREEN/
+-- WHITE/BLACK/DARKGRAY) are preserved in the canonical 26-color set;
+-- existing consumers (pong.iron, game_raylib.iron, hello_raylib.iron)
+-- compile unchanged.
+
+val LIGHTGRAY  = Color(200, 200, 200, 255)
+val GRAY       = Color(130, 130, 130, 255)
+val DARKGRAY   = Color(80,  80,  80,  255)
+val YELLOW     = Color(253, 249, 0,   255)
+val GOLD       = Color(255, 203, 0,   255)
+val ORANGE     = Color(255, 161, 0,   255)
+val PINK       = Color(255, 109, 194, 255)
+val RED        = Color(230, 41,  55,  255)
+val MAROON     = Color(190, 33,  55,  255)
+val GREEN      = Color(0,   228, 48,  255)
+val LIME       = Color(0,   158, 47,  255)
+val DARKGREEN  = Color(0,   117, 44,  255)
+val SKYBLUE    = Color(102, 191, 255, 255)
+val BLUE       = Color(0,   121, 241, 255)
+val DARKBLUE   = Color(0,   82,  172, 255)
+val PURPLE     = Color(200, 122, 255, 255)
+val VIOLET     = Color(135, 60,  190, 255)
+val DARKPURPLE = Color(112, 31,  126, 255)
+val BEIGE      = Color(211, 176, 131, 255)
+val BROWN      = Color(127, 106, 79,  255)
+val DARKBROWN  = Color(76,  63,  47,  255)
+val WHITE      = Color(255, 255, 255, 255)
+val BLACK      = Color(0,   0,   0,   255)
+val BLANK      = Color(0,   0,   0,   0)
+val MAGENTA    = Color(255, 0,   255, 255)
+val RAYWHITE   = Color(245, 245, 245, 255)
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Window & System (Phase 61)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Phase 61 binds raylib's `rcore.c` window / system functions to the
+-- `Window` namespace type declared in Plan 60-06. Every empty-body
+-- stub below lowers to `Iron_window_<name>(...)` in C, implemented by
+-- src/stdlib/iron_raylib.c. Shim-only pattern per 60-CONTEXT.md.
+--
+-- Phase 61 Plan 01 locked in the pattern with lifecycle + state queries.
+-- Subsequent plans (61-02..04) completed state toggles, runtime properties,
+-- screen geometry, monitor enumeration, clipboard, screenshot, config
+-- flags, trace log, event waiting, cursor, frame loop, URL, wait_time.
+-- Struct-by-value returns validated via GetWindowPosition, GetMonitorPosition,
+-- GetWindowScaleDPI, GetClipboardImage, and LoadImageFromScreen.
+
+-- Window lifecycle (WIN-01)
+--
+-- `Window.init` MUST be called before any other Window.* method
+-- except `Window.set_config_flags` / `Window.set_trace_log_level`
+-- (those are pre-init-only and live in Plan 61-04). Calling anything
+-- else before init is undefined behavior — raylib will crash or
+-- silently no-op. Iron does not enforce this at runtime; trust the
+-- user to follow the lifecycle.
+func Window.init(w: Int32, h: Int32, title: String) {}
+func Window.close() {}
+func Window.should_close() -> Bool {}
+
+-- Window state queries (WIN-02)
+func Window.is_ready() -> Bool {}
+func Window.is_fullscreen() -> Bool {}
+func Window.is_hidden() -> Bool {}
+func Window.is_minimized() -> Bool {}
+func Window.is_maximized() -> Bool {}
+func Window.is_focused() -> Bool {}
+func Window.is_resized() -> Bool {}
+
+-- Window state toggles (WIN-03)
+--
+-- `set_state` / `clear_state` / `is_state` take a ConfigFlags bitmask.
+-- raylib uses the SAME ConfigFlags enum for both pre-init SetConfigFlags
+-- and post-init SetWindowState. Pass a single bit like
+-- `ConfigFlags.WINDOW_RESIZABLE` or a caller-combined mask — Iron has
+-- no native enum OR operator yet, so multi-flag calls currently require
+-- one call per bit. Combining is a Phase 73 concern.
+func Window.toggle_fullscreen() {}
+func Window.toggle_borderless_windowed() {}
+func Window.maximize() {}
+func Window.minimize() {}
+func Window.restore() {}
+func Window.set_state(flags: ConfigFlags) {}
+func Window.clear_state(flags: ConfigFlags) {}
+func Window.is_state(flag: ConfigFlags) -> Bool {}
+
+-- Window runtime properties (WIN-04)
+--
+-- `set_icon` takes a single Image by value. raylib also exposes
+-- SetWindowIcons(Image *images, int count) for animated icons;
+-- Iron has no `Array<Image>` type yet, so the plural form is
+-- DEFERRED to Phase 73 (API polish).
+func Window.set_icon(image: Image) {}
+func Window.set_title(title: String) {}
+func Window.set_position(x: Int32, y: Int32) {}
+func Window.set_monitor(monitor: Int32) {}
+func Window.set_min_size(w: Int32, h: Int32) {}
+func Window.set_max_size(w: Int32, h: Int32) {}
+func Window.set_size(w: Int32, h: Int32) {}
+func Window.set_opacity(opacity: Float32) {}
+func Window.set_focused() {}
+
+-- Screen and window geometry (WIN-05)
+func Window.get_screen_width() -> Int32 {}
+func Window.get_screen_height() -> Int32 {}
+func Window.get_render_width() -> Int32 {}
+func Window.get_render_height() -> Int32 {}
+func Window.get_window_position() -> Vector2 {}
+func Window.get_window_scale_dpi() -> Vector2 {}
+
+-- Monitor enumeration (WIN-06)
+func Window.get_monitor_count() -> Int32 {}
+func Window.get_current_monitor() -> Int32 {}
+func Window.get_monitor_position(monitor: Int32) -> Vector2 {}
+func Window.get_monitor_width(monitor: Int32) -> Int32 {}
+func Window.get_monitor_height(monitor: Int32) -> Int32 {}
+func Window.get_monitor_physical_width(monitor: Int32) -> Int32 {}
+func Window.get_monitor_physical_height(monitor: Int32) -> Int32 {}
+func Window.get_monitor_refresh_rate(monitor: Int32) -> Int32 {}
+func Window.get_monitor_name(monitor: Int32) -> String {}
+
+-- Clipboard (WIN-07)
+--
+-- `get_clipboard_text` and `get_clipboard_image` copy the data into
+-- Iron-managed storage, so the returned values are stable across
+-- subsequent raylib calls. `get_clipboard_image` may return an
+-- Image with _data=0 / width=0 / height=0 if the system clipboard
+-- contains no image — user code should check dimensions before use.
+func Window.get_clipboard_text() -> String {}
+func Window.set_clipboard_text(text: String) {}
+func Window.get_clipboard_image() -> Image {}
+
+-- Screenshot (WIN-09)
+-- `take_screenshot` writes a PNG to `filename`. raylib infers format
+-- from the extension — use `.png` for PNG, `.bmp` for BMP, etc.
+-- `load_image_from_screen` returns the current framebuffer as a
+-- CPU-side Image; must be called between Draw.begin/end once Phase
+-- 63 lands those. Caller owns the returned Image.
+func Window.take_screenshot(filename: String) {}
+func Window.load_image_from_screen() -> Image {}
+
+-- Config flags and trace log (WIN-10)
+--
+-- `set_config_flags` MUST be called BEFORE `Window.init`. raylib reads
+-- these flags inside InitWindow to configure the GLFW window and GL
+-- context. Calling set_config_flags after init is a no-op. Iron does
+-- not enforce this — trust the user to follow the lifecycle.
+func Window.set_config_flags(flags: ConfigFlags) {}
+func Window.set_trace_log_level(level: TraceLogLevel) {}
+
+-- Event waiting (WIN-08)
+--
+-- When event-waiting is ENABLED, raylib's main loop blocks in
+-- EndDrawing waiting for user input rather than polling. This drops
+-- CPU usage in idle apps but eliminates frame-based updates. Default
+-- is disabled (active polling loop).
+func Window.enable_event_waiting() {}
+func Window.disable_event_waiting() {}
+
+-- Cursor control (WIN-11)
+--
+-- `enable_cursor` unlocks the cursor (it moves freely over the window);
+-- `disable_cursor` locks the cursor to window center (FPS-game mode).
+-- `show_cursor` / `hide_cursor` control visibility without locking.
+-- `set_mouse_cursor` picks a cursor shape from MouseCursor enum.
+func Window.show_cursor() {}
+func Window.hide_cursor() {}
+func Window.is_cursor_hidden() -> Bool {}
+func Window.enable_cursor() {}
+func Window.disable_cursor() {}
+func Window.is_cursor_on_screen() -> Bool {}
+func Window.set_mouse_cursor(cursor: MouseCursor) {}
+
+-- Frame loop (WIN-12)
+--
+-- `set_target_fps(60)` caps the frame rate; raylib internally calls
+-- WaitTime to sleep the remainder of each frame. `get_fps` returns
+-- the current measured rate. `get_frame_time` is the delta time of
+-- the last frame in SECONDS as a Float32 (raylib C `float`). `get_time`
+-- is the elapsed time since `Window.init` as a Float (raylib C `double`).
+-- Note the Float32/Float split — frame_time is single-precision.
+func Window.set_target_fps(fps: Int32) {}
+func Window.get_fps() -> Int32 {}
+func Window.get_frame_time() -> Float32 {}
+func Window.get_time() -> Float {}
+
+-- URL opener (WIN-13)
+func Window.open_url(url: String) {}
+
+-- Wait (FILE-07)
+--
+-- Halts program execution for the specified number of seconds. Takes
+-- a Float (raylib C `double`) so sub-millisecond precision is available.
+-- On very short waits, raylib may busy-wait rather than sleep.
+func Window.wait_time(seconds: Float) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Input (Phase 62)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Phase 62 binds raylib's `rcore.c` input-section functions to five
+-- namespace types: Keyboard (this plan), Mouse (62-02), Gamepad
+-- (62-03), Touch / Gesture / file-drop (62-04). Every empty-body
+-- stub below lowers to `Iron_<namespace>_<name>(...)` in C,
+-- implemented by src/stdlib/iron_raylib.c. Same shim-only pattern
+-- as Phase 61.
+--
+-- All enum parameters are typed Iron enums (KeyboardKey, MouseButton,
+-- GamepadButton, GamepadAxis, MouseCursor, Gesture). The shim casts
+-- them to / from raylib's `int` / `unsigned int` at the FFI boundary.
+
+-- Keyboard (INPUT-01, INPUT-02, INPUT-03)
+--
+-- `is_pressed` fires once on the frame the key transitions up→down.
+-- `is_pressed_repeat` fires on the OS key-repeat schedule (held key).
+-- `is_down` is true while the key is held; `is_released` fires once
+-- on the down→up transition; `is_up` is true while the key is NOT held.
+--
+-- `get_pressed` drains the key-press queue and returns the next
+-- KeyboardKey, or `KeyboardKey.NULL` when the queue is empty. Call
+-- it repeatedly until you get NULL to read every queued press.
+--
+-- `get_char_pressed` drains the unicode-codepoint queue (used for
+-- text input) and returns Int32 codepoints — NOT a KeyboardKey
+-- enum, because codepoints span the full Unicode range and have
+-- no symbolic enum.
+--
+-- `set_exit_key` overrides raylib's default ESC-quits-the-app
+-- behavior. Pass any KeyboardKey value, or pass `KeyboardKey.NULL`
+-- to disable the exit key entirely.
+func Keyboard.is_pressed(key: KeyboardKey) -> Bool {}
+func Keyboard.is_pressed_repeat(key: KeyboardKey) -> Bool {}
+func Keyboard.is_down(key: KeyboardKey) -> Bool {}
+func Keyboard.is_released(key: KeyboardKey) -> Bool {}
+func Keyboard.is_up(key: KeyboardKey) -> Bool {}
+func Keyboard.get_pressed() -> KeyboardKey {}
+func Keyboard.get_char_pressed() -> Int32 {}
+func Keyboard.set_exit_key(key: KeyboardKey) {}
+
+-- Mouse (INPUT-04, INPUT-05, INPUT-06, INPUT-07)
+--
+-- `is_button_pressed` / `_down` / `_released` / `_up` take a typed
+-- MouseButton — left, right, middle, side, extra, forward, back.
+--
+-- `get_position` / `get_delta` / `get_wheel_move_v` return a Vector2
+-- by value — first per-frame-called struct returns in the stdlib.
+-- `get_x` / `get_y` return Int32 for quick axis reads; `get_wheel_move`
+-- returns a Float32 combining both wheel axes (whichever is larger).
+--
+-- `set_position` / `set_offset` / `set_scale` override raylib's
+-- internal mouse coordinate transform. `set_cursor` picks a shape
+-- from MouseCursor (arrow, ibeam, crosshair, pointing_hand, resize_*,
+-- not_allowed).
+func Mouse.is_button_pressed(button: MouseButton) -> Bool {}
+func Mouse.is_button_down(button: MouseButton) -> Bool {}
+func Mouse.is_button_released(button: MouseButton) -> Bool {}
+func Mouse.is_button_up(button: MouseButton) -> Bool {}
+func Mouse.get_x() -> Int32 {}
+func Mouse.get_y() -> Int32 {}
+func Mouse.get_position() -> Vector2 {}
+func Mouse.get_delta() -> Vector2 {}
+func Mouse.set_position(x: Int32, y: Int32) {}
+func Mouse.set_offset(offset_x: Int32, offset_y: Int32) {}
+func Mouse.set_scale(scale_x: Float32, scale_y: Float32) {}
+func Mouse.get_wheel_move() -> Float32 {}
+func Mouse.get_wheel_move_v() -> Vector2 {}
+func Mouse.set_cursor(cursor: MouseCursor) {}
+
+-- Gamepad (INPUT-08, INPUT-09, INPUT-10)
+--
+-- `is_available` / `get_name` query connection state. Up to 4
+-- gamepads are addressable via index 0..3.
+--
+-- `is_button_pressed` / `_down` / `_released` / `_up` take a
+-- GamepadButton — 18 values covering face / trigger / middle /
+-- thumb buttons. `get_button_pressed` drains the button-press
+-- queue and returns a typed GamepadButton, or GamepadButton.unknown
+-- when empty.
+--
+-- `get_axis_count` / `get_axis_movement` read analog axes — 6
+-- values per gamepad (LeftX/Y, RightX/Y, LeftTrigger, RightTrigger).
+-- Movement is Float32 in [-1.0, +1.0] for sticks, [0.0, 1.0] for
+-- triggers.
+--
+-- `set_vibration` drives both motors with duration in seconds;
+-- `set_mappings` installs a SDL_GameControllerDB-format mapping
+-- string and returns the count of new mappings registered.
+func Gamepad.is_available(gamepad: Int32) -> Bool {}
+func Gamepad.get_name(gamepad: Int32) -> String {}
+func Gamepad.is_button_pressed(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.is_button_down(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.is_button_released(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.is_button_up(gamepad: Int32, button: GamepadButton) -> Bool {}
+func Gamepad.get_button_pressed() -> GamepadButton {}
+func Gamepad.get_axis_count(gamepad: Int32) -> Int32 {}
+func Gamepad.get_axis_movement(gamepad: Int32, axis: GamepadAxis) -> Float32 {}
+func Gamepad.set_mappings(mappings: String) -> Int32 {}
+func Gamepad.set_vibration(gamepad: Int32, left_motor: Float32, right_motor: Float32, duration: Float32) {}
+
+-- Touch (INPUT-11)
+--
+-- Raylib tracks up to N simultaneous touch points. `get_point_count`
+-- returns the active count; indices 0..N-1 are valid for the other
+-- accessors. `get_position(0)` / `get_x` / `get_y` cover the most
+-- common single-touch case without requiring a loop.
+func Touch.get_x() -> Int32 {}
+func Touch.get_y() -> Int32 {}
+func Touch.get_position(index: Int32) -> Vector2 {}
+func Touch.get_point_id(index: Int32) -> Int32 {}
+func Touch.get_point_count() -> Int32 {}
+
+-- Gestures (INPUT-12) — namespace is PLURAL (see collision note on line ~941)
+--
+-- Raylib's gesture module sits on top of the touch module. Before
+-- calling `is_detected` / `get_detected`, enable the gestures you
+-- care about via `set_enabled(Gesture.tap)`. `set_enabled` and
+-- `is_detected` both accept a typed Gesture enum. For multi-gesture
+-- bitmasks, Iron's bitwise-OR on enum values (Phase 59) produces
+-- another Gesture value — e.g., `Gesture.tap | Gesture.swipe_left`.
+-- If Iron's type system requires an explicit enum construction for
+-- the OR-result, Phase 73 API polish will smooth the ergonomics;
+-- the parameter type stays `Gesture` regardless (per CONTEXT.md
+-- decisions and the phase goal "typed Iron enum parameters — no
+-- raw ints").
+--
+-- `get_detected` returns the most-recently-detected Gesture as a
+-- typed enum — Gesture.none when no gesture is active.
+--
+-- Drag / pinch vectors are Vector2 (x/y deltas); angles are Float32
+-- in degrees; hold duration is Float32 in seconds.
+func Gestures.set_enabled(flags: Gesture) {}
+func Gestures.is_detected(gesture: Gesture) -> Bool {}
+func Gestures.get_detected() -> Gesture {}
+func Gestures.get_hold_duration() -> Float32 {}
+func Gestures.get_drag_vector() -> Vector2 {}
+func Gestures.get_drag_angle() -> Float32 {}
+func Gestures.get_pinch_vector() -> Vector2 {}
+func Gestures.get_pinch_angle() -> Float32 {}
+
+-- File drop (INPUT-13)
+--
+-- Dropped files land in an internal raylib queue. `is_dropped` is
+-- true once after any drop event and stays true until the next
+-- load/unload cycle. `load_dropped` returns a FilePathList the user
+-- must pass to `unload_dropped` when done (Iron-side value-type,
+-- but the backing paths array is owned by raylib's internal heap).
+func Files.is_dropped() -> Bool {}
+func Files.load_dropped() -> FilePathList {}
+func Files.unload_dropped(list: FilePathList) {}
+
+-- FilePathList accessors (INPUT-13 iteration clause)
+--
+-- Iterate a FilePathList in a typed Iron loop (instance-style call
+-- form sugars over the underlying static signature — `files.count()`
+-- lowers to `Iron_filepathlist_count(files)`):
+--
+--   val files = Files.load_dropped()
+--   var i = 0
+--   while i < files.count() {
+--       print(files.get(i))
+--       i = i + 1
+--   }
+--   Files.unload_dropped(files)
+--
+-- `get(i)` bounds-checks against `count` on the C side and returns
+-- an empty string for out-of-range indices.
+--
+-- Receiver is declared as an explicit first parameter (the same pattern
+-- used by Timer.done / Timer.update / Timer.reset in stdlib/time.iron).
+-- Without the explicit receiver, the Iron stub would have zero params
+-- while the C shim takes `struct Iron_FilePathList list` — a hard clang
+-- error at any call site. Phase 72-03 residual D7.
+func FilePathList.count(list: FilePathList) -> Int32 {}
+func FilePathList.get(list: FilePathList, index: Int32) -> String {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- 2D Drawing (Phase 63)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Phase 63 binds raylib's `rshapes.c` + `rcore.c` draw-mode and
+-- primitive-draw functions to the `Draw` namespace declared in
+-- Plan 60-06. Every empty-body stub below lowers to
+-- `Iron_draw_<name>(...)` in C, implemented by
+-- src/stdlib/iron_raylib.c. Same shim-only pattern as Phase 61/62.
+--
+-- NAMING: the `draw_` prefix from raylib C names (DrawRectangle,
+-- DrawCircle, ...) is DROPPED on the Iron side — the `Draw`
+-- namespace already signals the intent. `Draw.rectangle`, not
+-- `Draw.draw_rectangle`. The `_v` / `_ex` / `_pro` / `_lines`
+-- variant suffixes are KEPT because they disambiguate shapes with
+-- the same base name.
+--
+-- Plan 63-01 (this file): frame + 6 stack modes (DRAW2D-01..06).
+-- Plans 63-02/03/04 extend with primitives, splines, and re-enable
+-- consumer files.
+
+-- Frame (DRAW2D-01)
+--
+-- `begin` / `end` bracket every draw. Raylib buffers draw calls
+-- internally and flushes at `end`; skipping `end` produces a black
+-- screen and eventual buffer exhaustion. Iron has no `defer` so
+-- balance the pair by discipline.
+func Draw.begin() {}
+func Draw.end() {}
+
+-- Clear (DRAW2D-02)
+--
+-- Clears the color buffer to the given Color. Call once at the top
+-- of every frame, immediately after `Draw.begin()`.
+func Draw.clear(color: Color) {}
+
+-- 2D camera mode (DRAW2D-03)
+--
+-- `begin_mode_2d(camera)` pushes a Camera2D transform onto raylib's
+-- modelview stack; every subsequent draw is affected by
+-- camera.offset / camera.target / camera.rotation / camera.zoom
+-- until the matching `end_mode_2d()`. `Camera` is Iron's name for
+-- raylib's `Camera2D` type (Plan 60-04 decision).
+func Draw.begin_mode_2d(camera: Camera) {}
+func Draw.end_mode_2d() {}
+
+-- Texture mode (DRAW2D-04)
+--
+-- `begin_texture_mode(target)` redirects all subsequent draws into
+-- the given RenderTexture's framebuffer instead of the main screen.
+-- Users load the RenderTexture via Phase 66 (TEX-09); Phase 63
+-- exposes only the mode-stack bracket. Flip-Y is handled by raylib
+-- internally for cross-target (native/web) consistency.
+func Draw.begin_texture_mode(target: RenderTexture) {}
+func Draw.end_texture_mode() {}
+
+-- Shader + blend modes (DRAW2D-05)
+--
+-- `begin_shader_mode(shader)` pushes a GLSL shader onto the draw
+-- stack; every subsequent fragment runs through it until
+-- `end_shader_mode()`. Users load shaders via Phase 71 (SHADER-01).
+--
+-- `begin_blend_mode(mode)` selects one of the 8 BlendMode values
+-- (ALPHA, ADDITIVE, MULTIPLIED, ADD_COLORS, SUBTRACT_COLORS,
+-- ALPHA_PREMULTIPLY, CUSTOM, CUSTOM_SEPARATE). CUSTOM and
+-- CUSTOM_SEPARATE require a prior `rlSetBlendFactors` setup — rlgl
+-- is out of scope for v2.0.0-alpha (REQUIREMENTS.md), so prefer
+-- the first 6 values in this milestone.
+func Draw.begin_shader_mode(shader: Shader) {}
+func Draw.end_shader_mode() {}
+func Draw.begin_blend_mode(mode: BlendMode) {}
+func Draw.end_blend_mode() {}
+
+-- Scissor mode (DRAW2D-06)
+--
+-- `begin_scissor_mode(x, y, w, h)` clips every subsequent draw to
+-- the given rectangle until `end_scissor_mode()`. Pixel-space
+-- coordinates; origin is the top-left of the render target.
+func Draw.begin_scissor_mode(x: Int32, y: Int32, w: Int32, h: Int32) {}
+func Draw.end_scissor_mode() {}
+
+-- Pixel primitives (DRAW2D-07)
+--
+-- Set one pixel to a color. `pixel` uses integer coordinates; `pixel_v`
+-- uses a Vector2 (with Float32 components). Equivalent to DrawPixel /
+-- DrawPixelV in raylib.
+func Draw.pixel(x: Int32, y: Int32, color: Color) {}
+func Draw.pixel_v(position: Vector2, color: Color) {}
+
+-- Line primitives (DRAW2D-08)
+--
+-- `line` takes 4 integer endpoint coordinates; `line_v` takes two
+-- Vector2 endpoints; `line_ex` adds a float thickness; `line_bezier`
+-- draws a cubic-bezier-interpolated line between two endpoints.
+--
+-- NOTE: `DrawLineStrip(points, count, color)` — the Iron-side
+-- `Draw.line_strip(points: [Vector2], ...)` — is DEFERRED to Plan
+-- 63-04, which probes Iron's `[Vector2]` array ABI via a micro-
+-- smoke-test before committing to a shim signature.
+func Draw.line(x1: Int32, y1: Int32, x2: Int32, y2: Int32, color: Color) {}
+func Draw.line_v(start: Vector2, end: Vector2, color: Color) {}
+func Draw.line_ex(start: Vector2, end: Vector2, thick: Float32, color: Color) {}
+func Draw.line_bezier(start: Vector2, end: Vector2, thick: Float32, color: Color) {}
+
+-- Circle primitives (DRAW2D-09)
+--
+-- Seven variants:
+--   `circle(cx, cy, r, color)`            — filled circle, Int32 center
+--   `circle_sector(center, r, s, e, seg)` — filled pie slice, Vector2 center,
+--                                           `s` / `e` are degrees, `seg` is
+--                                           tessellation step count
+--   `circle_sector_lines(...)`            — outline of the sector
+--   `circle_gradient(cx, cy, r, i, o)`    — filled with radial gradient;
+--                                           `i` is inner color, `o` is outer
+--   `circle_v(center, r, color)`          — filled, Vector2 center
+--   `circle_lines(cx, cy, r, color)`      — outline, Int32 center
+--   `circle_lines_v(center, r, color)`    — outline, Vector2 center
+func Draw.circle(cx: Int32, cy: Int32, r: Float32, color: Color) {}
+func Draw.circle_sector(center: Vector2, r: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+func Draw.circle_sector_lines(center: Vector2, r: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+func Draw.circle_gradient(cx: Int32, cy: Int32, r: Float32, inner: Color, outer: Color) {}
+func Draw.circle_v(center: Vector2, r: Float32, color: Color) {}
+func Draw.circle_lines(cx: Int32, cy: Int32, r: Float32, color: Color) {}
+func Draw.circle_lines_v(center: Vector2, r: Float32, color: Color) {}
+
+-- Ellipse primitives (DRAW2D-10)
+--
+-- Both take Int32 center + Float32 horizontal/vertical radii.
+-- `ellipse` is filled; `ellipse_lines` is outline.
+func Draw.ellipse(cx: Int32, cy: Int32, rh: Float32, rv: Float32, color: Color) {}
+func Draw.ellipse_lines(cx: Int32, cy: Int32, rh: Float32, rv: Float32, color: Color) {}
+
+-- Ring primitives (DRAW2D-11)
+--
+-- Annulus with optional sector. Parameters: Vector2 center,
+-- inner radius, outer radius, start/end angles (degrees), segment
+-- count, color. Ring with start=0, end=360 is a full annulus;
+-- partial angles produce ring-sectors. `ring_lines` is the outline.
+func Draw.ring(center: Vector2, inner: Float32, outer: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+func Draw.ring_lines(center: Vector2, inner: Float32, outer: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
+
+-- Rectangle primitives (DRAW2D-12)
+--
+-- Twelve variants covering every DrawRectangle* raylib exposes.
+-- `rectangle` takes Int32 position + Int32 size; `rectangle_v` takes
+-- two Vector2 (position + size); `rectangle_rec` takes a Rectangle
+-- value (Float32 x/y/w/h); `rectangle_pro` adds origin + rotation.
+-- Gradients: `gradient_v` (top→bottom), `gradient_h` (left→right),
+-- `gradient_ex` (4 corner colors with Rectangle). Outlines:
+-- `lines` (Int32), `lines_ex` (Rectangle + thickness). Rounded:
+-- `rounded` (fill), `rounded_lines` (outline at full width),
+-- `rounded_lines_ex` (outline with custom thickness).
+func Draw.rectangle(x: Int32, y: Int32, w: Int32, h: Int32, color: Color) {}
+func Draw.rectangle_v(position: Vector2, size: Vector2, color: Color) {}
+func Draw.rectangle_rec(rec: Rectangle, color: Color) {}
+func Draw.rectangle_pro(rec: Rectangle, origin: Vector2, rotation: Float32, color: Color) {}
+func Draw.rectangle_gradient_v(x: Int32, y: Int32, w: Int32, h: Int32, top: Color, bottom: Color) {}
+func Draw.rectangle_gradient_h(x: Int32, y: Int32, w: Int32, h: Int32, left: Color, right: Color) {}
+func Draw.rectangle_gradient_ex(rec: Rectangle, tl: Color, bl: Color, tr: Color, br: Color) {}
+func Draw.rectangle_lines(x: Int32, y: Int32, w: Int32, h: Int32, color: Color) {}
+func Draw.rectangle_lines_ex(rec: Rectangle, thick: Float32, color: Color) {}
+func Draw.rectangle_rounded(rec: Rectangle, roundness: Float32, segments: Int32, color: Color) {}
+func Draw.rectangle_rounded_lines(rec: Rectangle, roundness: Float32, segments: Int32, color: Color) {}
+func Draw.rectangle_rounded_lines_ex(rec: Rectangle, roundness: Float32, segments: Int32, thick: Float32, color: Color) {}
+
+-- Triangle primitives (DRAW2D-13)
+--
+-- Two fixed-point variants — `triangle` fills, `triangle_lines`
+-- outlines. Both take 3 Vector2 vertices + Color. Vertex order
+-- matters for raylib's winding: raylib uses counter-clockwise
+-- culling by default, so vertices must be in CCW order to be
+-- visible.
+--
+-- `triangle_fan` and `triangle_strip` (array variants) are declared
+-- below; Plan 63-03 Task 1 array-ABI probe confirmed ironc lowers
+-- `[Vector2]` parameters to `Iron_List_Iron_Vector2` struct-by-value
+-- (items/count/capacity wrapper). The shim forwards `points.items`
+-- to raylib as `const Vector2 *`.
+func Draw.triangle(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) {}
+func Draw.triangle_lines(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) {}
+
+-- Polygon primitives (DRAW2D-14)
+--
+-- Regular polygons (equilateral). Parameters: Vector2 center,
+-- Int32 sides (3 = triangle, 4 = square, 6 = hexagon, ...),
+-- Float32 radius (to vertices), Float32 rotation (degrees).
+-- `poly_lines_ex` adds thickness.
+func Draw.poly(center: Vector2, sides: Int32, r: Float32, rotation: Float32, color: Color) {}
+func Draw.poly_lines(center: Vector2, sides: Int32, r: Float32, rotation: Float32, color: Color) {}
+func Draw.poly_lines_ex(center: Vector2, sides: Int32, r: Float32, rotation: Float32, thick: Float32, color: Color) {}
+
+-- Triangle array variants (DRAW2D-13 — array ABI validated by Plan 63-03 Task 1)
+--
+-- `triangle_fan(points, count, color)` draws a triangle fan from
+-- the first point to every subsequent pair; `triangle_strip` draws
+-- consecutive-3-point triangles sharing edges. Both take a
+-- [Vector2] array and a separate count (redundant with array length
+-- but matches raylib's C signature). The shim casts Iron's array
+-- representation (Iron_List_Iron_Vector2.items) to `const Vector2 *`
+-- at the FFI boundary.
+func Draw.triangle_fan(points: [Vector2], count: Int32, color: Color) {}
+func Draw.triangle_strip(points: [Vector2], count: Int32, color: Color) {}
+
+-- Spline segment primitives (DRAW2D-15 — fixed-point-count variants)
+--
+-- Five spline families — linear (2 control pts per segment), basis
+-- (4), catmull_rom (4), bezier_quadratic (3 = p1 + c2 control + p3),
+-- bezier_cubic (4 = p1 + c2 + c3 control + p4). `thick` is line
+-- thickness in pixels; `color` is the stroke color.
+--
+-- Use these for single-segment draws. For continuous splines through
+-- multiple control points, use the whole-spline variants below
+-- (Draw.spline_linear / spline_basis / ... — pending array ABI).
+func Draw.spline_segment_linear(p1: Vector2, p2: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_basis(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_catmull_rom(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_bezier_quadratic(p1: Vector2, c2: Vector2, p3: Vector2, thick: Float32, color: Color) {}
+func Draw.spline_segment_bezier_cubic(p1: Vector2, c2: Vector2, c3: Vector2, p4: Vector2, thick: Float32, color: Color) {}
+
+-- Spline evaluators (DRAW2D-16)
+--
+-- Return the Vector2 at parameter t on the named spline curve.
+-- t ∈ [0.0, 1.0] traces the curve from first to last control point;
+-- values outside the range extrapolate.
+--
+-- IMPORTANT: `t` MUST be Float32 on the Iron side. Iron's default
+-- Float is double; raylib expects `float`. Users MUST write
+-- `Float32(0.5)` at call sites — not a bare `0.5` literal (which
+-- is Float=double and would truncate silently at the FFI boundary).
+--
+-- Iron method names normalize raylib's C-name `BezierQuad` to
+-- `bezier_quadratic` for symmetry with the draw side's
+-- `DrawSplineBezierQuadratic` (and the segment evaluator
+-- `spline_segment_bezier_quadratic` above).
+func Draw.get_spline_point_linear(start: Vector2, end: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_basis(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_catmull_rom(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_bezier_quadratic(p1: Vector2, c2: Vector2, p3: Vector2, t: Float32) -> Vector2 {}
+func Draw.get_spline_point_bezier_cubic(p1: Vector2, c2: Vector2, c3: Vector2, p4: Vector2, t: Float32) -> Vector2 {}
+
+-- Whole-spline primitives (DRAW2D-15 — array variants) and deferred
+-- DrawLineStrip (DRAW2D-08 last variant).
+--
+-- Draw a continuous smooth curve through an array of Vector2 control
+-- points. Raylib tessellates the curve internally. Point count
+-- minimums vary by spline type:
+--   spline_linear         : min 2 points (polyline)
+--   spline_basis          : min 4 points
+--   spline_catmull_rom    : min 4 points
+--   spline_bezier_quadratic : min 3 points; pattern [p1, c2, p3, c4, p5, c6, ...]
+--                           (alternating anchor / control points)
+--   spline_bezier_cubic   : min 4 points; pattern [p1, c2, c3, p4, c5, c6, p7, ...]
+--                           (anchor + 2 controls + next anchor, repeating)
+--
+-- `count` must equal the array length; mismatch causes raylib to read
+-- past the array. ABI confirmed by Plan 63-03 Task 1 probe — `[Vector2]`
+-- lowers to Iron_List_Iron_Vector2 struct-by-value at the FFI boundary.
+func Draw.line_strip(points: [Vector2], count: Int32, color: Color) {}
+func Draw.spline_linear(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_basis(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_catmull_rom(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_bezier_quadratic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+func Draw.spline_bezier_cubic(points: [Vector2], count: Int32, thick: Float32, color: Color) {}
+
+-- ── Phase 67 extension: default-font draws (TEXT-07, TEXT-08 default)
+--
+-- Render raylib's FPS overlay (top-left unless positioned) and
+-- default-font text. Both read raylib's embedded default atlas, which
+-- is populated by InitWindow via rtext.c:LoadFontDefault.
+--
+-- Pitfall 1 (Plan 67-RESEARCH): these REQUIRE Window.init() first;
+-- calling them before an OpenGL context + default font are live
+-- dereferences a null atlas pointer. For custom-font draws use
+-- Font.draw_ex / Font.draw_pro below.
+func Draw.fps(posX: Int32, posY: Int32) {}
+func Draw.text(text: String, posX: Int32, posY: Int32, fontSize: Int32, color: Color) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Collision (Phase 64)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- 2D (COLL-01) — 11 functions across Rectangle / Vector2 / Collision
+-- receivers. Methods on data-carrying objects (Rectangle, Vector2)
+-- dispatch via Iron_<lowercased_type>_<method> mangling per
+-- src/hir/hir_to_lir.c:1096-1297. Collision.* namespace holds the
+-- 4 pair-based tests with no natural receiver.
+
+-- Rectangle receiver (4 functions). Receiver param is named `rect`
+-- per iron_net.iron convention (TcpSocket uses `s`, TcpListener uses
+-- `l`); `self` is a reserved word in Iron's parser.
+func Rectangle.collides(rect: Rectangle, other: Rectangle) -> Bool {}
+func Rectangle.intersection(rect: Rectangle, other: Rectangle) -> Rectangle {}
+func Rectangle.contains_point(rect: Rectangle, point: Vector2) -> Bool {}
+func Rectangle.collides_circle(rect: Rectangle, center: Vector2, radius: Float32) -> Bool {}
+
+-- Vector2 receiver (3 functions). Receiver param is named `point`
+-- (idiomatic for a point-in-shape query).
+func Vector2.inside_triangle(point: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
+func Vector2.inside_polygon(point: Vector2, points: [Vector2]) -> Bool {}
+func Vector2.on_line(point: Vector2, p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
+
+-- Collision namespace (4 pair-based 2D tests)
+func Collision.circles(c1: Vector2, r1: Float32, c2: Vector2, r2: Float32) -> Bool {}
+func Collision.circle_line(center: Vector2, radius: Float32, p1: Vector2, p2: Vector2) -> Bool {}
+func Collision.point_circle(point: Vector2, center: Vector2, radius: Float32) -> Bool {}
+func Collision.lines(start_a: Vector2, end_a: Vector2, start_b: Vector2, end_b: Vector2) -> (Bool, Vector2) {}
+
+-- 3D (COLL-02) — 8 functions across BoundingBox / Ray / Collision
+-- receivers. Ray.hit_* returns RayCollision by value (32-byte struct,
+-- first outside spline evaluator Vector2 returns). Ray.hit_mesh is
+-- the first Mesh pass-by-value (120 B) + Matrix pass-by-value (64 B)
+-- through the FFI — layout pinned by Phase 60-04 _Static_assert grid.
+-- Receiver params are named `box` / `ray` per iron_net convention;
+-- `self` is a reserved word in Iron's parser (see 64-01 Rule 1 fix).
+
+-- BoundingBox receiver (2 functions)
+func BoundingBox.collides(box: BoundingBox, other: BoundingBox) -> Bool {}
+func BoundingBox.collides_sphere(box: BoundingBox, center: Vector3, radius: Float32) -> Bool {}
+
+-- Ray receiver (5 functions)
+func Ray.hit_sphere(ray: Ray, center: Vector3, radius: Float32) -> RayCollision {}
+func Ray.hit_box(ray: Ray, box: BoundingBox) -> RayCollision {}
+func Ray.hit_mesh(ray: Ray, mesh: Mesh, transform: Matrix) -> RayCollision {}
+func Ray.hit_triangle(ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3) -> RayCollision {}
+func Ray.hit_quad(ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) -> RayCollision {}
+
+-- Collision namespace (1 pair-based 3D test)
+func Collision.spheres(c1: Vector3, r1: Float32, c2: Vector3, r2: Float32) -> Bool {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 68 — Audio System (raudio bindings)
+-- ══════════════════════════════════════════════════════════════════════
+
+-- ── AUDIO-01 device lifecycle (5 methods, freestanding on Audio.*) ─
+-- Matches Phase 61 Window.* precedent. raylib's _device suffix is
+-- dropped — the Audio namespace already implies device scope.
+--
+-- Pitfall: InitAudioDevice logs a TRACELOG warning on backend failure
+-- but does NOT crash. Callers should guard play/update calls with
+-- Audio.is_ready() for graceful headless / CI degradation.
+func Audio.init() {}
+func Audio.close() {}
+func Audio.is_ready() -> Bool {}
+func Audio.set_master_volume(volume: Float32) {}
+func Audio.get_master_volume() -> Float32 {}
+
+-- ── AUDIO-02 Wave load/unload + AUDIO-04 export (6 methods) ─────────
+-- `_device` suffix dropped — namespace implies device scope.
+-- ABI-UINT8 consumer: Wave.load_from_memory takes [UInt8] data (new
+-- in Phase 68 — matches Plan 68-01 Task 1 runtime plumbing).
+-- Note: Wave.load returns Wave with frameCount=0 on failure + prints
+-- TRACELOG warning. Callers MUST check with wave.is_valid() before
+-- passing to Sound.from_wave / wave.to_sound.
+func Wave.load(filePath: String) -> Wave {}
+func Wave.load_from_memory(fileType: String, data: [UInt8],
+                            dataSize: Int32) -> Wave {}
+func Wave.is_valid(wave: Wave) -> Bool {}
+func Wave.unload(wave: Wave) {}
+func Wave.export(wave: Wave, filePath: String) -> Bool {}
+func Wave.export_as_code(wave: Wave, filePath: String) -> Bool {}
+
+-- ── AUDIO-03 Wave manipulation (4 methods; Wave.to_sound in 68-03) ──
+-- Wave.copy returns a fresh Wave by value.
+-- Wave.crop and Wave.format use mutating-return-by-value: raylib
+-- mutates an internal copy, shim returns the mutated Wave as a fresh
+-- value. Iron sees value semantics (no aliasing). Phase 66-03 template.
+-- Wave.load_samples returns [Float32] — first ABI-FLOAT32 RETURN
+-- consumer. Shim calls UnloadWaveSamples internally; no user-facing
+-- unload_samples method.
+--
+-- ── Static-call convention ──────────────────────────────────────────
+-- Phase 68 stubs use the `Namespace.method(receiver: Namespace, ...)`
+-- static form (matches Phase 66 Image.* / Phase 67 Font.* precedent).
+-- The plan drafts initially used lowercase `wave.X` / `sound.X` /
+-- `music.X` receiver-bound form, but ironc does not resolve those —
+-- they fail with E0200 `method declared on undeclared type`. Converted
+-- across AUDIO-02..11 during Plan 68-05 execution. C shim mangling is
+-- unchanged (Iron_wave_is_valid / Iron_sound_play / Iron_music_seek)
+-- since ironc lowercases the namespace.
+func Wave.copy(wave: Wave) -> Wave {}
+func Wave.crop(wave: Wave, initFrame: Int32, finalFrame: Int32) -> Wave {}
+func Wave.format(wave: Wave, sampleRate: Int32, sampleSize: Int32, channels: Int32) -> Wave {}
+func Wave.load_samples(wave: Wave) -> [Float32] {}
+
+-- ── AUDIO-03 bridge: Wave.to_sound() ────────────────────────────────
+-- Aliased with Sound.from_wave(wave). ironc name-mangles the two Iron
+-- entry points to distinct C symbols (Iron_wave_to_sound vs
+-- Iron_sound_from_wave), so iron_raylib.c ships a trivial forwarding
+-- stub — one raylib-facing shim body, two Iron entry points. Use
+-- whichever reads better at the call site.
+func Wave.to_sound(wave: Wave) -> Sound {}
+
+-- ── AUDIO-05 Sound load/unload + alias (6 methods) ─────────────────
+-- Alias ownership is made visible at call sites via two distinct
+-- methods on the same Sound type:
+--   Sound.unload(s)       — owns + frees sample data.
+--   Sound.unload_alias(a) — releases ONLY the AudioStream envelope;
+--                            sample data stays bound to the primary
+--                            Sound until its unload().
+-- The source Sound MUST outlive every alias; otherwise aliases
+-- dangle and playback reads freed memory.
+--
+-- Sound.from_wave(wave) and Wave.to_sound(wave) are aliases — both
+-- map (via a forwarding stub in iron_raylib.c) to LoadSoundFromWave.
+-- Use whichever reads better at the call site.
+func Sound.load(filePath: String) -> Sound {}
+func Sound.from_wave(wave: Wave) -> Sound {}
+func Sound.alias(source: Sound) -> Sound {}
+func Sound.is_valid(sound: Sound) -> Bool {}
+func Sound.unload(sound: Sound) {}
+func Sound.unload_alias(alias: Sound) {}
+
+-- ── AUDIO-06 Sound management (5 methods) ──────────────────────────
+-- Playback state transitions. raylib is a no-op when the audio device
+-- is not ready; wrap call sites with Audio.is_ready() for graceful
+-- headless / CI degradation.
+func Sound.play(sound: Sound) {}
+func Sound.stop(sound: Sound) {}
+func Sound.pause(sound: Sound) {}
+func Sound.resume(sound: Sound) {}
+func Sound.is_playing(sound: Sound) -> Bool {}
+
+-- ── AUDIO-07 Sound configure (3 methods) ───────────────────────────
+-- Volume 0..1 (clamped by raylib), pitch multiplier (1.0 = original
+-- pitch), pan 0..1 (0 = full-left, 0.5 = centre, 1 = full-right).
+func Sound.set_volume(sound: Sound, volume: Float32) {}
+func Sound.set_pitch(sound: Sound, pitch: Float32) {}
+func Sound.set_pan(sound: Sound, pan: Float32) {}
+
+-- ── AUDIO-08 Sound update (1 method, ABI-FLOAT32 INPUT) ────────────
+-- First live ABI-FLOAT32 INPUT consumer in the raylib binding. Mirror
+-- of Plan 68-02's Wave.load_samples ABI-FLOAT32 RETURN path. The shim
+-- passes data.items directly to raylib's UpdateSound as a const void *.
+-- sampleCount is the number of individual samples (NOT frames) —
+-- raylib reinterprets based on sound.stream.sampleSize (16-bit short
+-- or 32-bit float). Callers must match the sample format declared
+-- at Sound load time.
+func Sound.update(sound: Sound, data: [Float32], sampleCount: Int32) {}
+
+-- ── AUDIO-09 Music load/unload (4 methods) ─────────────────────────
+-- raylib drops the `Stream` suffix in IsMusicValid / UnloadMusicStream
+-- / LoadMusicStream at the Iron surface: Music is a stream by
+-- definition, no need to repeat the word. The Is-predicate naming
+-- asymmetry in raylib (IsMusicValid BUT IsMusicStreamPlaying) is
+-- flattened on the Iron side to Music.is_valid() + Music.is_playing()
+-- — both predicates without the _stream_ infix. Each shim internally
+-- dispatches to the correctly-named raylib function.
+--
+-- 2nd live ABI-UINT8 INPUT consumer: Music.load_from_memory. Same
+-- Iron_List_uint8_t pattern as Plan 68-02's Wave.load_from_memory.
+func Music.load(filePath: String) -> Music {}
+func Music.load_from_memory(fileType: String, data: [UInt8], dataSize: Int32) -> Music {}
+func Music.is_valid(music: Music) -> Bool {}
+func Music.unload(music: Music) {}
+
+-- Music.looping write-through — Path B fallback.
+-- raylib exposes `bool looping` as a writable public C struct field,
+-- but Iron's `object Music` (above) declares it `val` (read-only at
+-- the Iron surface). Music.set_looping(m, b) returns a fresh Music
+-- with the looping field updated, using the mutating-return-by-value
+-- pattern established for Wave.crop / Wave.format (Phase 66-03).
+--
+-- USAGE:
+--   val m2 = Music.set_looping(m, true)
+--   Music.update(m2)
+--
+-- Rationale for shipping this shim even when direct field-write is
+-- plausibly legal: ironc's assignment typecheck blocks val targets
+-- only on local-variable writes (IRON_NODE_IDENT), not on field
+-- writes (IRON_NODE_FIELD_ACCESS) — so `m.looping = true` likely
+-- compiles after an ironc rebuild. But the setter is the portable
+-- form that works in all paths; see 68-04 SUMMARY for details.
+func Music.set_looping(music: Music, looping: Bool) -> Music {}
+
+-- ── AUDIO-10 Music management (6 methods) ──────────────────────────
+-- Playback state transitions plus the per-frame update hook.
+--
+-- Music.update(m) MUST be called every frame from the user's main
+-- loop to feed raylib's audio buffer. Typical pattern:
+--
+--   while !Window.should_close() {
+--       Music.update(m)
+--       Draw.begin()
+--       -- game/render logic
+--       Draw.end()
+--   }
+--
+-- Music.is_playing() flattens raylib's IsMusicStreamPlaying name (the
+-- shim dispatches to the correctly-named raylib function internally).
+-- raylib is a no-op when the audio device is not ready; wrap calls
+-- with Audio.is_ready() for graceful headless / CI degradation.
+func Music.play(music: Music) {}
+func Music.is_playing(music: Music) -> Bool {}
+func Music.update(music: Music) {}
+func Music.stop(music: Music) {}
+func Music.pause(music: Music) {}
+func Music.resume(music: Music) {}
+
+-- ── AUDIO-11 Music configure + query (6 methods) ───────────────────
+-- All time / volume / pitch / pan values are Float32.
+-- seek / get_time_length / get_time_played use seconds.
+-- volume and pan are 0..1 (clamped inside raylib).
+-- pitch is a multiplier (1.0 = original speed, 2.0 = double speed,
+-- 0.5 = half speed — resampling artifacts are raylib's problem).
+func Music.seek(music: Music, position: Float32) {}
+func Music.set_volume(music: Music, volume: Float32) {}
+func Music.set_pitch(music: Music, pitch: Float32) {}
+func Music.set_pan(music: Music, pan: Float32) {}
+func Music.get_time_length(music: Music) -> Float32 {}
+func Music.get_time_played(music: Music) -> Float32 {}
+
+-- ── AUDIO-12 AudioStream standard (14 methods) ─────────────────────
+-- Raw PCM streaming: generate buffers on demand via AudioStream.update
+-- (2nd live ABI-FLOAT32 INPUT consumer after Sound.update in Plan 68-03)
+-- OR via a callback (set_callback / attach_processor below — 5 more
+-- methods consuming Plan 68-01 Task 3's 16-slot trampoline registry).
+--
+-- frame_count is the number of FRAMES (interleaved for multi-channel).
+-- raylib is a no-op when the audio device is not ready; wrap calls
+-- with Audio.is_ready() for graceful headless / CI degradation.
+--
+-- AudioStream.set_buffer_size_default is namespace-level (no receiver):
+-- it sets the default buffer size applied to every subsequently-loaded
+-- AudioStream. Call BEFORE AudioStream.load().
+func AudioStream.load(sampleRate: UInt32, sampleSize: UInt32, channels: UInt32) -> AudioStream {}
+func AudioStream.is_valid(stream: AudioStream) -> Bool {}
+func AudioStream.unload(stream: AudioStream) {}
+func AudioStream.update(stream: AudioStream, data: [Float32], frameCount: Int32) {}
+func AudioStream.is_processed(stream: AudioStream) -> Bool {}
+func AudioStream.play(stream: AudioStream) {}
+func AudioStream.pause(stream: AudioStream) {}
+func AudioStream.resume(stream: AudioStream) {}
+func AudioStream.is_playing(stream: AudioStream) -> Bool {}
+func AudioStream.stop(stream: AudioStream) {}
+func AudioStream.set_volume(stream: AudioStream, volume: Float32) {}
+func AudioStream.set_pitch(stream: AudioStream, pitch: Float32) {}
+func AudioStream.set_pan(stream: AudioStream, pan: Float32) {}
+func AudioStream.set_buffer_size_default(size: Int32) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- AUDIO-12 CALLBACK ENTRIES (Phase 73-01 — AUDIO-12 closes at 19/19)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Wired through the 16-slot Iron_Closure → AudioCallback trampoline
+-- registry built in Plan 68-01 Task 3 (iron_raylib.c:4518-4591).
+-- Phase 73-01 probe confirmed Iron `cb: func(Int, UInt32)` lowers to
+-- `Iron_Closure cb` at the foreign-method boundary.
+--
+-- Detach semantics: DetachAudioStreamProcessor / DetachAudioMixedProcessor
+-- match by function pointer (raudio.c:2264). Iron's detach iterates
+-- registry slots and calls Detach for each used slot — raylib silently
+-- no-ops non-matching pointers. Slots are NOT freed (registry is global;
+-- no per-stream tracking). Slot-exhaustion is a post-alpha refinement
+-- target (16 slots, detach rare in typical game loops).
+--
+-- Thread safety: raylib invokes callbacks from miniaudio's audio thread.
+-- Iron closure bodies MUST be audio-thread-safe (no Iron heap allocation,
+-- no GC, no blocking). Violating this is undefined behavior.
+func AudioStream.set_callback(stream: AudioStream, cb: func(Int, UInt32)) {}
+func AudioStream.attach_processor(stream: AudioStream, cb: func(Int, UInt32)) {}
+func AudioStream.detach_processor(stream: AudioStream) {}
+func Audio.attach_mixed_processor(cb: func(Int, UInt32)) {}
+func Audio.detach_mixed_processor() {}
+
+
+-- ══════════════════════════════════════════════════════════════════════
+-- 3D Drawing (Phase 69) — DRAW3D-01..04
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Binds raylib's 3D draw-mode stack (BeginMode3D / EndMode3D), camera
+-- update functions (UpdateCamera / UpdateCameraPro), screen↔world
+-- conversion helpers (GetScreenToWorldRay / GetWorldToScreen /
+-- GetCameraMatrix), and the 21 3D primitive draw functions. Implemented
+-- in src/stdlib/iron_raylib.c under the Phase 69 marker at line 5211.
+-- Shim-only per Phase 60 binding architecture.
+--
+-- Method dispatch:
+--   • freestanding Draw.* for mode stack and every primitive
+--     (matches Phase 63 2D-drawing exactly)
+--   • instance methods on Camera3D for update / coordinate conversion /
+--     view matrix (camera is the coordinate-space authority)
+--
+-- Pitfall 0 (Plan 68-05 Rule-3 Blocking): ALL Camera3D methods MUST use
+-- the static Namespace.method(receiver: T, ...) form — lowercase
+-- receivers (func camera3d.update(...)) trigger E0200. Call sites may
+-- use Camera3D.update(cam, .free) (canonical) or cam.update(.free)
+-- (receiver-sugar; may work via auto-dispatch — smoke uses static form).
+--
+-- Pitfall 1 (raylib typedef Camera3D Camera): raylib's C Camera *
+-- parameter is Camera3D * at runtime (typedef alias at raylib.h:334).
+-- Iron inverts: Iron's Camera is 2D (16 B); Iron's Camera3D is 3D
+-- (44 B). NEVER type the parameter as camera: Camera here.
+--
+-- Pitfall 3 (Float32 vs Float): raylib uses float throughout. Iron
+-- stubs use Float32. Users write Float32(45.0) at call sites per
+-- the Plan 60-08 rescue-palette convention.
+--
+-- raylib's GetMouseRay (raylib.h:1063) is a compat alias for
+-- GetScreenToWorldRay. Iron binds only the canonical name.
+
+-- ── DRAW3D-01: 3D draw-mode stack — raylib.h:1032-1033 ──────────────
+--
+-- Wrap every 3D draw call between Draw.begin_mode_3d(cam) and
+-- Draw.end_mode_3d(). Parallels Phase 63's Draw.begin_mode_2d /
+-- Draw.end_mode_2d verbatim. Must be called between Draw.begin()
+-- and Draw.end().
+func Draw.begin_mode_3d(camera: Camera3D) {}
+func Draw.end_mode_3d() {}
+
+-- ── DRAW3D-02: Camera3D update — raylib.h:1233-1234 ────────────────
+--
+-- Mutating-return-by-value pattern (Phase 66-03 template): raylib's
+-- UpdateCamera mutates via out-pointer, but Iron's val fields are
+-- immutable. The shim copies into a local, mutates, copies back, and
+-- returns the new Camera3D. Iron user rebinds: val cam = cam.update(.free).
+--
+-- Pitfall 2: .custom (CameraMode.CUSTOM = 0) is a NO-OP in raylib's
+-- UpdateCamera — the returned Camera3D is bit-identical to the input.
+-- Users driving the camera manually should mutate via val re-binding
+-- directly (read-modify-write) and skip this call in .custom mode.
+func Camera3D.update(camera: Camera3D, mode: CameraMode) -> Camera3D {}
+func Camera3D.update_pro(camera: Camera3D, movement: Vector3,
+                         rotation: Vector3, zoom: Float32) -> Camera3D {}
+
+-- ── DRAW3D-03: Screen↔world conversion + view matrix — raylib.h:1063-1070 ──
+--
+-- The Camera3D is the coordinate-space authority, so these live as
+-- instance methods on Camera3D (receiver-sugar dispatch accepted at call
+-- site; static form required in stub declarations per Pitfall 0).
+--
+-- screen_to_world_ray returns a Ray (24 B — first Phase 69 Ray return).
+-- world_to_screen returns a Vector2.
+-- matrix returns the view Matrix (64 B — Phase 65-03 pattern reused).
+--
+-- _ex variants take explicit (width, height) screen dimensions; the
+-- non-_ex variants read raylib's internal screen size via GetScreenWidth
+-- / GetScreenHeight (raylib.c:rcore.c).
+--
+-- raylib's GetMouseRay (raylib.h:1063) is a backward-compat alias for
+-- GetScreenToWorldRay — Iron binds only the canonical name.
+func Camera3D.screen_to_world_ray(camera: Camera3D, position: Vector2) -> Ray {}
+func Camera3D.screen_to_world_ray_ex(camera: Camera3D, position: Vector2,
+                                     width: Int32, height: Int32) -> Ray {}
+func Camera3D.world_to_screen(camera: Camera3D, position: Vector3) -> Vector2 {}
+func Camera3D.world_to_screen_ex(camera: Camera3D, position: Vector3,
+                                 width: Int32, height: Int32) -> Vector2 {}
+func Camera3D.matrix(camera: Camera3D) -> Matrix {}
+
+-- ── DRAW3D-04: 3D primitives batch 1 — raylib.h:1526-1537 ───────────
+--
+-- Every primitive matches raylib's C-side name 1:1 with snake_case
+-- normalization. Suffixes preserved (_v = Vector3-size variant,
+-- _wires = wireframe, _ex = extended params). Phase 63 precedent.
+--
+-- Pitfall 3 (Float32 vs Float): radius / width / height / length /
+-- rotation_angle are Float32 — users write Float32(1.0) at call sites.
+-- Pitfall 5 (Int32 vs Int): rings / slices / sides are Int32 — users
+-- write Int32(16) at call sites.
+-- Pitfall 8 ([Vector3] array ABI): triangle_strip_3d is the first
+-- Phase 69 consumer of Iron_List_Iron_Vector3. The C-side typedef is
+-- added to iron_raylib.h under a new IRON_LIST_IRON_VECTOR3_STRUCT_DEFINED
+-- guard mirroring the Phase 63-04 Vector2 precedent at lines 604-611.
+
+-- Line / point / circle / triangle / triangle-strip
+func Draw.line_3d(start: Vector3, end: Vector3, color: Color) {}
+func Draw.point_3d(position: Vector3, color: Color) {}
+func Draw.circle_3d(center: Vector3, radius: Float32,
+                    rotation_axis: Vector3, rotation_angle: Float32,
+                    color: Color) {}
+func Draw.triangle_3d(v1: Vector3, v2: Vector3, v3: Vector3, color: Color) {}
+func Draw.triangle_strip_3d(points: [Vector3], count: Int32, color: Color) {}
+
+-- Cube (4 variants: scalar, Vector3-size, wires, wires-Vector3)
+func Draw.cube(position: Vector3, width: Float32, height: Float32,
+               length: Float32, color: Color) {}
+func Draw.cube_v(position: Vector3, size: Vector3, color: Color) {}
+func Draw.cube_wires(position: Vector3, width: Float32, height: Float32,
+                     length: Float32, color: Color) {}
+func Draw.cube_wires_v(position: Vector3, size: Vector3, color: Color) {}
+
+-- Sphere (3 variants: simple, extended, wires)
+func Draw.sphere(center: Vector3, radius: Float32, color: Color) {}
+func Draw.sphere_ex(center: Vector3, radius: Float32,
+                    rings: Int32, slices: Int32, color: Color) {}
+func Draw.sphere_wires(center: Vector3, radius: Float32,
+                       rings: Int32, slices: Int32, color: Color) {}
+
+-- ── DRAW3D-04: 3D primitives batch 2 — raylib.h:1538-1546 ───────────
+--
+-- Closes DRAW3D-04 at 21/21. Cylinder 4 variants + capsule 2 variants +
+-- plane + ray + grid. Every primitive matches raylib's C-side name 1:1
+-- with snake_case normalization.
+--
+-- Pitfall 4 (Draw.plane size type): raylib's DrawPlane takes a Vector2
+-- size (X=width, Z=depth); the plane is fixed XZ-oriented. NEVER write
+-- size: Vector3 here.
+-- Pitfall 6 (Draw.grid has no Color): raylib draws the grid in its
+-- built-in gray; no Color parameter.
+-- First Ray-by-value INPUT across the FFI (Draw.ray) — 24 B struct,
+-- pinned layout from Phase 60-05.
+
+-- Cylinder (4 variants: position+radii / start-end-radii / wires / wires-ex)
+func Draw.cylinder(position: Vector3, radius_top: Float32, radius_bottom: Float32,
+                   height: Float32, slices: Int32, color: Color) {}
+func Draw.cylinder_ex(start: Vector3, end: Vector3,
+                      start_radius: Float32, end_radius: Float32,
+                      sides: Int32, color: Color) {}
+func Draw.cylinder_wires(position: Vector3, radius_top: Float32, radius_bottom: Float32,
+                         height: Float32, slices: Int32, color: Color) {}
+func Draw.cylinder_wires_ex(start: Vector3, end: Vector3,
+                            start_radius: Float32, end_radius: Float32,
+                            sides: Int32, color: Color) {}
+
+-- Capsule (2 variants: solid + wires)
+func Draw.capsule(start: Vector3, end: Vector3, radius: Float32,
+                  slices: Int32, rings: Int32, color: Color) {}
+func Draw.capsule_wires(start: Vector3, end: Vector3, radius: Float32,
+                        slices: Int32, rings: Int32, color: Color) {}
+
+-- Plane / Ray / Grid — 1:1 with raylib, no sugar
+-- size is Vector2 (X=width, Z=depth); plane is fixed XZ-oriented (Pitfall 4).
+func Draw.plane(center: Vector3, size: Vector2, color: Color) {}
+-- First Ray-by-value INPUT — 24 B struct, pinned layout from Phase 60-05.
+func Draw.ray(ray: Ray, color: Color) {}
+-- DrawGrid draws with raylib's built-in gray; NO Color override (Pitfall 6).
+func Draw.grid(slices: Int32, spacing: Float32) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 70: Models / Meshes / Materials / Animations — rmodels.c
+-- ══════════════════════════════════════════════════════════════════════
+-- Binds the rmodels.c surface as idiomatic Iron methods on Model / Mesh /
+-- Material / ModelAnimation + freestanding Draw.* for billboards and
+-- bounding-box rendering. Every raylib function's suffix preserved verbatim
+-- (_ex / _wires / _points / _rec / _pro).
+--
+-- Struct ABI: Model = 120 B, Mesh = 120 B, Material = 40 B, MaterialMap =
+-- 28 B, ModelAnimation = 56 B, BoundingBox = 24 B — all pinned by Phase
+-- 60-04 _Static_assert grid; all under the 120 B ceiling validated in
+-- Phase 64-02 (Mesh ARG) and Phase 65-03 (Matrix RETURN). No new layout
+-- work.
+--
+-- CORRECTION to CONTEXT.md: Material is 40 B (not ~296 B). Same memcpy
+-- template as Image applies; NO pass-by-const-ref needed.
+
+-- ── MODEL-01: Model load/unload/valid — raylib.h:1553-1556 ─────────────
+-- Dual constructors per Phase 66/68 precedent (Image.load / Image.from_memory).
+func Model.load(file_name: String) -> Model {}
+func Model.from_mesh(mesh: Mesh) -> Model {}
+func Model.is_valid(model: Model) -> Bool {}
+func Model.unload(model: Model) {}
+
+-- ── MODEL-02: Bounding box — raylib.h:1557 ─────────────────────────────
+-- First 24 B BoundingBox struct-by-value RETURN (Ray / RayCollision
+-- 24/32 B RETURN validated Phase 64-02; identical memcpy template).
+func Model.bounding_box(model: Model) -> BoundingBox {}
+
+-- ── MODEL-03: Draw variants (6) — raylib.h:1560-1565 ───────────────────
+-- Every suffix preserved: _ex (rotation axis + angle + Vector3 scale),
+-- _wires (wireframe), _points (vertex points). No sugar, no merging.
+func Model.draw(model: Model, position: Vector3, scale: Float32, tint: Color) {}
+func Model.draw_ex(model: Model, position: Vector3, rotation_axis: Vector3,
+                   rotation_angle: Float32, scale: Vector3, tint: Color) {}
+func Model.draw_wires(model: Model, position: Vector3, scale: Float32, tint: Color) {}
+func Model.draw_wires_ex(model: Model, position: Vector3, rotation_axis: Vector3,
+                         rotation_angle: Float32, scale: Vector3, tint: Color) {}
+func Model.draw_points(model: Model, position: Vector3, scale: Float32, tint: Color) {}
+func Model.draw_points_ex(model: Model, position: Vector3, rotation_axis: Vector3,
+                          rotation_angle: Float32, scale: Vector3, tint: Color) {}
+
+-- ── MODEL-04: Mesh operations (7) — raylib.h:1572-1580 ────────────────
+-- Mutating-return-by-value for UploadMesh + GenMeshTangents (Phase 66-03
+-- template). UpdateMeshBuffer takes `void *data` — Iron binding accepts
+-- [UInt8] which ironc lowers to Iron_List_uint8_t (ABI-UINT8 closed
+-- Phase 68-01); shim casts to (const void *) at the raylib call site.
+func Mesh.upload(mesh: Mesh, dynamic: Bool) -> Mesh {}
+func Mesh.update_buffer(mesh: Mesh, index: Int32, data: [UInt8],
+                        data_size: Int32, offset: Int32) {}
+func Mesh.unload(mesh: Mesh) {}
+func Mesh.export(mesh: Mesh, file_name: String) -> Bool {}
+func Mesh.export_as_code(mesh: Mesh, file_name: String) -> Bool {}
+func Mesh.bounding_box(mesh: Mesh) -> BoundingBox {}
+func Mesh.gen_tangents(mesh: Mesh) -> Mesh {}
+
+-- ── MODEL-05: Mesh draw (2) — raylib.h:1575-1576 ──────────────────────
+-- DrawMesh: first simultaneous 120+40+64 = 224 B struct-by-value input
+-- across the FFI. Each arg is independently under the Phase 64-02 120 B
+-- ceiling; clang evaluates per-struct, not cumulative.
+-- DrawMeshInstanced: first [Matrix] list input — Scan B auto-emits
+-- Iron_List_Iron_Matrix (probed Plan 70-01).
+func Mesh.draw(mesh: Mesh, material: Material, transform: Matrix) {}
+func Mesh.draw_instanced(mesh: Mesh, material: Material,
+                         transforms: [Matrix], instances: Int32) {}
+
+-- ── MODEL-06: Mesh generation (probe — Plan 70-03 Task 1) ─────────────
+-- 120 B Mesh struct-by-value RETURN probe. If clang -Wall -Wextra raises
+-- -Wlarge-by-value-copy, refactor to hidden-out-param pattern and update
+-- this stub accordingly. Expected GREEN per Phase 64-02 / 65-03 priors.
+func Mesh.cube(width: Float32, height: Float32, length: Float32) -> Mesh {}
+
+-- ── MODEL-06: Mesh generation (remaining 10) — raylib.h:1583-1593 ─────
+-- Flat static constructors matching Image.color / Font.default /
+-- Material.default convention (NOT `Mesh.gen.cube` sub-namespace).
+--
+-- Parameter ordering matches raylib C exactly. Int32 for raylib `int`,
+-- Float32 for raylib `float`. Pitfall 3 (Float32) + Pitfall 5 (Int32).
+func Mesh.poly(sides: Int32, radius: Float32) -> Mesh {}
+func Mesh.plane(width: Float32, length: Float32, res_x: Int32, res_z: Int32) -> Mesh {}
+func Mesh.sphere(radius: Float32, rings: Int32, slices: Int32) -> Mesh {}
+func Mesh.hemi_sphere(radius: Float32, rings: Int32, slices: Int32) -> Mesh {}
+func Mesh.cylinder(radius: Float32, height: Float32, slices: Int32) -> Mesh {}
+func Mesh.cone(radius: Float32, height: Float32, slices: Int32) -> Mesh {}
+func Mesh.torus(radius: Float32, size: Float32, rad_seg: Int32, sides: Int32) -> Mesh {}
+func Mesh.knot(radius: Float32, size: Float32, rad_seg: Int32, sides: Int32) -> Mesh {}
+func Mesh.heightmap(heightmap: Image, size: Vector3) -> Mesh {}
+func Mesh.cubicmap(cubicmap: Image, cube_size: Vector3) -> Mesh {}
+
+-- ── MODEL-07: Materials (6) — raylib.h:1596-1601 ──────────────────────
+-- Material is 40 B (CORRECTION: CONTEXT.md said ~296 B — verified 40 B
+-- against raylib 5.5). Same memcpy template as Image (40 B, Phase 66).
+-- set_texture + set_mesh_material use mutating-return-by-value (Phase 66-03).
+-- MaterialMapIndex enum at call site: `material.set_texture(MaterialMapIndex.ALBEDO, tex)`
+-- (Pitfall 1 — NO .ordinal suffix, NO .albedo shorthand).
+func Material.load(file_name: String) -> [Material] {}
+func Material.default() -> Material {}
+func Material.is_valid(material: Material) -> Bool {}
+func Material.unload(material: Material) {}
+func Material.set_texture(material: Material, map_type: MaterialMapIndex,
+                           texture: Texture) -> Material {}
+func Model.set_mesh_material(model: Model, mesh_id: Int32, material_id: Int32) -> Model {}
+
+-- ── MODEL-08: Model animations (6) — raylib.h:1604-1609 ──────────────
+-- LoadModelAnimations returns raylib-owned ModelAnimation*; Iron deep-copies
+-- into Iron_List_Iron_ModelAnimation (56 B × count) and free()s only the
+-- outer wrapper, preserving interior _bones / _framePoses for unload_all.
+-- IsModelAnimationValid takes Model + ModelAnimation per raylib (Pitfall 11);
+-- bound as model.animation_valid(anim) — NOT anim.is_valid() (which would
+-- require implicit Model context raylib does not accept).
+-- anim.unload() — singular variant for non-list-owned animations.
+-- ModelAnimation.unload_all(anims) — namespace-level for list-cleanup.
+func ModelAnimation.load(file_name: String) -> [ModelAnimation] {}
+func Model.animation_valid(model: Model, anim: ModelAnimation) -> Bool {}
+func Model.update_animation(model: Model, anim: ModelAnimation, frame: Int32) {}
+func Model.update_animation_bones(model: Model, anim: ModelAnimation, frame: Int32) {}
+func ModelAnimation.unload(anim: ModelAnimation) {}
+func ModelAnimation.unload_all(anims: [ModelAnimation]) {}
+
+-- ── MODEL-09: Billboards (3) — raylib.h:1567-1569 ────────────────────
+-- Every raylib variant preserved (_rec / _pro). Camera is 44 B, Texture
+-- is 20 B, Rectangle is 16 B, Vector2 is 8 B, Vector3 is 12 B.
+-- DrawBillboardPro has 7 struct inputs (44+20+16+12+12+8+8 = 120 B worst
+-- at Camera — well under Phase 64-02 ceiling).
+func Draw.billboard(camera: Camera3D, texture: Texture,
+                    position: Vector3, scale: Float32, tint: Color) {}
+func Draw.billboard_rec(camera: Camera3D, texture: Texture, source: Rectangle,
+                        position: Vector3, size: Vector2, tint: Color) {}
+func Draw.billboard_pro(camera: Camera3D, texture: Texture, source: Rectangle,
+                        position: Vector3, up: Vector3, size: Vector2,
+                        origin: Vector2, rotation: Float32, tint: Color) {}
+
+-- ── MODEL-10: Bounding box draw (1) — raylib.h:1566 ──────────────────
+func Draw.bounding_box(box: BoundingBox, color: Color) {}
+
+-- ── Phase 71: Shaders ──────────────────────────────────────────────
+-- 11 shims closing SHADER-01 (4) + SHADER-02 (3) + SHADER-03 (4).
+-- Layout pin: Phase 60-04 `_Static_assert(sizeof(Iron_Shader) == 16)`.
+-- Enums declared: ShaderLocationIndex (L450), ShaderUniformDataType (L483), ShaderAttributeDataType (L496).
+-- Receiver name `shader` (self reserved — E0101). Static-form dispatch throughout.
+
+-- SHADER-01: Load / validity / unload (4 entries)
+-- Empty String "" for either stage => shim passes NULL => raylib uses default shader for that stage.
+func Shader.load(vs_path: String, fs_path: String) -> Shader {}
+func Shader.load_from_memory(vs_code: String, fs_code: String) -> Shader {}
+func Shader.is_valid(shader: Shader) -> Bool {}
+func Shader.unload(shader: Shader) {}
+
+-- SHADER-02: Location resolution (3 entries; set_location is Iron-side helper)
+-- Returns -1 if uniform/attrib is optimized out by the GLSL compiler.
+func Shader.get_location(shader: Shader, uniform_name: String) -> Int32 {}
+func Shader.get_location_attrib(shader: Shader, attrib_name: String) -> Int32 {}
+-- set_location is the ONLY Iron-side invented helper in Phase 71.
+-- raylib has no C-side setter; users write shader.locs[i] = loc directly in C.
+-- Iron hides _locs as opaque pointer; shim writes `((int *)shader._locs)[(int)index] = (int)loc` in C.
+func Shader.set_location(shader: Shader, index: ShaderLocationIndex, loc: Int32) {}
+
+-- SHADER-03: Uniform setters (4 entries)
+-- `value: [UInt8]` is raw little-endian payload bytes (4 for FLOAT, 8 for VEC2, 12 for VEC3/IVEC3, 16 for VEC4/IVEC4).
+-- raylib no-ops if loc <= -1 (SetShaderValueV/Matrix/Texture all guard internally — rcore.c:1433,1444,1456).
+func Shader.set_value(shader: Shader, loc: Int32, value: [UInt8], data_type: ShaderUniformDataType) {}
+func Shader.set_value_v(shader: Shader, loc: Int32, values: [UInt8], data_type: ShaderUniformDataType, count: Int32) {}
+func Shader.set_value_matrix(shader: Shader, loc: Int32, mat: Matrix) {}
+func Shader.set_value_texture(shader: Shader, loc: Int32, tex: Texture) {}
+
+-- ── Phase 72: File I/O & Utilities ──────────────────────────────
+-- 23 shims closing FILE-01 (3 data I/O — UnloadFileData shim-internal)
+-- + FILE-02 (2 text I/O — UnloadFileText shim-internal) + FILE-03 (16 fs queries).
+-- Pattern note: Iron_List_uint8_t RETURN is NOVEL — Task 1 probes via Files.load_data.
+-- Static-form dispatch throughout (Files is freestanding; no receiver methods).
+
+-- FILE-01 Task 1 probe: first live Iron_List_uint8_t RETURN consumer.
+func Files.load_data(path: String) -> [UInt8] {}
+
+-- FILE-01: remaining data I/O (load_data probe landed in Task 1)
+func Files.save_data(path: String, data: [UInt8]) -> Bool {}
+func Files.export_data_as_code(data: [UInt8], path: String) -> Bool {}
+
+-- FILE-02: Text I/O
+func Files.load_text(path: String) -> String {}
+func Files.save_text(path: String, text: String) -> Bool {}
+
+-- FILE-03: Filesystem queries (16)
+func Files.exists(path: String) -> Bool {}
+func Files.directory_exists(path: String) -> Bool {}
+func Files.is_extension(path: String, ext: String) -> Bool {}
+func Files.length(path: String) -> Int32 {}
+func Files.extension(path: String) -> String {}
+func Files.basename(path: String) -> String {}               -- GetFileName
+func Files.stem(path: String) -> String {}                   -- GetFileNameWithoutExt
+func Files.directory(path: String) -> String {}              -- GetDirectoryPath
+func Files.parent_directory(path: String) -> String {}       -- GetPrevDirectoryPath
+func Files.working_directory() -> String {}
+func Files.application_directory() -> String {}
+func Files.change_directory(path: String) -> Bool {}
+func Files.is_file(path: String) -> Bool {}                  -- IsPathFile
+func Files.is_valid_name(path: String) -> Bool {}
+func Files.mod_time(path: String) -> Int64 {}
+func Files.make_directory(path: String) -> Int32 {}
+
+-- FILE-04: Directory listing (3 entries — extends Phase 62 FilePathList type)
+-- list / list_ex return FilePathList by value (struct-by-value RETURN, Phase 62 precedent).
+-- unload_list is EXPLICIT — FilePathList has interior pointers; no auto-free.
+-- Iterate via existing Phase 62 accessors: FilePathList.count(list), FilePathList.get(list, i).
+-- Pitfall 7: list_ex filter must be dot-prefixed (e.g. ".png"); empty string matches all.
+func Files.list(path: String) -> FilePathList {}
+func Files.list_ex(path: String, filter: String, scan_subdirs: Bool) -> FilePathList {}
+func Files.unload_list(list: FilePathList) {}
+
+-- FILE-05: Data utilities (7 entries)
+-- Memory ownership:
+--   compress / decompress / decode_base64: raylib RL_MALLOC → shim memcpy + MemFree.
+--   encode_base64: raylib RL_MALLOC char* → Iron_String (iron_string_from_cstr + MemFree).
+--   compute_crc32: scalar return, no allocation.
+--   compute_md5 / compute_sha1: raylib STATIC BUFFER → shim memcpy ONLY; DO NOT FREE.
+-- Hash sizes:
+--   md5  -> [UInt8] count=16 (RFC 1321; "abc" = 900150983cd24fb0d6963f7d28e17f72).
+--   sha1 -> [UInt8] count=20 (FIPS 180; "abc" = a9993e364706816aba3e25717850c26c9cd0d89d).
+--   crc32 -> UInt32 (ISO 3309; "123456789" = 0xcbf43926).
+func Files.compress(data: [UInt8]) -> [UInt8] {}
+func Files.decompress(data: [UInt8]) -> [UInt8] {}
+func Files.encode_base64(data: [UInt8]) -> String {}
+func Files.decode_base64(b64: String) -> [UInt8] {}
+func Files.compute_crc32(data: [UInt8]) -> UInt32 {}
+func Files.compute_md5(data: [UInt8]) -> [UInt8] {}
+func Files.compute_sha1(data: [UInt8]) -> [UInt8] {}
+
+-- FILE-06: Random (4 entries under the new Random.* namespace declared line 964)
+-- Pitfall 8: set_seed takes UInt32 — negative Int32 would silently wrap mod 2^32.
+-- Pitfall 9: load_sequence returns empty [Int32] when count > (max - min + 1)
+--           because raylib guarantees unique values.
+-- Q3: unload_sequence is an intentional NO-OP — raylib's int* already freed internally
+--     at the end of load_sequence; Iron's [Int32] is GC-managed. The method exists
+--     purely for raylib-parity so ported code finds it where expected.
+func Random.set_seed(seed: UInt32) {}
+func Random.get_value(min: Int32, max: Int32) -> Int32 {}
+func Random.load_sequence(count: UInt32, min: Int32, max: Int32) -> [Int32] {}
+func Random.unload_sequence(seq: [Int32]) {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 73-01: Deferral closures (7 [UInt8]/file-path + 1 [Float32])
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Closes accumulated Phase 66 (Image I/O memory form) + Phase 67 (Font
+-- memory loaders) deferrals. Iron_List_uint8_t FFI is LIVE (Wave /
+-- Music / Mesh / Shader / Files all consume [UInt8] today); these are
+-- shim-body-only closures, not FFI-gap closures.
+--
+-- C shim template sources:
+--   • Template A ([UInt8] ARG + struct RETURN) → Iron_wave_load_from_memory
+--   • Template B ([UInt8] RETURN with calloc + memcpy + MemFree) →
+--     Iron_files_compress
+--   • Mutating-return-by-value → Phase 66-03 Iron_image_crop
+--
+-- Omission documented in 73-01-SUMMARY.md:
+--   • Image.load_svg — LoadImageSvg not exposed in vendored raylib 5.5
+--     (grep src/vendor/raylib/raylib.h → 0 matches); deferred to a
+--     future raylib vendor bump.
+
+-- Font memory-form loaders (TEXT-03 + TEXT-05 — were [UInt8]-deferred)
+func Font.from_memory(file_type: String, data: [UInt8], data_size: Int32, font_size: Int32, codepoints: [Int32]) -> Font {}
+func Font.load_data(file_data: [UInt8], data_size: Int32, font_size: Int32, codepoints: [Int32], type: Int32) -> [GlyphInfo] {}
+
+-- Image memory-form + raw + mutation deferrals closed
+func Image.load_raw(file_name: String, width: Int32, height: Int32, format: Int32, header_size: Int32) -> Image {}
+func Image.load_from_memory(file_type: String, file_data: [UInt8], data_size: Int32) -> Image {}
+func Image.load_anim_from_memory(file_type: String, file_data: [UInt8], data_size: Int32) -> (Image, Int32) {}
+func Image.export_to_memory(image: Image, file_type: String) -> [UInt8] {}
+func Image.kernel_convolution(image: Image, kernel: [Float32], kernel_size: Int32) -> Image {}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Phase 73-02: Constructor sugar (API-03)
+-- ══════════════════════════════════════════════════════════════════════
+--
+-- Five struct-literal constructors closing API-03 per REQUIREMENTS.md.
+-- Matches the flat static-constructor precedent from Phase 66's
+-- Image.color / Image.gradient_linear / Image.checked (raylib.iron:1295+).
+--
+-- Color uses UInt8 r/g/b/a to match the raylib Color struct field types;
+-- Vector2 / Vector3 / Rectangle use Float32 per Phase 60 convention.
+-- Color.rgb defaults a=255 (opaque); Color.rgba is explicit.
+func Color.rgb(r: UInt8, g: UInt8, b: UInt8) -> Color {}
+func Color.rgba(r: UInt8, g: UInt8, b: UInt8, a: UInt8) -> Color {}
+func Vector2.of(x: Float32, y: Float32) -> Vector2 {}
+func Vector3.of(x: Float32, y: Float32, z: Float32) -> Vector3 {}
+func Rectangle.of(x: Float32, y: Float32, width: Float32, height: Float32) -> Rectangle {}

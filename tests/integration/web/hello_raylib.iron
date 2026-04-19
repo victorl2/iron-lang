@@ -1,11 +1,25 @@
+-- hello_raylib.iron: canonical raylib hello-world for the --target=web
+-- integration test (Phase 8 WEB-BUILD-05). Single init → one-frame
+-- render → close sequence; emit_web takes the 'no canonical loop'
+-- branch and produces a valid WASM module that emcc can link.
+--
+-- Deliberately minimal — the point is to prove the Iron → wasm path
+-- for raylib compiles, links, and produces dist/web/index.{html,js,wasm}.
+-- For a real animation on web see tests/manual/game_raylib.iron (not
+-- in web CI because it needs a display) or examples/pong/pong.iron.
+
 import raylib
 
 func main() {
-    InitWindow(800, 600, "Hello Raylib Web")
-    while not WindowShouldClose() {
-        BeginDrawing()
-        ClearBackground(WHITE)
-        EndDrawing()
-    }
-    CloseWindow()
+    val title: String = "Hello Raylib Web"
+    val bg: Color = WHITE
+    val fg: Color = BLACK
+
+    Window.init(800, 600, title)
+    val _should: Bool = Window.should_close()
+    Draw.begin()
+    Draw.clear(bg)
+    Draw.rectangle(10, 10, 20, 20, fg)
+    Draw.end()
+    Window.close()
 }

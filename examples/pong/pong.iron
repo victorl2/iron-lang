@@ -1,23 +1,30 @@
--- Pong — Phase 12 reference game for the Iron WASM worker
+-- Pong — Phase 12 reference game for the Iron WASM worker.
 --
 -- Two paddles, ball with reflection, per-player score, win condition,
--- and a title/play/game-over state machine driven from a single
--- top-level while(!WindowShouldClose()) loop that captures at least
--- four locals (ball_x, ball_y, ball_vx, ball_vy, paddle positions, scores).
+-- and a title → play → game-over state machine driven from a single
+-- top-level `while not Window.should_close()` loop. The loop captures
+-- several mutable locals (ball position, velocity, paddle positions,
+-- scores, state); the LIR main-loop split pass lifts these into a
+-- FrameState struct on --target=web so writes persist across requestAnimationFrame callbacks.
 --
 -- Builds on both `--target=native` and `--target=web` from the same source.
+-- Post-alpha restoration of the original Phase 12 gameplay — the earlier
+-- Phase 60 placeholder body (commented out under PHASE 6N markers) shipped
+-- only to validate linking through the partial raylib bind while later
+-- phases were in flight.
 
 import raylib
 
--- Game state enum for the title → play → game over → restart state machine
+-- Game state enum for the title → play → game-over → restart state machine.
 enum GameState {
-    TITLE    = 0,
-    PLAYING  = 1,
+    TITLE     = 0,
+    PLAYING   = 1,
     GAME_OVER = 2,
 }
 
 -- Convert a non-negative Int to its decimal String representation.
--- Iron has no stdlib Int→String; implement locally (pattern from url.iron).
+-- Iron has no stdlib Int→String; implemented locally (pattern from url.iron).
+-- Used for the per-player scoreboard overlay.
 func int_to_str(n: Int) -> String {
     if n == 0 { return "0" }
     var x = n
@@ -32,8 +39,9 @@ func int_to_str(n: Int) -> String {
 }
 
 func main() {
-    -- Screen dimensions + tunables (local to main so the LIR main-loop split
-    -- sees them as captures alongside the mutable game state).
+    -- Screen dimensions + tunables. Kept as Int (int64_t) so arithmetic
+    -- stays branchless and wrap-free; cast to Int32 at the Draw.* call sites
+    -- that require it.
     val SCREEN_W: Int = 800
     val SCREEN_H: Int = 600
     val PADDLE_W: Int = 12
@@ -43,8 +51,14 @@ func main() {
     val BALL_SPEED: Int = 5
     val WIN_SCORE: Int = 5
 
-    InitWindow(SCREEN_W, SCREEN_H, "Iron Pong")
-    SetTargetFPS(60)
+    Window.init(Int32(SCREEN_W), Int32(SCREEN_H), "Iron Pong")
+    Window.set_target_fps(Int32(60))
+
+    -- Audio: bounce on paddle/wall collisions. Sound.is_valid() gates
+    -- every play() call so a missing-asset runtime (CI / headless) is
+    -- non-fatal — the game still plays silently.
+    Audio.init()
+    val bounce: Sound = Sound.load("tests/assets/bounce.wav")
 
     -- Captured locals — the Phase 5 LIR main-loop split pass lifts these
     -- into a FrameState struct for web so writes persist frame-over-frame.
@@ -58,58 +72,61 @@ func main() {
     var left_score: Int = 0
     var right_score: Int = 0
 
-    while not WindowShouldClose() {
-        -- Per-frame update dispatch on game state
+    while not Window.should_close() {
+        -- Per-frame update dispatch on game state.
         if state == GameState.TITLE {
-            -- Wait for SPACE to start
-            if IsKeyPressed(Key.SPACE) {
+            if Keyboard.is_pressed(KeyboardKey.SPACE) {
                 state = GameState.PLAYING
             }
         }
         if state == GameState.PLAYING {
-            -- Left paddle: W / S
-            if IsKeyDown(Key.W) { left_y = left_y - PADDLE_SPEED }
-            if IsKeyDown(Key.S) { left_y = left_y + PADDLE_SPEED }
-            -- Right paddle: UP / DOWN arrows
-            if IsKeyDown(Key.UP)   { right_y = right_y - PADDLE_SPEED }
-            if IsKeyDown(Key.DOWN) { right_y = right_y + PADDLE_SPEED }
+            -- Left paddle: W / S.
+            if Keyboard.is_down(KeyboardKey.W) { left_y = left_y - PADDLE_SPEED }
+            if Keyboard.is_down(KeyboardKey.S) { left_y = left_y + PADDLE_SPEED }
+            -- Right paddle: UP / DOWN arrows.
+            if Keyboard.is_down(KeyboardKey.UP)   { right_y = right_y - PADDLE_SPEED }
+            if Keyboard.is_down(KeyboardKey.DOWN) { right_y = right_y + PADDLE_SPEED }
 
-            -- Clamp paddles to screen
+            -- Clamp paddles to screen.
             if left_y < 0 { left_y = 0 }
             if left_y > SCREEN_H - PADDLE_H { left_y = SCREEN_H - PADDLE_H }
             if right_y < 0 { right_y = 0 }
             if right_y > SCREEN_H - PADDLE_H { right_y = SCREEN_H - PADDLE_H }
 
-            -- Ball update
+            -- Ball update.
             ball_x = ball_x + ball_vx
             ball_y = ball_y + ball_vy
 
-            -- Top/bottom wall reflection
+            -- Top/bottom wall reflection.
             if ball_y < 0 {
                 ball_y = 0
                 ball_vy = -ball_vy
+                if Sound.is_valid(bounce) { Sound.play(bounce) }
             }
             if ball_y > SCREEN_H - BALL_SIZE {
                 ball_y = SCREEN_H - BALL_SIZE
                 ball_vy = -ball_vy
+                if Sound.is_valid(bounce) { Sound.play(bounce) }
             }
 
-            -- Left paddle collision (x range + y range)
+            -- Left paddle collision (x range + y range).
             if ball_x < PADDLE_W and ball_x > 0 {
                 if ball_y + BALL_SIZE > left_y and ball_y < left_y + PADDLE_H {
                     ball_x = PADDLE_W
                     ball_vx = -ball_vx
+                    if Sound.is_valid(bounce) { Sound.play(bounce) }
                 }
             }
-            -- Right paddle collision
+            -- Right paddle collision.
             if ball_x + BALL_SIZE > SCREEN_W - PADDLE_W and ball_x + BALL_SIZE < SCREEN_W {
                 if ball_y + BALL_SIZE > right_y and ball_y < right_y + PADDLE_H {
                     ball_x = SCREEN_W - PADDLE_W - BALL_SIZE
                     ball_vx = -ball_vx
+                    if Sound.is_valid(bounce) { Sound.play(bounce) }
                 }
             }
 
-            -- Scoring
+            -- Scoring: ball past a paddle → reset + bump opponent score.
             if ball_x < 0 {
                 right_score = right_score + 1
                 ball_x = SCREEN_W / 2
@@ -125,13 +142,13 @@ func main() {
                 ball_vy = BALL_SPEED
             }
 
-            -- Win condition
+            -- Win condition.
             if left_score >= WIN_SCORE { state = GameState.GAME_OVER }
             if right_score >= WIN_SCORE { state = GameState.GAME_OVER }
         }
         if state == GameState.GAME_OVER {
-            -- SPACE restarts
-            if IsKeyPressed(Key.SPACE) {
+            -- SPACE restarts: reset scores + respawn ball.
+            if Keyboard.is_pressed(KeyboardKey.SPACE) {
                 state = GameState.PLAYING
                 left_score = 0
                 right_score = 0
@@ -142,43 +159,58 @@ func main() {
             }
         }
 
-        -- Render
-        BeginDrawing()
-        ClearBackground(BLACK)
+        -- Render.
+        Draw.begin()
+        Draw.clear(BLACK)
 
-        -- Center line
-        DrawLine(SCREEN_W / 2, 0, SCREEN_W / 2, SCREEN_H, DARKGRAY)
+        -- Center line.
+        Draw.line(Int32(SCREEN_W / 2), Int32(0),
+                   Int32(SCREEN_W / 2), Int32(SCREEN_H), DARKGRAY)
 
-        -- Paddles
-        DrawRectangle(0, left_y, PADDLE_W, PADDLE_H, WHITE)
-        DrawRectangle(SCREEN_W - PADDLE_W, right_y, PADDLE_W, PADDLE_H, WHITE)
+        -- Paddles.
+        Draw.rectangle(Int32(0), Int32(left_y),
+                        Int32(PADDLE_W), Int32(PADDLE_H), WHITE)
+        Draw.rectangle(Int32(SCREEN_W - PADDLE_W), Int32(right_y),
+                        Int32(PADDLE_W), Int32(PADDLE_H), WHITE)
 
-        -- Ball (only draw during play / game over to avoid flashing on title)
+        -- Ball (only drawn in PLAYING + GAME_OVER to avoid flashing on title).
         if state == GameState.PLAYING {
-            DrawRectangle(ball_x, ball_y, BALL_SIZE, BALL_SIZE, WHITE)
+            Draw.rectangle(Int32(ball_x), Int32(ball_y),
+                            Int32(BALL_SIZE), Int32(BALL_SIZE), WHITE)
         }
         if state == GameState.GAME_OVER {
-            DrawRectangle(ball_x, ball_y, BALL_SIZE, BALL_SIZE, WHITE)
+            Draw.rectangle(Int32(ball_x), Int32(ball_y),
+                            Int32(BALL_SIZE), Int32(BALL_SIZE), WHITE)
         }
 
-        -- Scores
+        -- Scores.
         val left_str = int_to_str(left_score)
         val right_str = int_to_str(right_score)
-        DrawText(left_str, SCREEN_W / 4, 20, 40, WHITE)
-        DrawText(right_str, 3 * SCREEN_W / 4, 20, 40, WHITE)
+        Draw.text(left_str,  Int32(SCREEN_W / 4),     Int32(20), Int32(40), WHITE)
+        Draw.text(right_str, Int32(3 * SCREEN_W / 4), Int32(20), Int32(40), WHITE)
 
-        -- State-specific overlay text
+        -- State-specific overlay text.
         if state == GameState.TITLE {
-            DrawText("IRON PONG", SCREEN_W / 2 - 100, SCREEN_H / 2 - 40, 40, WHITE)
-            DrawText("Press SPACE to start", SCREEN_W / 2 - 120, SCREEN_H / 2 + 20, 20, DARKGRAY)
+            Draw.text("IRON PONG",
+                       Int32(SCREEN_W / 2 - 100), Int32(SCREEN_H / 2 - 40),
+                       Int32(40), WHITE)
+            Draw.text("Press SPACE to start",
+                       Int32(SCREEN_W / 2 - 120), Int32(SCREEN_H / 2 + 20),
+                       Int32(20), DARKGRAY)
         }
         if state == GameState.GAME_OVER {
-            DrawText("GAME OVER", SCREEN_W / 2 - 100, SCREEN_H / 2 - 40, 40, RED)
-            DrawText("Press SPACE to restart", SCREEN_W / 2 - 130, SCREEN_H / 2 + 20, 20, DARKGRAY)
+            Draw.text("GAME OVER",
+                       Int32(SCREEN_W / 2 - 100), Int32(SCREEN_H / 2 - 40),
+                       Int32(40), RED)
+            Draw.text("Press SPACE to restart",
+                       Int32(SCREEN_W / 2 - 130), Int32(SCREEN_H / 2 + 20),
+                       Int32(20), DARKGRAY)
         }
 
-        EndDrawing()
+        Draw.end()
     }
 
-    CloseWindow()
+    Sound.unload(bounce)
+    Audio.close()
+    Window.close()
 }

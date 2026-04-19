@@ -1,0 +1,53 @@
+-- tests/integration/raylib/file/file_test.iron
+-- FILE category compile-and-link integration test (API-12 coverage).
+-- Compile-only: exercises Files / Random FFI without real file I/O.
+-- Assertion: `./build/ironc build` exits 0.
+
+import raylib
+
+func main() -> Int32 {
+    -- Filesystem queries (no side effects on missing paths)
+    val e = Files.exists("iron.toml")
+    val de = Files.directory_exists(".")
+    val is_ext = Files.is_extension("foo.png", ".png")
+    val ext = Files.extension("foo.png")
+    val base = Files.basename("/a/b/c.txt")
+    val stem = Files.stem("/a/b/c.txt")
+    val dir = Files.directory("/a/b/c.txt")
+    val cwd = Files.working_directory()
+    val app = Files.application_directory()
+
+    -- Data utilities (known-value hashes)
+    val abc: [UInt8] = [UInt8(97), UInt8(98), UInt8(99)]
+    val compressed = Files.compress(abc)
+    val decompressed = Files.decompress(compressed)
+    val b64 = Files.encode_base64(abc)
+    val decoded = Files.decode_base64(b64)
+    val crc = Files.compute_crc32(abc)
+    val md5 = Files.compute_md5(abc)
+    val sha1 = Files.compute_sha1(abc)
+
+    -- Random
+    Random.set_seed(UInt32(42))
+    val rn = Random.get_value(Int32(0), Int32(100))
+    val seq = Random.load_sequence(UInt32(10), Int32(0), Int32(100))
+    Random.unload_sequence(seq)
+
+    val _k0 = e
+    val _k1 = de
+    val _k2 = is_ext
+    val _k3 = ext
+    val _k4 = base
+    val _k5 = stem
+    val _k6 = dir
+    val _k7 = cwd
+    val _k8 = app
+    val _k9 = decompressed
+    val _k10 = decoded
+    val _k11 = crc
+    val _k12 = md5
+    val _k13 = sha1
+    val _k14 = rn
+
+    return Int32(0)
+}

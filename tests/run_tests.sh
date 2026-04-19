@@ -1,12 +1,22 @@
 #!/bin/bash
 # run_tests.sh - Shared test runner for Iron compiler .iron test categories.
 #
-# For each .iron file in the given category directory with a corresponding
-# .expected file:
-#   1. Compiles the .iron file to a native binary using "iron build"
-#   2. Runs the resulting binary and captures stdout+stderr
-#   3. Compares output to the .expected file (trailing newlines trimmed)
-#   4. Reports PASS/FAIL per test
+# Two modes of operation per .iron file:
+#
+#   1. Run-and-compare (default when a <name>.expected sibling exists):
+#      Compiles, runs the resulting binary, compares stdout+stderr to the
+#      .expected file (trailing newlines trimmed).
+#
+#   2. Compile-only (file opts in via a `-- @compile-only` marker anywhere
+#      in the first 10 lines — typical for fixtures whose runtime needs
+#      a GUI/display/raylib window that CI can't provide):
+#      Only verifies `iron build` succeeds. No binary execution, no output
+#      compare.
+#
+# A .iron file with neither a .expected sibling nor the @compile-only
+# marker is a HARD FAIL, not a silent skip. (Historical rot had stale
+# fixtures with neither — caught by CI only after they were migrated; see
+# 2026-04-18 commit on feat/v2-raylib-milestone.)
 #
 # Usage: ./run_tests.sh <category> [path/to/iron]
 #   category:  Subdirectory name under the directory containing this script
@@ -58,8 +68,18 @@ for test_file in "${TEST_DIR}"/*.iron; do
     expected_file="${TEST_DIR}/${test_name}.expected"
     TOTAL=$((TOTAL + 1))
 
-    if [ ! -f "${expected_file}" ]; then
-        echo "[SKIP] ${test_name} (no .expected file)"
+    # @compile-only marker: grep the first 10 lines of the .iron source.
+    # Files that opt in only need to build successfully — no binary run,
+    # no output compare. Used for fixtures that require a GUI/display
+    # at runtime (raylib window, audio device, …) which CI can't supply.
+    compile_only=0
+    if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*(--|//)[[:space:]]*@compile-only\b'; then
+        compile_only=1
+    fi
+
+    if [ ! -f "${expected_file}" ] && [ "${compile_only}" -eq 0 ]; then
+        echo "[FAIL] ${test_name} (missing .expected; add an .expected sibling or an '-- @compile-only' marker)"
+        FAIL=$((FAIL + 1))
         continue
     fi
 
@@ -83,6 +103,14 @@ for test_file in "${TEST_DIR}"/*.iron; do
     if [ ! -x "${output_bin}" ]; then
         echo "[FAIL] (binary not found at ${output_bin})"
         FAIL=$((FAIL + 1))
+        continue
+    fi
+
+    # Compile-only tests end here — we've proved the build succeeds and
+    # the binary landed on disk. Running would block on a GUI/display.
+    if [ "${compile_only}" -eq 1 ]; then
+        echo "[PASS] (compile-only)"
+        PASS=$((PASS + 1))
         continue
     fi
 

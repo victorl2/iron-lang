@@ -387,6 +387,11 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
      */
     emit_type_decls(&ctx);
     emit_extern_prototypes(&ctx);
+    /* Auto-gen prototypes for foreign-method stubs (Iron_window_*, Iron_draw_*,
+     * Iron_audio_*, …). Without this, emcc fails with implicit-function-
+     * declaration errors on any .iron file that exercises the namespaced
+     * raylib surface — the native emit_c path has called this since Phase 61. */
+    emit_foreign_method_prototypes(&ctx);
 
     /* ── Identify the main-loop function ───────────────────────────────────── */
     int main_loop_fi = -1;

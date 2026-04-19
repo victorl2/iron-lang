@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shaders — Iron raylib Reference</title>
+  <meta name="description" content="GLSL shader loading, uniform/attribute location, set_value by type, composition.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sidebar-width: 260px;
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #4a5568;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-deep); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; background: rgba(8, 8, 15, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 1.5rem; gap: 2rem; }
+    .nav-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.1rem; color: var(--text); text-decoration: none; flex-shrink: 0; }
+    .nav-logo:hover { color: var(--text); }
+    .nav-logo-icon { width: 26px; height: 26px; background: var(--accent); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; color: white; }
+    .nav-right { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+    .nav-right a { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; letter-spacing: -0.01em; transition: color 0.2s, background 0.2s; padding: 0.35rem 0.65rem; border-radius: 6px; }
+    .nav-right a:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+    .nav-right a.active-link { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+    .sidebar-toggle { display: none; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text); padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: var(--font-sans); }
+    .nav-hamburger { display: none; background: none; border: none; cursor: pointer; padding: 0.5rem; margin-left: auto; }
+    .nav-hamburger span { display: block; width: 20px; height: 2px; background: var(--text-secondary); margin: 4px 0; transition: 0.3s; transform-origin: center; }
+    .nav-hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(4px, 4px); }
+    .nav-hamburger.active span:nth-child(2) { opacity: 0; }
+    .nav-hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(4px, -4px); }
+    .sidebar-overlay { position: fixed; inset: 0; z-index: 49; background: rgba(0, 0, 0, 0.5); opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+    .sidebar-overlay.active { opacity: 1; visibility: visible; }
+    .nav-overlay { position: fixed; inset: 0; z-index: 89; background: rgba(0, 0, 0, 0.4); opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; }
+    .nav-overlay.active { opacity: 1; visibility: visible; }
+    .layout { display: flex; margin-top: 56px; min-height: calc(100vh - 56px); }
+    .sidebar { width: var(--sidebar-width); position: fixed; top: 56px; bottom: 0; left: 0; overflow-y: auto; padding: 1.5rem 1rem; border-right: 1px solid var(--border); background: var(--bg-primary); }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.5rem; padding-left: 0.75rem; }
+    .sidebar-section a { display: block; padding: 0.3rem 0.75rem; color: var(--text-secondary); font-size: 0.85rem; border-radius: 4px; transition: all 0.15s; }
+    .sidebar-section a:hover { color: var(--text); background: var(--bg-surface); }
+    .sidebar-section a.active-link { color: var(--accent); background: rgba(232, 89, 12, 0.08); font-weight: 600; }
+    .content { margin-left: var(--sidebar-width); flex: 1; min-width: 0; max-width: 900px; padding: 2.5rem 3rem 4rem; }
+    .content h1 { font-size: 2rem; font-weight: 800; margin-bottom: 0.5rem; line-height: 1.2; }
+    .content .subtitle { color: var(--text-secondary); font-size: 1.1rem; margin-bottom: 2rem; }
+    .content h2 { font-size: 1.4rem; font-weight: 700; margin-top: 3rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+    .content p { margin-bottom: 1rem; color: var(--text-secondary); }
+    .content ul, .content ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+    .content li { margin-bottom: 0.4rem; }
+    .content code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 0.15em 0.4em; border-radius: 4px; color: var(--accent); }
+    .content pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; line-height: 1.6; }
+    .content pre code { background: none; padding: 0; font-size: 0.85rem; color: var(--text); }
+    .syn-kw { color: var(--syn-kw); font-weight: 500; }
+    .syn-ty { color: var(--syn-ty); }
+    .syn-st { color: var(--syn-st); }
+    .syn-cm { color: var(--syn-cm); font-style: italic; }
+    .syn-fn { color: var(--syn-fn); }
+    .syn-nu { color: var(--syn-nu); }
+    .syn-pr { color: var(--syn-pr); }
+    .api-entry { margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+    .api-entry h3 { font-family: var(--font-mono); font-size: 0.98rem; font-weight: 500; color: var(--text); margin-bottom: 0.4rem; margin-top: 1.5rem; }
+    .api-entry h3 code { color: var(--text); background: none; padding: 0; font-size: 1em; }
+    .api-entry .signature-meta { color: var(--text-muted); font-size: 0.82rem; margin-bottom: 0.6rem; }
+    .api-entry .signature-meta code { font-size: 0.8rem; color: var(--text-secondary); background: none; padding: 0; }
+    .api-entry p { margin: 0.4rem 0; font-size: 0.95rem; }
+    .api-entry pre { margin: 0.5rem 0; }
+    .api-entry .sources { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem; }
+    .api-entry .sources a { color: var(--text-secondary); }
+    .api-entry .sources a:hover { color: var(--accent); }
+    .callout { background: var(--bg-surface); border-left: 3px solid var(--accent); padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin-bottom: 1.25rem; }
+    .callout p { margin-bottom: 0; }
+    .callout-title { font-weight: 700; color: var(--text); margin-bottom: 0.3rem; font-size: 0.9rem; }
+    footer { margin-left: var(--sidebar-width); background: var(--bg-primary); border-top: 1px solid var(--border); padding: 2.5rem 3rem 1.5rem; }
+    .footer-inner { max-width: 900px; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 2rem; }
+    .footer-brand p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; max-width: 280px; }
+    .footer-col h4 { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); margin-bottom: 0.75rem; }
+    .footer-col ul { list-style: none; padding: 0; margin: 0; }
+    .footer-col li { margin-bottom: 0.4rem; }
+    .footer-col a { font-size: 0.85rem; color: var(--text-secondary); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-bottom { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); max-width: 900px; }
+    @media (max-width: 900px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; z-index: 50; width: 280px; }
+      .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3); }
+      .content { margin-left: 0; padding: 2rem 2rem 4rem; max-width: 100%; overflow-x: hidden; }
+      .sidebar-toggle { display: block; }
+      .content h1 { font-size: 1.75rem; }
+      .content h2 { font-size: 1.2rem; }
+      footer { margin-left: 0; padding: 2rem 2rem 1.5rem; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 0.5rem; }
+    }
+    @media (max-width: 768px) {
+      .content { padding: 1.75rem 1.5rem 3rem; }
+      .content h1 { font-size: 1.55rem; }
+      .content h2 { font-size: 1.15rem; margin-top: 2.25rem; }
+      .content pre { font-size: 0.78rem; padding: 1rem; overflow-x: auto; }
+      .api-entry h3 { font-size: 0.92rem; word-break: break-word; }
+    }
+    @media (max-width: 640px) {
+      .nav-right { position: absolute; top: 56px; left: 0; right: 0; flex-direction: column; background: rgba(12, 12, 22, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; gap: 0; opacity: 0; visibility: hidden; transform: translateY(-8px); transition: opacity 0.25s, visibility 0.25s, transform 0.25s; }
+      .nav-right.open { opacity: 1; visibility: visible; transform: translateY(0); }
+      .nav-right a { padding: 0.6rem 0.5rem; font-size: 0.95rem; min-height: 44px; display: flex; align-items: center; border-radius: 8px; }
+      .nav-hamburger { display: block; }
+      .content { padding: 1.75rem 1.25rem 3rem; }
+      .content pre { font-size: 0.78rem; padding: 1rem; }
+      .content pre code { font-size: 0.78rem; }
+      nav { padding: 0 1rem; gap: 1rem; }
+      .sidebar { width: 85vw; max-width: 300px; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .content { padding: 1.25rem 1rem 2.5rem; }
+      .content h1 { font-size: 1.4rem; }
+      .content h2 { font-size: 1.1rem; margin-top: 2.5rem; }
+      .content pre { font-size: 0.72rem; padding: 0.85rem; line-height: 1.5; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button class="sidebar-toggle" id="sidebarToggle">Menu</button>
+    <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+    <div class="nav-right" id="navRight">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="/guide/">Package Manager</a>
+      <a href="/raylib/" class="active-link">Raylib</a>
+      <a href="/install/">Install</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
+    </div>
+    <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+  </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Foundation</h3>
+        <a href="/raylib/reference/types.html">Types</a>
+        <a href="/raylib/reference/enums.html">Enums</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>System</h3>
+        <a href="/raylib/reference/window.html">Window &amp; System</a>
+        <a href="/raylib/reference/input.html">Input</a>
+        <a href="/raylib/reference/file.html">Files</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>2D</h3>
+        <a href="/raylib/reference/draw2d.html">2D Drawing</a>
+        <a href="/raylib/reference/coll.html">Collision</a>
+        <a href="/raylib/reference/tex.html">Textures &amp; Images</a>
+        <a href="/raylib/reference/text.html">Text &amp; Fonts</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>3D</h3>
+        <a href="/raylib/reference/draw3d.html">3D Drawing</a>
+        <a href="/raylib/reference/model.html">Models &amp; Meshes</a>
+        <a href="/raylib/reference/shader.html" class="active-link">Shaders</a>
+        <a href="/raylib/reference/math.html">Math</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Audio</h3>
+        <a href="/raylib/reference/audio.html">Audio</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Links</h3>
+        <a href="/raylib/">raylib home</a>
+        <a href="/raylib/guide/">Guide</a>
+        <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <h1>Shaders</h1>
+      <p class="subtitle">GLSL shader loading, uniform/attribute location, set_value by type, composition.</p>
+      <div class="callout">
+        <div class="callout-title">SHADER-01..04 reference</div>
+        <p>GLSL shader loading, uniform + attribute location resolution, per-type <code>set_value</code>, render-texture composition.</p>
+      </div>
+
+      <h2 id="lifecycle">Shader lifecycle (SHADER-01)</h2>
+
+      <article class="api-entry">
+        <h3 id="shader-load"><code>Shader.load(vs_path: String, fs_path: String) -&gt; Shader</code></h3>
+        <p class="signature-meta">Category: <a href="#lifecycle">Lifecycle</a> &middot; raylib: <code>LoadShader</code></p>
+        <p>Load vertex + fragment stages from files. Pass <code>""</code> for either to use raylib's built-in default stage (common for full-screen post-FX).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> fx_grayscale = <span class="syn-ty">Shader</span>.<span class="syn-fn">load</span>(<span class="syn-st">""</span>, <span class="syn-st">"tests/assets/shaders/grayscale.fs"</span>)
+<span class="syn-kw">val</span> fx_invert    = <span class="syn-ty">Shader</span>.<span class="syn-fn">load</span>(<span class="syn-st">""</span>, <span class="syn-st">"tests/assets/shaders/invert.fs"</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2922">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="shader-load-from-memory"><code>Shader.load_from_memory(vs_code: String, fs_code: String) -&gt; Shader</code></h3>
+        <p class="signature-meta">Category: <a href="#lifecycle">Lifecycle</a> &middot; raylib: <code>LoadShaderFromMemory</code></p>
+        <p>Load shader from inline GLSL strings. Useful for embedded/codegen'd shaders.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> s = <span class="syn-ty">Shader</span>.<span class="syn-fn">load_from_memory</span>(vs_src, fs_src)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2923">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="shader-is-valid"><code>Shader.is_valid(shader) -&gt; Bool / Shader.unload(shader)</code></h3>
+        <p class="signature-meta">Category: <a href="#lifecycle">Lifecycle</a> &middot; raylib: <code>IsShaderValid / UnloadShader</code></p>
+        <p>Validity guard + release GL program object.</p>
+        <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Shader</span>.<span class="syn-fn">is_valid</span>(fx_invert) { <span class="syn-ty">Shader</span>.<span class="syn-fn">unload</span>(fx_invert) }</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2924">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="location">Locations (SHADER-02)</h2>
+
+      <article class="api-entry">
+        <h3 id="shader-get-location"><code>Shader.get_location(shader, uniform_name: String) -&gt; Int32</code></h3>
+        <p class="signature-meta">Category: <a href="#location">Locations</a> &middot; raylib: <code>GetShaderLocation</code></p>
+        <p>Resolve a uniform by name. Returns -1 if the uniform doesn't exist; raylib safely no-ops <code>set_value</code> at -1.</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> loc_intensity = <span class="syn-ty">Shader</span>.<span class="syn-fn">get_location</span>(fx_invert, <span class="syn-st">"u_intensity"</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2929">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="shader-get-location-attrib"><code>Shader.get_location_attrib(shader, attrib_name: String) -&gt; Int32</code></h3>
+        <p class="signature-meta">Category: <a href="#location">Locations</a> &middot; raylib: <code>GetShaderLocationAttrib</code></p>
+        <p>Resolve per-vertex attribute by name (for custom mesh layouts).</p>
+        <pre><code class="iron"><span class="syn-kw">val</span> attr = <span class="syn-ty">Shader</span>.<span class="syn-fn">get_location_attrib</span>(shader, <span class="syn-st">"a_custom"</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2930">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="shader-set-location"><code>Shader.set_location(shader, index: ShaderLocationIndex, loc: Int32)</code></h3>
+        <p class="signature-meta">Category: <a href="#location">Locations</a> &middot; raylib: Iron-side helper (no raylib call)</p>
+        <p>Manually set one of the 26 built-in shader locations in <code>Shader.locs[]</code>. Rare &mdash; raylib auto-populates standard locations when you <code>Shader.load</code>.</p>
+        <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_location</span>(shader, <span class="syn-ty">ShaderLocationIndex</span>.<span class="syn-pr">MATRIX_MODEL</span>, loc)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2934">Iron source</a> &middot;
+          <a href="/raylib/reference/enums.html#shaderlocationindex">ShaderLocationIndex enum</a>
+        </p>
+      </article>
+
+      <h2 id="uniforms">Uniform setters (SHADER-03)</h2>
+
+      <article class="api-entry">
+        <h3 id="shader-set-value"><code>Shader.set_value(shader, loc: Int32, value: [UInt8], data_type: ShaderUniformDataType)</code></h3>
+        <p class="signature-meta">Category: <a href="#uniforms">Uniforms</a> &middot; raylib: <code>SetShaderValue</code></p>
+        <p>Write single uniform by byte buffer. Use <code>data_type</code> to tell raylib how to unpack (FLOAT / VEC2 / VEC3 / VEC4 / INT / IVEC2 / IVEC3 / IVEC4 / SAMPLER2D).</p>
+        <pre><code class="iron"><span class="syn-cm">-- Float32(1.0) IEEE-754 LE = [0x00, 0x00, 0x80, 0x3F]</span>
+<span class="syn-kw">val</span> intensity_bytes: [<span class="syn-ty">UInt8</span>] = [<span class="syn-ty">UInt8</span>(<span class="syn-nu">0</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">0</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">128</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">63</span>)]
+<span class="syn-ty">Shader</span>.<span class="syn-fn">set_value</span>(fx_invert, loc_intensity, intensity_bytes, <span class="syn-ty">ShaderUniformDataType</span>.<span class="syn-pr">FLOAT</span>)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2939">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="shader-set-value-v"><code>Shader.set_value_v(shader, loc, values: [UInt8], data_type, count: Int32)</code></h3>
+        <p class="signature-meta">Category: <a href="#uniforms">Uniforms</a> &middot; raylib: <code>SetShaderValueV</code></p>
+        <p>Uniform array setter &mdash; write <code>count</code> elements of <code>data_type</code> starting at <code>loc</code>.</p>
+        <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_value_v</span>(shader, loc, packed, <span class="syn-ty">ShaderUniformDataType</span>.<span class="syn-pr">VEC4</span>, <span class="syn-ty">Int32</span>(<span class="syn-nu">4</span>))</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2940">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="shader-set-value-matrix"><code>Shader.set_value_matrix(shader, loc: Int32, mat: Matrix)</code></h3>
+        <p class="signature-meta">Category: <a href="#uniforms">Uniforms</a> &middot; raylib: <code>SetShaderValueMatrix</code></p>
+        <p>Matrix-typed uniform (mat4).</p>
+        <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_value_matrix</span>(shader, loc_model, <span class="syn-ty">Matrix</span>.<span class="syn-fn">identity</span>())</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2941">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <article class="api-entry">
+        <h3 id="shader-set-value-texture"><code>Shader.set_value_texture(shader, loc: Int32, tex: Texture)</code></h3>
+        <p class="signature-meta">Category: <a href="#uniforms">Uniforms</a> &middot; raylib: <code>SetShaderValueTexture</code></p>
+        <p>Bind a sampler2D uniform to a texture handle.</p>
+        <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_value_texture</span>(shader, loc_bg, background_tex)</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2942">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="mode">Shader mode (SHADER-04)</h2>
+
+      <article class="api-entry">
+        <h3 id="draw-shader-mode"><code>Draw.begin_shader_mode(shader: Shader) / end_shader_mode()</code></h3>
+        <p class="signature-meta">Category: <a href="#mode">Mode</a> &middot; raylib: <code>BeginShaderMode / EndShaderMode</code> (cross-ref to <a href="/raylib/reference/draw2d.html#modes">draw2d</a>)</p>
+        <p>Route subsequent draws through <code>shader</code>'s fragment stage. Pair with <code>Draw.begin_texture_mode</code> for RenderTexture composition.</p>
+        <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">begin_shader_mode</span>(fx_invert)
+<span class="syn-ty">Texture</span>.<span class="syn-fn">draw_rec</span>(rt.texture, src_rec, <span class="syn-ty">Vector2</span>.<span class="syn-fn">zero</span>(), <span class="syn-pr">WHITE</span>)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">end_shader_mode</span>()</code></pre>
+        <p class="sources">
+          <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2120">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
+        </p>
+      </article>
+
+      <h2 id="composition">Composition example</h2>
+
+      <p>Full post-FX pipeline &mdash; render 3D scene to an offscreen RenderTexture, then draw that texture full-screen through a fragment shader. See the <a href="/raylib/guide/#postfx-pipeline">guide's post-FX tutorial</a> for the step-by-step walkthrough.</p>
+
+      <pre><code class="iron"><span class="syn-cm">-- Pass 1: offscreen 3D render</span>
+<span class="syn-ty">Draw</span>.<span class="syn-fn">begin_texture_mode</span>(rt)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">RAYWHITE</span>)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">begin_mode_3d</span>(cam)
+<span class="syn-ty">Model</span>.<span class="syn-fn">draw</span>(model, origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-pr">WHITE</span>)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">end_mode_3d</span>()
+<span class="syn-ty">Draw</span>.<span class="syn-fn">end_texture_mode</span>()
+
+<span class="syn-cm">-- Pass 2: draw RenderTexture through post-FX shader</span>
+<span class="syn-ty">Draw</span>.<span class="syn-fn">begin</span>()
+<span class="syn-ty">Draw</span>.<span class="syn-fn">clear</span>(<span class="syn-pr">BLACK</span>)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">begin_shader_mode</span>(active_shader)
+<span class="syn-cm">-- Y-flip via negative-height Rectangle</span>
+<span class="syn-ty">Texture</span>.<span class="syn-fn">draw_rec</span>(
+    rt.texture,
+    <span class="syn-ty">Rectangle</span>.<span class="syn-fn">of</span>(<span class="syn-nu">0.0</span>, <span class="syn-nu">0.0</span>, <span class="syn-nu">800.0</span>, <span class="syn-nu">-600.0</span>),
+    <span class="syn-ty">Vector2</span>.<span class="syn-fn">zero</span>(),
+    <span class="syn-pr">WHITE</span>
+)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">end_shader_mode</span>()
+<span class="syn-ty">Draw</span>.<span class="syn-fn">end</span>()</code></pre>
+
+      <p>GLSL fragment sources live at <a href="https://github.com/victorl2/iron-lang/tree/main/tests/assets/shaders">tests/assets/shaders/</a> &mdash; grayscale.fs, invert.fs, and friends.</p>
+
+      <h2 id="see-also">See also</h2>
+      <ul>
+        <li><a href="/raylib/reference/types.html#shader">Shader type</a>.</li>
+        <li><a href="/raylib/reference/enums.html#shaderuniformdatatype">ShaderUniformDataType</a>, <a href="/raylib/reference/enums.html#shaderlocationindex">ShaderLocationIndex</a>, <a href="/raylib/reference/enums.html#shaderattributedatatype">ShaderAttributeDataType</a> enums.</li>
+        <li><a href="/raylib/reference/tex.html#texture-load">RenderTexture</a> &mdash; offscreen framebuffers.</li>
+        <li><a href="/raylib/reference/draw2d.html#modes">2D modes</a> &mdash; <code>begin_shader_mode</code> / <code>end_shader_mode</code>.</li>
+        <li><a href="/raylib/guide/#postfx-pipeline">Guide → Post-FX pipeline</a>.</li>
+      </ul>
+
+    </main>
+  </div>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo"><div class="nav-logo-icon">Fe</div>Iron</a>
+        <p>Apache 2.0 licensed. Compiled, strongly-typed, built for games.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Learn</h4>
+        <ul>
+          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/guide/">Package Manager</a></li>
+          <li><a href="/raylib/">Raylib</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Develop</h4>
+        <ul>
+          <li><a href="/install/">Install</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/victorl2/iron-lang">GitHub</a></li>
+          <li><a href="https://github.com/victorl2/iron-lang/issues">Issues</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/" style="color: var(--text-secondary); text-decoration: underline;">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      var sidebar = document.getElementById('sidebar');
+      var sidebarToggle = document.getElementById('sidebarToggle');
+      var sidebarOverlay = document.getElementById('sidebarOverlay');
+      var navToggle = document.getElementById('navToggle');
+      var navRight = document.getElementById('navRight');
+      var navOverlay = document.getElementById('navOverlay');
+      function closeSidebar() { sidebar.classList.remove('open'); sidebarOverlay.classList.remove('active'); }
+      sidebarToggle.addEventListener('click', function() { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('active'); });
+      sidebarOverlay.addEventListener('click', closeSidebar);
+      document.querySelectorAll('.sidebar a').forEach(function(link) { link.addEventListener('click', closeSidebar); });
+      function closeNav() { navRight.classList.remove('open'); navToggle.classList.remove('active'); navOverlay.classList.remove('active'); }
+      navToggle.addEventListener('click', function() { navRight.classList.toggle('open'); navToggle.classList.toggle('active'); navOverlay.classList.toggle('active'); });
+      navOverlay.addEventListener('click', closeNav);
+      navRight.querySelectorAll('a').forEach(function(a) { a.addEventListener('click', closeNav); });
+      document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeSidebar(); closeNav(); } });
+    })();
+  </script>
+</body>
+</html>
