@@ -35,6 +35,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
                 -p no:cacheprovider
                 --ignore=${CMAKE_CURRENT_SOURCE_DIR}/nav
                 --ignore=${CMAKE_CURRENT_SOURCE_DIR}/edit
+                --ignore=${CMAKE_CURRENT_SOURCE_DIR}/fmt
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_smoke PROPERTIES
             LABELS "smoke;phase-m1-invariant"
@@ -74,6 +75,24 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             LABELS "smoke;lsp_smoke;phase-m3-invariant"
             TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
+        # Phase 5 Plan 05-02 (FMT-02, D-13): lsp_fmt_smoke -- pytest harness
+        # for tests/lsp/smoke/fmt covering textDocument/formatting.
+        # 4 scenarios: full-doc + refusal + iron.toml load + iron.toml
+        # reload. Plans 05-03/04 append range + on-type coverage under the
+        # same label.
+        add_test(
+            NAME lsp_fmt_smoke
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/fmt
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_fmt_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m4-invariant"
+            TIMEOUT 120
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
     else()
         message(STATUS
             "pytest-lsp not installed -- registering lsp_smoke as a skipping shim. "
@@ -104,6 +123,16 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
         set_tests_properties(lsp_edit_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase-m3-invariant"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30)
+
+        # Phase 5 Plan 05-02: same SKIP shim for the fmt smoke harness so
+        # ctest -L phase-m4-invariant stays green when pytest-lsp is absent.
+        add_test(
+            NAME lsp_fmt_smoke
+            COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
+        set_tests_properties(lsp_fmt_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m4-invariant"
             SKIP_RETURN_CODE 77
             TIMEOUT 30)
     endif()
