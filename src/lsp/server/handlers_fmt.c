@@ -37,6 +37,7 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -173,24 +174,94 @@ void ilsp_handle_text_document_formatting(IronLsp_Server    *s,
     iron_arena_free(&work_arena);
 }
 
-/* ── textDocument/rangeFormatting (FMT-03, STUB -> Plan 05-03) ───────── */
+/* ── textDocument/rangeFormatting (FMT-03, Plan 05-03, D-04, D-06) ─── */
 
 void ilsp_handle_text_document_range_formatting(IronLsp_Server    *s,
                                                   struct yyjson_doc *doc,
                                                   Iron_Arena        *arena) {
     (void)arena;
     if (!s || !doc) return;
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    yyjson_val *id_v = yyjson_obj_get(root, "id");
+    yyjson_val *root   = yyjson_doc_get_root(doc);
+    yyjson_val *id_v   = yyjson_obj_get(root, "id");
+    yyjson_val *params = yyjson_obj_get(root, "params");
+    if (!params) return;
 
-    Iron_Arena      body_arena = iron_arena_create(4 * 1024);
+    const char *uri = ilsp_nav_parse_uri(params);
+
+    Iron_Arena      body_arena = iron_arena_create(8 * 1024);
     yyjson_alc      alc        = ilsp_json_alc(&body_arena);
     yyjson_mut_doc *rd         = yyjson_mut_doc_new(&alc);
     if (!rd) { iron_arena_free(&body_arena); return; }
 
-    fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+    /* Parse params.range -- { start:{line,character}, end:{...} }.
+     * A missing range is a spec-violation on the client side; we emit
+     * empty TextEdit[] rather than MethodNotFound. */
+    yyjson_val *range_v = yyjson_obj_get(params, "range");
+    if (!range_v) {
+        fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+    yyjson_val *start_v = yyjson_obj_get(range_v, "start");
+    yyjson_val *end_v   = yyjson_obj_get(range_v, "end");
+    if (!start_v || !end_v) {
+        fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    IronLsp_Range req_range;
+    req_range.start.line      =
+        (uint32_t)yyjson_get_uint(yyjson_obj_get(start_v, "line"));
+    req_range.start.character =
+        (uint32_t)yyjson_get_uint(yyjson_obj_get(start_v, "character"));
+    req_range.end.line        =
+        (uint32_t)yyjson_get_uint(yyjson_obj_get(end_v,   "line"));
+    req_range.end.character   =
+        (uint32_t)yyjson_get_uint(yyjson_obj_get(end_v,   "character"));
+
+    /* T-05-03-01 mitigation: reject inverted ranges (start > end). */
+    if (req_range.end.line < req_range.start.line ||
+        (req_range.end.line == req_range.start.line &&
+         req_range.end.character < req_range.start.character)) {
+        fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    IronLsp_Document *d = fmt_lookup_doc(s, uri);
+    if (!d) {
+        fmt_enqueue_result(s, &body_arena, id_v, rd, yyjson_mut_arr(rd));
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    _Atomic bool *cancel = fmt_register_cancel(s, id_v);
+
+    /* Per-request 64 KB work arena (D-12, HARD-06). */
+    Iron_Arena work_arena = iron_arena_create(64 * 1024);
+
+    IronLsp_TextEditList result = ilsp_facade_format_range(
+        d, s->workspace_index, req_range, /* opts */ NULL,
+        &work_arena, cancel);
+
+    if (cancel && atomic_load(cancel)) {
+        iron_arena_free(&work_arena);
+        yyjson_mut_doc_free(rd);
+        iron_arena_free(&body_arena);
+        return;
+    }
+
+    yyjson_mut_val *arr = serialize_text_edits(rd, &result);
+    fmt_enqueue_result(s, &body_arena, id_v, rd, arr);
+
     yyjson_mut_doc_free(rd);
     iron_arena_free(&body_arena);
+    iron_arena_free(&work_arena);
 }
 
 /* ── textDocument/onTypeFormatting (FMT-04, STUB -> Plan 05-04) ──────── */

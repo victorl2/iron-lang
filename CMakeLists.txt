@@ -439,8 +439,10 @@ if(IRON_BUILD_LSP)
         # iron_format_source( call site under src/lsp/ -- enforced by
         # test_fmt_single_call_site CTest grep-invariant. handlers_fmt.c
         # routes textDocument/formatting through ilsp_facade_format_full;
-        # range/on_type are empty-TextEdit stubs (Plans 05-03/04 fill).
+        # Plan 05-03 adds range_format.c which consumes the lex+parse-only
+        # helper from format_internal.h (keeps single-call-site at 1).
         src/lsp/facade/fmt/format.c
+        src/lsp/facade/fmt/range_format.c
         src/lsp/server/handlers_fmt.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
