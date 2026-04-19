@@ -475,4 +475,39 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_completion_snippets PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
+
+    # Phase 4 Plan 04-04 Task 01 (EDIT-07, EDIT-08, D-06): code-action
+    # registry + 5 P1 quickfix handler golden tests. Compiles the
+    # registry TU + 5 quickfix TUs + lsp store modules directly so the
+    # test can exercise the handler output shape without booting ironls.
+    # Pulls in lsp store (document, line_index, utf, sha256) because
+    # quickfix_missing_return derives indentation via ilsp_byte_of_line
+    # and the shape tests construct real IronLsp_Document values with
+    # ilsp_document_create.
+    add_executable(test_codeaction_registry
+        test_codeaction_registry.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/registry.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_undefined_var.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_import.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+    )
+    target_include_directories(test_codeaction_registry PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_codeaction_registry
+        iron_compiler iron_runtime unity)
+    add_test(NAME test_codeaction_registry
+        COMMAND test_codeaction_registry)
+    set_tests_properties(test_codeaction_registry PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
 endif()
