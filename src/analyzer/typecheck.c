@@ -1159,9 +1159,10 @@ static bool stmt_always_returns(Iron_Node *node) {
 /* Phase 4 Plan 04-01 (EDIT-07): missing-return walker.
  *
  * Emits IRON_ERR_MISSING_RETURN (code 236) with a type-appropriate
- * "return 0;" / "return 0.0;" / "return false;" / "return \"\";"
+ * "return 0" / "return 0.0" / "return false" / "return \"\""
  * suggestion when a non-void function body does not demonstrably return
- * on every path.
+ * on every path. (Phase 5 Plan 05-05: semicolon-free -- Iron grammar
+ * rejects trailing `;` on return statements.)
  *
  * The walker is intentionally conservative — it only fires when the
  * function has a non-void declared return type and the body's terminal
@@ -1178,7 +1179,14 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
 
     /* Pick a type-appropriate "zero" return snippet. Skip emit for types
      * without an obvious zero (objects, enums, arrays) — Plan 04-04's code
-     * action handler treats the absence of a suggestion as "no quickfix". */
+     * action handler treats the absence of a suggestion as "no quickfix".
+     *
+     * Phase 5 Plan 05-05 (D-07 fmt-clean gate): Iron grammar does not
+     * accept trailing semicolons on return statements (parser errors
+     * with "expected expression" on `return 0;`). Earlier seeds used
+     * "return 0;" which was both invalid Iron source AND broke the
+     * missing_return quickfix's post-apply fmt-cleanliness. Emit
+     * canonical semicolon-free forms. */
     const char *zero = NULL;
     switch ((int)rt->kind) {
         case IRON_TYPE_INT:
@@ -1191,15 +1199,15 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
         case IRON_TYPE_UINT16:
         case IRON_TYPE_UINT32:
         case IRON_TYPE_UINT64:
-            zero = "return 0;"; break;
+            zero = "return 0"; break;
         case IRON_TYPE_FLOAT:
         case IRON_TYPE_FLOAT32:
         case IRON_TYPE_FLOAT64:
-            zero = "return 0.0;"; break;
+            zero = "return 0.0"; break;
         case IRON_TYPE_BOOL:
-            zero = "return false;"; break;
+            zero = "return false"; break;
         case IRON_TYPE_STRING:
-            zero = "return \"\";"; break;
+            zero = "return \"\""; break;
         default:
             /* No obvious zero; emit without a suggestion. */
             break;
@@ -1214,21 +1222,24 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
                    "function may reach end without returning a value", zero);
     } else {
         /* No well-defined zero snippet; synthesize a type-name-ish suggestion
-         * so .suggestion is non-NULL (every P1 emit-site seeds .suggestion). */
+         * so .suggestion is non-NULL (every P1 emit-site seeds .suggestion).
+         *
+         * Phase 5 Plan 05-05: semicolon-free forms -- Iron grammar does
+         * not accept trailing `;`. */
         const char *fallback = iron_type_to_string(rt, ctx->arena);
         if (!fallback) fallback = "<value>";
         char *sug = (char *)iron_arena_alloc(ctx->arena,
                                               strlen("return ") + strlen(fallback)
-                                              + strlen("(...);") + 1, 1);
+                                              + strlen("(...)") + 1, 1);
         if (sug) {
-            sprintf(sug, "return %s(...);", fallback);
+            sprintf(sug, "return %s(...)", fallback);
             emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
                        "function may reach end without returning a value",
                        sug);
         } else {
             emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
                        "function may reach end without returning a value",
-                       "return <value>;");
+                       "return <value>");
         }
     }
 }
@@ -3607,8 +3618,16 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
                      * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
-                     * .suggestion. Non-literal RHS stays at 202 with NULL. */
-                    emit_type_mismatch_maybe_literal(ctx, vd->span, decl_type,
+                     * .suggestion. Non-literal RHS stays at 202 with NULL.
+                     *
+                     * Phase 5 Plan 05-05 (D-07 fmt-clean gate): pass the
+                     * literal RHS's span (not the whole decl's span) so
+                     * the quickfix replaces only the literal text --
+                     * the previous whole-decl span caused the quickfix
+                     * to destroy the `val n: Int =` prefix. The 202
+                     * general-form emit still uses vd->span below. */
+                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
+                    emit_type_mismatch_maybe_literal(ctx, lit_span, decl_type,
                                                       init_type, vd->init);
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
@@ -3659,8 +3678,16 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
                      * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
-                     * .suggestion. Non-literal RHS stays at 202 with NULL. */
-                    emit_type_mismatch_maybe_literal(ctx, vd->span, decl_type,
+                     * .suggestion. Non-literal RHS stays at 202 with NULL.
+                     *
+                     * Phase 5 Plan 05-05 (D-07 fmt-clean gate): pass the
+                     * literal RHS's span (not the whole decl's span) so
+                     * the quickfix replaces only the literal text --
+                     * the previous whole-decl span caused the quickfix
+                     * to destroy the `val n: Int =` prefix. The 202
+                     * general-form emit still uses vd->span below. */
+                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
+                    emit_type_mismatch_maybe_literal(ctx, lit_span, decl_type,
                                                       init_type, vd->init);
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
