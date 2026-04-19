@@ -749,3 +749,31 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m4-invariant"
         TIMEOUT 30)
 endif()
+
+# Phase 5 Plan 05-04 Task 2 (FMT-04, D-05, D-06) -- on-type formatting
+# block-finder + per-line indent emitter unit test for
+# ilsp_facade_format_on_type. Drives the facade with 5 boundary cases
+# (top-level fn, already-correct, string-literal, parse-error,
+# non-brace trigger).
+if(IRON_BUILD_LSP)
+    add_executable(test_fmt_on_type_block_finder
+        test_fmt_on_type_block_finder.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/on_type_format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+    )
+    target_include_directories(test_fmt_on_type_block_finder PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_fmt_on_type_block_finder
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_fmt_on_type_block_finder COMMAND test_fmt_on_type_block_finder)
+    set_tests_properties(test_fmt_on_type_block_finder PROPERTIES
+        LABELS "unit;phase-m4-invariant"
+        TIMEOUT 30)
+endif()
