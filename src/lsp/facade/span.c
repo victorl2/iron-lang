@@ -18,6 +18,7 @@
 #include "lsp/store/line_index.h"
 #include "lsp/store/utf.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -48,10 +49,23 @@ static void line_byte_range(const IronLsp_Document *doc, uint32_t line0,
 
 /* One endpoint: (iron_line, iron_col) -> (lsp_line, lsp_char).
  * Iron is 1-indexed; LSP is 0-indexed. iron_col is a byte offset on the
- * line (1 = first byte). */
+ * line (1 = first byte).
+ *
+ * `is_exclusive_end` is true when this endpoint is the END of a range
+ * and the caller wants LSP-spec exclusive semantics. Iron_Span's
+ * end_col is 1-indexed INCLUSIVE (iron_token_span sets it to
+ * `col + len - 1`, covering the last byte of the token); LSP ranges
+ * are half-open so LSP end.character must point one past the last
+ * covered byte. The conversion is: LSP_char_exclusive = iron_col
+ * (no -1), which matches selection_range.c:65-75's convention.
+ *
+ * For start endpoints (is_exclusive_end=false) we keep the standard
+ * 1-indexed -> 0-indexed (-1) conversion so LSP start.character
+ * points at the first covered byte, inclusive. */
 static void convert_endpoint(const IronLsp_Document  *doc,
                               uint32_t                 iron_line,
                               uint32_t                 iron_col,
+                              bool                     is_exclusive_end,
                               IronLsp_PositionEncoding enc,
                               uint32_t                *out_lsp_line,
                               uint32_t                *out_lsp_char) {
@@ -66,9 +80,18 @@ static void convert_endpoint(const IronLsp_Document  *doc,
     line_byte_range(doc, lsp_line, &line_start, &line_len);
     const char *line_ptr = doc->text ? doc->text + line_start : "";
 
-    /* iron_col is 1-indexed byte offset. Convert to 0-indexed byte
-     * offset within the line, clamp to line_len. */
-    uint32_t byte_col = (iron_col == 0) ? 0 : (iron_col - 1);
+    /* iron_col -> byte-offset-within-line.
+     * Start endpoints: 1-indexed inclusive -> 0-indexed inclusive = col - 1.
+     * End endpoints: 1-indexed inclusive -> 0-indexed exclusive = col.
+     * Zero input collapses to 0 either way. */
+    uint32_t byte_col;
+    if (iron_col == 0) {
+        byte_col = 0;
+    } else if (is_exclusive_end) {
+        byte_col = iron_col;
+    } else {
+        byte_col = iron_col - 1;
+    }
     if ((size_t)byte_col > line_len) byte_col = (uint32_t)line_len;
 
     uint32_t lsp_char;
@@ -88,9 +111,9 @@ IronLsp_Range ilsp_span_to_lsp_range(Iron_Span                      span,
     IronLsp_Range r = {0};
     if (!doc) return r;
 
-    convert_endpoint(doc, span.line,     span.col,
+    convert_endpoint(doc, span.line,     span.col,     false,
                      enc, &r.start.line, &r.start.character);
-    convert_endpoint(doc, span.end_line, span.end_col,
+    convert_endpoint(doc, span.end_line, span.end_col, true,
                      enc, &r.end.line,   &r.end.character);
 
     /* Guard: if the analyzer emitted end_line == 0 (unset) while start
