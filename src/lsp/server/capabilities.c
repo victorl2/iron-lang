@@ -135,6 +135,22 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         return;
     }
 
+    /* Phase 5 Plan 05-04 (FMT-04, D-14): documentOnTypeFormattingProvider
+     * expects { firstTriggerCharacter: "}", moreTriggerCharacter: [] }.
+     * Handler-table auto-advertise emits booleans by default; this
+     * explicit branch emits the required object shape. Pattern mirrors
+     * signatureHelpProvider below. The trigger set is locked to `}`
+     * only in v1 per D-05; additional triggers (`;`, `\n`, `)`, `:`)
+     * are deferred to v1.x (FMT-DIFF-01). */
+    if (strcmp(name, "documentOnTypeFormattingProvider") == 0) {
+        yyjson_mut_val *ot = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_strcpy(d, ot, "firstTriggerCharacter", "}");
+        yyjson_mut_val *more = yyjson_mut_arr(d);   /* empty array */
+        yyjson_mut_obj_add_val(d, ot, "moreTriggerCharacter", more);
+        yyjson_mut_obj_add_val(d, caps, name, ot);
+        return;
+    }
+
     /* Phase 3 Plan 04 Task 03 (D-13): signatureHelpProvider expects
      *   { triggerCharacters: ["(", ","], retriggerCharacters: [","] }.
      * Handler-table auto-advertise cannot produce this shape (it only

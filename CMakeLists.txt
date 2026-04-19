@@ -441,8 +441,11 @@ if(IRON_BUILD_LSP)
         # routes textDocument/formatting through ilsp_facade_format_full;
         # Plan 05-03 adds range_format.c which consumes the lex+parse-only
         # helper from format_internal.h (keeps single-call-site at 1).
+        # Plan 05-04 adds on_type_format.c which also consumes the
+        # lex+parse-only helper; iron_format_source grep still returns 1.
         src/lsp/facade/fmt/format.c
         src/lsp/facade/fmt/range_format.c
+        src/lsp/facade/fmt/on_type_format.c
         src/lsp/server/handlers_fmt.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
