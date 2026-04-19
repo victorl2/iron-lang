@@ -232,7 +232,7 @@ void test_print_ast_dense_program(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
     /* AST printer runs on the parser's output directly — no analysis needed. */
-    char *printed = iron_print_ast(root, &g_arena);
+    char *printed = iron_print_ast(root, NULL, &g_arena);
     TEST_ASSERT_NOT_NULL(printed);
 
     /* Sample several shapes: if present in output, at least the
