@@ -454,4 +454,25 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 30)
 
+    # Phase 4 Plan 04-03 Task 02 (EDIT-04, D-15): snippet renderer.
+    # Golden-string tests asserting the 5 template shapes (function /
+    # method / object / match / import / enum-variant) and the LSP
+    # Snippet-grammar escape logic for `$`, `}`, `\` per PITFALL D
+    # (the `${USER}` variable-substitution leak).
+    add_executable(test_completion_snippets
+        test_completion_snippets.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+    )
+    target_include_directories(test_completion_snippets PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_completion_snippets
+        iron_compiler iron_runtime unity)
+    add_test(NAME test_completion_snippets
+        COMMAND test_completion_snippets)
+    set_tests_properties(test_completion_snippets PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 30)
 endif()
