@@ -1,51 +1,95 @@
 -- @compile-only — raylib/ABI smoke; runtime needs a GUI/audio/display CI can't supply.
--- game_raylib.iron: Manual raylib smoke test — Phase 60 placeholder.
+-- game_raylib.iron: Manual raylib smoke test.
 --
--- PHASE 60 NOTE (Plan 60-08): This file was rewritten during the
--- clean-break. Its original body used module-function style calls
--- (raylib dot init underscore window / raylib dot draw underscore
--- text / etc.) which never worked against any raylib.iron (old or
--- new). This placeholder exercises Phase 60's type/enum surface to
--- prove the import path is healthy; full game code returns in
--- Phase 73 as part of the showcase.
+-- Bouncing-ball animation with keyboard-controlled paddle. Originally a
+-- Phase 60 placeholder that only exercised the type/enum surface; now
+-- restored to a full frame-loop smoke that catches regressions across:
 --
--- Run manually: ctest --test-dir build -L manual
--- NOT included in CI (requires display and raylib).
+--   - Window lifecycle     (Window.init / set_target_fps / should_close / close)
+--   - Single canonical loop (`while not Window.should_close()`)
+--   - 2D draw primitives    (Draw.begin / clear / rectangle / circle / text / end)
+--   - Keyboard polling      (Keyboard.is_down)
+--   - Int → Int32 narrowing at Draw.* call sites
+--
+-- Not included in CI runtime (needs a display + graphics stack); CI
+-- exercises the BUILD path via the `manual` ctest label (run_tests.sh
+-- sees the @compile-only marker on line 1 and stops after the build
+-- succeeds). Local devs run it directly for a visual sanity check.
 
 import raylib
 
 func main() {
-    -- Phase 60 type surface exercised (no function calls):
-    val title: String = "Iron Language Test — Phase 60 placeholder"
-    val ball_pos: Vector2 = Vector2(Float32(400.0), Float32(300.0))
-    val ball_velocity: Vector2 = Vector2(Float32(2.0), Float32(0.0))
-    val fg: Color = WHITE
-    val bg: Color = BLACK
-    val highlight: Color = RED
-    val accent: Color = GREEN
-    val up_key: KeyboardKey = KeyboardKey.UP
-    val down_key: KeyboardKey = KeyboardKey.DOWN
+    val SCREEN_W: Int = 800
+    val SCREEN_H: Int = 600
+    val BALL_R:   Int = 16
+    val PADDLE_W: Int = 100
+    val PADDLE_H: Int = 16
+    val PADDLE_Y: Int = SCREEN_H - 40
+    val PADDLE_SPEED: Int = 8
 
-    -- Phase 61: init/target_fps/close. Frame loop body in 62/63.
-    Window.init(800, 600, title)
-    Window.set_target_fps(60)
-    val _should: Bool = Window.should_close()
-    -- Phase 63: render a single frame to exercise the Draw namespace.
-    Draw.begin()
-    Draw.clear(bg)
-    Draw.rectangle(100, 100, 50, 50, fg)
-    Draw.end()
-    -- Phase 62: poll the keyboard once to exercise the down_key binding.
-    val _kb_down: Bool = Keyboard.is_down(down_key)
+    Window.init(Int32(SCREEN_W), Int32(SCREEN_H), "Iron raylib smoke — bouncing ball")
+    Window.set_target_fps(Int32(60))
+
+    -- Captured locals lifted into FrameState for --target=web.
+    var ball_x:  Int = SCREEN_W / 2
+    var ball_y:  Int = SCREEN_H / 2
+    var ball_vx: Int = 4
+    var ball_vy: Int = 3
+    var paddle_x: Int = SCREEN_W / 2 - PADDLE_W / 2
+    var bounces: Int = 0
+
+    while not Window.should_close() {
+        -- Paddle input.
+        if Keyboard.is_down(KeyboardKey.LEFT)  { paddle_x = paddle_x - PADDLE_SPEED }
+        if Keyboard.is_down(KeyboardKey.RIGHT) { paddle_x = paddle_x + PADDLE_SPEED }
+        if paddle_x < 0 { paddle_x = 0 }
+        if paddle_x > SCREEN_W - PADDLE_W { paddle_x = SCREEN_W - PADDLE_W }
+
+        -- Ball motion.
+        ball_x = ball_x + ball_vx
+        ball_y = ball_y + ball_vy
+
+        -- Wall reflection.
+        if ball_x < BALL_R {
+            ball_x = BALL_R
+            ball_vx = -ball_vx
+            bounces = bounces + 1
+        }
+        if ball_x > SCREEN_W - BALL_R {
+            ball_x = SCREEN_W - BALL_R
+            ball_vx = -ball_vx
+            bounces = bounces + 1
+        }
+        if ball_y < BALL_R {
+            ball_y = BALL_R
+            ball_vy = -ball_vy
+            bounces = bounces + 1
+        }
+        -- Paddle reflection.
+        if ball_y + BALL_R > PADDLE_Y and ball_y < PADDLE_Y + PADDLE_H {
+            if ball_x > paddle_x and ball_x < paddle_x + PADDLE_W {
+                ball_y = PADDLE_Y - BALL_R
+                ball_vy = -ball_vy
+                bounces = bounces + 1
+            }
+        }
+        -- Floor reset (ball fell off below paddle).
+        if ball_y > SCREEN_H + BALL_R {
+            ball_x = SCREEN_W / 2
+            ball_y = SCREEN_H / 2
+            ball_vx = 4
+            ball_vy = 3
+        }
+
+        -- Render.
+        Draw.begin()
+        Draw.clear(BLACK)
+        Draw.rectangle(Int32(paddle_x), Int32(PADDLE_Y),
+                        Int32(PADDLE_W), Int32(PADDLE_H), WHITE)
+        Draw.circle(Int32(ball_x), Int32(ball_y), Float32(16.0), RED)
+        Draw.text("← / → to move paddle", Int32(10), Int32(10), Int32(20), DARKGRAY)
+        Draw.end()
+    }
+
     Window.close()
-
-    -- Keep the values alive so the typechecker doesn't warn about unused locals.
-    -- fg / bg are now consumed by Draw.clear / Draw.rectangle above (Plan 63-04),
-    -- so their _unused_* bindings were removed. Numbering preserved with gaps.
-    val _unused_0 = title
-    val _unused_1 = ball_pos
-    val _unused_2 = ball_velocity
-    val _unused_5 = highlight
-    val _unused_6 = accent
-    val _unused_7 = up_key
 }
