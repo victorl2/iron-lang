@@ -76,6 +76,10 @@ void ilsp_handle_completion_item_resolve    (IronLsp_Server *s, yyjson_doc *doc,
 void ilsp_handle_text_document_code_action  (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_code_action_resolve        (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 4 Plan 04-06 (EDIT-10, EDIT-11, EDIT-12): prepareRename + rename. */
+void ilsp_handle_text_document_prepare_rename(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_text_document_rename        (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -137,10 +141,19 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "textDocument/hover",                ilsp_handle_text_document_hover,            true,  "hoverProvider"         },
     /* Plan 05 Task 01 (NAV-05): implementation. 'h' < 'i' < 'r' sort. */
     { "textDocument/implementation",       ilsp_handle_text_document_implementation,   true,  "implementationProvider"},
+    /* Phase 4 Plan 04-06 (EDIT-10): prepareRename. Sort: 'prepareR' vs
+     * 'prepareT' — common 'prepare', then 'R'(0x52) < 'T'(0x54), so
+     * prepareRename precedes prepareTypeHierarchy. */
+    { "textDocument/prepareRename",        ilsp_handle_text_document_prepare_rename,   true,  "renameProvider"        },
     /* Plan 05 Task 02 (NAV-11): prepareTypeHierarchy. 'i' < 'p' < 'r'. */
     { "textDocument/prepareTypeHierarchy", ilsp_handle_text_document_prepare_type_hierarchy, true, "typeHierarchyProvider"},
     /* Plan 04 Task 01 (NAV-06): references. */
     { "textDocument/references",           ilsp_handle_text_document_references,       true,  "referencesProvider"    },
+    /* Phase 4 Plan 04-06 (EDIT-11): rename. Sort: 'references' vs
+     * 'rename' — common 're', then 'f'(0x66) < 'n'(0x6E), so
+     * references precedes rename; 'rename' vs 'signatureHelp' — 'r'
+     * (0x72) < 's' (0x73). */
+    { "textDocument/rename",               ilsp_handle_text_document_rename,           true,  "renameProvider"        },
     /* Plan 04 Task 03 (NAV-10): signatureHelp. */
     { "textDocument/signatureHelp",        ilsp_handle_text_document_signature_help,   true,  "signatureHelpProvider" },
     /* Plan 03 Task 02 (NAV-04): typeDefinition. */
