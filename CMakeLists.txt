@@ -785,6 +785,29 @@ if(IRON_BUILD_LSP)
         LABELS "invariant;phase-m4-invariant")
 endif()
 
+# Phase 5 Plan 05-05 (D-09) -- test_fmt_idempotent corpus invariant.
+#
+# For every parseable tests/integration/*.iron, asserts
+# fmt(fmt(x)) == fmt(x) byte-for-byte. Catches printer oscillation
+# bugs (gofmt/rustfmt/prettier precedent). Runs the full ~381-fixture
+# corpus in ~1-2 seconds.
+add_executable(test_fmt_idempotent
+    tests/unit/test_fmt_idempotency_corpus.c)
+target_include_directories(test_fmt_idempotent PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/vendor)
+target_compile_definitions(test_fmt_idempotent PRIVATE
+    _GNU_SOURCE
+    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration\"")
+target_link_libraries(test_fmt_idempotent
+    iron_compiler iron_runtime iron_stdlib unity m pthread)
+add_test(NAME test_fmt_idempotent
+         COMMAND test_fmt_idempotent
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(test_fmt_idempotent PROPERTIES
+    LABELS "integration;phase-m4-invariant"
+    TIMEOUT 300)
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)
