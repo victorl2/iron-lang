@@ -722,3 +722,30 @@ add_test(NAME test_fmt_options_parse COMMAND test_fmt_options_parse)
 set_tests_properties(test_fmt_options_parse PROPERTIES
     LABELS "unit;phase-m4-invariant"
     TIMEOUT 30)
+
+# Phase 5 Plan 05-03 Task 2 (FMT-03, D-04, D-06) -- decl-intersection
+# unit test for ilsp_facade_format_range. Drives the facade with
+# synthetic IronLsp_Document fixtures and asserts the returned
+# TextEdit count / ordering on 5 boundary cases.
+if(IRON_BUILD_LSP)
+    add_executable(test_fmt_range_locator
+        test_fmt_range_locator.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/range_format.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+    )
+    target_include_directories(test_fmt_range_locator PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(test_fmt_range_locator
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_fmt_range_locator COMMAND test_fmt_range_locator)
+    set_tests_properties(test_fmt_range_locator PROPERTIES
+        LABELS "unit;phase-m4-invariant"
+        TIMEOUT 30)
+endif()
