@@ -72,6 +72,10 @@ void ilsp_handle_workspace_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Iron_A
 void ilsp_handle_text_document_completion   (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_completion_item_resolve    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 4 Plan 04-04 (EDIT-07, EDIT-08): code-action + resolve. */
+void ilsp_handle_text_document_code_action  (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+void ilsp_handle_code_action_resolve        (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* ── Handler table ───────────────────────────────────────────────────────
  * MUST remain sorted by method name for bsearch. Plans 04 + 05 will
  * insert document / diagnostics handlers between the lifecycle entries
@@ -94,6 +98,11 @@ void ilsp_handle_completion_item_resolve    (IronLsp_Server *s, yyjson_doc *doc,
  * signatureHelp < typeDefinition ('s' < 't'). */
 const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "$/cancelRequest",                   ilsp_handle_cancel,                         false, NULL                    },
+    /* Phase 4 Plan 04-04 (EDIT-08): codeAction/resolve.
+     * Sort: '$' (0x24) < 'c' (0x63). Within c-prefix, 'codeAction/r...'
+     * vs 'completionItem/r...': common 'co', then 'd' (0x64) < 'm'
+     * (0x6D), so codeAction/resolve < completionItem/resolve. */
+    { "codeAction/resolve",                ilsp_handle_code_action_resolve,            true,  "codeActionProvider"    },
     /* Phase 4 Plan 04-02 (EDIT-03): completionItem/resolve.
      * Sort: '$' (0x24) < 'c' (0x63) < 'e' (0x65), so this row belongs
      * directly after "$/cancelRequest" and before "exit". */
@@ -102,6 +111,10 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "initialize",                        ilsp_handle_initialize,                     true,  NULL                    },
     { "initialized",                       ilsp_handle_initialized,                    false, NULL                    },
     { "shutdown",                          ilsp_handle_shutdown,                       true,  NULL                    },
+    /* Phase 4 Plan 04-04 (EDIT-07): textDocument/codeAction. Sort:
+     * 'codeAction' vs 'completion' — common 'co', then 'd'(0x64) <
+     * 'm'(0x6D), so codeAction < completion. */
+    { "textDocument/codeAction",           ilsp_handle_text_document_code_action,      true,  "codeActionProvider"    },
     /* Phase 4 Plan 04-02 (EDIT-01): textDocument/completion. Sort:
      * "completion" < "declaration" because 'c'(0x63) < 'd'(0x64). */
     { "textDocument/completion",           ilsp_handle_text_document_completion,       true,  "completionProvider"    },
