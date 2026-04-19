@@ -340,6 +340,52 @@ int iron_check(const char *source_path, bool verbose) {
         }
     }
 
+    /* Phase 78 FMT: always prepend int.iron — Int.to_string / Int32.to_string
+     * available without an explicit import. Mirror of build.c block 1j. */
+    {
+        char *int_path = check_make_path(base_dir, "stdlib/int.iron");
+        if (int_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(int_path, &sz);
+            free(int_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* Phase 78 FMT: always prepend float.iron — Float.to_string available
+     * without an explicit import. Mirror of build.c block 1k. */
+    {
+        char *float_path = check_make_path(base_dir, "stdlib/float.iron");
+        if (float_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(float_path, &sz);
+            free(float_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();

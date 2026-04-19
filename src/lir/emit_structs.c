@@ -1021,6 +1021,15 @@ void emit_foreign_method_prototypes(EmitCtx *ctx) {
         "Iron_timer_",
         "Iron_log_",
         "Iron_hint_",
+        /* Phase 78 FMT: Int/Int32/Float numeric → String runtime shims
+         * declared in iron_runtime.h (Iron_int_to_string, Iron_int32_to_string,
+         * Iron_float_to_string). The Iron-level stubs in stdlib/int.iron and
+         * stdlib/float.iron have zero explicit params (self is implicit for
+         * stub methods per hir_lower.c:1627), so emitting a `(void)` prototype
+         * here would conflict with the header's real one-arg signature. */
+        "Iron_int_",
+        "Iron_int32_",
+        "Iron_float_",
         NULL
     };
     struct { const char *key; int value; } *emitted_fms = NULL;

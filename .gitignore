@@ -68,6 +68,8 @@ test_*
 /abi_float32_probe.c
 /abi_phase70_probe
 /abi_phase70_probe.c
+fmt_probe
+fmt_probe.c
 /pong
 /game_raylib
 /arena_split_collection
