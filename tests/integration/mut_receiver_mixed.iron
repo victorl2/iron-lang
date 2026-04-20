@@ -1,0 +1,37 @@
+-- mut_receiver_mixed.iron — Phase 80 MUT-08 mixed-methods integration test.
+--
+-- Proves one type can carry BOTH a mut method and an immutable method
+-- and that both callable axes work in one main() (CONTEXT.md locks
+-- this shape: var c1 calls both, val c2 calls only read).
+--
+-- What this proves:
+--   * MUT-04 negative space: calling the immutable `read` method on
+--     val-bound c2 works cleanly (no E0235 — immutable methods are
+--     allowed on val bindings)
+--   * MUT-04 positive space: calling the mut `increment` method on
+--     var-bound c1 works cleanly (the var binding satisfies the
+--     mut-receiver requirement)
+--   * MUT-03 + MUT-04 coexistence: a type can have methods on BOTH
+--     sides of the mut/immut axis in the same decl-list
+
+object Counter {
+    var value: Int
+}
+
+func (mut c: Counter) increment() {
+    c.value = c.value + 1
+}
+
+func (c: Counter) read() -> Int {
+    return c.value
+}
+
+func main() {
+    var c1: Counter = Counter(0)
+    c1.increment()
+    c1.increment()
+    println("{c1.read()}")
+
+    val c2: Counter = Counter(42)
+    println("{c2.read()}")
+}

@@ -76,6 +76,10 @@ mut_receiver_grammar
 mut_receiver_grammar.c
 mut_receiver_static_twin
 mut_receiver_static_twin.c
+mut_receiver_basic
+mut_receiver_basic.c
+mut_receiver_mixed
+mut_receiver_mixed.c
 /pong
 /game_raylib
 /arena_split_collection
