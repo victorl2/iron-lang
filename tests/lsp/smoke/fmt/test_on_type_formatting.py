@@ -48,13 +48,15 @@ async def _settle(client, timeout: float = 5.0) -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_type_capability_advertised(client):
+async def test_on_type_capability_advertised(raw_client, init_params_factory):
     """D-14: documentOnTypeFormattingProvider must be advertised as an
     object with firstTriggerCharacter='}' and moreTriggerCharacter=[].
-    pytest-lsp stores the initialize result on client.server_capabilities
-    after the session is set up by the parent conftest."""
-    caps = getattr(client, "server_capabilities", None)
-    assert caps is not None, "expected client.server_capabilities after initialize"
+    (pytest-lsp's auto-initialized `client` fixture does not retain the
+    server capabilities, so this test uses `raw_client` and drives the
+    initialize itself — same pattern as test_formatting_capability_advertised.)"""
+    result = await raw_client.initialize_session(init_params_factory())
+    caps = result.capabilities
+    assert caps is not None, "expected initialize result to include capabilities"
 
     cap = getattr(caps, "document_on_type_formatting_provider", None)
     assert cap is not None, (
@@ -64,8 +66,9 @@ async def test_on_type_capability_advertised(client):
         f"expected firstTriggerCharacter='}}', got {cap.first_trigger_character!r}"
     )
     # LSP spec allows moreTriggerCharacter to be absent OR an empty list.
+    # lsprotocol deserializes JSON arrays into tuples, so accept both.
     more = cap.more_trigger_character
-    assert more is None or more == [], (
+    assert more is None or list(more) == [], (
         f"expected moreTriggerCharacter empty, got {more!r}"
     )
 
@@ -99,7 +102,7 @@ async def test_on_type_emits_indent_edit(client, tmp_path):
         timeout=5.0,
     )
 
-    assert isinstance(edits, list), f"expected list, got {type(edits).__name__}"
+    assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}"
     assert len(edits) >= 1, f"expected at least 1 edit, got {edits!r}"
     # The fix should replace line 1's single-space indent with two spaces.
     matching = [
@@ -142,7 +145,7 @@ async def test_on_type_inside_string_returns_empty(client, tmp_path):
         timeout=5.0,
     )
 
-    assert isinstance(edits, list), f"expected list, got {type(edits).__name__}"
+    assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}"
     assert len(edits) == 0, (
         f"expected empty edits inside string with canonical indent, got {edits!r}"
     )

@@ -70,7 +70,7 @@ async def test_range_formatting_blank_lines(client, tmp_path):
         timeout=5.0,
     )
 
-    assert isinstance(edits, list), f"expected list, got {type(edits).__name__}"
+    assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}"
     assert len(edits) == 0, (
         f"expected empty TextEdit[] for blank-line-only range, got {len(edits)}: {edits!r}"
     )

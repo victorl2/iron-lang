@@ -66,7 +66,7 @@ async def test_range_formatting_single_decl(client, tmp_path):
         timeout=5.0,
     )
 
-    assert isinstance(edits, list), f"expected list, got {type(edits).__name__}"
+    assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}"
     assert len(edits) == 1, f"expected 1 TextEdit, got {len(edits)}: {edits!r}"
     edit = edits[0]
     # The intersecting decl is func alpha -- its range starts at line 0.
