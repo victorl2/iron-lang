@@ -14,7 +14,7 @@ import pytest
 from lsprotocol import types
 
 
-_BAD_SOURCE = 'fun main() {\n    val x: Int = "this is a string"\n}\n'
+_BAD_SOURCE = 'func main() {\n    val x: Int = "this is a string"\n}\n'
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_did_change_updates_diagnostics(client, tmp_path):
     first = list(client.diagnostics.get(uri, []))
     assert len(first) >= 1
 
-    good = 'fun main() {\n    val y: Int = 42\n}\n'
+    good = 'func main() {\n    val y: Int = 42\n}\n'
     client.text_document_did_change(
         types.DidChangeTextDocumentParams(
             text_document=types.VersionedTextDocumentIdentifier(uri=uri, version=2),

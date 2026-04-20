@@ -65,7 +65,7 @@ async def test_range_formatting_multi_decl(client, tmp_path):
         timeout=5.0,
     )
 
-    assert isinstance(edits, list), f"expected list, got {type(edits).__name__}"
+    assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}"
     assert len(edits) == 2, f"expected 2 TextEdits, got {len(edits)}: {edits!r}"
 
     # D-06: descending sort means edits[0] starts at a later line than edits[1]

@@ -40,11 +40,12 @@ async def test_formatting_refuses_on_parse_error(client, broken_iron_source, tmp
     fp.write_text(broken_iron_source, encoding="utf-8")
     uri = fp.as_uri()
 
-    captured: list = []
-
-    @client.feature(types.WINDOW_LOG_MESSAGE)
-    def _on_log(params):  # noqa: ARG001
-        captured.append(params)
+    # pytest-lsp's LanguageClient auto-captures window/logMessage
+    # notifications into client.log_messages (populated by a default
+    # feature handler inside pytest-lsp). Attempting to register our
+    # own handler would collide with that default; we just read the
+    # list instead.
+    log_start = len(client.log_messages)
 
     _open(client, uri, broken_iron_source)
     await _settle(client)
@@ -62,7 +63,7 @@ async def test_formatting_refuses_on_parse_error(client, broken_iron_source, tmp
     )
 
     # Spec-compliant refusal: empty list, NOT null, NOT MethodNotFound.
-    assert isinstance(edits, list), f"expected list, got {type(edits).__name__}: {edits!r}"
+    assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}: {edits!r}"
     assert len(edits) == 0, f"expected empty refusal, got {edits!r}"
 
     # Give the log notification a moment to arrive (it can be out-of-band
@@ -72,6 +73,7 @@ async def test_formatting_refuses_on_parse_error(client, broken_iron_source, tmp
     # At least one Info log message should have arrived. If the transport
     # delivered the response before the notification we tolerate a small
     # race (skip if none captured rather than deflake CI).
+    captured = client.log_messages[log_start:]
     info_msgs = [p for p in captured if getattr(p, "type", None) == types.MessageType.Info]
     if info_msgs:
         assert any("format" in (getattr(m, "message", "") or "").lower()
