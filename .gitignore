@@ -152,7 +152,15 @@ editors/vscode/out/
 editors/vscode/dist/
 editors/zed/target/
 grammars/tree-sitter/iron/build/
+grammars/tree-sitter/iron/node_modules/
+grammars/tree-sitter/iron/package-lock.json
 grammars/tree-sitter/iron/src/parser.c
+grammars/tree-sitter/iron/src/node-types.json
+grammars/tree-sitter/iron/src/grammar.json
+grammars/tree-sitter/iron/src/tree_sitter/
 grammars/tree-sitter/iron/bindings/node/
+# iron.wasm is produced by `tree-sitter build --wasm`; Plan 06-02 CI builds
+# + uploads it as an artifact; Plan 06-06 attaches it to GitHub Releases.
+grammars/tree-sitter/iron/iron.wasm
 tests/grammars/**/node_modules/
 tests/grammars/**/package-lock.json
