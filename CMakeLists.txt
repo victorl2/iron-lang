@@ -309,6 +309,105 @@ if(IRON_BUILD_LSP)
     message(STATUS "Phase 4 Plan 04-02: keyword_mirror.h generated")
 endif()
 
+# ── Phase 6 Plan 06-01 (EXT-01, EXT-03): grammar keyword drift-guard ────────
+# IRON_BUILD_GRAMMARS gates the Phase 6 grammar-generation pipeline:
+#   * IRON_BUILD_GRAMMARS=ON (default): keyword extractor + configure_file +
+#     drift CTests + scripts/regenerate-grammars.sh target all active.
+#   * IRON_BUILD_GRAMMARS=OFF: skips all grammar targets cleanly for hosts
+#     without Node / tree-sitter-cli; existing ironc/ironls build unaffected.
+#
+# Reuses the Phase 4 extractor pattern above to produce TWO additional keyword
+# fragments (IRON_KEYWORD_LIST_JSON for TextMate, IRON_KEYWORD_LIST_JS for
+# tree-sitter) from the SAME single source of truth — src/lexer/lexer.c
+# kw_table. The drift-guard CTests diff committed grammar files against the
+# configure_file output; the regenerate-grammars custom target copies the
+# generated files back to the working tree. Dual-labelled
+# phase-m5-invariant + phase-m1-invariant per CONTEXT.md D-10.
+option(IRON_BUILD_GRAMMARS "Build TextMate + tree-sitter grammars (Phase 6)" ON)
+
+if(IRON_BUILD_GRAMMARS)
+    # Re-read kw_table lines (do NOT reuse _kw_lines from Phase 4 block — that
+    # block is gated on IRON_BUILD_LSP and may not have run).
+    set(_kw_table_src "${CMAKE_SOURCE_DIR}/src/lexer/lexer.c")
+    file(STRINGS "${_kw_table_src}" _kw_lines_gr
+         REGEX "^[ \t]*\\{[ \t]*\"[a-zA-Z_]+\"[ \t]*,[ \t]*IRON_TOK_")
+    # JSON alternation: kw1|kw2|...|kwN (for @IRON_KEYWORD_LIST_JSON@ inside
+    # a "\\b(@IRON_KEYWORD_LIST_JSON@)\\b" TextMate match pattern).
+    set(IRON_KEYWORD_LIST_JSON "")
+    # JS choice args: 'kw1', 'kw2', ..., 'kwN' (for @IRON_KEYWORD_LIST_JS@
+    # inside a tree-sitter `choice(@IRON_KEYWORD_LIST_JS@)` rule expression).
+    set(IRON_KEYWORD_LIST_JS "")
+    set(_gr_first TRUE)
+    foreach(_line IN LISTS _kw_lines_gr)
+        string(REGEX MATCH "\"([a-zA-Z_]+)\"" _m "${_line}")
+        if(_m)
+            set(_kw "${CMAKE_MATCH_1}")
+            if(_gr_first)
+                set(IRON_KEYWORD_LIST_JSON "${_kw}")
+                set(IRON_KEYWORD_LIST_JS "'${_kw}'")
+                set(_gr_first FALSE)
+            else()
+                set(IRON_KEYWORD_LIST_JSON "${IRON_KEYWORD_LIST_JSON}|${_kw}")
+                set(IRON_KEYWORD_LIST_JS "${IRON_KEYWORD_LIST_JS}, '${_kw}'")
+            endif()
+        endif()
+    endforeach()
+    if(IRON_KEYWORD_LIST_JSON STREQUAL "" OR IRON_KEYWORD_LIST_JS STREQUAL "")
+        message(FATAL_ERROR
+            "Phase 6 Plan 06-01: failed to extract Iron keyword list from "
+            "${_kw_table_src} for grammar substitution — regex drift? "
+            "The TextMate + tree-sitter grammars cannot build without the "
+            "generated alternation. Confirm kw_table structure matches the "
+            "Phase 4 extractor regex: ^[ \\t]*\\{[ \\t]*\"[a-zA-Z_]+\"[ \\t]*,[ \\t]*IRON_TOK_")
+    endif()
+
+    # Paths used by configure_file + drift tests + regenerate custom target.
+    set(_gr_tm_in_src  "${CMAKE_SOURCE_DIR}/grammars/textmate/iron.tmLanguage.json.in")
+    set(_gr_tm_gen     "${CMAKE_BINARY_DIR}/generated/grammars/textmate/iron.tmLanguage.json")
+    set(_gr_tm_committed "${CMAKE_SOURCE_DIR}/grammars/textmate/iron.tmLanguage.json")
+    set(_gr_ts_in_src  "${CMAKE_SOURCE_DIR}/grammars/tree-sitter/iron/grammar.js.in")
+    set(_gr_ts_gen     "${CMAKE_BINARY_DIR}/generated/grammars/tree-sitter/iron/grammar.js")
+    set(_gr_ts_committed "${CMAKE_SOURCE_DIR}/grammars/tree-sitter/iron/grammar.js")
+
+    # configure_file @ONLY — only @VAR@ substitutions expanded; ${...} left
+    # verbatim (critical for JS regex patterns containing $ metacharacters).
+    configure_file("${_gr_tm_in_src}" "${_gr_tm_gen}" @ONLY)
+    configure_file("${_gr_ts_in_src}" "${_gr_ts_gen}" @ONLY)
+    message(STATUS "Phase 6 Plan 06-01: grammar templates generated "
+                   "(TextMate + tree-sitter; keyword count varies)")
+
+    # Custom target: copy generated grammars back to the working tree. This
+    # is the developer entry point (wrapped by scripts/regenerate-grammars.sh).
+    add_custom_target(regenerate-grammars
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_gr_tm_gen}" "${_gr_tm_committed}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_gr_ts_gen}" "${_gr_ts_committed}"
+        COMMENT "Phase 6 Plan 06-01: regenerating committed grammars from lexer.c kw_table"
+        VERBATIM)
+
+    # Drift-guard CTests: fail if committed != generated.
+    # Dual-labelled phase-m5-invariant + phase-m1-invariant per CONTEXT D-10:
+    # lexer changes (src/lexer/) surface via phase-m1 label; grammar changes
+    # (grammars/) surface via phase-m5 label; both trigger the gate.
+    add_test(NAME test_grammar_keyword_drift_textmate
+        COMMAND ${CMAKE_COMMAND} -E compare_files
+                "${_gr_tm_committed}" "${_gr_tm_gen}")
+    set_tests_properties(test_grammar_keyword_drift_textmate PROPERTIES
+        LABELS "phase-m5-invariant;phase-m1-invariant")
+
+    add_test(NAME test_grammar_keyword_drift_tree_sitter
+        COMMAND ${CMAKE_COMMAND} -E compare_files
+                "${_gr_ts_committed}" "${_gr_ts_gen}")
+    set_tests_properties(test_grammar_keyword_drift_tree_sitter PROPERTIES
+        LABELS "phase-m5-invariant;phase-m1-invariant")
+
+    # Wire the tests/grammars/ subtree (registers the ReDoS lint +
+    # TextMate snapshot invariants + nested add_subdirectory to
+    # tests/editors/ for the diag_error sanity fixture).
+    add_subdirectory(tests/grammars)
+endif()
+
 if(IRON_BUILD_LSP)
     add_executable(ironls
         src/lsp/main.c
