@@ -850,10 +850,24 @@ void emit_type_decls(EmitCtx *ctx) {
                 if (ev->payload_count <= 0) continue;
                 iron_strbuf_appendf(&ctx->struct_bodies,
                                      "typedef struct { ");
+                /* Phase 81: Void payload support.
+                 * Skip any field whose resolved type is IRON_TYPE_VOID so
+                 * generic ADT instantiations like Result[Void, E] lower to
+                 * a zero-field payload. If the ENTIRE variant is all-void
+                 * (e.g., Result.Ok(T) with T=Void), emit a single
+                 * `char _dummy;` placeholder so the struct body remains a
+                 * valid C type (zero-field structs are a GNU extension
+                 * clang flags under -pedantic). */
+                int emitted_fields = 0;
                 for (int k = 0; k < ev->payload_count; k++) {
                     const char *pt = "void*";
+                    Iron_Type *field_ty = NULL;
                     if (vpt && vpt[j] && vpt[j][k]) {
-                        pt = emit_type_to_c(vpt[j][k], ctx);
+                        field_ty = vpt[j][k];
+                        pt = emit_type_to_c(field_ty, ctx);
+                    }
+                    if (field_ty && field_ty->kind == IRON_TYPE_VOID) {
+                        continue; /* skip Void payload field entirely */
                     }
                     bool is_boxed = false;
                     if (td->type->enu.payload_is_boxed &&
@@ -861,12 +875,16 @@ void emit_type_decls(EmitCtx *ctx) {
                         td->type->enu.payload_is_boxed[j][k]) {
                         is_boxed = true;
                     }
-                    if (k > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
+                    if (emitted_fields > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
                     if (is_boxed) {
                         iron_strbuf_appendf(&ctx->struct_bodies, "%s *_%d;", pt, k);
                     } else {
                         iron_strbuf_appendf(&ctx->struct_bodies, "%s _%d;", pt, k);
                     }
+                    emitted_fields++;
+                }
+                if (emitted_fields == 0) {
+                    iron_strbuf_appendf(&ctx->struct_bodies, "char _dummy;");
                 }
                 iron_strbuf_appendf(&ctx->struct_bodies,
                                      " } %s_%s_data;\n", mangled, ev->name);

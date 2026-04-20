@@ -80,6 +80,8 @@ mut_receiver_basic
 mut_receiver_basic.c
 mut_receiver_mixed
 mut_receiver_mixed.c
+generic_enum_void_payload
+generic_enum_void_payload.c
 /pong
 /game_raylib
 /arena_split_collection
