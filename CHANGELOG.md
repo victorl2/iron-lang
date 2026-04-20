@@ -3,6 +3,39 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## [Unreleased] v3.0.0-alpha — Method Ergonomics (WIP)
+
+### Breaking
+
+- **Receiver-method syntax removed.** `func (recv: T) name()` and `func (mut recv: T) name()` are no longer valid. Methods now live inside `object T { ... }` blocks with implicit `self`. Pre-v3 code migrates via `ironc migrate --from v2 --to v3 <path>`. v3.0 is the first Iron release without the pure-superset guard.
+- **Inline field defaults removed.** `var health: Int = 0` at the field declaration site is a parse error. Fields must be assigned in `init`. Init is mandatory — every object declares at least one.
+- **`mut` keyword removed.** Mutation is default at the method declaration site. Non-mutating methods opt in with `readonly` or `pure`.
+
+### Added (target scope — see `.planning/REQUIREMENTS.md` for the full matrix)
+
+- Methods-in-object-block grammar with implicit `self` and required `self.field` prefix for field access
+- Three mutation tiers: default (mutating), `readonly` (no self-writes, strict transitive enforcement), `pure` (no observable side effects; heap allocation allowed)
+- Single visibility keyword `pub`; default-private for fields AND methods; `pub val`/`pub var` synthesize accessors with property syntax (`player.health`, `player.health = 50`)
+- Mandatory `init` per object: anonymous `init(...)` callable via `Type(args)`, named `init name(...)` via `Type.name(args)`; definite-assignment enforcement; `val` fields single-assigned
+- `patch object T { ... }` for open extension of types you don't own (including primitives); program-wide, collision = compile error; no field additions
+- Interface default implementations; `readonly`/`pure` modifiers on interface method signatures
+- `Self` return type in methods and interface signatures
+- `ironc migrate --from v2 --to v3` codemod with golden-output identity guarantee (IDENT-01, IDENT-02)
+
+### Migration
+
+Run the codemod once against your Iron sources:
+
+```
+ironc migrate --from v2 --to v3 src/
+```
+
+The codemod is deterministic and idempotent. Generated C is byte-identical to v2.2 output post-migration (locked by `scripts/verify-v3-migration.sh`). Full step-by-step guide in `docs/site/migration-v2-to-v3.md`.
+
+Pin to v2.2.0-alpha until ready to migrate.
+
+---
+
 ## v2.2.0-alpha — Ergonomics: Int→String, Mutable Receivers, Per-Stream Audio (2026-04-20)
 
 ### Summary
