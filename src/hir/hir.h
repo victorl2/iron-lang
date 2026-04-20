@@ -436,6 +436,12 @@ struct IronHIR_Func {
     const char        *extern_c_name;
     Iron_CaptureEntry *captures;       /* from capture analysis; NULL for non-capturing */
     int                capture_count;
+    /* Phase 80 MUT-07: true when this func was lowered from a receiver-form
+     * method decl whose receiver was declared `mut`. Consumed by hir_to_lir.c
+     * to set call->call.self_by_addr=true, which makes the C ABI pass the
+     * receiver by pointer so field mutations persist to the caller's binding.
+     * Default false (iron_hir_func_create memsets the struct). */
+    bool               is_mut_receiver_method;
 };
 
 /* ── Module ──────────────────────────────────────────────────────────────── */

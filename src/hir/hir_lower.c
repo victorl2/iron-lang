@@ -1713,6 +1713,16 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
 
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
+            /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
+             * HIR→LIR can fire self_by_addr at call sites. Gated on
+             * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form
+             * methods, stub bodies, and free functions stay false. */
+            if (md->is_receiver_form && md->param_count > 0) {
+                Iron_Param *recv = (Iron_Param *)md->params[0];
+                if (recv && recv->is_mut_receiver) {
+                    f->is_mut_receiver_method = true;
+                }
+            }
             iron_hir_module_add_func(mod, f);
             break;
         }

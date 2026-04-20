@@ -386,6 +386,17 @@ struct IronLIR_Func {
     Iron_CaptureEntry *capture_metadata;
     int                capture_count;
 
+    /* Phase 80 MUT-07: true when this func was lowered from a receiver-form
+     * method decl whose receiver was declared `mut` (AST `func (mut t: T) m()`).
+     * Propagated from IronHIR_Func.is_mut_receiver_method during HIR→LIR.
+     * Consumed by emit_c.c to (a) emit the first C param as `T *_v1` instead
+     * of `T _v1`, and (b) cause GET_FIELD/SET_FIELD on the receiver param to
+     * use `->` instead of `.` (via emit_val_is_heap_ptr returning true for
+     * vid==1 on mut-receiver methods). Together these make field mutations
+     * through the receiver persist to the caller's binding — the MUT-07
+     * mutation-persistence contract. Default false via lir.c memset. */
+    bool               is_mut_receiver_method;
+
     /* Phase 5: WEB-EMIT-02/03 — frame-state captures for the canonical
      * `while(!WindowShouldClose())` main loop on --target=web.
      *

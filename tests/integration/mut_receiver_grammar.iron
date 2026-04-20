@@ -44,18 +44,20 @@ func main() {
     c.bump()
     c.bump()
     c.bump()
-    -- Expected: 0 (NOT 3) -- user-type receivers pass by value today,
-    -- and Phase 79 does NOT change that. Counter.bump's mangled name
-    -- is NOT in the self_by_addr hardcoded list at
-    -- src/hir/hir_to_lir.c:1388-1391 (only `timer_update`/`timer_reset`
-    -- are), so `c.n = c.n + 1` mutates a local copy and the original
-    -- c.n stays 0. This output IS the MUT-05 negative-space proof:
-    -- adding `mut` at the grammar surface does NOT activate the
-    -- pointer-receiver path for user types. Phase 80 (or later) may
-    -- extend the list; until then, this is the correct observed
-    -- behavior -- AND it is byte-identical to the non-mut twin's
-    -- output (mut_receiver_static_twin.expected), confirming the ABI
-    -- stability proof.
+    -- Expected: 3 (Phase 80 MUT-07). After Phase 80 Plan 01 Task 4 wired
+    -- `is_mut_receiver_method` through HIR → LIR → emit_c.c, user-type
+    -- mut-receiver methods now fire self_by_addr at the LIR call site AND
+    -- emit a pointer-receiver C signature, so field mutations through the
+    -- receiver persist to the caller's binding. Each c.bump() increments
+    -- c.n by 1, and three calls leave c.n == 3 — observably.
+    --
+    -- Phase 79 baseline (pre-Task-4) captured `0` here as the MUT-05
+    -- negative-space proof (user-type receivers passed by value, mutation
+    -- did NOT persist). Phase 80 closes that gap for user-type mut
+    -- receivers specifically — the gate is ADDITIVE: stdlib
+    -- `timer_update`/`timer_reset` still fire via the hardcoded name-list
+    -- at src/hir/hir_to_lir.c, and classic-form + non-mut user-type
+    -- receivers continue to pass self by value (tested by the static twin).
     println("{c.get()}")
 
     -- Exercise stdlib Timer.update directly from main. Proves MUT-05

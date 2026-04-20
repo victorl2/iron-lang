@@ -1,17 +1,25 @@
 -- tests/integration/mut_receiver_static_twin.iron
--- Phase 79 MUT-05 byte-identical-C-signature twin of
--- mut_receiver_grammar.iron. Same object, same method name, same
--- receiver type, same param types, same return type, same body --
--- ONLY the `mut` keyword is removed from the Counter.bump receiver
--- binding.
+-- Phase 79 MUT-05 twin of mut_receiver_grammar.iron.
+-- Same object, same method name, same receiver type, same param types,
+-- same return type, same body -- ONLY the `mut` keyword is removed from
+-- the Counter.bump receiver binding.
 --
--- The generated C for this file's Iron_Counter_bump function signature
--- MUST byte-diff clean against mut_receiver_grammar.iron's generated C
--- for Iron_Counter_bump. That's the ABI-stability proof for MUT-05.
+-- Phase 79 role (when it shipped): byte-identical C signature vs
+-- mut_receiver_grammar.iron — proving `mut` was purely a surface grammar
+-- annotation with zero lowering effect. Both .expected files were
+-- byte-identical (`0\n500000`).
 --
--- The programs are semantically identical (mut is purely a grammar
--- annotation in Phase 79 -- no runtime behavior change), so the two
--- .expected files MUST also be byte-identical (diff -q returns empty).
+-- Phase 80 role (current): pure-superset control. `mut` is now a
+-- behavior switch — user-type mut-receiver methods fire self_by_addr
+-- and persist mutation (MUT-07). This twin (no `mut`) continues to use
+-- the by-value ABI, so c.bump() mutations are lost and c.n stays 0.
+-- That's the negative-space contract for existing Iron code: adding
+-- Phase 80's enforcement does NOT retroactively change semantics for
+-- receiver-form methods that don't carry `mut` — pre-Phase-80 files
+-- compile with identical runtime behavior.
+--
+-- Expected output stays `0\n500000`. The sister file
+-- mut_receiver_grammar.expected is now `3\n500000` (Phase 80 MUT-07).
 
 import time
 
