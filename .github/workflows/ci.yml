@@ -9,6 +9,11 @@ on:
       - 'tests/**'
       - 'CMakeLists.txt'
       - '.github/workflows/**'
+      # Phase 6 Plan 06-02: grammars/** + editors/** changes must re-run CI.
+      # grammars/tree-sitter/** changes also trigger the tree-sitter-wasm
+      # job below.
+      - 'grammars/**'
+      - 'editors/**'
   pull_request:
     branches: [main]
     paths:
@@ -17,6 +22,8 @@ on:
       - 'tests/**'
       - 'CMakeLists.txt'
       - '.github/workflows/**'
+      - 'grammars/**'
+      - 'editors/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -208,3 +215,60 @@ jobs:
         run: |
           chmod +x tests/integration/run_integration.sh
           tests/integration/run_integration.sh build/iron
+
+  # Phase 6 Plan 06-02 Task 3 (EXT-02, CONTEXT D-03 + D-07 + D-11).
+  #
+  # Generates + tests + WASM-builds the tree-sitter grammar. Produces
+  # iron.wasm as a build artifact consumed by:
+  #   * Zed extension        (Plan 06-05; Zed downloads the matching
+  #                           iron.wasm alongside the ironls binary at
+  #                           Release time per CONTEXT D-06/D-11).
+  #   * Neovim users         (Plan 06-04; users can install parser via
+  #                           nvim-treesitter once the upstream PR lands,
+  #                           or point at the Release artifact directly).
+  #
+  # ABI 15 contract — tree-sitter-cli 0.26.x is the pinned major. The
+  # tree-sitter-cli@0.26.3 dep pin in the job differs from the repo's
+  # local grammars/tree-sitter/iron/package.json (which pins 0.25.10 for
+  # glibc 2.34 local-dev compatibility). Both produce ABI 15 output;
+  # test_grammar_keyword_drift_tree_sitter is drift-gated against the
+  # committed grammar.js, not the CLI version.
+  #
+  # Threat model T-06-02-02: WASM artifact retention is per-SHA + 7-day
+  # rolling window; Release upload (Plan 06-06) requires a manual publish
+  # gate. Pinned tree-sitter-cli version mitigates T-06-02-03 npm
+  # supply-chain risk.
+  tree-sitter-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: grammars/tree-sitter/iron/package.json
+
+      - name: Install tree-sitter-cli
+        run: npm install -g tree-sitter-cli@0.26.3
+
+      - name: Verify tree-sitter version (ABI 15 contract per RESEARCH Pitfall 4)
+        run: tree-sitter --version
+
+      - name: Generate + test grammar
+        working-directory: grammars/tree-sitter/iron
+        run: |
+          tree-sitter generate
+          tree-sitter test
+
+      - name: Build WASM (auto-downloads wasi-sdk on first run)
+        working-directory: grammars/tree-sitter/iron
+        run: tree-sitter build --wasm
+
+      - name: Upload iron.wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-wasm-${{ github.sha }}
+          path: grammars/tree-sitter/iron/iron.wasm
+          if-no-files-found: error
+          retention-days: 7
