@@ -1,0 +1,28 @@
+// SYNTAX TEST "source.iron" "control_flow.iron"
+func demo() {
+    if x {
+//  ^ keyword.control.iron
+        defer cleanup()
+//      ^ keyword.control.iron
+    } elif y {
+//    ^ keyword.control.iron
+        return
+//      ^ keyword.control.iron
+    } else {
+//    ^ keyword.control.iron
+        while running {
+//      ^ keyword.control.iron
+            for i in items {
+//          ^ keyword.control.iron
+//                ^ keyword.control.iron
+                match i {
+//              ^ keyword.control.iron
+                    _ => continue
+//                       ^ keyword.control.iron
+                }
+                break
+//              ^ keyword.control.iron
+            }
+        }
+    }
+}

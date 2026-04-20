@@ -1,0 +1,24 @@
+# Phase 6 Plan 06-01 Task 2 — decl_func.iron expected-scopes reference.
+# Human-readable companion to the inline `// <-` / `// ^` assertions in
+# decl_func.iron. Consumed by reviewers; vscode-tmgrammar-test reads the
+# inline assertions in the .iron file directly.
+
+Token         | Scope
+--------------|------------------------------------------
+func          | keyword.declaration.iron
+main          | entity.name.function.iron
+(             | punctuation.section.iron
+)             | punctuation.section.iron
+->            | keyword.operator.iron
+int           | (unscoped — lowercase type, no uppercase heuristic)
+{             | punctuation.section.iron
+return        | keyword.control.iron
+0             | constant.numeric.integer.iron
+}             | punctuation.section.iron
+
+Covers UI-SPEC S6 scopes:
+- keyword.declaration.iron
+- entity.name.function.iron
+- keyword.control.iron
+- constant.numeric.integer.iron
+- punctuation.section.iron

@@ -1,0 +1,8 @@
+// SYNTAX TEST "source.iron" "decl_func.iron"
+func main() -> int {
+// <- keyword.declaration.iron
+//   ^ entity.name.function.iron
+    return 0
+//  ^ keyword.control.iron
+//         ^ constant.numeric.integer.iron
+}

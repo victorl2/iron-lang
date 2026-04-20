@@ -1,0 +1,8 @@
+// SYNTAX TEST "source.iron" "decl_enum.iron"
+enum Color {
+// <- keyword.declaration.iron
+//   ^ entity.name.type.iron
+    Red,
+    Green,
+    Blue
+}

@@ -1,0 +1,13 @@
+# strings.iron expected-scopes reference.
+Token               | Scope
+--------------------|--------------------------------
+"hello"             | string.quoted.double.iron
+"line\n"            | string.quoted.double.iron (containing constant.character.escape.iron for \n)
+$"value is ${...}"  | string.interpolated.iron (containing meta.interpolation.iron for ${...})
+
+Covers UI-SPEC S6: string.quoted.double.iron, string.interpolated.iron,
+meta.interpolation.iron (nested), constant.character.escape.iron.
+
+The interpolated-string pattern uses begin/end delimiter pairs at both
+levels — reviewed per CONTEXT D-02 specifics (no nested unbounded
+quantifiers; safe-regex lint green).

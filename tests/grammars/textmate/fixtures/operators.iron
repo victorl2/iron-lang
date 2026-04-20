@@ -1,0 +1,17 @@
+// SYNTAX TEST "source.iron" "operators.iron"
+val sum = a + b
+//          ^ keyword.operator.iron
+val diff = a - b
+//           ^ keyword.operator.iron
+val prod = a * b
+//           ^ keyword.operator.iron
+val eq = a == b
+//         ^ keyword.operator.iron
+val ne = a != b
+//         ^ keyword.operator.iron
+val ge = a >= b
+//         ^ keyword.operator.iron
+val both = a && b
+//           ^ keyword.operator.iron
+val either = a || b
+//             ^ keyword.operator.iron

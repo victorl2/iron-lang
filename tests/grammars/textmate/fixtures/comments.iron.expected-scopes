@@ -1,0 +1,14 @@
+# comments.iron expected-scopes reference.
+Token                    | Scope
+-------------------------|--------------------------------
+// plain line comment    | comment.line.double-slash.iron
+/* block comment */      | comment.block.iron
+/// doc comment          | comment.block.documentation.iron
+
+Covers UI-SPEC S6 all three comment forms. The doc-comment scope
+comment.block.documentation.iron is the theme-distinction win called
+out in CONTEXT D-02 specifics — themes surface /// distinctly from //.
+
+Note: grammar ordering in iron.tmLanguage.json places doc-comments BEFORE
+line-comments so /// matches first (otherwise // would swallow the /// as
+a plain line comment).

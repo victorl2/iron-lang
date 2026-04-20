@@ -1,0 +1,12 @@
+// SYNTAX TEST "source.iron" "literals.iron"
+val answer = 42
+// <- keyword.declaration.iron
+//           ^ constant.numeric.integer.iron
+val pi = 3.14159
+//       ^ constant.numeric.float.iron
+val yes = true
+//        ^ constant.language.iron
+val no = false
+//       ^ constant.language.iron
+val nothing = null
+//            ^ constant.language.iron
