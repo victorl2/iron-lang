@@ -1478,12 +1478,60 @@ float       Iron_text_to_float(Iron_String text);
  * DetachAudioMixedProcessor) on top of this. */
 typedef Iron_Closure Iron_AudioCallback;
 
+/* ── Phase 81 AUDIO-04 AudioError ABI + Result[Void, AudioError] ────
+ *
+ * Mirrors ironc's generated C for the Iron-level enum AudioError and
+ * the generic enum Result[Void, AudioError]. Re-declared locally so
+ * iron_raylib.c can build Iron_sound_play / Iron_music_play return
+ * values without depending on the consumer's generated .c file.
+ *
+ * ABI discovery (ran on 2026-04-19 via audio_result_probe.iron +
+ * --debug-build): ironc emits `typedef enum { Iron_AudioError_X, ... }
+ * Iron_AudioError;` and `struct Iron_Result_void_AudioError { Tag tag;
+ * data_t data; };` where `data.Ok` is a zero-field struct with a
+ * `char _dummy;` placeholder (Phase 81 emit_structs.c Void-payload
+ * extension) and `data.Err._0` carries the AudioError. Tag values
+ * match declaration order: Ok = 0, Err = 1.
+ *
+ * Iron's generated C emits these same types in the compiled binary;
+ * the duplicate forward-declarations here must be byte-identical.
+ * Tested via cmake --build (would surface as a C-compile conflict).
+ */
+typedef enum {
+    Iron_AudioError_NoFreeSlot = 0,
+    Iron_AudioError_DeviceNotReady = 1
+} Iron_AudioError;
+
+typedef enum {
+    Iron_Result_void_AudioError_TAG_Ok = 0,
+    Iron_Result_void_AudioError_TAG_Err = 1,
+} Iron_Result_void_AudioError_Tag;
+
+typedef struct { char _dummy; } Iron_Result_void_AudioError_Ok_data;
+typedef struct { Iron_AudioError _0; } Iron_Result_void_AudioError_Err_data;
+
+typedef union {
+    char _dummy;
+    Iron_Result_void_AudioError_Ok_data Ok;
+    Iron_Result_void_AudioError_Err_data Err;
+} Iron_Result_void_AudioError_data_t;
+
+struct Iron_Result_void_AudioError {
+    Iron_Result_void_AudioError_Tag tag;
+    Iron_Result_void_AudioError_data_t data;
+};
+typedef struct Iron_Result_void_AudioError Iron_Result_void_AudioError;
+
 /* ── AUDIO-01 Audio device lifecycle (5 shims) ─────────────────────── */
 void  Iron_audio_init(void);
 void  Iron_audio_close(void);
 bool  Iron_audio_is_ready(void);
 void  Iron_audio_set_master_volume(float volume);
 float Iron_audio_get_master_volume(void);
+
+/* ── Phase 81 AUDIO-05 — Audio.detach_all + active_slot_count ─────── */
+void    Iron_audio_detach_all(void);
+int32_t Iron_audio_active_slot_count(void);
 
 /* ── AUDIO-02 Wave load/unload + AUDIO-04 export (6 shims) ─────────── */
 struct Iron_Wave Iron_wave_load(Iron_String file_name);
@@ -1528,7 +1576,8 @@ void              Iron_sound_unload_alias(struct Iron_Sound alias);
 struct Iron_Sound Iron_wave_to_sound(struct Iron_Wave wave);
 
 /* ── AUDIO-06 Sound management (5 shims) ───────────────────────────── */
-void Iron_sound_play(struct Iron_Sound sound);
+/* Phase 81 API break: Iron_sound_play returns Result[Void, AudioError]. */
+Iron_Result_void_AudioError Iron_sound_play(struct Iron_Sound sound);
 void Iron_sound_stop(struct Iron_Sound sound);
 void Iron_sound_pause(struct Iron_Sound sound);
 void Iron_sound_resume(struct Iron_Sound sound);
@@ -1599,7 +1648,8 @@ struct Iron_Music Iron_music_set_looping(struct Iron_Music music, bool looping);
  * loop to feed raylib's audio buffer. raylib is a no-op when the
  * audio device is not ready.
  */
-void Iron_music_play(struct Iron_Music music);
+/* Phase 81 API break: Iron_music_play returns Result[Void, AudioError]. */
+Iron_Result_void_AudioError Iron_music_play(struct Iron_Music music);
 bool Iron_music_is_playing(struct Iron_Music music);
 void Iron_music_update(struct Iron_Music music);
 void Iron_music_stop(struct Iron_Music music);
