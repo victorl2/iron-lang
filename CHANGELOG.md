@@ -3,6 +3,180 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v2.2.0-alpha — Ergonomics: Int→String, Mutable Receivers, Per-Stream Audio (2026-04-20)
+
+### Summary
+
+Iron v2.2 ships three ergonomic upgrades targeting real-game code: decimal
+formatting for UI (scoreboards, HUD), idiomatic mutable-receiver syntax
+(`func (mut c: Counter) bump()`), and a hardened per-stream audio registry
+with typed `Result[Void, AudioError]` on saturation. The `examples/pong`
+scoreboard replaced its hand-rolled `int_to_str` with
+`score.to_string().pad_left(3, " ")` — real-consumer validation across all
+three areas.
+
+21 requirements delivered across 4 phases (78 / 79 / 80 / 81); the
+pure-superset guard held across the entire milestone.
+
+### Added
+
+**Formatting (FMT)**
+
+- `Int.to_string(n)` / `Int32.to_string(n)` / `Float.to_string(f)` —
+  decimal conversion for any numeric value, including negatives and zero.
+  Float uses libc `%.6g` with trim-trailing-zeros + NaN/±Inf normalization
+  so the output is platform-stable on macOS, Linux, and Windows.
+  (FMT-01, FMT-02, FMT-03)
+- `String.pad_left(s, width, fill_char)` /
+  `String.pad_right(s, width, fill_char)` — fixed-width padding for
+  scoreboard-style UI. `fill_char` is typed `String` so callers write
+  `" "` or `"0"` idiomatically. (FMT-04)
+- `tests/integration/fmt_to_string.iron` — 71-line edge-case matrix
+  covering Int / Int32 / Float + padding end-to-end, with `.expected`
+  captured from the running binary (not hand-authored). (FMT-06)
+
+**Mutable receivers (MUT)**
+
+- `func (mut t: Timer) update(dt: Float) { ... }` — parser accepts `mut`
+  at the receiver-binding position; AST carries an `is_mut_receiver` flag
+  alongside the existing `is_mutable` precedent. (MUT-01, MUT-05, MUT-06)
+- Typechecker enforces the `mut` contract end-to-end: field mutation
+  through an immutable receiver errors with `error[E0234]: cannot mutate
+  field on immutable receiver` (MUT-03); calling a `mut`-receiver method
+  on a `val`-bound binding errors with `error[E0235]: cannot call mutable
+  method on immutable binding` (MUT-04); `mut` on a primitive receiver
+  errors with `error[E0236]: 'mut' on non-struct receiver type '<Ty>' —
+  only struct/composite types support mut` (MUT-09). All three carry
+  source carets.
+- HIR → LIR → C now flips mut-receiver methods to pointer-receiver form
+  (`void Iron_counter_bump(Iron_Counter *_v1, int64_t _v2)`) so mutations
+  persist across the call boundary without changing the Iron-side call
+  shape. Non-mut receiver-form methods keep their Phase 79 by-value ABI.
+  (MUT-02, MUT-07)
+- `tests/integration/mut_receiver_basic.iron` +
+  `tests/integration/mut_receiver_mixed.iron` (MUT-07, MUT-08) + 4
+  `tests/compile_fail/mut_*.iron` regression fixtures covering
+  E0234 / E0235 / E0236 / E0101 (Phase 79 parser regression guard).
+
+**Audio (AUDIO)**
+
+- `enum AudioError { NoFreeSlot, DeviceNotReady }` in
+  `src/stdlib/raylib.iron` (AUDIO-04). `DeviceNotReady` covers headless
+  systems where `!IsAudioDeviceReady()` used to silently no-op.
+- `enum Result[T, E] { Ok(T), Err(E) }` declared at stdlib level — first
+  stdlib consumer of ironc's new Void-payload ADT support
+  (`Result[Void, AudioError]` is a valid type; the `Ok` variant carries a
+  `char _dummy;` placeholder under the hood).
+- 16-slot Iron-level play registry in `src/stdlib/iron_raylib.c` — layered
+  over raylib's `PlaySound` / `PlayMusicStream`, matches raylib's own
+  `MAX_AUDIO_BUFFER_POOL_CHANNELS = 16`. Guarantees no silent drops under
+  the cap, slot release on `stop`, slot reuse on restart, and mixed
+  Sound + Music cleanup via a single kind-tagged pool.
+  (AUDIO-01, AUDIO-02, AUDIO-03)
+- `Audio.detach_all()` — walks all 16 slots, dispatches the right
+  raylib stop per `PlaySlotKind`, and zeroes the registry. (AUDIO-05)
+- `Audio.active_slot_count() -> Int32` — exposes registry occupancy for
+  diagnostics and `AUDIO-06` test assertions.
+- `tests/manual/audio_slot_bookkeeping.iron` (176 lines, `@compile-only`) —
+  canonical 10-step AUDIO-06 test: 16 plays, 17th Err(NoFreeSlot), stop 8,
+  replay 8 reusing freed slots, `detach_all`, post-detach replay from
+  slot 0. All 26 `Sound.play` Results bound to named vals; `val _k_*`
+  keep-alive references prevent DCE elision.
+
+### Changed
+
+**Audio (scoped API break — v2.2)**
+
+- `Sound.play(s: Sound)` and `Music.play(m: Music)` return
+  `Result[Void, AudioError]` instead of `Void`. The break is *soft*:
+  Iron allows discarding function return values at call sites, so
+  existing consumers still compile — migration is voluntary ergonomics
+  rather than mandatory repair.
+- Iron consumer migration patterns (used in-tree for
+  `tests/manual/audio_smoke.iron`, `examples/pong/pong.iron`,
+  `examples/raylib_showcase/raylib_showcase.iron`):
+  ```
+  -- Explicit branch when failure matters:
+  match Sound.play(s) {
+      Result.Ok(_)  -> { }
+      Result.Err(_) -> { }
+  }
+
+  -- Or discard-binding for fire-and-forget call sites:
+  val _r = Sound.play(bounce)
+  ```
+- `Sound.stop` / `Music.stop` continue to return `Void` (idempotent —
+  double-stop is a safe no-op, nothing to report).
+
+**Examples**
+
+- `examples/pong/pong.iron` — scoreboard uses
+  `score.to_string().pad_left(3, " ")`; the hand-rolled 15-line
+  `int_to_str` helper is gone. Four `Sound.play(bounce)` call sites
+  migrated to the Result-returning API via `val _r`. (FMT-05)
+
+### Compiler
+
+- ironc now supports **`Void` as a generic ADT payload type**. The
+  per-variant payload emitter skips `IRON_TYPE_VOID` fields and emits
+  a `char _dummy;` placeholder when a variant ends up field-less (keeps
+  the struct body valid C under `-pedantic`). Capital `Void` is accepted
+  alongside lowercase `void` in the primitive type-name table (matches
+  `iron_type_to_string`'s canonical spelling).
+- `typecheck.c` extends MUT-03 / MUT-04 enforcement end-to-end. Resolver
+  wires `is_mut_receiver` onto `params[0]->is_mutable` for receiver-form
+  methods so the existing body-level mutability machinery applies
+  unchanged; MUT-09 primitive-receiver rejection fires at method-decl
+  time, before any body is typechecked.
+- HIR → LIR now carries an `is_mut_receiver_method` bit on both
+  `IronHIR_Func` and `IronLIR_Func`. The existing stdlib name-list gate
+  in `hir_to_lir.c` is OR'd with a callee-metadata lookup, so user
+  mut-receiver methods fire `self_by_addr` the same way Phase 79's
+  stdlib `Timer.update` already did.
+
+### Fixed
+
+*(no v2.2 bugfixes outside the scoped audio API change; all other
+changes are additive.)*
+
+### Deprecated / Removed
+
+*(nothing deprecated in v2.2; the `Sound.play` / `Music.play` signature
+change is a hard break with in-tree consumer migration — no deprecation
+window because there are no published consumers yet.)*
+
+### Still deferred
+
+- **D2** `Image.load_svg` — waiting on raylib 5.6+ vendor bump (v2.3
+  scope).
+- **Wildcard-discard statement** — `_ = <expr>` at statement position
+  is rejected as `error[E0102]: expected expression`. The idiomatic
+  discard form is `val _r = <expr>`. v2.3+ ironc improvement.
+- **Generic-enum completion at return sites** — `func f() -> Result[Void,
+  E] { return Result.Err(e) }` fails to infer `T = Void`; use the
+  val-annotation form. v2.3+ ironc improvement.
+- v2.3+ items (assets, generic receivers, rlgl, VR) — tracked in
+  `.planning/REQUIREMENTS.md`.
+
+### Pure-superset guard
+
+- `tests/run_tests.sh integration` — **385 / 0 / 385**
+- `tests/run_tests.sh manual` — **14 / 0 / 14**
+- `scripts/test-raylib-integration.sh` — **ALL NATIVE BUILDS GREEN
+  (15 of 27)** (web matrix deferred per v2.0-alpha D3, emsdk-pending)
+- `examples/pong` end-to-end smoke — build clean + survives 2s runtime
+  under the bash fallback timer; exit code 143 (shell-wrapped SIGTERM,
+  expected on macOS which ships no GNU `timeout`).
+
+### Install
+
+```bash
+curl -fsSL https://ironlang.org/install.sh | bash
+```
+
+See the [Raylib getting-started guide](https://ironlang.org/raylib/guide/)
+for building your first game.
+
 ## v2.0.0-alpha — Iron Builds Real Games (2026-04-19)
 
 ### Iron Builds Real Games
