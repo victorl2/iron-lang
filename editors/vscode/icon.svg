@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect x="0" y="0" width="128" height="128" rx="16" ry="16" fill="#1e1e1e"/>
+  <text x="64" y="88" text-anchor="middle" font-family="Georgia, serif" font-size="88" font-weight="bold" fill="#d4a56a">I</text>
+</svg>

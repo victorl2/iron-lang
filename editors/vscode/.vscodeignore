@@ -1,0 +1,14 @@
+node_modules/
+src/
+test/
+out/
+*.map
+*.ts
+tsconfig.json
+esbuild.mjs
+prepackage.mjs
+.vscode/
+.vscodeignore
+.gitignore
+package-lock.json
+# keep: dist/, syntaxes/, language-configuration.json, icon.svg, README.md, CHANGELOG.md, LICENSE, package.json
