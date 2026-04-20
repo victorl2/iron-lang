@@ -72,6 +72,10 @@ fmt_probe
 fmt_probe.c
 fmt_to_string
 fmt_to_string.c
+mut_receiver_grammar
+mut_receiver_grammar.c
+mut_receiver_static_twin
+mut_receiver_static_twin.c
 /pong
 /game_raylib
 /arena_split_collection

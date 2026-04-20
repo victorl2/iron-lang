@@ -1,0 +1,42 @@
+-- tests/integration/mut_receiver_static_twin.iron
+-- Phase 79 MUT-05 byte-identical-C-signature twin of
+-- mut_receiver_grammar.iron. Same object, same method name, same
+-- receiver type, same param types, same return type, same body --
+-- ONLY the `mut` keyword is removed from the Counter.bump receiver
+-- binding.
+--
+-- The generated C for this file's Iron_Counter_bump function signature
+-- MUST byte-diff clean against mut_receiver_grammar.iron's generated C
+-- for Iron_Counter_bump. That's the ABI-stability proof for MUT-05.
+--
+-- The programs are semantically identical (mut is purely a grammar
+-- annotation in Phase 79 -- no runtime behavior change), so the two
+-- .expected files MUST also be byte-identical (diff -q returns empty).
+
+import time
+
+object Counter {
+    var n: Int
+}
+
+-- No `mut` keyword -- v2.1 receiver-form (val-default binding).
+-- Byte-identical C signature expected vs mut_receiver_grammar.iron.
+func (c: Counter) bump() {
+    c.n = c.n + 1
+}
+
+func (c: Counter) get() -> Int {
+    return c.n
+}
+
+func main() {
+    val c = Counter(0)
+    c.bump()
+    c.bump()
+    c.bump()
+    println("{c.get()}")
+
+    val timer = Time.Timer(1000.0)
+    timer.update(500.0)
+    println("{timer.elapsed_ms}")
+}
