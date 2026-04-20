@@ -613,6 +613,29 @@ enum NPatchLayout {
     THREE_PATCH_HORIZONTAL = 2,
 }
 
+-- ── AudioError (Phase 81 AUDIO-04) ───────────────────────────────
+-- Typed failure returned by Sound.play / Music.play when the 16-slot
+-- play registry cannot allocate a slot (NoFreeSlot) or when the audio
+-- device is not ready (DeviceNotReady). Matches CONTEXT.md lock for
+-- Phase 81; variants are intentionally terminal (no future growth
+-- in v2.2 — extension is a v2.3 decision).
+enum AudioError {
+    NoFreeSlot,
+    DeviceNotReady,
+}
+
+-- ── Result[T, E] generic enum (Phase 81 shared) ──────────────────
+-- Declared at stdlib level so Sound.play / Music.play (and any future
+-- fallible binding) can return Result[Void, AudioError] without each
+-- consumer re-declaring. Mirrors the test-fixture shape at
+-- tests/integration/generic_enum_result.iron. ironc supports
+-- user-declared generic enums with up to two type parameters, and
+-- Phase 81 extended the emitter to accept Void as a payload type.
+enum Result[T, E] {
+    Ok(T),
+    Err(E),
+}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- Image / Texture / Font types (TYPE-07..12)
 -- ══════════════════════════════════════════════════════════════════════

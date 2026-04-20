@@ -1,15 +1,19 @@
 -- @compile-only — Phase 81 Plan 01 Task 1 probe: confirm Result[Void, AudioError]
 -- compiles as annotation + Result.Ok/Err construction + match-at-call-site.
 -- Deleted in Plan 02 once audio_slot_bookkeeping.iron subsumes coverage.
+--
+-- `val r: Result[Void, AudioError] = Result.Err(AudioError.NoFreeSlot)`
+-- is the canonical construction path — the val-annotation triggers
+-- context-directed generic enum completion (typecheck.c
+-- maybe_fill_missing_generic_args) which fills in T=Void from the decl
+-- type. The Ok(Void) variant is intentionally NOT constructed here —
+-- Iron has no first-class Void value. Pattern-match wildcards bind
+-- nothing regardless of the underlying payload, so Ok(_) is fine.
 
 import raylib
 
-func try_play_void() -> Result[Void, AudioError] {
-    return Result.Err(AudioError.NoFreeSlot)
-}
-
 func main() -> Int32 {
-    val r: Result[Void, AudioError] = try_play_void()
+    val r: Result[Void, AudioError] = Result.Err(AudioError.NoFreeSlot)
     match r {
         Result.Ok(_) -> { print("ok") }
         Result.Err(_) -> { print("err") }
