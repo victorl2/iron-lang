@@ -294,6 +294,11 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                  * By parser invariant, params[0] is the receiver. */
                 Iron_Param *recv = (Iron_Param *)n->params[0];
                 iron_strbuf_appendf(ctx->sb, "func (");
+                /* Phase 79 MUT-01: `mut` is mutually exclusive with `var` at
+                 * parse time, so only one of these two prints will fire. Print
+                 * `mut` first to match the canonical Iron source order
+                 * `func (mut t: T)`. */
+                if (recv->is_mut_receiver) iron_strbuf_appendf(ctx->sb, "mut ");
                 if (recv->is_var) iron_strbuf_appendf(ctx->sb, "var ");
                 iron_strbuf_appendf(ctx->sb, "%s", recv->name);
                 if (recv->type_ann) {
