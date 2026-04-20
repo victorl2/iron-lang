@@ -272,3 +272,133 @@ jobs:
           path: grammars/tree-sitter/iron/iron.wasm
           if-no-files-found: error
           retention-days: 7
+
+  # Phase 6 Plan 06-03 Task 3 (EXT-04, EXT-05, CONTEXT D-04 + D-07 + D-11).
+  #
+  # Gates every PR touching editors/vscode/** or grammars/textmate/** on
+  # a successful `vsce package --no-dependencies` dry-run. Asserts the
+  # resulting .vsix stays under the 5 MB ceiling per RESEARCH Pitfall 10.
+  # No Marketplace PAT is required for packaging — only `vsce publish`
+  # needs one, and publish is a human-gated step per CONTEXT D-11.
+  #
+  # Threat model T-06-03-05 mitigation: --no-dependencies keeps the .vsix
+  # free of unneeded runtime dependencies (we bundle via esbuild instead)
+  # and ensures CI never requires secret credentials.
+  vscode-package-dryrun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install VSCode extension deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Prepackage (copy grammars)
+        working-directory: editors/vscode
+        run: npm run prepackage
+
+      - name: Bundle (esbuild)
+        working-directory: editors/vscode
+        run: npm run bundle
+
+      - name: vsce package --no-dependencies
+        working-directory: editors/vscode
+        run: npx vsce package --no-dependencies --out iron-lsp.vsix
+
+      - name: Assert .vsix size under 5 MB
+        working-directory: editors/vscode
+        run: |
+          size=$(stat -c%s iron-lsp.vsix)
+          echo "vsix size: $size bytes (ceiling: 5242880)"
+          [ "$size" -lt 5242880 ]
+
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-lsp-vsix-${{ github.sha }}
+          path: editors/vscode/iron-lsp.vsix
+          if-no-files-found: error
+          retention-days: 7
+
+  # Phase 6 Plan 06-03 Task 3 (EXT-04): @vscode/test-electron e2e harness.
+  #
+  # Builds ironls from source, injects it onto $PATH (so
+  # discoverIronls() resolves it), and runs the headless Electron test
+  # that opens tests/editors/fixtures/diag_error.iron and asserts at
+  # least one Error-severity diagnostic appears within 10 s. Linux runs
+  # under xvfb; macOS arm64 passes --disable-gpu-sandbox per RESEARCH
+  # Pitfall 7 (handled in test/runTest.ts).
+  vscode-e2e:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang xvfb \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
+
+      - name: Install system deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Build ironls
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
+          cmake --build build --target ironls --parallel 4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install VSCode extension deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Prepackage + bundle + compile tests
+        working-directory: editors/vscode
+        run: |
+          npm run prepackage
+          npm run bundle
+          npx tsc -p . --outDir out
+
+      - name: Run e2e (Linux via xvfb)
+        if: runner.os == 'Linux'
+        working-directory: editors/vscode
+        env:
+          IRONLS_PATH: ${{ github.workspace }}/build/ironls
+        run: |
+          export PATH="${{ github.workspace }}/build:$PATH"
+          xvfb-run -a node ./out/test/runTest.js
+
+      - name: Run e2e (macOS)
+        if: runner.os == 'macOS'
+        working-directory: editors/vscode
+        env:
+          IRONLS_PATH: ${{ github.workspace }}/build/ironls
+        run: |
+          export PATH="${{ github.workspace }}/build:$PATH"
+          node ./out/test/runTest.js
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-e2e-logs-${{ matrix.os }}
+          path: editors/vscode/out/
+          retention-days: 7
