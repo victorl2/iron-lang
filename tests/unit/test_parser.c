@@ -161,6 +161,105 @@ void test_self_keyword_rejected_as_param_name(void) {
     TEST_ASSERT_GREATER_THAN(0, diags.count);
 }
 
+/* ── Phase 82 GRAMMAR: in-block method declarations ──────────────────────── */
+/* `func name()` inside an `object X { ... }` body desugars at parse time to a
+ * top-level Iron_MethodDecl with is_receiver_form=true. The synthesized self
+ * param (name="self", type=enclosing object) is prepended to explicit params.
+ * AST shape is identical to Phase 79's `func (r: X) name()` receiver syntax. */
+
+void test_object_in_block_method_parses(void) {
+    Iron_Node *prog = parse(
+        "object Counter {\n"
+        "    var value: Int\n"
+        "    func bump(n: Int) {\n"
+        "        self.value = self.value + n\n"
+        "    }\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(IRON_NODE_PROGRAM, prog->kind);
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, obj->kind);
+    TEST_ASSERT_EQUAL_STRING("Counter", obj->name);
+    TEST_ASSERT_EQUAL(1, obj->field_count);
+    Iron_Field *f0 = (Iron_Field *)obj->fields[0];
+    TEST_ASSERT_EQUAL_STRING("value", f0->name);
+
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_EQUAL_STRING("Counter", m->type_name);
+    TEST_ASSERT_EQUAL_STRING("bump", m->method_name);
+    TEST_ASSERT_TRUE(m->is_receiver_form);
+    TEST_ASSERT_EQUAL(2, m->param_count);
+    Iron_Param *p0 = (Iron_Param *)m->params[0];
+    Iron_Param *p1 = (Iron_Param *)m->params[1];
+    TEST_ASSERT_EQUAL_STRING("self", p0->name);
+    TEST_ASSERT_FALSE(p0->is_mut_receiver);
+    TEST_ASSERT_EQUAL_STRING("n", p1->name);
+}
+
+void test_object_in_block_method_no_params(void) {
+    Iron_Node *prog = parse(
+        "object Marker {\n"
+        "    val tag: Int\n"
+        "    func ping() {}\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_EQUAL_STRING("ping", m->method_name);
+    TEST_ASSERT_EQUAL(1, m->param_count);  /* only synthesized self */
+    TEST_ASSERT_TRUE(m->is_receiver_form);
+    Iron_Param *p0 = (Iron_Param *)m->params[0];
+    TEST_ASSERT_EQUAL_STRING("self", p0->name);
+}
+
+void test_object_in_block_method_interleaved_with_fields(void) {
+    Iron_Node *prog = parse(
+        "object T {\n"
+        "    var a: Int\n"
+        "    func f() {}\n"
+        "    var b: Int\n"
+        "    func g() {}\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
+
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, obj->kind);
+    TEST_ASSERT_EQUAL_STRING("T", obj->name);
+    TEST_ASSERT_EQUAL(2, obj->field_count);
+
+    Iron_MethodDecl *mf = (Iron_MethodDecl *)pr->decls[1];
+    Iron_MethodDecl *mg = (Iron_MethodDecl *)pr->decls[2];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, mf->kind);
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, mg->kind);
+    TEST_ASSERT_EQUAL_STRING("f", mf->method_name);
+    TEST_ASSERT_EQUAL_STRING("g", mg->method_name);
+    TEST_ASSERT_TRUE(mf->is_receiver_form);
+    TEST_ASSERT_TRUE(mg->is_receiver_form);
+}
+
+void test_object_field_only_still_parses(void) {
+    Iron_Node *prog = parse(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(1, pr->decl_count);
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, obj->kind);
+    TEST_ASSERT_EQUAL_STRING("Foo", obj->name);
+    TEST_ASSERT_EQUAL(1, obj->field_count);
+}
+
 /* ── Interface declarations ──────────────────────────────────────────────── */
 
 void test_parse_interface_decl(void) {
@@ -626,6 +725,12 @@ int main(void) {
     RUN_TEST(test_self_keyword_rejected_as_val_name);
     RUN_TEST(test_self_keyword_rejected_as_func_name);
     RUN_TEST(test_self_keyword_rejected_as_param_name);
+
+    /* Phase 82 GRAMMAR: in-block method declarations */
+    RUN_TEST(test_object_in_block_method_parses);
+    RUN_TEST(test_object_in_block_method_no_params);
+    RUN_TEST(test_object_in_block_method_interleaved_with_fields);
+    RUN_TEST(test_object_field_only_still_parses);
 
     RUN_TEST(test_parse_interface_decl);
     RUN_TEST(test_parse_enum_decl);
