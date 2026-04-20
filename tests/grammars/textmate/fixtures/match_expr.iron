@@ -1,0 +1,9 @@
+// SYNTAX TEST "source.iron" "match_expr.iron"
+match x {
+// <- keyword.control.iron
+    1 => "one",
+//  ^ constant.numeric.integer.iron
+//       ^ string.quoted.double.iron
+    2 => "two",
+    _ => "other"
+}

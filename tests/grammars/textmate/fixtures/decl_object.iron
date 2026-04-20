@@ -1,0 +1,8 @@
+// SYNTAX TEST "source.iron" "decl_object.iron"
+object Point {
+// <- keyword.declaration.iron
+//     ^ entity.name.type.iron
+    x: int,
+//   ^ punctuation.separator.iron
+    y: int
+}

@@ -1,0 +1,15 @@
+{
+  "name": "iron-textmate-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phase 6 Plan 06-01 Task 2 — ReDoS lint + vscode-tmgrammar-test harness for grammars/textmate/iron.tmLanguage.json. Not published.",
+  "license": "MIT",
+  "scripts": {
+    "lint:redos": "node redos_check.js ../../../grammars/textmate/iron.tmLanguage.json",
+    "test:snapshot": "node snapshot.test.js"
+  },
+  "devDependencies": {
+    "safe-regex": "^2.1.1",
+    "vscode-tmgrammar-test": "0.1.3"
+  }
+}

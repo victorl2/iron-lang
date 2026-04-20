@@ -1,0 +1,7 @@
+// SYNTAX TEST "source.iron" "strings.iron"
+val greeting = "hello"
+//             ^ string.quoted.double.iron
+val escaped = "line\n"
+//                  ^ constant.character.escape.iron
+val interp = $"value is ${answer}"
+//           ^ string.interpolated.iron

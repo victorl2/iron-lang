@@ -1,0 +1,12 @@
+# literals.iron expected-scopes reference.
+Token    | Scope
+---------|--------------------------------
+val      | keyword.declaration.iron
+42       | constant.numeric.integer.iron
+3.14159  | constant.numeric.float.iron
+true     | constant.language.iron
+false    | constant.language.iron
+null     | constant.language.iron
+
+Covers UI-SPEC S6: constant.numeric.integer.iron,
+constant.numeric.float.iron, constant.language.iron (×3).
