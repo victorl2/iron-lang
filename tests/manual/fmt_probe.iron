@@ -1,0 +1,39 @@
+-- @compile-only
+-- tests/manual/fmt_probe.iron
+-- Phase 78-02 end-to-end probe. Exercises the full stack landed by
+-- Plan 78-01 (runtime shim) + Plan 78-02 (compiler dispatch + stubs):
+--   - Int.to_string on 0, positive, negative, INT64_MIN
+--   - Int32.to_string on 0, positive, negative, INT32_MIN
+--   - Float.to_string on 0.0, 1.5, 1.0 (trim trailing zeros), -0.0, NaN-ish
+--   - String.pad_left / pad_right on converted ints (FMT-04 smoke)
+--
+-- Invocation: ./build/ironc build tests/manual/fmt_probe.iron && ./fmt_probe
+-- Runs the binary and prints expected lines (verified by eye — full
+-- expected-output coverage ships in tests/integration/fmt_to_string.iron
+-- in Plan 78-03).
+
+func main() {
+    val a: Int = 42
+    val b: Int = -9223372036854775808  -- INT64_MIN
+    val c: Int = 0
+    println(a.to_string())
+    println(b.to_string())
+    println(c.to_string())
+
+    val d: Int32 = Int32(-2147483648)  -- INT32_MIN
+    val e: Int32 = Int32(0)
+    println(d.to_string())
+    println(e.to_string())
+
+    val f: Float = 1.5
+    val g: Float = 1.0
+    val h: Float = 0.0
+    println(f.to_string())
+    println(g.to_string())
+    println(h.to_string())
+
+    -- FMT-04 pad smoke
+    val s: String = "42"
+    println(s.pad_left(5, " "))   -- expected: "   42"
+    println(s.pad_right(5, "_"))  -- expected: "42___"
+}

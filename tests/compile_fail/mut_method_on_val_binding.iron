@@ -1,0 +1,23 @@
+-- Negative test: calling a mut-receiver method on a val-bound binding.
+-- This file MUST fail to compile with IRON_ERR_MUT_CALL_ON_VAL (E0235).
+-- The plan's verify step greps stderr for the locked message substring.
+--
+-- Post-Phase-80 Plan 02: MUT-04 is now enforced. Before Phase 80, this
+-- compiled silently AND the mutation was a silent no-op (user-type
+-- receivers passed by value — see Phase 79 mut_receiver_grammar
+-- SUMMARY section "MUT-05 negative-space proof"). Now it is a hard
+-- type error at the call site.
+
+object Counter {
+    var value: Int
+}
+
+func (mut c: Counter) bump() {
+    c.value = c.value + 1
+}
+
+func main() {
+    val c: Counter = Counter(0)
+    c.bump()
+    println("unreachable")
+}

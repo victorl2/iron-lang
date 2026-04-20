@@ -132,6 +132,11 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* Bitwise operator errors */
 #define IRON_ERR_BITWISE_NON_INT      233
 
+/* MUT (Phase 80) — mutable-receiver enforcement errors */
+#define IRON_ERR_MUT_FIELD_IMMUT_RECV 234
+#define IRON_ERR_MUT_CALL_ON_VAL      235
+#define IRON_ERR_MUT_ON_PRIMITIVE     236
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301

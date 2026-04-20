@@ -22,22 +22,6 @@ enum GameState {
     GAME_OVER = 2,
 }
 
--- Convert a non-negative Int to its decimal String representation.
--- Iron has no stdlib Int→String; implemented locally (pattern from url.iron).
--- Used for the per-player scoreboard overlay.
-func int_to_str(n: Int) -> String {
-    if n == 0 { return "0" }
-    var x = n
-    var s = ""
-    while x > 0 {
-        val d = x % 10
-        val digit_char = String.from_byte(48 + d)
-        s = "{digit_char}{s}"
-        x = x / 10
-    }
-    return s
-}
-
 func main() {
     -- Screen dimensions + tunables. Kept as Int (int64_t) so arithmetic
     -- stays branchless and wrap-free; cast to Int32 at the Draw.* call sites
@@ -98,15 +82,22 @@ func main() {
             ball_y = ball_y + ball_vy
 
             -- Top/bottom wall reflection.
+            -- Phase 81: Sound.play returns Result[Void, AudioError]. Bind to
+            -- `val _r` and discard — audible-silence at 16-slot saturation is
+            -- the benign degrade for a bounce effect (fire-and-forget).
             if ball_y < 0 {
                 ball_y = 0
                 ball_vy = -ball_vy
-                if Sound.is_valid(bounce) { Sound.play(bounce) }
+                if Sound.is_valid(bounce) {
+                    val _r = Sound.play(bounce)
+                }
             }
             if ball_y > SCREEN_H - BALL_SIZE {
                 ball_y = SCREEN_H - BALL_SIZE
                 ball_vy = -ball_vy
-                if Sound.is_valid(bounce) { Sound.play(bounce) }
+                if Sound.is_valid(bounce) {
+                    val _r = Sound.play(bounce)
+                }
             }
 
             -- Left paddle collision (x range + y range).
@@ -114,7 +105,9 @@ func main() {
                 if ball_y + BALL_SIZE > left_y and ball_y < left_y + PADDLE_H {
                     ball_x = PADDLE_W
                     ball_vx = -ball_vx
-                    if Sound.is_valid(bounce) { Sound.play(bounce) }
+                    if Sound.is_valid(bounce) {
+                        val _r = Sound.play(bounce)
+                    }
                 }
             }
             -- Right paddle collision.
@@ -122,7 +115,9 @@ func main() {
                 if ball_y + BALL_SIZE > right_y and ball_y < right_y + PADDLE_H {
                     ball_x = SCREEN_W - PADDLE_W - BALL_SIZE
                     ball_vx = -ball_vx
-                    if Sound.is_valid(bounce) { Sound.play(bounce) }
+                    if Sound.is_valid(bounce) {
+                        val _r = Sound.play(bounce)
+                    }
                 }
             }
 
@@ -183,9 +178,12 @@ func main() {
                             Int32(BALL_SIZE), Int32(BALL_SIZE), WHITE)
         }
 
-        -- Scores.
-        val left_str = int_to_str(left_score)
-        val right_str = int_to_str(right_score)
+        -- Scores. Phase 78 FMT-05: use stdlib Int.to_string + pad_left(3, " ")
+        -- so the scoreboard is fixed-width (no horizontal jitter as scores
+        -- cross single → double digits). pad_left with space fill preserves
+        -- the existing visual layout vs v2.1's hand-rolled conversion helper.
+        val left_str = left_score.to_string().pad_left(3, " ")
+        val right_str = right_score.to_string().pad_left(3, " ")
         Draw.text(left_str,  Int32(SCREEN_W / 4),     Int32(20), Int32(40), WHITE)
         Draw.text(right_str, Int32(3 * SCREEN_W / 4), Int32(20), Int32(40), WHITE)
 

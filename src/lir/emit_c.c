@@ -4359,8 +4359,18 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
             iron_strbuf_appendf(sb, "%s *_v%d, int64_t _v%d_len",
                                 elem_c, param_val_id, param_val_id);
         } else if (pt) {
-            iron_strbuf_appendf(sb, "%s _v%d",
-                                emit_type_to_c(pt, ctx), param_val_id);
+            /* Phase 80 MUT-07: mut-receiver methods take self by pointer so
+             * field mutations persist to the caller's binding. The AST/HIR
+             * gate (is_mut_receiver_method) fires only for user-declared
+             * receiver-form methods, so this code path never affects free
+             * functions, classic-form methods, or stdlib externs. */
+            if (fn->is_mut_receiver_method && i == 0) {
+                iron_strbuf_appendf(sb, "%s *_v%d",
+                                    emit_type_to_c(pt, ctx), param_val_id);
+            } else {
+                iron_strbuf_appendf(sb, "%s _v%d",
+                                    emit_type_to_c(pt, ctx), param_val_id);
+            }
         } else {
             iron_strbuf_appendf(sb, "void* _v%d", param_val_id);
         }

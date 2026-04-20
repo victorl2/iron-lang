@@ -97,8 +97,11 @@ func main() -> Int32 {
 
     while not Window.should_close() {
 -- ── INPUT: Keyboard.is_pressed gated SPACE → Sound.play ──────────────
+        -- Phase 81: Sound.play returns Result[Void, AudioError]; discard via
+        -- `val _r`. Benign degrade — if 16 slots are saturated, SPACE-blip
+        -- silently no-ops rather than raising to the user.
         if Keyboard.is_pressed(KeyboardKey.SPACE) {
-            Sound.play(blip)
+            val _r = Sound.play(blip)
         }
 
 -- ── COLL: Rectangle.collides checks two overlapping rects each frame ─

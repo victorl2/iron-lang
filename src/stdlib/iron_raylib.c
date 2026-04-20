@@ -4598,6 +4598,76 @@ static void audio_cb_free(int slot) {
 /* ── End of ABI-CALLBACK trampoline infrastructure ─────────────────── */
 /* Plan 68-02+ will add raudio binding shims after this block. */
 
+/* ══════════════════════════════════════════════════════════════════
+ * Phase 81 AUDIO Play Registry (AUDIO-01..05)
+ *
+ * Iron-level 16-slot registry layered over raylib's PlaySound /
+ * PlayMusicStream. Provides deterministic non-drop + slot release on
+ * stop + slot reuse on restart + typed NoFreeSlot on saturation +
+ * clean Audio.detach_all(). CONTEXT.md-locked shape.
+ *
+ * Storage separate from the ABI-CALLBACK trampoline (g_audio_cb
+ * above) — different concern, different lifetime. Size 16 matches
+ * raylib's MAX_AUDIO_BUFFER_POOL_CHANNELS.
+ *
+ * Match key on stop: raylib AudioBuffer * (stored in PlaySlot.buffer_ptr).
+ * For Sound/Music we reuse the embedded AudioStream._buffer field —
+ * pointer identity is stable for the lifetime of the Sound/Music object.
+ *
+ * Thread safety: single-threaded at the Iron call-site. raylib's mixer
+ * thread is independent (handled by miniaudio internals).
+ * ══════════════════════════════════════════════════════════════════ */
+
+#define IRON_PLAY_SLOTS 16
+
+typedef enum {
+    PLAY_SLOT_NONE  = 0,
+    PLAY_SLOT_SOUND = 1,
+    PLAY_SLOT_MUSIC = 2,
+} PlaySlotKind;
+
+typedef struct {
+    PlaySlotKind kind;
+    void        *buffer_ptr;   /* raylib AudioBuffer* = stream._buffer */
+    /* Stored copies of the full Sound / Music struct allow
+     * Iron_audio_detach_all() to reconstitute a raylib-callable
+     * value without walking Iron-side state. Size-bounded:
+     * ~48 B * 16 = 768 B for full-Music slots. */
+    struct Iron_Sound sound_copy;   /* valid iff kind == PLAY_SLOT_SOUND */
+    struct Iron_Music music_copy;   /* valid iff kind == PLAY_SLOT_MUSIC */
+} PlaySlot;
+
+static PlaySlot g_play_slots[IRON_PLAY_SLOTS];
+static int      g_play_slots_used = 0;
+
+/* Find a free slot index or return -1. O(16). */
+static int play_slot_find_free(void) {
+    for (int i = 0; i < IRON_PLAY_SLOTS; i++) {
+        if (g_play_slots[i].kind == PLAY_SLOT_NONE) return i;
+    }
+    return -1;
+}
+
+/* Find a slot matching the given buffer pointer or return -1. O(16). */
+static int play_slot_find_by_buffer(void *buffer_ptr) {
+    if (buffer_ptr == NULL) return -1;
+    for (int i = 0; i < IRON_PLAY_SLOTS; i++) {
+        if (g_play_slots[i].kind != PLAY_SLOT_NONE &&
+            g_play_slots[i].buffer_ptr == buffer_ptr) return i;
+    }
+    return -1;
+}
+
+/* Free a slot by buffer pointer; no-op if not found (idempotent stop). */
+static void play_slot_free_by_buffer(void *buffer_ptr) {
+    int i = play_slot_find_by_buffer(buffer_ptr);
+    if (i < 0) return;
+    g_play_slots[i].kind = PLAY_SLOT_NONE;
+    g_play_slots[i].buffer_ptr = NULL;
+    /* Leave sound_copy/music_copy zeroing implicit — next alloc overwrites. */
+    g_play_slots_used--;
+}
+
 /* ── AUDIO-01 Audio device lifecycle (5 shims) ─────────────────────── */
 /*
  * Freestanding shims — no instance receiver. Mirrors Phase 61 Window.*
@@ -4846,13 +4916,49 @@ struct Iron_Sound Iron_wave_to_sound(struct Iron_Wave wave) {
  * returns + 1 bool return).
  */
 
-void Iron_sound_play(struct Iron_Sound sound) {
+/* Phase 81 AUDIO-01 + AUDIO-04: Sound.play returns Result[Void, AudioError].
+ * - Ok(_) on successful registry alloc + PlaySound dispatch.
+ * - Err(DeviceNotReady) when !IsAudioDeviceReady() — raylib would
+ *   silently no-op; Iron makes it diagnosable.
+ * - Err(NoFreeSlot) when all 16 registry slots are occupied — raylib
+ *   would silently drop; Iron makes it diagnosable.
+ * Registry is updated BEFORE PlaySound so a concurrent stop on the
+ * same buffer pointer cannot race past a partially-registered play. */
+Iron_Result_void_AudioError Iron_sound_play(struct Iron_Sound sound) {
+    Iron_Result_void_AudioError out;
+    out.data.Ok._dummy = 0;
+
+    if (!IsAudioDeviceReady()) {
+        out.tag = Iron_Result_void_AudioError_TAG_Err;
+        out.data.Err._0 = Iron_AudioError_DeviceNotReady;
+        return out;
+    }
+    if (g_play_slots_used >= IRON_PLAY_SLOTS) {
+        out.tag = Iron_Result_void_AudioError_TAG_Err;
+        out.data.Err._0 = Iron_AudioError_NoFreeSlot;
+        return out;
+    }
+
+    int slot = play_slot_find_free();
+    /* slot >= 0 guaranteed because g_play_slots_used < IRON_PLAY_SLOTS. */
+    g_play_slots[slot].kind       = PLAY_SLOT_SOUND;
+    g_play_slots[slot].buffer_ptr = sound.stream._buffer;
+    g_play_slots[slot].sound_copy = sound;
+    g_play_slots_used++;
+
     Sound rl;
     memcpy(&rl, &sound, sizeof(Sound));
     PlaySound(rl);
+
+    out.tag = Iron_Result_void_AudioError_TAG_Ok;
+    return out;
 }
 
+/* Phase 81 AUDIO-02: Sound.stop releases the registry slot BEFORE
+ * dispatching StopSound. raylib's StopSound is idempotent for
+ * unregistered sounds, so double-stop is a safe no-op. */
 void Iron_sound_stop(struct Iron_Sound sound) {
+    play_slot_free_by_buffer(sound.stream._buffer);
     Sound rl;
     memcpy(&rl, &sound, sizeof(Sound));
     StopSound(rl);
@@ -5020,10 +5126,35 @@ struct Iron_Music Iron_music_set_looping(struct Iron_Music music, bool looping) 
  * optional but recommended for clarity in headless environments.
  */
 
-void Iron_music_play(struct Iron_Music music) {
+/* Phase 81 AUDIO-01 + AUDIO-04: Music.play mirrors Sound.play — same
+ * shared 16-slot registry, same Result[Void, AudioError] return. */
+Iron_Result_void_AudioError Iron_music_play(struct Iron_Music music) {
+    Iron_Result_void_AudioError out;
+    out.data.Ok._dummy = 0;
+
+    if (!IsAudioDeviceReady()) {
+        out.tag = Iron_Result_void_AudioError_TAG_Err;
+        out.data.Err._0 = Iron_AudioError_DeviceNotReady;
+        return out;
+    }
+    if (g_play_slots_used >= IRON_PLAY_SLOTS) {
+        out.tag = Iron_Result_void_AudioError_TAG_Err;
+        out.data.Err._0 = Iron_AudioError_NoFreeSlot;
+        return out;
+    }
+
+    int slot = play_slot_find_free();
+    g_play_slots[slot].kind       = PLAY_SLOT_MUSIC;
+    g_play_slots[slot].buffer_ptr = music.stream._buffer;
+    g_play_slots[slot].music_copy = music;
+    g_play_slots_used++;
+
     Music rl;
     memcpy(&rl, &music, sizeof(Music));
     PlayMusicStream(rl);
+
+    out.tag = Iron_Result_void_AudioError_TAG_Ok;
+    return out;
 }
 
 bool Iron_music_is_playing(struct Iron_Music music) {
@@ -5038,7 +5169,11 @@ void Iron_music_update(struct Iron_Music music) {
     UpdateMusicStream(rl);
 }
 
+/* Phase 81 AUDIO-02: Music.stop releases the registry slot BEFORE
+ * dispatching StopMusicStream. raylib is idempotent for unregistered
+ * streams, so double-stop is a safe no-op. */
 void Iron_music_stop(struct Iron_Music music) {
+    play_slot_free_by_buffer(music.stream._buffer);
     Music rl;
     memcpy(&rl, &music, sizeof(Music));
     StopMusicStream(rl);
@@ -5054,6 +5189,41 @@ void Iron_music_resume(struct Iron_Music music) {
     Music rl;
     memcpy(&rl, &music, sizeof(Music));
     ResumeMusicStream(rl);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * Phase 81 AUDIO-05 — Audio.detach_all + Audio.active_slot_count
+ *
+ * detach_all walks all 16 registry slots; for each used slot, calls
+ * the appropriate raylib stop (StopSound / StopMusicStream) using the
+ * stored Sound/Music copy. All slots then cleared and counter reset
+ * to 0. Safe when device is not ready (raylib stops are no-ops).
+ *
+ * active_slot_count returns the counter directly as Int32 (no scan).
+ * Primary consumers: tests/manual/audio_slot_bookkeeping.iron (added
+ * in Plan 02). Also useful as a diagnostic signal from game code.
+ * ══════════════════════════════════════════════════════════════════ */
+
+void Iron_audio_detach_all(void) {
+    for (int i = 0; i < IRON_PLAY_SLOTS; i++) {
+        if (g_play_slots[i].kind == PLAY_SLOT_NONE) continue;
+        if (g_play_slots[i].kind == PLAY_SLOT_SOUND) {
+            Sound rl;
+            memcpy(&rl, &g_play_slots[i].sound_copy, sizeof(Sound));
+            StopSound(rl);
+        } else if (g_play_slots[i].kind == PLAY_SLOT_MUSIC) {
+            Music rl;
+            memcpy(&rl, &g_play_slots[i].music_copy, sizeof(Music));
+            StopMusicStream(rl);
+        }
+        g_play_slots[i].kind = PLAY_SLOT_NONE;
+        g_play_slots[i].buffer_ptr = NULL;
+    }
+    g_play_slots_used = 0;
+}
+
+int32_t Iron_audio_active_slot_count(void) {
+    return (int32_t)g_play_slots_used;
 }
 
 /* ── AUDIO-11 Music configure + query (6 shims) ────────────────────── */

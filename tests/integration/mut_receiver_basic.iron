@@ -1,0 +1,29 @@
+-- mut_receiver_basic.iron — Phase 80 MUT-07 happy-path integration test.
+--
+-- Minimal shape (CONTEXT.md locks: use Counter, not Timer, to avoid
+-- stdlib-specific semantics; 10-15 lines; one struct, one mut method).
+--
+-- What this proves:
+--   1. `func (mut c: Counter) bump(n: Int)` type-checks cleanly
+--      (MUT-02: resolver flags c's binding as is_mutable=true;
+--       MUT-03: assignment c.value = c.value + n compiles because
+--       the receiver is mut-bound)
+--   2. `var c: Counter = Counter(0); c.bump(3)` runs and the
+--      mutation persists: println shows 3 (MUT-04: calling a
+--      mut-receiver method on a var-binding is allowed;
+--      MUT-07: the mutation propagates back to the caller's binding
+--      via the self_by_addr ABI wired in Plan 01 Task 4)
+
+object Counter {
+    var value: Int
+}
+
+func (mut c: Counter) bump(n: Int) {
+    c.value = c.value + n
+}
+
+func main() {
+    var c: Counter = Counter(0)
+    c.bump(3)
+    println("{c.value}")
+}

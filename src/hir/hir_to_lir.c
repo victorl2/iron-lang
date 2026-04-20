@@ -1128,6 +1128,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 /* String: "string" is already lowercase — lowercasing loop is a no-op.
                  * Result: snprintf → "string_upper" → mangle_func_name → "Iron_string_upper" */
                 type_name = "string";
+            } else if (obj_type->kind == IRON_TYPE_INT) {
+                /* Phase 78 FMT-01: Int (signed 64-bit) receiver methods dispatch
+                 * to Iron_int_<method>. Currently the only in-scope method is
+                 * to_string — runtime shim at src/runtime/iron_fmt.c exports
+                 * Iron_int_to_string(int64_t). */
+                type_name = "int";
+            } else if (obj_type->kind == IRON_TYPE_INT32) {
+                /* Phase 78 FMT-02: Int32 receiver methods dispatch to
+                 * Iron_int32_<method>. Runtime exports Iron_int32_to_string(int32_t). */
+                type_name = "int32";
+            } else if (obj_type->kind == IRON_TYPE_FLOAT) {
+                /* Phase 78 FMT-03: Float (double) receiver methods dispatch to
+                 * Iron_float_<method>. Runtime exports Iron_float_to_string(double). */
+                type_name = "float";
             } else if (obj_type->kind == IRON_TYPE_ARRAY) {
                 /* Collection: build the full "Iron_List_<elem_suffix>_<method>" name
                  * directly and return early. mangle_func_name() skips names that
@@ -1368,11 +1382,29 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * takes value in both places so it stays off-list.
          *
          * Applies to both instance-style (t.update(dt)) and static-style
-         * (Timer.update(t, dt)) calls — the C signature is the same. If a
-         * future stdlib adds a pointer-receiver method, add its mangled name
-         * here (or wire structured metadata on the HIR func decl). */
+         * (Timer.update(t, dt)) calls — the C signature is the same.
+         *
+         * Phase 80 MUT-07 additive gate: if the callee is a user-defined
+         * receiver-form method whose receiver was declared `mut` (flag set
+         * in hir_lower.c), ALSO fire self_by_addr so field mutations through
+         * the receiver persist to the caller's binding. Looked up by mangled
+         * name against ctx->hir->funcs, mirroring the synth_self pattern at
+         * lines 1336-1348 just above. */
+        bool callee_is_mut_receiver = false;
+        if (ctx->hir) {
+            for (int fi = 0; fi < ctx->hir->func_count; fi++) {
+                IronHIR_Func *tf = ctx->hir->funcs[fi];
+                if (!tf || !tf->name) continue;
+                if (strcmp(tf->name, mangled) != 0) continue;
+                if (tf->is_mut_receiver_method) {
+                    callee_is_mut_receiver = true;
+                }
+                break;
+            }
+        }
         if (strcmp(mangled, "timer_update") == 0 ||
-            strcmp(mangled, "timer_reset")  == 0) {
+            strcmp(mangled, "timer_reset")  == 0 ||
+            callee_is_mut_receiver) {
             call->call.self_by_addr = true;
         }
         arrfree(args);
@@ -2339,6 +2371,10 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* Propagate capture metadata from HIR func to LIR func (for lifted lambdas) */
     lir_func->capture_metadata = hir_func->captures;
     lir_func->capture_count    = hir_func->capture_count;
+
+    /* Phase 80 MUT-07: propagate mut-receiver flag HIR→LIR so emit_c.c can
+     * emit pointer-receiver signature + `->` field access for the body. */
+    lir_func->is_mut_receiver_method = hir_func->is_mut_receiver_method;
 
     /* Set up context for this function */
     ctx->current_func = lir_func;

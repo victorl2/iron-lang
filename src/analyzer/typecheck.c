@@ -669,6 +669,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     else if (strcmp(name, "Bool")    == 0) base = iron_type_make_primitive(IRON_TYPE_BOOL);
     else if (strcmp(name, "String")  == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
     else if (strcmp(name, "void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
+    else if (strcmp(name, "Void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
     else {
         /* User-defined type: look up in global scope */
         Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
@@ -1671,6 +1672,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* String instance method: resolve via string.iron wrapper decls */
                     type_name_mc = "String";
                 } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_INT) {
+                    /* Phase 78 FMT-01: Int instance method (e.g. n.to_string()).
+                     * Resolve via int.iron wrapper decls (unconditionally prepended
+                     * by build.c / check.c — parallel to string.iron). */
+                    type_name_mc = "Int";
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_INT32) {
+                    /* Phase 78 FMT-02: Int32 instance method (e.g. n.to_string()).
+                     * Int32.to_string is a distinct method, NOT a widening delegate
+                     * through Int (CONTEXT.md: type-first design). */
+                    type_name_mc = "Int32";
+                } else if (obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_FLOAT) {
+                    /* Phase 78 FMT-03: Float instance method (e.g. f.to_string()).
+                     * Resolve via float.iron wrapper decls. */
+                    type_name_mc = "Float";
+                } else if (obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_ARRAY) {
                     /* Collection method: try extension method decls first,
                      * fall back to built-in heuristics for push/pop/len/etc. */
@@ -1753,6 +1771,27 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
+                            /* Phase 80 MUT-04: if callee is a receiver-form method
+                             * whose receiver binding was declared `mut`, require the
+                             * caller's receiver expression to be rooted in a mutable
+                             * binding. Non-ident receivers (chained calls, literals)
+                             * are skipped — Phase 80 only enforces the ident-rooted
+                             * case per CONTEXT.md. */
+                            if (md->is_receiver_form && md->param_count > 0) {
+                                Iron_Param *recv_p = (Iron_Param *)md->params[0];
+                                if (recv_p && recv_p->is_mut_receiver) {
+                                    /* obj_id was set above — this branch is gated on
+                                     * mc->object->kind == IRON_NODE_IDENT. */
+                                    if (obj_id->resolved_sym &&
+                                        !obj_id->resolved_sym->is_mutable) {
+                                        char msg[256];
+                                        snprintf(msg, sizeof(msg),
+                                                 "cannot call mutable method on immutable binding");
+                                        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
+                                                   mc->span, msg, NULL);
+                                    }
+                                }
+                            }
                             break;
                         }
                     }
@@ -1766,6 +1805,30 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, "String") == 0 &&
+                            strcmp(md->method_name, mc->method) == 0) {
+                            if (md->resolved_return_type) {
+                                result = md->resolved_return_type;
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else if (obj_type_mc && (obj_type_mc->kind == IRON_TYPE_INT   ||
+                                        obj_type_mc->kind == IRON_TYPE_INT32 ||
+                                        obj_type_mc->kind == IRON_TYPE_FLOAT)) {
+                /* Phase 78 FMT-01/02/03: non-ident receiver with primitive numeric type.
+                 * Covers integer/float literals as receivers (42.to_string()) and
+                 * chained calls ((a + b).to_string()). */
+                const char *tn =
+                    (obj_type_mc->kind == IRON_TYPE_INT)   ? "Int"   :
+                    (obj_type_mc->kind == IRON_TYPE_INT32) ? "Int32" :
+                                                              "Float";
+                if (ctx->program) {
+                    for (int i = 0; i < ctx->program->decl_count; i++) {
+                        Iron_Node *d = ctx->program->decls[i];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, tn) == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
@@ -2752,6 +2815,34 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Phase 80 MUT-03: field-assignment on immutable receiver.
+             * When the assignment target is a field-access (or chain of field-accesses
+             * like t.inner.field), walk to the root ident and check its resolved_sym's
+             * is_mutable flag. If the root is immutable (val-bound, or an immutable
+             * receiver binding from Phase 80-01's resolver wiring), reject with E0234.
+             *
+             * Chain walking: t.inner.field → root ident is `t` (the innermost object
+             * that is not itself a field_access). Iron_FieldAccess.object can be
+             * another IRON_NODE_FIELD_ACCESS or an IRON_NODE_IDENT (or other expr
+             * kinds like method calls — we only fire when the walk terminates at
+             * an ident with a resolved_sym; otherwise the broader type system
+             * handles it). */
+            bool is_field_target_immut = false;
+            const char *field_root_name = NULL;
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                }
+                if (cur && cur->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *root_id = (Iron_Ident *)cur;
+                    if (root_id->resolved_sym) {
+                        is_field_target_immut = !root_id->resolved_sym->is_mutable;
+                        field_root_name = root_id->name;
+                    }
+                }
+            }
+
             Iron_Type *target_type = check_expr(ctx, as->target);
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
 
@@ -2761,6 +2852,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                          "cannot assign to val '%s' — val is immutable",
                          target_name ? target_name : "");
                 emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, NULL);
+            }
+
+            if (is_field_target_immut) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cannot mutate field on immutable receiver");
+                emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
+                (void)field_root_name;  /* reserved for future hint; silence unused warn */
             }
 
             if (target_type && value_type &&

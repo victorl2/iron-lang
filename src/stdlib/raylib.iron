@@ -613,6 +613,29 @@ enum NPatchLayout {
     THREE_PATCH_HORIZONTAL = 2,
 }
 
+-- ── AudioError (Phase 81 AUDIO-04) ───────────────────────────────
+-- Typed failure returned by Sound.play / Music.play when the 16-slot
+-- play registry cannot allocate a slot (NoFreeSlot) or when the audio
+-- device is not ready (DeviceNotReady). Matches CONTEXT.md lock for
+-- Phase 81; variants are intentionally terminal (no future growth
+-- in v2.2 — extension is a v2.3 decision).
+enum AudioError {
+    NoFreeSlot,
+    DeviceNotReady,
+}
+
+-- ── Result[T, E] generic enum (Phase 81 shared) ──────────────────
+-- Declared at stdlib level so Sound.play / Music.play (and any future
+-- fallible binding) can return Result[Void, AudioError] without each
+-- consumer re-declaring. Mirrors the test-fixture shape at
+-- tests/integration/generic_enum_result.iron. ironc supports
+-- user-declared generic enums with up to two type parameters, and
+-- Phase 81 extended the emitter to accept Void as a payload type.
+enum Result[T, E] {
+    Ok(T),
+    Err(E),
+}
+
 -- ══════════════════════════════════════════════════════════════════════
 -- Image / Texture / Font types (TYPE-07..12)
 -- ══════════════════════════════════════════════════════════════════════
@@ -2408,6 +2431,19 @@ func Audio.is_ready() -> Bool {}
 func Audio.set_master_volume(volume: Float32) {}
 func Audio.get_master_volume() -> Float32 {}
 
+-- ── Phase 81 AUDIO-05 — registry helpers ──────────────────────────
+-- Phase 81 introduces an Iron-level 16-slot play registry layered
+-- over raylib's PlaySound / PlayMusicStream to guarantee AUDIO-01..05
+-- contracts (no silent drops, slot release on stop, typed NoFreeSlot
+-- at saturation, clean detach_all). These two helpers expose the
+-- registry's bulk operations.
+--
+-- detach_all() stops every playing Sound/Music and empties the
+-- 16-slot registry. active_slot_count() reports current occupancy
+-- (primarily for tests + diagnostics).
+func Audio.detach_all() {}
+func Audio.active_slot_count() -> Int32 {}
+
 -- ── AUDIO-02 Wave load/unload + AUDIO-04 export (6 methods) ─────────
 -- `_device` suffix dropped — namespace implies device scope.
 -- ABI-UINT8 consumer: Wave.load_from_memory takes [UInt8] data (new
@@ -2478,7 +2514,14 @@ func (alias: Sound) unload_alias() {}
 -- Playback state transitions. raylib is a no-op when the audio device
 -- is not ready; wrap call sites with Audio.is_ready() for graceful
 -- headless / CI degradation.
-func (sound: Sound) play() {}
+--
+-- Phase 81 API break: Sound.play returns Result[Void, AudioError].
+-- Ok(_) means the sample was placed in the 16-slot play registry
+-- AND raylib's PlaySound was invoked. Err(NoFreeSlot) fires when
+-- all 16 slots are occupied; Err(DeviceNotReady) fires when
+-- !IsAudioDeviceReady(). Sound.stop stays at Void return (idempotent
+-- slot release). Sound.pause / resume / is_playing unchanged.
+func (sound: Sound) play() -> Result[Void, AudioError] {}
 func (sound: Sound) stop() {}
 func (sound: Sound) pause() {}
 func (sound: Sound) resume() {}
@@ -2553,7 +2596,12 @@ func (music: Music) set_looping(looping: Bool) -> Music {}
 -- shim dispatches to the correctly-named raylib function internally).
 -- raylib is a no-op when the audio device is not ready; wrap calls
 -- with Audio.is_ready() for graceful headless / CI degradation.
-func (music: Music) play() {}
+--
+-- Phase 81 API break: Music.play returns Result[Void, AudioError]
+-- (same semantics as Sound.play — shared 16-slot play registry).
+-- Music.stop stays at Void return. Music.is_playing / update / pause
+-- / resume unchanged.
+func (music: Music) play() -> Result[Void, AudioError] {}
 func (music: Music) is_playing() -> Bool {}
 func (music: Music) update() {}
 func (music: Music) stop() {}

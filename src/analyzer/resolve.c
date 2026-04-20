@@ -347,6 +347,45 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             push_scope(ctx, IRON_SCOPE_FUNCTION);
             ctx->current_scope->owner_name = md->method_name;
 
+            /* Phase 80 MUT-09: reject `mut` on non-struct receiver types.
+             * Primitive types (Int, Float, Bool, String, etc.) ARE registered
+             * in global scope as IRON_SYM_TYPE symbols (resolve.c:1037-1063),
+             * but with decl_node=NULL (no user-declared AST node). User-declared
+             * struct/object/enum types carry a non-NULL decl_node pointing at
+             * the OBJECT_DECL or ENUM_DECL AST node. We use that distinction
+             * to identify "struct-like" receiver owners:
+             *   - user object/struct  -> sym_kind=IRON_SYM_TYPE, decl_node!=NULL
+             *   - user enum           -> sym_kind=IRON_SYM_ENUM, decl_node!=NULL
+             *   - primitive alias     -> sym_kind=IRON_SYM_TYPE, decl_node==NULL
+             *   - undeclared type     -> owner_sym==NULL (attach_method emits E0200)
+             * Any non-struct-like mut-receiver declaration gets the MUT-specific
+             * diagnostic so the user sees actionable guidance instead of (or
+             * in addition to) the generic "method declared on undeclared type".
+             *
+             * Fires once per offending declaration. Gated on is_receiver_form
+             * + params[0]->is_mut_receiver so it never hits classic
+             * `func T.m()` form or non-mut receiver-form methods. */
+            if (md->is_receiver_form && md->param_count > 0) {
+                Iron_Param *recv = (Iron_Param *)md->params[0];
+                if (recv && recv->is_mut_receiver) {
+                    bool owner_is_struct_like =
+                        (md->owner_sym &&
+                         md->owner_sym->decl_node &&
+                         (md->owner_sym->sym_kind == IRON_SYM_TYPE ||
+                          md->owner_sym->sym_kind == IRON_SYM_ENUM));
+                    if (!owner_is_struct_like) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "'mut' on non-struct receiver type '%s' — "
+                                 "only struct/composite types support mut",
+                                 md->type_name ? md->type_name : "?");
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_MUT_ON_PRIMITIVE, md->span,
+                                       msg, NULL);
+                    }
+                }
+            }
+
             /* Define implicit 'self' — classic form only. Receiver form
              * uses the declared receiver name (e.g. `t` in `func (t: Timer) ...`)
              * and has no implicit `self`; references to `self` in the body
@@ -366,7 +405,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *ps = iron_symbol_create(ctx->arena, p->name,
                                                       IRON_SYM_PARAM,
                                                       md->params[i], p->span);
-                ps->is_mutable = p->is_var;
+                /* Phase 80 MUT-02: receiver-form methods use is_mut_receiver
+                 * for the receiver binding (params[0] when md->is_receiver_form).
+                 * Regular params — including the non-receiver params of a
+                 * receiver-form method — continue to use the existing is_var
+                 * rule. Phase 79's parser guarantees is_mut_receiver is false
+                 * on non-receiver params. */
+                if (md->is_receiver_form && i == 0) {
+                    ps->is_mutable = p->is_mut_receiver;
+                } else {
+                    ps->is_mutable = p->is_var;
+                }
                 iron_scope_define(ctx->current_scope, ctx->arena, ps);
             }
 

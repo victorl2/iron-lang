@@ -850,10 +850,24 @@ void emit_type_decls(EmitCtx *ctx) {
                 if (ev->payload_count <= 0) continue;
                 iron_strbuf_appendf(&ctx->struct_bodies,
                                      "typedef struct { ");
+                /* Phase 81: Void payload support.
+                 * Skip any field whose resolved type is IRON_TYPE_VOID so
+                 * generic ADT instantiations like Result[Void, E] lower to
+                 * a zero-field payload. If the ENTIRE variant is all-void
+                 * (e.g., Result.Ok(T) with T=Void), emit a single
+                 * `char _dummy;` placeholder so the struct body remains a
+                 * valid C type (zero-field structs are a GNU extension
+                 * clang flags under -pedantic). */
+                int emitted_fields = 0;
                 for (int k = 0; k < ev->payload_count; k++) {
                     const char *pt = "void*";
+                    Iron_Type *field_ty = NULL;
                     if (vpt && vpt[j] && vpt[j][k]) {
-                        pt = emit_type_to_c(vpt[j][k], ctx);
+                        field_ty = vpt[j][k];
+                        pt = emit_type_to_c(field_ty, ctx);
+                    }
+                    if (field_ty && field_ty->kind == IRON_TYPE_VOID) {
+                        continue; /* skip Void payload field entirely */
                     }
                     bool is_boxed = false;
                     if (td->type->enu.payload_is_boxed &&
@@ -861,12 +875,16 @@ void emit_type_decls(EmitCtx *ctx) {
                         td->type->enu.payload_is_boxed[j][k]) {
                         is_boxed = true;
                     }
-                    if (k > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
+                    if (emitted_fields > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
                     if (is_boxed) {
                         iron_strbuf_appendf(&ctx->struct_bodies, "%s *_%d;", pt, k);
                     } else {
                         iron_strbuf_appendf(&ctx->struct_bodies, "%s _%d;", pt, k);
                     }
+                    emitted_fields++;
+                }
+                if (emitted_fields == 0) {
+                    iron_strbuf_appendf(&ctx->struct_bodies, "char _dummy;");
                 }
                 iron_strbuf_appendf(&ctx->struct_bodies,
                                      " } %s_%s_data;\n", mangled, ev->name);
@@ -1021,6 +1039,15 @@ void emit_foreign_method_prototypes(EmitCtx *ctx) {
         "Iron_timer_",
         "Iron_log_",
         "Iron_hint_",
+        /* Phase 78 FMT: Int/Int32/Float numeric → String runtime shims
+         * declared in iron_runtime.h (Iron_int_to_string, Iron_int32_to_string,
+         * Iron_float_to_string). The Iron-level stubs in stdlib/int.iron and
+         * stdlib/float.iron have zero explicit params (self is implicit for
+         * stub methods per hir_lower.c:1627), so emitting a `(void)` prototype
+         * here would conflict with the header's real one-arg signature. */
+        "Iron_int_",
+        "Iron_int32_",
+        "Iron_float_",
         NULL
     };
     struct { const char *key; int value; } *emitted_fms = NULL;

@@ -350,6 +350,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **rt_rc_out, char **rt_builtin_out,
                            char **rt_threads_out, char **rt_collect_out,
                            char **rt_netinit_out, char **rt_oom_out,
+                           char **rt_fmt_out,            /* Phase 78: numeric → string */
                            char **sl_math_out, char **sl_io_out,
                            char **sl_time_out, char **sl_log_out,
                            char **sl_hint_out,
@@ -396,6 +397,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *rt_collect_out = make_path(base_dir, "runtime/iron_collections.c");
     *rt_netinit_out = make_path(base_dir, "runtime/iron_net_init.c");
     *rt_oom_out     = make_path(base_dir, "runtime/iron_oom.c");
+    *rt_fmt_out     = make_path(base_dir, "runtime/iron_fmt.c");
     *sl_math_out    = make_path(base_dir, "stdlib/iron_math.c");
     *sl_io_out      = make_path(base_dir, "stdlib/iron_io.c");
     *sl_time_out    = make_path(base_dir, "stdlib/iron_time.c");
@@ -405,7 +407,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
-        !*rt_netinit_out || !*rt_oom_out ||
+        !*rt_netinit_out || !*rt_oom_out || !*rt_fmt_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out) {
         return 1;
@@ -457,6 +459,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_collect_out;
     argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *rt_oom_out;
+    argv_buf[ai++] = *rt_fmt_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -501,6 +504,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_collect_out;
     argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *rt_oom_out;
+    argv_buf[ai++] = *rt_fmt_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -571,6 +575,7 @@ static void free_src_list(char *base_dir,
                            char *rt_string, char *rt_rc, char *rt_builtin,
                            char *rt_threads, char *rt_collect,
                            char *rt_netinit, char *rt_oom,
+                           char *rt_fmt,                  /* Phase 78 */
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *sl_hint, char *sl_net,
                            char *sl_rl, char *sl_rl_layout,    /* Phase 60 */
@@ -582,6 +587,7 @@ static void free_src_list(char *base_dir,
     free(rt_string); free(rt_rc); free(rt_builtin);
     free(rt_threads); free(rt_collect);
     free(rt_netinit); free(rt_oom);
+    free(rt_fmt);
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(sl_hint);
     free(sl_net);
@@ -600,6 +606,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rt_string = NULL, *rt_rc = NULL, *rt_builtin = NULL;
     char *rt_threads = NULL, *rt_collect = NULL, *rt_netinit = NULL;
     char *rt_oom = NULL;
+    char *rt_fmt = NULL;    /* Phase 78: numeric → string runtime shim */
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *sl_hint = NULL, *sl_net = NULL;
     char *sl_rl = NULL, *sl_rl_layout = NULL;  /* Phase 60 Plan 01 */
@@ -616,6 +623,7 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_stb, &rt_arena, &rt_strbuf,
                        &rt_string, &rt_rc, &rt_builtin,
                        &rt_threads, &rt_collect, &rt_netinit, &rt_oom,
+                       &rt_fmt,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        &sl_hint, &sl_net,
                        &sl_rl, &sl_rl_layout,
@@ -625,6 +633,7 @@ static int invoke_clang(const char *c_file, const char *output,
                       rt_stb, rt_arena, rt_strbuf,
                       rt_string, rt_rc, rt_builtin,
                       rt_threads, rt_collect, rt_netinit, rt_oom,
+                      rt_fmt,
                       sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                       sl_rl, sl_rl_layout,
                       rl_src, rl_i_flag,
@@ -658,6 +667,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit, rt_oom,
+                  rt_fmt,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
@@ -770,6 +780,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_stb, rt_arena, rt_strbuf,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit, rt_oom,
+                  rt_fmt,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
@@ -1073,6 +1084,52 @@ int iron_build(const char *source_path, const char *output_path,
                     source = combined;
                 }
                 free(list_src);
+            }
+        }
+    }
+
+    /* 1j. Phase 78 FMT: always prepend int.iron — Int.to_string / Int32.to_string
+     * are available on every Int / Int32 variable without an explicit import. */
+    {
+        char *int_path = make_path(base_dir, "stdlib/int.iron");
+        if (int_path) {
+            long int_size = 0;
+            char *int_src = read_file(int_path, &int_size);
+            free(int_path);
+            if (int_src) {
+                size_t combined_len = (size_t)int_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, int_src, (size_t)int_size);
+                    combined[int_size] = '\n';
+                    strcpy(combined + int_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(int_src);
+            }
+        }
+    }
+
+    /* 1k. Phase 78 FMT: always prepend float.iron — Float.to_string is available
+     * on every Float variable without an explicit import. */
+    {
+        char *float_path = make_path(base_dir, "stdlib/float.iron");
+        if (float_path) {
+            long float_size = 0;
+            char *float_src = read_file(float_path, &float_size);
+            free(float_path);
+            if (float_src) {
+                size_t combined_len = (size_t)float_size + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, float_src, (size_t)float_size);
+                    combined[float_size] = '\n';
+                    strcpy(combined + float_size + 1, source);
+                    free(source);
+                    source = combined;
+                }
+                free(float_src);
             }
         }
     }

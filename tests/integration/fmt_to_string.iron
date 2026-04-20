@@ -1,0 +1,71 @@
+-- Integration test: FMT-01..04 + FMT-06.
+-- Exercises the Phase 78 Int/Int32/Float → String conversion + pad helpers
+-- across the edge-case matrix locked in 78-CONTEXT.md:
+--   Int:    0, positive, negative, INT64_MIN, INT64_MAX
+--   Int32:  0, INT32_MIN, INT32_MAX
+--   Float:  positive, negative, zero, -0.0 canonicalization,
+--           NaN, +Inf, -Inf, trailing-zero trimming
+--   Pad:    pad_left with space fill, pad_right with '_' fill,
+--           pad when width <= current length (no-op)
+
+func main() {
+    -- ── FMT-01: Int.to_string ─────────────────────────────────────────
+    -- INT64_MIN (-9223372036854775808) can't be written as a bare literal —
+    -- Iron parses it as unary-minus applied to 9223372036854775808, which
+    -- exceeds INT64_MAX and gets clamped. Construct it via INT64_MAX+1
+    -- wrap instead: subtract 1 from -(INT64_MAX) at runtime.
+    val i_zero: Int = 0
+    val i_pos: Int = 42
+    val i_neg: Int = -42
+    val i_max: Int = 9223372036854775807             -- INT64_MAX
+    val i_min_top: Int = -9223372036854775807        -- -(INT64_MAX)
+    val i_min: Int = i_min_top - 1                   -- INT64_MIN via 2s-complement wrap
+    println(i_zero.to_string())
+    println(i_pos.to_string())
+    println(i_neg.to_string())
+    println(i_max.to_string())
+    println(i_min.to_string())
+
+    -- ── FMT-02: Int32.to_string ───────────────────────────────────────
+    val i32_zero: Int32 = Int32(0)
+    val i32_max: Int32 = Int32(2147483647)   -- INT32_MAX
+    val i32_min: Int32 = Int32(-2147483648)  -- INT32_MIN
+    println(i32_zero.to_string())
+    println(i32_max.to_string())
+    println(i32_min.to_string())
+
+    -- ── FMT-03: Float.to_string (non-special values) ─────────────────
+    val f_one_half: Float = 1.5
+    val f_trim: Float = 1.0      -- "1" (trailing zeros trimmed)
+    val f_zero: Float = 0.0      -- "0"
+    val f_neg_zero: Float = -0.0 -- "0" (canonicalized after sign strip)
+    val f_neg: Float = -3.14
+    println(f_one_half.to_string())
+    println(f_trim.to_string())
+    println(f_zero.to_string())
+    println(f_neg_zero.to_string())
+    println(f_neg.to_string())
+
+    -- ── FMT-03: Float specials ────────────────────────────────────────
+    -- NaN and ±Inf — construct via arithmetic through Float VARIABLES,
+    -- not bare literals. Bare `1.0 / 0.0` lowers to integer division in
+    -- the current C backend (Float literals without a non-zero fractional
+    -- part emit as `1` / `0` etc., triggering libc-undefined int-div).
+    -- Using a typed variable forces double-precision arithmetic.
+    val zero_f: Float = 0.0
+    val one_f: Float = 1.0
+    val neg_one_f: Float = -1.0
+    val f_nan: Float = zero_f / zero_f    -- NaN (0.0 / 0.0 via Float vars)
+    val f_pinf: Float = one_f / zero_f    -- +Inf
+    val f_ninf: Float = neg_one_f / zero_f -- -Inf
+    println(f_nan.to_string())
+    println(f_pinf.to_string())
+    println(f_ninf.to_string())
+
+    -- ── FMT-04: String.pad_left / pad_right on converted ints ────────
+    val s: String = 42.to_string()          -- non-ident receiver (literal)
+    println(s.pad_left(5, " "))             -- "   42"
+    println(s.pad_right(5, "_"))            -- "42___"
+    println(s.pad_left(1, " "))             -- "42" (width <= len: no-op)
+    println("9".pad_left(3, "0"))           -- "009" — chained call on literal
+}

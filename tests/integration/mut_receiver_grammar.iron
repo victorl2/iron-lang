@@ -1,0 +1,85 @@
+-- tests/integration/mut_receiver_grammar.iron
+-- Phase 79 MUT-01 + MUT-05 grammar + lowering integration test.
+--
+-- Proves:
+--   1. `func (mut c: Counter) bump()` parses cleanly and carries
+--      is_mut_receiver=true on the receiver Iron_Param (Success
+--      Criterion 1).
+--   2. Calling the mut-receiver method produces observable state
+--      change via the receiver (state persists after the call returns
+--      -- field assignment through `c.n = c.n + 1` works the same as
+--      today's non-mut receiver form; Phase 79 is purely surface, so
+--      semantic enforcement is deferred to Phase 80 but CURRENT
+--      behavior must match classic-form exactly).
+--   3. A stdlib Timer.update(dt) call fires self_by_addr=true at the
+--      C level regardless of any `mut` keyword at any receiver site
+--      in the file -- proving MUT-05 negative-space (HIR->LIR
+--      unchanged: the hardcoded name-list in hir_to_lir.c:1388 is
+--      untouched by Phase 79, and self_by_addr fires based solely on
+--      mangled name match, not on mut annotation).
+--
+-- Compiled + run by tests/run_tests.sh integration harness; stdout
+-- diffed against mut_receiver_grammar.expected.
+
+import time
+
+object Counter {
+    var n: Int
+}
+
+-- Phase 79 MUT-01: mut-receiver user-type method.
+func (mut c: Counter) bump() {
+    c.n = c.n + 1
+}
+
+-- Phase 79 pure-superset: classic (non-mut) receiver-form still works
+-- unchanged on the same type. Required by MUT-06 (existing .iron files
+-- compile with identical semantics).
+func (c: Counter) get() -> Int {
+    return c.n
+}
+
+func main() {
+    -- Phase 80 Plan 02 MUT-04: calling a mut-receiver method requires
+    -- a var-bound receiver expression at the call site. Using `val c`
+    -- here would now emit E0235 at type-check time (that rejection is
+    -- regression-tested by the compile_fail fixture landing in Plan
+    -- 80-03). `var c` is the canonical call-site binding for MUT-07.
+    var c = Counter(0)
+    c.bump()
+    c.bump()
+    c.bump()
+    -- Expected: 3 (Phase 80 MUT-07). After Phase 80 Plan 01 Task 4 wired
+    -- `is_mut_receiver_method` through HIR → LIR → emit_c.c, user-type
+    -- mut-receiver methods now fire self_by_addr at the LIR call site AND
+    -- emit a pointer-receiver C signature, so field mutations through the
+    -- receiver persist to the caller's binding. Each c.bump() increments
+    -- c.n by 1, and three calls leave c.n == 3 — observably.
+    --
+    -- Phase 79 baseline (pre-Task-4) captured `0` here as the MUT-05
+    -- negative-space proof (user-type receivers passed by value, mutation
+    -- did NOT persist). Phase 80 closes that gap for user-type mut
+    -- receivers specifically — the gate is ADDITIVE: stdlib
+    -- `timer_update`/`timer_reset` still fire via the hardcoded name-list
+    -- at src/hir/hir_to_lir.c, and classic-form + non-mut user-type
+    -- receivers continue to pass self by value (tested by the static twin).
+    println("{c.get()}")
+
+    -- Exercise stdlib Timer.update directly from main. Proves MUT-05
+    -- positive-space: self_by_addr fires on `timer.update(dt)` via the
+    -- hardcoded name-match in hir_to_lir.c:1388, regardless of any
+    -- outer `mut` keyword declared anywhere else in this file. Phase
+    -- 79 does NOT extend the name-list to include user-type methods
+    -- (that's out-of-scope per CONTEXT.md's "No new lowering logic"
+    -- lock); so `Counter.bump` above does NOT fire self_by_addr, but
+    -- `timer.update` below still does.
+    val timer = Time.Timer(1000.0)
+    timer.update(500.0)
+    -- timer.elapsed_ms is mutated via self_by_addr; exact value is
+    -- platform-dependent (the stdlib Timer internally scales the dt
+    -- argument -- see src/runtime for exact semantics). The stable
+    -- assertion is "non-zero after update(500.0)" -- proving the
+    -- pointer path fired. Actual value captured empirically into
+    -- mut_receiver_grammar.expected.
+    println("{timer.elapsed_ms}")
+}

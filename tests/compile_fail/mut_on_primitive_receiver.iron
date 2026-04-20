@@ -1,0 +1,25 @@
+-- Negative test: `mut` on a primitive-type receiver.
+-- This file MUST fail to compile with IRON_ERR_MUT_ON_PRIMITIVE (E0236).
+-- The plan's verify step greps stderr for the FULL locked message
+-- including the em-dash tail: 'only struct/composite types support mut'.
+--
+-- Post-Phase-80 Plan 01: MUT-09 rejects this at resolve time. Before
+-- Phase 80, this errored at typecheck with E0203 val-reassign on `n`
+-- (because ps->is_mutable was set from p->is_var=false) — the wrong
+-- error for the wrong reason. Now it gets a specific, actionable
+-- diagnostic.
+--
+-- Note: the compiler ALSO emits the generic "method declared on
+-- undeclared type" error (E0200) because Int is not a user-declared
+-- scope symbol; the more-specific E0236 fires alongside it per
+-- Plan 80-01 Task 3 design (intentional double-emit — grep only
+-- checks for the mut-specific message).
+
+func (mut n: Int) bump() {
+    n = n + 1
+}
+
+func main() {
+    var x: Int = 0
+    println("{x}")
+}
