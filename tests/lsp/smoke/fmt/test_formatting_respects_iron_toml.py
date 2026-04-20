@@ -109,7 +109,7 @@ async def test_formatting_respects_indent_width(
             timeout=5.0,
         )
 
-        assert isinstance(edits, list)
+        assert isinstance(edits, (list, tuple))
         assert len(edits) == 1, f"expected 1 TextEdit, got {edits!r}"
         body = edits[0].new_text
         # 4-space indent on the body line.

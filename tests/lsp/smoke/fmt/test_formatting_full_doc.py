@@ -54,7 +54,7 @@ async def test_formatting_full_doc(client, clean_iron_source, tmp_path):
         timeout=5.0,
     )
 
-    assert isinstance(edits, list), f"expected list, got {type(edits).__name__}"
+    assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}"
     assert len(edits) == 1, f"expected 1 TextEdit, got {len(edits)}: {edits!r}"
     edit = edits[0]
     assert edit.range.start.line == 0

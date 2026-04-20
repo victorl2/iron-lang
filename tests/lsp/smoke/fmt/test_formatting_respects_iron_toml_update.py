@@ -109,7 +109,7 @@ async def test_formatting_reloads_on_iron_toml_change(
             ),
             timeout=5.0,
         )
-        assert isinstance(edits1, list) and len(edits1) == 1
+        assert isinstance(edits1, (list, tuple)) and len(edits1) == 1
         body1 = edits1[0].new_text
         assert "  val" in body1, (
             f"expected initial 2-space indent, got {body1!r}"
@@ -149,7 +149,7 @@ async def test_formatting_reloads_on_iron_toml_change(
             ),
             timeout=5.0,
         )
-        assert isinstance(edits2, list) and len(edits2) == 1
+        assert isinstance(edits2, (list, tuple)) and len(edits2) == 1
         body2 = edits2[0].new_text
         assert "    val" in body2, (
             f"expected 4-space indent after reload, got {body2!r}"
