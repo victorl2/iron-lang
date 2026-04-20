@@ -22,6 +22,8 @@ test_*
 /text_smoke.c
 /audio_smoke
 /audio_smoke.c
+/audio_slot_bookkeeping
+/audio_slot_bookkeeping.c
 /draw3d_smoke
 /draw3d_smoke.c
 /files_smoke
