@@ -1,0 +1,129 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "$comment": "GENERATED at configure time from src/lexer/lexer.c kw_table. DO NOT EDIT. Edit src/lexer/lexer.c (kw_table) + the .in template, then run scripts/regenerate-grammars.sh. The committed grammars/textmate/iron.tmLanguage.json is drift-gated (CTests test_grammar_keyword_drift_textmate + test_grammar_keyword_drift_tree_sitter, dual-labelled phase-m5-invariant + phase-m1-invariant).",
+    "name": "Iron",
+    "scopeName": "source.iron",
+    "fileTypes": ["iron"],
+    "patterns": [
+        { "include": "#doc-comments" },
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#types" },
+        { "include": "#functions" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+    ],
+    "repository": {
+        "doc-comments": {
+            "name": "comment.block.documentation.iron",
+            "match": "///[^\\n]*"
+        },
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.iron",
+                    "match": "//[^\\n]*"
+                },
+                {
+                    "name": "comment.block.iron",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.iron",
+                    "match": "\\b(break|continue|defer|elif|else|for|if|in|match|return|while)\\b"
+                },
+                {
+                    "name": "keyword.declaration.iron",
+                    "match": "\\b(enum|func|impl|import|interface|object|val|var)\\b"
+                },
+                {
+                    "name": "constant.language.iron",
+                    "match": "\\b(true|false|null)\\b"
+                },
+                {
+                    "name": "keyword.other.iron",
+                    "match": "\\b(comptime|extern|self|super|and|or|not|is|free|heap|leak|parallel|pool|private|rc|spawn|await|extends)\\b"
+                },
+                {
+                    "name": "keyword.iron",
+                    "match": "\\b(and|await|comptime|defer|elif|else|enum|extends|extern|false|for|free|func|heap|if|impl|import|in|interface|is|leak|match|not|null|object|or|parallel|pool|private|rc|return|self|spawn|super|true|val|var|while)\\b"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.interpolated.iron",
+                    "begin": "\\$\"",
+                    "end": "\"",
+                    "patterns": [
+                        { "include": "#string-escape" },
+                        {
+                            "name": "meta.interpolation.iron",
+                            "begin": "\\$\\{",
+                            "end": "\\}",
+                            "patterns": [ { "include": "$self" } ]
+                        }
+                    ]
+                },
+                {
+                    "name": "string.quoted.double.iron",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [ { "include": "#string-escape" } ]
+                }
+            ]
+        },
+        "string-escape": {
+            "name": "constant.character.escape.iron",
+            "match": "\\\\[nrt\"\\\\]"
+        },
+        "numbers": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.float.iron",
+                    "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+                },
+                {
+                    "name": "constant.numeric.integer.iron",
+                    "match": "\\b[0-9]+\\b"
+                }
+            ]
+        },
+        "types": {
+            "match": "(?<=:|\\bimpl\\s|\\binterface\\s|\\bobject\\s|\\benum\\s)\\s*([A-Z][A-Za-z0-9_]*)",
+            "captures": {
+                "1": { "name": "entity.name.type.iron" }
+            }
+        },
+        "functions": {
+            "match": "(?<=\\bfunc\\s)([a-zA-Z_][A-Za-z0-9_]*)",
+            "captures": {
+                "1": { "name": "entity.name.function.iron" }
+            }
+        },
+        "operators": {
+            "name": "keyword.operator.iron",
+            "match": "(==|!=|<=|>=|&&|\\|\\||[+\\-*/%<>!=])"
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "name": "punctuation.section.iron",
+                    "match": "[{}\\[\\]()]"
+                },
+                {
+                    "name": "punctuation.separator.iron",
+                    "match": "[,;:]"
+                }
+            ]
+        }
+    }
+}
