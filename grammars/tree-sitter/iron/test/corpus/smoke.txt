@@ -1,0 +1,33 @@
+=============
+line comment
+=============
+
+// hello world
+
+---
+
+(source_file
+  (line_comment))
+
+=============
+integer literal
+=============
+
+42
+
+---
+
+(source_file
+  (integer_literal))
+
+=============
+string with escape
+=============
+
+"hello\n"
+
+---
+
+(source_file
+  (string_literal
+    (escape_sequence)))

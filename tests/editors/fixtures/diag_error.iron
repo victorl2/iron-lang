@@ -1,0 +1,19 @@
+// tests/editors/fixtures/diag_error.iron
+// Phase 6 Plan 06-01 Task 3 (EXT-10, CONTEXT D-07): shared editor e2e fixture.
+//
+// This file triggers exactly ONE IRON_ERR_UNDEFINED_VAR diagnostic
+// (error code 200 in the semantic range 200..299). The fixture is
+// consumed by ALL THREE editor e2e harnesses (Plans 06-03, 06-04,
+// 06-05, 06-06) + the tests/editors CTest sanity gate
+// test_diag_error_fixture_is_one_error.
+//
+// WARNING: any edit to this file affects all three harnesses. Review
+// against:
+//   - editors/vscode/test/e2e/diag_error.test.ts       (Plan 06-03)
+//   - editors/neovim/test/e2e/diag_error_spec.lua      (Plan 06-04)
+//   - editors/zed/test/dev-load/diag_error_test.rs     (Plan 06-05)
+
+func main() -> int {
+    val x: int = undefined_symbol
+    return x
+}
