@@ -1,0 +1,16 @@
+# decl_interface.iron expected-scopes reference.
+Token     | Scope
+----------|--------------------------------
+interface | keyword.declaration.iron
+Shape     | entity.name.type.iron
+{         | punctuation.section.iron
+func      | keyword.declaration.iron
+area      | entity.name.function.iron
+(         | punctuation.section.iron
+)         | punctuation.section.iron
+->        | keyword.operator.iron
+int       | (unscoped — lowercase type)
+}         | punctuation.section.iron
+
+Covers UI-SPEC S6: keyword.declaration.iron (×2), entity.name.type.iron,
+entity.name.function.iron.

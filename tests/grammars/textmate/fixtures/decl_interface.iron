@@ -1,0 +1,8 @@
+// SYNTAX TEST "source.iron" "decl_interface.iron"
+interface Shape {
+// <- keyword.declaration.iron
+//        ^ entity.name.type.iron
+    func area() -> int
+//  ^ keyword.declaration.iron
+//       ^ entity.name.function.iron
+}

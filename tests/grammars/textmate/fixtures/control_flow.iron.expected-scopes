@@ -1,0 +1,17 @@
+# control_flow.iron expected-scopes reference.
+# Every control keyword listed in UI-SPEC S6's keyword.control.iron row.
+Token    | Scope
+---------|--------------------------------
+if       | keyword.control.iron
+elif     | keyword.control.iron
+else     | keyword.control.iron
+while    | keyword.control.iron
+for      | keyword.control.iron
+in       | keyword.control.iron
+match    | keyword.control.iron
+return   | keyword.control.iron
+break    | keyword.control.iron
+continue | keyword.control.iron
+defer    | keyword.control.iron
+
+Covers the full keyword.control.iron bucket (11 keywords).

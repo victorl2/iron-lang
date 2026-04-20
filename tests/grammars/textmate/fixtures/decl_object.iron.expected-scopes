@@ -1,0 +1,16 @@
+# decl_object.iron expected-scopes reference.
+Token   | Scope
+--------|--------------------------------
+object  | keyword.declaration.iron
+Point   | entity.name.type.iron
+{       | punctuation.section.iron
+x       | (unscoped — identifier)
+:       | punctuation.separator.iron
+int     | (unscoped — lowercase type)
+,       | punctuation.separator.iron
+y       | (unscoped)
+int     | (unscoped)
+}       | punctuation.section.iron
+
+Covers UI-SPEC S6: keyword.declaration.iron, entity.name.type.iron,
+punctuation.section.iron, punctuation.separator.iron.
