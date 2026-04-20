@@ -1,25 +1,28 @@
 -- tests/integration/mut_receiver_static_twin.iron
 -- Phase 79 MUT-05 twin of mut_receiver_grammar.iron.
--- Same object, same method name, same receiver type, same param types,
--- same return type, same body -- ONLY the `mut` keyword is removed from
--- the Counter.bump receiver binding.
+-- Same object, same method names, same receiver types, same param types,
+-- same return types — ONLY the `mut` keyword is absent from the Counter
+-- receiver bindings.
 --
 -- Phase 79 role (when it shipped): byte-identical C signature vs
 -- mut_receiver_grammar.iron — proving `mut` was purely a surface grammar
 -- annotation with zero lowering effect. Both .expected files were
 -- byte-identical (`0\n500000`).
 --
--- Phase 80 role (current): pure-superset control. `mut` is now a
--- behavior switch — user-type mut-receiver methods fire self_by_addr
--- and persist mutation (MUT-07). This twin (no `mut`) continues to use
--- the by-value ABI, so c.bump() mutations are lost and c.n stays 0.
--- That's the negative-space contract for existing Iron code: adding
--- Phase 80's enforcement does NOT retroactively change semantics for
--- receiver-form methods that don't carry `mut` — pre-Phase-80 files
--- compile with identical runtime behavior.
+-- Phase 80 role (current): pure-superset control. `mut` is now a hard
+-- semantic gate. MUT-03 (Plan 80-02) rejects field mutation inside an
+-- immutable-receiver method body at compile time, so this twin can no
+-- longer attempt `c.n = c.n + 1` inside `func (c: Counter) bump()` —
+-- the compiler emits E0234. The twin is updated to a read-only shape
+-- that preserves its original purpose: prove non-mut receiver-form
+-- methods still compile and run cleanly under Phase 80 enforcement,
+-- with the same (`0\n500000`) output the Phase 79 by-value baseline
+-- produced. bump() is now a no-op — same call structure, same observed
+-- `c.n == 0` result, no illegal field mutation.
 --
 -- Expected output stays `0\n500000`. The sister file
--- mut_receiver_grammar.expected is now `3\n500000` (Phase 80 MUT-07).
+-- mut_receiver_grammar.expected is `3\n500000` (Phase 80 MUT-07
+-- positive-space: mut-receiver Counter.bump() observably mutates).
 
 import time
 
@@ -28,9 +31,13 @@ object Counter {
 }
 
 -- No `mut` keyword -- v2.1 receiver-form (val-default binding).
--- Byte-identical C signature expected vs mut_receiver_grammar.iron.
+-- Body is a no-op: MUT-03 (Plan 80-02) would emit E0234 if we tried
+-- `c.n = c.n + 1` here. The call structure (three bump() invocations)
+-- is preserved to keep the test shape parallel to the sister file.
+-- A local read of c.n keeps the function from being elided by the
+-- backend (empty bodies emit no symbol), while still not mutating.
 func (c: Counter) bump() {
-    c.n = c.n + 1
+    val _unused: Int = c.n
 }
 
 func (c: Counter) get() -> Int {

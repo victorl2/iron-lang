@@ -2793,6 +2793,34 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Phase 80 MUT-03: field-assignment on immutable receiver.
+             * When the assignment target is a field-access (or chain of field-accesses
+             * like t.inner.field), walk to the root ident and check its resolved_sym's
+             * is_mutable flag. If the root is immutable (val-bound, or an immutable
+             * receiver binding from Phase 80-01's resolver wiring), reject with E0234.
+             *
+             * Chain walking: t.inner.field → root ident is `t` (the innermost object
+             * that is not itself a field_access). Iron_FieldAccess.object can be
+             * another IRON_NODE_FIELD_ACCESS or an IRON_NODE_IDENT (or other expr
+             * kinds like method calls — we only fire when the walk terminates at
+             * an ident with a resolved_sym; otherwise the broader type system
+             * handles it). */
+            bool is_field_target_immut = false;
+            const char *field_root_name = NULL;
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                }
+                if (cur && cur->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *root_id = (Iron_Ident *)cur;
+                    if (root_id->resolved_sym) {
+                        is_field_target_immut = !root_id->resolved_sym->is_mutable;
+                        field_root_name = root_id->name;
+                    }
+                }
+            }
+
             Iron_Type *target_type = check_expr(ctx, as->target);
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
 
@@ -2802,6 +2830,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                          "cannot assign to val '%s' — val is immutable",
                          target_name ? target_name : "");
                 emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, NULL);
+            }
+
+            if (is_field_target_immut) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cannot mutate field on immutable receiver");
+                emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
+                (void)field_root_name;  /* reserved for future hint; silence unused warn */
             }
 
             if (target_type && value_type &&
