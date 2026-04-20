@@ -40,7 +40,12 @@ func (c: Counter) get() -> Int {
 }
 
 func main() {
-    val c = Counter(0)
+    -- Phase 80 Plan 02 MUT-04: calling a mut-receiver method requires
+    -- a var-bound receiver expression at the call site. Using `val c`
+    -- here would now emit E0235 at type-check time (that rejection is
+    -- regression-tested by the compile_fail fixture landing in Plan
+    -- 80-03). `var c` is the canonical call-site binding for MUT-07.
+    var c = Counter(0)
     c.bump()
     c.bump()
     c.bump()

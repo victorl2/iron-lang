@@ -1770,6 +1770,27 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
+                            /* Phase 80 MUT-04: if callee is a receiver-form method
+                             * whose receiver binding was declared `mut`, require the
+                             * caller's receiver expression to be rooted in a mutable
+                             * binding. Non-ident receivers (chained calls, literals)
+                             * are skipped — Phase 80 only enforces the ident-rooted
+                             * case per CONTEXT.md. */
+                            if (md->is_receiver_form && md->param_count > 0) {
+                                Iron_Param *recv_p = (Iron_Param *)md->params[0];
+                                if (recv_p && recv_p->is_mut_receiver) {
+                                    /* obj_id was set above — this branch is gated on
+                                     * mc->object->kind == IRON_NODE_IDENT. */
+                                    if (obj_id->resolved_sym &&
+                                        !obj_id->resolved_sym->is_mutable) {
+                                        char msg[256];
+                                        snprintf(msg, sizeof(msg),
+                                                 "cannot call mutable method on immutable binding");
+                                        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
+                                                   mc->span, msg, NULL);
+                                    }
+                                }
+                            }
                             break;
                         }
                     }
