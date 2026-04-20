@@ -82,15 +82,22 @@ func main() {
             ball_y = ball_y + ball_vy
 
             -- Top/bottom wall reflection.
+            -- Phase 81: Sound.play returns Result[Void, AudioError]. Bind to
+            -- `val _r` and discard — audible-silence at 16-slot saturation is
+            -- the benign degrade for a bounce effect (fire-and-forget).
             if ball_y < 0 {
                 ball_y = 0
                 ball_vy = -ball_vy
-                if Sound.is_valid(bounce) { Sound.play(bounce) }
+                if Sound.is_valid(bounce) {
+                    val _r = Sound.play(bounce)
+                }
             }
             if ball_y > SCREEN_H - BALL_SIZE {
                 ball_y = SCREEN_H - BALL_SIZE
                 ball_vy = -ball_vy
-                if Sound.is_valid(bounce) { Sound.play(bounce) }
+                if Sound.is_valid(bounce) {
+                    val _r = Sound.play(bounce)
+                }
             }
 
             -- Left paddle collision (x range + y range).
@@ -98,7 +105,9 @@ func main() {
                 if ball_y + BALL_SIZE > left_y and ball_y < left_y + PADDLE_H {
                     ball_x = PADDLE_W
                     ball_vx = -ball_vx
-                    if Sound.is_valid(bounce) { Sound.play(bounce) }
+                    if Sound.is_valid(bounce) {
+                        val _r = Sound.play(bounce)
+                    }
                 }
             }
             -- Right paddle collision.
@@ -106,7 +115,9 @@ func main() {
                 if ball_y + BALL_SIZE > right_y and ball_y < right_y + PADDLE_H {
                     ball_x = SCREEN_W - PADDLE_W - BALL_SIZE
                     ball_vx = -ball_vx
-                    if Sound.is_valid(bounce) { Sound.play(bounce) }
+                    if Sound.is_valid(bounce) {
+                        val _r = Sound.play(bounce)
+                    }
                 }
             }
 

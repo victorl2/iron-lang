@@ -83,6 +83,7 @@ mut_receiver_mixed.c
 generic_enum_void_payload
 generic_enum_void_payload.c
 /pong
+/pong.c
 /game_raylib
 /arena_split_collection
 /audit_for_array_of_structs
