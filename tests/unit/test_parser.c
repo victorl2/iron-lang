@@ -138,6 +138,29 @@ void test_parse_object_implements(void) {
     TEST_ASSERT_EQUAL_STRING("Updatable", obj->implements_names[1]);
 }
 
+/* ── Phase 82 GRAMMAR: `self` is a hard-reserved keyword ─────────────────── */
+/* These three tests lock the lexer-level reservation at lexer.c:51
+ * (`{ "self", IRON_TOK_SELF }`). The parser accepts IRON_TOK_IDENTIFIER in
+ * binding-name positions (val/func/param name), so `self` (which lexes to
+ * IRON_TOK_SELF) must produce at least one diagnostic in each position.
+ * These tests guard Phase 89's codemod assumption that user code cannot
+ * shadow `self` at any scope. */
+
+void test_self_keyword_rejected_as_val_name(void) {
+    (void)parse("val self = 0\n");
+    TEST_ASSERT_GREATER_THAN(0, diags.count);
+}
+
+void test_self_keyword_rejected_as_func_name(void) {
+    (void)parse("func self() {}\n");
+    TEST_ASSERT_GREATER_THAN(0, diags.count);
+}
+
+void test_self_keyword_rejected_as_param_name(void) {
+    (void)parse("func foo(self: Int) {}\n");
+    TEST_ASSERT_GREATER_THAN(0, diags.count);
+}
+
 /* ── Interface declarations ──────────────────────────────────────────────── */
 
 void test_parse_interface_decl(void) {
@@ -598,6 +621,12 @@ int main(void) {
     RUN_TEST(test_parse_object_decl);
     RUN_TEST(test_parse_object_extends);
     RUN_TEST(test_parse_object_implements);
+
+    /* Phase 82 GRAMMAR: `self` hard-reserved keyword */
+    RUN_TEST(test_self_keyword_rejected_as_val_name);
+    RUN_TEST(test_self_keyword_rejected_as_func_name);
+    RUN_TEST(test_self_keyword_rejected_as_param_name);
+
     RUN_TEST(test_parse_interface_decl);
     RUN_TEST(test_parse_enum_decl);
     RUN_TEST(test_parse_import);
