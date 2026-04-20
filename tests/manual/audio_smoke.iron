@@ -67,7 +67,13 @@ func main() -> Int32 {
     print("AUDIO-05: Sound.load / from_wave / alias / is_valid exercised")
 
 -- ── AUDIO-06: Sound management (play / stop / pause / resume) ─
-    if ready { Sound.play(s) }
+    -- Phase 81: Sound.play returns Result[Void, AudioError]; discard both arms.
+    if ready {
+        match Sound.play(s) {
+            Result.Ok(_) -> {}
+            Result.Err(_) -> {}
+        }
+    }
     val playing = Sound.is_playing(s)
     if ready { Sound.pause(s) }
     if ready { Sound.resume(s) }
@@ -92,7 +98,13 @@ func main() -> Int32 {
     print("AUDIO-09: Music.load / is_valid / set_looping exercised")
 
 -- ── AUDIO-10: Music management ───────────────────────────────
-    if ready { Music.play(m_loop) }
+    -- Phase 81: Music.play returns Result[Void, AudioError]; discard both arms.
+    if ready {
+        match Music.play(m_loop) {
+            Result.Ok(_) -> {}
+            Result.Err(_) -> {}
+        }
+    }
     val m_playing = Music.is_playing(m_loop)
     if ready { Music.update(m_loop) }
     if ready { Music.pause(m_loop) }
