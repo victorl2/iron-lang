@@ -1,0 +1,22 @@
+-- Negative test: field mutation through an IMMUTABLE receiver binding.
+-- This file MUST fail to compile with IRON_ERR_MUT_FIELD_IMMUT_RECV (E0234).
+-- The plan's verify step greps stderr for the locked message substring.
+--
+-- Post-Phase-80: Plan 80-02 added the MUT-03 check in typecheck.c's
+-- IRON_NODE_ASSIGN handler. Before Phase 80, this file compiled silently
+-- (the compiler accepted c.value = ... on an immutable receiver without
+-- complaint — exactly the gap MUT-03 closes).
+
+object Counter {
+    var value: Int
+}
+
+func (c: Counter) bump() {
+    c.value = c.value + 1
+}
+
+func main() {
+    var c: Counter = Counter(0)
+    c.bump()
+    println("unreachable")
+}

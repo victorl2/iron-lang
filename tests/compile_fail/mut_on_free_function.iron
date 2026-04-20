@@ -1,0 +1,18 @@
+-- Negative test: `mut` on a free-function parameter.
+-- This file MUST fail to compile — `mut` is grammatically restricted
+-- to receiver-binding position per Phase 79's parser design (see
+-- mut_receiver_grammar SUMMARY "Reserved-Keyword Regressions").
+-- Phase 79 promoted `mut` to a hard keyword, so any use in a
+-- free-function param position parse-errors with E0101
+-- "expected parameter name". This fixture locks that behavior as
+-- a regression guard — if a future refactor accidentally loosens
+-- `mut` to a soft keyword or adds free-function support without
+-- design review, this fixture fails loud.
+
+func bump(mut x: Int) {
+    -- unreachable — parser rejects before reaching the body
+}
+
+func main() {
+    bump(0)
+}

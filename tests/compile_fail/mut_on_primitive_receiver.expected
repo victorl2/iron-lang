@@ -1,0 +1,1 @@
+'mut' on non-struct receiver type 'Int' — only struct/composite types support mut
