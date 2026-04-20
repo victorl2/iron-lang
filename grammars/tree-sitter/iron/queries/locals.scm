@@ -1,13 +1,37 @@
-; Phase 6 Plan 06-01 Task 3 — locals.scm skeleton. Plan 06-02 expands
-; with proper scope queries once declaration / block / parameter rules
-; land in grammar.js. For now the permissive _top rule only exposes
-; source_file as a scope boundary; identifier uses are all marked as
-; references so default Neovim / Zed behaviours degrade gracefully.
+; Phase 6 Plan 06-02 (EXT-02). Tree-sitter locals queries — scope /
+; definition / reference captures enabling nvim-treesitter + Zed to
+; differentiate variable declarations from uses.
 
-; Top-level file scope
-(source_file) @local.scope
+; ── Scopes ────────────────────────────────────────────────────────────
+(func_declaration)        @local.scope
+(method_declaration)      @local.scope
+(extern_func_declaration) @local.scope
+(lambda_expression)       @local.scope
+(block)                   @local.scope
+(for_statement)           @local.scope
+(match_arm)               @local.scope
+(match_else_arm)          @local.scope
+(defer_statement)         @local.scope
+(spawn_expression)        @local.scope
 
-; All identifiers treated as references in v0.1 — proper @local.definition
-; captures arrive in Plan 06-02 once (func_declaration name: ...) +
-; (val_declaration name: ...) + (parameter name: ...) rules exist.
+; ── Definitions ───────────────────────────────────────────────────────
+(parameter           name:    (identifier) @local.definition.parameter)
+(val_declaration     binding: (identifier) @local.definition.var)
+(var_declaration     binding: (identifier) @local.definition.var)
+(for_statement       variable:(identifier) @local.definition.var)
+(func_declaration    name:    (identifier) @local.definition.function)
+(method_declaration  name:    (identifier) @local.definition.method)
+(method_signature    name:    (identifier) @local.definition.method)
+(extern_func_declaration name: (identifier) @local.definition.function)
+(object_declaration  name:    (identifier) @local.definition.type)
+(interface_declaration name:  (identifier) @local.definition.type)
+(enum_declaration    name:    (identifier) @local.definition.type)
+(enum_variant        name:    (identifier) @local.definition.enum)
+(field_declaration   name:    (identifier) @local.definition.field)
+(import_declaration  alias:   (identifier) @local.definition.import)
+
+; Tuple destructure: val (x, y) = pair — bind each name.
+(tuple_binding (identifier) @local.definition.var)
+
+; ── References ────────────────────────────────────────────────────────
 (identifier) @local.reference

@@ -1,0 +1,169 @@
+==========
+binary precedence multiplicative over additive
+==========
+
+func main() { val r = a + b * c }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (binary_expression
+          (identifier)
+          (binary_expression
+            (identifier)
+            (identifier)))))))
+
+==========
+comparison and logical-and chain
+==========
+
+func main() { val r = a < b && c > d }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (binary_expression
+          (binary_expression
+            (identifier)
+            (identifier))
+          (binary_expression
+            (identifier)
+            (identifier)))))))
+
+==========
+unary not
+==========
+
+func main() { val r = !x }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (unary_expression
+          (identifier))))))
+
+==========
+call with args
+==========
+
+func main() { f(a, b, 1) }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (identifier)
+          (identifier)
+          (integer_literal))))))
+
+==========
+member access chain
+==========
+
+func main() { val r = a.b.c }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (member_expression
+          object: (member_expression
+            object: (identifier)
+            property: (identifier))
+          property: (identifier))))))
+
+==========
+index expression
+==========
+
+func main() { val r = xs[0] }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (index_expression
+          collection: (identifier)
+          index: (integer_literal))))))
+
+==========
+lambda with return
+==========
+
+func main() { val f = func(x: Int) -> Int { return x * 2 } }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (lambda_expression
+          parameters: (parameter_list
+            (parameter
+              name: (identifier)
+              type: (type_identifier
+                (identifier))))
+          return_type: (type_identifier
+            (identifier))
+          body: (block
+            (return_statement
+              value: (binary_expression
+                (identifier)
+                (integer_literal)))))))))
+
+==========
+heap prefix expression
+==========
+
+func main() { val e = heap Enemy() }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (heap_expression
+          (call_expression
+            function: (identifier)))))))

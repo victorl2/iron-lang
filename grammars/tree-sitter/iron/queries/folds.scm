@@ -1,8 +1,17 @@
-; Phase 6 Plan 06-01 Task 3 — folds.scm skeleton. Plan 06-02 expands
-; with (object_declaration) / (interface_declaration) / (func_declaration
-; body: ...) / (block) / (match_expression) folds once the grammar has
-; structured declaration rules. For v0.1, only the two unambiguous
-; multi-line constructs fold.
+; Phase 6 Plan 06-02 (EXT-02). Tree-sitter fold queries — fold ranges for
+; all container rules so Neovim / Zed can collapse declarations + blocks.
 
-(block_comment) @fold
-(interpolated_string) @fold
+(func_declaration)        @fold
+(method_declaration)      @fold
+(extern_func_declaration) @fold
+(method_signature)        @fold
+(lambda_expression)       @fold
+(object_declaration)      @fold
+(interface_declaration)   @fold
+(enum_declaration)        @fold
+(block)                   @fold
+(match_statement)         @fold
+(spawn_expression)        @fold
+(defer_statement)         @fold
+(array_literal)           @fold
+(string_literal)          @fold

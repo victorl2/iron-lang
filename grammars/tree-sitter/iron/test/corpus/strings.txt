@@ -1,0 +1,41 @@
+==========
+plain string
+==========
+
+val s = "hello"
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (string_literal)))
+
+==========
+interpolated string
+==========
+
+val s = "value is {x}"
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (string_literal
+      (interpolation
+        (identifier)))))
+
+==========
+string with escape
+==========
+
+val s = "hello\nworld"
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (string_literal
+      (escape_sequence))))
