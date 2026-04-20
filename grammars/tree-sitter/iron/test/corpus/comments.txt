@@ -1,0 +1,49 @@
+==========
+line comment before decl
+==========
+
+-- hello world
+func main() {}
+
+---
+
+(source_file
+  (line_comment)
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block)))
+
+==========
+doc comment before decl
+==========
+
+/// doc comment
+func f() {}
+
+---
+
+(source_file
+  (doc_comment)
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block)))
+
+==========
+mixed comment forms
+==========
+
+-- plain comment
+/// doc comment
+func main() {}
+
+---
+
+(source_file
+  (line_comment)
+  (doc_comment)
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block)))

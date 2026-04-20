@@ -1,0 +1,124 @@
+==========
+if elif else chain
+==========
+
+func main() { if x { a } elif y { b } else { c } }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (if_statement
+        condition: (identifier)
+        consequence: (block
+          (expression_statement
+            (identifier)))
+        (elif_clause
+          condition: (identifier)
+          consequence: (block
+            (expression_statement
+              (identifier))))
+        (else_clause
+          consequence: (block
+            (expression_statement
+              (identifier))))))))
+
+==========
+while loop with break
+==========
+
+func main() { while cond { break } }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (while_statement
+        condition: (identifier)
+        body: (block
+          (break_statement))))))
+
+==========
+for in with continue
+==========
+
+func main() { for i in xs { continue } }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (for_statement
+        variable: (identifier)
+        iterable: (identifier)
+        body: (block
+          (continue_statement))))))
+
+==========
+return with value
+==========
+
+func f() -> Int { return 42 }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (integer_literal)))))
+
+==========
+defer with block
+==========
+
+func main() { defer { cleanup() } }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (defer_statement
+        (block
+          (expression_statement
+            (call_expression
+              function: (identifier))))))))
+
+==========
+compound assignments
+==========
+
+func main() { var x = 1  x += y  x <<= 2 }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (var_declaration
+        binding: (identifier)
+        value: (integer_literal))
+      (assignment_statement
+        target: (identifier)
+        value: (identifier))
+      (assignment_statement
+        target: (identifier)
+        value: (integer_literal)))))

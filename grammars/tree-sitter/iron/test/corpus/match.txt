@@ -1,0 +1,85 @@
+==========
+match on integer literals
+==========
+
+func f(x: Int) -> Int {
+  match x {
+    1 -> return 1
+    2 -> return 2
+    else -> return 0
+  }
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (match_statement
+        subject: (identifier)
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (return_statement
+            value: (integer_literal)))
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (return_statement
+            value: (integer_literal)))
+        (match_else_arm
+          body: (return_statement
+            value: (integer_literal)))))))
+
+==========
+match on enum variants with payload binding
+==========
+
+func f(c: Color) -> Int {
+  match c {
+    Color.Red -> return 1
+    Color.Green(v) -> return v
+    else -> return 0
+  }
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (match_statement
+        subject: (identifier)
+        (match_arm
+          pattern: (variant_pattern
+            enum_name: (identifier)
+            variant: (identifier))
+          body: (return_statement
+            value: (integer_literal)))
+        (match_arm
+          pattern: (variant_pattern
+            enum_name: (identifier)
+            variant: (identifier)
+            (identifier_pattern
+              (identifier)))
+          body: (return_statement
+            value: (identifier)))
+        (match_else_arm
+          body: (return_statement
+            value: (integer_literal)))))))
