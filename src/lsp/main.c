@@ -189,7 +189,14 @@ int main(int argc, char **argv) {
      * Created eagerly so the handler's first call finds a non-NULL cache
      * even when no workspace_index exists (pull gracefully returns empty). */
     g_server.ws_diag_cache     = ilsp_ws_diag_cache_create();
-    atomic_store(&g_server.next_request_id, 1);
+    /* Server-originated request ids (client/registerCapability,
+     * workspace/diagnostic/refresh, etc.) must not collide with
+     * client request ids. Clients (pygls, vscode, neovim) start at 1
+     * and increment, and some treat the id-space as shared — so a
+     * server request with id=1 sent after the client's initialize
+     * (also id=1) corrupts their id→pending-request map. Start the
+     * server counter at 2^31 so no realistic session can collide. */
+    atomic_store(&g_server.next_request_id, 0x80000000ULL);
 
     if (!g_server.writer || !g_server.cancels || !g_server.dyn_reg) {
         ilsp_log(ILSP_LOG_ERROR, "startup-failure",

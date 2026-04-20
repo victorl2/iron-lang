@@ -92,11 +92,15 @@ IronLsp_Document *ilsp_document_create(const char *uri,
 
     /* Allocate buffer with 64-byte slack so small inserts don't thrash
      * realloc. Minimum cap is 64 bytes (covers the common "empty doc"
-     * case without a free-on-every-keystroke pattern). */
+     * case without a free-on-every-keystroke pattern). The +1 beyond
+     * text_len holds a trailing NUL so consumers that treat doc->text
+     * as a C-string (iron_lexer_create and the compiler frontend, which
+     * take `const char *` without a length) never read past the end. */
     size_t cap = (len > 0 ? len : 1) * 2 + 64;
     doc->text = (char *)malloc(cap);
     if (!doc->text) { free(doc->uri); free(doc); return NULL; }
     if (len > 0) memcpy(doc->text, text, len);
+    doc->text[len] = '\0';
     doc->text_len = len;
     doc->text_cap = cap;
 
@@ -153,8 +157,10 @@ bool ilsp_document_apply_full_replace(IronLsp_Document *doc,
                 doc->version, new_version);
         return false;
     }
-    if (!grow_cap(doc, new_len > 0 ? new_len : 1)) return false;
+    /* +1 so the trailing NUL always fits (see ilsp_document_create). */
+    if (!grow_cap(doc, new_len + 1)) return false;
     if (new_len > 0 && new_text) memcpy(doc->text, new_text, new_len);
+    doc->text[new_len] = '\0';
     doc->text_len = new_len;
     doc->version  = new_version;
     ilsp_line_index_rebuild(&doc->line_idx, doc->text, doc->text_len);
@@ -200,7 +206,8 @@ bool ilsp_document_apply_incremental(IronLsp_Document        *doc,
         final_len = doc->text_len - (old_span - new_len);
     }
 
-    if (!grow_cap(doc, final_len > 0 ? final_len : 1)) return false;
+    /* +1 so the trailing NUL always fits (see ilsp_document_create). */
+    if (!grow_cap(doc, final_len + 1)) return false;
 
     /* memmove the tail (from end_byte to the new position post-gap). */
     size_t tail_len = doc->text_len - end_byte;
@@ -214,6 +221,7 @@ bool ilsp_document_apply_incremental(IronLsp_Document        *doc,
         memcpy(doc->text + start_byte, new_text, new_len);
     }
 
+    doc->text[final_len] = '\0';
     doc->text_len = final_len;
     doc->version  = new_version;
 
