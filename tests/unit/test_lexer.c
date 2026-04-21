@@ -210,6 +210,39 @@ void test_lexer_init_in_val_position_still_keyword(void) {
     arrfree(toks);
 }
 
+/* ── Phase 86 PATCH-01: `patch` keyword token ────────────────────────────── */
+/* Phase 86 introduces `patch` as the open-extension block modifier. The
+ * grammar is `patch object T { methods+inits }` — no fields allowed inside
+ * the block (Plan 86-01 rejects them with E0253). Lexing `patch` on its
+ * own must yield IRON_TOK_PATCH, never IRON_TOK_IDENTIFIER. The adjacency
+ * test guards the parser's expected lookahead: `patch object Foo` must
+ * yield three consecutive tokens [PATCH, OBJECT, IDENTIFIER]. Plan 86-02
+ * consumes the resulting Iron_ObjectDecl(is_patch=true) to wire the
+ * type-patch registry without touching the parser again. */
+
+void test_lexer_patch_keyword(void) {
+    Iron_Token *toks = lex("patch");
+    TEST_ASSERT_EQUAL(IRON_TOK_PATCH, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_patch_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_PATCH",
+                             iron_token_kind_str(IRON_TOK_PATCH));
+}
+
+void test_lexer_patch_adjacent_to_object(void) {
+    /* Parser expects this exact token sequence to dispatch to
+     * iron_parse_patch_decl in Plan 86-01 Task 2. */
+    Iron_Token *toks = lex("patch object Foo");
+    TEST_ASSERT_EQUAL(IRON_TOK_PATCH,      toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_OBJECT,     toks[1].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[2].kind);
+    TEST_ASSERT_EQUAL_STRING("Foo",        toks[2].value);
+    arrfree(toks);
+}
+
 /* ── Literal tests ───────────────────────────────────────────────────────── */
 
 void test_integer_literal(void) {
@@ -522,6 +555,11 @@ int main(void) {
     RUN_TEST(test_lexer_init_keyword);
     RUN_TEST(test_lexer_init_kind_str);
     RUN_TEST(test_lexer_init_in_val_position_still_keyword);
+
+    /* Phase 86 PATCH-01: patch keyword recognition. */
+    RUN_TEST(test_lexer_patch_keyword);
+    RUN_TEST(test_lexer_patch_kind_str);
+    RUN_TEST(test_lexer_patch_adjacent_to_object);
 
     RUN_TEST(test_integer_literal);
     RUN_TEST(test_float_literal);

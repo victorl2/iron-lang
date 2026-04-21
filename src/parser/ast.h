@@ -175,6 +175,20 @@ typedef struct Iron_ObjectDecl {
     int           implements_count;
     Iron_Node   **generic_params;
     int           generic_param_count;
+    /* Phase 86 PATCH-01 additions (trailing fields; preserves ABI layout for
+     * every existing reader that stops at generic_param_count).
+     *
+     * is_patch          false for classic `object T {}`; true for
+     *                   `patch object T {}`. Plan 86-02 resolver walks all
+     *                   program decls keying on this bit.
+     * target_type_name  NULL when is_patch=false; identifier after
+     *                   `patch object` when true. For patches
+     *                   target_type_name == name (both point to the same
+     *                   arena-strdup) so the resolver can key the patch
+     *                   registry without an is_patch branch at every
+     *                   lookup site. */
+    bool          is_patch;           /* PATCH-01 */
+    const char   *target_type_name;   /* PATCH-02 */
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {

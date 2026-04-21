@@ -16,7 +16,7 @@ typedef enum {
     IRON_TOK_STRING,
     IRON_TOK_INTERP_STRING,
 
-    /* Keywords (41 total, alphabetical) */
+    /* Keywords (42 total, alphabetical) */
     IRON_TOK_AND,
     IRON_TOK_AWAIT,
     IRON_TOK_COMPTIME,
@@ -46,6 +46,7 @@ typedef enum {
     IRON_TOK_OBJECT,
     IRON_TOK_OR,
     IRON_TOK_PARALLEL,
+    IRON_TOK_PATCH,      /* Phase 86 PATCH-01: open-extension block modifier. */
     IRON_TOK_POOL,
     IRON_TOK_PRIVATE,
     IRON_TOK_PUB,

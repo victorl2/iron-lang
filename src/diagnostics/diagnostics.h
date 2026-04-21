@@ -174,6 +174,18 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_INIT_DELEGATION            251   /* INIT-14 */
 #define IRON_ERR_INIT_RETURN_VALUE          252   /* INIT-11 typecheck branch */
 
+/* Phase 86 PATCH: open-extension diagnostics.
+ *
+ * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser
+ * emits E0253 when a field declaration appears inside a patch body. E0254
+ * (target not found) and E0255 (conflicting patch definitions) are reserved
+ * here so Plan 86-02's resolver + typechecker collision scan have stable
+ * IDs at the time Plan 86-01 lands. All three live in the 2xx typecheck
+ * range; PATCH does not touch the 3xx LIR or 4xx lowering ranges. */
+#define IRON_ERR_PATCH_ADDS_FIELD           253   /* PATCH-05 */
+#define IRON_ERR_PATCH_TARGET_NOT_FOUND     254   /* PATCH-04 */
+#define IRON_ERR_PATCH_CONFLICT             255   /* PATCH-03 */
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301
