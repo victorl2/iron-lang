@@ -1,0 +1,33 @@
+-- v3_pure_method.iron -- Phase 84 TEST-06 lock.
+--
+-- What this proves:
+--   MUTTIER-03 positive: pure method CAN heap-allocate (array literal OK).
+--   MUTTIER-03 positive: pure method CAN return a derived scalar.
+--   MUTTIER-06 positive: pure -> pure call compiles.
+--
+-- Heap allocation is permitted in pure methods per 84-CONTEXT.md:
+--   "Heap allocation IS allowed (GC-managed; not observable)."
+-- PURE-STRICT-01 (forbid alloc) is deferred to v3.1+.
+
+object Box {
+    pub val value: Int
+
+    pure func squared() -> Int {
+        return self.value * self.value
+    }
+
+    pure func doubled_squared() -> Int {
+        -- pure -> pure is legal
+        return self.squared() * 2
+    }
+}
+
+func main() {
+    val b: Box = Box(6)
+    -- Heap-alloc an array inside main (not inside the pure method -
+    -- keeps the fixture's first pass about basic pure call shape).
+    val xs: [Int] = [1, 2, 3]
+    println("{b.squared()}")
+    println("{b.doubled_squared()}")
+    println("{xs[1]}")
+}
