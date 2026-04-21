@@ -1,0 +1,15 @@
+-- INIT-13 lock: field-less object auto-synthesizes init() {} so Marker()
+-- works without a user-declared init.
+--
+-- Exercises:
+--   INIT-13 parser field-less auto-synth (Plan 85-01) + CONSTRUCT dispatch
+--   with zero args through the same type-check + HIR -> LIR -> emit_c
+--   pipeline Plan 85-02 wired for the Counter case.
+
+object Marker {
+}
+
+func main() {
+    val m: Marker = Marker()
+    println("ok")
+}
