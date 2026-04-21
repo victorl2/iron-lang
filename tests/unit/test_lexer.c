@@ -177,6 +177,39 @@ void test_lexer_pure_kind_str(void) {
                              iron_token_kind_str(IRON_TOK_PURE));
 }
 
+/* ── Phase 85 INIT-03: `init` keyword token ──────────────────────────────── */
+/* Phase 85 introduces `init` as the mandatory-construction keyword inside
+ * object blocks. Lexing `init` on its own MUST yield IRON_TOK_INIT, never
+ * IRON_TOK_IDENTIFIER. The parser (Task 2) consumes IRON_TOK_INIT inside
+ * `iron_parse_object_decl` to build MethodDecls with is_init=true. The
+ * `init_in_val_position_still_keyword` guard prevents the keyword from
+ * degrading to an identifier in token contexts where the parser would
+ * otherwise accept `val init = 1` as a legal declaration. */
+
+void test_lexer_init_keyword(void) {
+    Iron_Token *toks = lex("init");
+    TEST_ASSERT_EQUAL(IRON_TOK_INIT, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_init_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_INIT",
+                             iron_token_kind_str(IRON_TOK_INIT));
+}
+
+void test_lexer_init_in_val_position_still_keyword(void) {
+    /* `val init = 1` must lex as [VAL, INIT, ASSIGN, INTEGER] so the parser
+     * rejects `init` as an identifier in a val/var/func name position.
+     * Downstream (Task 2) dispatch treats the keyword as a hard constraint. */
+    Iron_Token *toks = lex("val init = 1");
+    TEST_ASSERT_EQUAL(IRON_TOK_VAL,     toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_INIT,    toks[1].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_ASSIGN,  toks[2].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_INTEGER, toks[3].kind);
+    arrfree(toks);
+}
+
 /* ── Literal tests ───────────────────────────────────────────────────────── */
 
 void test_integer_literal(void) {
@@ -484,6 +517,11 @@ int main(void) {
     RUN_TEST(test_lexer_pure_keyword);
     RUN_TEST(test_lexer_readonly_kind_str);
     RUN_TEST(test_lexer_pure_kind_str);
+
+    /* Phase 85 INIT-03: init keyword recognition. */
+    RUN_TEST(test_lexer_init_keyword);
+    RUN_TEST(test_lexer_init_kind_str);
+    RUN_TEST(test_lexer_init_in_val_position_still_keyword);
 
     RUN_TEST(test_integer_literal);
     RUN_TEST(test_float_literal);

@@ -16,7 +16,7 @@ typedef enum {
     IRON_TOK_STRING,
     IRON_TOK_INTERP_STRING,
 
-    /* Keywords (40 total, alphabetical) */
+    /* Keywords (41 total, alphabetical) */
     IRON_TOK_AND,
     IRON_TOK_AWAIT,
     IRON_TOK_COMPTIME,
@@ -35,6 +35,7 @@ typedef enum {
     IRON_TOK_IMPL,
     IRON_TOK_IMPORT,
     IRON_TOK_IN,
+    IRON_TOK_INIT,       /* Phase 85 INIT-03: `init` method modifier for construction. */
     IRON_TOK_INTERFACE,
     IRON_TOK_IS,
     IRON_TOK_LEAK,
