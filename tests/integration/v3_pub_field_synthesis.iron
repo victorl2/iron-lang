@@ -1,0 +1,25 @@
+-- v3_pub_field_synthesis.iron -- Phase 83 TEST-04 lock.
+--
+-- What this proves:
+--   ACCESS-03: `pub val id: Int` synthesizes a readable property accessor.
+--   ACCESS-04: `pub var health: Int` synthesizes both read AND write accessors.
+--   ACCESS-05: property syntax `p.id`, `p.health`, `p.health = v` routes through
+--              the synthesized getter/setter methods (not direct field access).
+--
+-- Shape intentionally mirrors tests/integration/v3_methods_in_block.iron so
+-- side-by-side diff shows only the pub-accessor delta. Constructor form
+-- `Player(42, 100)` follows the existing positional-field pattern used by
+-- tests/integration/objects.iron (Vec2(1.0, 2.0)).
+
+object Player {
+    pub val id: Int
+    pub var health: Int
+}
+
+func main() {
+    var p: Player = Player(42, 100)
+    println("{p.id}")
+    println("{p.health}")
+    p.health = 50
+    println("{p.health}")
+}
