@@ -2863,6 +2863,289 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
         iron_skip_newlines(p);
     }
 
+    /* Phase 83-02 ACCESS-03/04/06: synthesize accessor methods for every
+     * `pub val` and `pub var` field, then scan for user-declared methods that
+     * collide with a synthesized name.
+     *
+     * Accessors are standard receiver-form Iron_MethodDecl nodes pushed into
+     * *extra_decls_out — identical in shape to Phase 82 in-block methods —
+     * so they ride the existing resolver / typecheck / HIR / LIR / emit
+     * pipeline unchanged. Phase 84 MUTTIER reads is_synth_accessor to
+     * retrofit `readonly` on getters.
+     *
+     * Getter  (pub val or pub var): `return self.<field>`  (1 param: self; return_type = field type)
+     * Setter  (pub var only):       `self.<field> = _v`    (2 params: self + _v; return_type NULL)
+     *
+     * Collision scan runs AFTER synthesis so user methods flushed earlier in
+     * this iteration are still reachable via *extra_decls_out. We compare
+     * type_name + method_name and only emit on user-declared (non-synth)
+     * methods whose type_name matches the enclosing object. */
+    if (extra_decls_out) {
+        /* Record the extra_decls_out range covered by this object so the
+         * collision scan below does not pick up methods from earlier objects
+         * in the program. The synthesis loop appends to the array; the scan
+         * walks the full range and filters by type_name == enclosing. */
+        const char *enclosing = name_tok->value;
+        size_t enclosing_len  = strlen(enclosing);
+
+        for (int fi = 0; fi < field_count; fi++) {
+            Iron_Field *field = (Iron_Field *)fields[fi];
+            if (!field->is_pub) continue;
+
+            Iron_Span field_span = field->span;
+
+            /* ── Getter ─────────────────────────────────────────────────── */
+            Iron_Param *g_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!g_self) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self");
+            g_self->kind            = IRON_NODE_PARAM;
+            g_self->span            = field_span;
+            g_self->is_var          = false;
+            /* Getter: read-only receiver. Phase 84 will read this bit via
+             * is_synth_accessor + is_mut_receiver to confirm readonly. */
+            g_self->is_mut_receiver = false;
+            g_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!g_self->name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self name");
+
+            Iron_TypeAnnotation *g_self_ty = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!g_self_ty) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self type");
+            memset(g_self_ty, 0, sizeof(*g_self_ty));
+            g_self_ty->kind = IRON_NODE_TYPE_ANNOTATION;
+            g_self_ty->span = field_span;
+            g_self_ty->name = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!g_self_ty->name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self type name");
+            g_self->type_ann = (Iron_Node *)g_self_ty;
+
+            /* Getter body: `return self.<field>` */
+            Iron_Ident *g_self_ref = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!g_self_ref) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self ref");
+            g_self_ref->kind             = IRON_NODE_IDENT;
+            g_self_ref->span             = field_span;
+            g_self_ref->resolved_type    = NULL;
+            g_self_ref->name             = iron_arena_strdup(p->arena, "self", 4);
+            if (!g_self_ref->name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self ref name");
+            g_self_ref->resolved_sym     = NULL;
+            g_self_ref->constraint_name  = NULL;
+
+            Iron_FieldAccess *g_fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+            if (!g_fa) iron_oom_abort("parser.c:iron_parse_object_decl synth getter field access");
+            g_fa->kind          = IRON_NODE_FIELD_ACCESS;
+            g_fa->span          = field_span;
+            g_fa->resolved_type = NULL;
+            g_fa->object        = (Iron_Node *)g_self_ref;
+            g_fa->field         = field->name;
+            /* Plan 83-02 Task 2 adds Iron_FieldAccess.is_pub_access and
+             * initializes it false here. Arena zero-init covers the default
+             * until Task 2 lands the defensive writer. */
+
+            Iron_ReturnStmt *g_ret = ARENA_ALLOC(p->arena, Iron_ReturnStmt);
+            if (!g_ret) iron_oom_abort("parser.c:iron_parse_object_decl synth getter return");
+            g_ret->kind  = IRON_NODE_RETURN;
+            g_ret->span  = field_span;
+            g_ret->value = (Iron_Node *)g_fa;
+
+            Iron_Block *g_body = ARENA_ALLOC(p->arena, Iron_Block);
+            if (!g_body) iron_oom_abort("parser.c:iron_parse_object_decl synth getter body");
+            g_body->kind       = IRON_NODE_BLOCK;
+            g_body->span       = field_span;
+            g_body->stmts      = NULL;
+            g_body->stmt_count = 0;
+            arrput(g_body->stmts, (Iron_Node *)g_ret);
+            g_body->stmt_count = 1;
+
+            /* Getter params array: [self] */
+            Iron_Node **g_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *),
+                _Alignof(Iron_Node *));
+            if (!g_params) iron_oom_abort("parser.c:iron_parse_object_decl synth getter params");
+            g_params[0] = (Iron_Node *)g_self;
+
+            Iron_MethodDecl *g_m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!g_m) iron_oom_abort("parser.c:iron_parse_object_decl synth getter MethodDecl");
+            g_m->kind                 = IRON_NODE_METHOD_DECL;
+            g_m->span                 = field_span;
+            g_m->type_name            = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!g_m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter type_name");
+            g_m->method_name          = field->name;  /* arena-owned, safe to share */
+            g_m->params               = g_params;
+            g_m->param_count          = 1;
+            /* Sharing field->type_ann is safe: types are read-only post-parse
+             * so the AST printer and downstream passes treat this as a fresh
+             * read of the same annotation. Matches Phase 82's shared-type
+             * pattern for in-block method receivers. */
+            g_m->return_type          = field->type_ann;
+            g_m->body                 = (Iron_Node *)g_body;
+            g_m->is_private           = false;
+            g_m->generic_params       = NULL;
+            g_m->generic_param_count  = 0;
+            g_m->resolved_return_type = NULL;
+            g_m->owner_sym            = NULL;
+            g_m->is_array_extension   = false;
+            g_m->elem_type_name       = NULL;
+            g_m->is_fusible           = false;
+            g_m->is_receiver_form     = true;
+            g_m->is_synth_accessor    = true;  /* Phase 83-02 marker */
+            arrput(*extra_decls_out, (Iron_Node *)g_m);
+
+            if (!field->is_var) continue;
+
+            /* ── Setter (pub var only) ──────────────────────────────────── */
+            Iron_Param *s_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!s_self) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self");
+            s_self->kind            = IRON_NODE_PARAM;
+            s_self->span            = field_span;
+            s_self->is_var          = false;
+            s_self->is_mut_receiver = true;   /* setter mutates self.field */
+            s_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!s_self->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self name");
+
+            Iron_TypeAnnotation *s_self_ty = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!s_self_ty) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self type");
+            memset(s_self_ty, 0, sizeof(*s_self_ty));
+            s_self_ty->kind = IRON_NODE_TYPE_ANNOTATION;
+            s_self_ty->span = field_span;
+            s_self_ty->name = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!s_self_ty->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self type name");
+            s_self->type_ann = (Iron_Node *)s_self_ty;
+
+            Iron_Param *s_v = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!s_v) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v");
+            s_v->kind            = IRON_NODE_PARAM;
+            s_v->span            = field_span;
+            s_v->is_var          = false;
+            s_v->is_mut_receiver = false;
+            s_v->name            = iron_arena_strdup(p->arena, "_v", 2);
+            if (!s_v->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v name");
+            /* Reuse the field's type_ann for `_v` — read-only shared. */
+            s_v->type_ann = field->type_ann;
+
+            /* Setter body: `self.<field> = _v` */
+            Iron_Ident *s_self_ref = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!s_self_ref) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self ref");
+            s_self_ref->kind            = IRON_NODE_IDENT;
+            s_self_ref->span            = field_span;
+            s_self_ref->resolved_type   = NULL;
+            s_self_ref->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!s_self_ref->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self ref name");
+            s_self_ref->resolved_sym    = NULL;
+            s_self_ref->constraint_name = NULL;
+
+            Iron_FieldAccess *s_fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+            if (!s_fa) iron_oom_abort("parser.c:iron_parse_object_decl synth setter field access");
+            s_fa->kind          = IRON_NODE_FIELD_ACCESS;
+            s_fa->span          = field_span;
+            s_fa->resolved_type = NULL;
+            s_fa->object        = (Iron_Node *)s_self_ref;
+            s_fa->field         = field->name;
+            /* is_pub_access added in Task 2; arena zero-init covers default. */
+
+            Iron_Ident *s_v_ref = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!s_v_ref) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v ref");
+            s_v_ref->kind            = IRON_NODE_IDENT;
+            s_v_ref->span            = field_span;
+            s_v_ref->resolved_type   = NULL;
+            s_v_ref->name            = iron_arena_strdup(p->arena, "_v", 2);
+            if (!s_v_ref->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v ref name");
+            s_v_ref->resolved_sym    = NULL;
+            s_v_ref->constraint_name = NULL;
+
+            Iron_AssignStmt *s_as = ARENA_ALLOC(p->arena, Iron_AssignStmt);
+            if (!s_as) iron_oom_abort("parser.c:iron_parse_object_decl synth setter assign");
+            s_as->kind          = IRON_NODE_ASSIGN;
+            s_as->span          = field_span;
+            s_as->target        = (Iron_Node *)s_fa;
+            s_as->value         = (Iron_Node *)s_v_ref;
+            s_as->op            = IRON_TOK_ASSIGN;
+            /* is_pub_setter added in Task 2; arena zero-init covers default. */
+
+            Iron_Block *s_body = ARENA_ALLOC(p->arena, Iron_Block);
+            if (!s_body) iron_oom_abort("parser.c:iron_parse_object_decl synth setter body");
+            s_body->kind       = IRON_NODE_BLOCK;
+            s_body->span       = field_span;
+            s_body->stmts      = NULL;
+            s_body->stmt_count = 0;
+            arrput(s_body->stmts, (Iron_Node *)s_as);
+            s_body->stmt_count = 1;
+
+            Iron_Node **s_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *) * 2,
+                _Alignof(Iron_Node *));
+            if (!s_params) iron_oom_abort("parser.c:iron_parse_object_decl synth setter params array");
+            s_params[0] = (Iron_Node *)s_self;
+            s_params[1] = (Iron_Node *)s_v;
+
+            /* method_name = "set_<field>" */
+            size_t fname_len = strlen(field->name);
+            char  *setter_name = (char *)iron_arena_alloc(
+                p->arena, fname_len + 5 /* "set_" + NUL */,
+                _Alignof(char));
+            if (!setter_name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter name");
+            snprintf(setter_name, fname_len + 5, "set_%s", field->name);
+
+            Iron_MethodDecl *s_m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!s_m) iron_oom_abort("parser.c:iron_parse_object_decl synth setter MethodDecl");
+            s_m->kind                 = IRON_NODE_METHOD_DECL;
+            s_m->span                 = field_span;
+            s_m->type_name            = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!s_m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter type_name");
+            s_m->method_name          = setter_name;
+            s_m->params               = s_params;
+            s_m->param_count          = 2;
+            s_m->return_type          = NULL;  /* setter returns void */
+            s_m->body                 = (Iron_Node *)s_body;
+            s_m->is_private           = false;
+            s_m->generic_params       = NULL;
+            s_m->generic_param_count  = 0;
+            s_m->resolved_return_type = NULL;
+            s_m->owner_sym            = NULL;
+            s_m->is_array_extension   = false;
+            s_m->elem_type_name       = NULL;
+            s_m->is_fusible           = false;
+            s_m->is_receiver_form     = true;
+            s_m->is_synth_accessor    = true;
+            arrput(*extra_decls_out, (Iron_Node *)s_m);
+        }
+
+        /* ── Collision scan (ACCESS-06) ─────────────────────────────────────
+         * Walk the *extra_decls_out array. For every user-declared
+         * (is_synth_accessor == false) Iron_MethodDecl whose type_name
+         * matches the enclosing object, check whether its method_name
+         * collides with any synthesized accessor's method_name in the same
+         * object. On collision, emit IRON_ERR_ACCESSOR_NAME_RESERVED (237)
+         * with the locked message text.
+         *
+         * Both the synthesized node and the user node remain in the AST;
+         * the diagnostic blocks compilation downstream. A duplicate-method
+         * detection in the resolver is subsumed by this cleaner message. */
+        int extra_count = (int)arrlen(*extra_decls_out);
+        for (int ui = 0; ui < extra_count; ui++) {
+            Iron_Node *un = (*extra_decls_out)[ui];
+            if (!un || un->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *um = (Iron_MethodDecl *)un;
+            if (um->is_synth_accessor) continue;
+            if (!um->type_name || strcmp(um->type_name, enclosing) != 0) continue;
+
+            for (int si = 0; si < extra_count; si++) {
+                if (si == ui) continue;
+                Iron_Node *sn = (*extra_decls_out)[si];
+                if (!sn || sn->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *sm = (Iron_MethodDecl *)sn;
+                if (!sm->is_synth_accessor) continue;
+                if (!sm->type_name || strcmp(sm->type_name, enclosing) != 0) continue;
+                if (!sm->method_name || !um->method_name) continue;
+                if (strcmp(sm->method_name, um->method_name) != 0) continue;
+
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "name '%s' reserved by synthesized accessor from pub field",
+                         um->method_name);
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_ACCESSOR_NAME_RESERVED,
+                               um->span, msg, NULL);
+                break;  /* one diagnostic per colliding user method */
+            }
+        }
+    }
+
     Iron_Token *end = iron_current(p);
     iron_expect(p, IRON_TOK_RBRACE);
 

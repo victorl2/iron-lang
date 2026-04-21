@@ -282,7 +282,9 @@ void test_pub_on_fields_sets_is_pub(void) {
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     Iron_Program *pr = (Iron_Program *)prog;
-    TEST_ASSERT_EQUAL(1, pr->decl_count);
+    /* Plan 83-02: pub var a synthesizes getter+setter (2 methods); pub val b
+     * synthesizes getter (1 method). Total: ObjectDecl + 3 MethodDecls. */
+    TEST_ASSERT_EQUAL(4, pr->decl_count);
     Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
     TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, obj->kind);
     TEST_ASSERT_EQUAL(2, obj->field_count);
