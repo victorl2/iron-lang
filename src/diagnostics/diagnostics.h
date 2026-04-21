@@ -143,12 +143,23 @@ void iron_diaglist_free(Iron_DiagList *list);
  * field in the same object. Locks ACCESS-06. */
 #define IRON_ERR_ACCESSOR_NAME_RESERVED 237
 
-/* MUTTIER (Phase 84) — mutation-tier placement / exclusivity error.
- * IRON_ERR_TIER_MODIFIER_PLACEMENT fires when `readonly` or `pure` appears
- * outside an object-block method declaration, or when both appear together
- * on the same method. Plan 84-01 grammar guard; Plan 84-02 adds the
- * tier-violation error codes 238..244 for typechecker enforcement. */
-#define IRON_ERR_TIER_MODIFIER_PLACEMENT 245
+/* MUTTIER (Phase 84) — mutation-tier enforcement errors.
+ * 238/239 fire from readonly-method context; 240..244 fire from pure-method
+ * context; 245 is the parse-time placement/exclusivity error allocated by
+ * Plan 84-01. Each tier-violation code carries a tier-specific message so
+ * users see the distinct violation category without squinting at a shared
+ * diagnostic. Plan 84-02 wires the enforcement into the IRON_NODE_ASSIGN,
+ * IRON_NODE_METHOD_CALL, IRON_NODE_CALL, and IRON_NODE_IDENT handlers in
+ * typecheck.c; flag propagation rides on TypeCtx.in_readonly_method /
+ * TypeCtx.in_pure_method, save/restored at method boundary. */
+#define IRON_ERR_READONLY_WRITE_SELF        238
+#define IRON_ERR_READONLY_CALLS_MUTATING    239
+#define IRON_ERR_PURE_IO                    240
+#define IRON_ERR_PURE_MUTABLE_GLOBAL        241
+#define IRON_ERR_PURE_NON_PURE_CALL         242
+#define IRON_ERR_PURE_PARAM_WRITE           243
+#define IRON_ERR_PURE_WRITE_SELF            244
+#define IRON_ERR_TIER_MODIFIER_PLACEMENT    245
 
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300

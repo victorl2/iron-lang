@@ -1472,6 +1472,135 @@ void test_pub_val_assign_rejected_with_val_reassign(void) {
         "expected IRON_ERR_VAL_REASSIGN diagnostic citing 'pub val'");
 }
 
+/* ── Phase 84 MUTTIER-02: readonly tier enforcement (Plan 84-02 Task 1) ──── */
+
+void test_readonly_writes_self_emits_E0238(void) {
+    /* Writing self.field inside a readonly method must emit
+     * IRON_ERR_READONLY_WRITE_SELF (238). The Phase 80 MUT-03 chain walk
+     * is reused: walk the FieldAccess target to its root ident and check
+     * the root name is "self". */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func bump() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+}
+
+void test_readonly_reads_self_is_ok(void) {
+    /* Reading self.field from a readonly method is legal. No E0238,
+     * no E0239, no type mismatch. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func read() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_readonly_calls_readonly_is_ok(void) {
+    /* MUTTIER-06 positive: readonly can call readonly on self. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func read() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "  readonly func chain() -> Int {\n"
+        "    return self.read()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_readonly_calls_mutating_emits_E0239(void) {
+    /* Calling a default-mutating method from readonly context must emit
+     * IRON_ERR_READONLY_CALLS_MUTATING (239). Uses Phase 80 MUT-04 callee
+     * inspection extended with caller-tier check. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  func bump() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "  readonly func chain() {\n"
+        "    self.bump()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_readonly_calls_pure_is_ok(void) {
+    /* MUTTIER-06 positive: readonly can call pure (pure is stronger
+     * than readonly, so the transitive rule allows the call). */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  pure func get() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "  readonly func chain() -> Int {\n"
+        "    return self.get()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+}
+
+void test_plain_method_calls_mutating_is_ok(void) {
+    /* MUTTIER-01 regression: a default-mutating method can call any
+     * tier — no tier checks fire from a non-readonly, non-pure caller. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  func a_set() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "  func b() {\n"
+        "    self.a_set()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_synth_getter_callable_from_readonly(void) {
+    /* Phase 83-84 bridge: every `pub val`/`pub var` getter is retrofitted
+     * is_readonly=true AND is_pure=true in iron_parse_object_decl. That
+     * means a readonly method can read the property without tripping
+     * E0239 (mutating-call) or E0242 (non-pure call). */
+    parse_and_resolve(
+        "object X {\n"
+        "  pub val a: Int\n"
+        "  readonly func wrap() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1570,6 +1699,15 @@ int main(void) {
     RUN_TEST(test_non_pub_field_read_is_pub_access_false);
     RUN_TEST(test_non_pub_field_write_is_pub_setter_false);
     RUN_TEST(test_pub_val_assign_rejected_with_val_reassign);
+
+    /* Phase 84 MUTTIER-02 Task 1: readonly tier enforcement. */
+    RUN_TEST(test_readonly_writes_self_emits_E0238);
+    RUN_TEST(test_readonly_reads_self_is_ok);
+    RUN_TEST(test_readonly_calls_readonly_is_ok);
+    RUN_TEST(test_readonly_calls_mutating_emits_E0239);
+    RUN_TEST(test_readonly_calls_pure_is_ok);
+    RUN_TEST(test_plain_method_calls_mutating_is_ok);
+    RUN_TEST(test_synth_getter_callable_from_readonly);
 
     return UNITY_END();
 }
