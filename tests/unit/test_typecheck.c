@@ -1606,11 +1606,12 @@ void test_synth_getter_callable_from_readonly(void) {
 void test_pure_writes_self_emits_E0244(void) {
     /* Pure method writing self.field must emit IRON_ERR_PURE_WRITE_SELF
      * (244), not E0238 — pure gets a distinct error code for clearer
-     * diagnostic messaging. */
+     * diagnostic messaging. Method name is `bump` (not `mut`, which is a
+     * reserved token for Phase 80 receiver-mut). */
     parse_and_resolve(
         "object X {\n"
         "  var a: Int\n"
-        "  pure func mut() {\n"
+        "  pure func bump() {\n"
         "    self.a = 1\n"
         "  }\n"
         "}\n"

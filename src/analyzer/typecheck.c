@@ -1149,6 +1149,30 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_IDENT: {
             Iron_Ident *id = (Iron_Ident *)node;
 
+            /* Phase 84 MUTTIER-03 E0241: pure-tier read of a mutable
+             * top-level `var`. Detected by looking up the name in
+             * ctx->global_scope directly (not via tc_lookup, which walks
+             * the whole chain); a mutable VARIABLE registered there is a
+             * top-level `var counter: Int = 0`. Top-level `val` is not
+             * mutable (resolver sets is_mutable=false for IRON_NODE_VAL_DECL)
+             * so val globals pass cleanly. The check runs before narrowing /
+             * type resolution so it fires on every read regardless of
+             * where the type came from. */
+            if (ctx->in_pure_method && id->name && ctx->global_scope) {
+                Iron_Symbol *global_sym =
+                    iron_scope_lookup_local(ctx->global_scope, id->name);
+                if (global_sym &&
+                    global_sym->sym_kind == IRON_SYM_VARIABLE &&
+                    global_sym->is_mutable) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot read mutable global '%s' in pure method",
+                             id->name);
+                    emit_error(ctx, IRON_ERR_PURE_MUTABLE_GLOBAL,
+                               id->span, msg, NULL);
+                }
+            }
+
             /* 1. Check narrowing map first */
             Iron_Type *narrowed = narrowing_get(ctx, id->name);
             if (narrowed) {
@@ -1534,6 +1558,37 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 ce->resolved_type = result;
                 break;
+            }
+
+            /* Phase 84 MUTTIER-03 E0240: pure method calling an I/O builtin.
+             * The hardcoded allowlist covers the v3.0 I/O surface: println,
+             * print, readline. Future stdlib I/O bindings (file, network)
+             * would be added here; a user-level is_io annotation on extern
+             * decls is a v3.1+ item (see 84-CONTEXT.md "Claude's Discretion"
+             * note on I/O list expansion). The check fires once per matched
+             * name; the rest of the call pipeline still runs so arg types
+             * and return-type propagation stay intact. */
+            if (ctx->in_pure_method && ce->callee &&
+                ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                static const char *const IRON_PURE_IO_BUILTINS[] = {
+                    "println", "print", "readline",
+                };
+                if (fn_id->name) {
+                    for (size_t i = 0;
+                         i < sizeof(IRON_PURE_IO_BUILTINS) /
+                             sizeof(IRON_PURE_IO_BUILTINS[0]);
+                         i++) {
+                        if (strcmp(fn_id->name, IRON_PURE_IO_BUILTINS[i]) == 0) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot call I/O function '%s' in pure method",
+                                     fn_id->name);
+                            emit_error(ctx, IRON_ERR_PURE_IO, ce->span, msg, NULL);
+                            break;
+                        }
+                    }
+                }
             }
 
             /* Special case: len(array) -> Int.
@@ -2882,6 +2937,43 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 } else if (tid->resolved_sym) {
                     /* Fall back to resolver's symbol */
                     is_immutable = !tid->resolved_sym->is_mutable;
+                }
+
+                /* Phase 84 MUTTIER-03: pure-tier write-to-ident diagnostics.
+                 * Distinguish two cases:
+                 *   E0241 — target is a mutable top-level `var` (global).
+                 *   E0243 — target is a function/method parameter (excluding
+                 *           the implicit `self`, which is handled by the
+                 *           self.field path in the FIELD_ACCESS branch below).
+                 * Globals resolve against ctx->global_scope; params are
+                 * IRON_SYM_PARAM in the function scope. Both checks run only
+                 * when enclosing method is pure. */
+                if (ctx->in_pure_method) {
+                    Iron_Symbol *global_sym = ctx->global_scope
+                        ? iron_scope_lookup_local(ctx->global_scope, target_name)
+                        : NULL;
+                    if (global_sym &&
+                        global_sym->sym_kind == IRON_SYM_VARIABLE &&
+                        global_sym->is_mutable) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot write mutable global '%s' in pure method",
+                                 target_name);
+                        emit_error(ctx, IRON_ERR_PURE_MUTABLE_GLOBAL,
+                                   as->span, msg, NULL);
+                    } else if (tc_sym && tc_sym->sym_kind == IRON_SYM_PARAM) {
+                        /* `self` is IRON_SYM_VARIABLE in classic form and a
+                         * param in receiver form; exclude the ident named
+                         * "self" so the self.field path owns that diagnostic. */
+                        if (strcmp(target_name, "self") != 0) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot write parameter '%s' in pure method",
+                                     target_name);
+                            emit_error(ctx, IRON_ERR_PURE_PARAM_WRITE,
+                                       as->span, msg, NULL);
+                        }
+                    }
                 }
             }
 

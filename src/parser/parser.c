@@ -2785,8 +2785,12 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             /* Phase 82 in-block method receivers are default-mutating per
              * CONTEXT.md: "Default-mutating receiver ABI uses pointer-receiver
              * from Phase 82 onward — matches v2.2 `mut` path." Phase 84 MUTTIER
-             * will add `readonly`/`pure` opt-outs that flip this to false. */
-            synth_self->is_mut_receiver = true;
+             * flips is_mut_receiver off for readonly/pure methods: those tiers
+             * cannot write self, so the receiver binding is logically non-mut
+             * and MUT-04 (E0235) must NOT fire when a val-bound receiver calls
+             * a readonly/pure method (MUTTIER-05 lock). Mutable-default methods
+             * keep is_mut_receiver=true; readonly/pure methods get false. */
+            synth_self->is_mut_receiver = !(member_is_readonly || member_is_pure);
             synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
             if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_object_decl in-block self name");
 
