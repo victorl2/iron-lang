@@ -137,6 +137,12 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_MUT_CALL_ON_VAL      235
 #define IRON_ERR_MUT_ON_PRIMITIVE     236
 
+/* ACCESS (Phase 83) — visibility / accessor synthesis errors.
+ * IRON_ERR_ACCESSOR_NAME_RESERVED fires when a user-declared method in an
+ * object body shares a name with a synthesized getter/setter from a `pub`
+ * field in the same object. Locks ACCESS-06. */
+#define IRON_ERR_ACCESSOR_NAME_RESERVED 237
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301

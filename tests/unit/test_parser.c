@@ -397,6 +397,170 @@ void test_phase82_in_block_method_still_parses(void) {
     TEST_ASSERT_FALSE(m->is_synth_accessor);
 }
 
+/* ── Phase 83-02 Task 1: accessor synthesis for pub val / pub var ─────────── */
+/* The parser must emit a getter Iron_MethodDecl for every `pub val` field and
+ * getter+setter Iron_MethodDecl pair for every `pub var` field. All synthesized
+ * methods ride the Phase 82 extra_decls_out channel so they land at
+ * program->decls after the enclosing ObjectDecl. Non-pub fields do not
+ * synthesize anything. Collisions between a synthesized accessor name and a
+ * user-declared method in the same object emit IRON_ERR_ACCESSOR_NAME_RESERVED
+ * (237) with the locked message text. */
+
+void test_pub_val_synthesizes_getter_only(void) {
+    Iron_Node *prog = parse(
+        "object Id {\n"
+        "    pub val value: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    /* ObjectDecl + 1 synthesized getter MethodDecl. */
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, obj->kind);
+    TEST_ASSERT_EQUAL_STRING("Id", obj->name);
+    TEST_ASSERT_EQUAL(1, obj->field_count);
+
+    Iron_MethodDecl *getter = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, getter->kind);
+    TEST_ASSERT_EQUAL_STRING("value", getter->method_name);
+    TEST_ASSERT_EQUAL_STRING("Id", getter->type_name);
+    TEST_ASSERT_TRUE(getter->is_synth_accessor);
+    TEST_ASSERT_TRUE(getter->is_receiver_form);
+    TEST_ASSERT_EQUAL(1, getter->param_count);  /* self only */
+    TEST_ASSERT_NOT_NULL(getter->return_type);
+
+    /* Getter body: { return self.value } */
+    TEST_ASSERT_NOT_NULL(getter->body);
+    Iron_Block *gbody = (Iron_Block *)getter->body;
+    TEST_ASSERT_EQUAL(IRON_NODE_BLOCK, gbody->kind);
+    TEST_ASSERT_EQUAL(1, gbody->stmt_count);
+    Iron_ReturnStmt *ret = (Iron_ReturnStmt *)gbody->stmts[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_RETURN, ret->kind);
+    TEST_ASSERT_NOT_NULL(ret->value);
+    TEST_ASSERT_EQUAL(IRON_NODE_FIELD_ACCESS, ret->value->kind);
+    Iron_FieldAccess *fa = (Iron_FieldAccess *)ret->value;
+    TEST_ASSERT_EQUAL_STRING("value", fa->field);
+    TEST_ASSERT_NOT_NULL(fa->object);
+    TEST_ASSERT_EQUAL(IRON_NODE_IDENT, fa->object->kind);
+    TEST_ASSERT_EQUAL_STRING("self", ((Iron_Ident *)fa->object)->name);
+}
+
+void test_pub_var_synthesizes_getter_and_setter(void) {
+    Iron_Node *prog = parse(
+        "object H {\n"
+        "    pub var hp: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    /* ObjectDecl + getter + setter = 3 decls. */
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
+
+    Iron_MethodDecl *getter = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, getter->kind);
+    TEST_ASSERT_EQUAL_STRING("hp", getter->method_name);
+    TEST_ASSERT_TRUE(getter->is_synth_accessor);
+    TEST_ASSERT_EQUAL(1, getter->param_count);
+    TEST_ASSERT_NOT_NULL(getter->return_type);
+    Iron_Param *g_self = (Iron_Param *)getter->params[0];
+    TEST_ASSERT_EQUAL_STRING("self", g_self->name);
+    TEST_ASSERT_FALSE(g_self->is_mut_receiver);  /* getter = read-only */
+
+    Iron_MethodDecl *setter = (Iron_MethodDecl *)pr->decls[2];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, setter->kind);
+    TEST_ASSERT_EQUAL_STRING("set_hp", setter->method_name);
+    TEST_ASSERT_TRUE(setter->is_synth_accessor);
+    TEST_ASSERT_EQUAL(2, setter->param_count);  /* self + _v */
+    TEST_ASSERT_NULL(setter->return_type);      /* setter returns void */
+    Iron_Param *s_self = (Iron_Param *)setter->params[0];
+    TEST_ASSERT_EQUAL_STRING("self", s_self->name);
+    TEST_ASSERT_TRUE(s_self->is_mut_receiver);  /* setter mutates self */
+    Iron_Param *s_v = (Iron_Param *)setter->params[1];
+    TEST_ASSERT_EQUAL_STRING("_v", s_v->name);
+
+    /* Setter body: { self.hp = _v } */
+    TEST_ASSERT_NOT_NULL(setter->body);
+    Iron_Block *sbody = (Iron_Block *)setter->body;
+    TEST_ASSERT_EQUAL(IRON_NODE_BLOCK, sbody->kind);
+    TEST_ASSERT_EQUAL(1, sbody->stmt_count);
+    Iron_AssignStmt *as = (Iron_AssignStmt *)sbody->stmts[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_ASSIGN, as->kind);
+    TEST_ASSERT_NOT_NULL(as->target);
+    TEST_ASSERT_EQUAL(IRON_NODE_FIELD_ACCESS, as->target->kind);
+    Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+    TEST_ASSERT_EQUAL_STRING("hp", tfa->field);
+    TEST_ASSERT_EQUAL(IRON_NODE_IDENT, tfa->object->kind);
+    TEST_ASSERT_EQUAL_STRING("self", ((Iron_Ident *)tfa->object)->name);
+    TEST_ASSERT_NOT_NULL(as->value);
+    TEST_ASSERT_EQUAL(IRON_NODE_IDENT, as->value->kind);
+    TEST_ASSERT_EQUAL_STRING("_v", ((Iron_Ident *)as->value)->name);
+}
+
+void test_non_pub_field_does_not_synthesize(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    val plain: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    /* ObjectDecl only, zero synthesized methods. */
+    TEST_ASSERT_EQUAL(1, pr->decl_count);
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, obj->kind);
+    TEST_ASSERT_EQUAL(1, obj->field_count);
+    Iron_Field *f0 = (Iron_Field *)obj->fields[0];
+    TEST_ASSERT_FALSE(f0->is_pub);
+}
+
+void test_pub_val_getter_collides_with_user_method(void) {
+    /* Collision: `pub val name: Int` synthesizes getter `name`, but the user
+     * also declared `func name() -> Int`. Parse must emit
+     * IRON_ERR_ACCESSOR_NAME_RESERVED (237) with the locked message text. */
+    (void)parse(
+        "object N {\n"
+        "    pub val name: Int\n"
+        "    func name() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    bool found = false;
+    for (int i = 0; i < diags.count; i++) {
+        if (diags.items[i].code == IRON_ERR_ACCESSOR_NAME_RESERVED &&
+            diags.items[i].message &&
+            strstr(diags.items[i].message, "reserved by synthesized accessor")) {
+            found = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found,
+        "expected IRON_ERR_ACCESSOR_NAME_RESERVED with 'reserved by synthesized accessor' message");
+}
+
+void test_pub_var_setter_collides_with_user_method(void) {
+    /* Collision on the synthesized setter: `pub var hp` reserves `set_hp`,
+     * user declares `func set_hp(v: Int) {}`. Expect the same diagnostic. */
+    (void)parse(
+        "object N {\n"
+        "    pub var hp: Int\n"
+        "    func set_hp(v: Int) {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    bool found = false;
+    for (int i = 0; i < diags.count; i++) {
+        if (diags.items[i].code == IRON_ERR_ACCESSOR_NAME_RESERVED &&
+            diags.items[i].message &&
+            strstr(diags.items[i].message, "reserved by synthesized accessor")) {
+            found = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found,
+        "expected IRON_ERR_ACCESSOR_NAME_RESERVED for set_hp collision");
+}
+
 /* ── Interface declarations ──────────────────────────────────────────────── */
 
 void test_parse_interface_decl(void) {
@@ -876,6 +1040,12 @@ int main(void) {
     RUN_TEST(test_pub_at_top_level_rejected);
     RUN_TEST(test_is_synth_accessor_default_false_on_in_block_method);
     RUN_TEST(test_phase82_in_block_method_still_parses);
+    /* Phase 83-02 Task 1: accessor synthesis + name-collision diagnostic. */
+    RUN_TEST(test_pub_val_synthesizes_getter_only);
+    RUN_TEST(test_pub_var_synthesizes_getter_and_setter);
+    RUN_TEST(test_non_pub_field_does_not_synthesize);
+    RUN_TEST(test_pub_val_getter_collides_with_user_method);
+    RUN_TEST(test_pub_var_setter_collides_with_user_method);
 
     RUN_TEST(test_parse_interface_decl);
     RUN_TEST(test_parse_enum_decl);
