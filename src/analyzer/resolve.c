@@ -220,9 +220,21 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    "'self' used outside of method", NULL);
                     return;
                 }
-                /* Receiver-form methods have no implicit `self`; the receiver
-                 * is bound under its declared name. Emit a clean Iron
-                 * diagnostic here so we don't leak `Iron_self_x` into clang. */
+                /* Receiver-form methods:
+                 *   - Phase 82 in-block methods (`object T { func m() { self.x } }`)
+                 *     synthesize a receiver param literally named `self`, so the
+                 *     symbol IS in scope and resolves cleanly.
+                 *   - Phase 79 style (`func (t: T) m()`) binds the receiver under
+                 *     its declared name (e.g. `t`); `self` is NOT in scope, so
+                 *     emit the "use the receiver's declared name" diagnostic
+                 *     rather than leaking `Iron_self_x` into clang.
+                 * Probe the scope: if `self` resolves, use it; otherwise, for
+                 * receiver-form methods, emit the Phase 79 diagnostic. */
+                Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, "self");
+                if (sym) {
+                    id->resolved_sym = sym;
+                    return;
+                }
                 if (ctx->current_method->is_receiver_form) {
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_SELF_OUTSIDE_METHOD, id->span,
@@ -231,9 +243,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    NULL);
                     return;
                 }
-                /* self is defined in the method scope — just look it up */
-                Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, "self");
-                if (sym) id->resolved_sym = sym;
+                /* Non-receiver-form method where implicit `self` was defined
+                 * earlier in this branch at the md->owner_sym site — falling
+                 * through here means the sym wasn't in scope, which would be
+                 * a bug; remain silent and let downstream catch it. */
                 return;
             }
 

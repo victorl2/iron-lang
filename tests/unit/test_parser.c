@@ -196,7 +196,10 @@ void test_object_in_block_method_parses(void) {
     Iron_Param *p0 = (Iron_Param *)m->params[0];
     Iron_Param *p1 = (Iron_Param *)m->params[1];
     TEST_ASSERT_EQUAL_STRING("self", p0->name);
-    TEST_ASSERT_FALSE(p0->is_mut_receiver);
+    /* Phase 82 in-block methods: default-mutating receiver per CONTEXT.md
+     * ("Default-mutating receiver ABI uses pointer-receiver from Phase 82
+     * onward"). Phase 84 MUTTIER flips this off for `readonly`/`pure`. */
+    TEST_ASSERT_TRUE(p0->is_mut_receiver);
     TEST_ASSERT_EQUAL_STRING("n", p1->name);
 }
 

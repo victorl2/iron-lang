@@ -2726,7 +2726,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             synth_self->kind            = IRON_NODE_PARAM;
             synth_self->span            = iron_token_span(p, fstart);
             synth_self->is_var          = false;
-            synth_self->is_mut_receiver = false;  /* Phase 82: mutating default; Phase 84 extends */
+            /* Phase 82 in-block method receivers are default-mutating per
+             * CONTEXT.md: "Default-mutating receiver ABI uses pointer-receiver
+             * from Phase 82 onward — matches v2.2 `mut` path." Phase 84 MUTTIER
+             * will add `readonly`/`pure` opt-outs that flip this to false. */
+            synth_self->is_mut_receiver = true;
             synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
             if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_object_decl in-block self name");
 
