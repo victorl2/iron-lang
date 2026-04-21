@@ -1569,6 +1569,69 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_ObjectDecl *od = (Iron_ObjectDecl *)callee_sym->decl_node;
                     int field_count = od->field_count;
 
+                    /* Phase 85 INIT-08: dispatch Type(args) to the explicit
+                     * anonymous init when one exists (synth or user-written).
+                     * Param shape on an init MethodDecl is [self, ...declared
+                     * params] so the explicit-param count is param_count - 1.
+                     * If no anonymous init is declared, fall through to the
+                     * v2.2 field-shape positional check (pure-superset
+                     * preservation through Phase 87). */
+                    Iron_MethodDecl *anon_init = iron_find_init_by_name(
+                        ctx->program, callee_id->name, NULL);
+                    if (anon_init) {
+                        int init_param_count = anon_init->param_count > 0
+                            ? anon_init->param_count - 1 : 0;
+                        if (ce->arg_count != init_param_count) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "init '%s' expects %d argument(s), got %d",
+                                     callee_id->name, init_param_count,
+                                     ce->arg_count);
+                            emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg, NULL);
+                            for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                        } else {
+                            for (int i = 0; i < ce->arg_count; i++) {
+                                Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
+                                Iron_Param *pp =
+                                    (Iron_Param *)anon_init->params[i + 1];
+                                Iron_Type *param_t = pp
+                                    ? resolve_type_annotation(ctx, pp->type_ann)
+                                    : NULL;
+                                if (arg_t && param_t &&
+                                    arg_t->kind   != IRON_TYPE_ERROR &&
+                                    param_t->kind != IRON_TYPE_ERROR &&
+                                    !types_assignable(param_t, arg_t) &&
+                                    !is_int_literal_narrowing(param_t, arg_t, ce->args[i])) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "init param '%s' expects '%s', got '%s'",
+                                             pp && pp->name ? pp->name : "?",
+                                             iron_type_to_string(param_t, ctx->arena),
+                                             iron_type_to_string(arg_t, ctx->arena));
+                                    emit_error(ctx, IRON_ERR_ARG_TYPE,
+                                               ce->args[i]->span, msg, NULL);
+                                }
+                                if (is_int_literal_narrowing(param_t, arg_t, ce->args[i])) {
+                                    ((Iron_IntLit *)ce->args[i])->resolved_type = param_t;
+                                }
+                            }
+                        }
+                        /* Check generic constraints still apply — they are
+                         * tied to the ObjectDecl, not the init. */
+                        if (od->generic_param_count > 0 && od->generic_params) {
+                            Iron_Type *concrete[16];
+                            int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
+                            for (int gi = 0; gi < gc; gi++) concrete[gi] = NULL;
+                            check_generic_constraints(ctx, od->generic_params,
+                                                      od->generic_param_count,
+                                                      concrete, gc, ce->span);
+                        }
+                        result = callee_sym->type;
+                        ce->resolved_type = result;
+                        callee_id->resolved_type = result;
+                        break;
+                    }
+
                     if (ce->arg_count != field_count) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
@@ -1883,6 +1946,73 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                    "init cannot delegate to another init of "
                                    "the enclosing type",
                                    NULL);
+                    }
+                }
+            }
+
+            /* Phase 85 INIT-08: named-init dispatch. When the method's
+             * object is a bare IDENT resolving to SYM_TYPE AND <method> is
+             * a named init on that type, handle the call as init dispatch:
+             * arg-check against init params (skipping synth self), rewrite
+             * the result type to the type's resolved type so a downstream
+             * `val p: P = P.zero()` assignment does not see Void. Skip the
+             * regular auto-static / instance-method resolver path which
+             * would otherwise trigger MUT-04 on the synth mut self receiver
+             * and leave result=Void. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id_ni = (Iron_Ident *)mc->object;
+                Iron_Symbol *obj_sym_ni = obj_id_ni->resolved_sym
+                    ? obj_id_ni->resolved_sym
+                    : (obj_id_ni->name
+                        ? iron_scope_lookup(ctx->current_scope, obj_id_ni->name)
+                        : NULL);
+                if (obj_sym_ni && obj_sym_ni->sym_kind == IRON_SYM_TYPE &&
+                    mc->method) {
+                    Iron_MethodDecl *named_init = iron_find_init_by_name(
+                        ctx->program, obj_id_ni->name, mc->method);
+                    if (named_init) {
+                        int init_param_count = named_init->param_count > 0
+                            ? named_init->param_count - 1 : 0;
+                        if (mc->arg_count != init_param_count) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "init '%s.%s' expects %d argument(s), got %d",
+                                     obj_id_ni->name, mc->method,
+                                     init_param_count, mc->arg_count);
+                            emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        } else {
+                            for (int i = 0; i < mc->arg_count; i++) {
+                                /* args were already check_expr'd at the top
+                                 * of this case; re-check here is idempotent
+                                 * (check_expr sets resolved_type once). */
+                                Iron_Type *at = check_expr(ctx, mc->args[i]);
+                                Iron_Param *pp =
+                                    (Iron_Param *)named_init->params[i + 1];
+                                Iron_Type *pt = pp
+                                    ? resolve_type_annotation(ctx, pp->type_ann)
+                                    : NULL;
+                                if (at && pt &&
+                                    at->kind != IRON_TYPE_ERROR &&
+                                    pt->kind != IRON_TYPE_ERROR &&
+                                    !types_assignable(pt, at) &&
+                                    !is_int_literal_narrowing(pt, at, mc->args[i])) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "init param '%s' expects '%s', got '%s'",
+                                             pp && pp->name ? pp->name : "?",
+                                             iron_type_to_string(pt, ctx->arena),
+                                             iron_type_to_string(at, ctx->arena));
+                                    emit_error(ctx, IRON_ERR_ARG_TYPE,
+                                               mc->args[i]->span, msg, NULL);
+                                }
+                                if (is_int_literal_narrowing(pt, at, mc->args[i])) {
+                                    ((Iron_IntLit *)mc->args[i])->resolved_type = pt;
+                                }
+                            }
+                        }
+                        result = obj_sym_ni->type;
+                        mc->resolved_type = result;
+                        break;
                     }
                 }
             }

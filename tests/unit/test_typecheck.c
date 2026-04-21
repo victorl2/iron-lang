@@ -2179,12 +2179,14 @@ void test_named_init_unknown_name_falls_through(void) {
 
 void test_method_body_can_call_Type_args(void) {
     /* INIT-16 regression: non-init method body constructs via P(self.x)
-     * with explicit init present -> type-checks clean; no E0251. */
+     * with explicit init present -> type-checks clean; no E0251. readonly
+     * on clone() prevents the Phase 80 mut-receiver-on-val diagnostic
+     * which is orthogonal to INIT-16. */
     parse_and_resolve(
         "object P {\n"
         "  var x: Int\n"
         "  init(v: Int) { self.x = v }\n"
-        "  func clone() -> P {\n"
+        "  readonly func clone() -> P {\n"
         "    return P(self.x)\n"
         "  }\n"
         "}\n"
@@ -2193,6 +2195,7 @@ void test_method_body_can_call_Type_args(void) {
         "  val b: P = a.clone()\n"
         "}\n"
     );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
@@ -2204,7 +2207,7 @@ void test_method_body_can_call_Type_name_args(void) {
         "  var x: Int\n"
         "  init(v: Int) { self.x = v }\n"
         "  init zero() { self.x = 0 }\n"
-        "  func fresh() -> P {\n"
+        "  readonly func fresh() -> P {\n"
         "    return P.zero()\n"
         "  }\n"
         "}\n"
@@ -2213,6 +2216,7 @@ void test_method_body_can_call_Type_name_args(void) {
         "  val b: P = a.fresh()\n"
         "}\n"
     );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
