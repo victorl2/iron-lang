@@ -1,0 +1,19 @@
+-- TEST-08 lock: init leaves field unassigned on an exit path.
+-- Expected diagnostic: E0247 IRON_ERR_INIT_UNASSIGNED_EXIT.
+--
+-- Compile_fail is NOT auto-discovered by tests/run_tests.sh; verify via:
+--   ./build/ironc build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+
+object Point {
+    var x: Int
+    var y: Int
+
+    init() {
+        self.x = 1
+    }
+}
+
+func main() {
+    val p: Point = Point()
+    println("unreachable")
+}

@@ -1,0 +1,16 @@
+-- INIT-07 + MUTTIER-07 pipeline lock: readonly init rejected by the tier
+-- modifier placement guard wired in Phase 84 and tightened for init by
+-- Phase 85.
+-- Expected diagnostic: the parser's "readonly" rejection on init.
+--
+-- Compile_fail is NOT auto-discovered by tests/run_tests.sh; verify via:
+--   ./build/ironc build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+
+object Silent {
+    readonly init() {
+    }
+}
+
+func main() {
+    val s: Silent = Silent()
+}
