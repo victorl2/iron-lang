@@ -1,0 +1,15 @@
+patch object Int {
+    pub readonly func double() -> Int {
+        return self * 2
+    }
+    pub readonly func triple() -> Int {
+        return self * 3
+    }
+}
+
+func main() {
+    val a: Int = 5
+    println("{a.double()}")
+    println("{a.triple()}")
+    println("{7.double()}")
+}
