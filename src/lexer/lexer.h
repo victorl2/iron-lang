@@ -48,7 +48,9 @@ typedef enum {
     IRON_TOK_POOL,
     IRON_TOK_PRIVATE,
     IRON_TOK_PUB,
+    IRON_TOK_PURE,       /* Phase 84 MUTTIER-03: `pure` method modifier. */
     IRON_TOK_RC,
+    IRON_TOK_READONLY,   /* Phase 84 MUTTIER-02: `readonly` method modifier. */
     IRON_TOK_RETURN,
     IRON_TOK_SELF,
     IRON_TOK_SPAWN,

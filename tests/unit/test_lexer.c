@@ -146,6 +146,37 @@ void test_lexer_pub_kind_str(void) {
     TEST_ASSERT_EQUAL_STRING("IRON_TOK_PUB", iron_token_kind_str(IRON_TOK_PUB));
 }
 
+/* ── Phase 84 MUTTIER-01: `readonly` + `pure` keyword tokens ─────────────── */
+/* Phase 84 introduces two new modifier keywords on object-block methods.
+ * `readonly` forbids self-field writes; `pure` is readonly plus no-I/O and
+ * no-mutable-global. Both are keywords: lexing them on their own must yield
+ * IRON_TOK_READONLY / IRON_TOK_PURE, never IRON_TOK_IDENTIFIER. Plan 84-02
+ * consumes the AST flags wired up here to fire tier-violation diagnostics. */
+
+void test_lexer_readonly_keyword(void) {
+    Iron_Token *toks = lex("readonly");
+    TEST_ASSERT_EQUAL(IRON_TOK_READONLY, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_pure_keyword(void) {
+    Iron_Token *toks = lex("pure");
+    TEST_ASSERT_EQUAL(IRON_TOK_PURE, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_readonly_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_READONLY",
+                             iron_token_kind_str(IRON_TOK_READONLY));
+}
+
+void test_lexer_pure_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_PURE",
+                             iron_token_kind_str(IRON_TOK_PURE));
+}
+
 /* ── Literal tests ───────────────────────────────────────────────────────── */
 
 void test_integer_literal(void) {
@@ -447,6 +478,12 @@ int main(void) {
     RUN_TEST(test_lexer_public_not_keyword);
     RUN_TEST(test_lexer_private_still_keyword);
     RUN_TEST(test_lexer_pub_kind_str);
+
+    /* Phase 84 MUTTIER-01: readonly + pure keyword recognition. */
+    RUN_TEST(test_lexer_readonly_keyword);
+    RUN_TEST(test_lexer_pure_keyword);
+    RUN_TEST(test_lexer_readonly_kind_str);
+    RUN_TEST(test_lexer_pure_kind_str);
 
     RUN_TEST(test_integer_literal);
     RUN_TEST(test_float_literal);
