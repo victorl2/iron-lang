@@ -2062,6 +2062,160 @@ void test_method_call_Type_args_not_delegation(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
 }
 
+/* ── Phase 85 INIT Plan 85-02 Task 2: call-site dispatch + INIT-16 regression ── */
+
+void test_construct_dispatches_to_anonymous_init(void) {
+    /* Explicit anonymous init(v: Int) dispatches from Type(args) call site;
+     * type-checks clean. Plan 85-01 stores the anonymous init as
+     * method_name="init" + init_name=NULL. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_construct_falls_back_to_v2_2_positional_when_no_init(void) {
+    /* Object with no explicit init still accepts v2.2 positional
+     * construction. This preserves pure-superset until Phase 88 flips the
+     * mandatory-init gate. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_construct_arg_count_checked_against_init_params(void) {
+    /* When an explicit anonymous init exists, arg count is checked against
+     * init params (excluding synth self) -- NOT against raw field count. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  init(only: Int) {\n"
+        "    self.x = only\n"
+        "    self.y = 0\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(1, 2)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ARG_COUNT));
+}
+
+void test_construct_arg_types_checked_against_init_params(void) {
+    /* Anonymous init(s: String); caller passes P(42) -- String expected,
+     * Int given -> E0217 against the init param type, not the field type. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: String\n"
+        "  init(s: String) { self.x = s }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ARG_TYPE));
+}
+
+void test_named_init_dispatch(void) {
+    /* P.zero() dispatches to init zero() named init; type-checks clean. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init zero() { self.x = 0 }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P.zero()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_named_init_wrong_args(void) {
+    /* P.zero(5) where zero takes no args -> E0216. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init zero() { self.x = 0 }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P.zero(5)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ARG_COUNT));
+}
+
+void test_named_init_unknown_name_falls_through(void) {
+    /* P.not_a_real_init() — <not_a_real_init> is not a declared init and
+     * there is no classic method by that name, so the existing method
+     * resolver emits its usual diagnostic (NOT a new init-specific error).
+     * The test asserts we do NOT emit E0251 for an unknown name (no
+     * spurious delegation); any other diagnostic is fine. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P.not_a_real_init()\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_method_body_can_call_Type_args(void) {
+    /* INIT-16 regression: non-init method body constructs via P(self.x)
+     * with explicit init present -> type-checks clean; no E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  func clone() -> P {\n"
+        "    return P(self.x)\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val a: P = P(1)\n"
+        "  val b: P = a.clone()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_method_body_can_call_Type_name_args(void) {
+    /* INIT-16 regression: non-init method body calls P.zero() -> no E0251,
+     * no other errors. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init zero() { self.x = 0 }\n"
+        "  func fresh() -> P {\n"
+        "    return P.zero()\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val a: P = P(1)\n"
+        "  val b: P = a.fresh()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2201,6 +2355,17 @@ int main(void) {
     RUN_TEST(test_init_delegation_to_named_emits_E0251);
     RUN_TEST(test_init_delegation_via_self_init_emits_E0251);
     RUN_TEST(test_method_call_Type_args_not_delegation);
+
+    /* Phase 85 INIT Plan 85-02 Task 2: call-site dispatch + INIT-16 regression. */
+    RUN_TEST(test_construct_dispatches_to_anonymous_init);
+    RUN_TEST(test_construct_falls_back_to_v2_2_positional_when_no_init);
+    RUN_TEST(test_construct_arg_count_checked_against_init_params);
+    RUN_TEST(test_construct_arg_types_checked_against_init_params);
+    RUN_TEST(test_named_init_dispatch);
+    RUN_TEST(test_named_init_wrong_args);
+    RUN_TEST(test_named_init_unknown_name_falls_through);
+    RUN_TEST(test_method_body_can_call_Type_args);
+    RUN_TEST(test_method_body_can_call_Type_name_args);
 
     return UNITY_END();
 }
