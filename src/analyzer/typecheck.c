@@ -59,6 +59,14 @@ typedef struct {
     Iron_Scope        *current_scope;   /* type-checker's own scope chain */
     Iron_Type         *current_return_type;  /* expected return type; NULL outside funcs */
     const char        *current_method_type;  /* owning type name if in method */
+    /* Phase 83-02 ACCESS-05: true when the currently-checked method is a
+     * parser-synthesized accessor (getter or setter for a pub field). The
+     * typechecker uses this to suppress its own is_pub_access/is_pub_setter
+     * rewrites inside accessor bodies — the synth getter's `self.field` read
+     * and synth setter's `self.field = _v` write are supposed to be direct
+     * field accesses, otherwise HIR would infinitely re-dispatch through the
+     * same accessor. */
+    bool               in_synth_accessor;
     NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
@@ -1897,10 +1905,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
             Iron_ObjectDecl *od = obj_type->object.decl;
             Iron_Type *field_type = NULL;
+            Iron_Field *matched_field = NULL;
             for (int i = 0; i < od->field_count; i++) {
                 Iron_Field *f = (Iron_Field *)od->fields[i];
                 if (strcmp(f->name, fa->field) == 0) {
-                    field_type = resolve_type_annotation(ctx, f->type_ann);
+                    field_type    = resolve_type_annotation(ctx, f->type_ann);
+                    matched_field = f;
                     break;
                 }
             }
@@ -1914,6 +1924,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 result = field_type;
             }
             fa->resolved_type = result;
+            /* Phase 83-02 ACCESS-05: flag pub-field reads so HIR can lower
+             * them as method calls against the synthesized getter. Default
+             * stays false for non-pub fields, preserving the direct-load
+             * path (pure-superset guard).
+             *
+             * Suppressed inside synth accessor bodies — the synth getter's
+             * `return self.field` must remain a direct load, otherwise HIR
+             * would infinitely re-dispatch through the same getter.
+             *
+             * NOTE: this fires for every FIELD_ACCESS the typechecker sees,
+             * including the LHS of an assignment. The assign handler below
+             * may further set Iron_AssignStmt.is_pub_setter on the parent
+             * AssignStmt; when is_pub_setter is true, HIR ignores the
+             * target's is_pub_access (the target is never lowered — the
+             * assign is lowered as set_<field>(value) directly). */
+            fa->is_pub_access = (!ctx->in_synth_accessor &&
+                                 matched_field && matched_field->is_pub);
             break;
         }
 
@@ -2862,6 +2889,60 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 (void)field_root_name;  /* reserved for future hint; silence unused warn */
             }
 
+            /* Phase 83-02 ACCESS-05: pub-field write dispatch.
+             * When the LHS is a direct field-access on an object field marked
+             * `pub var`, flag the assign so HIR lowers it as a call to the
+             * synthesized set_<field> method. `pub val` rejects the write
+             * with IRON_ERR_VAL_REASSIGN — pub val is read-only.
+             *
+             * Suppressed inside synth accessor bodies — the synth setter's
+             * own `self.field = _v` must remain a direct store, otherwise
+             * the lowered setter would infinitely call itself.
+             *
+             * Only the innermost field-access matters (chained field writes
+             * like a.b.c = v treat `c` as the target; the earlier chain
+             * already went through FIELD_ACCESS typecheck which set
+             * is_pub_access on each link). */
+            if (!ctx->in_synth_accessor &&
+                as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+                /* PROT-01 layout lock: every expression node begins with
+                 * {span, kind, resolved_type}; safe to cast. check_expr on
+                 * as->target above already resolved tfa->object's type. */
+                Iron_Type *obj_ty = tfa->object
+                    ? ((Iron_ExprNode *)tfa->object)->resolved_type
+                    : NULL;
+                if (obj_ty && obj_ty->kind == IRON_TYPE_RC) {
+                    obj_ty = obj_ty->rc.inner;
+                }
+                if (obj_ty && obj_ty->kind == IRON_TYPE_OBJECT) {
+                    Iron_ObjectDecl *od = obj_ty->object.decl;
+                    Iron_Field *mf = NULL;
+                    for (int fi = 0; fi < od->field_count; fi++) {
+                        Iron_Field *f = (Iron_Field *)od->fields[fi];
+                        if (strcmp(f->name, tfa->field) == 0) {
+                            mf = f;
+                            break;
+                        }
+                    }
+                    if (mf && mf->is_pub) {
+                        if (mf->is_var) {
+                            /* pub var: route through synthesized setter. */
+                            as->is_pub_setter = true;
+                        } else {
+                            /* pub val: read-only — cannot be written. */
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot assign to pub val field '%s' "
+                                     "— use pub var for mutable properties",
+                                     tfa->field);
+                            emit_error(ctx, IRON_ERR_VAL_REASSIGN,
+                                       as->span, msg, NULL);
+                        }
+                    }
+                }
+            }
+
             if (target_type && value_type &&
                 target_type->kind != IRON_TYPE_ERROR &&
                 value_type->kind  != IRON_TYPE_ERROR &&
@@ -3461,8 +3542,12 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
 
     Iron_Type *prev_ret = ctx->current_return_type;
     const char *prev_type_name = ctx->current_method_type;
+    bool prev_in_synth = ctx->in_synth_accessor;
     ctx->current_return_type   = (ret_type->kind != IRON_TYPE_VOID) ? ret_type : NULL;
     ctx->current_method_type   = md->type_name;
+    /* Phase 83-02: accessor bodies skip the pub-dispatch rewrite (see
+     * typedef comment on TypeCtx.in_synth_accessor). */
+    ctx->in_synth_accessor     = md->is_synth_accessor;
 
     tc_push_scope(ctx, IRON_SCOPE_FUNCTION);
 
@@ -3489,6 +3574,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
 
     ctx->current_return_type = prev_ret;
     ctx->current_method_type = prev_type_name;
+    ctx->in_synth_accessor   = prev_in_synth;
 }
 
 /* ── Interface completeness check ────────────────────────────────────────── */
@@ -3563,6 +3649,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.current_scope       = global_scope;
     ctx.current_return_type = NULL;
     ctx.current_method_type = NULL;
+    ctx.in_synth_accessor   = false;
     ctx.narrowed            = NULL;
     ctx.program             = program;
     ctx.spawn_result_types  = NULL;

@@ -1202,11 +1202,14 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                 /* Field access: obj.field */
                 Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
                 if (!fa) iron_oom_abort("parser.c:iron_parse_expr_prec FieldAccess");
-                fa->kind   = IRON_NODE_FIELD_ACCESS;
-                fa->span   = iron_span_merge(left->span,
+                fa->kind          = IRON_NODE_FIELD_ACCESS;
+                fa->span          = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
-                fa->object = left;
-                fa->field  = name;
+                fa->object        = left;
+                fa->field         = name;
+                /* Phase 83-02: defensive default; typecheck flips it for
+                 * pub-field reads so HIR routes through synthesized getter. */
+                fa->is_pub_access = false;
                 left = (Iron_Node *)fa;
             }
             continue;
@@ -2090,11 +2093,14 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
                 Iron_Node *val = iron_parse_expr(p);
                 Iron_AssignStmt *a = ARENA_ALLOC(p->arena, Iron_AssignStmt);
                 if (!a) iron_oom_abort("parser.c:iron_parse_stmt AssignStmt");
-                a->kind   = IRON_NODE_ASSIGN;
-                a->span   = iron_span_merge(expr->span, val->span);
-                a->target = expr;
-                a->value  = val;
-                a->op     = (Iron_OpKind)op;
+                a->kind          = IRON_NODE_ASSIGN;
+                a->span          = iron_span_merge(expr->span, val->span);
+                a->target        = expr;
+                a->value         = val;
+                a->op            = (Iron_OpKind)op;
+                /* Phase 83-02: defensive default; typecheck flips it for
+                 * writes to pub var fields so HIR emits set_<field>(value). */
+                a->is_pub_setter = false;
                 return (Iron_Node *)a;
             }
 
@@ -2933,9 +2939,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             g_fa->resolved_type = NULL;
             g_fa->object        = (Iron_Node *)g_self_ref;
             g_fa->field         = field->name;
-            /* Plan 83-02 Task 2 adds Iron_FieldAccess.is_pub_access and
-             * initializes it false here. Arena zero-init covers the default
-             * until Task 2 lands the defensive writer. */
+            /* Synth getter body: direct field load, is_pub_access stays
+             * false so HIR does NOT recurse through this same getter. */
+            g_fa->is_pub_access = false;
 
             Iron_ReturnStmt *g_ret = ARENA_ALLOC(p->arena, Iron_ReturnStmt);
             if (!g_ret) iron_oom_abort("parser.c:iron_parse_object_decl synth getter return");
@@ -3036,7 +3042,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             s_fa->resolved_type = NULL;
             s_fa->object        = (Iron_Node *)s_self_ref;
             s_fa->field         = field->name;
-            /* is_pub_access added in Task 2; arena zero-init covers default. */
+            /* Synth setter body: direct field store target; the typechecker
+             * path inside a synth accessor suppresses the rewrite so this
+             * stays false and HIR emits a plain store, not a re-dispatch. */
+            s_fa->is_pub_access = false;
 
             Iron_Ident *s_v_ref = ARENA_ALLOC(p->arena, Iron_Ident);
             if (!s_v_ref) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v ref");
@@ -3055,7 +3064,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             s_as->target        = (Iron_Node *)s_fa;
             s_as->value         = (Iron_Node *)s_v_ref;
             s_as->op            = IRON_TOK_ASSIGN;
-            /* is_pub_setter added in Task 2; arena zero-init covers default. */
+            /* Synth setter body's own assign: direct store, not a recursive
+             * dispatch. The typechecker's synth-accessor guard leaves this
+             * false so HIR emits `set_field %self.field, _v`. */
+            s_as->is_pub_setter = false;
 
             Iron_Block *s_body = ARENA_ALLOC(p->arena, Iron_Block);
             if (!s_body) iron_oom_abort("parser.c:iron_parse_object_decl synth setter body");

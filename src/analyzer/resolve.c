@@ -839,6 +839,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     fa->resolved_type = NULL;
                     fa->object        = (Iron_Node *)ident_node;
                     fa->field         = member;
+                    /* Phase 83-02: defensive default so downstream passes
+                     * do not read uninitialized state if this rewrite is
+                     * ever exercised before typecheck. */
+                    fa->is_pub_access = false;
                     *(Iron_FieldAccess *)ec = *fa;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 }
