@@ -238,6 +238,13 @@ typedef struct {
      * declared name. False for the classic `func Type.method(...)`
      * form where hir_lower prepends an implicit self. */
     bool               is_receiver_form;
+    /* Phase 83 ACCESS-03/04: true when this MethodDecl was synthesized by
+     * the parser as an accessor (getter or setter) for a `pub val`/`pub var`
+     * field. Plan 83-02 flips it on while synthesizing accessor methods;
+     * Phase 84 MUTTIER reads it to retrofit the getter as `readonly`.
+     * Default false on every construction site; Plan 83-01 only threads
+     * the default, no writer yet. */
+    bool               is_synth_accessor;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -266,6 +273,11 @@ typedef struct {
     const char   *name;
     Iron_Node    *type_ann;
     bool          is_var;
+    /* Phase 83 ACCESS-02: true when the field was declared with the `pub`
+     * modifier inside an `object X { ... }` body. Plan 83-02 reads this bit
+     * to decide whether to synthesize accessor methods. Default false;
+     * Phase 88 BREAK may flip the default to public-by-default. */
+    bool          is_pub;
 } Iron_Field;
 
 typedef struct {

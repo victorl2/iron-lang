@@ -263,6 +263,140 @@ void test_object_field_only_still_parses(void) {
     TEST_ASSERT_EQUAL(1, obj->field_count);
 }
 
+/* ── Phase 83 ACCESS-02: pub modifier on object-block fields/methods ─────── */
+/* Phase 83 introduces `pub` as an optional modifier inside object bodies.
+ * On fields it sets Iron_Field.is_pub=true; Phase 83-02 uses that bit to
+ * synthesize accessor methods. On methods it is silently accepted in Phase
+ * 83-01 (no AST effect) since methods default public in v2.2 — Phase 88
+ * flips the default. At top level `pub` is rejected with a clear diagnostic.
+ * Iron_MethodDecl.is_synth_accessor exists on the struct so Plan 83-02 can
+ * write it and Phase 84 MUTTIER can read it; Plan 83-01 only defaults it to
+ * false at every construction site. */
+
+void test_pub_on_fields_sets_is_pub(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    pub var a: Int\n"
+        "    pub val b: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(1, pr->decl_count);
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, obj->kind);
+    TEST_ASSERT_EQUAL(2, obj->field_count);
+    Iron_Field *f0 = (Iron_Field *)obj->fields[0];
+    Iron_Field *f1 = (Iron_Field *)obj->fields[1];
+    TEST_ASSERT_EQUAL_STRING("a", f0->name);
+    TEST_ASSERT_TRUE(f0->is_var);
+    TEST_ASSERT_TRUE(f0->is_pub);
+    TEST_ASSERT_EQUAL_STRING("b", f1->name);
+    TEST_ASSERT_FALSE(f1->is_var);
+    TEST_ASSERT_TRUE(f1->is_pub);
+}
+
+void test_pub_mixed_with_plain_fields(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    var a: Int\n"
+        "    pub var b: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(2, obj->field_count);
+    Iron_Field *f0 = (Iron_Field *)obj->fields[0];
+    Iron_Field *f1 = (Iron_Field *)obj->fields[1];
+    TEST_ASSERT_EQUAL_STRING("a", f0->name);
+    TEST_ASSERT_FALSE(f0->is_pub);
+    TEST_ASSERT_EQUAL_STRING("b", f1->name);
+    TEST_ASSERT_TRUE(f1->is_pub);
+}
+
+void test_pub_on_method_parses(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    pub func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    /* ObjectDecl + the synthesized in-block MethodDecl */
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_EQUAL_STRING("foo", m->method_name);
+    TEST_ASSERT_TRUE(m->is_receiver_form);
+    /* Plan 83-01 does not synthesize accessors; is_synth_accessor must be
+     * default-false on every MethodDecl the parser constructs. */
+    TEST_ASSERT_FALSE(m->is_synth_accessor);
+}
+
+void test_pub_at_top_level_rejected(void) {
+    (void)parse("pub func foo() {}\n");
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    /* The diagnostic message must mention pub and object-block so the user
+     * understands where `pub` is valid. */
+    bool found = false;
+    for (int i = 0; i < diags.count; i++) {
+        const char *msg = diags.items[i].message;
+        if (msg && strstr(msg, "pub") && strstr(msg, "object-block")) {
+            found = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found,
+        "expected diagnostic mentioning 'pub' and 'object-block'");
+}
+
+void test_is_synth_accessor_default_false_on_in_block_method(void) {
+    /* Plan 83-01 guard: every MethodDecl the parser constructs must have
+     * is_synth_accessor=false by default. Phase 83-02 will flip it on
+     * accessors it synthesizes; Phase 84 MUTTIER reads the bit. */
+    Iron_Node *prog = parse(
+        "object Counter {\n"
+        "    var value: Int\n"
+        "    func bump(n: Int) {\n"
+        "        self.value = self.value + n\n"
+        "    }\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_FALSE(m->is_synth_accessor);
+}
+
+void test_phase82_in_block_method_still_parses(void) {
+    /* Backward-compat guard: the Phase 82 fixture shape (no pub modifier)
+     * must parse unchanged after Phase 83 additions. Mirrors
+     * test_object_in_block_method_parses to keep the lock byte-for-byte. */
+    Iron_Node *prog = parse(
+        "object Counter {\n"
+        "    var value: Int\n"
+        "    func bump(n: Int) {\n"
+        "        self.value = self.value + n\n"
+        "    }\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(IRON_NODE_PROGRAM, prog->kind);
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_ObjectDecl *obj = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL_STRING("Counter", obj->name);
+    TEST_ASSERT_EQUAL(1, obj->field_count);
+    Iron_Field *f0 = (Iron_Field *)obj->fields[0];
+    TEST_ASSERT_EQUAL_STRING("value", f0->name);
+    TEST_ASSERT_FALSE(f0->is_pub);  /* no pub prefix -> default false */
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL_STRING("bump", m->method_name);
+    TEST_ASSERT_TRUE(m->is_receiver_form);
+    TEST_ASSERT_FALSE(m->is_synth_accessor);
+}
+
 /* ── Interface declarations ──────────────────────────────────────────────── */
 
 void test_parse_interface_decl(void) {
@@ -734,6 +868,14 @@ int main(void) {
     RUN_TEST(test_object_in_block_method_no_params);
     RUN_TEST(test_object_in_block_method_interleaved_with_fields);
     RUN_TEST(test_object_field_only_still_parses);
+
+    /* Phase 83 ACCESS-02: pub modifier on fields and methods */
+    RUN_TEST(test_pub_on_fields_sets_is_pub);
+    RUN_TEST(test_pub_mixed_with_plain_fields);
+    RUN_TEST(test_pub_on_method_parses);
+    RUN_TEST(test_pub_at_top_level_rejected);
+    RUN_TEST(test_is_synth_accessor_default_false_on_in_block_method);
+    RUN_TEST(test_phase82_in_block_method_still_parses);
 
     RUN_TEST(test_parse_interface_decl);
     RUN_TEST(test_parse_enum_decl);
