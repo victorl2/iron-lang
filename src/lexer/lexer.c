@@ -45,6 +45,7 @@ static const KeywordEntry kw_table[] = {
     { "object",     IRON_TOK_OBJECT     },
     { "or",         IRON_TOK_OR         },
     { "parallel",   IRON_TOK_PARALLEL   },
+    { "patch",      IRON_TOK_PATCH      },  /* Phase 86 PATCH-01 */
     { "pool",       IRON_TOK_POOL       },
     { "private",    IRON_TOK_PRIVATE    },
     { "pub",        IRON_TOK_PUB        },
@@ -109,6 +110,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_OBJECT]        = "IRON_TOK_OBJECT",
     [IRON_TOK_OR]            = "IRON_TOK_OR",
     [IRON_TOK_PARALLEL]      = "IRON_TOK_PARALLEL",
+    [IRON_TOK_PATCH]         = "IRON_TOK_PATCH",
     [IRON_TOK_POOL]          = "IRON_TOK_POOL",
     [IRON_TOK_PRIVATE]       = "IRON_TOK_PRIVATE",
     [IRON_TOK_PUB]           = "IRON_TOK_PUB",
