@@ -1,0 +1,19 @@
+-- v3_pure_io.iron -- Phase 84 TEST-11 lock.
+-- MUST fail with IRON_ERR_PURE_IO (E0240).
+--
+-- Reject: pure method calling println (an I/O builtin).
+-- Compile_fail verification: grep -qF on stderr against .expected substring.
+
+object Logger {
+    pub val name: Int
+
+    pure func log() -> Int {
+        println("side effect!")  -- E0240 fires here
+        return self.name
+    }
+}
+
+func main() {
+    val l: Logger = Logger(42)
+    println("{l.log()}")
+}

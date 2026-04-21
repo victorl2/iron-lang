@@ -1,0 +1,23 @@
+-- v3_readonly_calls_mutating.iron -- Phase 84 TEST-10 lock.
+-- MUST fail with IRON_ERR_READONLY_CALLS_MUTATING (E0239).
+--
+-- Reject: readonly method calling a default-mutating method on self.
+-- Compile_fail verification: grep -qF on stderr against .expected substring.
+
+object Counter {
+    pub var count: Int
+
+    func bump_mut() {
+        self.count = self.count + 1  -- default mutating method
+    }
+
+    readonly func do_bump() {
+        self.bump_mut()  -- E0239 fires here
+    }
+}
+
+func main() {
+    var c: Counter = Counter(0)
+    c.do_bump()
+    println("unreachable")
+}
