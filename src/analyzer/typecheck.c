@@ -67,6 +67,14 @@ typedef struct {
      * field accesses, otherwise HIR would infinitely re-dispatch through the
      * same accessor. */
     bool               in_synth_accessor;
+    /* Phase 84 MUTTIER-02/03: tracks whether the enclosing method is readonly
+     * or pure. Both bits saved/restored around every method body in
+     * check_method_decl (mirrors in_synth_accessor pattern). `in_readonly_method`
+     * is set when the method is readonly OR pure — pure implies readonly for
+     * self-writes, so the self-write check branches on `in_readonly_method`
+     * and picks the tier-specific error code based on `in_pure_method`. */
+    bool               in_readonly_method;
+    bool               in_pure_method;
     NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
@@ -1798,7 +1806,42 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
                                                    mc->span, msg, NULL);
                                     }
+                                    /* Phase 84 MUTTIER-02 E0239: readonly caller
+                                     * calling a mutating callee (is_mut_receiver
+                                     * AND NOT readonly/pure). The receiver-param
+                                     * is_mut_receiver bit is the canonical "this
+                                     * method writes self" signal established by
+                                     * Plan 83-02 (synth setter=true). */
+                                    bool callee_is_mutating =
+                                        !md->is_readonly && !md->is_pure;
+                                    if (ctx->in_readonly_method && callee_is_mutating) {
+                                        char msg[256];
+                                        snprintf(msg, sizeof(msg),
+                                                 "cannot call mutating method '%s.%s' "
+                                                 "from readonly context",
+                                                 md->type_name, md->method_name);
+                                        emit_error(ctx,
+                                                   IRON_ERR_READONLY_CALLS_MUTATING,
+                                                   mc->span, msg, NULL);
+                                    }
                                 }
+                            }
+                            /* Phase 84 MUTTIER-03 E0242: pure caller calling a
+                             * non-pure callee. Applies to every method call from
+                             * pure context regardless of receiver-mutability
+                             * (pure can only call pure — readonly is not pure
+                             * enough). Skip the synth-accessor getter special
+                             * case: synth getters are retrofitted is_pure=true
+                             * in Plan 84-01, so `self.pub_field` reads from a
+                             * pure method already pass md->is_pure here. */
+                            if (ctx->in_pure_method && !md->is_pure) {
+                                char msg[256];
+                                snprintf(msg, sizeof(msg),
+                                         "cannot call non-pure method '%s.%s' "
+                                         "from pure method",
+                                         md->type_name, md->method_name);
+                                emit_error(ctx, IRON_ERR_PURE_NON_PURE_CALL,
+                                           mc->span, msg, NULL);
                             }
                             break;
                         }
@@ -2889,6 +2932,46 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 (void)field_root_name;  /* reserved for future hint; silence unused warn */
             }
 
+            /* Phase 84 MUTTIER-02/03: readonly/pure method writing self.field
+             * is rejected with E0238 (readonly) or E0244 (pure). Pure gets a
+             * distinct code for clearer diagnostic messaging; the branch
+             * structure is a single check (ctx->in_readonly_method is true
+             * when the caller is readonly OR pure — pure implies readonly
+             * for self-writes).
+             *
+             * Suppressed inside synth accessor bodies so the synth setter
+             * `self.field = _v` still lowers to a direct store (belt-and-
+             * suspenders: synth setters are not is_readonly/is_pure so this
+             * guard is secondary, but keeps the model consistent with the
+             * pub-dispatch rewrite below).
+             *
+             * The target-chain walk mirrors the Phase 80 MUT-03 block above:
+             * walk through IRON_NODE_FIELD_ACCESS links to the root ident
+             * and require its name == "self". Chained writes like
+             * `self.inner.field = v` fire here too — every link in the
+             * chain bottoms out at `self`. */
+            if (!ctx->in_synth_accessor &&
+                ctx->in_readonly_method &&
+                as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                }
+                if (cur && cur->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *root_id = (Iron_Ident *)cur;
+                    if (root_id->name && strcmp(root_id->name, "self") == 0) {
+                        int code = ctx->in_pure_method
+                            ? IRON_ERR_PURE_WRITE_SELF
+                            : IRON_ERR_READONLY_WRITE_SELF;
+                        const char *tier = ctx->in_pure_method ? "pure" : "readonly";
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot write self.field in %s method", tier);
+                        emit_error(ctx, code, as->span, msg, NULL);
+                    }
+                }
+            }
+
             /* Phase 83-02 ACCESS-05: pub-field write dispatch.
              * When the LHS is a direct field-access on an object field marked
              * `pub var`, flag the assign so HIR lowers it as a call to the
@@ -3542,12 +3625,20 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
 
     Iron_Type *prev_ret = ctx->current_return_type;
     const char *prev_type_name = ctx->current_method_type;
-    bool prev_in_synth = ctx->in_synth_accessor;
+    bool prev_in_synth    = ctx->in_synth_accessor;
+    bool prev_in_readonly = ctx->in_readonly_method;
+    bool prev_in_pure     = ctx->in_pure_method;
     ctx->current_return_type   = (ret_type->kind != IRON_TYPE_VOID) ? ret_type : NULL;
     ctx->current_method_type   = md->type_name;
     /* Phase 83-02: accessor bodies skip the pub-dispatch rewrite (see
      * typedef comment on TypeCtx.in_synth_accessor). */
     ctx->in_synth_accessor     = md->is_synth_accessor;
+    /* Phase 84 MUTTIER-02/03: readonly/pure flag propagation for the body.
+     * pure strictly implies readonly for self-write purposes; both flags
+     * saved/restored so nested-method walks (should they appear in future
+     * grammar) preserve the enclosing tier. */
+    ctx->in_readonly_method    = md->is_readonly || md->is_pure;
+    ctx->in_pure_method        = md->is_pure;
 
     tc_push_scope(ctx, IRON_SCOPE_FUNCTION);
 
@@ -3575,6 +3666,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     ctx->current_return_type = prev_ret;
     ctx->current_method_type = prev_type_name;
     ctx->in_synth_accessor   = prev_in_synth;
+    ctx->in_readonly_method  = prev_in_readonly;
+    ctx->in_pure_method      = prev_in_pure;
 }
 
 /* ── Interface completeness check ────────────────────────────────────────── */
@@ -3650,6 +3743,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.current_return_type = NULL;
     ctx.current_method_type = NULL;
     ctx.in_synth_accessor   = false;
+    ctx.in_readonly_method  = false;
+    ctx.in_pure_method      = false;
     ctx.narrowed            = NULL;
     ctx.program             = program;
     ctx.spawn_result_types  = NULL;
