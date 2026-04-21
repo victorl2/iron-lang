@@ -34,6 +34,7 @@ static const KeywordEntry kw_table[] = {
     { "impl",       IRON_TOK_IMPL       },
     { "import",     IRON_TOK_IMPORT     },
     { "in",         IRON_TOK_IN         },
+    { "init",       IRON_TOK_INIT       },  /* Phase 85 INIT-03 */
     { "interface",  IRON_TOK_INTERFACE  },
     { "is",         IRON_TOK_IS         },
     { "leak",       IRON_TOK_LEAK       },
@@ -97,6 +98,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_IMPL]          = "IRON_TOK_IMPL",
     [IRON_TOK_IMPORT]        = "IRON_TOK_IMPORT",
     [IRON_TOK_IN]            = "IRON_TOK_IN",
+    [IRON_TOK_INIT]          = "IRON_TOK_INIT",
     [IRON_TOK_INTERFACE]     = "IRON_TOK_INTERFACE",
     [IRON_TOK_IS]            = "IRON_TOK_IS",
     [IRON_TOK_LEAK]          = "IRON_TOK_LEAK",
