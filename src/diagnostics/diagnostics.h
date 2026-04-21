@@ -161,6 +161,19 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_PURE_WRITE_SELF            244
 #define IRON_ERR_TIER_MODIFIER_PLACEMENT    245
 
+/* INIT (Phase 85) - mandatory-construction enforcement errors.
+ * Plan 85-01 reserves the constants; Plan 85-02 wires the emit sites in
+ * typecheck.c definite-assignment + delegation-rejection + return-value
+ * paths. Each code carries a category-specific message so users see the
+ * distinct violation without squinting at a shared diagnostic. */
+#define IRON_ERR_INIT_READ_BEFORE_ASSIGN    246   /* INIT-05 */
+#define IRON_ERR_INIT_UNASSIGNED_EXIT       247   /* INIT-06 */
+#define IRON_ERR_INIT_VAL_DOUBLE_ASSIGN     248   /* INIT-12 */
+#define IRON_ERR_INIT_METHOD_ON_PARTIAL     249   /* INIT-09 */
+#define IRON_ERR_INIT_EARLY_RETURN          250   /* INIT-10 */
+#define IRON_ERR_INIT_DELEGATION            251   /* INIT-14 */
+#define IRON_ERR_INIT_RETURN_VALUE          252   /* INIT-11 typecheck branch */
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301

@@ -736,6 +736,247 @@ void test_synth_getter_is_readonly_and_pure(void) {
     TEST_ASSERT_FALSE(set_b->is_pure);
 }
 
+/* ── Phase 85 INIT-03/07/08/11/13/15: init declarations + auto-synth ──────── */
+/* Phase 85 introduces the `init` keyword inside object bodies. Two forms:
+ * anonymous `init(params) { body }` dispatched via Type(args), and named
+ * `init <ident>(params) { body }` dispatched via Type.<ident>(args). The
+ * parser builds Iron_MethodDecl with is_init=true, populates init_name
+ * (NULL for anonymous, <ident> for named), and synthesizes the implicit
+ * self receiver identically to Phase 82 in-block methods. Plan 85-02
+ * reads is_init to gate definite-assignment analysis. Field-less objects
+ * with zero user inits receive a synthesized empty init() {} (INIT-13).
+ * Interface bodies reject init because they describe behavior, not
+ * construction (INIT-15). Several adjacent modifiers are rejected:
+ * `pub init` (visibility is object-level), `init() -> T` (init always
+ * returns Self), duplicate anonymous init, duplicate named init. The
+ * pre-existing Phase 84 E0245 branch rejects `readonly init` and
+ * `pure init` without any new code path. */
+
+void test_parse_anonymous_init(void) {
+    Iron_Node *prog = parse(
+        "object Counter {\n"
+        "    var count: Int\n"
+        "    init(v: Int) { self.count = v }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_TRUE(m->is_init);
+    TEST_ASSERT_NULL(m->init_name);
+    TEST_ASSERT_EQUAL_STRING("init", m->method_name);
+    TEST_ASSERT_EQUAL_STRING("Counter", m->type_name);
+    TEST_ASSERT_EQUAL(2, m->param_count);  /* self + v */
+    TEST_ASSERT_TRUE(m->is_receiver_form);
+    TEST_ASSERT_NULL(m->return_type);
+    TEST_ASSERT_FALSE(m->is_readonly);
+    TEST_ASSERT_FALSE(m->is_pure);
+}
+
+void test_parse_named_init(void) {
+    Iron_Node *prog = parse(
+        "object Counter {\n"
+        "    var count: Int\n"
+        "    init zero() { self.count = 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_TRUE(m->is_init);
+    TEST_ASSERT_NOT_NULL(m->init_name);
+    TEST_ASSERT_EQUAL_STRING("zero", m->init_name);
+    TEST_ASSERT_EQUAL_STRING("zero", m->method_name);
+    TEST_ASSERT_EQUAL_STRING("Counter", m->type_name);
+}
+
+void test_parse_anonymous_plus_named_inits(void) {
+    Iron_Node *prog = parse(
+        "object Counter {\n"
+        "    var count: Int\n"
+        "    init(v: Int) { self.count = v }\n"
+        "    init from_zero() { self.count = 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
+    Iron_MethodDecl *m0 = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m0->kind);
+    TEST_ASSERT_TRUE(m0->is_init);
+    TEST_ASSERT_NULL(m0->init_name);
+    Iron_MethodDecl *m1 = (Iron_MethodDecl *)pr->decls[2];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m1->kind);
+    TEST_ASSERT_TRUE(m1->is_init);
+    TEST_ASSERT_NOT_NULL(m1->init_name);
+    TEST_ASSERT_EQUAL_STRING("from_zero", m1->init_name);
+}
+
+void test_parse_duplicate_anonymous_init_rejected(void) {
+    (void)parse(
+        "object Counter {\n"
+        "    var count: Int\n"
+        "    init(v: Int) { self.count = v }\n"
+        "    init(w: Int) { self.count = w }\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_DUPLICATE_DECL),
+        "expected IRON_ERR_DUPLICATE_DECL for duplicate anonymous init");
+    {
+        /* Locked message substring so the diag is specifically the anon-dup
+         * case, not a stray duplicate-decl from earlier in the object. */
+        bool found = false;
+        for (int i = 0; i < diags.count; i++) {
+            if (diags.items[i].code == IRON_ERR_DUPLICATE_DECL &&
+                diags.items[i].message &&
+                strstr(diags.items[i].message, "duplicate anonymous init")) {
+                found = true;
+                break;
+            }
+        }
+        TEST_ASSERT_TRUE_MESSAGE(found,
+            "expected 'duplicate anonymous init' in DUPLICATE_DECL message");
+    }
+}
+
+void test_parse_duplicate_named_init_rejected(void) {
+    (void)parse(
+        "object Counter {\n"
+        "    var count: Int\n"
+        "    init zero() { self.count = 0 }\n"
+        "    init zero() { self.count = 1 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_DUPLICATE_DECL),
+        "expected IRON_ERR_DUPLICATE_DECL for duplicate named init");
+}
+
+static bool has_diag_msg_substring(const char *needle) {
+    for (int i = 0; i < diags.count; i++) {
+        if (diags.items[i].message && strstr(diags.items[i].message, needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void test_parse_pub_init_rejected(void) {
+    (void)parse(
+        "object X {\n"
+        "    pub init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
+        "expected IRON_ERR_UNEXPECTED_TOKEN for pub init");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("init visibility is tied to its object"),
+        "expected locked 'init visibility is tied to its object' message");
+}
+
+void test_parse_readonly_init_rejected(void) {
+    /* Phase 84 E0245 already handles this branch - no new parser code needed. */
+    (void)parse(
+        "object X {\n"
+        "    readonly init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_TIER_MODIFIER_PLACEMENT),
+        "expected IRON_ERR_TIER_MODIFIER_PLACEMENT (E0245) for readonly init");
+}
+
+void test_parse_pure_init_rejected(void) {
+    (void)parse(
+        "object X {\n"
+        "    pure init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_TIER_MODIFIER_PLACEMENT),
+        "expected IRON_ERR_TIER_MODIFIER_PLACEMENT (E0245) for pure init");
+}
+
+void test_parse_fieldless_init_auto_synth(void) {
+    /* INIT-13: object with zero fields and zero user inits receives a
+     * synthesized empty init() {} automatically. */
+    Iron_Node *prog = parse("object Marker {}\n");
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_TRUE(m->is_init);
+    TEST_ASSERT_NULL(m->init_name);
+    TEST_ASSERT_EQUAL_STRING("init", m->method_name);
+    TEST_ASSERT_EQUAL_STRING("Marker", m->type_name);
+    TEST_ASSERT_EQUAL(1, m->param_count);  /* just synth self */
+    TEST_ASSERT_NOT_NULL(m->body);
+    Iron_Block *b = (Iron_Block *)m->body;
+    TEST_ASSERT_EQUAL(IRON_NODE_BLOCK, b->kind);
+    TEST_ASSERT_EQUAL(0, b->stmt_count);
+}
+
+void test_parse_fieldless_with_user_init_no_synth(void) {
+    /* INIT-13 negative: when the user declared an init, auto-synth must not
+     * fire. decl_count stays 2 (ObjectDecl + 1 user init), not 3. */
+    Iron_Node *prog = parse(
+        "object Marker {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_TRUE(m->is_init);
+}
+
+void test_parse_init_with_return_type_rejected(void) {
+    /* INIT-11 parser branch: explicit return type on init is a parse error. */
+    (void)parse(
+        "object X {\n"
+        "    init() -> Int { }\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
+        "expected IRON_ERR_UNEXPECTED_TOKEN for init with return type");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("init cannot declare a return type"),
+        "expected locked 'init cannot declare a return type' message");
+}
+
+void test_parse_init_in_interface_rejected(void) {
+    /* INIT-15: interfaces describe behavior, not construction. init is a
+     * parse error inside interface bodies. */
+    (void)parse(
+        "interface Foo {\n"
+        "    init()\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
+        "expected IRON_ERR_UNEXPECTED_TOKEN for init in interface body");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("interfaces may not declare init"),
+        "expected locked 'interfaces may not declare init' message");
+}
+
 /* ── Interface declarations ──────────────────────────────────────────────── */
 
 void test_parse_interface_decl(void) {
@@ -1233,6 +1474,20 @@ int main(void) {
     RUN_TEST(test_readonly_at_top_level_rejected);
     RUN_TEST(test_pure_at_top_level_rejected);
     RUN_TEST(test_synth_getter_is_readonly_and_pure);
+
+    /* Phase 85 INIT-03/07/08/11/13/15: init declarations + auto-synth. */
+    RUN_TEST(test_parse_anonymous_init);
+    RUN_TEST(test_parse_named_init);
+    RUN_TEST(test_parse_anonymous_plus_named_inits);
+    RUN_TEST(test_parse_duplicate_anonymous_init_rejected);
+    RUN_TEST(test_parse_duplicate_named_init_rejected);
+    RUN_TEST(test_parse_pub_init_rejected);
+    RUN_TEST(test_parse_readonly_init_rejected);
+    RUN_TEST(test_parse_pure_init_rejected);
+    RUN_TEST(test_parse_fieldless_init_auto_synth);
+    RUN_TEST(test_parse_fieldless_with_user_init_no_synth);
+    RUN_TEST(test_parse_init_with_return_type_rejected);
+    RUN_TEST(test_parse_init_in_interface_rejected);
 
     RUN_TEST(test_parse_interface_decl);
     RUN_TEST(test_parse_enum_decl);

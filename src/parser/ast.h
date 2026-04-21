@@ -258,6 +258,19 @@ typedef struct {
      * Synth getters are retrofitted is_readonly=true AND is_pure=true in
      * iron_parse_object_decl. Synth setters keep both false. */
     bool               is_pure;
+    /* Phase 85 INIT-03/07: true when this MethodDecl is an init declaration
+     * (anonymous or named). Plan 85-02 reads it to gate definite-assignment
+     * analysis, reject `self.init(...)` delegation (INIT-14), reject return
+     * values (INIT-11), and enforce the "no methods before full assignment"
+     * rule (INIT-09). Defaults false at every construction site. */
+    bool               is_init;
+    /* Phase 85 INIT-08: named-init identifier for call-site dispatch. NULL
+     * for non-init methods AND for anonymous init. Anonymous init dispatch
+     * lives on Type(args); named dispatch on Type.<init_name>(args). When
+     * is_init is true and init_name is NULL, method_name == "init"; when
+     * is_init is true and init_name != NULL, method_name == init_name so
+     * the symbol-table lookup for `Type.<init_name>` hits naturally. */
+    const char        *init_name;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
