@@ -92,8 +92,12 @@ static bool has_error_msg_substring(const char *needle) {
 
 /* Parse + resolve WITHOUT running the typechecker. Phase 86 Task 1 RED
  * tests reach into the per-program patch registry directly, which is
- * built during iron_resolve; the typechecker would add dispatch errors
- * we do not want to assert on at Task 1. */
+ * built on top of resolve's global scope; the typechecker would add
+ * dispatch errors we do not want to assert on at Task 1. Side effect:
+ * stashes the resolved global scope in g_global_scope_for_patch so
+ * callers can pass it to iron_type_patch_registry_build. */
+static Iron_Scope *g_global_scope_for_patch = NULL;
+
 static Iron_Program *parse_and_resolve_only(const char *src) {
     Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
     Iron_Token  *tokens = iron_lex_all(&l);
@@ -104,7 +108,7 @@ static Iron_Program *parse_and_resolve_only(const char *src) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    (void)iron_resolve(prog, &g_arena, &g_diags);
+    g_global_scope_for_patch = iron_resolve(prog, &g_arena, &g_diags);
     return prog;
 }
 
@@ -2269,7 +2273,8 @@ void test_patch_registry_registers_user_object(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
 
     Iron_TypePatchRegistry *reg =
-        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(reg);
     Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Foo");
     TEST_ASSERT_NOT_NULL(methods);
@@ -2291,7 +2296,8 @@ void test_patch_registry_registers_primitive(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
 
     Iron_TypePatchRegistry *reg =
-        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(reg);
     Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Int");
     TEST_ASSERT_NOT_NULL(methods);
@@ -2312,7 +2318,8 @@ void test_patch_unknown_target_emits_e0254(void) {
     TEST_ASSERT_NOT_NULL(prog);
 
     Iron_TypePatchRegistry *reg =
-        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
     TEST_ASSERT_TRUE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
     TEST_ASSERT_TRUE_MESSAGE(
         has_error_msg_substring("patch target"),
@@ -2338,7 +2345,8 @@ void test_patch_multiple_patches_same_target(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
 
     Iron_TypePatchRegistry *reg =
-        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
     TEST_ASSERT_NOT_NULL(reg);
     Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Int");
     TEST_ASSERT_NOT_NULL(methods);
@@ -2359,7 +2367,8 @@ void test_patch_primitive_names_allowlist(void) {
     TEST_ASSERT_NOT_NULL(prog);
 
     Iron_TypePatchRegistry *reg =
-        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
     TEST_ASSERT_FALSE_MESSAGE(
         has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND),
         "primitives Int/Int32/Float/String/Bool must NOT emit E0254");
