@@ -2381,6 +2381,167 @@ void test_patch_primitive_names_allowlist(void) {
     iron_type_patch_registry_free(reg);
 }
 
+/* ── Phase 86 Plan 86-02 Task 2 RED: collision scan + dispatch + regression locks ── */
+
+void test_patch_patch_collision(void) {
+    /* PATCH-03: two patches on the same target declaring the same method
+     * name fire IRON_ERR_PATCH_CONFLICT with 'conflicting patch' locked
+     * in the message. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PATCH_CONFLICT));
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("conflicting patch"),
+        "expected 'conflicting patch' substring in E0255 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("Int.double"),
+        "expected 'Int.double' to appear in E0255 message");
+}
+
+void test_patch_object_collision(void) {
+    /* PATCH-06: patch method name collides with existing in-object method
+     * -> same IRON_ERR_PATCH_CONFLICT. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "    pub readonly func bar() -> Int { return self.x }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pub readonly func bar() -> Int { return self.x }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PATCH_CONFLICT));
+}
+
+void test_patch_collision_across_different_targets_no_error(void) {
+    /* Different targets never collide even if the method name matches. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Float {\n"
+        "    pub readonly func double() -> Int { return 1 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_CONFLICT));
+}
+
+void test_patch_collision_different_names_no_error(void) {
+    /* Same target, different method names -> no collision. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Int {\n"
+        "    pub readonly func triple() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_CONFLICT));
+}
+
+void test_patch_method_call_dispatches_through_registry_user(void) {
+    /* PATCH-02 dispatch: object Foo + patch-Foo.describe resolves
+     * mc->resolved_type on `f.describe()` to Int. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pub readonly func describe() -> Int { return self.x }\n"
+        "}\n"
+        "func main() {\n"
+        "    val f: Foo = Foo(7)\n"
+        "    val r: Int = f.describe()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_patch_method_call_dispatches_through_registry_primitive(void) {
+    /* PATCH-04 dispatch: patch-Int.double typechecks 5.double() with
+     * resolved_type Int. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "func main() {\n"
+        "    val r: Int = 5.double()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_patch_named_init_dispatches(void) {
+    /* Patched named init Foo.from_x(7) dispatches through the registry. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    init from_x(v: Int) { self.x = v }\n"
+        "}\n"
+        "func main() {\n"
+        "    val f: Foo = Foo.from_x(7)\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_patched_init_unassigned_field(void) {
+    /* PATCH-07 regression: patched init that leaves a field unassigned
+     * fires E0247 (same branch as in-object inits). */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    var y: Int\n"
+        "    init(v: Int) { self.x = v\n self.y = 0 }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    init only_x(v: Int) { self.x = v }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_patched_readonly_method_write_self_rejected(void) {
+    /* PATCH-09 regression: patched readonly method writing self.field
+     * fires E0238 (same branch as in-object readonly methods). */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    readonly func broken() { self.x = 1 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+}
+
+void test_patched_pure_method_io_rejected(void) {
+    /* PATCH-09 regression: patched pure method calling an I/O builtin
+     * fires E0240 (same branch as in-object pure methods). */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pure func broken() { println(\"bad\") }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_IO));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2538,6 +2699,18 @@ int main(void) {
     RUN_TEST(test_patch_unknown_target_emits_e0254);
     RUN_TEST(test_patch_multiple_patches_same_target);
     RUN_TEST(test_patch_primitive_names_allowlist);
+
+    /* Phase 86 Plan 86-02 Task 2: collision scan + dispatch + regression locks. */
+    RUN_TEST(test_patch_patch_collision);
+    RUN_TEST(test_patch_object_collision);
+    RUN_TEST(test_patch_collision_across_different_targets_no_error);
+    RUN_TEST(test_patch_collision_different_names_no_error);
+    RUN_TEST(test_patch_method_call_dispatches_through_registry_user);
+    RUN_TEST(test_patch_method_call_dispatches_through_registry_primitive);
+    RUN_TEST(test_patch_named_init_dispatches);
+    RUN_TEST(test_patched_init_unassigned_field);
+    RUN_TEST(test_patched_readonly_method_write_self_rejected);
+    RUN_TEST(test_patched_pure_method_io_rejected);
 
     return UNITY_END();
 }
