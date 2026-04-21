@@ -325,12 +325,17 @@ void test_pub_on_method_parses(void) {
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     Iron_Program *pr = (Iron_Program *)prog;
-    /* ObjectDecl + the synthesized in-block MethodDecl */
-    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    /* ObjectDecl + the synthesized in-block MethodDecl + Phase 85 INIT-13
+     * auto-synth init() {} (field-less objects receive a synth init so every
+     * object has a callable constructor). The user method is pushed first
+     * into extra_decls_out, then the synth init is appended, so decls[1] is
+     * the user `foo` and decls[2] is the synth init. */
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
     Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
     TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
     TEST_ASSERT_EQUAL_STRING("foo", m->method_name);
     TEST_ASSERT_TRUE(m->is_receiver_form);
+    TEST_ASSERT_FALSE(m->is_init);  /* user method is not init */
     /* Plan 83-01 does not synthesize accessors; is_synth_accessor must be
      * default-false on every MethodDecl the parser constructs. */
     TEST_ASSERT_FALSE(m->is_synth_accessor);
@@ -581,7 +586,10 @@ void test_readonly_method_parse(void) {
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     Iron_Program *pr = (Iron_Program *)prog;
-    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    /* Phase 85 INIT-13: field-less object auto-synths init() {} in addition
+     * to the user method; decl_count 2 -> 3 (ObjectDecl + user foo + synth
+     * init). The user method still lands at decls[1]; synth at decls[2]. */
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
     Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
     TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
     TEST_ASSERT_EQUAL_STRING("foo", m->method_name);
@@ -597,7 +605,8 @@ void test_pure_method_parse(void) {
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     Iron_Program *pr = (Iron_Program *)prog;
-    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    /* Phase 85 INIT-13: +1 synth init on field-less object. */
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
     Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
     TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
     TEST_ASSERT_EQUAL_STRING("foo", m->method_name);
@@ -615,7 +624,8 @@ void test_plain_method_has_default_tier(void) {
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     Iron_Program *pr = (Iron_Program *)prog;
-    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    /* Phase 85 INIT-13: +1 synth init on field-less object. */
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
     Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
     TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
     TEST_ASSERT_FALSE(m->is_readonly);
@@ -630,7 +640,8 @@ void test_pub_readonly_method(void) {
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     Iron_Program *pr = (Iron_Program *)prog;
-    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    /* Phase 85 INIT-13: +1 synth init on field-less object. */
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
     Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
     TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
     TEST_ASSERT_TRUE(m->is_readonly);
@@ -645,7 +656,8 @@ void test_pub_pure_method(void) {
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     Iron_Program *pr = (Iron_Program *)prog;
-    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    /* Phase 85 INIT-13: +1 synth init on field-less object. */
+    TEST_ASSERT_EQUAL(3, pr->decl_count);
     Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
     TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
     TEST_ASSERT_FALSE(m->is_readonly);
