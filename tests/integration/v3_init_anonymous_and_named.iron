@@ -1,0 +1,36 @@
+-- TEST-03 lock: anonymous Type(args) + named Type.name(args) init dispatch.
+-- Exercises:
+--   INIT-03 init grammar (anonymous + named).
+--   INIT-08 CONSTRUCT dispatch through iron_find_init_by_name.
+--   INIT-04/05/06 definite-assignment inside init bodies.
+--   INIT-11 implicit Self return (no explicit return type / value).
+--   INIT-16 method-body-to-Type.name construction is not confused with delegation.
+
+object Counter {
+    var count: Int
+
+    init(v: Int) {
+        self.count = v
+    }
+
+    init zero() {
+        self.count = 0
+    }
+
+    init from_pair(a: Int, b: Int) {
+        self.count = a + b
+    }
+
+    pub readonly func read() -> Int {
+        return self.count
+    }
+}
+
+func main() {
+    val a: Counter = Counter(5)
+    val b: Counter = Counter.zero()
+    val c: Counter = Counter.from_pair(3, 4)
+    println("{a.read()}")
+    println("{b.read()}")
+    println("{c.read()}")
+}
