@@ -3146,6 +3146,18 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
             if (!ret_wrapped) {
                 iron_strbuf_appendf(sb, "return ");
+                /* Phase 85 INIT-11: when an init body returns `self` and the
+                 * callee is a mut-receiver method (self passed as `T *_v1`),
+                 * dereference so the return matches the by-value signature.
+                 * Without this the emitted `return _v1` would try to return
+                 * a pointer from a function whose signature is `T f(T *self)`.
+                 * The is_mut_receiver_method + vid==1 duo is the exact
+                 * signal used by emit_val_is_heap_ptr for `self->field`
+                 * rewrites, so reusing it keeps the two sites in lockstep. */
+                if (fn->is_mut_receiver_method &&
+                    instr->ret.value == 1) {
+                    iron_strbuf_appendf(sb, "*");
+                }
                 emit_expr_to_buf(sb, instr->ret.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ";\n");
             }

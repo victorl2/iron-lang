@@ -4212,12 +4212,30 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         return;
     }
 
-    /* Resolve return type */
+    /* Resolve return type.
+     *
+     * Phase 85 INIT-11: init always returns Self implicitly. The parser
+     * rejects explicit return types on init (md->return_type stays NULL).
+     * Resolve it here to the enclosing object type so HIR/LIR lowering emits
+     * a function returning the object, and the named-init call site
+     * (Type.name(args)) recovers the constructed value as the call's result.
+     * The anonymous-init path still flows through the v2.2 positional
+     * construction fallback (designated-initializer emit), bypassing the
+     * init body entirely — the resolved type here is only consumed by the
+     * method's own codegen and by named-init dispatch. */
     Iron_Type *ret_type = NULL;
-    if (md->return_type) {
-        ret_type = resolve_type_annotation(ctx, md->return_type);
-    } else {
-        ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
+    if (md->is_init && md->type_name) {
+        Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, md->type_name);
+        if (type_sym && type_sym->sym_kind == IRON_SYM_TYPE && type_sym->type) {
+            ret_type = type_sym->type;
+        }
+    }
+    if (!ret_type) {
+        if (md->return_type) {
+            ret_type = resolve_type_annotation(ctx, md->return_type);
+        } else {
+            ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
+        }
     }
     md->resolved_return_type = ret_type;
 

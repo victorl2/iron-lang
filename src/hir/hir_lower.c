@@ -1892,6 +1892,23 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
         lower_stmt_hir(ctx, body->stmts[i]);
     }
 
+    /* Phase 85 INIT-11: init always returns Self implicitly. The parser
+     * forbids explicit `return <expr>` inside init (INIT-11 + E0252), so the
+     * only control path into C-land is natural-exit. Append an implicit
+     * `return self` at the tail of the lowered body so the init function
+     * (whose resolved_return_type is now the enclosing object type) produces
+     * a properly-typed C return. The definite-assignment pass (Plan 85-02)
+     * already guaranteed every field was written on every exit path before
+     * this point, so reading `self` here is safe. */
+    if (md->is_init && fn->param_count > 0 &&
+        fn->params[0].name && strcmp(fn->params[0].name, "self") == 0) {
+        IronHIR_Expr *self_expr = iron_hir_expr_ident(
+            ctx->module, fn->params[0].var_id,
+            fn->params[0].name, fn->params[0].type, md->span);
+        IronHIR_Stmt *ret_s = iron_hir_stmt_return(ctx->module, self_expr, md->span);
+        iron_hir_block_add_stmt(fn->body, ret_s);
+    }
+
     pop_defer_scope_hir(ctx);
     ctx->current_block = saved;
 
