@@ -25,6 +25,7 @@
  */
 
 #include "analyzer/typecheck.h"
+#include "analyzer/resolve.h"
 #include "lexer/lexer.h"
 #include "util/strbuf.h"
 #include "vendor/stb_ds.h"
@@ -4572,6 +4573,97 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         }
     }
 
+    /* Phase 86 PATCH-03/06: cross-patch + patch-vs-in-object collision
+     * scan. Build the program-global patch registry on the same global
+     * scope resolve used, then per-target gather (a) in-object method
+     * names on the corresponding ObjectDecl + (b) names contributed by
+     * every patch entry. Duplicate names across (a)+(b) or across
+     * multiple patch entries emit IRON_ERR_PATCH_CONFLICT at the LATER
+     * declaration site. Method name equality is sufficient for Phase 86
+     * (generics deferred; signature-tuple dispatch is a Phase 87 IFACE
+     * + SELF concern).
+     *
+     * The registry is built AFTER resolve but before body typechecking
+     * so E0255 fires ahead of any dispatch resolution — matches the
+     * user expectation that conflicts are a compile-time structural
+     * error, not a dispatch ambiguity. */
+    Iron_TypePatchRegistry *patch_registry =
+        iron_type_patch_registry_build(program, global_scope, arena, diags);
+    if (patch_registry) {
+        /* Collect the set of target names already seen so we scan each
+         * target at most once even when multiple patch entries target it. */
+        for (int i = 0; i < program->decl_count; i++) {
+            Iron_Node *d = program->decls[i];
+            if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            if (!od->is_patch) continue;
+            const char *target = od->target_type_name
+                                 ? od->target_type_name : od->name;
+            if (!target) continue;
+
+            /* De-dup: if an earlier iteration already scanned this
+             * target, skip. Linear O(i) re-scan is fine for realistic
+             * patch counts. */
+            bool already_scanned = false;
+            for (int pj = 0; pj < i; pj++) {
+                Iron_Node *dj = program->decls[pj];
+                if (!dj || dj->kind != IRON_NODE_OBJECT_DECL) continue;
+                Iron_ObjectDecl *odj = (Iron_ObjectDecl *)dj;
+                if (!odj->is_patch) continue;
+                const char *tj = odj->target_type_name
+                                 ? odj->target_type_name : odj->name;
+                if (tj && strcmp(tj, target) == 0) {
+                    already_scanned = true;
+                    break;
+                }
+            }
+            if (already_scanned) continue;
+
+            /* Gather names. Each entry: (name, decl-pointer-for-diagnostic-site). */
+            typedef struct {
+                const char      *name;
+                Iron_MethodDecl *md;
+            } NameRef;
+            NameRef *names = NULL;
+
+            /* (a) in-object methods: find the ObjectDecl for `target` and
+             * collect every MethodDecl in program->decls whose
+             * type_name==target AND is NOT contributed by a patch (i.e.
+             * not in the registry's entries). Simpler approach: consider
+             * every top-level MethodDecl with type_name==target as the
+             * unified set, then detect duplicates by walking that set —
+             * naturally covers patch-vs-patch AND patch-vs-in-object. */
+            for (int mi = 0; mi < program->decl_count; mi++) {
+                Iron_Node *md_node = program->decls[mi];
+                if (!md_node || md_node->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *md = (Iron_MethodDecl *)md_node;
+                if (!md->type_name || strcmp(md->type_name, target) != 0) continue;
+                if (!md->method_name) continue;
+                NameRef nr = { .name = md->method_name, .md = md };
+                arrput(names, nr);
+            }
+
+            /* Detect duplicates. Emit at the LATER decl site; cite the
+             * target and conflicting name. */
+            for (ptrdiff_t a = 0; a < arrlen(names); a++) {
+                for (ptrdiff_t b = a + 1; b < arrlen(names); b++) {
+                    if (strcmp(names[a].name, names[b].name) != 0) continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "conflicting patch definitions for '%s.%s'",
+                             target, names[a].name);
+                    const char *msg_copy = iron_arena_strdup(arena, msg, strlen(msg));
+                    if (!msg_copy) iron_oom_abort("typecheck.c:patch conflict msg");
+                    iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_PATCH_CONFLICT,
+                                   names[b].md->span,
+                                   msg_copy, NULL);
+                }
+            }
+            arrfree(names);
+        }
+    }
+
     /* Check all func and method decls */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
@@ -4583,6 +4675,13 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             check_method_decl(&ctx, (Iron_MethodDecl *)decl);
         }
     }
+
+    /* Phase 86: release the patch registry. MethodDecl * elements inside
+     * are arena-shared; the registry itself is heap-owned via stb_ds.
+     * Must run before arena teardown but after method-body typechecking
+     * so any future call-site consumers can still look up patched
+     * members via iron_type_patch_lookup within this function. */
+    iron_type_patch_registry_free(patch_registry);
 
     /* Interface completeness */
     check_interface_completeness(&ctx, program);
