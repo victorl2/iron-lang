@@ -989,6 +989,165 @@ void test_parse_init_in_interface_rejected(void) {
         "expected locked 'interfaces may not declare init' message");
 }
 
+/* ── Phase 86 PATCH-01/02/05: patch object T { ... } ─────────────────────── */
+/* Phase 86 introduces `patch object T { ... }` as a top-level declaration
+ * that contributes methods (and inits) to an existing type T. The parser
+ * builds an Iron_ObjectDecl with is_patch=true, target_type_name=T,
+ * field_count=0. Body-level field declarations (var/val) are rejected with
+ * E0253 IRON_ERR_PATCH_ADDS_FIELD; parser recovers and continues. Methods
+ * use the same pub/readonly/pure/init grammar Phase 82..85 landed. Generic
+ * patch targets `patch object List[T] { ... }` are deferred to v3.1+ per
+ * 86-CONTEXT.md and rejected here. Plan 86-02 consumes is_patch to wire
+ * the type-patch registry + dispatch; Plan 86-01 is parse-surface only. */
+
+void test_parse_patch_object_parses(void) {
+    Iron_Node *prog = parse(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    /* ObjectDecl(is_patch=true) + 1 extra MethodDecl from the body. */
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+
+    Iron_ObjectDecl *od = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, od->kind);
+    TEST_ASSERT_TRUE(od->is_patch);
+    TEST_ASSERT_NOT_NULL(od->target_type_name);
+    TEST_ASSERT_EQUAL_STRING("Int", od->target_type_name);
+    TEST_ASSERT_EQUAL_STRING("Int", od->name);
+    TEST_ASSERT_EQUAL(0, od->field_count);
+
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_EQUAL_STRING("Int",    m->type_name);
+    TEST_ASSERT_EQUAL_STRING("double", m->method_name);
+    TEST_ASSERT_TRUE(m->is_readonly);
+    TEST_ASSERT_FALSE(m->is_pure);
+    TEST_ASSERT_TRUE(m->is_receiver_form);
+    TEST_ASSERT_FALSE(m->is_init);
+}
+
+void test_parse_patch_object_no_name(void) {
+    (void)parse(
+        "patch object { }\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
+        "expected IRON_ERR_UNEXPECTED_TOKEN for missing patch target");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("expected patch target name"),
+        "expected locked 'expected patch target name' message");
+}
+
+void test_parse_patch_adds_field_rejected(void) {
+    /* PATCH-05: var inside a patch body fires E0253 and recovers. */
+    Iron_Node *prog = parse(
+        "patch object Foo {\n"
+        "    var x: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_PATCH_ADDS_FIELD),
+        "expected IRON_ERR_PATCH_ADDS_FIELD (E0253) for var in patch body");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("patches may only add methods"),
+        "expected locked 'patches may only add methods' message");
+
+    /* Recovery: ObjectDecl still produced with is_patch=true, field_count=0. */
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_GREATER_THAN_INT(0, pr->decl_count);
+    Iron_ObjectDecl *od = (Iron_ObjectDecl *)pr->decls[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, od->kind);
+    TEST_ASSERT_TRUE(od->is_patch);
+    TEST_ASSERT_EQUAL(0, od->field_count);
+}
+
+void test_parse_patch_adds_val_field_rejected(void) {
+    /* PATCH-05: val inside a patch body also fires E0253 (val and var both
+     * fail the no-fields rule). */
+    (void)parse(
+        "patch object Foo {\n"
+        "    val x: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_PATCH_ADDS_FIELD),
+        "expected IRON_ERR_PATCH_ADDS_FIELD (E0253) for val in patch body");
+}
+
+void test_parse_patch_with_init(void) {
+    Iron_Node *prog = parse(
+        "patch object Foo {\n"
+        "    init(v: Int) { self.value = v }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_TRUE(m->is_init);
+    TEST_ASSERT_NULL(m->init_name);
+    TEST_ASSERT_EQUAL_STRING("init", m->method_name);
+    TEST_ASSERT_EQUAL_STRING("Foo",  m->type_name);
+}
+
+void test_parse_patch_with_named_init(void) {
+    Iron_Node *prog = parse(
+        "patch object Foo {\n"
+        "    init from_pair(a: Int, b: Int) { self.a = a }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_TRUE(m->is_init);
+    TEST_ASSERT_NOT_NULL(m->init_name);
+    TEST_ASSERT_EQUAL_STRING("from_pair", m->init_name);
+    TEST_ASSERT_EQUAL_STRING("from_pair", m->method_name);
+}
+
+void test_parse_patch_body_pub_plus_tier(void) {
+    /* Same pub/readonly/pure grammar as a classic object body. */
+    Iron_Node *prog = parse(
+        "patch object Foo {\n"
+        "    pub readonly func read() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_TRUE(m->is_readonly);
+    TEST_ASSERT_FALSE(m->is_pure);
+    TEST_ASSERT_EQUAL_STRING("read", m->method_name);
+}
+
+void test_parse_patch_with_generic_params_rejected(void) {
+    /* Generic patch targets deferred to v3.1+ per 86-CONTEXT.md Deferred
+     * Ideas. Locked rejection keeps grammar stable; future Phase can lift
+     * by extending this branch. */
+    (void)parse(
+        "patch object List[T] {\n"
+        "    func noop() { }\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
+        "expected IRON_ERR_UNEXPECTED_TOKEN for generic patch target");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("generic patch targets not supported in v3.0"),
+        "expected locked 'generic patch targets not supported in v3.0' message");
+}
+
 /* ── Interface declarations ──────────────────────────────────────────────── */
 
 void test_parse_interface_decl(void) {
@@ -1500,6 +1659,16 @@ int main(void) {
     RUN_TEST(test_parse_fieldless_with_user_init_no_synth);
     RUN_TEST(test_parse_init_with_return_type_rejected);
     RUN_TEST(test_parse_init_in_interface_rejected);
+
+    /* Phase 86 PATCH-01/02/05: patch object T { ... } parse surface. */
+    RUN_TEST(test_parse_patch_object_parses);
+    RUN_TEST(test_parse_patch_object_no_name);
+    RUN_TEST(test_parse_patch_adds_field_rejected);
+    RUN_TEST(test_parse_patch_adds_val_field_rejected);
+    RUN_TEST(test_parse_patch_with_init);
+    RUN_TEST(test_parse_patch_with_named_init);
+    RUN_TEST(test_parse_patch_body_pub_plus_tier);
+    RUN_TEST(test_parse_patch_with_generic_params_rejected);
 
     RUN_TEST(test_parse_interface_decl);
     RUN_TEST(test_parse_enum_decl);
