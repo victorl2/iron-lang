@@ -1318,6 +1318,160 @@ void test_typecheck_nested_tuple(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
 }
 
+/* ── Phase 83-02 Task 2: property-syntax dispatch flag plumbing ─────────────
+ * typecheck sets Iron_FieldAccess.is_pub_access when the resolved field
+ * carries is_pub, and sets Iron_AssignStmt.is_pub_setter when the assignment
+ * target is a pub var field. Writing to a pub val field (pub without var)
+ * emits IRON_ERR_VAL_REASSIGN with a message naming 'pub val'. HIR consumes
+ * these bits in a separate end-to-end smoke-compile test. */
+
+/* Find the FieldAccess expression in the first println/val-init statement of
+ * the function named `func_name`. Returns NULL when not found. Walks
+ * down common expression nests: interpolated-string parts, val/var init. */
+static Iron_FieldAccess *find_field_access_in_func(Iron_Program *prog,
+                                                   const char *func_name) {
+    for (int di = 0; di < prog->decl_count; di++) {
+        Iron_Node *dn = prog->decls[di];
+        if (dn->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)dn;
+        if (!fd->name || strcmp(fd->name, func_name) != 0) continue;
+        Iron_Block *body = (Iron_Block *)fd->body;
+        if (!body) return NULL;
+        for (int si = 0; si < body->stmt_count; si++) {
+            Iron_Node *st = body->stmts[si];
+            /* val/var init may directly be a FIELD_ACCESS */
+            Iron_Node *init = NULL;
+            if (st->kind == IRON_NODE_VAL_DECL) init = ((Iron_ValDecl *)st)->init;
+            else if (st->kind == IRON_NODE_VAR_DECL) init = ((Iron_VarDecl *)st)->init;
+            if (init && init->kind == IRON_NODE_FIELD_ACCESS) {
+                return (Iron_FieldAccess *)init;
+            }
+            if (init && init->kind == IRON_NODE_INTERP_STRING) {
+                Iron_InterpString *is = (Iron_InterpString *)init;
+                for (int pi = 0; pi < is->part_count; pi++) {
+                    if (is->parts[pi] &&
+                        is->parts[pi]->kind == IRON_NODE_FIELD_ACCESS) {
+                        return (Iron_FieldAccess *)is->parts[pi];
+                    }
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+/* Find the first IRON_NODE_ASSIGN statement in the function body. */
+static Iron_AssignStmt *find_assign_in_func(Iron_Program *prog,
+                                            const char *func_name) {
+    for (int di = 0; di < prog->decl_count; di++) {
+        Iron_Node *dn = prog->decls[di];
+        if (dn->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)dn;
+        if (!fd->name || strcmp(fd->name, func_name) != 0) continue;
+        Iron_Block *body = (Iron_Block *)fd->body;
+        if (!body) return NULL;
+        for (int si = 0; si < body->stmt_count; si++) {
+            if (body->stmts[si]->kind == IRON_NODE_ASSIGN) {
+                return (Iron_AssignStmt *)body->stmts[si];
+            }
+        }
+    }
+    return NULL;
+}
+
+void test_pub_field_read_sets_is_pub_access(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object P {\n"
+        "  pub val x: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(0)\n"
+        "  val r: Int = p.x\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_FieldAccess *fa = find_field_access_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(fa);
+    TEST_ASSERT_EQUAL_STRING("x", fa->field);
+    TEST_ASSERT_TRUE(fa->is_pub_access);
+}
+
+void test_pub_field_write_sets_is_pub_setter(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object Q {\n"
+        "  pub var h: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  var q: Q = Q(0)\n"
+        "  q.h = 5\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_AssignStmt *as = find_assign_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(as);
+    TEST_ASSERT_TRUE(as->is_pub_setter);
+}
+
+void test_non_pub_field_read_is_pub_access_false(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object R {\n"
+        "  val unsealed: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  val r: R = R(0)\n"
+        "  val u: Int = r.unsealed\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_FieldAccess *fa = find_field_access_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(fa);
+    TEST_ASSERT_EQUAL_STRING("unsealed", fa->field);
+    TEST_ASSERT_FALSE(fa->is_pub_access);
+}
+
+void test_non_pub_field_write_is_pub_setter_false(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object S {\n"
+        "  var m: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  var s: S = S(0)\n"
+        "  s.m = 9\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_AssignStmt *as = find_assign_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(as);
+    TEST_ASSERT_FALSE(as->is_pub_setter);
+}
+
+void test_pub_val_assign_rejected_with_val_reassign(void) {
+    /* pub val is read-only: assigning to a pub val field through property
+     * syntax must emit IRON_ERR_VAL_REASSIGN (203) with a message that
+     * references pub val so the error hint is specific. */
+    parse_and_resolve(
+        "object V {\n"
+        "  pub val locked: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  var v: V = V(0)\n"
+        "  v.locked = 7\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_VAL_REASSIGN));
+    bool found_msg = false;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_ERR_VAL_REASSIGN &&
+            g_diags.items[i].message &&
+            strstr(g_diags.items[i].message, "pub val") != NULL) {
+            found_msg = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_msg,
+        "expected IRON_ERR_VAL_REASSIGN diagnostic citing 'pub val'");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1409,6 +1563,13 @@ int main(void) {
     RUN_TEST(test_typecheck_tuple_equality_mismatched_arity);
     RUN_TEST(test_typecheck_tuple_equality_mismatched_element_type);
     RUN_TEST(test_typecheck_nested_tuple);
+
+    /* Phase 83-02 Task 2: pub-field dispatch flag plumbing. */
+    RUN_TEST(test_pub_field_read_sets_is_pub_access);
+    RUN_TEST(test_pub_field_write_sets_is_pub_setter);
+    RUN_TEST(test_non_pub_field_read_is_pub_access_false);
+    RUN_TEST(test_non_pub_field_write_is_pub_setter_false);
+    RUN_TEST(test_pub_val_assign_rejected_with_val_reassign);
 
     return UNITY_END();
 }

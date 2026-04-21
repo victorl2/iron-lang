@@ -369,6 +369,12 @@ typedef struct {
     Iron_Node    *target;
     Iron_Node    *value;
     Iron_OpKind   op;  /* ASSIGN, PLUS_ASSIGN, etc. */
+    /* Phase 83-02 ACCESS-05: set to true by the typechecker when the LHS is
+     * a field access on a `pub var` field. HIR reads this bit to lower the
+     * assign as a `set_<field>(value)` method call against the synthesized
+     * setter instead of emitting a direct field store. Default false at
+     * every construction site; arena zero-init covers non-pub assigns. */
+    bool          is_pub_setter;
 } Iron_AssignStmt;
 
 typedef struct {
@@ -555,6 +561,12 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *object;
     const char        *field;
+    /* Phase 83-02 ACCESS-05: set to true by the typechecker when the matched
+     * field on the object has is_pub=true. HIR reads this bit to lower the
+     * access as a zero-arg method call on the synthesized getter instead of
+     * emitting a direct field load. Default false at every construction
+     * site; arena zero-init covers non-pub field accesses. */
+    bool               is_pub_access;
 } Iron_FieldAccess;
 
 typedef struct {
