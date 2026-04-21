@@ -32,6 +32,7 @@
 #include "lexer/lexer.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <string.h>
 #include <stdbool.h>
@@ -74,6 +75,37 @@ static bool has_error(int code) {
         if (g_diags.items[i].code == code) return true;
     }
     return false;
+}
+
+/* Check if any diagnostic message contains the given substring. Used by
+ * Phase 86 PATCH tests to lock ASCII-only message substrings without
+ * coupling to the full diagnostic wording. */
+static bool has_error_msg_substring(const char *needle) {
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].message &&
+            strstr(g_diags.items[i].message, needle) != NULL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Parse + resolve WITHOUT running the typechecker. Phase 86 Task 1 RED
+ * tests reach into the per-program patch registry directly, which is
+ * built during iron_resolve; the typechecker would add dispatch errors
+ * we do not want to assert on at Task 1. */
+static Iron_Program *parse_and_resolve_only(const char *src) {
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    (void)iron_resolve(prog, &g_arena, &g_diags);
+    return prog;
 }
 
 /* Find the first val/var decl in the first function's body */
@@ -2220,6 +2252,126 @@ void test_method_body_can_call_Type_name_args(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
+/* ── Phase 86 Plan 86-02 Task 1 RED: patch registry + primitive targets + E0254 ── */
+
+void test_patch_registry_registers_user_object(void) {
+    /* PATCH-02: patches on user objects register against the target type. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pub readonly func describe() -> Int { return self.x }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(reg);
+    Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Foo");
+    TEST_ASSERT_NOT_NULL(methods);
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(methods));
+    TEST_ASSERT_EQUAL_STRING("describe", methods[0]->method_name);
+    TEST_ASSERT_EQUAL_STRING("Foo", methods[0]->type_name);
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_registry_registers_primitive(void) {
+    /* PATCH-04: primitives (Int, Int32, Float, String, Bool) are valid
+     * targets without a user-declared object of the same name. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(reg);
+    Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Int");
+    TEST_ASSERT_NOT_NULL(methods);
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(methods));
+    TEST_ASSERT_EQUAL_STRING("double", methods[0]->method_name);
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_unknown_target_emits_e0254(void) {
+    /* PATCH-04: `patch object Xyzzy` with no user type and no primitive
+     * match emits IRON_ERR_PATCH_TARGET_NOT_FOUND with 'patch target'
+     * in the message. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Xyzzy {\n"
+        "    func foo() -> Int { return 1 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("patch target"),
+        "expected locked 'patch target' substring in E0254 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("Xyzzy"),
+        "expected unknown target name 'Xyzzy' in E0254 message");
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_multiple_patches_same_target(void) {
+    /* Task 1 alone does not run the collision scan — two distinct methods
+     * on the same target both register, lookup returns a 2-element array. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Int {\n"
+        "    pub readonly func triple() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(reg);
+    Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Int");
+    TEST_ASSERT_NOT_NULL(methods);
+    TEST_ASSERT_EQUAL_INT(2, (int)arrlen(methods));
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_primitive_names_allowlist(void) {
+    /* Each primitive in the allowlist (Int, Int32, Float, String, Bool)
+     * accepts a patch without E0254. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Int    { pub readonly func a() -> Int { return self } }\n"
+        "patch object Int32  { pub readonly func a() -> Int { return 1    } }\n"
+        "patch object Float  { pub readonly func a() -> Int { return 1    } }\n"
+        "patch object String { pub readonly func a() -> Int { return 1    } }\n"
+        "patch object Bool   { pub readonly func a() -> Int { return 1    } }\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, NULL, &g_arena, &g_diags);
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND),
+        "primitives Int/Int32/Float/String/Bool must NOT emit E0254");
+
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Int")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Int32")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Float")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "String")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Bool")));
+    iron_type_patch_registry_free(reg);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2370,6 +2522,13 @@ int main(void) {
     RUN_TEST(test_named_init_unknown_name_falls_through);
     RUN_TEST(test_method_body_can_call_Type_args);
     RUN_TEST(test_method_body_can_call_Type_name_args);
+
+    /* Phase 86 Plan 86-02 Task 1: patch registry + primitive targets + E0254. */
+    RUN_TEST(test_patch_registry_registers_user_object);
+    RUN_TEST(test_patch_registry_registers_primitive);
+    RUN_TEST(test_patch_unknown_target_emits_e0254);
+    RUN_TEST(test_patch_multiple_patches_same_target);
+    RUN_TEST(test_patch_primitive_names_allowlist);
 
     return UNITY_END();
 }
