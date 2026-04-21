@@ -52,6 +52,16 @@ typedef struct {
     Iron_Type   *value; /* the in-progress or completed mono type */
 } MonoRegistryEntry;
 
+/* Phase 85 INIT: branch-local definite-assignment set entry. stb_ds
+ * string-set where presence of a key means the named field is still
+ * unassigned on the current control-flow path. value is a sentinel (always
+ * 1 when present). Use sh_new_strdup(...) to allocate, shput/shget/shdel
+ * to mutate, shlen to query size, shfree to release. */
+typedef struct {
+    const char  *key;
+    int          value;
+} InitUnassignedEntry;
+
 typedef struct {
     Iron_Arena        *arena;
     Iron_DiagList     *diags;
@@ -75,6 +85,30 @@ typedef struct {
      * and picks the tier-specific error code based on `in_pure_method`. */
     bool               in_readonly_method;
     bool               in_pure_method;
+    /* Phase 85 INIT-04/05/06/09/10/11/12/14: true when the enclosing method
+     * is an is_init=true MethodDecl. Plan 85-02 reads this bit to drive the
+     * definite-assignment analysis (unassigned_fields below) and to gate
+     * the seven INIT error codes (E0246..E0252). Saved/restored around every
+     * method body in check_method_decl (mirrors in_synth_accessor). */
+    bool               in_init_method;
+    /* Phase 85 INIT-05: the Iron_Node* currently being checked as an
+     * assignment's LHS. The IRON_NODE_ASSIGN handler sets this to `as->target`
+     * around its check_expr call; the IRON_NODE_FIELD_ACCESS handler
+     * compares pointer equality to suppress the E0246 read-before-assign
+     * check on the write path (`self.x = ...` must not count as a read of
+     * self.x). Set back to NULL after the target is checked. Only the
+     * OUTERMOST field-access node in the chain matches this pointer — a
+     * nested `self.inner` read inside `self.inner.field = v` still surfaces
+     * E0246 if `inner` is unassigned. */
+    Iron_Node         *cur_assign_target;
+    /* Phase 85 INIT-04/05/06/12: branch-local definite-assignment set.
+     * stb_ds string-set — presence of a field name => the field is still
+     * unassigned on the current control-flow path. Populated at init body
+     * entry with every field on the enclosing ObjectDecl; removed on
+     * self.<field> writes; union-merged across then/else branches; saved
+     * and restored around loop bodies (possibly-zero-iteration correctness).
+     * Freed and the previous pointer restored at init body exit. */
+    InitUnassignedEntry *unassigned_fields;
     NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
@@ -252,6 +286,52 @@ static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
     }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
                    msg_copy, sug_copy);
+}
+
+/* ── Phase 85 INIT helpers ──────────────────────────────────────────────────
+ *
+ * iron_find_init_by_name walks program->decls looking for a MethodDecl that
+ * is an init (is_init=true) on the given type. init_name==NULL finds the
+ * anonymous init (init_name==NULL on MethodDecl); a non-NULL init_name
+ * finds a named init whose init_name matches. Returns NULL if no match.
+ *
+ * Callers:
+ *   - IRON_NODE_CONSTRUCT handler: dispatch `Type(args)` to the anonymous
+ *     init when one exists (Plan 85-02 Task 2 PART A).
+ *   - IRON_NODE_METHOD_CALL handler: dispatch `Type.name(args)` to the named
+ *     init (Plan 85-02 Task 2 PART B) AND detect `self.<named>` delegation
+ *     inside init bodies (Plan 85-02 Task 1 E0251).
+ */
+static Iron_MethodDecl *iron_find_init_by_name(Iron_Program *program,
+                                                const char *type_name,
+                                                const char *init_name) {
+    if (!program || !type_name) return NULL;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->is_init) continue;
+        if (!md->type_name || strcmp(md->type_name, type_name) != 0) continue;
+        if (init_name == NULL) {
+            if (md->init_name == NULL) return md;
+        } else {
+            if (md->init_name && strcmp(md->init_name, init_name) == 0) return md;
+        }
+    }
+    return NULL;
+}
+
+/* Clone an InitUnassignedEntry stb_ds string-set. Allocates a fresh map,
+ * copies every key from src (value sentinel = 1). Caller owns the result
+ * and must shfree it. */
+static void init_unassigned_clone(InitUnassignedEntry **out,
+                                  InitUnassignedEntry  *src) {
+    *out = NULL;
+    sh_new_strdup(*out);
+    if (!src) return;
+    for (ptrdiff_t i = 0; i < shlen(src); i++) {
+        shput(*out, src[i].key, 1);
+    }
 }
 
 static int type_bit_width(const Iron_Type *t) {
@@ -1451,6 +1531,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             break;
                         }
                     }
+                    /* Phase 85 INIT-14 E0251: constructing an instance of the
+                     * enclosing type inside an init body is delegation; emit
+                     * and fall through so arg-type errors still surface. */
+                    if (ctx->in_init_method && ctx->current_method_type &&
+                        callee_id->name &&
+                        strcmp(callee_id->name, ctx->current_method_type) == 0) {
+                        emit_error(ctx, IRON_ERR_INIT_DELEGATION, ce->span,
+                                   "init cannot delegate to another init of "
+                                   "the enclosing type",
+                                   NULL);
+                    }
+
                     /* Treat as construction: validate args against fields.
                      *
                      * PROT-04 rewrite (rank 5, AUDIT-01): SYM_TYPE can point to
@@ -1724,6 +1816,77 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 
+            /* Phase 85 INIT-09 E0249 + INIT-14 E0251: inside an init body,
+             *   (a) calling self.<anything> while any field is still
+             *       unassigned emits E0249 (method call on partial self);
+             *   (b) calling self.init(...) OR self.<named_init>() where
+             *       <named_init> matches an is_init=true MethodDecl on the
+             *       enclosing type emits E0251 (init delegation);
+             *   (c) calling Type.<named_init>() where Type is the enclosing
+             *       object type and <named_init> is a named init on that
+             *       type also emits E0251 (explicit named-init delegation).
+             * Both fire regardless of whether the callee is later found in
+             * the auto-static / instance dispatch code below. */
+            if (ctx->in_init_method && mc->object &&
+                mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id_init = (Iron_Ident *)mc->object;
+                bool object_is_self = obj_id_init->name &&
+                                      strcmp(obj_id_init->name, "self") == 0;
+                if (object_is_self) {
+                    /* E0249: any self.<method>() while unassigned set non-empty. */
+                    if (ctx->unassigned_fields &&
+                        shlen(ctx->unassigned_fields) > 0) {
+                        const char *first = ctx->unassigned_fields[0].key;
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "method call on partially-constructed self "
+                                 "(field '%s' still unassigned)",
+                                 first ? first : "?");
+                        emit_error(ctx, IRON_ERR_INIT_METHOD_ON_PARTIAL,
+                                   mc->span, msg, NULL);
+                    }
+                    /* E0251: delegation via self.init(...) or self.<named>. */
+                    if (mc->method) {
+                        bool is_anon_delegation = strcmp(mc->method, "init") == 0;
+                        bool is_named_delegation =
+                            !is_anon_delegation && ctx->current_method_type &&
+                            iron_find_init_by_name(ctx->program,
+                                                   ctx->current_method_type,
+                                                   mc->method) != NULL;
+                        if (is_anon_delegation || is_named_delegation) {
+                            emit_error(ctx, IRON_ERR_INIT_DELEGATION,
+                                       mc->span,
+                                       "init cannot delegate to another init",
+                                       NULL);
+                        }
+                    }
+                } else {
+                    /* E0251 case (c): Type.<named_init>() where the IDENT
+                     * resolves to SYM_TYPE matching the enclosing current
+                     * type AND <named_init> is an is_init=true MethodDecl
+                     * on that type. */
+                    Iron_Symbol *obj_sym_init = NULL;
+                    if (obj_id_init->resolved_sym) {
+                        obj_sym_init = obj_id_init->resolved_sym;
+                    } else if (obj_id_init->name) {
+                        obj_sym_init = iron_scope_lookup(
+                            ctx->current_scope, obj_id_init->name);
+                    }
+                    if (obj_sym_init &&
+                        obj_sym_init->sym_kind == IRON_SYM_TYPE &&
+                        ctx->current_method_type && obj_id_init->name &&
+                        strcmp(obj_id_init->name, ctx->current_method_type) == 0 &&
+                        mc->method &&
+                        iron_find_init_by_name(ctx->program, obj_id_init->name,
+                                               mc->method) != NULL) {
+                        emit_error(ctx, IRON_ERR_INIT_DELEGATION, mc->span,
+                                   "init cannot delegate to another init of "
+                                   "the enclosing type",
+                                   NULL);
+                    }
+                }
+            }
+
             /* Try to resolve the return type by finding the matching method decl.
              * This handles both auto-static (Math.sin) and instance method calls. */
             result = iron_type_make_primitive(IRON_TYPE_VOID);
@@ -1983,6 +2146,29 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 break;
             }
 
+            /* Phase 85 INIT-05 E0246: reading self.<field> inside an init
+             * body while the field is still in unassigned_fields is a
+             * read-before-assign. Fires BEFORE the pub-access rewrite below
+             * so the message is specific to init flow rather than a generic
+             * accessor-dispatch error. Suppressed when this FIELD_ACCESS
+             * node is the immediate target of an enclosing assignment
+             * (`self.x = ...` is a write, not a read). */
+            if (ctx->in_init_method && fa->object &&
+                fa->object->kind == IRON_NODE_IDENT && fa->field &&
+                ctx->cur_assign_target != (Iron_Node *)fa) {
+                Iron_Ident *fo = (Iron_Ident *)fa->object;
+                if (fo->name && strcmp(fo->name, "self") == 0 &&
+                    ctx->unassigned_fields &&
+                    shget(ctx->unassigned_fields, fa->field) == 1) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "field '%s' read before assignment in init",
+                             fa->field);
+                    emit_error(ctx, IRON_ERR_INIT_READ_BEFORE_ASSIGN,
+                               fa->span, msg, NULL);
+                }
+            }
+
             /* Unwrap rc pointer types to access the inner object type.
              * heap types already expose the inner object type directly (IRON_NODE_HEAP
              * sets resolved_type to the inner construct type, not an RC wrapper). */
@@ -2044,6 +2230,20 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_CONSTRUCT: {
             Iron_ConstructExpr *ce = (Iron_ConstructExpr *)node;
+
+            /* Phase 85 INIT-14 E0251: inside an init body, constructing an
+             * instance of the enclosing type is delegation and is rejected.
+             * Fires before the sym lookup so even an anonymous init that
+             * doesn't otherwise resolve still surfaces this diagnostic.
+             * Fall through after emit so arg-type errors still surface. */
+            if (ctx->in_init_method && ctx->current_method_type &&
+                ce->type_name &&
+                strcmp(ce->type_name, ctx->current_method_type) == 0) {
+                emit_error(ctx, IRON_ERR_INIT_DELEGATION, ce->span,
+                           "init cannot delegate to another init of the "
+                           "enclosing type",
+                           NULL);
+            }
 
             Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, ce->type_name);
             if (!sym) {
@@ -3005,7 +3205,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Phase 85 INIT-05: mark the assign target while it's being
+             * checked so the FIELD_ACCESS handler can suppress the E0246
+             * read-before-assign check on the immediate target node. */
+            Iron_Node *prev_assign_target = ctx->cur_assign_target;
+            ctx->cur_assign_target = as->target;
             Iron_Type *target_type = check_expr(ctx, as->target);
+            ctx->cur_assign_target = prev_assign_target;
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
 
             if (is_immutable) {
@@ -3060,6 +3266,66 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         snprintf(msg, sizeof(msg),
                                  "cannot write self.field in %s method", tier);
                         emit_error(ctx, code, as->span, msg, NULL);
+                    }
+                }
+            }
+
+            /* Phase 85 INIT-12 E0248 + definite-assignment state update.
+             * Inside an init body, a write to self.<field>:
+             *   1. Emits E0248 if the target is a val field that has already
+             *      been assigned (field was removed from unassigned_fields
+             *      AND the Iron_Field has is_var=false).
+             *   2. Removes the field from unassigned_fields so subsequent
+             *      reads via FIELD_ACCESS (E0246) and exits (E0247) see it
+             *      as assigned on this path.
+             * Only fires when the assignment is a DIRECT self.<field>
+             * write (not chained like self.inner.field). The chain walk
+             * matches the Phase 84 readonly/pure guard above: walk through
+             * FIELD_ACCESS links and confirm the innermost FIELD_ACCESS's
+             * object is IDENT "self" (no intervening object layers). */
+            if (ctx->in_init_method &&
+                as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+                if (tfa->object && tfa->object->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *rid = (Iron_Ident *)tfa->object;
+                    if (rid->name && strcmp(rid->name, "self") == 0 &&
+                        tfa->field) {
+                        /* Look up whether the field is var or val on the
+                         * enclosing ObjectDecl. */
+                        bool target_is_val = false;
+                        bool field_found = false;
+                        if (ctx->current_method_type) {
+                            Iron_Symbol *ts = iron_scope_lookup(
+                                ctx->global_scope, ctx->current_method_type);
+                            if (ts && ts->decl_node &&
+                                ts->decl_node->kind == IRON_NODE_OBJECT_DECL) {
+                                Iron_ObjectDecl *od = (Iron_ObjectDecl *)ts->decl_node;
+                                for (int fi = 0; fi < od->field_count; fi++) {
+                                    Iron_Field *ff = (Iron_Field *)od->fields[fi];
+                                    if (ff && ff->name &&
+                                        strcmp(ff->name, tfa->field) == 0) {
+                                        field_found = true;
+                                        target_is_val = !ff->is_var;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (field_found && target_is_val &&
+                            ctx->unassigned_fields &&
+                            shget(ctx->unassigned_fields, tfa->field) == 0) {
+                            /* Field is a val AND was already removed from
+                             * the unassigned set => second assignment. */
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "val field '%s' assigned more than once in init",
+                                     tfa->field);
+                            emit_error(ctx, IRON_ERR_INIT_VAL_DOUBLE_ASSIGN,
+                                       as->span, msg, NULL);
+                        }
+                        if (ctx->unassigned_fields) {
+                            (void)shdel(ctx->unassigned_fields, tfa->field);
+                        }
                     }
                 }
             }
@@ -3164,6 +3430,29 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 ret_type = check_expr_with_expected(ctx, rs->value, ctx->current_return_type);
             } else {
                 ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
+            }
+
+            /* Phase 85 INIT-10/11: inside an init body,
+             *   E0252 fires when `return <expr>` carries a value (init is a
+             *   void-returning constructor; parser already blocks a declared
+             *   return type, this blocks value-carrying returns in the body);
+             *   E0250 fires when the return is reached with any field still
+             *   in unassigned_fields (early-return before full assignment),
+             *   regardless of whether the return carries a value. */
+            if (ctx->in_init_method) {
+                if (rs->value) {
+                    emit_error(ctx, IRON_ERR_INIT_RETURN_VALUE, rs->span,
+                               "init cannot return a value", NULL);
+                }
+                if (ctx->unassigned_fields &&
+                    shlen(ctx->unassigned_fields) > 0) {
+                    const char *first = ctx->unassigned_fields[0].key;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "init cannot return before field '%s' is assigned on this path",
+                             first ? first : "?");
+                    emit_error(ctx, IRON_ERR_INIT_EARLY_RETURN, rs->span, msg, NULL);
+                }
             }
 
             if (ctx->current_return_type && ret_type) {
@@ -3288,12 +3577,88 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             /* ── Default: no narrowing ─────────────────────────────────────── */
             else {
-                if (is_s->body) check_stmt(ctx, is_s->body);
-                for (int i = 0; i < is_s->elif_count; i++) {
-                    check_expr(ctx, is_s->elif_conds[i]);
-                    if (is_s->elif_bodies[i]) check_stmt(ctx, is_s->elif_bodies[i]);
+                /* Phase 85 INIT-04/06: inside an init body, the definite-
+                 * assignment analysis must union unassigned_fields across
+                 * every control-flow branch. A field is considered unassigned
+                 * on the merged path if it remains unassigned on ANY branch
+                 * (then, any elif, else). If else is absent, the implicit
+                 * "fall-through with no writes" branch preserves the
+                 * pre-branch set (so no field is removed by the else path).
+                 *
+                 * Strategy: snapshot the pre-branch set once, run each branch
+                 * starting from a fresh clone of the snapshot, capture the
+                 * branch's resulting set, and union (keep-unassigned-in-ANY)
+                 * them all into a merged set after traversal. */
+                if (ctx->in_init_method && ctx->unassigned_fields) {
+                    InitUnassignedEntry *pre = NULL;
+                    init_unassigned_clone(&pre, ctx->unassigned_fields);
+
+                    /* Collect per-branch post-traversal sets. We cap at
+                     * 1 (then) + elif_count + 1 (else/implicit) branches. */
+                    int branch_count = 1 + is_s->elif_count + 1;
+                    InitUnassignedEntry **post =
+                        (InitUnassignedEntry **)iron_arena_alloc(
+                            ctx->arena,
+                            (size_t)branch_count * sizeof(InitUnassignedEntry *),
+                            _Alignof(InitUnassignedEntry *));
+                    if (!post) iron_oom_abort("typecheck.c:IF init branch-merge post");
+                    int branch_idx = 0;
+
+                    /* then-branch */
+                    shfree(ctx->unassigned_fields);
+                    init_unassigned_clone(&ctx->unassigned_fields, pre);
+                    if (is_s->body) check_stmt(ctx, is_s->body);
+                    post[branch_idx++] = ctx->unassigned_fields;
+                    ctx->unassigned_fields = NULL;
+
+                    /* elif branches */
+                    for (int i = 0; i < is_s->elif_count; i++) {
+                        check_expr(ctx, is_s->elif_conds[i]);
+                        init_unassigned_clone(&ctx->unassigned_fields, pre);
+                        if (is_s->elif_bodies[i]) check_stmt(ctx, is_s->elif_bodies[i]);
+                        post[branch_idx++] = ctx->unassigned_fields;
+                        ctx->unassigned_fields = NULL;
+                    }
+
+                    /* else branch. If absent, the implicit "no writes"
+                     * branch means the starting set (pre) is the ending set;
+                     * record a clone of pre as the post-set. */
+                    if (is_s->else_body) {
+                        init_unassigned_clone(&ctx->unassigned_fields, pre);
+                        check_stmt(ctx, is_s->else_body);
+                        post[branch_idx++] = ctx->unassigned_fields;
+                        ctx->unassigned_fields = NULL;
+                    } else {
+                        InitUnassignedEntry *pre_clone = NULL;
+                        init_unassigned_clone(&pre_clone, pre);
+                        post[branch_idx++] = pre_clone;
+                    }
+
+                    /* Union: a field is unassigned on the merged path if it
+                     * is unassigned on ANY branch's post-set. */
+                    InitUnassignedEntry *merged = NULL;
+                    sh_new_strdup(merged);
+                    for (int b = 0; b < branch_idx; b++) {
+                        if (!post[b]) continue;
+                        for (ptrdiff_t i = 0; i < shlen(post[b]); i++) {
+                            if (shget(merged, post[b][i].key) == 0) {
+                                shput(merged, post[b][i].key, 1);
+                            }
+                        }
+                    }
+                    for (int b = 0; b < branch_idx; b++) {
+                        if (post[b]) shfree(post[b]);
+                    }
+                    shfree(pre);
+                    ctx->unassigned_fields = merged;
+                } else {
+                    if (is_s->body) check_stmt(ctx, is_s->body);
+                    for (int i = 0; i < is_s->elif_count; i++) {
+                        check_expr(ctx, is_s->elif_conds[i]);
+                        if (is_s->elif_bodies[i]) check_stmt(ctx, is_s->elif_bodies[i]);
+                    }
+                    if (is_s->else_body) check_stmt(ctx, is_s->else_body);
                 }
-                if (is_s->else_body) check_stmt(ctx, is_s->else_body);
             }
             break;
         }
@@ -3306,7 +3671,20 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ws->span,
                            "while condition must be Bool", NULL);
             }
-            if (ws->body) check_stmt(ctx, ws->body);
+            /* Phase 85 INIT-04/06: while bodies may execute zero times, so
+             * writes inside the body do NOT remove fields from the outer
+             * unassigned set. Snapshot the set, traverse the body (so E0246
+             * / E0248 / E0249 / E0250 / E0252 still fire inside), then
+             * restore the pre-loop snapshot. */
+            if (ctx->in_init_method && ctx->unassigned_fields) {
+                InitUnassignedEntry *pre = NULL;
+                init_unassigned_clone(&pre, ctx->unassigned_fields);
+                if (ws->body) check_stmt(ctx, ws->body);
+                shfree(ctx->unassigned_fields);
+                ctx->unassigned_fields = pre;
+            } else {
+                if (ws->body) check_stmt(ctx, ws->body);
+            }
             break;
         }
 
@@ -3323,7 +3701,18 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             tc_define(ctx, fs->var_name, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
                       true, loop_var_type);
-            if (fs->body) check_stmt(ctx, fs->body);
+            /* Phase 85 INIT-04/06: for bodies may execute zero times (empty
+             * iterable). Mirror the while-loop snapshot/restore so self.field
+             * writes inside the body do not count toward "always assigned". */
+            if (ctx->in_init_method && ctx->unassigned_fields) {
+                InitUnassignedEntry *pre = NULL;
+                init_unassigned_clone(&pre, ctx->unassigned_fields);
+                if (fs->body) check_stmt(ctx, fs->body);
+                shfree(ctx->unassigned_fields);
+                ctx->unassigned_fields = pre;
+            } else {
+                if (fs->body) check_stmt(ctx, fs->body);
+            }
             tc_pop_scope(ctx);
             break;
         }
@@ -3720,6 +4109,11 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     bool prev_in_synth    = ctx->in_synth_accessor;
     bool prev_in_readonly = ctx->in_readonly_method;
     bool prev_in_pure     = ctx->in_pure_method;
+    bool prev_in_init     = ctx->in_init_method;
+    /* Save the parent unassigned_fields pointer; we swap in a fresh per-init
+     * set on init entry and shfree+restore at exit. For non-init methods we
+     * leave the parent pointer in place (value is NULL outside inits). */
+    InitUnassignedEntry *prev_unassigned = ctx->unassigned_fields;
     ctx->current_return_type   = (ret_type->kind != IRON_TYPE_VOID) ? ret_type : NULL;
     ctx->current_method_type   = md->type_name;
     /* Phase 83-02: accessor bodies skip the pub-dispatch rewrite (see
@@ -3731,6 +4125,27 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
      * grammar) preserve the enclosing tier. */
     ctx->in_readonly_method    = md->is_readonly || md->is_pure;
     ctx->in_pure_method        = md->is_pure;
+    /* Phase 85 INIT: enter init body. Populate unassigned_fields with every
+     * field on the enclosing ObjectDecl so the definite-assignment analysis
+     * can strike them off on `self.<field> = ...` writes and emit E0247 at
+     * exit when any remain. */
+    ctx->in_init_method        = md->is_init;
+    if (md->is_init) {
+        ctx->unassigned_fields = NULL;
+        sh_new_strdup(ctx->unassigned_fields);
+        if (md->type_name) {
+            Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, md->type_name);
+            if (type_sym && type_sym->sym_kind == IRON_SYM_TYPE &&
+                type_sym->decl_node &&
+                type_sym->decl_node->kind == IRON_NODE_OBJECT_DECL) {
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)type_sym->decl_node;
+                for (int fi = 0; fi < od->field_count; fi++) {
+                    Iron_Field *f = (Iron_Field *)od->fields[fi];
+                    if (f && f->name) shput(ctx->unassigned_fields, f->name, 1);
+                }
+            }
+        }
+    }
 
     tc_push_scope(ctx, IRON_SCOPE_FUNCTION);
 
@@ -3755,6 +4170,24 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
 
     tc_pop_scope(ctx);
 
+    /* Phase 85 INIT-06: if init body returned via the natural exit path
+     * without filling every field, emit E0247 citing the first remaining
+     * unassigned field. Early-return paths already fired E0250 during body
+     * traversal — this guard handles the no-return exit case. */
+    if (md->is_init && ctx->unassigned_fields &&
+        shlen(ctx->unassigned_fields) > 0) {
+        const char *first = ctx->unassigned_fields[0].key;
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "init leaves field '%s' unassigned on some exit path",
+                 first ? first : "?");
+        emit_error(ctx, IRON_ERR_INIT_UNASSIGNED_EXIT, md->span, msg, NULL);
+    }
+    if (md->is_init && ctx->unassigned_fields) {
+        shfree(ctx->unassigned_fields);
+    }
+    ctx->unassigned_fields   = prev_unassigned;
+    ctx->in_init_method      = prev_in_init;
     ctx->current_return_type = prev_ret;
     ctx->current_method_type = prev_type_name;
     ctx->in_synth_accessor   = prev_in_synth;
@@ -3837,6 +4270,9 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.in_synth_accessor   = false;
     ctx.in_readonly_method  = false;
     ctx.in_pure_method      = false;
+    ctx.in_init_method      = false;
+    ctx.cur_assign_target   = NULL;
+    ctx.unassigned_fields   = NULL;
     ctx.narrowed            = NULL;
     ctx.program             = program;
     ctx.spawn_result_types  = NULL;
