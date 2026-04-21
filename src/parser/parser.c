@@ -75,9 +75,9 @@ static Iron_Node *iron_parse_expr(Iron_Parser *p);
 static Iron_Node *iron_parse_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_block(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p);
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private);
+static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private);
-static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private);
+static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private);
 static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private);
 static Iron_Node *iron_parse_import_decl(Iron_Parser *p);
@@ -2623,7 +2623,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)f;
 }
 
-static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
+                                         Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'object' */
 
@@ -2682,6 +2683,108 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+
+        /* Phase 82 GRAMMAR-01..04: in-block method declaration.
+         * `func name(params) [-> ret] { body }` inside an object body
+         * desugars to a top-level Iron_MethodDecl with is_receiver_form=true,
+         * identical in shape to `func (r: T) name()` from Phase 79. The
+         * synthesized `self` param is prepended to the explicit param list.
+         * The resulting MethodDecl is pushed into *extra_decls_out; the
+         * top-level iron_parse loop flushes it into program->decls
+         * immediately after this ObjectDecl. */
+        if (iron_check(p, IRON_TOK_FUNC)) {
+            Iron_Token *fstart = iron_current(p);
+            iron_advance(p);  /* consume 'func' */
+
+            if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+                iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "expected method name in object body");
+                iron_parser_sync_stmt(p);
+                iron_skip_newlines(p);
+                continue;
+            }
+            Iron_Token *mname_tok = iron_advance(p);
+
+            /* Explicit params (no receiver in source; we synthesize self). */
+            int explicit_count = 0;
+            Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
+
+            /* Optional return type */
+            Iron_Node *mret = NULL;
+            if (iron_match(p, IRON_TOK_ARROW)) {
+                mret = iron_parse_type_annotation(p);
+            }
+
+            /* Body */
+            Iron_Node *mbody = iron_parse_block(p);
+
+            /* Synthesize the implicit `self` receiver param. Mirrors the
+             * receiver-param synthesis pattern at parser.c:2392-2411. */
+            Iron_Param *synth_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!synth_self) iron_oom_abort("parser.c:iron_parse_object_decl in-block synth self");
+            synth_self->kind            = IRON_NODE_PARAM;
+            synth_self->span            = iron_token_span(p, fstart);
+            synth_self->is_var          = false;
+            synth_self->is_mut_receiver = false;  /* Phase 82: mutating default; Phase 84 extends */
+            synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_object_decl in-block self name");
+
+            /* Type annotation for self: the enclosing object type. */
+            Iron_TypeAnnotation *self_type = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!self_type) iron_oom_abort("parser.c:iron_parse_object_decl in-block self type");
+            memset(self_type, 0, sizeof(*self_type));
+            self_type->kind = IRON_NODE_TYPE_ANNOTATION;
+            self_type->span = iron_token_span(p, fstart);
+            self_type->name = iron_arena_strdup(p->arena, name_tok->value,
+                                                 strlen(name_tok->value));
+            if (!self_type->name) iron_oom_abort("parser.c:iron_parse_object_decl in-block self type name");
+            synth_self->type_ann = (Iron_Node *)self_type;
+
+            /* Prepend synth_self to explicit params. */
+            int total = explicit_count + 1;
+            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *) * (size_t)total,
+                _Alignof(Iron_Node *));
+            if (!all_params) iron_oom_abort("parser.c:iron_parse_object_decl in-block params array");
+            all_params[0] = (Iron_Node *)synth_self;
+            for (int i = 0; i < explicit_count; i++) {
+                all_params[i + 1] = explicit_params[i];
+            }
+
+            /* Build the Iron_MethodDecl; mirror parser.c:2413-2436. */
+            Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!m) iron_oom_abort("parser.c:iron_parse_object_decl in-block MethodDecl");
+            m->kind                 = IRON_NODE_METHOD_DECL;
+            m->span                 = iron_span_merge(iron_token_span(p, fstart),
+                                                       mbody ? mbody->span
+                                                             : iron_token_span(p, fstart));
+            m->type_name            = iron_arena_strdup(p->arena, name_tok->value,
+                                                         strlen(name_tok->value));
+            if (!m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl in-block type_name");
+            m->method_name          = iron_arena_strdup(p->arena, mname_tok->value,
+                                                         strlen(mname_tok->value));
+            if (!m->method_name) iron_oom_abort("parser.c:iron_parse_object_decl in-block method_name");
+            m->params               = all_params;
+            m->param_count          = total;
+            m->return_type          = mret;
+            m->body                 = mbody;
+            m->is_private           = false;  /* Phase 82: default public; Phase 83 adds pub opt-in */
+            m->generic_params       = NULL;
+            m->generic_param_count  = 0;
+            m->resolved_return_type = NULL;
+            m->owner_sym            = NULL;
+            m->is_array_extension   = false;
+            m->elem_type_name       = NULL;
+            m->is_fusible           = false;
+            m->is_receiver_form     = true;   /* CRITICAL: triggers Phase 79 resolver path */
+
+            if (extra_decls_out) {
+                arrput(*extra_decls_out, (Iron_Node *)m);
+            }
+            iron_skip_newlines(p);
+            continue;
+        }
 
         bool is_var = false;
         Iron_Token *field_start = iron_current(p);
@@ -2972,7 +3075,8 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)n;
 }
 
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
+                                  Iron_Node ***extra_decls_out) {
     switch ((int)iron_peek(p)) {
         case IRON_TOK_AT: {
             iron_advance(p);  /* consume '@' */
@@ -3016,7 +3120,7 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
             return n;
         }
         case IRON_TOK_OBJECT:    {
-            Iron_Node *n = iron_parse_object_decl(p, is_private);
+            Iron_Node *n = iron_parse_object_decl(p, is_private, extra_decls_out);
             p->in_error_recovery = false;
             return n;
         }
@@ -3070,6 +3174,14 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     Iron_Node **decls = NULL;
     int decl_count    = 0;
 
+    /* Phase 82 GRAMMAR: in-block methods synthesized by iron_parse_object_decl
+     * are delivered here via this extra-decls channel. Each call to
+     * iron_parse_decl may append zero or more Iron_MethodDecl nodes to
+     * *extra_decls; we flush them into `decls` after every iteration so they
+     * appear at program->decls ordered after their enclosing ObjectDecl. The
+     * storage is reused across iterations (arrsetlen(..., 0)). */
+    Iron_Node **extra_decls = NULL;
+
     while (!iron_check(p, IRON_TOK_EOF)) {
         int pos_before = p->pos;
         iron_skip_newlines(p);
@@ -3088,9 +3200,16 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             is_private = true;
         }
 
-        Iron_Node *d = iron_parse_decl(p, is_private);
+        Iron_Node *d = iron_parse_decl(p, is_private, &extra_decls);
         arrput(decls, d);
         decl_count++;
+        /* Phase 82: flush any in-block methods synthesized during this decl
+         * so they live at top level right after their enclosing ObjectDecl. */
+        for (int i = 0; i < (int)arrlen(extra_decls); i++) {
+            arrput(decls, extra_decls[i]);
+            decl_count++;
+        }
+        arrsetlen(extra_decls, 0);
         iron_skip_newlines(p);
         /* No-progress guard at the top level: if iron_parse_decl failed to
          * consume any tokens, emit one generic diagnostic and skip one token.
@@ -3104,6 +3223,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
         }
     }
+    arrfree(extra_decls);
 
     Iron_Program *prog  = ARENA_ALLOC(p->arena, Iron_Program);
     if (!prog) iron_oom_abort("parser.c:iron_parse Program");
