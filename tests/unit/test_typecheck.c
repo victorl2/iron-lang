@@ -1800,6 +1800,268 @@ void test_readonly_callable_on_val_binding(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
 }
 
+/* ── Phase 85 INIT Plan 85-02 Task 1: definite-assignment + delegation + return-value ── */
+
+void test_init_read_before_assign_emits_E0246(void) {
+    /* Reading self.x inside init body BEFORE x is assigned fires E0246. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  init() {\n"
+        "    val tmp: Int = self.x\n"
+        "    self.x = 1\n"
+        "    self.y = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_READ_BEFORE_ASSIGN));
+}
+
+void test_init_all_fields_assigned_no_E0247(void) {
+    /* init assigns every field on every exit path -> no E0247. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_missing_field_emits_E0247(void) {
+    /* init leaves `y` unassigned on the exit path -> E0247. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_missing_on_branch_emits_E0247(void) {
+    /* then-branch assigns x, else-branch does not -> x unassigned on merged
+     * path -> E0247 at init exit. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(c: Bool) {\n"
+        "    if c {\n"
+        "      self.x = 1\n"
+        "    } else {\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_assigned_on_both_branches_ok(void) {
+    /* Both then and else assign x -> merged path assigns x -> no E0247. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(c: Bool) {\n"
+        "    if c {\n"
+        "      self.x = 1\n"
+        "    } else {\n"
+        "      self.x = 2\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_val_double_assign_emits_E0248(void) {
+    /* val field assigned twice in init body -> E0248 at the second write. */
+    parse_and_resolve(
+        "object P {\n"
+        "  val x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.x = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_VAL_DOUBLE_ASSIGN));
+}
+
+void test_init_var_double_assign_ok(void) {
+    /* var field assigned twice is legal in init (var writes freely). */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.x = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_VAL_DOUBLE_ASSIGN));
+}
+
+void test_init_method_on_partial_self_emits_E0249(void) {
+    /* Calling self.helper() while some field still unassigned -> E0249. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  func helper() {}\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.helper()\n"
+        "    self.y = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_METHOD_ON_PARTIAL));
+}
+
+void test_init_method_on_full_self_ok(void) {
+    /* Calling self.helper() once all fields assigned -> no E0249. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  func helper() {}\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.helper()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_METHOD_ON_PARTIAL));
+}
+
+void test_init_early_return_emits_E0250(void) {
+    /* Bare `return` inside an init body while some field is still
+     * unassigned -> E0250. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(c: Bool) {\n"
+        "    if c {\n"
+        "      return\n"
+        "    }\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_EARLY_RETURN));
+}
+
+void test_init_bare_return_after_full_assign_ok(void) {
+    /* Bare return after all fields assigned is legal -> no E0250. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    return\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_EARLY_RETURN));
+}
+
+void test_init_return_value_emits_E0252(void) {
+    /* `return <expr>` inside init body -> E0252 regardless of assignment
+     * state. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    return 5\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_RETURN_VALUE));
+}
+
+void test_init_delegation_to_anonymous_emits_E0251(void) {
+    /* Inside a named init body, constructing P(...) (the enclosing type)
+     * is delegation -> E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init alt() {\n"
+        "    val tmp: P = P(0)\n"
+        "    self.x = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_init_delegation_to_named_emits_E0251(void) {
+    /* Inside an init body, calling P.alt() where alt is a named init on the
+     * enclosing type -> E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    val tmp: P = P.alt()\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "  init alt() { self.x = 9 }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_init_delegation_via_self_init_emits_E0251(void) {
+    /* self.init(...) inside any init body -> E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.init()\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_method_call_Type_args_not_delegation(void) {
+    /* INIT-16 regression: non-init method bodies may construct P(args) and
+     * must NOT emit E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  func clone() -> P {\n"
+        "    return P(self.x)\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1921,6 +2183,24 @@ int main(void) {
     RUN_TEST(test_pure_reads_val_global_is_ok);
     RUN_TEST(test_mutating_calls_on_val_binding_still_emits_E0235);
     RUN_TEST(test_readonly_callable_on_val_binding);
+
+    /* Phase 85 INIT Plan 85-02 Task 1: definite-assignment + delegation + return-value. */
+    RUN_TEST(test_init_read_before_assign_emits_E0246);
+    RUN_TEST(test_init_all_fields_assigned_no_E0247);
+    RUN_TEST(test_init_missing_field_emits_E0247);
+    RUN_TEST(test_init_missing_on_branch_emits_E0247);
+    RUN_TEST(test_init_assigned_on_both_branches_ok);
+    RUN_TEST(test_init_val_double_assign_emits_E0248);
+    RUN_TEST(test_init_var_double_assign_ok);
+    RUN_TEST(test_init_method_on_partial_self_emits_E0249);
+    RUN_TEST(test_init_method_on_full_self_ok);
+    RUN_TEST(test_init_early_return_emits_E0250);
+    RUN_TEST(test_init_bare_return_after_full_assign_ok);
+    RUN_TEST(test_init_return_value_emits_E0252);
+    RUN_TEST(test_init_delegation_to_anonymous_emits_E0251);
+    RUN_TEST(test_init_delegation_to_named_emits_E0251);
+    RUN_TEST(test_init_delegation_via_self_init_emits_E0251);
+    RUN_TEST(test_method_call_Type_args_not_delegation);
 
     return UNITY_END();
 }
