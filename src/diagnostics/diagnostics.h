@@ -143,6 +143,13 @@ void iron_diaglist_free(Iron_DiagList *list);
  * field in the same object. Locks ACCESS-06. */
 #define IRON_ERR_ACCESSOR_NAME_RESERVED 237
 
+/* MUTTIER (Phase 84) — mutation-tier placement / exclusivity error.
+ * IRON_ERR_TIER_MODIFIER_PLACEMENT fires when `readonly` or `pure` appears
+ * outside an object-block method declaration, or when both appear together
+ * on the same method. Plan 84-01 grammar guard; Plan 84-02 adds the
+ * tier-violation error codes 238..244 for typechecker enforcement. */
+#define IRON_ERR_TIER_MODIFIER_PLACEMENT 245
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301

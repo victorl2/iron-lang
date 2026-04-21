@@ -563,6 +563,179 @@ void test_pub_var_setter_collides_with_user_method(void) {
         "expected IRON_ERR_ACCESSOR_NAME_RESERVED for set_hp collision");
 }
 
+/* ── Phase 84 MUTTIER-01/02/03: readonly + pure modifier threading ────────── */
+/* Phase 84 adds two modifier tokens on object-block methods. After the
+ * optional `pub`, the parser now accepts an optional `readonly` XOR `pure`
+ * modifier before `func`. The parse lands on Iron_MethodDecl.is_readonly /
+ * is_pure so Plan 84-02 can fire tier-violation diagnostics. Synthesized
+ * getters are retrofitted readonly+pure (field read is pure by definition);
+ * synthesized setters keep both false (default-mutating). Top-level readonly
+ * and pure plus the readonly+pure combo are rejected with E0245
+ * (IRON_ERR_TIER_MODIFIER_PLACEMENT). */
+
+void test_readonly_method_parse(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    readonly func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_EQUAL_STRING("foo", m->method_name);
+    TEST_ASSERT_TRUE(m->is_readonly);
+    TEST_ASSERT_FALSE(m->is_pure);
+}
+
+void test_pure_method_parse(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    pure func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_EQUAL_STRING("foo", m->method_name);
+    TEST_ASSERT_FALSE(m->is_readonly);
+    TEST_ASSERT_TRUE(m->is_pure);
+}
+
+void test_plain_method_has_default_tier(void) {
+    /* MUTTIER-01 ground truth: unmarked `func foo()` is default-mutating
+     * (both tier flags false). */
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_FALSE(m->is_readonly);
+    TEST_ASSERT_FALSE(m->is_pure);
+}
+
+void test_pub_readonly_method(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    pub readonly func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_TRUE(m->is_readonly);
+    TEST_ASSERT_FALSE(m->is_pure);
+}
+
+void test_pub_pure_method(void) {
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    pub pure func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(2, pr->decl_count);
+    Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, m->kind);
+    TEST_ASSERT_FALSE(m->is_readonly);
+    TEST_ASSERT_TRUE(m->is_pure);
+}
+
+static bool has_diag_code(int code) {
+    for (int i = 0; i < diags.count; i++) {
+        if (diags.items[i].code == code) return true;
+    }
+    return false;
+}
+
+void test_readonly_pure_combo_rejected(void) {
+    (void)parse(
+        "object X {\n"
+        "    readonly pure func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_TIER_MODIFIER_PLACEMENT),
+        "expected IRON_ERR_TIER_MODIFIER_PLACEMENT for readonly+pure combo");
+}
+
+void test_pure_readonly_combo_rejected(void) {
+    (void)parse(
+        "object X {\n"
+        "    pure readonly func foo() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_TIER_MODIFIER_PLACEMENT),
+        "expected IRON_ERR_TIER_MODIFIER_PLACEMENT for pure+readonly combo");
+}
+
+void test_readonly_at_top_level_rejected(void) {
+    (void)parse("readonly func foo() {}\n");
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_TIER_MODIFIER_PLACEMENT),
+        "expected IRON_ERR_TIER_MODIFIER_PLACEMENT for top-level readonly");
+}
+
+void test_pure_at_top_level_rejected(void) {
+    (void)parse("pure func foo() {}\n");
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_TIER_MODIFIER_PLACEMENT),
+        "expected IRON_ERR_TIER_MODIFIER_PLACEMENT for top-level pure");
+}
+
+void test_synth_getter_is_readonly_and_pure(void) {
+    /* Phase 83 synth accessor retrofit: the getter synthesized for every pub
+     * val / pub var field must come out as is_readonly=true AND is_pure=true
+     * so readonly and pure methods can call it. The setter synthesized for a
+     * pub var must stay is_readonly=false AND is_pure=false (default
+     * mutating). */
+    Iron_Node *prog = parse(
+        "object X {\n"
+        "    pub val a: Int\n"
+        "    pub var b: Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    /* ObjectDecl + getter(a) + getter(b) + setter(b) = 4 decls. */
+    TEST_ASSERT_EQUAL(4, pr->decl_count);
+
+    Iron_MethodDecl *get_a = (Iron_MethodDecl *)pr->decls[1];
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, get_a->kind);
+    TEST_ASSERT_EQUAL_STRING("a", get_a->method_name);
+    TEST_ASSERT_TRUE(get_a->is_synth_accessor);
+    TEST_ASSERT_TRUE(get_a->is_readonly);
+    TEST_ASSERT_TRUE(get_a->is_pure);
+
+    Iron_MethodDecl *get_b = (Iron_MethodDecl *)pr->decls[2];
+    TEST_ASSERT_EQUAL_STRING("b", get_b->method_name);
+    TEST_ASSERT_TRUE(get_b->is_synth_accessor);
+    TEST_ASSERT_TRUE(get_b->is_readonly);
+    TEST_ASSERT_TRUE(get_b->is_pure);
+
+    Iron_MethodDecl *set_b = (Iron_MethodDecl *)pr->decls[3];
+    TEST_ASSERT_EQUAL_STRING("set_b", set_b->method_name);
+    TEST_ASSERT_TRUE(set_b->is_synth_accessor);
+    TEST_ASSERT_FALSE(set_b->is_readonly);
+    TEST_ASSERT_FALSE(set_b->is_pure);
+}
+
 /* ── Interface declarations ──────────────────────────────────────────────── */
 
 void test_parse_interface_decl(void) {
@@ -1048,6 +1221,18 @@ int main(void) {
     RUN_TEST(test_non_pub_field_does_not_synthesize);
     RUN_TEST(test_pub_val_getter_collides_with_user_method);
     RUN_TEST(test_pub_var_setter_collides_with_user_method);
+
+    /* Phase 84 MUTTIER-01/02/03: readonly + pure modifier threading. */
+    RUN_TEST(test_readonly_method_parse);
+    RUN_TEST(test_pure_method_parse);
+    RUN_TEST(test_plain_method_has_default_tier);
+    RUN_TEST(test_pub_readonly_method);
+    RUN_TEST(test_pub_pure_method);
+    RUN_TEST(test_readonly_pure_combo_rejected);
+    RUN_TEST(test_pure_readonly_combo_rejected);
+    RUN_TEST(test_readonly_at_top_level_rejected);
+    RUN_TEST(test_pure_at_top_level_rejected);
+    RUN_TEST(test_synth_getter_is_readonly_and_pure);
 
     RUN_TEST(test_parse_interface_decl);
     RUN_TEST(test_parse_enum_decl);

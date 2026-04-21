@@ -245,6 +245,19 @@ typedef struct {
      * Default false on every construction site; Plan 83-01 only threads
      * the default, no writer yet. */
     bool               is_synth_accessor;
+    /* Phase 84 MUTTIER-01/02: true when this method was declared with the
+     * `readonly` modifier in an object block (or retrofitted onto a synth
+     * accessor getter). Defaults false. Plan 84-02 reads this bit to
+     * reject self-field writes (E0238) and mutating-method calls (E0239)
+     * from readonly contexts. Mutual exclusion with is_pure is enforced
+     * at parse time via IRON_ERR_TIER_MODIFIER_PLACEMENT. */
+    bool               is_readonly;
+    /* Phase 84 MUTTIER-03: true when declared with `pure`. Defaults false.
+     * Plan 84-02 reads it to reject I/O (E0240), mutable globals (E0241),
+     * non-pure calls (E0242), param writes (E0243), and self-writes (E0244).
+     * Synth getters are retrofitted is_readonly=true AND is_pure=true in
+     * iron_parse_object_decl. Synth setters keep both false. */
+    bool               is_pure;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
