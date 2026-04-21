@@ -16,7 +16,7 @@ typedef enum {
     IRON_TOK_STRING,
     IRON_TOK_INTERP_STRING,
 
-    /* Keywords (39 total, alphabetical) */
+    /* Keywords (40 total, alphabetical) */
     IRON_TOK_AND,
     IRON_TOK_AWAIT,
     IRON_TOK_COMPTIME,
@@ -47,6 +47,7 @@ typedef enum {
     IRON_TOK_PARALLEL,
     IRON_TOK_POOL,
     IRON_TOK_PRIVATE,
+    IRON_TOK_PUB,
     IRON_TOK_RC,
     IRON_TOK_RETURN,
     IRON_TOK_SELF,

@@ -105,6 +105,47 @@ void test_identifier_not_keyword(void) {
     arrfree(toks);
 }
 
+/* ── Phase 83 ACCESS-02 / ACCESS-07: `pub` keyword + non-keywords ────────── */
+/* Phase 83 introduces `pub` as the sole visibility-opt-in keyword.
+ * `priv` and `public` must remain plain identifiers (ACCESS-07 guard:
+ * `priv` is NOT a keyword in v3.0; the v2.2 `private` keyword is preserved
+ * through Phase 83 and may be removed in Phase 88). */
+
+void test_lexer_pub_keyword(void) {
+    Iron_Token *toks = lex("pub");
+    TEST_ASSERT_EQUAL(IRON_TOK_PUB, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_priv_not_keyword(void) {
+    /* ACCESS-07 guard: `priv` is NOT a keyword in v3.0 — only `pub` opts in. */
+    Iron_Token *toks = lex("priv");
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("priv", toks[0].value);
+    arrfree(toks);
+}
+
+void test_lexer_public_not_keyword(void) {
+    /* Only `pub` is the keyword; `public` is a plain identifier. */
+    Iron_Token *toks = lex("public");
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("public", toks[0].value);
+    arrfree(toks);
+}
+
+void test_lexer_private_still_keyword(void) {
+    /* v2.2 `private` keyword preserved through Phase 83 for pure-superset
+     * guard; Phase 88 may remove it. */
+    Iron_Token *toks = lex("private");
+    TEST_ASSERT_EQUAL(IRON_TOK_PRIVATE, toks[0].kind);
+    arrfree(toks);
+}
+
+void test_lexer_pub_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_PUB", iron_token_kind_str(IRON_TOK_PUB));
+}
+
 /* ── Literal tests ───────────────────────────────────────────────────────── */
 
 void test_integer_literal(void) {
@@ -399,6 +440,13 @@ int main(void) {
     RUN_TEST(test_keyword_func);
     RUN_TEST(test_all_37_keywords);
     RUN_TEST(test_identifier_not_keyword);
+
+    /* Phase 83 ACCESS-02 / ACCESS-07: `pub` keyword + non-keyword guards */
+    RUN_TEST(test_lexer_pub_keyword);
+    RUN_TEST(test_lexer_priv_not_keyword);
+    RUN_TEST(test_lexer_public_not_keyword);
+    RUN_TEST(test_lexer_private_still_keyword);
+    RUN_TEST(test_lexer_pub_kind_str);
 
     RUN_TEST(test_integer_literal);
     RUN_TEST(test_float_literal);
