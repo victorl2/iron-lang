@@ -2440,6 +2440,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         rm->is_fusible           = false;
         rm->is_receiver_form     = true;
         rm->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
+        rm->is_readonly          = false;  /* Phase 84: receiver form has no tier modifier */
+        rm->is_pure              = false;
         return (Iron_Node *)rm;
     }
 
@@ -2526,6 +2528,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         if (!m->elem_type_name) iron_oom_abort("parser.c:iron_parse_func_or_method array elem_type_name");
         m->is_receiver_form     = false;
         m->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
+        m->is_readonly          = false;  /* Phase 84: array extension has no tier modifier */
+        m->is_pure              = false;
         return (Iron_Node *)m;
     }
 
@@ -2598,6 +2602,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->elem_type_name       = NULL;
         m->is_receiver_form     = false;
         m->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
+        m->is_readonly          = false;  /* Phase 84: classic Type.method has no tier modifier */
+        m->is_pure              = false;
         return (Iron_Node *)m;
     }
 
@@ -2702,6 +2708,36 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
         if (iron_check(p, IRON_TOK_PUB)) {
             iron_advance(p);
             member_is_pub = true;
+        }
+
+        /* Phase 84 MUTTIER-01/02/03: optional tier modifier after pub, before
+         * func. `readonly` XOR `pure` — never both. Valid only on object-block
+         * methods; top-level placement is rejected by the top-level decl loop
+         * via IRON_ERR_TIER_MODIFIER_PLACEMENT. */
+        bool member_is_readonly = false;
+        bool member_is_pure     = false;
+        if (iron_check(p, IRON_TOK_READONLY)) {
+            iron_advance(p);
+            member_is_readonly = true;
+            if (iron_check(p, IRON_TOK_PURE)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'readonly' and 'pure' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'pure' to recover */
+            }
+        } else if (iron_check(p, IRON_TOK_PURE)) {
+            iron_advance(p);
+            member_is_pure = true;
+            if (iron_check(p, IRON_TOK_READONLY)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'pure' and 'readonly' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'readonly' to recover */
+            }
         }
 
         /* Phase 82 GRAMMAR-01..04: in-block method declaration.
@@ -2810,6 +2846,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             /* Phase 83-01: default; Plan 83-02 flips on for synthesized
              * accessor methods; Phase 84 MUTTIER reads the bit. */
             m->is_synth_accessor    = false;
+            /* Phase 84 MUTTIER-01/02/03: carry the tier modifier consumed by
+             * the object body loop onto the AST. Plan 84-02 reads these bits
+             * to fire tier-violation diagnostics (E0238..E0244). */
+            m->is_readonly          = member_is_readonly;
+            m->is_pure              = member_is_pure;
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
@@ -2990,6 +3031,13 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             g_m->is_fusible           = false;
             g_m->is_receiver_form     = true;
             g_m->is_synth_accessor    = true;  /* Phase 83-02 marker */
+            /* Phase 84 MUTTIER retrofit: a synthesized getter is a read-only
+             * field load. Mark both tiers true so readonly AND pure methods
+             * can call `obj.field` through this getter without tripping
+             * E0239 (readonly calls mutating) or E0242 (pure calls non-pure)
+             * in Plan 84-02. */
+            g_m->is_readonly          = true;
+            g_m->is_pure              = true;
             arrput(*extra_decls_out, (Iron_Node *)g_m);
 
             if (!field->is_var) continue;
@@ -3114,6 +3162,12 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             s_m->is_fusible           = false;
             s_m->is_receiver_form     = true;
             s_m->is_synth_accessor    = true;
+            /* Phase 84 MUTTIER: synth setter writes self.field — default
+             * mutating. Spell the false-false explicitly for audit; arena
+             * zero-init already gives this, but future readers should see
+             * the intent on the line, not inferred. */
+            s_m->is_readonly          = false;
+            s_m->is_pure              = false;
             arrput(*extra_decls_out, (Iron_Node *)s_m);
         }
 
@@ -3528,6 +3582,31 @@ Iron_Node *iron_parse(Iron_Parser *p) {
                            iron_token_span(p, iron_current(p)),
                            "'pub' modifier only valid on object-block declarations");
             iron_advance(p);  /* consume pub */
+            iron_parser_sync_toplevel(p);
+            continue;
+        }
+
+        /* Phase 84 MUTTIER-01/02/03: `readonly` and `pure` are only valid on
+         * object-block methods. At top level fail fast with E0245
+         * (IRON_ERR_TIER_MODIFIER_PLACEMENT) so the user gets a clear
+         * pointer to the actual usage site. */
+        if (iron_check(p, IRON_TOK_READONLY)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                           iron_token_span(p, iron_current(p)),
+                           "'readonly' modifier only valid on object-block methods",
+                           NULL);
+            iron_advance(p);
+            iron_parser_sync_toplevel(p);
+            continue;
+        }
+        if (iron_check(p, IRON_TOK_PURE)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                           iron_token_span(p, iron_current(p)),
+                           "'pure' modifier only valid on object-block methods",
+                           NULL);
+            iron_advance(p);
             iron_parser_sync_toplevel(p);
             continue;
         }
