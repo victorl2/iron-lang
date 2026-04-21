@@ -47,7 +47,9 @@ static const KeywordEntry kw_table[] = {
     { "pool",       IRON_TOK_POOL       },
     { "private",    IRON_TOK_PRIVATE    },
     { "pub",        IRON_TOK_PUB        },
+    { "pure",       IRON_TOK_PURE       },  /* Phase 84 MUTTIER-03 */
     { "rc",         IRON_TOK_RC         },
+    { "readonly",   IRON_TOK_READONLY   },  /* Phase 84 MUTTIER-02 */
     { "return",     IRON_TOK_RETURN     },
     { "self",       IRON_TOK_SELF       },
     { "spawn",      IRON_TOK_SPAWN      },
@@ -108,7 +110,9 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_POOL]          = "IRON_TOK_POOL",
     [IRON_TOK_PRIVATE]       = "IRON_TOK_PRIVATE",
     [IRON_TOK_PUB]           = "IRON_TOK_PUB",
+    [IRON_TOK_PURE]          = "IRON_TOK_PURE",
     [IRON_TOK_RC]            = "IRON_TOK_RC",
+    [IRON_TOK_READONLY]      = "IRON_TOK_READONLY",
     [IRON_TOK_RETURN]        = "IRON_TOK_RETURN",
     [IRON_TOK_SELF]          = "IRON_TOK_SELF",
     [IRON_TOK_SPAWN]         = "IRON_TOK_SPAWN",
