@@ -2433,6 +2433,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         rm->elem_type_name       = NULL;
         rm->is_fusible           = false;
         rm->is_receiver_form     = true;
+        rm->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
         return (Iron_Node *)rm;
     }
 
@@ -2518,6 +2519,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
                                                      strlen(elem_type_tok->value));
         if (!m->elem_type_name) iron_oom_abort("parser.c:iron_parse_func_or_method array elem_type_name");
         m->is_receiver_form     = false;
+        m->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
         return (Iron_Node *)m;
     }
 
@@ -2589,6 +2591,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->is_array_extension   = false;
         m->elem_type_name       = NULL;
         m->is_receiver_form     = false;
+        m->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
         return (Iron_Node *)m;
     }
 
@@ -2683,6 +2686,17 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+
+        /* Phase 83 ACCESS-02: optional `pub` modifier on fields and methods.
+         * At method level in Plan 83-01 the bit is silently accepted but has
+         * no AST effect — methods default public in v2.2; Phase 88 flips the
+         * default. At field level the bit lands on Iron_Field.is_pub and
+         * drives accessor synthesis in Plan 83-02. */
+        bool member_is_pub = false;
+        if (iron_check(p, IRON_TOK_PUB)) {
+            iron_advance(p);
+            member_is_pub = true;
+        }
 
         /* Phase 82 GRAMMAR-01..04: in-block method declaration.
          * `func name(params) [-> ret] { body }` inside an object body
@@ -2782,6 +2796,14 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             m->elem_type_name       = NULL;
             m->is_fusible           = false;
             m->is_receiver_form     = true;   /* CRITICAL: triggers Phase 79 resolver path */
+            /* Phase 83-01: `pub` on methods is silently accepted — methods
+             * default public in v2.2 so `pub func foo()` and `func foo()`
+             * are semantically identical today. Phase 88 may reinterpret the
+             * bit when the default flips to private. */
+            (void)member_is_pub;
+            /* Phase 83-01: default; Plan 83-02 flips on for synthesized
+             * accessor methods; Phase 84 MUTTIER reads the bit. */
+            m->is_synth_accessor    = false;
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
@@ -2832,6 +2854,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
         if (!field->name) iron_oom_abort("parser.c:iron_parse_object_decl Field name");
         field->type_ann   = ftype;
         field->is_var     = is_var;
+        /* Phase 83 ACCESS-02: is_pub carries the optional `pub` modifier
+         * consumed earlier in this iteration. Plan 83-02 reads it to drive
+         * accessor synthesis. */
+        field->is_pub     = member_is_pub;
         arrput(fields, (Iron_Node *)field);
         field_count++;
         iron_skip_newlines(p);
@@ -3195,6 +3221,19 @@ Iron_Node *iron_parse(Iron_Parser *p) {
         if (iron_check(p, IRON_TOK_RBRACE)) {
             iron_advance(p);
             iron_skip_newlines(p);
+            continue;
+        }
+
+        /* Phase 83 ACCESS-02: `pub` outside an object body is illegal in
+         * v2.2/v3.0. Top-level decls default public; there is no opt-in
+         * knob. Phase 88 may reinterpret top-level `pub` when the default
+         * flips — for now fail fast with a clear message. */
+        if (iron_check(p, IRON_TOK_PUB)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "'pub' modifier only valid on object-block declarations");
+            iron_advance(p);  /* consume pub */
+            iron_parser_sync_toplevel(p);
             continue;
         }
 
