@@ -1601,6 +1601,204 @@ void test_synth_getter_callable_from_readonly(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
 }
 
+/* ── Phase 84 MUTTIER-03: pure tier enforcement (Plan 84-02 Task 2) ──────── */
+
+void test_pure_writes_self_emits_E0244(void) {
+    /* Pure method writing self.field must emit IRON_ERR_PURE_WRITE_SELF
+     * (244), not E0238 — pure gets a distinct error code for clearer
+     * diagnostic messaging. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  pure func mut() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+}
+
+void test_pure_calls_println_emits_E0240(void) {
+    /* Pure method calling println is I/O; reject with IRON_ERR_PURE_IO (240). */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func log() {\n"
+        "    println(\"hi\")\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_IO));
+}
+
+void test_pure_calls_print_emits_E0240(void) {
+    /* print is also on the pure I/O blocklist. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func log() {\n"
+        "    print(\"hi\")\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_IO));
+}
+
+void test_pure_heap_alloc_is_ok(void) {
+    /* 84-CONTEXT.md locks heap-alloc-allowed for pure tier. A pure method
+     * returning an array literal does not trip any tier error. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func mk() -> [Int] {\n"
+        "    return [1, 2, 3]\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_IO));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_PARAM_WRITE));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_WRITE_SELF));
+}
+
+void test_pure_writes_param_emits_E0243(void) {
+    /* Pure method writing to a param (var n) must emit
+     * IRON_ERR_PURE_PARAM_WRITE (243). Uses `var n: Int` param and
+     * re-assignment `n = 5` — avoids the INDEX path entirely so the
+     * check lands in the ident-write branch of IRON_NODE_ASSIGN. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func tweak(var n: Int) -> Int {\n"
+        "    n = 5\n"
+        "    return n\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_PARAM_WRITE));
+}
+
+void test_pure_calls_non_pure_method_emits_E0242(void) {
+    /* Pure cannot call readonly (only pure). E0242 fires. */
+    parse_and_resolve(
+        "object X {\n"
+        "  readonly func ro() -> Int {\n"
+        "    return 1\n"
+        "  }\n"
+        "  pure func p() -> Int {\n"
+        "    return self.ro()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+}
+
+void test_pure_calls_pure_method_is_ok(void) {
+    /* MUTTIER-06 positive: pure -> pure is legal. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func p1() -> Int {\n"
+        "    return 1\n"
+        "  }\n"
+        "  pure func p2() -> Int {\n"
+        "    return self.p1()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_IO));
+}
+
+void test_pure_reads_mutable_global_emits_E0241(void) {
+    /* Reading a top-level `var` from a pure method is a mutable-global
+     * access; emit IRON_ERR_PURE_MUTABLE_GLOBAL (241). */
+    parse_and_resolve(
+        "var counter: Int = 0\n"
+        "object X {\n"
+        "  pure func get() -> Int {\n"
+        "    return counter\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+}
+
+void test_pure_writes_mutable_global_emits_E0241(void) {
+    /* Writing to a top-level `var` from a pure method is also a
+     * mutable-global access; emit IRON_ERR_PURE_MUTABLE_GLOBAL. */
+    parse_and_resolve(
+        "var counter: Int = 0\n"
+        "object X {\n"
+        "  pure func set() {\n"
+        "    counter = 5\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+}
+
+void test_pure_reads_val_global_is_ok(void) {
+    /* Top-level `val` is immutable; pure can read it without tripping
+     * E0241. */
+    parse_and_resolve(
+        "val PI: Float = 3.14\n"
+        "object X {\n"
+        "  pure func c() -> Float {\n"
+        "    return PI\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+}
+
+void test_mutating_calls_on_val_binding_still_emits_E0235(void) {
+    /* MUTTIER-04 regression: Phase 80 E0235 (val-bound receiver +
+     * mutating method) still fires after the Plan 84-02 additions. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  func bump() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val x: X = X(0)\n"
+        "  x.bump()\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_MUT_CALL_ON_VAL));
+}
+
+void test_readonly_callable_on_val_binding(void) {
+    /* MUTTIER-05: val x = X(); x.readonly_method() is accepted. The
+     * readonly method is NOT is_mut_receiver, so MUT-04 never fires;
+     * and the caller is main() (not readonly or pure) so no tier check
+     * fires either. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func read() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val x: X = X(0)\n"
+        "  val r: Int = x.read()\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_MUT_CALL_ON_VAL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1708,6 +1906,20 @@ int main(void) {
     RUN_TEST(test_readonly_calls_pure_is_ok);
     RUN_TEST(test_plain_method_calls_mutating_is_ok);
     RUN_TEST(test_synth_getter_callable_from_readonly);
+
+    /* Phase 84 MUTTIER-03 Task 2: pure tier enforcement. */
+    RUN_TEST(test_pure_writes_self_emits_E0244);
+    RUN_TEST(test_pure_calls_println_emits_E0240);
+    RUN_TEST(test_pure_calls_print_emits_E0240);
+    RUN_TEST(test_pure_heap_alloc_is_ok);
+    RUN_TEST(test_pure_writes_param_emits_E0243);
+    RUN_TEST(test_pure_calls_non_pure_method_emits_E0242);
+    RUN_TEST(test_pure_calls_pure_method_is_ok);
+    RUN_TEST(test_pure_reads_mutable_global_emits_E0241);
+    RUN_TEST(test_pure_writes_mutable_global_emits_E0241);
+    RUN_TEST(test_pure_reads_val_global_is_ok);
+    RUN_TEST(test_mutating_calls_on_val_binding_still_emits_E0235);
+    RUN_TEST(test_readonly_callable_on_val_binding);
 
     return UNITY_END();
 }
