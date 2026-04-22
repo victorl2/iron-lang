@@ -1,6 +1,6 @@
 # Iron Pong
 
-Phase 12 reference game for the Iron WASM worker.
+Small two-player Pong example for Iron + raylib.
 
 ## Build
 
@@ -24,18 +24,14 @@ iron run --target=web examples/pong/pong.iron
 
 First player to 5 wins.
 
-## Phase 12 coverage
+## What It Shows
 
 This game exercises:
-- LIR main-loop split pass (Phase 5) with ≥4 captured locals
-- `emit_web.c` frame-callback emission (Phase 6)
-- `--target=web` pipeline (Phase 7)
-- Raylib web amalgamation link (Phase 8)
-- Default shell template with COOP/COEP guard (Phase 9)
-- `[web].assets` preload directive (Phase 10)
-- `dist/web/` output layout (Phase 11)
+- A complete game loop with update and render stages
+- Keyboard input, collision checks, and score tracking
+- The same source building for native and web targets
+- Optional bounce audio when the sound asset is available
 
-## Known limitations in this phase
+## Notes
 
-- **No audio** — raylib.iron does not yet expose `InitAudioDevice`/`LoadSound`/`PlaySound` bindings. The `assets/paddle.wav` file is present per WEB-VALIDATE-03 but not played. Audio bindings deferred to a stdlib-extension follow-up.
-- **Web interactivity** — WEB-VALIDATE-02 (in-browser play verification), WEB-VALIDATE-07 (first-hit audio), and WEB-VALIDATE-08 (page-reload memory stability) require a real browser session and are marked as manual/deferred.
+- Run from the repo root so the example can find `tests/assets/bounce.wav`.

@@ -201,11 +201,11 @@
       <h1>Window &amp; System</h1>
       <p class="subtitle">Window lifecycle, monitors, clipboard, cursor, frame loop, timing.</p>
       <div class="callout">
-        <div class="callout-title">WIN-01..13 + FILE-07 reference</div>
+        <div class="callout-title">Window reference</div>
         <p>Every raylib window/system function bound to the <code>Window</code> namespace. Covers lifecycle, state toggles, properties, monitor enumeration, clipboard, events, cursor, frame loop, and misc utilities.</p>
       </div>
 
-      <h2 id="lifecycle">Lifecycle (WIN-01)</h2>
+      <h2 id="lifecycle">Lifecycle</h2>
 
       <article class="api-entry">
         <h3 id="window-init"><code>Window.init(w: Int32, h: Int32, title: String)</code></h3>
@@ -257,7 +257,7 @@
         </p>
       </article>
 
-      <h2 id="state">State queries (WIN-02)</h2>
+      <h2 id="state">State queries</h2>
 
       <article class="api-entry">
         <h3 id="window-is-fullscreen"><code>Window.is_fullscreen() -&gt; Bool</code></h3>
@@ -283,7 +283,7 @@
         </p>
       </article>
 
-      <h2 id="state-toggles">State toggles (WIN-03)</h2>
+      <h2 id="state-toggles">State toggles</h2>
 
       <article class="api-entry">
         <h3 id="window-toggle-fullscreen"><code>Window.toggle_fullscreen()</code></h3>
@@ -321,7 +321,7 @@
         </p>
       </article>
 
-      <h2 id="properties">Properties (WIN-04)</h2>
+      <h2 id="properties">Properties</h2>
 
       <article class="api-entry">
         <h3 id="window-set-icon"><code>Window.set_icon(image: Image)</code></h3>
@@ -397,7 +397,7 @@
         </p>
       </article>
 
-      <h2 id="geometry">Screen geometry (WIN-05)</h2>
+      <h2 id="geometry">Screen geometry</h2>
 
       <article class="api-entry">
         <h3 id="window-get-screen"><code>Window.get_screen_width / get_screen_height() -&gt; Int32</code></h3>
@@ -437,7 +437,7 @@
         </p>
       </article>
 
-      <h2 id="monitors">Monitor enumeration (WIN-06)</h2>
+      <h2 id="monitors">Monitor enumeration</h2>
 
       <article class="api-entry">
         <h3 id="window-get-monitor-count"><code>Window.get_monitor_count() -&gt; Int32</code></h3>
@@ -464,7 +464,7 @@
         </p>
       </article>
 
-      <h2 id="clipboard">Clipboard (WIN-07)</h2>
+      <h2 id="clipboard">Clipboard</h2>
 
       <article class="api-entry">
         <h3 id="window-clipboard"><code>Window.get_clipboard_text / set_clipboard_text / get_clipboard_image()</code></h3>
@@ -479,7 +479,7 @@
         </p>
       </article>
 
-      <h2 id="events">Events + cursor (WIN-08..09)</h2>
+      <h2 id="events">Events + cursor</h2>
 
       <article class="api-entry">
         <h3 id="window-event-waiting"><code>Window.enable_event_waiting / disable_event_waiting()</code></h3>
@@ -519,7 +519,7 @@
         </p>
       </article>
 
-      <h2 id="frame-loop">Frame loop (WIN-10..12 + FILE-07)</h2>
+      <h2 id="frame-loop">Frame loop</h2>
 
       <article class="api-entry">
         <h3 id="window-set-target-fps"><code>Window.set_target_fps(fps: Int32)</code></h3>
@@ -571,7 +571,7 @@ pos.x = pos.x + velocity.x * dt</code></pre>
       </article>
 
       <article class="api-entry">
-        <h3 id="window-wait-time"><code>Window.wait_time(seconds: Float)</code> <em>(FILE-07)</em></h3>
+        <h3 id="window-wait-time"><code>Window.wait_time(seconds: Float)</code></h3>
         <p class="signature-meta">Category: <a href="#frame-loop">Frame loop</a> &middot; raylib: <code>WaitTime</code></p>
         <p>High-precision sleep. Used by raylib internally for the FPS cap; exposed for manual pacing.</p>
         <pre><code class="iron"><span class="syn-ty">Window</span>.<span class="syn-fn">wait_time</span>(<span class="syn-nu">0.016</span>)  <span class="syn-cm">-- 16 ms (~60 FPS)</span></code></pre>
@@ -582,7 +582,7 @@ pos.x = pos.x + velocity.x * dt</code></pre>
         </p>
       </article>
 
-      <h2 id="misc">Misc (WIN-13)</h2>
+      <h2 id="misc">Misc</h2>
 
       <article class="api-entry">
         <h3 id="window-take-screenshot"><code>Window.take_screenshot(filename: String)</code></h3>

@@ -201,8 +201,8 @@
       <h1>Enums</h1>
       <p class="subtitle">22 raylib enums exposed with explicit Iron ordinals matching C constants byte-for-byte.</p>
       <div class="callout">
-        <div class="callout-title">ENUM-01..22 reference</div>
-        <p>Every Iron enum ordinal matches its raylib C constant byte-for-byte (ENUM-22). Pass them anywhere raylib expects an <code>int</code>; at the FFI boundary they lower to <code>(int)variant.ordinal</code>.</p>
+        <div class="callout-title">Enums reference</div>
+        <p>Every Iron enum ordinal matches its raylib C constant byte-for-byte. Pass them anywhere raylib expects an <code>int</code>; at the FFI boundary they lower to <code>(int)variant.ordinal</code>.</p>
       </div>
 
       <h2 id="input-enums">Input enums</h2>
@@ -464,10 +464,10 @@
         <p class="signature-meta">Category: <a href="#camera-enums">Camera</a> &middot; raylib: <code>enum CameraProjection</code></p>
         <p>2 projection modes: <code>PERSPECTIVE = 0</code>, <code>ORTHOGRAPHIC = 1</code>.</p>
         <div class="callout">
-          <div class="callout-title">v2.0.0-alpha codegen note</div>
-          <p>ironc has a known bug when an enum ordinal appears inside a struct initializer. Use <code>Int32(0)</code> for PERSPECTIVE or <code>Int32(1)</code> for ORTHOGRAPHIC at the <code>Camera3D(...)</code> constructor; byte-identical at the ABI. Deferred to post-alpha codegen fix.</p>
+          <div class="callout-title">Use these values directly</div>
+          <p>Pass <code>CameraProjection.PERSPECTIVE</code> or <code>CameraProjection.ORTHOGRAPHIC</code> directly to <code>Camera3D(...)</code>.</p>
         </div>
-        <pre><code class="iron"><span class="syn-kw">var</span> cam = <span class="syn-ty">Camera3D</span>(pos, tgt, up, <span class="syn-ty">Float32</span>(<span class="syn-nu">45.0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>))  <span class="syn-cm">-- PERSPECTIVE</span></code></pre>
+        <pre><code class="iron"><span class="syn-kw">var</span> cam = <span class="syn-ty">Camera3D</span>(pos, tgt, up, <span class="syn-ty">Float32</span>(<span class="syn-nu">45.0</span>), <span class="syn-ty">CameraProjection</span>.<span class="syn-pr">PERSPECTIVE</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L604">Iron source</a> &middot;

@@ -1,27 +1,20 @@
 -- examples/rotating_cube/rotating_cube.iron
--- Phase 69 canonical 3D showcase — proves "Iron builds real 3D games."
+-- Minimal 3D showcase: an orbital camera rotating around a cube.
 --
 -- Invocation: ./build/ironc build examples/rotating_cube/rotating_cube.iron
 --             ./rotating_cube
 -- Expected:   window opens, orbital camera rotates around a red cube over
 --             a gray grid, closes cleanly on window-close / ESC.
 --
--- No pong integration — pong stays 2D (Phase 68-05 was the last pong
--- addition until Phase 73 polish). Phase 69 ships its own 3D example.
---
 -- Design notes:
 --   • var cam (not val) — the orbital-update re-binds cam per frame.
 --     Iron's val fields are immutable, but `cam = Camera3D.update(cam, ...)`
 --     is a local-variable reassignment, not a field mutation — legal.
---   • Grid: 10 slices × 1.0 spacing (CONTEXT.md Claude's Discretion).
+--   • Grid: 10 slices × 1.0 spacing.
 --   • Cube size: 2.0 units (visible against the grid background).
 --   • Rotation rate: inherent in CameraMode.ORBITAL (raylib handles; no
 --     explicit rate needed).
---   • projection field uses CameraProjection.PERSPECTIVE directly —
---     D5 residual was fixed by typing Camera3D.projection as the
---     enum instead of Int32. No `.ordinal` needed.
---
--- Canonical template: examples/pong/pong.iron structure.
+--   • projection uses `CameraProjection.PERSPECTIVE` directly.
 
 import raylib
 

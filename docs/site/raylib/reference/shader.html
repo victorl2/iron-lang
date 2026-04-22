@@ -201,11 +201,11 @@
       <h1>Shaders</h1>
       <p class="subtitle">GLSL shader loading, uniform/attribute location, set_value by type, composition.</p>
       <div class="callout">
-        <div class="callout-title">SHADER-01..04 reference</div>
+        <div class="callout-title">Shader reference</div>
         <p>GLSL shader loading, uniform + attribute location resolution, per-type <code>set_value</code>, render-texture composition.</p>
       </div>
 
-      <h2 id="lifecycle">Shader lifecycle (SHADER-01)</h2>
+      <h2 id="lifecycle">Shader lifecycle</h2>
 
       <article class="api-entry">
         <h3 id="shader-load"><code>Shader.load(vs_path: String, fs_path: String) -&gt; Shader</code></h3>
@@ -244,12 +244,12 @@
         </p>
       </article>
 
-      <h2 id="location">Locations (SHADER-02)</h2>
+      <h2 id="location">Locations</h2>
 
       <article class="api-entry">
         <h3 id="shader-get-location"><code>Shader.get_location(shader, uniform_name: String) -&gt; Int32</code></h3>
         <p class="signature-meta">Category: <a href="#location">Locations</a> &middot; raylib: <code>GetShaderLocation</code></p>
-        <p>Resolve a uniform by name. Returns -1 if the uniform doesn't exist; raylib safely no-ops <code>set_value</code> at -1.</p>
+        <p>Resolve a uniform by name. Returns -1 if the uniform doesn't exist; raylib ignores <code>set_value</code> calls at -1.</p>
         <pre><code class="iron"><span class="syn-kw">val</span> loc_intensity = <span class="syn-ty">Shader</span>.<span class="syn-fn">get_location</span>(fx_invert, <span class="syn-st">"u_intensity"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
@@ -282,7 +282,7 @@
         </p>
       </article>
 
-      <h2 id="uniforms">Uniform setters (SHADER-03)</h2>
+      <h2 id="uniforms">Uniform setters</h2>
 
       <article class="api-entry">
         <h3 id="shader-set-value"><code>Shader.set_value(shader, loc: Int32, value: [UInt8], data_type: ShaderUniformDataType)</code></h3>
@@ -334,7 +334,7 @@
         </p>
       </article>
 
-      <h2 id="mode">Shader mode (SHADER-04)</h2>
+      <h2 id="mode">Shader mode</h2>
 
       <article class="api-entry">
         <h3 id="draw-shader-mode"><code>Draw.begin_shader_mode(shader: Shader) / end_shader_mode()</code></h3>

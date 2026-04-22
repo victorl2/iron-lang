@@ -1,6 +1,5 @@
 -- examples/model_viewer/model_viewer.iron
--- Phase 70 canonical 3D showcase — proves "Iron builds real 3D games"
--- extends to loaded assets, not just procedural primitives.
+-- 3D model viewer with a procedural fallback when the asset is missing.
 --
 -- Invocation: ./build/ironc build examples/model_viewer/model_viewer.iron
 --             ./model_viewer        (run from repo root for asset resolution)
@@ -14,8 +13,6 @@
 -- or missing asset), falls back to Model.from_mesh(Mesh.cube(...)) so the
 -- showcase always produces a visible 3D scene.
 --
--- Template: examples/rotating_cube/rotating_cube.iron (Phase 69-04 3D
--- showcase). Static-form calls per Rule-3 (Plan 68-05 / 69-04 convention).
 
 import raylib
 
