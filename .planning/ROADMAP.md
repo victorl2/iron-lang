@@ -17,7 +17,7 @@ v3.0 is Iron's first non-superset release. Receiver-method syntax is removed; me
 - [x] **Phase 87: IFACE + SELF** - Interface `readonly`/`pure` modifiers, default implementations, `Self` return type (completed 2026-04-23)
 - [x] **Phase 88: BREAK** - Hard rejection of v2 receiver-method syntax with migration hints (completed 2026-04-23)
 - [x] **Phase 89: MIGR** - Codemod implementation, atomic stdlib + examples + tests migration (completed 2026-04-23)
-- [ ] **Phase 90: IDENT** - Golden-output byte-identity verification, `scripts/verify-v3-migration.sh` release blocker
+- [x] **Phase 90: IDENT** - Golden-output byte-identity verification, `scripts/verify-v3-migration.sh` release blocker
 - [ ] **Phase 91: DOCS** - Release notes, site guide, migration guide, language spec refresh
 
 ## Phase Details
@@ -228,11 +228,11 @@ Plans:
 4. The script is wired into the release checklist (not just CI) so v3.0.0-alpha cannot be tagged while any diff exists.
 5. Re-running the codemod on already-migrated source produces zero changes and zero diff in downstream C output.
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed (COMPLETE)
 
 Plans:
-- [ ] 90-01-PLAN.md — Verify script + tests/migrate_identity/ fixture infrastructure (IDENT-01, IDENT-02)
-- [ ] 90-02-PLAN.md — Generate goldens + verify end-to-end + architectural guarantee SUMMARY (IDENT-01, IDENT-02, IDENT-03)
+- [x] 90-01-PLAN.md — Verify script + tests/migrate_identity/ fixture infrastructure (IDENT-01, IDENT-02)
+- [x] 90-02-PLAN.md — Generate goldens + verify end-to-end + architectural guarantee SUMMARY (IDENT-01, IDENT-02, IDENT-03)
 
 ---
 
@@ -265,7 +265,7 @@ Plans:
 | 87. IFACE + SELF | 3/3 | Complete    | 2026-04-23 |
 | 88. BREAK | 3/3 | Complete    | 2026-04-23 |
 | 89. MIGR | 3/3 | Complete    | 2026-04-23 |
-| 90. IDENT | 1/2 | In Progress|  |
+| 90. IDENT | 2/2 | Complete |  |
 | 91. DOCS | 0/0 | Not started | - |
 
 ## Coverage Summary
