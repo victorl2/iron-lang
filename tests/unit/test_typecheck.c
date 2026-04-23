@@ -2548,15 +2548,17 @@ void test_patched_pure_method_io_rejected(void) {
  * message substring verification. */
 
 void test_iface_readonly_impl_default_mutating_rejected(void) {
-    /* IFACE-02: readonly iface sig + mutating impl => E0257 */
+    /* IFACE-02: readonly iface sig + mutating impl => E0257.
+     * Implementation is an in-object in-block method (Phase 82) so it gets
+     * a MethodDecl with is_readonly=false, which is the mismatch. */
     parse_and_resolve(
         "interface Cmp {\n"
         "    readonly func cmp() -> Int\n"
         "}\n"
         "object Foo implements Cmp {\n"
         "    init() {}\n"
+        "    func cmp() -> Int { return 0 }\n"
         "}\n"
-        "func Foo.cmp() -> Int { return 0 }\n"
     );
     TEST_ASSERT_TRUE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2570,15 +2572,17 @@ void test_iface_readonly_impl_default_mutating_rejected(void) {
 }
 
 void test_iface_pure_impl_readonly_rejected(void) {
-    /* IFACE-02: pure iface sig + readonly impl => E0257 */
+    /* IFACE-02: pure iface sig + readonly impl => E0257.
+     * Uses in-block readonly method (Phase 82/84) so is_readonly=true but
+     * is_pure=false — weaker than required pure. */
     parse_and_resolve(
         "interface Hash {\n"
         "    pure func hash() -> Int\n"
         "}\n"
         "object Foo implements Hash {\n"
         "    init() {}\n"
+        "    readonly func hash() -> Int { return 0 }\n"
         "}\n"
-        "readonly func Foo.hash() -> Int { return 0 }\n"
     );
     TEST_ASSERT_TRUE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2589,15 +2593,15 @@ void test_iface_pure_impl_readonly_rejected(void) {
 }
 
 void test_iface_pure_impl_default_rejected(void) {
-    /* IFACE-02: pure iface sig + mutating impl => E0257 */
+    /* IFACE-02: pure iface sig + mutating impl => E0257. */
     parse_and_resolve(
         "interface Hash {\n"
         "    pure func hash() -> Int\n"
         "}\n"
         "object Bar implements Hash {\n"
         "    init() {}\n"
+        "    func hash() -> Int { return 0 }\n"
         "}\n"
-        "func Bar.hash() -> Int { return 0 }\n"
     );
     TEST_ASSERT_TRUE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2605,15 +2609,15 @@ void test_iface_pure_impl_default_rejected(void) {
 }
 
 void test_iface_readonly_impl_readonly_accepted(void) {
-    /* IFACE-02: readonly iface sig + readonly impl => zero diags */
+    /* IFACE-02: readonly iface sig + readonly impl => zero E0257. */
     parse_and_resolve(
         "interface Cmp {\n"
         "    readonly func cmp() -> Int\n"
         "}\n"
         "object Foo implements Cmp {\n"
         "    init() {}\n"
+        "    readonly func cmp() -> Int { return 0 }\n"
         "}\n"
-        "readonly func Foo.cmp() -> Int { return 0 }\n"
     );
     TEST_ASSERT_FALSE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2621,15 +2625,15 @@ void test_iface_readonly_impl_readonly_accepted(void) {
 }
 
 void test_iface_readonly_impl_pure_accepted(void) {
-    /* IFACE-02: readonly iface sig + pure impl => zero E0257 (pure is stronger) */
+    /* IFACE-02: readonly iface sig + pure impl => zero E0257 (pure >= readonly). */
     parse_and_resolve(
         "interface Cmp {\n"
         "    readonly func cmp() -> Int\n"
         "}\n"
         "object Foo implements Cmp {\n"
         "    init() {}\n"
+        "    pure func cmp() -> Int { return 0 }\n"
         "}\n"
-        "pure func Foo.cmp() -> Int { return 0 }\n"
     );
     TEST_ASSERT_FALSE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2637,15 +2641,15 @@ void test_iface_readonly_impl_pure_accepted(void) {
 }
 
 void test_iface_pure_impl_pure_accepted(void) {
-    /* IFACE-02: pure iface sig + pure impl => zero diags */
+    /* IFACE-02: pure iface sig + pure impl => zero E0257. */
     parse_and_resolve(
         "interface Hash {\n"
         "    pure func hash() -> Int\n"
         "}\n"
         "object Foo implements Hash {\n"
         "    init() {}\n"
+        "    pure func hash() -> Int { return 0 }\n"
         "}\n"
-        "pure func Foo.hash() -> Int { return 0 }\n"
     );
     TEST_ASSERT_FALSE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2653,15 +2657,15 @@ void test_iface_pure_impl_pure_accepted(void) {
 }
 
 void test_iface_default_impl_mutating_accepted(void) {
-    /* IFACE-02: default iface sig + mutating impl => zero diags */
+    /* IFACE-02: default iface sig + mutating impl => zero E0257. */
     parse_and_resolve(
         "interface Base {\n"
         "    func run()\n"
         "}\n"
         "object Foo implements Base {\n"
         "    init() {}\n"
+        "    func run() { return }\n"
         "}\n"
-        "func Foo.run() { return }\n"
     );
     TEST_ASSERT_FALSE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2669,15 +2673,15 @@ void test_iface_default_impl_mutating_accepted(void) {
 }
 
 void test_iface_default_impl_readonly_accepted(void) {
-    /* IFACE-02: default iface sig + readonly impl => zero diags */
+    /* IFACE-02: default iface sig + readonly impl => zero E0257. */
     parse_and_resolve(
         "interface Base {\n"
         "    func run()\n"
         "}\n"
         "object Foo implements Base {\n"
         "    init() {}\n"
+        "    readonly func run() { return }\n"
         "}\n"
-        "readonly func Foo.run() { return }\n"
     );
     TEST_ASSERT_FALSE_MESSAGE(
         has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
@@ -2686,7 +2690,7 @@ void test_iface_default_impl_readonly_accepted(void) {
 
 void test_iface_default_body_inherited_no_mismatch(void) {
     /* IFACE-03/02 interaction: implementer has no override for a default-body
-     * method. No impl method exists to compare => zero E0257. */
+     * method. No impl MethodDecl exists => no tier comparison => zero E0257. */
     parse_and_resolve(
         "interface D {\n"
         "    readonly func foo() -> Int { return 42 }\n"
@@ -2709,8 +2713,8 @@ void test_iface_tier_mismatch_E0257_locked_substring(void) {
         "}\n"
         "object Impl implements Sig {\n"
         "    init() {}\n"
+        "    func go() -> Int { return 0 }\n"
         "}\n"
-        "func Impl.go() -> Int { return 0 }\n"
     );
     TEST_ASSERT_TRUE_MESSAGE(
         has_error_msg_substring("interface method"),
