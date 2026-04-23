@@ -23,7 +23,7 @@ void tearDown(void) {
     iron_diaglist_free(&diags);
 }
 
-/* ── Parse helper ────────────────────────────────────────────────────────── */
+/* ── Parse helpers ───────────────────────────────────────────────────────── */
 
 static Iron_Node *parse(const char *src) {
     Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &arena, &diags);
@@ -32,6 +32,22 @@ static Iron_Node *parse(const char *src) {
     while (tokens[count].kind != IRON_TOK_EOF) count++;
     count++;  /* include EOF */
     Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron", &arena, &diags);
+    return iron_parse(&p);
+}
+
+/* parse_no_strict: parse with v3_strict_mode=false for tests that exercise
+ * grammar features on objects that lack init constructors. The v3 gate is
+ * already verified by gate-specific tests; these tests are about other
+ * parser behaviors (pub modifiers, accessor synthesis, etc.) and should not
+ * be coupled to the E0264 init requirement. */
+static Iron_Node *parse_no_strict(const char *src) {
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &arena, &diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;  /* include EOF */
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron", &arena, &diags);
+    p.v3_strict_mode = false;
     return iron_parse(&p);
 }
 
@@ -274,7 +290,7 @@ void test_object_field_only_still_parses(void) {
  * false at every construction site. */
 
 void test_pub_on_fields_sets_is_pub(void) {
-    Iron_Node *prog = parse(
+    Iron_Node *prog = parse_no_strict(
         "object X {\n"
         "    pub var a: Int\n"
         "    pub val b: Int\n"
@@ -299,7 +315,7 @@ void test_pub_on_fields_sets_is_pub(void) {
 }
 
 void test_pub_mixed_with_plain_fields(void) {
-    Iron_Node *prog = parse(
+    Iron_Node *prog = parse_no_strict(
         "object X {\n"
         "    var a: Int\n"
         "    pub var b: Int\n"
@@ -454,7 +470,7 @@ void test_pub_val_synthesizes_getter_only(void) {
 }
 
 void test_pub_var_synthesizes_getter_and_setter(void) {
-    Iron_Node *prog = parse(
+    Iron_Node *prog = parse_no_strict(
         "object H {\n"
         "    pub var hp: Int\n"
         "}\n"
@@ -717,7 +733,7 @@ void test_synth_getter_is_readonly_and_pure(void) {
      * so readonly and pure methods can call it. The setter synthesized for a
      * pub var must stay is_readonly=false AND is_pure=false (default
      * mutating). */
-    Iron_Node *prog = parse(
+    Iron_Node *prog = parse_no_strict(
         "object X {\n"
         "    pub val a: Int\n"
         "    pub var b: Int\n"

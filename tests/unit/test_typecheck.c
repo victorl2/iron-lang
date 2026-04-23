@@ -69,6 +69,25 @@ static Iron_Program *parse_and_resolve(const char *src) {
     return prog;
 }
 
+/* parse_and_resolve_no_strict: parse with v3_strict_mode=false for tests that
+ * exercise typecheck / resolve behavior on objects that lack init constructors.
+ * The E0264 init requirement is verified by gate-specific tests; these tests
+ * focus on type resolution and construction semantics. */
+static Iron_Program *parse_and_resolve_no_strict(const char *src) {
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;  /* include EOF */
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron", &g_arena, &g_diags);
+    p.v3_strict_mode = false;
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    iron_typecheck(prog, global, &g_arena, &g_diags);
+    return prog;
+}
+
 /* Check if a specific error code was emitted */
 static bool has_error(int code) {
     for (int i = 0; i < g_diags.count; i++) {
@@ -389,7 +408,7 @@ void test_construct_expr_type(void) {
         "func main() {\n"
         "  val p = Point(1, 2)\n"
         "}\n";
-    Iron_Program *prog = parse_and_resolve(src);
+    Iron_Program *prog = parse_and_resolve_no_strict(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
     /* Second decl is func main; get first stmt */
@@ -2118,9 +2137,10 @@ void test_construct_dispatches_to_anonymous_init(void) {
 
 void test_construct_falls_back_to_v2_2_positional_when_no_init(void) {
     /* Object with no explicit init still accepts v2.2 positional
-     * construction. This preserves pure-superset until Phase 88 flips the
-     * mandatory-init gate. */
-    parse_and_resolve(
+     * construction. Gate is OFF here so E0264 does not fire; this test
+     * verifies that the positional-fallback resolver path still works
+     * regardless of the default strict_v3 setting. */
+    parse_and_resolve_no_strict(
         "object P {\n"
         "  var x: Int\n"
         "}\n"
