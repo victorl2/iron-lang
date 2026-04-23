@@ -777,3 +777,24 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m4-invariant"
         TIMEOUT 30)
 endif()
+
+# ── Phase 7 Plan 07-01 Task 01 (HARD-14, D-02): crash-dump pipeline
+#    Unity test. Labelled phase-m6-invariant. ─────────────────────────
+if(IRON_BUILD_LSP)
+    add_executable(test_crash_ring_buffer
+        lsp/obs/test_crash_ring_buffer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/crash_dump.c)
+    target_include_directories(test_crash_ring_buffer PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_crash_ring_buffer PRIVATE
+        _GNU_SOURCE
+        IRON_VERSION_STRING="${IRON_VERSION_FULL}")
+    target_link_libraries(test_crash_ring_buffer
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_crash_ring_buffer COMMAND test_crash_ring_buffer)
+    set_tests_properties(test_crash_ring_buffer PROPERTIES
+        LABELS "unit;phase-m6-invariant"
+        TIMEOUT 60)
+endif()
