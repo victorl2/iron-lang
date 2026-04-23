@@ -578,11 +578,22 @@
         <a href="#error-messages">Error Messages</a>
         <a href="#faq">FAQ</a>
       </div>
+      <div class="sidebar-section">
+        <h3>v3 Migration</h3>
+        <a href="#migrate-command">ironc migrate</a>
+        <a href="../migration-v2-to-v3.html">Full Guide</a>
+      </div>
     </aside>
 
     <main class="content">
       <h1>Package Manager Guide</h1>
       <p class="subtitle">Create, build, and manage Iron projects and their dependencies.</p>
+
+      <!-- ── v3 callout ───────────────────────── -->
+      <div class="callout">
+        <div class="callout-title">v3.0.0-alpha</div>
+        <p>This guide covers <code>iron</code> package manager commands, which are unchanged in v3. If you are upgrading an existing project from v2.2, run <code>ironc migrate --from v2 --to v3 src/</code> after installing v3. See the <a href="../migration-v2-to-v3.html">v2 to v3 migration guide</a> for full steps.</p>
+      </div>
 
       <!-- ── Overview ──────────────────────────── -->
       <h2 id="overview">Overview</h2>
@@ -604,6 +615,7 @@
         <tr><td>Build a project</td><td><code>iron build</code></td></tr>
         <tr><td>Compile a single file</td><td><code>ironc build hello.iron</code></td></tr>
         <tr><td>Quick script</td><td><code>iron run script.iron</code></td></tr>
+        <tr><td>Migrate v2 sources to v3</td><td><code>ironc migrate --from v2 --to v3 src/</code></td></tr>
       </table>
       <p><code>iron</code> also transparently forwards single-file commands to <code>ironc</code>. If you run <code>iron build hello.iron</code> (with a <code>.iron</code> file argument), it silently delegates to <code>ironc</code>.</p>
 
@@ -862,6 +874,25 @@ Hello, Iron!</code></pre>
 
       <h3>How do I update a dependency?</h3>
       <p>Delete the dep's entry from <code>iron.lock</code> and re-run <code>iron build</code>. It will re-resolve the tag to the latest commit SHA. An <code>iron update</code> command is planned.</p>
+
+      <!-- ── v3 Migration ──────────────────────── -->
+      <h2 id="migrate-command">ironc migrate</h2>
+      <p>The <code>ironc migrate</code> command rewrites Iron v2.2 source files to v3.0 grammar in place. It covers all three mechanical transforms introduced in v3:</p>
+      <ol>
+        <li>Receiver-method syntax (<code>func (p: Player) name()</code>) moved inside <code>object</code> blocks</li>
+        <li>Mutable receivers (<code>func (mut p: T) name()</code>) converted to default-tier methods</li>
+        <li>Inline field defaults (<code>var x: Int = 0</code>) extracted into <code>init</code> bodies</li>
+      </ol>
+<pre><code><span class="cm"># Preview the changes without writing files</span>
+$ <span class="fn">ironc migrate</span> --from v2 --to v3 src/ <span class="nu">2>&amp;1</span> | less
+
+<span class="cm"># Apply the transformation</span>
+$ <span class="fn">ironc migrate</span> --from v2 --to v3 src/</code></pre>
+      <p>The codemod is idempotent: running it again on already-migrated sources produces no output. Patterns the codemod could not handle automatically are left with a <code>-- TODO(migrate)</code> comment for manual review.</p>
+      <div class="callout">
+        <div class="callout-title">Full migration steps</div>
+        <p>For install, backup, codemod, manual review, and troubleshooting see the <a href="../migration-v2-to-v3.html">v2 to v3 migration guide</a>.</p>
+      </div>
 
     </main>
   </div>
