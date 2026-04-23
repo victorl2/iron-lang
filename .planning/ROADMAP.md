@@ -15,7 +15,7 @@ v3.0 is Iron's first non-superset release. Receiver-method syntax is removed; me
 - [x] **Phase 85: INIT** - Mandatory init, anonymous + named forms, definite-assignment analysis (completed 2026-04-21)
 - [x] **Phase 86: PATCH** - `patch object T` grammar + program-wide dispatch + retroactive interface conformance (completed 2026-04-21)
 - [x] **Phase 87: IFACE + SELF** - Interface `readonly`/`pure` modifiers, default implementations, `Self` return type (completed 2026-04-23)
-- [ ] **Phase 88: BREAK** - Hard rejection of v2 receiver-method syntax with migration hints
+- [x] **Phase 88: BREAK** - Hard rejection of v2 receiver-method syntax with migration hints (completed 2026-04-23)
 - [ ] **Phase 89: MIGR** - Codemod implementation, atomic stdlib + examples + tests migration
 - [ ] **Phase 90: IDENT** - Golden-output byte-identity verification, `scripts/verify-v3-migration.sh` release blocker
 - [ ] **Phase 91: DOCS** - Release notes, site guide, migration guide, language spec refresh
@@ -180,12 +180,12 @@ Plans:
 4. `tests/compile_fail/v3_receiver_method_removed.iron` locks the exact diagnostic text including the codemod hint.
 5. Release notes explicitly name v3.0 as the first Iron release without the pure-superset guard.
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 88-01-PLAN.md — E0260..E0264 error codes + Iron_Parser v3_strict_mode + 5 rejection sites + --strict-v3 CLI flag
-- [ ] 88-02-PLAN.md — TEST-14 compile_fail fixture + BREAK-03/04 fixtures + gate-OFF regression
-- [ ] 88-03-PLAN.md — Phase 88 close-out + server test evidence + SUMMARY
+- [x] 88-01-PLAN.md — E0260..E0264 error codes + Iron_Parser v3_strict_mode + 5 rejection sites + --strict-v3 CLI flag
+- [x] 88-02-PLAN.md — TEST-14 compile_fail fixture + BREAK-03/04 fixtures + gate-OFF regression
+- [x] 88-03-PLAN.md — Phase 88 close-out + server test evidence + SUMMARY
 
 ---
 
@@ -254,7 +254,7 @@ Plans:
 | 85. INIT | 3/3 | Complete    | 2026-04-21 |
 | 86. PATCH | 3/3 | Complete    | 2026-04-21 |
 | 87. IFACE + SELF | 3/3 | Complete    | 2026-04-23 |
-| 88. BREAK | 2/3 | In Progress|  |
+| 88. BREAK | 3/3 | Complete   | 2026-04-23 |
 | 89. MIGR | 0/0 | Not started | - |
 | 90. IDENT | 0/0 | Not started | - |
 | 91. DOCS | 0/0 | Not started | - |

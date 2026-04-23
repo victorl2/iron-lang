@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: milestone
 status: planning
-last_updated: "2026-04-23T22:37:29.545Z"
+last_updated: "2026-04-23T22:40:43.617Z"
 progress:
   total_phases: 10
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 20
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # State
@@ -23,10 +23,10 @@ See: `.planning/PROJECT.md` (updated 2026-04-20)
 ## Current Position
 
 - **Milestone:** v3.0 Method Ergonomics
-- **Phase:** 87 IFACE+SELF (COMPLETE — Plans 01+02+03 done)
-- **Plan:** 87-03 complete (commits `ff79656`, `3f38698`, `5a385f0`, `4b43c11`, `ebe746a` pushed). 7 fixtures landed (3 positive + 4 compile_fail). Integration 392->395. All 9 Phase 87 requirement IDs locked. Pure-superset HELD.
-- **Status:** Ready to plan
-- **Branch:** `feat/v3-method-ergonomics` (draft PR #37 open; all Phase 87 commits pushed to origin).
+- **Phase:** 88 BREAK (COMPLETE — Plans 01+02+03 done)
+- **Plan:** 88-03 complete. Phase 88 BREAK complete -- BREAK-01..05, MIGR-05, TEST-14, INIT-02 locked; `--strict-v3` gate infrastructure shipped; pure-superset guard intentionally ended (gate OFF by default; flip in Phase 89 after codemod). Unit tests: 41 lexer / 106 parser / 171 typecheck green. Integration 395 (unchanged from Phase 87 close). Three compile_fail fixtures (TEST-14 / BREAK-03 / BREAK-04) verified gate-ON and gate-OFF.
+- **Status:** Ready to plan Phase 89 MIGR
+- **Branch:** `feat/v3-method-ergonomics` (draft PR #37 open; all Phase 88 commits pushed to origin).
 
 ## Roadmap Summary
 
@@ -218,7 +218,7 @@ Phase order is load-bearing — the pure-superset guard (stdlib compiles on the 
 
 ## Next Action
 
-- Phase 87 CLOSED. All 9 requirement IDs locked (IFACE-01..05, SELF-01..03, PATCH-08).
-- Phase 88 BREAK is next: removes pure-superset guard, removes v2 receiver-method syntax, adds codemod migration hints (BREAK-01, BREAK-02, BREAK-04, BREAK-05, MIGR-05, TEST-14).
-- IFACE-03 runtime dispatch (default-body HIR dispatch) is a known gap deferred to Phase 88+.
-- Pure-superset guard HELD through all of Phase 87 (integration 392->395, zero pre-existing .iron modified).
+- Phase 88 CLOSED. All 8 requirement IDs locked (BREAK-01..05, MIGR-05, TEST-14, INIT-02). Gate infrastructure (`v3_strict_mode`) shipped; gate OFF by default through Phase 88.
+- Phase 89 MIGR is next: implement `ironc migrate --from v2 --to v3` codemod, atomically migrate all in-tree `.iron` files (stdlib, examples, tests), flip `v3_strict_mode` default to true in the same commit.
+- IFACE-03 runtime dispatch (default-body HIR dispatch) remains a known gap; deferred to Phase 88+ (low priority, documented in Phase 87 close-out).
+- Pure-superset guard intentionally ended in Phase 88: gate OFF preserves superset within Phase 88 itself; Phase 89 codemod makes the break permanent.
