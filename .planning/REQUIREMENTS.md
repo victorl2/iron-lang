@@ -172,7 +172,7 @@ Phase mappings assigned by roadmapper on 2026-04-20. Every v3.0 requirement maps
 | BREAK-02 | 88 | Complete |
 | BREAK-03 | 85 | Complete |
 | BREAK-04 | 88 | Complete |
-| BREAK-05 | 88 | Pending |
+| BREAK-05 | 88 | Complete |
 | GRAMMAR-01 | 82 | Complete |
 | GRAMMAR-02 | 82 | Complete |
 | GRAMMAR-03 | 82 | Complete |
@@ -248,7 +248,7 @@ Phase mappings assigned by roadmapper on 2026-04-20. Every v3.0 requirement maps
 | TEST-11 | 84 | Complete |
 | TEST-12 | 86 | Complete |
 | TEST-13 | 86 | Complete |
-| TEST-14 | 88 | Pending |
+| TEST-14 | 88 | Complete |
 | TEST-15 | 85 | Complete |
 | DOCS-01 | 91 | Pending |
 | DOCS-02 | 91 | Pending |

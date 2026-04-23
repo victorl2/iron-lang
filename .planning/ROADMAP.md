@@ -180,7 +180,7 @@ Plans:
 4. `tests/compile_fail/v3_receiver_method_removed.iron` locks the exact diagnostic text including the codemod hint.
 5. Release notes explicitly name v3.0 as the first Iron release without the pure-superset guard.
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 88-01-PLAN.md — E0260..E0264 error codes + Iron_Parser v3_strict_mode + 5 rejection sites + --strict-v3 CLI flag
@@ -254,7 +254,7 @@ Plans:
 | 85. INIT | 3/3 | Complete    | 2026-04-21 |
 | 86. PATCH | 3/3 | Complete    | 2026-04-21 |
 | 87. IFACE + SELF | 3/3 | Complete    | 2026-04-23 |
-| 88. BREAK | 1/3 | In Progress|  |
+| 88. BREAK | 2/3 | In Progress|  |
 | 89. MIGR | 0/0 | Not started | - |
 | 90. IDENT | 0/0 | Not started | - |
 | 91. DOCS | 0/0 | Not started | - |
