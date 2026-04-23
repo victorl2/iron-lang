@@ -2827,6 +2827,140 @@ void test_self_in_nested_method_resolves_correctly(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
+/* ── Phase 87-02 PATCH-08: retroactive conformance + E0258 ───────────────── */
+
+/* test_patch_retroactive_conformance_full: patch declares implements and provides
+ * all required interface methods => zero E0258. */
+void test_patch_retroactive_conformance_full(void) {
+    parse_and_resolve(
+        "interface Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int\n"
+        "}\n"
+        "patch object Int implements Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int { return self - other }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire when patch provides all required interface methods");
+}
+
+/* test_patch_retroactive_missing_method_e0258: patch declares implements but body
+ * has no methods => E0258 with locked substrings. */
+void test_patch_retroactive_missing_method_e0258(void) {
+    parse_and_resolve(
+        "interface Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int\n"
+        "}\n"
+        "patch object Int implements Comparable {\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "expected E0258 when patch declares implements but omits required method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("missing interface method"),
+        "expected locked substring 'missing interface method' in E0258 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("cmp"),
+        "expected method name 'cmp' in E0258 message");
+}
+
+/* test_patch_retroactive_partial_coverage: interface with 2 methods, patch provides
+ * only 1 => E0258 fires exactly once for the missing method. */
+void test_patch_retroactive_partial_coverage(void) {
+    parse_and_resolve(
+        "interface TwoMethods {\n"
+        "    readonly func foo() -> Int\n"
+        "    readonly func bar() -> Int\n"
+        "}\n"
+        "patch object Int implements TwoMethods {\n"
+        "    readonly func foo() -> Int { return 0 }\n"
+        "}\n"
+    );
+    int e258_count = 0;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_ERR_IFACE_CONFORMANCE_MISSING) {
+            e258_count++;
+        }
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, e258_count,
+        "expected exactly 1 E0258 for the one missing method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("bar"),
+        "expected missing method name 'bar' in E0258 message");
+}
+
+/* test_patch_retroactive_with_default_body: interface method has a default body;
+ * patch declares implements but provides no override => zero E0258. */
+void test_patch_retroactive_with_default_body(void) {
+    parse_and_resolve(
+        "interface HasDefault {\n"
+        "    readonly func greet() -> Int { return 42 }\n"
+        "}\n"
+        "patch object Int implements HasDefault {\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire when interface method has a default body");
+}
+
+/* test_patch_retroactive_tier_strengthening: interface has readonly method; patch
+ * provides a mutating impl => E0257 fires (tier mismatch, not E0258). */
+void test_patch_retroactive_tier_strengthening(void) {
+    parse_and_resolve(
+        "interface ReadOnly {\n"
+        "    readonly func get() -> Int\n"
+        "}\n"
+        "patch object Int implements ReadOnly {\n"
+        "    func get() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for mutating patch impl of readonly iface method");
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire when method is present but has wrong tier");
+}
+
+/* test_classic_object_conformance_still_works: classic object declares impl and
+ * provides all required methods => zero E0258 (regression). */
+void test_classic_object_conformance_still_works(void) {
+    parse_and_resolve(
+        "interface Runnable {\n"
+        "    func run()\n"
+        "}\n"
+        "object Worker impl Runnable {\n"
+        "    init() {}\n"
+        "    func run() { return }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire for classic object satisfying all interface methods");
+}
+
+/* test_classic_object_missing_method_emits_e0258: classic object declares impl but
+ * omits a required interface method => E0258 fires. */
+void test_classic_object_missing_method_emits_e0258(void) {
+    parse_and_resolve(
+        "interface Runnable {\n"
+        "    func run()\n"
+        "}\n"
+        "object Worker impl Runnable {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "expected E0258 for classic object missing required interface method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("missing interface method"),
+        "expected locked substring 'missing interface method' in E0258 message");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -3016,6 +3150,15 @@ int main(void) {
     RUN_TEST(test_self_return_inside_init);
     RUN_TEST(test_self_in_interface_sig_bound_to_implementer);
     RUN_TEST(test_self_in_nested_method_resolves_correctly);
+
+    /* Phase 87-02 PATCH-08: retroactive conformance scan + E0258. */
+    RUN_TEST(test_patch_retroactive_conformance_full);
+    RUN_TEST(test_patch_retroactive_missing_method_e0258);
+    RUN_TEST(test_patch_retroactive_partial_coverage);
+    RUN_TEST(test_patch_retroactive_with_default_body);
+    RUN_TEST(test_patch_retroactive_tier_strengthening);
+    RUN_TEST(test_classic_object_conformance_still_works);
+    RUN_TEST(test_classic_object_missing_method_emits_e0258);
 
     return UNITY_END();
 }

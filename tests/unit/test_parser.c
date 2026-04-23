@@ -1424,6 +1424,93 @@ void test_self_construct_named(void) {
     TEST_ASSERT_EQUAL_STRING("from_x", mc->method);
 }
 
+/* ── Phase 87-02 PATCH-08: patch implements clause ───────────────────────── */
+
+/* test_patch_implements_single: `patch object Int implements Comparable { ... }`
+ * ObjectDecl has is_patch==true, implements_count==1, implements_names[0]=="Comparable". */
+void test_patch_implements_single(void) {
+    Iron_Node *prog = parse(
+        "patch object Int implements Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    Iron_ObjectDecl *od = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_OBJECT_DECL) {
+            od = (Iron_ObjectDecl *)pr->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(od, "expected ObjectDecl for patch");
+    TEST_ASSERT_TRUE_MESSAGE(od->is_patch, "expected is_patch==true");
+    TEST_ASSERT_EQUAL_STRING("Int", od->target_type_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, od->implements_count,
+        "expected implements_count==1 for single implements clause");
+    TEST_ASSERT_EQUAL_STRING("Comparable", od->implements_names[0]);
+}
+
+/* test_patch_implements_multiple: `patch object Foo implements A, B, C { }` => implements_count==3. */
+void test_patch_implements_multiple(void) {
+    Iron_Node *prog = parse(
+        "patch object Foo implements A, B, C {\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    Iron_ObjectDecl *od = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_OBJECT_DECL) {
+            od = (Iron_ObjectDecl *)pr->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(od, "expected ObjectDecl for patch");
+    TEST_ASSERT_TRUE_MESSAGE(od->is_patch, "expected is_patch==true");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(3, od->implements_count,
+        "expected implements_count==3 for three-name implements clause");
+    TEST_ASSERT_EQUAL_STRING("A", od->implements_names[0]);
+    TEST_ASSERT_EQUAL_STRING("B", od->implements_names[1]);
+    TEST_ASSERT_EQUAL_STRING("C", od->implements_names[2]);
+}
+
+/* test_patch_implements_recovery: malformed `patch object Int implements , { }` —
+ * parser should recover, no crash, implements_count==0. */
+void test_patch_implements_recovery(void) {
+    /* The trailing comma / missing name is malformed; parser must not crash. */
+    (void)parse(
+        "patch object Int implements , {\n"
+        "}\n"
+    );
+    /* Just assert no crash (no segfault). Error count may be > 0 from recovery. */
+    /* No assertion on implements_count — recovery path is implementation-defined. */
+    (void)diags.error_count;  /* suppress unused-variable warning */
+}
+
+/* test_patch_without_implements_unchanged: Phase 86 regression lock —
+ * a plain patch with no implements clause has implements_count==0. */
+void test_patch_without_implements_unchanged(void) {
+    Iron_Node *prog = parse(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self * 2 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    Iron_ObjectDecl *od = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_OBJECT_DECL) {
+            od = (Iron_ObjectDecl *)pr->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(od, "expected ObjectDecl for plain patch");
+    TEST_ASSERT_TRUE_MESSAGE(od->is_patch, "expected is_patch==true");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, od->implements_count,
+        "expected implements_count==0 when no implements clause present");
+}
+
 /* ── Enum declarations ───────────────────────────────────────────────────── */
 
 void test_parse_enum_decl(void) {
@@ -1947,6 +2034,12 @@ int main(void) {
     RUN_TEST(test_self_type_in_interface_sig);
     RUN_TEST(test_self_construct_anon);
     RUN_TEST(test_self_construct_named);
+
+    /* Phase 87-02 PATCH-08: patch implements clause. */
+    RUN_TEST(test_patch_implements_single);
+    RUN_TEST(test_patch_implements_multiple);
+    RUN_TEST(test_patch_implements_recovery);
+    RUN_TEST(test_patch_without_implements_unchanged);
 
     RUN_TEST(test_parse_enum_decl);
     RUN_TEST(test_parse_import);
