@@ -577,6 +577,18 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
             /* val is default, just consume */
         }
 
+        /* Phase 88 BREAK-04: reject 'mut' keyword in param position when strict-v3 gate is ON.
+         * Consume 'mut' for recovery so the rest of the param list keeps parsing cleanly. */
+        if (p->v3_strict_mode && iron_check(p, IRON_TOK_MUT)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_V3_MUT_KEYWORD,
+                           iron_token_span(p, iron_current(p)),
+                           "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                           "or declare a default in-object method to mutate self",
+                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+            iron_advance(p);  /* consume 'mut' for recovery */
+        }
+
         /* Phase 85 INIT: accept IRON_TOK_INIT as a parameter name so stdlib
          * `reduce(init: U, ...)` lexes under pure-superset. */
         if (!iron_check_name_or_init(p)) {
@@ -2098,6 +2110,23 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
             return iron_parse_spawn_stmt(p);
         case IRON_TOK_LBRACE:
             return iron_parse_block(p);
+        case IRON_TOK_MUT:
+            /* Phase 88 BREAK-04: 'mut' as a statement-level prefix is removed in v3.0.
+             * When strict-v3 is ON emit E0263; consume 'mut' and parse the remainder
+             * as an expression statement for recovery.
+             * Gate OFF: fall through to expression-statement / default path so
+             * existing gate-off behavior is completely unchanged. */
+            if (p->v3_strict_mode) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_V3_MUT_KEYWORD,
+                               iron_token_span(p, t),
+                               "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                               "or declare a default in-object method to mutate self",
+                               "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+                iron_advance(p);  /* consume 'mut' for recovery */
+                return iron_parse_expr(p);
+            }
+            /* FALLTHROUGH when gate is OFF */
         /* -Wswitch-enum opt-out: statement switch only handles the token kinds
          * that begin a statement keyword; every other Iron_TokenKind falls
          * through to the expression-statement / assignment default below. */
@@ -2342,6 +2371,24 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         } else if (iron_check(p, IRON_TOK_MUT)) {
             iron_advance(p);
             recv_is_mut = true;
+        }
+
+        /* Phase 88 BREAK-01/02: reject receiver-method form when strict-v3 gate is ON.
+         * E0260 for plain receiver, E0261 for mut-receiver. Both forms removed in v3.0. */
+        if (p->v3_strict_mode) {
+            int code = recv_is_mut ? IRON_ERR_V3_MUT_RECEIVER : IRON_ERR_V3_RECEIVER_SYNTAX;
+            const char *msg = recv_is_mut
+                ? "mut-receiver syntax 'func (mut recv: T) name()' removed in v3.0; "
+                  "declare as a default method inside 'object T { func name() { ... } }'"
+                : "receiver-method syntax 'func (recv: T) name()' removed in v3.0; "
+                  "declare as a method inside 'object T { func name() { ... } }'";
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code,
+                           iron_token_span(p, start),
+                           msg,
+                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
         }
 
         if (!iron_check_name(p)) {
@@ -3103,6 +3150,19 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             ftype = iron_parse_type_annotation(p);
         }
 
+        /* Phase 88 BREAK-03: reject inline field defaults 'var x: T = expr' when
+         * strict-v3 gate is ON. Consume and discard the initializer for recovery. */
+        if (p->v3_strict_mode && iron_check(p, IRON_TOK_ASSIGN)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_V3_INLINE_DEFAULT,
+                           iron_token_span(p, iron_current(p)),
+                           "inline field defaults 'var x: T = expr' removed in v3.0; "
+                           "assign fields in an init instead",
+                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+            iron_advance(p);  /* consume '=' */
+            (void)iron_parse_expr(p);  /* discard initializer expression for recovery */
+        }
+
         Iron_Field *field = ARENA_ALLOC(p->arena, Iron_Field);
         if (!field) iron_oom_abort("parser.c:iron_parse_object_decl Field");
         field->kind       = IRON_NODE_FIELD;
@@ -3571,6 +3631,34 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
                 synth->is_init              = true;
                 synth->init_name            = NULL;  /* anonymous */
                 arrput(*extra_decls_out, (Iron_Node *)synth);
+            }
+        }
+
+        /* Phase 88 INIT-02: when strict-v3 gate is ON, an object with fields
+         * but no user-declared init is an error — v3.0 requires an explicit init. */
+        if (p->v3_strict_mode && field_count > 0) {
+            bool has_user_init = false;
+            for (int i = 0; i < (int)arrlen(*extra_decls_out); i++) {
+                Iron_Node *d = (*extra_decls_out)[i];
+                if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *mm = (Iron_MethodDecl *)d;
+                if (mm->is_init && !mm->is_synth_accessor && mm->type_name &&
+                    strcmp(mm->type_name, enclosing) == 0) {
+                    has_user_init = true;
+                    break;
+                }
+            }
+            if (!has_user_init) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "object '%s' has %d field(s) but no init; "
+                         "v3.0 requires an explicit init to construct objects with fields",
+                         enclosing, field_count);
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_V3_NO_INIT,
+                               iron_token_span(p, name_tok),
+                               msg,
+                               "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
             }
         }
     }
