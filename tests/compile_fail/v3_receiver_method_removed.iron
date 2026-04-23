@@ -1,0 +1,13 @@
+object Player {
+    var health: Int
+    init(h: Int) {
+        self.health = h
+    }
+    pub func get_health() -> Int {
+        return self.health
+    }
+}
+
+func (p: Player) take_damage(n: Int) {
+    p.health = p.health - n
+}
