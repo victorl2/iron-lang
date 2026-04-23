@@ -4387,7 +4387,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             arrput(decls, extra_decls[i]);
             decl_count++;
         }
-        arrsetlen(extra_decls, 0);
+        if (arrlen(extra_decls) > 0) arrsetlen(extra_decls, 0);
         iron_skip_newlines(p);
         /* No-progress guard at the top level: if iron_parse_decl failed to
          * consume any tokens, emit one generic diagnostic and skip one token.
