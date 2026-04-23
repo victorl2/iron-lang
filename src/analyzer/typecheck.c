@@ -4403,6 +4403,114 @@ static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
     }
 }
 
+/* ── Phase 87 IFACE-02: interface method tier-strengthening (E0257) ─────── */
+
+/* Helper: find a MethodDecl for (type_name, method_name) in program->decls.
+ * Walks all top-level MethodDecl nodes; returns the first match or NULL.
+ * This covers both in-object methods and patched methods (which are emitted
+ * as top-level MethodDecls with type_name == patch target per Plan 86-01). */
+static Iron_MethodDecl *find_method_for_object(Iron_Program *program,
+                                               const char *type_name,
+                                               const char *method_name) {
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->type_name || !md->method_name) continue;
+        if (strcmp(md->type_name, type_name) == 0 &&
+            strcmp(md->method_name, method_name) == 0) {
+            return md;
+        }
+    }
+    return NULL;
+}
+
+/* Tier-strengthening scan (IFACE-02).
+ * For every object decl with implements_count > 0, for every interface sig:
+ *   - Look up the MethodDecl implementing it (in-object or patched).
+ *   - If no impl exists AND sig has no default body, Plan 87-02 emits E0258.
+ *     This plan only handles the tier-matching concern.
+ *   - If impl found, compare tiers:
+ *       iface pure     => impl must be pure
+ *       iface readonly => impl must be readonly OR pure
+ *       iface default  => any impl is OK
+ *   - Emit E0257 with a locked message on violation. */
+static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) {
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl || decl->kind != IRON_NODE_OBJECT_DECL) continue;
+
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
+        if (od->implements_count == 0) continue;
+
+        for (int j = 0; j < od->implements_count; j++) {
+            const char *iface_name = od->implements_names[j];
+            if (!iface_name) continue;
+
+            Iron_Symbol *iface_sym = iron_scope_lookup(ctx->global_scope, iface_name);
+            if (!iface_sym || iface_sym->sym_kind != IRON_SYM_INTERFACE) continue;
+            if (!iface_sym->decl_node ||
+                iface_sym->decl_node->kind != IRON_NODE_INTERFACE_DECL) continue;
+
+            Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)iface_sym->decl_node;
+            if (!iface) continue;
+
+            for (int k = 0; k < iface->method_count; k++) {
+                Iron_Node *sig_node = iface->method_sigs[k];
+                if (!sig_node || sig_node->kind != IRON_NODE_FUNC_DECL) continue;
+                Iron_FuncDecl *sig = (Iron_FuncDecl *)sig_node;
+                if (!sig->name) continue;
+
+                /* Find the MethodDecl implementing this interface method.
+                 * Covers in-object AND patched methods (both are top-level
+                 * MethodDecl nodes with type_name == od->name per Plan 86). */
+                Iron_MethodDecl *impl =
+                    find_method_for_object(program, od->name, sig->name);
+
+                if (!impl) {
+                    /* No impl found. If sig has a default body, the implementer
+                     * inherits it — no E0257 (no impl to compare). If sig has
+                     * NO default body, E0258 (missing method) is Plan 87-02's
+                     * responsibility. Either way, nothing to do here. */
+                    continue;
+                }
+
+                /* Tier comparison:
+                 *   iface pure     => impl must be pure
+                 *   iface readonly => impl must be readonly OR pure
+                 *   iface default  => any impl is fine */
+                bool ok = true;
+                const char *req_tier = "";
+                if (sig->is_pure) {
+                    ok       = impl->is_pure;
+                    req_tier = "pure";
+                } else if (sig->is_readonly) {
+                    ok       = impl->is_readonly || impl->is_pure;
+                    req_tier = "readonly";
+                }
+
+                if (!ok) {
+                    const char *impl_tier = impl->is_pure     ? "pure"
+                                          : impl->is_readonly ? "readonly"
+                                          :                     "mutating";
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "interface method '%s.%s' requires %s; "
+                             "implementation is %s",
+                             iface_name, sig->name, req_tier, impl_tier);
+                    const char *msg_copy =
+                        iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    if (!msg_copy)
+                        iron_oom_abort("typecheck.c:check_iface_tier_strengthening msg");
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_IFACE_METHOD_TIER_MISMATCH,
+                                   impl->span, msg_copy, NULL);
+                }
+            }
+        }
+    }
+}
+
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
 void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
@@ -4685,6 +4793,13 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
 
     /* Interface completeness */
     check_interface_completeness(&ctx, program);
+
+    /* Phase 87 IFACE-02: tier-strengthening scan. Runs after method bodies
+     * are typechecked so is_readonly/is_pure on MethodDecl nodes are confirmed
+     * by parse-time assignment (Plan 84-01). Emits E0257 for every (object,
+     * iface) pair where an implementation method's tier is weaker than its
+     * corresponding interface signature tier. */
+    check_iface_tier_strengthening(&ctx, program);
 
     shfree(ctx.narrowed);
     shfree(ctx.spawn_result_types);
