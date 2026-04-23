@@ -569,6 +569,12 @@ if(IRON_BUILD_LSP)
         # Phase 7 Plan 07-01 Task 01 (HARD-14, D-02): crash-dump pipeline
         # + SIGSEGV/SIGBUS handlers + in-flight ring buffer.
         src/lsp/obs/crash_dump.c
+        # Phase 7 Plan 07-01 Task 02 (HARD-13, HARD-20, D-01, D-08):
+        # supervisor fork/proxy + parent-death detection + centralised
+        # argv parser.
+        src/lsp/obs/parent_watch.c
+        src/lsp/supervisor/supervisor.c
+        src/lsp/cli/args.c
         src/vendor/yyjson/yyjson.c
     )
     target_include_directories(ironls PRIVATE

@@ -798,3 +798,65 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m6-invariant"
         TIMEOUT 60)
 endif()
+
+# ── Phase 7 Plan 07-01 Task 02 (HARD-13, HARD-20, D-01, D-08): supervisor
+#    + parent-death Unity tests. Task 01 added test_crash_ring_buffer
+#    above; Task 02 adds the three tests below. ──────────────────────────
+if(IRON_BUILD_LSP)
+    # Test 2: parent_watch prctl (Linux-only; skipped on non-Linux).
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(test_parent_watch_prctl
+            lsp/obs/test_parent_watch_prctl.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/obs/parent_watch.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c)
+        target_include_directories(test_parent_watch_prctl PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor
+            ${CMAKE_BINARY_DIR}/generated)
+        target_compile_definitions(test_parent_watch_prctl PRIVATE _GNU_SOURCE)
+        target_link_libraries(test_parent_watch_prctl
+            iron_compiler iron_runtime unity pthread m)
+        add_test(NAME test_parent_watch_prctl COMMAND test_parent_watch_prctl)
+        set_tests_properties(test_parent_watch_prctl PROPERTIES
+            LABELS "unit;phase-m6-invariant"
+            TIMEOUT 30)
+    endif()
+
+    # Test 3: supervisor backoff + 5-crash bailout (deterministic clock).
+    add_executable(test_supervisor_backoff
+        lsp/supervisor/test_supervisor_backoff.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/supervisor/supervisor.c)
+    target_include_directories(test_supervisor_backoff PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_supervisor_backoff PRIVATE
+        _GNU_SOURCE
+        ILSP_SUPERVISOR_TESTING=1)
+    target_link_libraries(test_supervisor_backoff
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_supervisor_backoff COMMAND test_supervisor_backoff)
+    set_tests_properties(test_supervisor_backoff PROPERTIES
+        LABELS "unit;phase-m6-invariant"
+        TIMEOUT 30)
+
+    # Test 4: supervisor proxy (byte-forwarder + synthetic showMessage).
+    add_executable(test_supervisor_proxy
+        lsp/supervisor/test_supervisor_proxy.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/supervisor/supervisor.c)
+    target_include_directories(test_supervisor_proxy PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_supervisor_proxy PRIVATE
+        _GNU_SOURCE
+        ILSP_SUPERVISOR_TESTING=1)
+    target_link_libraries(test_supervisor_proxy
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_supervisor_proxy COMMAND test_supervisor_proxy)
+    set_tests_properties(test_supervisor_proxy PROPERTIES
+        LABELS "unit;phase-m6-invariant"
+        TIMEOUT 30)
+endif()

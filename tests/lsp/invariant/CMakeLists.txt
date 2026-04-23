@@ -19,4 +19,20 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_crash_dump_written PROPERTIES
         LABELS "integration;phase-m6-invariant"
         TIMEOUT 30)
+
+    # Phase 7 Plan 07-01 Task 02 (HARD-20, D-08) -- test_parent_death_detection.sh:
+    # fork a fake editor that spawns ironls + exits; assert ironls exits within
+    # 5s via SIGTERM delivered by prctl(PR_SET_PDEATHSIG) on Linux. Linux-only:
+    # macOS's kqueue watcher is identical in intent but the SIGTERM path is
+    # routed via a background thread whose shutdown is covered by the per-TU
+    # Unity test (test_parent_watch_prctl is Linux-only; macOS coverage is
+    # v1.x tracking).
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME test_parent_death_detection
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_parent_death_detection.sh"
+                    $<TARGET_FILE:ironls>)
+        set_tests_properties(test_parent_death_detection PROPERTIES
+            LABELS "integration;phase-m6-invariant"
+            TIMEOUT 30)
+    endif()
 endif()
