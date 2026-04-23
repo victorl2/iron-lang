@@ -204,7 +204,7 @@ Plans:
 4. `ironc migrate` is invocable from the v3.0.0-alpha release binary (not a separate tool).
 5. The codemod emits a unified diff on stderr, so users can review changes before accepting.
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 89-01-PLAN.md — Python codemod script (scripts/migrate_v2_to_v3.py) + ironc migrate subcommand in main.c (MIGR-02, MIGR-03, MIGR-04)
@@ -228,7 +228,11 @@ Plans:
 4. The script is wired into the release checklist (not just CI) so v3.0.0-alpha cannot be tagged while any diff exists.
 5. Re-running the codemod on already-migrated source produces zero changes and zero diff in downstream C output.
 
-**Plans:** TBD
+**Plans:** 1/2 plans executed
+
+Plans:
+- [ ] 90-01-PLAN.md — Verify script + tests/migrate_identity/ fixture infrastructure (IDENT-01, IDENT-02)
+- [ ] 90-02-PLAN.md — Generate goldens + verify end-to-end + architectural guarantee SUMMARY (IDENT-01, IDENT-02, IDENT-03)
 
 ---
 
@@ -261,7 +265,7 @@ Plans:
 | 87. IFACE + SELF | 3/3 | Complete    | 2026-04-23 |
 | 88. BREAK | 3/3 | Complete    | 2026-04-23 |
 | 89. MIGR | 3/3 | Complete    | 2026-04-23 |
-| 90. IDENT | 0/0 | Not started | - |
+| 90. IDENT | 1/2 | In Progress|  |
 | 91. DOCS | 0/0 | Not started | - |
 
 ## Coverage Summary

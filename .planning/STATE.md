@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: milestone
 status: planning
-last_updated: "2026-04-23T23:05:34.868Z"
+last_updated: "2026-04-23T23:29:12.475Z"
 progress:
   total_phases: 10
-  completed_phases: 7
-  total_plans: 23
-  completed_plans: 22
+  completed_phases: 8
+  total_plans: 25
+  completed_plans: 24
 ---
 
 # State
@@ -23,11 +23,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-20)
 ## Current Position
 
 - **Milestone:** v3.0 Method Ergonomics
-- **Phase:** 89 MIGR (COMPLETE -- Plans 01+02+03 done)
-- **Plan:** 89-03 complete. Phase 89 MIGR complete -- MIGR-01..04 locked; codemod shipped (scripts/migrate_v2_to_v3.py + ironc migrate subcommand); stdlib migrated (raylib.iron 309 methods in 49 patch blocks; time.iron 4 methods in 2 blocks); v3_strict_mode flipped to true in parser.c and CLI default; E0264 exempted for val-only C-backed objects; unit test suite remains fully green (41 lexer / 106 parser / 171 typecheck). Integration: 389 (pre-existing clang-not-found on server means compile counts are 0/389, not a regression). Gate is ON permanently; v2 receiver-method syntax now rejected without any explicit flag.
-- **Status:** Ready to plan
-- **Next:** Phase 90 IDENT
-- **Branch:** `feat/v3-method-ergonomics` (draft PR #37 open; all Phase 89 commits pushed to origin).
+- **Phase:** 90 IDENT (IN PROGRESS -- Plan 01 done)
+- **Plan:** 90-01 complete. scripts/verify-v3-migration.sh release-blocker script created (executable, PASS/FAIL/WARN loop, --generate flag, clang-absent NOTE, subcommand probe). tests/migrate_identity/sources/ populated with int.iron, float.iron, io.iron from src/stdlib/. Script exits 0 with WARN when no goldens present; exits 0 with NOTE when clang absent.
+- **Status:** In progress
+- **Next:** Plan 90-02 (generate goldens + run full verification)
+- **Branch:** `feat/v3-method-ergonomics` (draft PR #37 open; all Phase 90-01 commits pushed to origin).
 
 ## Roadmap Summary
 
