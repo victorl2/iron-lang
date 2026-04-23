@@ -2542,6 +2542,187 @@ void test_patched_pure_method_io_rejected(void) {
     TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_IO));
 }
 
+/* ── Phase 87 Plan 87-01 Task 2: IFACE-02 tier-strengthening (E0257) ─────── */
+/* Tests 9-18 covering the 3x3 tier matrix (iface default/readonly/pure x
+ * impl default/readonly/pure), default-body inheritance, and locked
+ * message substring verification. */
+
+void test_iface_readonly_impl_default_mutating_rejected(void) {
+    /* IFACE-02: readonly iface sig + mutating impl => E0257 */
+    parse_and_resolve(
+        "interface Cmp {\n"
+        "    readonly func cmp() -> Int\n"
+        "}\n"
+        "object Foo implements Cmp {\n"
+        "    init() {}\n"
+        "}\n"
+        "func Foo.cmp() -> Int { return 0 }\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for mutating impl of readonly iface method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("requires readonly"),
+        "expected 'requires readonly' in E0257 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("implementation is"),
+        "expected 'implementation is' in E0257 message");
+}
+
+void test_iface_pure_impl_readonly_rejected(void) {
+    /* IFACE-02: pure iface sig + readonly impl => E0257 */
+    parse_and_resolve(
+        "interface Hash {\n"
+        "    pure func hash() -> Int\n"
+        "}\n"
+        "object Foo implements Hash {\n"
+        "    init() {}\n"
+        "}\n"
+        "readonly func Foo.hash() -> Int { return 0 }\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for readonly impl of pure iface method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("requires pure"),
+        "expected 'requires pure' in E0257 message");
+}
+
+void test_iface_pure_impl_default_rejected(void) {
+    /* IFACE-02: pure iface sig + mutating impl => E0257 */
+    parse_and_resolve(
+        "interface Hash {\n"
+        "    pure func hash() -> Int\n"
+        "}\n"
+        "object Bar implements Hash {\n"
+        "    init() {}\n"
+        "}\n"
+        "func Bar.hash() -> Int { return 0 }\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for mutating impl of pure iface method");
+}
+
+void test_iface_readonly_impl_readonly_accepted(void) {
+    /* IFACE-02: readonly iface sig + readonly impl => zero diags */
+    parse_and_resolve(
+        "interface Cmp {\n"
+        "    readonly func cmp() -> Int\n"
+        "}\n"
+        "object Foo implements Cmp {\n"
+        "    init() {}\n"
+        "}\n"
+        "readonly func Foo.cmp() -> Int { return 0 }\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for readonly impl of readonly iface method");
+}
+
+void test_iface_readonly_impl_pure_accepted(void) {
+    /* IFACE-02: readonly iface sig + pure impl => zero E0257 (pure is stronger) */
+    parse_and_resolve(
+        "interface Cmp {\n"
+        "    readonly func cmp() -> Int\n"
+        "}\n"
+        "object Foo implements Cmp {\n"
+        "    init() {}\n"
+        "}\n"
+        "pure func Foo.cmp() -> Int { return 0 }\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for pure impl of readonly iface method");
+}
+
+void test_iface_pure_impl_pure_accepted(void) {
+    /* IFACE-02: pure iface sig + pure impl => zero diags */
+    parse_and_resolve(
+        "interface Hash {\n"
+        "    pure func hash() -> Int\n"
+        "}\n"
+        "object Foo implements Hash {\n"
+        "    init() {}\n"
+        "}\n"
+        "pure func Foo.hash() -> Int { return 0 }\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for pure impl of pure iface method");
+}
+
+void test_iface_default_impl_mutating_accepted(void) {
+    /* IFACE-02: default iface sig + mutating impl => zero diags */
+    parse_and_resolve(
+        "interface Base {\n"
+        "    func run()\n"
+        "}\n"
+        "object Foo implements Base {\n"
+        "    init() {}\n"
+        "}\n"
+        "func Foo.run() { return }\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for mutating impl of default iface method");
+}
+
+void test_iface_default_impl_readonly_accepted(void) {
+    /* IFACE-02: default iface sig + readonly impl => zero diags */
+    parse_and_resolve(
+        "interface Base {\n"
+        "    func run()\n"
+        "}\n"
+        "object Foo implements Base {\n"
+        "    init() {}\n"
+        "}\n"
+        "readonly func Foo.run() { return }\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for readonly impl of default iface method");
+}
+
+void test_iface_default_body_inherited_no_mismatch(void) {
+    /* IFACE-03/02 interaction: implementer has no override for a default-body
+     * method. No impl method exists to compare => zero E0257. */
+    parse_and_resolve(
+        "interface D {\n"
+        "    readonly func foo() -> Int { return 42 }\n"
+        "}\n"
+        "object Foo implements D {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire when implementer inherits the default body");
+}
+
+void test_iface_tier_mismatch_E0257_locked_substring(void) {
+    /* Lock the exact ASCII substrings that Plan 87-03 compile_fail fixtures
+     * will grep: "interface method" + "requires" + "implementation is". */
+    parse_and_resolve(
+        "interface Sig {\n"
+        "    readonly func go() -> Int\n"
+        "}\n"
+        "object Impl implements Sig {\n"
+        "    init() {}\n"
+        "}\n"
+        "func Impl.go() -> Int { return 0 }\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("interface method"),
+        "expected 'interface method' prefix in E0257 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("requires"),
+        "expected 'requires' in E0257 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("implementation is"),
+        "expected 'implementation is' suffix in E0257 message");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2711,6 +2892,18 @@ int main(void) {
     RUN_TEST(test_patched_init_unassigned_field);
     RUN_TEST(test_patched_readonly_method_write_self_rejected);
     RUN_TEST(test_patched_pure_method_io_rejected);
+
+    /* Phase 87 Plan 87-01 Task 2: IFACE-02 tier-strengthening (E0257). */
+    RUN_TEST(test_iface_readonly_impl_default_mutating_rejected);
+    RUN_TEST(test_iface_pure_impl_readonly_rejected);
+    RUN_TEST(test_iface_pure_impl_default_rejected);
+    RUN_TEST(test_iface_readonly_impl_readonly_accepted);
+    RUN_TEST(test_iface_readonly_impl_pure_accepted);
+    RUN_TEST(test_iface_pure_impl_pure_accepted);
+    RUN_TEST(test_iface_default_impl_mutating_accepted);
+    RUN_TEST(test_iface_default_impl_readonly_accepted);
+    RUN_TEST(test_iface_default_body_inherited_no_mismatch);
+    RUN_TEST(test_iface_tier_mismatch_E0257_locked_substring);
 
     return UNITY_END();
 }
