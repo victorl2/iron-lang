@@ -226,6 +226,15 @@ typedef struct {
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
     struct Iron_Type **resolved_param_types;  /* set by type checker (extern func FFI) */
     bool               is_fusible;            /* Phase 49: @fusible annotation */
+    /* Phase 87 IFACE-01: tier modifiers on interface method signatures. These
+     * fields are populated ONLY for Iron_FuncDecl nodes stored inside an
+     * Iron_InterfaceDecl.method_sigs array (i.e. interface sigs). Top-level
+     * function declarations keep both bits false (Phase 84 already rejects
+     * readonly/pure on top-level funcs via E0245). The has_default_body
+     * invariant is encoded by body != NULL on an interface sig — no separate
+     * flag. Defaults false at every allocation site. */
+    bool               is_readonly;
+    bool               is_pure;
 } Iron_FuncDecl;
 
 typedef struct {

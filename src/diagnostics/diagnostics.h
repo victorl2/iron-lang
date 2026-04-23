@@ -186,6 +186,20 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_PATCH_TARGET_NOT_FOUND     254   /* PATCH-04 */
 #define IRON_ERR_PATCH_CONFLICT             255   /* PATCH-03 */
 
+/* Phase 87 IFACE + SELF range (256-259).
+ * E0256: interfaces cannot declare init (IFACE-04 upgrade from the Phase 85
+ *   generic IRON_ERR_UNEXPECTED_TOKEN path to a dedicated code).
+ * E0257: interface method tier-strengthening violation — implementation is
+ *   weaker than its interface sig tier (IFACE-02).
+ * E0258 reserved for Plan 87-02 PATCH-08: patch adds interface conformance
+ *   but is missing required methods (retroactive-conformance completeness).
+ * E0259 reserved for Plan 87-02 SELF: Self used outside method / interface
+ *   context. */
+#define IRON_ERR_IFACE_CANNOT_DECLARE_INIT  256   /* IFACE-04 */
+#define IRON_ERR_IFACE_METHOD_TIER_MISMATCH 257   /* IFACE-02 */
+/* 258 reserved for IFACE_CONFORMANCE_MISSING (Plan 87-02 PATCH-08) */
+/* 259 reserved for SELF_OUTSIDE_CONTEXT     (Plan 87-02 SELF) */
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301

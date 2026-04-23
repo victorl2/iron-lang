@@ -973,8 +973,11 @@ void test_parse_init_with_return_type_rejected(void) {
 }
 
 void test_parse_init_in_interface_rejected(void) {
-    /* INIT-15: interfaces describe behavior, not construction. init is a
-     * parse error inside interface bodies. */
+    /* INIT-15 + IFACE-04 (Phase 87 upgrade): interfaces describe behavior,
+     * not construction. init is a parse error inside interface bodies and
+     * now fires the dedicated IRON_ERR_IFACE_CANNOT_DECLARE_INIT (E0256)
+     * instead of the generic IRON_ERR_UNEXPECTED_TOKEN. The locked message
+     * substring "interfaces may not declare init" is unchanged. */
     (void)parse(
         "interface Foo {\n"
         "    init()\n"
@@ -982,8 +985,8 @@ void test_parse_init_in_interface_rejected(void) {
     );
     TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
     TEST_ASSERT_TRUE_MESSAGE(
-        has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
-        "expected IRON_ERR_UNEXPECTED_TOKEN for init in interface body");
+        has_diag_code(IRON_ERR_IFACE_CANNOT_DECLARE_INIT),
+        "expected IRON_ERR_IFACE_CANNOT_DECLARE_INIT (E0256) for init in interface body");
     TEST_ASSERT_TRUE_MESSAGE(
         has_diag_msg_substring("interfaces may not declare init"),
         "expected locked 'interfaces may not declare init' message");
@@ -1160,6 +1163,147 @@ void test_parse_interface_decl(void) {
     Iron_FuncDecl *sig = (Iron_FuncDecl *)iface->method_sigs[0];
     TEST_ASSERT_EQUAL_STRING("draw", sig->name);
     TEST_ASSERT_NULL(sig->body);  /* signatures have no body */
+}
+
+/* Phase 87 IFACE-01/03/04: readonly/pure tier modifiers + default bodies +
+ * init rejection with E0256. All 8 tests lock parser AST shape of the new
+ * interface-body grammar extensions. */
+
+void test_parse_interface_readonly_sig(void) {
+    Iron_Node *prog = parse(
+        "interface Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Node *d = first_decl(prog);
+    TEST_ASSERT_EQUAL(IRON_NODE_INTERFACE_DECL, d->kind);
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)d;
+    TEST_ASSERT_EQUAL(1, iface->method_count);
+    Iron_FuncDecl *sig = (Iron_FuncDecl *)iface->method_sigs[0];
+    TEST_ASSERT_EQUAL_STRING("cmp", sig->name);
+    TEST_ASSERT_TRUE(sig->is_readonly);
+    TEST_ASSERT_FALSE(sig->is_pure);
+    TEST_ASSERT_NULL(sig->body);
+}
+
+void test_parse_interface_pure_sig(void) {
+    Iron_Node *prog = parse(
+        "interface Hashable {\n"
+        "    pure func hash() -> Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)first_decl(prog);
+    TEST_ASSERT_EQUAL(1, iface->method_count);
+    Iron_FuncDecl *sig = (Iron_FuncDecl *)iface->method_sigs[0];
+    TEST_ASSERT_TRUE(sig->is_pure);
+    TEST_ASSERT_FALSE(sig->is_readonly);
+    TEST_ASSERT_NULL(sig->body);
+}
+
+void test_parse_interface_readonly_default_body(void) {
+    /* IFACE-03: default body on readonly sig. body != NULL is the
+     * has_default_body signal per ast.h Iron_FuncDecl contract. */
+    Iron_Node *prog = parse(
+        "interface Describable {\n"
+        "    readonly func describe() -> Int { return 42 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)first_decl(prog);
+    TEST_ASSERT_EQUAL(1, iface->method_count);
+    Iron_FuncDecl *sig = (Iron_FuncDecl *)iface->method_sigs[0];
+    TEST_ASSERT_TRUE(sig->is_readonly);
+    TEST_ASSERT_NOT_NULL(sig->body);
+    Iron_Block *body = (Iron_Block *)sig->body;
+    TEST_ASSERT_EQUAL(IRON_NODE_BLOCK, body->kind);
+    TEST_ASSERT_EQUAL(1, body->stmt_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_RETURN, body->stmts[0]->kind);
+}
+
+void test_parse_interface_pure_default_body(void) {
+    Iron_Node *prog = parse(
+        "interface Zero {\n"
+        "    pure func zero() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)first_decl(prog);
+    Iron_FuncDecl *sig = (Iron_FuncDecl *)iface->method_sigs[0];
+    TEST_ASSERT_TRUE(sig->is_pure);
+    TEST_ASSERT_NOT_NULL(sig->body);
+}
+
+void test_parse_interface_readonly_plus_pure_rejected(void) {
+    /* First-wins recovery mirrors iron_parse_object_decl body loop. */
+    (void)parse(
+        "interface Bad {\n"
+        "    readonly pure func foo() -> Int\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_TIER_MODIFIER_PLACEMENT),
+        "expected IRON_ERR_TIER_MODIFIER_PLACEMENT for double tier on iface sig");
+}
+
+void test_parse_interface_init_rejected_e0256(void) {
+    /* IFACE-04: E0256 is the new dedicated code replacing the Phase 85
+     * IRON_ERR_UNEXPECTED_TOKEN path. Locked message substring unchanged. */
+    (void)parse(
+        "interface I {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_IFACE_CANNOT_DECLARE_INIT),
+        "expected IRON_ERR_IFACE_CANNOT_DECLARE_INIT (E0256) for init in interface");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("interfaces may not declare init"),
+        "expected locked 'interfaces may not declare init' message");
+    Iron_Node *prog = parse("interface I {\n    init() {}\n}\n");
+    (void)prog;
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)first_decl(prog);
+    TEST_ASSERT_EQUAL(0, iface->method_count);
+}
+
+void test_parse_interface_default_sig_no_tier(void) {
+    /* Regression lock: plain sig unchanged — both tier bits false. */
+    Iron_Node *prog = parse(
+        "interface Base {\n"
+        "    func run()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)first_decl(prog);
+    Iron_FuncDecl *sig = (Iron_FuncDecl *)iface->method_sigs[0];
+    TEST_ASSERT_FALSE(sig->is_readonly);
+    TEST_ASSERT_FALSE(sig->is_pure);
+    TEST_ASSERT_NULL(sig->body);
+}
+
+void test_parse_interface_mixed_tiers_multiple_sigs(void) {
+    Iron_Node *prog = parse(
+        "interface Mix {\n"
+        "    readonly func a() -> Int\n"
+        "    pure func b() -> Int\n"
+        "    func c()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)first_decl(prog);
+    TEST_ASSERT_EQUAL(3, iface->method_count);
+    Iron_FuncDecl *a = (Iron_FuncDecl *)iface->method_sigs[0];
+    Iron_FuncDecl *b = (Iron_FuncDecl *)iface->method_sigs[1];
+    Iron_FuncDecl *c = (Iron_FuncDecl *)iface->method_sigs[2];
+    TEST_ASSERT_TRUE(a->is_readonly);
+    TEST_ASSERT_FALSE(a->is_pure);
+    TEST_ASSERT_TRUE(b->is_pure);
+    TEST_ASSERT_FALSE(b->is_readonly);
+    TEST_ASSERT_FALSE(c->is_readonly);
+    TEST_ASSERT_FALSE(c->is_pure);
 }
 
 /* ── Enum declarations ───────────────────────────────────────────────────── */
@@ -1671,6 +1815,14 @@ int main(void) {
     RUN_TEST(test_parse_patch_with_generic_params_rejected);
 
     RUN_TEST(test_parse_interface_decl);
+    RUN_TEST(test_parse_interface_readonly_sig);
+    RUN_TEST(test_parse_interface_pure_sig);
+    RUN_TEST(test_parse_interface_readonly_default_body);
+    RUN_TEST(test_parse_interface_pure_default_body);
+    RUN_TEST(test_parse_interface_readonly_plus_pure_rejected);
+    RUN_TEST(test_parse_interface_init_rejected_e0256);
+    RUN_TEST(test_parse_interface_default_sig_no_tier);
+    RUN_TEST(test_parse_interface_mixed_tiers_multiple_sigs);
     RUN_TEST(test_parse_enum_decl);
     RUN_TEST(test_parse_import);
     RUN_TEST(test_parse_import_alias);
