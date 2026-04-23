@@ -44,6 +44,14 @@ dev-extension-test = []
 sha2 = "0.10"
 hex = "0.4"
 
+# Non-standard test path — the plan specifies `test/dev-load/` (singular)
+# per CONTEXT D-06 + Plan 06-05 Task 3 scope. Declare explicitly so
+# cargo discovers the harness outside the default `tests/` convention.
+[[test]]
+name = "diag_error_test"
+path = "test/dev-load/diag_error_test.rs"
+required-features = ["dev-extension-test"]
+
 [profile.release]
 lto = true
 opt-level = "z"
