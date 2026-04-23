@@ -2790,6 +2790,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
 
     Iron_Node **fields = NULL;
     int field_count    = 0;
+    int var_field_count = 0;  /* mutable (var) fields only — used for E0264 */
 
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
@@ -3180,6 +3181,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
         field->is_pub     = member_is_pub;
         arrput(fields, (Iron_Node *)field);
         field_count++;
+        if (is_var) var_field_count++;
         iron_skip_newlines(p);
     }
 
@@ -3634,9 +3636,12 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             }
         }
 
-        /* Phase 88 INIT-02: when strict-v3 gate is ON, an object with fields
-         * but no user-declared init is an error — v3.0 requires an explicit init. */
-        if (p->v3_strict_mode && field_count > 0) {
+        /* Phase 88 INIT-02: when strict-v3 gate is ON, an object with mutable (var)
+         * fields but no user-declared init is an error. val-only objects are treated as
+         * C-layout types whose lifetime is managed by C (e.g. raylib structs); they do
+         * not need an Iron init constructor because they are never constructed from Iron
+         * code directly. Only var fields require assignment in an init body. */
+        if (p->v3_strict_mode && var_field_count > 0) {
             bool has_user_init = false;
             for (int i = 0; i < (int)arrlen(*extra_decls_out); i++) {
                 Iron_Node *d = (*extra_decls_out)[i];
@@ -3651,9 +3656,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             if (!has_user_init) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
-                         "object '%s' has %d field(s) but no init; "
-                         "v3.0 requires an explicit init to construct objects with fields",
-                         enclosing, field_count);
+                         "object '%s' has %d mutable field(s) but no init; "
+                         "v3.0 requires an explicit init to construct objects with mutable fields",
+                         enclosing, var_field_count);
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_V3_NO_INIT,
                                iron_token_span(p, name_tok),
