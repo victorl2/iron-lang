@@ -1,0 +1,15 @@
+object Point {
+    pub var x: Int
+    init(x: Int) { self.x = x }
+    init from_x(x: Int) { self.x = x }
+    readonly func double_x() -> Self { return Self(self.x * 2) }
+    readonly func make_from_sum(o: Int) -> Self { return Self.from_x(self.x + o) }
+}
+
+func main() {
+    val p: Point = Point(5)
+    val q: Point = p.double_x()
+    val r: Point = p.make_from_sum(7)
+    println("q={q.x}")
+    println("r={r.x}")
+}
