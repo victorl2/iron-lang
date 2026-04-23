@@ -4498,11 +4498,21 @@ static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
                 }
 
                 if (!found) {
-                    char msg[512];
-                    snprintf(msg, sizeof(msg),
-                             "object '%s' implements '%s' but is missing method '%s'",
-                             od->name, iface_name, method_name);
-                    emit_error(ctx, IRON_ERR_MISSING_IFACE_METHOD, od->span, msg, NULL);
+                    /* Phase 87-03 IFACE-03: interface methods with a default
+                     * body are satisfied by inheritance — skip E0205 when
+                     * sig->body != NULL (the implementer inherits the default). */
+                    bool has_default_body = false;
+                    if (sig_node->kind == IRON_NODE_FUNC_DECL) {
+                        has_default_body =
+                            (((Iron_FuncDecl *)sig_node)->body != NULL);
+                    }
+                    if (!has_default_body) {
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                                 "object '%s' implements '%s' but is missing method '%s'",
+                                 od->name, iface_name, method_name);
+                        emit_error(ctx, IRON_ERR_MISSING_IFACE_METHOD, od->span, msg, NULL);
+                    }
                 }
             }
         }
