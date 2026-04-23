@@ -13,9 +13,12 @@ object Timer {
   val duration_ms: Int
 }
 
-func (t: Timer) done() -> Bool {}
-func (t: Timer) update(dt: Float) {}
-func (t: Timer) reset() {}
+patch object Timer {
+    func done() -> Bool {}
+    func update(dt: Float) {}
+    func reset() {}
+}
+
 
 -- Phase 59 P01c: Duration — ergonomic millisecond-budget value type.
 -- Phase 59 net APIs take `timeout: Int` (milliseconds) directly per the
@@ -36,4 +39,7 @@ func Duration.millis(n: Int) -> Duration { return Duration(n) }
 func Duration.seconds(n: Int) -> Duration { return Duration(n * 1000) }
 func Duration.minutes(n: Int) -> Duration { return Duration(n * 60 * 1000) }
 func Duration.from_ms(n: Int) -> Duration { return Duration(n) }
-func (d: Duration) to_ms() -> Int { return d.ms }
+patch object Duration {
+    func to_ms() -> Int { return self.ms }
+}
+
