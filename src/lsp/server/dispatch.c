@@ -20,12 +20,14 @@
 #include "lsp/server/dispatch.h"
 #include "lsp/server/server.h"
 #include "lsp/server/lifecycle.h"
+#include "lsp/obs/crash_dump.h"   /* Phase 7 Plan 07-01: in-flight ring buffer */
 #include "lsp/transport/json.h"
 #include "lsp/transport/writer.h"
 #include "lsp/transport/types.h"
 #include "vendor/yyjson/yyjson.h"
 #include "util/arena.h"
 
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -334,8 +336,35 @@ void ilsp_dispatch_route(IronLsp_Server *server,
         return;
     }
 
+    /* Phase 7 Plan 07-01 (HARD-14, D-02): push the (id, method) pair into
+     * the crash-dump in-flight ring buffer. For requests we use the JSON-RPC
+     * id if integral; for notifications (id==NULL) we synthesise a monotonic
+     * non-zero id via a static counter so the ring can still record the
+     * method in the event of a crash inside a notification handler. */
+    static _Atomic uint64_t s_notif_counter = 0;
+    uint64_t ring_id = 0;
+    if (id) {
+        if (yyjson_is_int(id) || yyjson_is_sint(id)) {
+            int64_t v = yyjson_get_sint(id);
+            ring_id = (v > 0) ? (uint64_t)v : (uint64_t)(-v);
+        } else if (yyjson_is_uint(id)) {
+            ring_id = yyjson_get_uint(id);
+        } else {
+            /* String or unusual id -- synthesise from counter. */
+            ring_id = atomic_fetch_add_explicit(&s_notif_counter, 1,
+                                                memory_order_relaxed) + 1;
+        }
+    } else {
+        ring_id = atomic_fetch_add_explicit(&s_notif_counter, 1,
+                                            memory_order_relaxed) + 1;
+    }
+    if (ring_id == 0) ring_id = 1;
+    ilsp_crash_ring_push(ring_id, method);
+
     /* Dispatch. */
     entry->handler(server, doc, arena);
+
+    ilsp_crash_ring_pop(ring_id);
 
     /* Advance state machine. */
     server->lifecycle = ilsp_lifecycle_next(server->lifecycle, method);
