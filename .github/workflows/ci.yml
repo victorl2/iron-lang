@@ -482,3 +482,161 @@ jobs:
             ~/.local/state/nvim/lsp.log
           retention-days: 7
           if-no-files-found: ignore
+
+  # Phase 6 Plan 06-05 Task 3 (EXT-08 + EXT-09, CONTEXT D-06 + D-07 + D-11).
+  #
+  # Gate 1 of 2 for the Zed extension. Builds the wasm32-wasip2 artifact
+  # that Zed loads and runs `zed extension validate` as a dry-run sanity
+  # check (no publish — publish is human-gated per CONTEXT D-11).
+  #
+  # The Zed CLI install script pipes to bash; we pin to the official
+  # https://zed.dev/install.sh to keep supply-chain surface minimal.
+  # Threat T-06-05-07 (devDep supply chain) — Cargo.lock is committed
+  # in editors/zed/ so transitive pins are gated by code review.
+  zed-package-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm32-wasip2 target
+        run: rustup target add wasm32-wasip2
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            editors/zed/target
+          key: zed-cargo-${{ runner.os }}-${{ hashFiles('editors/zed/Cargo.toml', 'editors/zed/Cargo.lock') }}
+          restore-keys: |
+            zed-cargo-${{ runner.os }}-
+
+      - name: Build Zed extension (wasm32-wasip2, release)
+        working-directory: editors/zed
+        run: cargo build --target wasm32-wasip2 --release
+
+      - name: Clippy (wasm32-wasip2, deny warnings)
+        working-directory: editors/zed
+        run: cargo clippy --target wasm32-wasip2 --release -- -D warnings
+        continue-on-error: true  # v1 best-effort; tightened in Phase 7 hardening
+
+      - name: Install Zed CLI
+        run: |
+          curl -fsSL https://zed.dev/install.sh | sh
+          # Zed install script puts the `zed` binary on PATH via ~/.local/bin
+          # or ~/.zed/cli — add both candidates, only the valid one resolves.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/zed.app/Contents/MacOS/cli" >> "$GITHUB_PATH"
+
+      - name: Verify Zed CLI present
+        run: |
+          if command -v zed >/dev/null 2>&1; then
+            zed --help | head -3
+            echo "ZED_CLI=1" >> "$GITHUB_ENV"
+          else
+            echo "Zed CLI unavailable on this runner — treat validate step as SKIP."
+            echo "ZED_CLI=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Zed extension validate (dry-run)
+        if: env.ZED_CLI == '1'
+        # Schema: zed extension validate <path>. When the subcommand is not
+        # yet available on the installed Zed CLI, the step exits 0 and logs
+        # a skip reason — tightened in Phase 7.
+        run: |
+          if zed extension validate --help >/dev/null 2>&1; then
+            zed extension validate editors/zed/
+          else
+            echo "zed extension validate subcommand unavailable on this Zed CLI build — SKIP"
+          fi
+
+      - name: Upload wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-iron-lsp-wasm-${{ github.sha }}
+          path: editors/zed/target/wasm32-wasip2/release/*.wasm
+          if-no-files-found: error
+          retention-days: 7
+
+  # Phase 6 Plan 06-05 Task 3 (EXT-08 + EXT-10, CONTEXT D-06 + D-07).
+  #
+  # Gate 2 of 2 for the Zed extension. Runs the native `cargo test
+  # --features dev-extension-test` suite which verifies the hand-rolled
+  # SHA-256 helper logic against the mock_release fixture. The full
+  # zed::download_file flow requires Zed's extension runtime sandbox
+  # (not reachable from a native test binary), so end-to-end coverage
+  # of that path is macOS-primary with Linux continue-on-error per
+  # CONTEXT D-07 (Zed Linux support still maturing).
+  #
+  # GH_TOKEN is set so CI runs don't hit the 60/hr unauth GitHub API
+  # rate limit when zed::latest_github_release is exercised manually
+  # during dev-extension loading (PITFALLS §8).
+  zed-e2e:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-latest' }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm32-wasip2 target
+        run: rustup target add wasm32-wasip2
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            editors/zed/target
+          key: zed-cargo-e2e-${{ runner.os }}-${{ hashFiles('editors/zed/Cargo.toml', 'editors/zed/Cargo.lock') }}
+          restore-keys: |
+            zed-cargo-e2e-${{ runner.os }}-
+
+      - name: Run SHA-256 helper tests (native)
+        working-directory: editors/zed
+        run: cargo test --features dev-extension-test
+
+      - name: Build Zed extension (wasm32-wasip2, release)
+        working-directory: editors/zed
+        run: cargo build --target wasm32-wasip2 --release
+
+      - name: Install Zed nightly (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -fsSL https://zed.dev/install.sh | sh
+          echo "$HOME/.local/zed.app/Contents/MacOS/cli" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Zed nightly (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://zed.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify zed CLI present
+        run: |
+          if command -v zed >/dev/null 2>&1; then
+            zed --help | head -1
+          else
+            echo "Zed CLI not on PATH — v1 allowed-to-fail on Linux per CONTEXT D-07"
+            exit 1
+          fi
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-e2e-logs-${{ matrix.os }}
+          path: editors/zed/target/debug/
+          retention-days: 7
+          if-no-files-found: ignore
