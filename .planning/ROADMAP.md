@@ -204,7 +204,12 @@ Plans:
 4. `ironc migrate` is invocable from the v3.0.0-alpha release binary (not a separate tool).
 5. The codemod emits a unified diff on stderr, so users can review changes before accepting.
 
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 89-01-PLAN.md — Python codemod script (scripts/migrate_v2_to_v3.py) + ironc migrate subcommand in main.c (MIGR-02, MIGR-03, MIGR-04)
+- [ ] 89-02-PLAN.md — Apply codemod to src/stdlib/*.iron + delete 6 obsolete v2-syntax fixtures + strict-v3 verify per file (MIGR-01, MIGR-03)
+- [ ] 89-03-PLAN.md — Flip v3_strict_mode default to true + server unit+integration verify + Phase 89 close-out SUMMARY (MIGR-01, MIGR-02, MIGR-04)
 
 ---
 
@@ -254,8 +259,8 @@ Plans:
 | 85. INIT | 3/3 | Complete    | 2026-04-21 |
 | 86. PATCH | 3/3 | Complete    | 2026-04-21 |
 | 87. IFACE + SELF | 3/3 | Complete    | 2026-04-23 |
-| 88. BREAK | 3/3 | Complete   | 2026-04-23 |
-| 89. MIGR | 0/0 | Not started | - |
+| 88. BREAK | 3/3 | Complete    | 2026-04-23 |
+| 89. MIGR | 0/3 | In progress | - |
 | 90. IDENT | 0/0 | Not started | - |
 | 91. DOCS | 0/0 | Not started | - |
 
