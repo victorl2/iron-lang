@@ -1306,6 +1306,124 @@ void test_parse_interface_mixed_tiers_multiple_sigs(void) {
     TEST_ASSERT_FALSE(c->is_pure);
 }
 
+/* ── Phase 87-02 SELF-01/02/03 + IFACE-05: Self type + Self-construct ─────── */
+
+/* test_self_type_in_method_return: `object P { init() {} readonly func clone() -> Self { return self } }`
+ * The return_type of clone() must be Iron_TypeAnnotation with is_self_type==true and name=="Self". */
+void test_self_type_in_method_return(void) {
+    Iron_Node *prog = parse(
+        "object P {\n"
+        "    init() {}\n"
+        "    readonly func clone() -> Self { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    /* The method decl is emitted as a top-level MethodDecl after the ObjectDecl. */
+    Iron_MethodDecl *md = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[i];
+            if (strcmp(m->method_name, "clone") == 0) { md = m; break; }
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(md, "expected clone() MethodDecl");
+    TEST_ASSERT_NOT_NULL(md->return_type);
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, md->return_type->kind);
+    Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)md->return_type;
+    TEST_ASSERT_EQUAL_STRING("Self", ann->name);
+    TEST_ASSERT_TRUE_MESSAGE(ann->is_self_type, "expected is_self_type==true for Self return annotation");
+}
+
+/* test_self_type_in_interface_sig: interface sig return_type has is_self_type==true (IFACE-05). */
+void test_self_type_in_interface_sig(void) {
+    Iron_Node *prog = parse(
+        "interface Clone {\n"
+        "    readonly func clone() -> Self\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)first_decl(prog);
+    TEST_ASSERT_EQUAL(IRON_NODE_INTERFACE_DECL, iface->kind);
+    TEST_ASSERT_EQUAL(1, iface->method_count);
+    Iron_FuncDecl *sig = (Iron_FuncDecl *)iface->method_sigs[0];
+    TEST_ASSERT_NOT_NULL(sig->return_type);
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, sig->return_type->kind);
+    Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)sig->return_type;
+    TEST_ASSERT_EQUAL_STRING("Self", ann->name);
+    TEST_ASSERT_TRUE_MESSAGE(ann->is_self_type, "expected is_self_type==true on iface sig return type");
+}
+
+/* test_self_construct_anon: method body contains `return Self(5)` — parse produces
+ * IRON_NODE_CALL with callee IRON_NODE_IDENT name=="Self". */
+void test_self_construct_anon(void) {
+    Iron_Node *prog = parse(
+        "object P {\n"
+        "    pub val x: Int\n"
+        "    init(x: Int) { self.x = x }\n"
+        "    readonly func make(v: Int) -> Self { return Self(v) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    Iron_MethodDecl *md = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[i];
+            if (strcmp(m->method_name, "make") == 0) { md = m; break; }
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(md, "expected make() MethodDecl");
+    /* Body: block with 1 return stmt containing a CALL expr with callee ident "Self". */
+    Iron_Block *body = (Iron_Block *)md->body;
+    TEST_ASSERT_NOT_NULL(body);
+    TEST_ASSERT_GREATER_THAN(0, body->stmt_count);
+    Iron_ReturnStmt *ret = (Iron_ReturnStmt *)body->stmts[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_RETURN, ret->kind);
+    TEST_ASSERT_NOT_NULL(ret->value);
+    TEST_ASSERT_EQUAL(IRON_NODE_CALL, ret->value->kind);
+    Iron_CallExpr *ce = (Iron_CallExpr *)ret->value;
+    TEST_ASSERT_NOT_NULL(ce->callee);
+    TEST_ASSERT_EQUAL(IRON_NODE_IDENT, ce->callee->kind);
+    Iron_Ident *cid = (Iron_Ident *)ce->callee;
+    TEST_ASSERT_EQUAL_STRING("Self", cid->name);
+}
+
+/* test_self_construct_named: method body contains `return Self.from_x(5)` — parse
+ * produces IRON_NODE_METHOD_CALL with receiver IRON_NODE_IDENT name=="Self" + method_name=="from_x". */
+void test_self_construct_named(void) {
+    Iron_Node *prog = parse(
+        "object P {\n"
+        "    pub val x: Int\n"
+        "    init from_x(x: Int) { self.x = x }\n"
+        "    readonly func make2(v: Int) -> Self { return Self.from_x(v) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    Iron_Program *pr = (Iron_Program *)prog;
+    Iron_MethodDecl *md = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *m = (Iron_MethodDecl *)pr->decls[i];
+            if (strcmp(m->method_name, "make2") == 0) { md = m; break; }
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(md, "expected make2() MethodDecl");
+    Iron_Block *body = (Iron_Block *)md->body;
+    TEST_ASSERT_NOT_NULL(body);
+    TEST_ASSERT_GREATER_THAN(0, body->stmt_count);
+    Iron_ReturnStmt *ret = (Iron_ReturnStmt *)body->stmts[0];
+    TEST_ASSERT_EQUAL(IRON_NODE_RETURN, ret->kind);
+    TEST_ASSERT_NOT_NULL(ret->value);
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_CALL, ret->value->kind);
+    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)ret->value;
+    TEST_ASSERT_NOT_NULL(mc->object);
+    TEST_ASSERT_EQUAL(IRON_NODE_IDENT, mc->object->kind);
+    Iron_Ident *rid = (Iron_Ident *)mc->object;
+    TEST_ASSERT_EQUAL_STRING("Self", rid->name);
+    TEST_ASSERT_EQUAL_STRING("from_x", mc->method);
+}
+
 /* ── Enum declarations ───────────────────────────────────────────────────── */
 
 void test_parse_enum_decl(void) {
@@ -1823,6 +1941,13 @@ int main(void) {
     RUN_TEST(test_parse_interface_init_rejected_e0256);
     RUN_TEST(test_parse_interface_default_sig_no_tier);
     RUN_TEST(test_parse_interface_mixed_tiers_multiple_sigs);
+
+    /* Phase 87-02 SELF-01/02/03 + IFACE-05: Self type + Self-construct. */
+    RUN_TEST(test_self_type_in_method_return);
+    RUN_TEST(test_self_type_in_interface_sig);
+    RUN_TEST(test_self_construct_anon);
+    RUN_TEST(test_self_construct_named);
+
     RUN_TEST(test_parse_enum_decl);
     RUN_TEST(test_parse_import);
     RUN_TEST(test_parse_import_alias);

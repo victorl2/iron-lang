@@ -2727,6 +2727,111 @@ void test_iface_tier_mismatch_E0257_locked_substring(void) {
         "expected 'implementation is' suffix in E0257 message");
 }
 
+/* ── Phase 87-02 SELF-01/02/03 + IFACE-05: Self type resolution ───────────── */
+
+/* test_self_return_resolves_to_enclosing: method with `-> Self` return type;
+ * the resolved_return_type should be the Point object type. */
+void test_self_return_resolves_to_enclosing(void) {
+    parse_and_resolve(
+        "object Point {\n"
+        "    pub val x: Int\n"
+        "    init(x: Int) { self.x = x }\n"
+        "    readonly func double_x() -> Self { return Self(self.x * 2) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    /* Find the double_x MethodDecl and check resolved_return_type. */
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "object Point {\n"
+        "    pub val x: Int\n"
+        "    init(x: Int) { self.x = x }\n"
+        "    readonly func double_x() -> Self { return Self(self.x * 2) }\n"
+        "}\n"
+    );
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)prog->decls[i];
+            if (strcmp(md->method_name, "double_x") == 0) {
+                TEST_ASSERT_NOT_NULL(md->resolved_return_type);
+                TEST_ASSERT_EQUAL_INT(IRON_TYPE_OBJECT, md->resolved_return_type->kind);
+                TEST_ASSERT_EQUAL_STRING("Point", md->resolved_return_type->object.decl->name);
+                return;
+            }
+        }
+    }
+    TEST_FAIL_MESSAGE("double_x MethodDecl not found");
+}
+
+/* test_self_named_init_resolves: method `Self.from_x(v)` resolves to Point type. */
+void test_self_named_init_resolves(void) {
+    parse_and_resolve(
+        "object Point {\n"
+        "    pub val x: Int\n"
+        "    init from_x(x: Int) { self.x = x }\n"
+        "    readonly func make_shifted(o: Int) -> Self { return Self.from_x(self.x + o) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* test_self_outside_method_rejected: `func free_fn() -> Self` emits E0259. */
+void test_self_outside_method_rejected(void) {
+    parse_and_resolve(
+        "func free_fn() -> Self { return 0 }\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_SELF_OUTSIDE_CONTEXT),
+        "expected E0259 for Self in free function return type");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("'Self' is only valid"),
+        "expected locked substring \"'Self' is only valid\" in E0259 message");
+}
+
+/* test_self_return_inside_init: `func make_self() -> Self { return Self() }` inside
+ * object with parameterless init: zero diags, return type is the object. */
+void test_self_return_inside_init(void) {
+    parse_and_resolve(
+        "object P {\n"
+        "    init() {}\n"
+        "    func make_self() -> Self { return Self() }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* test_self_in_interface_sig_bound_to_implementer: Cat impl Clone where
+ * Clone has `readonly func clone() -> Self`; Cat.clone returns Cat; no E0257. */
+void test_self_in_interface_sig_bound_to_implementer(void) {
+    parse_and_resolve(
+        "interface Clone {\n"
+        "    readonly func clone() -> Self\n"
+        "}\n"
+        "object Cat impl Clone {\n"
+        "    init() {}\n"
+        "    readonly func clone() -> Cat { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* test_self_in_nested_method_resolves_correctly: Self inside A resolves to A,
+ * Self inside B resolves to B — no cross-object bleed. */
+void test_self_in_nested_method_resolves_correctly(void) {
+    parse_and_resolve(
+        "object A {\n"
+        "    pub val x: Int\n"
+        "    init(x: Int) { self.x = x }\n"
+        "    readonly func copy() -> Self { return Self(self.x) }\n"
+        "}\n"
+        "object B {\n"
+        "    pub val y: Int\n"
+        "    init(y: Int) { self.y = y }\n"
+        "    readonly func copy() -> Self { return Self(self.y) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2908,6 +3013,14 @@ int main(void) {
     RUN_TEST(test_iface_default_impl_readonly_accepted);
     RUN_TEST(test_iface_default_body_inherited_no_mismatch);
     RUN_TEST(test_iface_tier_mismatch_E0257_locked_substring);
+
+    /* Phase 87-02 SELF-01/02/03 + IFACE-05: Self type + Self-constructor resolution. */
+    RUN_TEST(test_self_return_resolves_to_enclosing);
+    RUN_TEST(test_self_named_init_resolves);
+    RUN_TEST(test_self_outside_method_rejected);
+    RUN_TEST(test_self_return_inside_init);
+    RUN_TEST(test_self_in_interface_sig_bound_to_implementer);
+    RUN_TEST(test_self_in_nested_method_resolves_correctly);
 
     return UNITY_END();
 }

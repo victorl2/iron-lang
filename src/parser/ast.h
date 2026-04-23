@@ -361,6 +361,13 @@ typedef struct {
     bool          is_tuple;
     Iron_Node   **tuple_elems;      /* array of Iron_TypeAnnotation* for element types */
     int           tuple_elem_count;
+    /* Phase 87-02 SELF-01/02: true when the type annotation is literally the
+     * identifier "Self" in return-type position of a method or interface sig.
+     * Set by iron_parse_type_annotation when ann->name == "Self". The
+     * typechecker resolves is_self_type to the enclosing ObjectDecl type via
+     * TypeCtx.enclosing_type_name, or emits E0259 if used outside a
+     * method/interface context. Defaults false at every allocation site. */
+    bool          is_self_type;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0

@@ -197,8 +197,14 @@ void iron_diaglist_free(Iron_DiagList *list);
  *   context. */
 #define IRON_ERR_IFACE_CANNOT_DECLARE_INIT  256   /* IFACE-04 */
 #define IRON_ERR_IFACE_METHOD_TIER_MISMATCH 257   /* IFACE-02 */
-/* 258 reserved for IFACE_CONFORMANCE_MISSING (Plan 87-02 PATCH-08) */
-/* 259 reserved for SELF_OUTSIDE_CONTEXT     (Plan 87-02 SELF) */
+/* Phase 87-02 PATCH-08: retroactive conformance completeness check.
+ * Emitted when a patch or object declares `implements I` but a required
+ * interface method is not provided across in-object + patch decls. */
+#define IRON_ERR_IFACE_CONFORMANCE_MISSING  258   /* PATCH-08 */
+/* Phase 87-02 SELF: Self type used outside a method or interface sig.
+ * Emitted when `Self` appears as a return-type annotation in a top-level
+ * free function or any other non-method context. */
+#define IRON_ERR_SELF_OUTSIDE_CONTEXT       259   /* SELF outside method/iface */
 
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
