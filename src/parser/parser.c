@@ -2126,7 +2126,7 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
                 iron_advance(p);  /* consume 'mut' for recovery */
                 return iron_parse_expr(p);
             }
-            /* FALLTHROUGH when gate is OFF */
+            __attribute__((fallthrough));
         /* -Wswitch-enum opt-out: statement switch only handles the token kinds
          * that begin a statement keyword; every other Iron_TokenKind falls
          * through to the expression-statement / assignment default below. */
