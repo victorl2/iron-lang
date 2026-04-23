@@ -109,7 +109,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.filename          = filename;
     p.source            = source;
     p.in_error_recovery = false;
-    p.v3_strict_mode    = false;
+    p.v3_strict_mode    = true;
     return p;
 }
 
