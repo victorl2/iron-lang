@@ -2732,30 +2732,15 @@ void test_iface_tier_mismatch_E0257_locked_substring(void) {
 /* test_self_return_resolves_to_enclosing: method with `-> Self` return type;
  * the resolved_return_type should be the Point object type. */
 void test_self_return_resolves_to_enclosing(void) {
-    parse_and_resolve(
-        "object Point {\n"
-        "    pub val x: Int\n"
-        "    init(x: Int) { self.x = x }\n"
-        "    readonly func double_x() -> Self { return Self(self.x * 2) }\n"
-        "}\n"
-    );
-    /* Debug: if there are errors, print them so we can diagnose. */
-    if (g_diags.error_count > 0) {
-        for (int _i = 0; _i < g_diags.count; _i++) {
-            if (g_diags.items[_i].level == IRON_DIAG_ERROR)
-                fprintf(stderr, "DEBUG error %d: %s\n", g_diags.items[_i].code,
-                        g_diags.items[_i].message ? g_diags.items[_i].message : "(null)");
-        }
-    }
-    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
-    /* Find the double_x MethodDecl and check resolved_return_type. */
+    /* Use var (not pub val) to avoid the pub-val init-assignment restriction. */
     Iron_Program *prog = (Iron_Program *)parse_and_resolve(
         "object Point {\n"
-        "    pub val x: Int\n"
+        "    var x: Int\n"
         "    init(x: Int) { self.x = x }\n"
         "    readonly func double_x() -> Self { return Self(self.x * 2) }\n"
         "}\n"
     );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
     for (int i = 0; i < prog->decl_count; i++) {
         if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)prog->decls[i];
@@ -2770,11 +2755,12 @@ void test_self_return_resolves_to_enclosing(void) {
     TEST_FAIL_MESSAGE("double_x MethodDecl not found");
 }
 
-/* test_self_named_init_resolves: method `Self.from_x(v)` resolves to Point type. */
+/* test_self_named_init_resolves: method `Self.from_x(v)` resolves to Point type.
+ * Uses var (not pub val) to avoid the pub-val init-assignment restriction. */
 void test_self_named_init_resolves(void) {
     parse_and_resolve(
         "object Point {\n"
-        "    pub val x: Int\n"
+        "    var x: Int\n"
         "    init from_x(x: Int) { self.x = x }\n"
         "    readonly func make_shifted(o: Int) -> Self { return Self.from_x(self.x + o) }\n"
         "}\n"
@@ -2823,16 +2809,17 @@ void test_self_in_interface_sig_bound_to_implementer(void) {
 }
 
 /* test_self_in_nested_method_resolves_correctly: Self inside A resolves to A,
- * Self inside B resolves to B — no cross-object bleed. */
+ * Self inside B resolves to B — no cross-object bleed.
+ * Uses var fields to avoid the pub-val init-assignment restriction. */
 void test_self_in_nested_method_resolves_correctly(void) {
     parse_and_resolve(
         "object A {\n"
-        "    pub val x: Int\n"
+        "    var x: Int\n"
         "    init(x: Int) { self.x = x }\n"
         "    readonly func copy() -> Self { return Self(self.x) }\n"
         "}\n"
         "object B {\n"
-        "    pub val y: Int\n"
+        "    var y: Int\n"
         "    init(y: Int) { self.y = y }\n"
         "    readonly func copy() -> Self { return Self(self.y) }\n"
         "}\n"
