@@ -16,7 +16,7 @@ v3.0 is Iron's first non-superset release. Receiver-method syntax is removed; me
 - [x] **Phase 86: PATCH** - `patch object T` grammar + program-wide dispatch + retroactive interface conformance (completed 2026-04-21)
 - [x] **Phase 87: IFACE + SELF** - Interface `readonly`/`pure` modifiers, default implementations, `Self` return type (completed 2026-04-23)
 - [x] **Phase 88: BREAK** - Hard rejection of v2 receiver-method syntax with migration hints (completed 2026-04-23)
-- [ ] **Phase 89: MIGR** - Codemod implementation, atomic stdlib + examples + tests migration
+- [x] **Phase 89: MIGR** - Codemod implementation, atomic stdlib + examples + tests migration (completed 2026-04-23)
 - [ ] **Phase 90: IDENT** - Golden-output byte-identity verification, `scripts/verify-v3-migration.sh` release blocker
 - [ ] **Phase 91: DOCS** - Release notes, site guide, migration guide, language spec refresh
 
@@ -207,9 +207,9 @@ Plans:
 **Plans:** 2/3 plans executed
 
 Plans:
-- [ ] 89-01-PLAN.md — Python codemod script (scripts/migrate_v2_to_v3.py) + ironc migrate subcommand in main.c (MIGR-02, MIGR-03, MIGR-04)
-- [ ] 89-02-PLAN.md — Apply codemod to src/stdlib/*.iron + delete 6 obsolete v2-syntax fixtures + strict-v3 verify per file (MIGR-01, MIGR-03)
-- [ ] 89-03-PLAN.md — Flip v3_strict_mode default to true + server unit+integration verify + Phase 89 close-out SUMMARY (MIGR-01, MIGR-02, MIGR-04)
+- [x] 89-01-PLAN.md — Python codemod script (scripts/migrate_v2_to_v3.py) + ironc migrate subcommand in main.c (MIGR-02, MIGR-03, MIGR-04)
+- [x] 89-02-PLAN.md — Apply codemod to src/stdlib/*.iron + delete 6 obsolete v2-syntax fixtures + strict-v3 verify per file (MIGR-01, MIGR-03)
+- [x] 89-03-PLAN.md — Flip v3_strict_mode default to true + server unit+integration verify + Phase 89 close-out SUMMARY (MIGR-01, MIGR-02, MIGR-04)
 
 ---
 
@@ -260,7 +260,7 @@ Plans:
 | 86. PATCH | 3/3 | Complete    | 2026-04-21 |
 | 87. IFACE + SELF | 3/3 | Complete    | 2026-04-23 |
 | 88. BREAK | 3/3 | Complete    | 2026-04-23 |
-| 89. MIGR | 2/3 | In Progress|  |
+| 89. MIGR | 3/3 | Complete    | 2026-04-23 |
 | 90. IDENT | 0/0 | Not started | - |
 | 91. DOCS | 0/0 | Not started | - |
 

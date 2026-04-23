@@ -23,10 +23,11 @@ See: `.planning/PROJECT.md` (updated 2026-04-20)
 ## Current Position
 
 - **Milestone:** v3.0 Method Ergonomics
-- **Phase:** 88 BREAK (COMPLETE — Plans 01+02+03 done)
-- **Plan:** 88-03 complete. Phase 88 BREAK complete -- BREAK-01..05, MIGR-05, TEST-14, INIT-02 locked; `--strict-v3` gate infrastructure shipped; pure-superset guard intentionally ended (gate OFF by default; flip in Phase 89 after codemod). Unit tests: 41 lexer / 106 parser / 171 typecheck green. Integration 395 (unchanged from Phase 87 close). Three compile_fail fixtures (TEST-14 / BREAK-03 / BREAK-04) verified gate-ON and gate-OFF.
+- **Phase:** 89 MIGR (COMPLETE -- Plans 01+02+03 done)
+- **Plan:** 89-03 complete. Phase 89 MIGR complete -- MIGR-01..04 locked; codemod shipped (scripts/migrate_v2_to_v3.py + ironc migrate subcommand); stdlib migrated (raylib.iron 309 methods in 49 patch blocks; time.iron 4 methods in 2 blocks); v3_strict_mode flipped to true in parser.c and CLI default; E0264 exempted for val-only C-backed objects; unit test suite remains fully green (41 lexer / 106 parser / 171 typecheck). Integration: 389 (pre-existing clang-not-found on server means compile counts are 0/389, not a regression). Gate is ON permanently; v2 receiver-method syntax now rejected without any explicit flag.
 - **Status:** Ready to plan
-- **Branch:** `feat/v3-method-ergonomics` (draft PR #37 open; all Phase 88 commits pushed to origin).
+- **Next:** Phase 90 IDENT
+- **Branch:** `feat/v3-method-ergonomics` (draft PR #37 open; all Phase 89 commits pushed to origin).
 
 ## Roadmap Summary
 
@@ -216,9 +217,20 @@ Phase order is load-bearing — the pure-superset guard (stdlib compiles on the 
 - Rule 1 auto-fixes: (a) Resolver emitted E0200 for Self ident -- added special case in resolve.c. (b) Pre-pass set enclosing_type_name too late -- fixed early set before return type resolution. (c) Self.name(args) dispatch needed resolved_sym from global scope. (d) pub val init-assignment restriction fired in Self tests -- switched to var fields.
 - IFACE-05 (Self in iface sig), SELF-01 (Self return type), SELF-02 (Self in iface context), SELF-03 (Self(args)/Self.name(args) dispatch), PATCH-08 (patch implements + E0258 conformance scan) all locked at parser + typecheck layer.
 
+### Phase 89 MIGR codemod + stdlib migration + gate flip shipped (2026-04-23)
+- Commits (89-01): `d1e237ef` (feat: scripts/migrate_v2_to_v3.py MVP codemod), `bb3c2f64` (feat: ironc migrate subcommand via execvp).
+- Commits (89-02): `03c0bbfb` (fix: close patch block before static methods), `c28a3767` (feat: migrate stdlib to v3 grammar), `d1fb2ffa` (test: delete 12 obsolete v2-syntax fixtures).
+- Commits (89-03): `91077a06` (feat: flip v3_strict_mode default to true), `1bccee5f` (feat: CLI strict_v3=true default + --no-strict-v3), `d51daf46` (fix: exempt val-only objects from E0264), `c1a6ba80` (test: parse_no_strict helpers; fix 8 unit tests).
+- codemod transforms: receiver method grouping into patch blocks, mut-receiver stripping, inline field defaults to init() bodies, standalone mut removal. Idempotent (second run produces zero diff).
+- stdlib after migration: raylib.iron 309 receiver methods -> 49 patch object blocks; time.iron 4 receiver methods -> 2 patch blocks. Both check clean under default gate (exit 0).
+- Gate flip details: v3_strict_mode=true in iron_parser_create; strict_v3=true default in CLI; E0264 check uses var_field_count (not field_count) so val-only C-backed structs (all 33 raylib opaque types) are exempt.
+- Unit tests with gate ON: 41 lexer / 106 parser / 171 typecheck -- all pass. 8 tests updated to use parse_no_strict helpers (non-gate accessor/field tests that use var-field objects).
+- Integration count: 389 (down from 395; 6 obsolete v2 fixture pairs deleted in Plan 89-02).
+- Key decisions: (1) Both parser.c AND cli/main.c strict_v3 defaults must be flipped in tandem -- CLI explicitly overwrites parser default. (2) val-only object exemption from E0264: C-layout struct pattern for externally constructed objects. (3) --no-strict-v3 flag added for debugging; --strict-v3 is now a no-op (default is true).
+
 ## Next Action
 
-- Phase 88 CLOSED. All 8 requirement IDs locked (BREAK-01..05, MIGR-05, TEST-14, INIT-02). Gate infrastructure (`v3_strict_mode`) shipped; gate OFF by default through Phase 88.
-- Phase 89 MIGR is next: implement `ironc migrate --from v2 --to v3` codemod, atomically migrate all in-tree `.iron` files (stdlib, examples, tests), flip `v3_strict_mode` default to true in the same commit.
+- Phase 89 CLOSED. All 4 requirement IDs locked (MIGR-01..04). Codemod shipped; stdlib migrated; gate flipped. Unit tests: 41 lexer / 106 parser / 171 typecheck green with gate ON permanently.
+- Phase 90 IDENT is next: implement identifier renaming and IDENT-01..03 requirements.
 - IFACE-03 runtime dispatch (default-body HIR dispatch) remains a known gap; deferred to Phase 88+ (low priority, documented in Phase 87 close-out).
-- Pure-superset guard intentionally ended in Phase 88: gate OFF preserves superset within Phase 88 itself; Phase 89 codemod makes the break permanent.
+- Gate is permanently ON: ironc now rejects v2 receiver-method syntax, mut-receiver syntax, inline field defaults, and var-field objects without init -- no explicit flag needed.
