@@ -6,7 +6,8 @@
 /* Type-check a .iron source file without invoking clang.
  * Runs: lex -> parse -> analyze, then prints diagnostics.
  * Returns 0 if no errors, 1 if errors found.
+ * strict_v3: when true, enables Phase 88 BREAK rejections (E0260..E0264).
  */
-int iron_check(const char *source_path, bool verbose);
+int iron_check(const char *source_path, bool verbose, bool strict_v3);
 
 #endif /* IRON_CLI_CHECK_H */

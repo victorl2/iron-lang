@@ -149,7 +149,7 @@ static char *check_read_stdlib(const char *path, long *out_size) {
 
 /* ── Check: lex + parse + analyze, no codegen ────────────────────────────── */
 
-int iron_check(const char *source_path, bool verbose) {
+int iron_check(const char *source_path, bool verbose, bool strict_v3) {
     /* Resolve runtime lib/src base directory once for this check */
     char *base_dir = get_iron_lib_dir();
     if (!base_dir) return 1;
@@ -409,6 +409,8 @@ int iron_check(const char *source_path, bool verbose) {
     Iron_Parser parser = iron_parser_create(tokens, token_count,
                                             source, source_path,
                                             &arena, &diags);
+    /* Phase 88: propagate --strict-v3 gate to parser */
+    parser.v3_strict_mode = strict_v3;
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
 

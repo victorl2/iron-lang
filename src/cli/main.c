@@ -44,6 +44,7 @@ static void print_usage(void) {
     fprintf(stderr, "  --no-optimize     Skip optimization passes (for A/B comparison)\n");
     fprintf(stderr, "  --warn-fusion-break  Show where fusion chains are broken by non-fusible calls\n");
     fprintf(stderr, "  --report-compression Show which fields were narrowed for value range compression\n");
+    fprintf(stderr, "  --strict-v3          Enable v3.0 breaking-change rejections (E0260..E0264) with migration hints\n");
 }
 
 int main(int argc, char **argv) {
@@ -67,6 +68,7 @@ int main(int argc, char **argv) {
     bool no_optimize = false;
     bool warn_fusion_break = false;
     bool report_compression = false;
+    bool strict_v3 = false;
     IronBuildTarget target = IRON_TARGET_NATIVE;
     bool release = false;
     const char *source_file = NULL;
@@ -122,6 +124,8 @@ int main(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "--release") == 0) {
             release = true;
+        } else if (strcmp(argv[i], "--strict-v3") == 0) {
+            strict_v3 = true;
         } else if (strcmp(argv[i], "--") == 0) {
             /* Everything after -- is passed to the program (iron run) */
             run_args = (const char **)&argv[i + 1];
@@ -150,7 +154,8 @@ int main(int argc, char **argv) {
             .warn_fusion_break = warn_fusion_break,
             .report_compression = report_compression,
             .target         = target,
-            .release        = release
+            .release        = release,
+            .strict_v3      = strict_v3
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -173,7 +178,8 @@ int main(int argc, char **argv) {
             .warn_fusion_break = warn_fusion_break,
             .report_compression = report_compression,
             .target         = target,
-            .release        = release
+            .release        = release,
+            .strict_v3      = strict_v3
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -183,7 +189,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "%s check: missing source file\n", IRON_BINARY_NAME);
             return 1;
         }
-        return iron_check(source_file, verbose);
+        return iron_check(source_file, verbose, strict_v3);
     }
 
     if (strcmp(cmd, "fmt") == 0) {

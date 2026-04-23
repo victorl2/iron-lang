@@ -22,6 +22,7 @@ typedef struct {
     bool        report_compression; /* --report-compression: show which fields were narrowed */
     IronBuildTarget target;   /* --target=native|web. Default IRON_TARGET_NATIVE. */
     bool            release;  /* --release flag. Native: clang -O2. Web: Phase 7 consumes for -Oz -flto -sASSERTIONS=0. */
+    bool            strict_v3; /* --strict-v3: Phase 88 BREAK gate (enables E0260..E0264 rejections) */
 } IronBuildOpts;
 
 /* Build a .iron source file to a native binary.
