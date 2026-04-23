@@ -249,6 +249,15 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_WARN_POSSIBLE_OVERFLOW     603
 #define IRON_WARN_SPAWN_DATA_RACE      604
 
+/* Phase 88 BREAK range (260-264): hard rejection of removed v2 syntax.
+ * All five are gated behind Iron_Parser.v3_strict_mode (default false in Phase 88).
+ * Phase 89 flips the default to true after codemod migrates the tree. */
+#define IRON_ERR_V3_RECEIVER_SYNTAX    260   /* BREAK-01: func (recv: T) name() */
+#define IRON_ERR_V3_MUT_RECEIVER       261   /* BREAK-02: func (mut recv: T) name() */
+#define IRON_ERR_V3_INLINE_DEFAULT     262   /* BREAK-03: var x: T = expr in object body */
+#define IRON_ERR_V3_MUT_KEYWORD        263   /* BREAK-04: mut keyword removed */
+#define IRON_ERR_V3_NO_INIT            264   /* INIT-02: object with fields but no init */
+
 /* Web-target LIR main-loop split pass errors (700 range) — Phase 5 WEB-EMIT-04.
  *
  * Emitted by src/lir/web_main_loop_split.c when the canonical
