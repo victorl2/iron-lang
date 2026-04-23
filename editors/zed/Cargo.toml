@@ -1,0 +1,50 @@
+[package]
+name = "zed-iron-lsp"
+version = "0.1.0"
+edition = "2021"
+authors = ["iron-lang"]
+license = "Apache-2.0"
+description = "Iron language server support for Zed"
+repository = "https://github.com/iron-lang/iron-lang"
+
+# Phase 6 Plan 06-05 (EXT-08 + EXT-09).
+#
+# Zed extensions are Rust cdylib crates compiled to wasm32-wasip2 and loaded
+# by the Zed extension runtime. See CONTEXT D-06 for the locked tech stack
+# choices and RESEARCH §Pattern 4 for the reference implementation.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Exact pin per CONTEXT D-06. Zed 0.200+ is the minimum compatible editor.
+# Do NOT caret-expand this — the extension API is not stable across minor
+# versions yet (as of the 0.x series).
+zed_extension_api = "=0.7.0"
+
+# Hand-rolled SHA-256 verification per RESEARCH §CRITICAL + §Pitfall 3.
+# zed_extension_api::download_file has NO built-in hash verification
+# (issue zed-industries/zed#16732 closed as "not planned"). We compute
+# Sha256::digest on the downloaded bytes and compare against the .sha256
+# sidecar shipped alongside each ironls tarball on the GitHub Release.
+sha2 = "0.10"
+hex = "0.4"
+
+# Error-handling sugar; keeps the Extension trait impl tidy without
+# pulling in a larger error framework.
+anyhow = "1.0"
+
+[features]
+# Used by test/dev-load/ harnesses so the WASM build target does not
+# accidentally include test-only helpers. Native cargo test builds turn
+# this on; wasm32-wasip2 release build omits it.
+dev-extension-test = []
+
+[dev-dependencies]
+sha2 = "0.10"
+hex = "0.4"
+
+[profile.release]
+lto = true
+opt-level = "z"
+strip = true

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Phase 6 Plan 06-05 Task 1 (EXT-08). Placeholder extension icon.
+  CONTEXT D-04 defers polish (final art direction) to post-v1; shipping
+  a recognisable but minimal glyph now keeps the Zed extensions registry
+  listing valid without blocking on design review.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect width="128" height="128" rx="20" fill="#4a4a4a"/>
+  <text x="64" y="82" font-family="Helvetica,Arial,sans-serif" font-size="64"
+        font-weight="700" text-anchor="middle" fill="#f5f5f5">Fe</text>
+</svg>

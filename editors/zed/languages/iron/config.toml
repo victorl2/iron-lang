@@ -1,0 +1,44 @@
+# Phase 6 Plan 06-05 (EXT-08). Iron language surface for Zed.
+#
+# Keep in loose parity with grammars/textmate/language-configuration.json.
+# Comment syntax reflects Iron's actual lexer surface (src/lexer/lexer.c):
+#   `-- ...`  line comment
+#   `/// ...` doc comment
+#   (no block comment form exists in Iron)
+# See .planning/phases/06-m5-grammars-editor-extensions/06-02-SUMMARY.md
+# for the Rule 1 plan-bug auto-fix that established the correct syntax.
+
+name = "Iron"
+grammar = "iron"
+path_suffixes = ["iron"]
+line_comments = ["-- ", "/// "]
+autoclose_before = ";:.,=}])>\t\n "
+
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+newline = true
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+newline = true
+
+[[brackets]]
+start = "("
+end = ")"
+close = true
+newline = true
+
+[[brackets]]
+start = "\""
+end = "\""
+close = true
+newline = false
+not_in = ["string", "comment"]
+
+word_characters = ["_"]
+tab_size = 4
+hard_tabs = false
