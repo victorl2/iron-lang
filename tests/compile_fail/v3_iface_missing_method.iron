@@ -1,0 +1,8 @@
+interface Cmp {
+    readonly func cmp(other: Int) -> Int
+}
+
+patch object Int implements Cmp {
+}
+
+func main() {}
