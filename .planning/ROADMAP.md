@@ -228,7 +228,7 @@ Plans:
 4. The script is wired into the release checklist (not just CI) so v3.0.0-alpha cannot be tagged while any diff exists.
 5. Re-running the codemod on already-migrated source produces zero changes and zero diff in downstream C output.
 
-**Plans:** 2/2 plans executed (COMPLETE)
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 90-01-PLAN.md — Verify script + tests/migrate_identity/ fixture infrastructure (IDENT-01, IDENT-02)
@@ -251,7 +251,11 @@ Plans:
 4. `docs/site/` landing page carries the v3 banner; the guide's methods / init / patch pages are rewritten for v3 grammar; the API reference reflects synthesized accessors and patch extensions.
 5. The Iron language spec document is updated to describe v3 grammar, mutation tiers, init rules, and patch semantics - replacing the v2.2 receiver-method sections.
 
-**Plans:** TBD
+**Plans:** 1/2 plans executed
+
+Plans:
+- [ ] 91-01-PLAN.md — Release notes (docs/release-notes/v3.md) + CHANGELOG finalization (DOCS-01, DOCS-02, MIGR-06)
+- [ ] 91-02-PLAN.md — Migration guide + site updates + language spec refresh (DOCS-03, DOCS-04, DOCS-05)
 
 ## Progress Table
 
@@ -265,8 +269,8 @@ Plans:
 | 87. IFACE + SELF | 3/3 | Complete    | 2026-04-23 |
 | 88. BREAK | 3/3 | Complete    | 2026-04-23 |
 | 89. MIGR | 3/3 | Complete    | 2026-04-23 |
-| 90. IDENT | 2/2 | Complete |  |
-| 91. DOCS | 0/0 | Not started | - |
+| 90. IDENT | 2/2 | Complete    | 2026-04-23 |
+| 91. DOCS | 1/2 | In Progress|  |
 
 ## Coverage Summary
 

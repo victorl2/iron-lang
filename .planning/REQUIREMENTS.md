@@ -231,7 +231,7 @@ Phase mappings assigned by roadmapper on 2026-04-20. Every v3.0 requirement maps
 | MIGR-03 | 89 | Complete |
 | MIGR-04 | 89 | Complete |
 | MIGR-05 | 88 | Complete |
-| MIGR-06 | 91 | Pending |
+| MIGR-06 | 91 | Complete |
 | IDENT-01 | 90 | Complete |
 | IDENT-02 | 90 | Complete |
 | IDENT-03 | 90 | Complete |
@@ -250,8 +250,8 @@ Phase mappings assigned by roadmapper on 2026-04-20. Every v3.0 requirement maps
 | TEST-13 | 86 | Complete |
 | TEST-14 | 88 | Complete |
 | TEST-15 | 85 | Complete |
-| DOCS-01 | 91 | Pending |
-| DOCS-02 | 91 | Pending |
+| DOCS-01 | 91 | Complete |
+| DOCS-02 | 91 | Complete |
 | DOCS-03 | 91 | Pending |
 | DOCS-04 | 91 | Pending |
 | DOCS-05 | 91 | Pending |
