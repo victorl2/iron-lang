@@ -1,0 +1,5 @@
+-- float.iron -- Iron wrapper for Float decimal-conversion methods.
+-- Phase 78 FMT-03. Runtime shim at src/runtime/iron_fmt.c.
+-- Default precision: 6 significant digits, trailing zeros trimmed (libc %.6g).
+-- Special values: NaN → "NaN", ±Inf → "inf"/"-inf", -0.0 → "0".
+func Float.to_string() -> String {}
