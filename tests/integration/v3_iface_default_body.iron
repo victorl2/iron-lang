@@ -1,0 +1,13 @@
+interface Describable {
+    readonly func describe() -> Int { return 42 }
+}
+
+object Overrides impl Describable {
+    init() {}
+    readonly func describe() -> Int { return 99 }
+}
+
+func main() {
+    val b: Overrides = Overrides()
+    println("b={b.describe()}")
+}
