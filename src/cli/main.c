@@ -46,7 +46,7 @@ static void print_usage(void) {
     fprintf(stderr, "  --no-optimize     Skip optimization passes (for A/B comparison)\n");
     fprintf(stderr, "  --warn-fusion-break  Show where fusion chains are broken by non-fusible calls\n");
     fprintf(stderr, "  --report-compression Show which fields were narrowed for value range compression\n");
-    fprintf(stderr, "  --strict-v3          Enable v3.0 breaking-change rejections (E0260..E0264) with migration hints\n");
+    fprintf(stderr, "  --no-strict-v3       Disable v3.0 breaking-change rejections (for debugging v2 syntax; default is ON)\n");
 }
 
 int main(int argc, char **argv) {
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
     bool no_optimize = false;
     bool warn_fusion_break = false;
     bool report_compression = false;
-    bool strict_v3 = false;
+    bool strict_v3 = true;
     IronBuildTarget target = IRON_TARGET_NATIVE;
     bool release = false;
     const char *source_file = NULL;
@@ -128,6 +128,8 @@ int main(int argc, char **argv) {
             release = true;
         } else if (strcmp(argv[i], "--strict-v3") == 0) {
             strict_v3 = true;
+        } else if (strcmp(argv[i], "--no-strict-v3") == 0) {
+            strict_v3 = false;
         } else if (strcmp(argv[i], "--") == 0) {
             /* Everything after -- is passed to the program (iron run) */
             run_args = (const char **)&argv[i + 1];
