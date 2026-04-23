@@ -227,9 +227,9 @@ Phase mappings assigned by roadmapper on 2026-04-20. Every v3.0 requirement maps
 | SELF-02 | 87 | Complete |
 | SELF-03 | 87 | Complete |
 | MIGR-01 | 89 | Pending |
-| MIGR-02 | 89 | Pending |
-| MIGR-03 | 89 | Pending |
-| MIGR-04 | 89 | Pending |
+| MIGR-02 | 89 | Complete |
+| MIGR-03 | 89 | Complete |
+| MIGR-04 | 89 | Complete |
 | MIGR-05 | 88 | Complete |
 | MIGR-06 | 91 | Pending |
 | IDENT-01 | 90 | Pending |

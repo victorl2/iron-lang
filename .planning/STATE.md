@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: milestone
 status: planning
-last_updated: "2026-04-23T22:40:43.617Z"
+last_updated: "2026-04-23T22:59:22.640Z"
 progress:
   total_phases: 10
   completed_phases: 7
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 23
+  completed_plans: 21
 ---
 
 # State
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-04-20)
 - **Milestone:** v3.0 Method Ergonomics
 - **Phase:** 88 BREAK (COMPLETE — Plans 01+02+03 done)
 - **Plan:** 88-03 complete. Phase 88 BREAK complete -- BREAK-01..05, MIGR-05, TEST-14, INIT-02 locked; `--strict-v3` gate infrastructure shipped; pure-superset guard intentionally ended (gate OFF by default; flip in Phase 89 after codemod). Unit tests: 41 lexer / 106 parser / 171 typecheck green. Integration 395 (unchanged from Phase 87 close). Three compile_fail fixtures (TEST-14 / BREAK-03 / BREAK-04) verified gate-ON and gate-OFF.
-- **Status:** Ready to plan Phase 89 MIGR
+- **Status:** Ready to plan
 - **Branch:** `feat/v3-method-ergonomics` (draft PR #37 open; all Phase 88 commits pushed to origin).
 
 ## Roadmap Summary
