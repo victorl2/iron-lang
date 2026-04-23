@@ -469,6 +469,11 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     ann->name = iron_arena_strdup(p->arena, name_tok->value,
                                   strlen(name_tok->value));
     if (!ann->name) iron_oom_abort("parser.c:iron_parse_type_annotation named name");
+    /* Phase 87-02 SELF-01/02: mark "Self" as the contextual Self type.
+     * "Self" lexes as IRON_TOK_IDENTIFIER (not a keyword) so we detect it
+     * by string comparison here. The typechecker resolves is_self_type to
+     * the enclosing ObjectDecl type or emits E0259. */
+    ann->is_self_type = (strcmp(ann->name, "Self") == 0);
 
     /* nullable? */
     ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);

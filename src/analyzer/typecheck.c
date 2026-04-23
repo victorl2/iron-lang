@@ -114,6 +114,12 @@ typedef struct {
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
     MonoRegistryEntry *mono_registry;        /* stb_ds map: mangled_name -> mono Iron_Type* (cycle detection + caching) */
+    /* Phase 87-02 SELF-01/02/03: name of the enclosing ObjectDecl when
+     * checking a method body or resolving a method's return type. Set at
+     * check_method_decl entry; restored at exit. NULL at top-level scope.
+     * Consulted by resolve_type_annotation when ann->is_self_type is true
+     * to substitute the concrete enclosing type instead of Self. */
+    const char        *enclosing_type_name;
 } TypeCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -690,6 +696,33 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)ann_node;
     const char *name = ann->name;
     Iron_Type *base = NULL;
+
+    /* Phase 87-02 SELF-01/02: resolve `Self` to the enclosing ObjectDecl type.
+     * is_self_type is set by iron_parse_type_annotation when the identifier is
+     * literally "Self". If we are inside a method body (enclosing_type_name is
+     * set), look up the type in the global scope and return it. Otherwise emit
+     * E0259 with the locked substring "'Self' is only valid". */
+    if (ann->is_self_type) {
+        if (ctx->enclosing_type_name) {
+            Iron_Symbol *type_sym =
+                iron_scope_lookup(ctx->global_scope, ctx->enclosing_type_name);
+            if (type_sym && type_sym->type) {
+                return ann->is_nullable
+                    ? iron_type_make_nullable(ctx->arena, type_sym->type)
+                    : type_sym->type;
+            }
+            /* enclosing_type_name is set but not yet registered (should not
+             * happen in normal flow) — fall through to error type. */
+        }
+        /* Top-level or non-method context: emit E0259. */
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_SELF_OUTSIDE_CONTEXT,
+                       ann_node->span,
+                       "'Self' is only valid in method or interface signature "
+                       "return types, not in free function or top-level contexts",
+                       NULL);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
 
     /* Phase 59 01d: tuple-type annotation — (T0, T1, ...) */
     if (ann->is_tuple) {
@@ -1430,6 +1463,33 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
 
+            /* Phase 87-02 SELF-03: Self(args) inside a method body dispatches
+             * to the enclosing type's anonymous init. Rewrite the callee ident
+             * from "Self" to the concrete type name so the existing anonymous-
+             * init dispatch path handles it without any new codegen path. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *self_check_id = (Iron_Ident *)ce->callee;
+                if (self_check_id->name &&
+                    strcmp(self_check_id->name, "Self") == 0) {
+                    if (!ctx->enclosing_type_name) {
+                        /* E0259: Self used outside method context. */
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_SELF_OUTSIDE_CONTEXT,
+                                       ce->span,
+                                       "'Self' is only valid in method or interface "
+                                       "signature return types, not in free function "
+                                       "or top-level contexts",
+                                       NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ce->resolved_type = result;
+                        break;
+                    }
+                    /* Rewrite "Self" ident to the concrete enclosing type name
+                     * so the anonymous-init dispatch below handles it normally. */
+                    self_check_id->name = ctx->enclosing_type_name;
+                }
+            }
+
             /* Disambiguation: if callee is an Ident that resolves to a type,
              * treat this CallExpr as object construction (per plan decision). */
             if (ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
@@ -1948,6 +2008,33 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                    "the enclosing type",
                                    NULL);
                     }
+                }
+            }
+
+            /* Phase 87-02 SELF-03: Self.name(args) inside a method body
+             * dispatches to the enclosing type's named init. Rewrite the
+             * receiver ident from "Self" to the concrete enclosing type name
+             * so the existing named-init dispatch below handles it. If outside
+             * a method context, emit E0259. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *self_recv = (Iron_Ident *)mc->object;
+                if (self_recv->name && strcmp(self_recv->name, "Self") == 0) {
+                    if (!ctx->enclosing_type_name) {
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_SELF_OUTSIDE_CONTEXT,
+                                       mc->span,
+                                       "'Self' is only valid in method or interface "
+                                       "signature return types, not in free function "
+                                       "or top-level contexts",
+                                       NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    /* Rewrite Self -> concrete type so named-init dispatch works. */
+                    self_recv->name = ctx->enclosing_type_name;
+                    /* Re-resolve obj_type_mc since ident changed. */
+                    obj_type_mc = check_expr(ctx, mc->object);
                 }
             }
 
@@ -4224,6 +4311,13 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
      * construction fallback (designated-initializer emit), bypassing the
      * init body entirely — the resolved type here is only consumed by the
      * method's own codegen and by named-init dispatch. */
+    /* Phase 87-02 SELF-01: set enclosing_type_name before resolving the return
+     * type annotation so that resolve_type_annotation can resolve is_self_type
+     * to the concrete enclosing type instead of emitting E0259. Saved here
+     * and restored at exit (below). */
+    const char *prev_enclosing_early = ctx->enclosing_type_name;
+    ctx->enclosing_type_name = md->type_name;
+
     Iron_Type *ret_type = NULL;
     if (md->is_init && md->type_name) {
         Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, md->type_name);
@@ -4255,6 +4349,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
 
     Iron_Type *prev_ret = ctx->current_return_type;
     const char *prev_type_name = ctx->current_method_type;
+    /* NOTE: enclosing_type_name already saved as prev_enclosing_early above
+     * and ctx->enclosing_type_name already set to md->type_name. */
     bool prev_in_synth    = ctx->in_synth_accessor;
     bool prev_in_readonly = ctx->in_readonly_method;
     bool prev_in_pure     = ctx->in_pure_method;
@@ -4265,6 +4361,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     InitUnassignedEntry *prev_unassigned = ctx->unassigned_fields;
     ctx->current_return_type   = (ret_type->kind != IRON_TYPE_VOID) ? ret_type : NULL;
     ctx->current_method_type   = md->type_name;
+    /* enclosing_type_name already set to md->type_name above (before return type
+     * resolution) so Self is available throughout the entire method check. */
     /* Phase 83-02: accessor bodies skip the pub-dispatch rewrite (see
      * typedef comment on TypeCtx.in_synth_accessor). */
     ctx->in_synth_accessor     = md->is_synth_accessor;
@@ -4339,6 +4437,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     ctx->in_init_method      = prev_in_init;
     ctx->current_return_type = prev_ret;
     ctx->current_method_type = prev_type_name;
+    ctx->enclosing_type_name  = prev_enclosing_early;
     ctx->in_synth_accessor   = prev_in_synth;
     ctx->in_readonly_method  = prev_in_readonly;
     ctx->in_pure_method      = prev_in_pure;
@@ -4524,6 +4623,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.current_scope       = global_scope;
     ctx.current_return_type = NULL;
     ctx.current_method_type = NULL;
+    ctx.enclosing_type_name = NULL;
     ctx.in_synth_accessor   = false;
     ctx.in_readonly_method  = false;
     ctx.in_pure_method      = false;
@@ -4656,9 +4756,14 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
              * generic params (T, U) are not real types in the global scope.
              * Call-site type resolution is handled by resolve_array_ext_method. */
             if (md->is_array_extension) continue;
+            /* Phase 87-02 SELF-01: set enclosing_type_name so that a method
+             * return annotation of `Self` resolves correctly (and does not
+             * trigger E0259) during this pre-pass signature building step. */
+            ctx.enclosing_type_name = md->type_name;
             Iron_Type *ret_type = md->return_type
                 ? resolve_type_annotation(&ctx, md->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
+            ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
             /* Method signatures are looked up by mangled name (type_method) */
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
