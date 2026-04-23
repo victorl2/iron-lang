@@ -41,6 +41,11 @@ RE_MUT_RECV_METHOD = re.compile(
     r'^(\s*)func\s+\(mut\s+(\w+)\s*:\s*(\w+)\)\s+(.+)$'
 )
 
+# func Type.method(...) — static/namespace method (not a receiver method)
+RE_STATIC_METHOD = re.compile(
+    r'^\s*func\s+[A-Z]\w*\.'
+)
+
 # object Name { or object Name<T> {  (opening brace on same line)
 RE_OBJECT_OPEN = re.compile(
     r'^(\s*)object\s+\w+(?:\s*<[^>]*>)?\s*\{'
@@ -314,8 +319,14 @@ def transform_source(source, filepath):
 
         elif k == 'other':
             if cur_patch_type is not None:
-                # We are inside a patch block. Buffer this line and decide later.
-                pending_others.append(seg['raw'])
+                # Static method lines (func Type.method) must not appear inside
+                # a patch block — close the block first, then emit.
+                if RE_STATIC_METHOD.match(seg['raw']):
+                    flush_pending(inside_patch=False)
+                    output_lines.append(seg['raw'])
+                else:
+                    # Blank/comment/other lines: buffer and decide later.
+                    pending_others.append(seg['raw'])
             else:
                 output_lines.append(seg['raw'])
 
