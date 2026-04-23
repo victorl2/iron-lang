@@ -317,6 +317,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 return;
             }
 
+            /* Phase 87-02 SELF-01/02/03: "Self" is a contextual type keyword
+             * that refers to the enclosing ObjectDecl type. Like lowercase
+             * "self", it is not defined as a regular symbol in scope; the
+             * typechecker handles its resolution. In method context, silently
+             * skip the undefined-identifier check. Outside method context the
+             * typechecker will emit E0259. */
+            if (strcmp(id->name, "Self") == 0) {
+                /* No resolver-level symbol; typechecker handles resolution. */
+                break;
+            }
+
             /* Normal identifier */
             Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, id->name);
             if (sym) {
