@@ -201,11 +201,11 @@
       <h1>Text &amp; Fonts</h1>
       <p class="subtitle">Font loading, drawing, measurement, UTF-8 + codepoint utilities, string helpers.</p>
       <div class="callout">
-        <div class="callout-title">TEXT-01..13 reference</div>
+        <div class="callout-title">Text reference</div>
         <p>Font loading, drawing, measurement, glyph lookup, UTF-8 + codepoint utilities, string helpers. Everything raylib's <code>rtext.c</code> ships.</p>
       </div>
 
-      <h2 id="font-load">Font loading (TEXT-01..03)</h2>
+      <h2 id="font-load">Font loading</h2>
 
       <article class="api-entry">
         <h3 id="font-default"><code>Font.default() -&gt; Font</code></h3>
@@ -260,8 +260,8 @@
         <p class="signature-meta">Category: <a href="#font-load">Loading</a> &middot; raylib: <code>LoadFontFromMemory</code></p>
         <p>Load font from in-memory byte buffer (e.g. embedded resource).</p>
         <div class="callout">
-          <div class="callout-title">Partial in v2.0.0-alpha</div>
-          <p>Runtime works; the <code>[UInt8]</code> FFI surface for the byte buffer is the same pattern used by <code>Wave.load_from_memory</code> and <code>Music.load_from_memory</code> &mdash; covered by audio tests. Surfaced as authoritative API.</p>
+          <div class="callout-title">In-memory font bytes</div>
+          <p>Use this when the font bytes already live in memory, such as embedded assets or data loaded with <code>Files.load_data</code>.</p>
         </div>
         <pre><code class="iron"><span class="syn-kw">val</span> font = <span class="syn-ty">Font</span>.<span class="syn-fn">from_memory</span>(<span class="syn-st">".ttf"</span>, bytes, <span class="syn-ty">Int32</span>(bytes.length), <span class="syn-ty">Int32</span>(<span class="syn-nu">32</span>), [])</code></pre>
         <p class="sources">
@@ -297,7 +297,7 @@
         </p>
       </article>
 
-      <h2 id="text-draw">Text draw (TEXT-04..05)</h2>
+      <h2 id="text-draw">Text draw</h2>
 
       <article class="api-entry">
         <h3 id="draw-text"><code>Draw.text(text, posX, posY, fontSize: Int32, color: Color)</code></h3>
@@ -347,7 +347,7 @@
         </p>
       </article>
 
-      <h2 id="text-measure">Text measure (TEXT-06..07)</h2>
+      <h2 id="text-measure">Text measure</h2>
 
       <article class="api-entry">
         <h3 id="text-measure"><code>Text.measure(text: String, fontSize: Int32) -&gt; Int32 / Font.measure_ex(font, text, fontSize, spacing) -&gt; Vector2 / Text.set_line_spacing(spacing: Int32)</code></h3>
@@ -361,7 +361,7 @@
         </p>
       </article>
 
-      <h2 id="glyph">Glyph lookup (TEXT-08)</h2>
+      <h2 id="glyph">Glyph lookup</h2>
 
       <article class="api-entry">
         <h3 id="font-glyph"><code>Font.get_glyph_index / get_glyph_info / get_glyph_atlas_rec</code></h3>
@@ -375,7 +375,7 @@
         </p>
       </article>
 
-      <h2 id="utf8">UTF-8 + codepoints (TEXT-09..11)</h2>
+      <h2 id="utf8">UTF-8 + codepoints</h2>
 
       <article class="api-entry">
         <h3 id="text-codepoints-load"><code>Text.load_codepoints(text: String) -&gt; [Int32] / Text.load_utf8(codepoints: [Int32]) -&gt; String</code></h3>
@@ -413,7 +413,7 @@
         </p>
       </article>
 
-      <h2 id="strings">String helpers (TEXT-12..13)</h2>
+      <h2 id="strings">String helpers</h2>
 
       <article class="api-entry">
         <h3 id="text-copy"><code>Text.copy / is_equal / length</code></h3>

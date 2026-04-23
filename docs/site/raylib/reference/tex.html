@@ -201,11 +201,11 @@
       <h1>Textures &amp; Images</h1>
       <p class="subtitle">Images (CPU), Textures (GPU), RenderTextures, cubemaps, n-patches, palette, color math.</p>
       <div class="callout">
-        <div class="callout-title">TEX-01..14 reference</div>
+        <div class="callout-title">Textures reference</div>
         <p>Images (CPU), Textures (GPU), RenderTextures, cubemaps, n-patches, 26-color palette, color math. Every function from raylib's <code>rtextures.c</code> exposed as idiomatic Iron.</p>
       </div>
 
-      <h2 id="image-load">Image loading (TEX-01)</h2>
+      <h2 id="image-load">Image loading</h2>
 
       <article class="api-entry">
         <h3 id="image-load"><code>Image.load(path: String) -&gt; Image</code></h3>
@@ -282,7 +282,7 @@
         </p>
       </article>
 
-      <h2 id="image-gen">Image generation (TEX-02)</h2>
+      <h2 id="image-gen">Image generation</h2>
 
       <article class="api-entry">
         <h3 id="image-color"><code>Image.color(width, height: Int32, color: Color) -&gt; Image</code></h3>
@@ -344,7 +344,7 @@
         </p>
       </article>
 
-      <h2 id="image-export">Image export (TEX-03)</h2>
+      <h2 id="image-export">Image export</h2>
 
       <article class="api-entry">
         <h3 id="image-export"><code>Image.export(img: Image, path: String) -&gt; Bool / export_as_code / export_to_memory</code></h3>
@@ -358,7 +358,7 @@
         </p>
       </article>
 
-      <h2 id="image-transforms">Image transforms (TEX-04..07)</h2>
+      <h2 id="image-transforms">Image transforms</h2>
 
       <article class="api-entry">
         <h3 id="image-crop"><code>image.crop / resize / resize_nn / resize_canvas / to_pot</code></h3>
@@ -408,7 +408,7 @@
         </p>
       </article>
 
-      <h2 id="image-extract">Image extraction (TEX-08)</h2>
+      <h2 id="image-extract">Image extraction</h2>
 
       <article class="api-entry">
         <h3 id="image-load-colors"><code>Image.load_colors(img: Image) -&gt; [Color] / load_palette / get_alpha_border / get_color</code></h3>
@@ -422,7 +422,7 @@
         </p>
       </article>
 
-      <h2 id="image-draw">Image CPU draw (TEX-09)</h2>
+      <h2 id="image-draw">Image CPU draw</h2>
 
       <article class="api-entry">
         <h3 id="image-draw-pixel"><code>image.draw_pixel / draw_line / draw_circle / draw_rectangle / draw_triangle / draw / draw_text</code></h3>
@@ -436,7 +436,7 @@
         </p>
       </article>
 
-      <h2 id="texture-load">Texture loading (TEX-10)</h2>
+      <h2 id="texture-load">Texture loading</h2>
 
       <article class="api-entry">
         <h3 id="texture-load"><code>Texture.load(path: String) -&gt; Texture</code></h3>
@@ -486,7 +486,7 @@
         </p>
       </article>
 
-      <h2 id="texture-update">Texture update (TEX-11)</h2>
+      <h2 id="texture-update">Texture update</h2>
 
       <article class="api-entry">
         <h3 id="texture-update"><code>Texture.update(tex: Texture, pixels: Int) / update_rec(tex, rec, pixels)</code></h3>
@@ -512,7 +512,7 @@
         </p>
       </article>
 
-      <h2 id="texture-draw">Texture draw (TEX-12)</h2>
+      <h2 id="texture-draw">Texture draw</h2>
 
       <article class="api-entry">
         <h3 id="texture-draw"><code>Texture.draw(tex, x, y, tint: Color)</code></h3>
@@ -538,7 +538,7 @@
         </p>
       </article>
 
-      <h2 id="color-math">Color math (TEX-13)</h2>
+      <h2 id="color-math">Color math</h2>
 
       <article class="api-entry">
         <h3 id="color-is-equal"><code>Color.is_equal(c, other) -&gt; Bool / fade(c, alpha: Float32) / to_int / to_hsv / from_hsv / from_int / tint / lerp</code></h3>
@@ -589,8 +589,8 @@
         </p>
       </article>
 
-      <h2 id="palette">Color palette (TEX-14)</h2>
-      <p>26 canonical color constants pre-declared in <code>raylib.iron</code>:</p>
+      <h2 id="palette">Color palette</h2>
+      <p>26 predeclared color constants in <code>raylib.iron</code>:</p>
 
       <article class="api-entry">
         <h3 id="palette-grays"><code>LIGHTGRAY, GRAY, DARKGRAY</code></h3>

@@ -3,27 +3,35 @@ name: Benchmark
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/benchmarks/**'
-      - '.github/workflows/**'
-      - 'CMakeLists.txt'
-      # CHANGELOG.md is here so automated changelog-sync PRs (which sometimes
-      # only touch CHANGELOG.md when CMake is already in sync) still satisfy
-      # the branch-protection required benchmark checks. The ~15 min of wasted
-      # CI per release is acceptable for releases this infrequent.
-      - 'CHANGELOG.md'
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/benchmarks/**'
-      - '.github/workflows/**'
-      - 'CMakeLists.txt'
-      - 'CHANGELOG.md'
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      benchmark: ${{ steps.filter.outputs.benchmark }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            benchmark:
+              - 'src/**'
+              - 'tests/benchmarks/**'
+              - 'CMakeLists.txt'
+              - '.github/workflows/**'
+
   benchmark:
+    needs: changes
     # Split into two groups per OS so the thread-heavy parallel_/concurrency_/spawn_
     # benchmarks run concurrently with the sequential ones on a separate runner.
     # This also prevents the parallel group from polluting sequential timings
@@ -38,22 +46,28 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Benchmarks must compile and run correctly; only regression checks are informational.
     steps:
+      - name: Skip for docs-only changes
+        if: needs.changes.outputs.benchmark != 'true'
+        run: echo "No benchmark-relevant changes detected; skipping benchmark steps."
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.benchmark == 'true'
 
       - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.benchmark == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build clang
 
       - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
+        if: needs.changes.outputs.benchmark == 'true' && runner.os == 'macOS'
         # coreutils provides gtimeout; without it run_with_timeout falls back
         # to a watchdog subshell that leaks sleep processes on each sample and
         # exhausts macOS runner process slots during the 30-sample loop.
         run: brew install cmake ninja coreutils
 
       - name: Build compiler
+        if: needs.changes.outputs.benchmark == 'true'
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -62,6 +76,7 @@ jobs:
           cmake --build build
 
       - name: Load platform-specific benchmark thresholds
+        if: needs.changes.outputs.benchmark == 'true'
         id: thresholds
         run: |
           set -u
@@ -91,6 +106,7 @@ jobs:
           fi
 
       - name: Run benchmarks
+        if: needs.changes.outputs.benchmark == 'true'
         run: |
           if [ "${{ matrix.group }}" = "parallel" ]; then
             bash tests/benchmarks/run_benchmarks.sh --verbose --only-parallel
@@ -99,6 +115,7 @@ jobs:
           fi
 
       - name: Check regression (informational)
+        if: needs.changes.outputs.benchmark == 'true'
         continue-on-error: true
         run: |
           if [ "${{ matrix.group }}" = "parallel" ]; then

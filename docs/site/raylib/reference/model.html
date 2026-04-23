@@ -201,11 +201,11 @@
       <h1>Models &amp; Meshes</h1>
       <p class="subtitle">Model loading, mesh generation, material setup, skeletal animation, billboards, bounding boxes.</p>
       <div class="callout">
-        <div class="callout-title">MODEL-01..10 reference</div>
+        <div class="callout-title">Model reference</div>
         <p>Model loading, mesh generation, material setup, skeletal animation, billboards, bounding boxes. Every raylib <code>rmodels.c</code> binding (46 total).</p>
       </div>
 
-      <h2 id="lifecycle">Model lifecycle (MODEL-01)</h2>
+      <h2 id="lifecycle">Model lifecycle</h2>
 
       <article class="api-entry">
         <h3 id="model-load"><code>Model.load(file_name: String) -&gt; Model</code></h3>
@@ -222,7 +222,7 @@
       <article class="api-entry">
         <h3 id="model-from-mesh"><code>Model.from_mesh(mesh: Mesh) -&gt; Model</code></h3>
         <p class="signature-meta">Category: <a href="#lifecycle">Lifecycle</a> &middot; raylib: <code>LoadModelFromMesh</code></p>
-        <p>Wrap a procedurally-generated Mesh in a Model. Useful for procedural-fallback when <code>Model.load</code> fails.</p>
+        <p>Wrap a procedurally generated <code>Mesh</code> in a <code>Model</code>. Useful as a fallback when <code>Model.load</code> fails.</p>
         <pre><code class="iron"><span class="syn-kw">val</span> fallback = <span class="syn-ty">Model</span>.<span class="syn-fn">from_mesh</span>(<span class="syn-ty">Mesh</span>.<span class="syn-fn">cube</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>)))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
@@ -243,7 +243,7 @@
         </p>
       </article>
 
-      <h2 id="model-query">Model query (MODEL-02)</h2>
+      <h2 id="model-query">Model query</h2>
 
       <article class="api-entry">
         <h3 id="model-bounding-box"><code>Model.bounding_box(model: Model) -&gt; BoundingBox</code></h3>
@@ -258,7 +258,7 @@
         </p>
       </article>
 
-      <h2 id="model-draw">Model draw (MODEL-03)</h2>
+      <h2 id="model-draw">Model draw</h2>
 
       <article class="api-entry">
         <h3 id="model-draw"><code>Model.draw(model, position, scale, tint) / draw_ex(model, position, rotation_axis, rotation_angle, scale: Vector3, tint)</code></h3>
@@ -284,7 +284,7 @@
         </p>
       </article>
 
-      <h2 id="mesh-ops">Mesh operations (MODEL-04)</h2>
+      <h2 id="mesh-ops">Mesh operations</h2>
 
       <article class="api-entry">
         <h3 id="mesh-upload"><code>Mesh.upload(mesh, dynamic: Bool) -&gt; Mesh / update_buffer(mesh, index, data: [UInt8], offset, size)</code></h3>
@@ -322,7 +322,7 @@
         </p>
       </article>
 
-      <h2 id="mesh-draw">Mesh draw (MODEL-05)</h2>
+      <h2 id="mesh-draw">Mesh draw</h2>
 
       <article class="api-entry">
         <h3 id="mesh-draw"><code>Mesh.draw(mesh, material, transform: Matrix)</code></h3>
@@ -348,7 +348,7 @@
         </p>
       </article>
 
-      <h2 id="mesh-gen">Mesh generation (MODEL-06)</h2>
+      <h2 id="mesh-gen">Mesh generation</h2>
 
       <article class="api-entry">
         <h3 id="mesh-cube"><code>Mesh.cube(width, height, length: Float32) -&gt; Mesh</code></h3>
@@ -398,7 +398,7 @@
         </p>
       </article>
 
-      <h2 id="material">Material (MODEL-07)</h2>
+      <h2 id="material">Material</h2>
 
       <article class="api-entry">
         <h3 id="material-load"><code>Material.load(file_name: String) -&gt; [Material]</code></h3>
@@ -448,7 +448,7 @@
         </p>
       </article>
 
-      <h2 id="animation">Animation (MODEL-08)</h2>
+      <h2 id="animation">Animation</h2>
 
       <article class="api-entry">
         <h3 id="modelanimation-load"><code>ModelAnimation.load(file_name: String) -&gt; [ModelAnimation]</code></h3>
@@ -498,7 +498,7 @@
         </p>
       </article>
 
-      <h2 id="billboard">Billboards (MODEL-09)</h2>
+      <h2 id="billboard">Billboards</h2>
 
       <article class="api-entry">
         <h3 id="draw-billboard"><code>Draw.billboard(camera, texture, position: Vector3, size: Float32, tint: Color)</code></h3>
@@ -524,7 +524,7 @@
         </p>
       </article>
 
-      <h2 id="bbox">Bounding box draw (MODEL-10)</h2>
+      <h2 id="bbox">Bounding box draw</h2>
 
       <article class="api-entry">
         <h3 id="draw-bounding-box"><code>Draw.bounding_box(box: BoundingBox, color: Color)</code></h3>

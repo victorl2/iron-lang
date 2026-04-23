@@ -1,8 +1,8 @@
 -- examples/post_fx/post_fx.iron
--- Phase 71 — Post-FX pipeline showcase. Demonstrates Iron's shader
+-- Post-FX pipeline showcase. Demonstrates Iron's shader
 -- binding end-to-end: 3D scene -> RenderTexture -> grayscale/invert
 -- post-FX -> display. SPACE key toggles between grayscale and invert
--- shaders (demonstrates SHADER-03 interactive uniform setting).
+-- shaders.
 --
 -- Invocation: ./build/ironc build examples/post_fx/post_fx.iron
 --             ./post_fx            (run from repo root for asset resolution)
@@ -17,9 +17,6 @@
 -- cube if Model.is_valid returns false; shaders fall back to raylib
 -- default internally if load fails (is_valid check emits warning).
 --
--- Closes Phase 71 milestone claim "Iron builds post-processing
--- pipelines". Canonical template: examples/model_viewer/model_viewer.iron
--- (Phase 70-04) + shader composition from Plan 71-02 smoke.
 
 import raylib
 
@@ -31,16 +28,14 @@ func main() -> Int32 {
     val rt = RenderTexture.load(Int32(800), Int32(600))
 
     -- Load both shaders at startup. Empty VS string uses raylib's default
-    -- vertex stage (a full-screen quad shader for post-FX) — see
-    -- rcore.c:1302-1303 + Phase 71 CONTEXT.md.
+    -- vertex stage for post-FX.
     val fx_grayscale = Shader.load("", "tests/assets/shaders/grayscale.fs")
     val fx_invert    = Shader.load("", "tests/assets/shaders/invert.fs")
 
     -- Resolve invert.fs's u_intensity uniform (set per-frame when active).
     val loc_intensity = Shader.get_location(fx_invert, "u_intensity")
 
-    -- Load 3D scene model. Phase 70-04 cube.obj with procedural fallback
-    -- (Model.is_valid guard mirrors examples/model_viewer pattern).
+    -- Load the 3D scene model, falling back to a procedural cube if needed.
     val loaded = Model.load("tests/assets/models/cube.obj")
     val loaded_ok = Model.is_valid(loaded)
     var model = loaded
@@ -69,7 +64,7 @@ func main() -> Int32 {
     val origin = Vector3(Float32(0.0), Float32(0.0), Float32(0.0))
 
     while not Window.should_close() {
-        -- Orbital camera update (Phase 69 CameraMode.ORBITAL)
+        -- Orbital camera update.
         cam = Camera3D.update(cam, CameraMode.ORBITAL)
 
         -- SPACE key toggles between shaders
@@ -81,8 +76,7 @@ func main() -> Int32 {
             }
         }
 
-        -- Set u_intensity on invert shader every frame (demonstrates
-        -- SHADER-03 set_value .float interactively). raylib no-ops if
+        -- Set u_intensity on the invert shader every frame. raylib no-ops if
         -- loc_intensity == -1.
         if loc_intensity >= Int32(0) {
             Shader.set_value(fx_invert, loc_intensity, intensity_bytes, ShaderUniformDataType.FLOAT)
@@ -100,8 +94,7 @@ func main() -> Int32 {
         Draw.begin()
         Draw.clear(BLACK)
 
-        -- Select shader (no if-expression in Iron per Phase 70-04;
-        -- use var + if statement form).
+        -- Select the active shader.
         var active_shader = fx_grayscale
         if current_fx == Int32(1) {
             active_shader = fx_invert

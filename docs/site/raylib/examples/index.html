@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Examples — Iron raylib</title>
-  <meta name="description" content="5 canonical programs exercising the v2.0.0-alpha raylib surface: pong, rotating_cube, model_viewer, post_fx, raylib_showcase. Every example builds with iron build and runs on native + web.">
+  <meta name="description" content="5 example programs showing the Iron raylib binding in action: pong, rotating_cube, model_viewer, post_fx, raylib_showcase. Every example builds with iron build and runs on native and web.">
   <meta property="og:title" content="Examples — Iron raylib">
-  <meta property="og:description" content="Canonical consumers showing the full raylib binding in action — 2D games, 3D scenes, shader pipelines, audio, and a 12-category end-to-end showcase.">
+  <meta property="og:description" content="Example programs showing the full raylib binding in action: 2D games, 3D scenes, shader pipelines, audio, and a full binding showcase.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://ironlang.dev/raylib/examples/">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
@@ -244,7 +244,7 @@
 
     <main class="content">
       <h1>Examples</h1>
-      <p class="subtitle">5 canonical programs exercising the v2.0.0-alpha raylib surface. Every example builds with <code>iron build examples/&lt;name&gt;/&lt;name&gt;.iron</code> and runs on both native and web targets.</p>
+      <p class="subtitle">5 example programs showing the raylib binding in action. Every example builds with <code>iron build examples/&lt;name&gt;/&lt;name&gt;.iron</code> and runs on both native and web targets.</p>
 
       <section class="gallery" aria-label="Example gallery">
 
@@ -254,7 +254,7 @@
           </a>
           <div class="example-card-body">
             <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">pong</a></h3>
-            <p>2D paddle game. Player uses W/S, AI tracks the ball, collisions play a bounce sound. Title / play / game-over state machine driven by a single <code>while(!WindowShouldClose())</code> loop. ~145 lines.</p>
+            <p>Two-player paddle game. Left player uses W/S, right player uses the arrow keys, collisions play a bounce sound, and the game moves through title, play, and game-over states from one main loop.</p>
             <ul class="example-card-tags" aria-label="Categories exercised">
               <li>Window</li>
               <li>Input</li>
@@ -275,7 +275,7 @@
           </a>
           <div class="example-card-body">
             <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">rotating_cube</a></h3>
-            <p>Orbital <code>Camera3D</code> rendering a colored cube with wireframe overlay over a 10&times;10 grid. The canonical 3D primitives demo. ~62 lines.</p>
+            <p>Orbital <code>Camera3D</code> rendering a colored cube with a wireframe overlay over a 10&times;10 grid. A compact 3D starting point.</p>
             <ul class="example-card-tags" aria-label="Categories exercised">
               <li>Window</li>
               <li>3D Drawing</li>
@@ -294,7 +294,7 @@
           </a>
           <div class="example-card-body">
             <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">model_viewer</a></h3>
-            <p>Loads an OBJ model with a procedural fallback, draws a wireframe mesh and bounding box under an orbital camera. Shows the <code>Model.is_valid</code> asset-safety pattern. ~65 lines.</p>
+            <p>Loads an OBJ model with a procedural fallback, draws a wireframe mesh and bounding box under an orbital camera, and shows the <code>Model.is_valid</code> asset-safety pattern.</p>
             <ul class="example-card-tags" aria-label="Categories exercised">
               <li>Window</li>
               <li>3D Drawing</li>
@@ -314,7 +314,7 @@
           </a>
           <div class="example-card-body">
             <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">post_fx</a></h3>
-            <p>3D scene rendered to a <code>RenderTexture</code> then post-processed through GLSL shaders. SPACE toggles between grayscale and invert; demonstrates per-frame uniform setting (<code>u_intensity</code>). ~133 lines.</p>
+            <p>3D scene rendered to a <code>RenderTexture</code> and then post-processed through GLSL shaders. SPACE toggles between grayscale and invert, demonstrating per-frame uniform updates.</p>
             <ul class="example-card-tags" aria-label="Categories exercised">
               <li>Window</li>
               <li>2D Drawing</li>
@@ -330,11 +330,11 @@
 
         <article class="example-card" id="raylib-showcase">
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron" class="example-card-screenshot" aria-label="raylib_showcase source on GitHub">
-            <img src="screenshots/raylib_showcase.png" alt="raylib_showcase — 12-category canonical end-to-end demo screenshot" loading="lazy" width="1280" height="800">
+            <img src="screenshots/raylib_showcase.png" alt="raylib_showcase — full binding showcase screenshot" loading="lazy" width="1280" height="800">
           </a>
           <div class="example-card-body">
             <h3><a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron">raylib_showcase</a></h3>
-            <p>Single-file demo exercising every in-scope raylib category end-to-end: window, input, 2D drawing, collision, textures, text, audio, 3D drawing, models, shaders, math, files. Builds on native + web from the same source.</p>
+            <p>Single-file showcase covering the full public raylib surface in this binding: window, input, 2D drawing, collision, textures, text, audio, 3D drawing, models, shaders, math, and files. Builds on native and web from the same source.</p>
             <ul class="example-card-tags" aria-label="Categories exercised">
               <li>Window</li>
               <li>Input</li>

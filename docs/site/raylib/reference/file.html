@@ -201,11 +201,11 @@
       <h1>Files</h1>
       <p class="subtitle">File I/O, filesystem queries, directory listing, compression, hashing, base64, random.</p>
       <div class="callout">
-        <div class="callout-title">FILE-01..06 reference</div>
+        <div class="callout-title">Files reference</div>
         <p>File I/O, filesystem queries, directory listing, compression, hashing, base64, random. <code>Files.*</code> namespace binds raylib's <code>rcore.c</code> file API; <code>Random.*</code> binds <code>SetRandom*</code>.</p>
       </div>
 
-      <h2 id="io">Raw data I/O (FILE-01)</h2>
+      <h2 id="io">Raw data I/O</h2>
 
       <article class="api-entry">
         <h3 id="files-load-data"><code>Files.load_data(path: String) -&gt; [UInt8]</code></h3>
@@ -231,7 +231,7 @@
         </p>
       </article>
 
-      <h2 id="text-io">Text I/O (FILE-02)</h2>
+      <h2 id="text-io">Text I/O</h2>
 
       <article class="api-entry">
         <h3 id="files-load-text"><code>Files.load_text(path: String) -&gt; String / save_text(path, text) -&gt; Bool</code></h3>
@@ -246,7 +246,7 @@
         </p>
       </article>
 
-      <h2 id="fs">Filesystem queries (FILE-03)</h2>
+      <h2 id="fs">Filesystem queries</h2>
 
       <article class="api-entry">
         <h3 id="files-exists"><code>Files.exists(path) -&gt; Bool / directory_exists(path) -&gt; Bool / is_file(path) -&gt; Bool</code></h3>
@@ -296,7 +296,7 @@
         </p>
       </article>
 
-      <h2 id="listing">Directory listing (FILE-04)</h2>
+      <h2 id="listing">Directory listing</h2>
 
       <article class="api-entry">
         <h3 id="files-list"><code>Files.list(path: String) -&gt; FilePathList / list_ex(path, filter, scan_subdirs: Bool) / unload_list(list)</code></h3>
@@ -311,7 +311,7 @@
         </p>
       </article>
 
-      <h2 id="data-util">Data utilities (FILE-05)</h2>
+      <h2 id="data-util">Data utilities</h2>
 
       <article class="api-entry">
         <h3 id="files-compress"><code>Files.compress(data: [UInt8]) -&gt; [UInt8] / decompress(data: [UInt8]) -&gt; [UInt8]</code></h3>
@@ -374,7 +374,7 @@
         </p>
       </article>
 
-      <h2 id="random">Random (FILE-06)</h2>
+      <h2 id="random">Random</h2>
 
       <article class="api-entry">
         <h3 id="random-set-seed"><code>Random.set_seed(seed: UInt32)</code></h3>
@@ -403,7 +403,7 @@
       <article class="api-entry">
         <h3 id="random-load-sequence"><code>Random.load_sequence(count: UInt32, min: Int32, max: Int32) -&gt; [Int32] / unload_sequence(seq)</code></h3>
         <p class="signature-meta">Category: <a href="#random">Random</a> &middot; raylib: <code>LoadRandomSequence / UnloadRandomSequence</code></p>
-        <p>Generate a non-repeating shuffled sequence (Fisher-Yates). <code>unload_sequence</code> is a no-op in Iron (GC-managed).</p>
+        <p>Generate a non-repeating shuffled sequence (Fisher-Yates). <code>unload_sequence</code> does nothing in Iron because the sequence is garbage-collected.</p>
         <pre><code class="iron"><span class="syn-kw">val</span> deal = <span class="syn-ty">Random</span>.<span class="syn-fn">load_sequence</span>(<span class="syn-ty">UInt32</span>(<span class="syn-nu">52</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">51</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
@@ -415,7 +415,7 @@
       <h2 id="see-also">See also</h2>
       <ul>
         <li><a href="/raylib/reference/types.html#filepathlist">FilePathList type</a>.</li>
-        <li><a href="/raylib/reference/window.html#window-wait-time">Window.wait_time (FILE-07)</a> &mdash; high-precision sleep.</li>
+        <li><a href="/raylib/reference/window.html#window-wait-time">Window.wait_time</a> &mdash; high-precision sleep.</li>
         <li><a href="/raylib/reference/input.html#filedrop">Input → File drop</a> &mdash; <code>Files.is_dropped</code> / <code>load_dropped</code>.</li>
       </ul>
 

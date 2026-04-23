@@ -203,8 +203,8 @@
       <p class="subtitle">30 raylib types bound to Iron as <code>object</code>s with exact C struct layout &mdash; byte-identical ABI at the FFI boundary.</p>
 
       <div class="callout">
-        <div class="callout-title">TYPE-01..32 reference</div>
-        <p>Every field order matches raylib's C struct verbatim (TYPE-31). Pointer-bearing fields (Image.data, Texture.id, Font.glyphs) are opaque from Iron (TYPE-32) &mdash; load/unload them through the binding; do not dereference.</p>
+        <div class="callout-title">Types reference</div>
+        <p>Field order matches raylib's C structs. Pointer-bearing fields such as <code>Image.data</code>, <code>Texture.id</code>, and <code>Font.glyphs</code> are opaque from Iron &mdash; load and unload them through the binding and do not dereference them directly.</p>
       </div>
 
       <h2 id="math">Math types</h2>
@@ -289,7 +289,7 @@
       <article class="api-entry">
         <h3 id="color"><code>Color(r: UInt8, g: UInt8, b: UInt8, a: UInt8) -&gt; Color</code></h3>
         <p class="signature-meta">Category: <a href="#math">Math</a> &middot; raylib: <code>struct Color</code></p>
-        <p>4-byte RGBA color. 26 canonical constants are pre-declared (see <a href="/raylib/reference/tex.html#palette">palette</a>); <code>Color.rgb</code> / <code>Color.rgba</code> provide constructor sugar.</p>
+        <p>4-byte RGBA color. 26 predeclared color constants are available (see <a href="/raylib/reference/tex.html#palette">palette</a>); <code>Color.rgb</code> / <code>Color.rgba</code> provide constructor sugar.</p>
         <pre><code class="iron"><span class="syn-kw">val</span> c = <span class="syn-ty">Color</span>(<span class="syn-nu">230</span>, <span class="syn-nu">41</span>, <span class="syn-nu">55</span>, <span class="syn-nu">255</span>)
 <span class="syn-kw">val</span> red = <span class="syn-ty">Color</span>.<span class="syn-fn">rgb</span>(<span class="syn-ty">UInt8</span>(<span class="syn-nu">230</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">41</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">55</span>))</code></pre>
         <p class="sources">
@@ -719,11 +719,11 @@
 
       <h2 id="design-notes">Design notes</h2>
       <div class="callout">
-        <div class="callout-title">TYPE-31 &mdash; Field order exactly matches raylib</div>
+        <div class="callout-title">Field order matches raylib</div>
         <p>Every Iron <code>object</code> above is a struct with fields in the same order as raylib's C definition. <code>sizeof(Iron_Vector2)</code> equals <code>sizeof(Vector2)</code>; <code>memcpy</code> at the FFI boundary is safe in both directions.</p>
       </div>
       <div class="callout">
-        <div class="callout-title">TYPE-32 &mdash; Opaque pointer fields</div>
+        <div class="callout-title">Opaque pointer fields</div>
         <p>Fields like <code>Image.data</code> (<code>void *</code>), <code>Texture.id</code> (<code>unsigned int</code>), <code>Font.glyphs</code> (<code>GlyphInfo *</code>) are present in the Iron struct for ABI-identity but are opaque to Iron code &mdash; do not dereference. Use the binding's accessor methods instead (e.g., <code>Image.load_colors(img)</code> instead of poking <code>img.data</code>).</p>
       </div>
 
