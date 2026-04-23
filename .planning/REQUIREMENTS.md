@@ -252,6 +252,6 @@ Phase mappings assigned by roadmapper on 2026-04-20. Every v3.0 requirement maps
 | TEST-15 | 85 | Complete |
 | DOCS-01 | 91 | Complete |
 | DOCS-02 | 91 | Complete |
-| DOCS-03 | 91 | Pending |
-| DOCS-04 | 91 | Pending |
-| DOCS-05 | 91 | Pending |
+| DOCS-03 | 91 | Complete |
+| DOCS-04 | 91 | Complete |
+| DOCS-05 | 91 | Complete |

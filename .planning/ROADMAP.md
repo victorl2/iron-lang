@@ -18,7 +18,7 @@ v3.0 is Iron's first non-superset release. Receiver-method syntax is removed; me
 - [x] **Phase 88: BREAK** - Hard rejection of v2 receiver-method syntax with migration hints (completed 2026-04-23)
 - [x] **Phase 89: MIGR** - Codemod implementation, atomic stdlib + examples + tests migration (completed 2026-04-23)
 - [x] **Phase 90: IDENT** - Golden-output byte-identity verification, `scripts/verify-v3-migration.sh` release blocker
-- [ ] **Phase 91: DOCS** - Release notes, site guide, migration guide, language spec refresh
+- [x] **Phase 91: DOCS** - Release notes, site guide, migration guide, language spec refresh (completed 2026-04-23)
 
 ## Phase Details
 
@@ -251,7 +251,7 @@ Plans:
 4. `docs/site/` landing page carries the v3 banner; the guide's methods / init / patch pages are rewritten for v3 grammar; the API reference reflects synthesized accessors and patch extensions.
 5. The Iron language spec document is updated to describe v3 grammar, mutation tiers, init rules, and patch semantics - replacing the v2.2 receiver-method sections.
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 91-01-PLAN.md — Release notes (docs/release-notes/v3.md) + CHANGELOG finalization (DOCS-01, DOCS-02, MIGR-06)
@@ -270,7 +270,7 @@ Plans:
 | 88. BREAK | 3/3 | Complete    | 2026-04-23 |
 | 89. MIGR | 3/3 | Complete    | 2026-04-23 |
 | 90. IDENT | 2/2 | Complete    | 2026-04-23 |
-| 91. DOCS | 1/2 | In Progress|  |
+| 91. DOCS | 2/2 | Complete   | 2026-04-23 |
 
 ## Coverage Summary
 
