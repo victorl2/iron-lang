@@ -2031,10 +2031,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         mc->resolved_type = result;
                         break;
                     }
-                    /* Rewrite Self -> concrete type so named-init dispatch works. */
+                    /* Rewrite Self -> concrete type so named-init dispatch works.
+                     * Also set resolved_sym to the global type symbol so the
+                     * named-init dispatch below (which looks up resolved_sym)
+                     * finds the type without depending on local scope. */
                     self_recv->name = ctx->enclosing_type_name;
-                    /* Re-resolve obj_type_mc since ident changed. */
-                    obj_type_mc = check_expr(ctx, mc->object);
+                    Iron_Symbol *concrete_sym =
+                        iron_scope_lookup(ctx->global_scope, ctx->enclosing_type_name);
+                    if (concrete_sym) {
+                        self_recv->resolved_sym = concrete_sym;
+                        obj_type_mc = concrete_sym->type;
+                    }
                 }
             }
 

@@ -2739,6 +2739,14 @@ void test_self_return_resolves_to_enclosing(void) {
         "    readonly func double_x() -> Self { return Self(self.x * 2) }\n"
         "}\n"
     );
+    /* Debug: if there are errors, print them so we can diagnose. */
+    if (g_diags.error_count > 0) {
+        for (int _i = 0; _i < g_diags.count; _i++) {
+            if (g_diags.items[_i].level == IRON_DIAG_ERROR)
+                fprintf(stderr, "DEBUG error %d: %s\n", g_diags.items[_i].code,
+                        g_diags.items[_i].message ? g_diags.items[_i].message : "(null)");
+        }
+    }
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
     /* Find the double_x MethodDecl and check resolved_return_type. */
     Iron_Program *prog = (Iron_Program *)parse_and_resolve(
