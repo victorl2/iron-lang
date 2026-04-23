@@ -402,3 +402,83 @@ jobs:
           name: vscode-e2e-logs-${{ matrix.os }}
           path: editors/vscode/out/
           retention-days: 7
+
+  # Phase 6 Plan 06-04 Task 2 (EXT-06 + EXT-10, CONTEXT D-05 + D-07).
+  #
+  # Gates every PR touching editors/neovim/**, grammars/**, or src/** on a
+  # successful plenary.nvim e2e run: builds ironls, clones plenary.nvim,
+  # installs Neovim 0.11.3 (Linux: GitHub release tarball; macOS: brew),
+  # runs editors/neovim/test/e2e/harness.sh which asserts that the shipped
+  # lsp/ironls.lua + ftdetect/iron.lua + plugin/iron_lsp.lua cause at
+  # least one Error-severity diagnostic to surface on the shared
+  # tests/editors/fixtures/diag_error.iron fixture within 5 s (PITFALLS §6).
+  #
+  # Neovim 0.11.3 is the documented floor — matches CONTEXT D-05 + the
+  # version guard in lsp/ironls.lua. Bumping this should be coordinated
+  # with the in-tree version guard.
+  #
+  # plenary.nvim is cloned at master (--depth 1) per threat T-06-04-04
+  # (accepted); pinning to a tag is a trivial v1.x follow-up if master
+  # becomes volatile.
+  neovim-e2e:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
+
+      - name: Install system deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Install Neovim 0.11.3 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://github.com/neovim/neovim/releases/download/v0.11.3/nvim-linux64.tar.gz -o /tmp/nvim.tar.gz
+          sudo mkdir -p /opt/nvim
+          sudo tar -xzf /tmp/nvim.tar.gz -C /opt/nvim --strip-components=1
+          echo "/opt/nvim/bin" >> "$GITHUB_PATH"
+
+      - name: Install Neovim (macOS)
+        if: runner.os == 'macOS'
+        run: brew install neovim
+
+      - name: Verify Neovim 0.11.3+
+        run: nvim --version | head -1
+
+      - name: Clone plenary.nvim
+        run: |
+          mkdir -p ~/.local/share/nvim/site/pack/test/start
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim \
+            ~/.local/share/nvim/site/pack/test/start/plenary.nvim
+
+      - name: Build ironls
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
+          cmake --build build --target ironls --parallel 4
+
+      - name: Run plenary e2e harness
+        run: |
+          export PATH="${{ github.workspace }}/build:$PATH"
+          bash editors/neovim/test/e2e/harness.sh
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neovim-e2e-logs-${{ matrix.os }}
+          path: |
+            ~/.local/state/iron-lsp/
+            ~/.local/state/nvim/lsp.log
+          retention-days: 7
+          if-no-files-found: ignore
