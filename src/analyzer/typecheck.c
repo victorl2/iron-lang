@@ -4575,9 +4575,19 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
 
                 if (!impl) {
                     /* No impl found. If sig has a default body, the implementer
-                     * inherits it — no E0257 (no impl to compare). If sig has
-                     * NO default body, E0258 (missing method) is Plan 87-02's
-                     * responsibility. Either way, nothing to do here. */
+                     * inherits it — no E0258. Otherwise emit E0258 (PATCH-08). */
+                    if (sig->body != NULL) continue;  /* default body inherited */
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "missing interface method '%s.%s' on '%s'",
+                             iface_name, sig->name, od->name);
+                    const char *msg_copy =
+                        iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    if (!msg_copy)
+                        iron_oom_abort("typecheck.c:check_iface_tier_strengthening e0258 msg");
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_IFACE_CONFORMANCE_MISSING,
+                                   od->span, msg_copy, NULL);
                     continue;
                 }
 

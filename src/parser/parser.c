@@ -3675,8 +3675,30 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p,
         (void)iron_parse_generic_params(p, &generic_count, p->arena);
     }
 
-    /* Body. Patches do NOT accept `extends` or `impl` — they are pure
-     * add-only contributions to an existing type. */
+    /* Phase 87-02 PATCH-08: optional `implements I, J, K` clause.
+     * "implements" is a contextual keyword lexed as IRON_TOK_IDENTIFIER;
+     * we detect it by string comparison, matching the Phase 85 init-as-
+     * contextual-keyword precedent. Patches do NOT accept `extends`. */
+    const char **impl_names = NULL;
+    int          impl_count = 0;
+    if (iron_check(p, IRON_TOK_IDENTIFIER) &&
+        strcmp(iron_current(p)->value, "implements") == 0) {
+        iron_advance(p);  /* consume 'implements' */
+        iron_skip_newlines(p);
+        while (iron_check(p, IRON_TOK_IDENTIFIER)) {
+            Iron_Token *it = iron_advance(p);
+            const char *iname = iron_arena_strdup(p->arena, it->value,
+                                                   strlen(it->value));
+            if (!iname) iron_oom_abort("parser.c:iron_parse_patch_decl impl iname");
+            arrput(impl_names, iname);
+            impl_count++;
+            iron_skip_newlines(p);
+            if (!iron_match(p, IRON_TOK_COMMA)) break;
+            iron_skip_newlines(p);
+        }
+    }
+
+    /* Body. Patches do NOT accept `extends`. */
     if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
     iron_skip_newlines(p);
 
@@ -3971,8 +3993,9 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p,
     n->fields              = NULL;
     n->field_count         = 0;
     n->extends_name        = NULL;
-    n->implements_names    = NULL;
-    n->implements_count    = 0;
+    /* Phase 87-02 PATCH-08: populate implements clause if present. */
+    n->implements_names    = impl_names;
+    n->implements_count    = impl_count;
     n->generic_params      = NULL;
     n->generic_param_count = 0;
     /* PATCH-01/02: the is_patch bit is the resolver's dispatch key; both
