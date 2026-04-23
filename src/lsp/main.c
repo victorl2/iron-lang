@@ -66,10 +66,13 @@
 #include "lsp/transport/reader.h"
 #include "lsp/transport/writer.h"
 #include "lsp/facade/types.h"
+#include "lsp/cli/args.h"          /* Phase 7 Plan 07-01 Task 02: argv parser. */
 #include "lsp/obs/log.h"           /* Plan 06 Task 01: JSON-line log sink. */
 #include "lsp/obs/trace.h"         /* Plan 06 Task 01: shutdown histogram. */
 #include "lsp/obs/abort_handler.h" /* Plan 05: SIGABRT boundary. */
 #include "lsp/obs/crash_dump.h"    /* Phase 7 Plan 07-01 Task 01: SIGSEGV + crash dump. */
+#include "lsp/obs/parent_watch.h"  /* Phase 7 Plan 07-01 Task 02: parent-death detection. */
+#include "lsp/supervisor/supervisor.h" /* Phase 7 Plan 07-01 Task 02: --supervised mode. */
 
 #include "vendor/stb_ds.h"
 
@@ -107,46 +110,37 @@ static void on_message(void *ctx, const char *body, size_t len) {
     ilsp_trace_end(tok);
 }
 
-/* Parse --log-level=<L> values. Unknown strings are silently ignored so
- * invocations keep the process alive rather than failing at startup. */
-static IronLsp_LogLevel parse_log_level_arg(const char *s,
-                                            IronLsp_LogLevel fallback) {
-    if (!s || !*s) return fallback;
-    if (strcmp(s, "ERROR") == 0 || strcmp(s, "error") == 0) return ILSP_LOG_ERROR;
-    if (strcmp(s, "WARN")  == 0 || strcmp(s, "warn")  == 0) return ILSP_LOG_WARN;
-    if (strcmp(s, "INFO")  == 0 || strcmp(s, "info")  == 0) return ILSP_LOG_INFO;
-    if (strcmp(s, "DEBUG") == 0 || strcmp(s, "debug") == 0) return ILSP_LOG_DEBUG;
-    return fallback;
-}
+/* Phase 7 Plan 07-01 Task 02: argv parsing lives in src/lsp/cli/args.c
+ * so supervisor parent + worker share the same schema. */
 
 int main(int argc, char **argv) {
-    /* ── 1. argv parse ───────────────────────────────────────────────── */
-    const char      *override_log_dir = NULL;
-    bool             have_level       = false;
-    IronLsp_LogLevel level_arg        = ILSP_LOG_WARN;
-
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--version") == 0 ||
-            strcmp(argv[i], "-v")        == 0) {
-            printf("%s %s (%s, %s)\n",
-                   IRON_BINARY_NAME,
-                   IRON_VERSION_STRING,
-                   IRON_GIT_HASH,
-                   IRON_BUILD_DATE);
-            return 0;
-        }
-        if (strncmp(argv[i], "--log-dir=", 10) == 0) {
-            override_log_dir = argv[i] + 10;
-            continue;
-        }
-        if (strncmp(argv[i], "--log-level=", 12) == 0) {
-            level_arg  = parse_log_level_arg(argv[i] + 12, ILSP_LOG_WARN);
-            have_level = true;
-            continue;
-        }
-        /* Unknown flag -- ignore; do NOT error (editors may pass harmless
-         * flags in future). */
+    /* ── 1. argv parse (Phase 7 Plan 07-01 Task 02: centralised) ─────── */
+    IlspArgs args = ilsp_args_parse(argc, argv);
+    if (args.want_version) {
+        printf("%s %s (%s, %s)\n",
+               IRON_BINARY_NAME,
+               IRON_VERSION_STRING,
+               IRON_GIT_HASH,
+               IRON_BUILD_DATE);
+        return 0;
     }
+
+    /* Phase 7 D-01: --supervised mode forks a worker and proxies stdio.
+     * The supervisor parent NEVER reaches the rest of main(); it has
+     * its own signal handling, its own process lifetime, and never runs
+     * the LSP server itself. The worker (spawned by the supervisor with
+     * --__worker) comes back through this path with mode ==
+     * SUPERVISED_WORKER and continues to the normal server bring-up. */
+    if (args.mode == ILSP_MODE_SUPERVISED_PARENT) {
+        return ilsp_supervisor_run(argc, argv);
+    }
+
+    const char       *override_log_dir = args.log_dir;
+    bool              have_level       = (args.log_level != ILSP_ARGS_LOG_UNSET);
+    IronLsp_LogLevel  level_arg        =
+        (args.log_level == ILSP_ARGS_LOG_UNSET)
+            ? ILSP_LOG_WARN
+            : (IronLsp_LogLevel)args.log_level;
 
     /* ── 2. SIGPIPE SIG_IGN ─────────────────────────────────────────────
      * Follow the pattern documented in src/runtime/iron_net_init.c:
@@ -178,9 +172,17 @@ int main(int argc, char **argv) {
     }
     if (have_level) ilsp_log_set_level(level_arg);
     ilsp_log(ILSP_LOG_INFO, "startup",
-             "ironls %s (%s, %s) pid=%d",
+             "ironls %s (%s, %s) pid=%d mode=%s",
              IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE,
-             (int)getpid());
+             (int)getpid(),
+             (args.mode == ILSP_MODE_SUPERVISED_WORKER) ? "worker" : "normal");
+
+    /* ── 4b. Parent-death watch (Phase 7 Plan 07-01 Task 02, HARD-20) ──
+     * Linux: prctl(PR_SET_PDEATHSIG). macOS: kqueue+NOTE_EXIT thread.
+     * Fallback: PPID-polling thread. Install AFTER log_open so any
+     * warnings can reach the log sink, and BEFORE spawning the reader
+     * thread so there is exactly one descendant to inherit the watcher. */
+    ilsp_parent_watch_init();
 
     /* ── 5. Server singleton init ───────────────────────────────────── */
     g_server.lifecycle         = ILSP_LIFECYCLE_UNINIT;
