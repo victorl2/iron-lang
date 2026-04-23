@@ -2295,6 +2295,8 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
     f->generic_params       = NULL;
     f->generic_param_count  = 0;
     f->resolved_return_type = NULL;
+    f->is_readonly          = false;  /* Phase 87: readonly/pure only valid on iface sigs */
+    f->is_pure              = false;
     return (Iron_Node *)f;
 }
 
@@ -2674,6 +2676,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     f->generic_params       = generic_params;
     f->generic_param_count  = generic_count;
     f->resolved_return_type = NULL;  /* set by type checker */
+    f->is_readonly          = false;  /* Phase 87: readonly/pure only valid on iface sigs */
+    f->is_pure              = false;
     return (Iron_Node *)f;
 }
 
@@ -3997,14 +4001,15 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
 
-        /* Phase 85 INIT-15: interfaces describe behavior, not construction.
-         * Reject `init` in interface bodies with a clear message pointing at
-         * the Self-returning factory alternative. Recover by consuming the
-         * `init` token and syncing to the next statement so subsequent
-         * signatures still parse. */
+        /* Phase 85 INIT-15 / Phase 87 IFACE-04: interfaces describe behavior,
+         * not construction. Reject `init` in interface bodies with a clear
+         * message pointing at the Self-returning factory alternative.
+         * Phase 87 upgrades the error code from the generic
+         * IRON_ERR_UNEXPECTED_TOKEN to the dedicated
+         * IRON_ERR_IFACE_CANNOT_DECLARE_INIT (E0256). */
         if (iron_check(p, IRON_TOK_INIT)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_UNEXPECTED_TOKEN,
+                           IRON_ERR_IFACE_CANNOT_DECLARE_INIT,
                            iron_token_span(p, iron_current(p)),
                            "interfaces may not declare init; use "
                            "Self-returning methods for factory patterns",
@@ -4014,7 +4019,38 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
             continue;
         }
 
-        /* Method signature: func name(params) [-> Type] — no body */
+        /* Phase 87 IFACE-01: consume optional readonly/pure tier modifier before
+         * func in interface body. Mirrors the pattern in iron_parse_object_decl
+         * body loop (parser.c:2756) and iron_parse_patch_decl (parser.c:3688).
+         * First-wins XOR recovery: emit E0245 and consume the second modifier
+         * if both appear together. */
+        bool member_is_readonly = false;
+        bool member_is_pure     = false;
+        if (iron_check(p, IRON_TOK_READONLY)) {
+            iron_advance(p);
+            member_is_readonly = true;
+            if (iron_check(p, IRON_TOK_PURE)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'readonly' and 'pure' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'pure' to recover */
+            }
+        } else if (iron_check(p, IRON_TOK_PURE)) {
+            iron_advance(p);
+            member_is_pure = true;
+            if (iron_check(p, IRON_TOK_READONLY)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'pure' and 'readonly' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'readonly' to recover */
+            }
+        }
+
+        /* Method signature: [readonly|pure] func name(params) [-> Type] [{ body }] */
         if (!iron_check(p, IRON_TOK_FUNC)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
@@ -4041,7 +4077,16 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
             sig_ret = iron_parse_type_annotation(p);
         }
 
-        /* Store as a FuncDecl with NULL body to represent a signature */
+        /* Phase 87 IFACE-03: accept an optional default body after the return
+         * type annotation. body != NULL is the has_default_body signal per
+         * the ast.h Iron_FuncDecl invariant documented above. */
+        Iron_Node *sig_body = NULL;
+        if (iron_check(p, IRON_TOK_LBRACE)) {
+            sig_body = iron_parse_block(p);
+        }
+
+        /* Store as a FuncDecl. body == NULL means signature-only; body != NULL
+         * means has_default_body (Phase 87 IFACE-03 invariant). */
         Iron_FuncDecl *sig        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
         if (!sig) iron_oom_abort("parser.c:iron_parse_interface_decl sig FuncDecl");
         sig->kind                 = IRON_NODE_FUNC_DECL;
@@ -4053,13 +4098,18 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         sig->params               = sig_params;
         sig->param_count          = sig_param_count;
         sig->return_type          = sig_ret;
-        sig->body                 = NULL;  /* no body — it's a signature */
+        sig->body                 = sig_body;  /* NULL = sig-only; non-NULL = default body */
         sig->is_private           = false;
         sig->is_extern            = false;
         sig->extern_c_name        = NULL;
         sig->generic_params       = NULL;
         sig->generic_param_count  = 0;
         sig->resolved_return_type = NULL;  /* set by type checker */
+        sig->resolved_param_types = NULL;
+        sig->is_fusible           = false;
+        /* Phase 87 IFACE-01: tier modifier bits from the pre-func consumption above. */
+        sig->is_readonly          = member_is_readonly;
+        sig->is_pure              = member_is_pure;
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
