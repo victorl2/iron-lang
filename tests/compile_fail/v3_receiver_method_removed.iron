@@ -8,6 +8,6 @@ object Player {
     }
 }
 
-func (p: Player) take_damage(n: Int) {
-    p.health = p.health - n
+func (p: Player) current_health() -> Int {
+    return p.health
 }
