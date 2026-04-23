@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 #include "cli/build.h"
 #include "cli/check.h"
@@ -33,6 +34,7 @@ static void print_usage(void) {
     fprintf(stderr, "  check   Type-check without compiling\n");
     fprintf(stderr, "  fmt     Format Iron source code\n");
     fprintf(stderr, "  test    Discover and run Iron tests\n");
+    fprintf(stderr, "  migrate Migrate .iron source from v2 to v3 grammar\n");
     fprintf(stderr, "\nOptions:\n");
     fprintf(stderr, "  --version         Print version and exit\n");
     fprintf(stderr, "  --target=<t>      Build target: native (default) or web\n");
@@ -202,6 +204,44 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "test") == 0) {
         return iron_test(source_file ? source_file : ".");
+    }
+
+    if (strcmp(cmd, "migrate") == 0) {
+        /* ironc migrate --from v2 --to v3 <path> */
+        const char *from_ver = NULL;
+        const char *to_ver = NULL;
+        const char *target_path = NULL;
+
+        for (int j = 2; j < argc; j++) {
+            if (strcmp(argv[j], "--from") == 0 && j + 1 < argc) {
+                from_ver = argv[++j];
+            } else if (strcmp(argv[j], "--to") == 0 && j + 1 < argc) {
+                to_ver = argv[++j];
+            } else if (argv[j][0] != '-') {
+                target_path = argv[j];
+            }
+        }
+
+        if (!from_ver || !to_ver || !target_path) {
+            fprintf(stderr, "%s migrate: usage: ironc migrate --from v2 --to v3 <path>\n", IRON_BINARY_NAME);
+            return 1;
+        }
+
+        /* Locate migrate script relative to cwd (scripts/ directory) */
+        char script_path[1024];
+        snprintf(script_path, sizeof(script_path), "scripts/migrate_v2_to_v3.py");
+
+        const char *exec_argv[] = {
+            "python3", script_path,
+            "--from", from_ver,
+            "--to", to_ver,
+            target_path,
+            NULL
+        };
+        execvp("python3", (char *const *)exec_argv);
+        /* execvp only returns on error */
+        perror("ironc migrate: failed to exec python3");
+        return 1;
     }
 
     fprintf(stderr, "%s: unknown command '%s'\n", IRON_BINARY_NAME, cmd);
