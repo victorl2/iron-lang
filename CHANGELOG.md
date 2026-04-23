@@ -3,24 +3,65 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
-## [Unreleased] v3.0.0-alpha — Method Ergonomics (WIP)
+## v3.0.0-alpha — Method Ergonomics (2026-04-23)
 
 ### Breaking
 
 - **Receiver-method syntax removed.** `func (recv: T) name()` and `func (mut recv: T) name()` are no longer valid. Methods now live inside `object T { ... }` blocks with implicit `self`. Pre-v3 code migrates via `ironc migrate --from v2 --to v3 <path>`. v3.0 is the first Iron release without the pure-superset guard.
-- **Inline field defaults removed.** `var health: Int = 0` at the field declaration site is a parse error. Fields must be assigned in `init`. Init is mandatory — every object declares at least one.
+- **Inline field defaults removed.** `var health: Int = 0` at the field declaration site is a parse error. Fields must be assigned in `init`. Init is mandatory; every object declares at least one.
 - **`mut` keyword removed.** Mutation is default at the method declaration site. Non-mutating methods opt in with `readonly` or `pure`.
 
-### Added (target scope — see `.planning/REQUIREMENTS.md` for the full matrix)
+### Added
 
-- Methods-in-object-block grammar with implicit `self` and required `self.field` prefix for field access
-- Three mutation tiers: default (mutating), `readonly` (no self-writes, strict transitive enforcement), `pure` (no observable side effects; heap allocation allowed)
-- Single visibility keyword `pub`; default-private for fields AND methods; `pub val`/`pub var` synthesize accessors with property syntax (`player.health`, `player.health = 50`)
-- Mandatory `init` per object: anonymous `init(...)` callable via `Type(args)`, named `init name(...)` via `Type.name(args)`; definite-assignment enforcement; `val` fields single-assigned
-- `patch object T { ... }` for open extension of types you don't own (including primitives); program-wide, collision = compile error; no field additions
-- Interface default implementations; `readonly`/`pure` modifiers on interface method signatures
-- `Self` return type in methods and interface signatures
-- `ironc migrate --from v2 --to v3` codemod with golden-output identity guarantee (IDENT-01, IDENT-02)
+**Methods in object blocks (GRAMMAR)**
+
+- In-block `func` declarations with implicit `self`; required `self.field` prefix for all field access
+- `obj.method(args)` call dispatch resolves to in-block or patch methods; call-site shape unchanged from v2.2
+
+**Visibility (ACCESS)**
+
+- Default-private fields and methods; `pub` opts into exposure at the declaration site
+- `pub val field` synthesizes a read-only getter; `pub var field` synthesizes getter and setter
+- Property syntax `obj.field` / `obj.field = v` on `pub` fields; no explicit accessor calls needed
+
+**Mutation tiers (MUTTIER)**
+
+- `readonly func` forbids writes to `self.field` and mutating calls on self members; enforced with source carets (E03F1, E03F2)
+- `pure func` forbids I/O, global writes, and non-pure calls; heap allocation is allowed
+- Transitive enforcement: `readonly` may call only `readonly` or `pure`; `pure` may call only `pure`
+
+**Mandatory init (INIT)**
+
+- `init(params) { ... }` anonymous form; constructed via `Type(args)`
+- `init name(params) { ... }` named form; constructed via `Type.name(args)`
+- Definite-assignment: all fields assigned on every exit path or compile error (E03XZ)
+- `val` fields single-assigned in init (E03YY); method calls before full init rejected (E03YX)
+- Field-less objects (`object Marker {}`) get a synthesized empty init automatically
+
+**Open extension via patch (PATCH)**
+
+- `patch object T { ... }` adds methods and inits to any type, including primitives
+- Program-wide scope; duplicate signatures on the same type are a compile error (E03XX)
+- No field additions; no visibility changes to existing members
+- `patch object T implements Interface` for retroactive interface conformance
+
+**Interfaces and Self type (IFACE / SELF)**
+
+- `readonly` and `pure` modifiers on interface method signatures, enforced by implementors
+- Default method implementations in interfaces; implementors may override
+- `Self` return type in method signatures and interface declarations
+- `return Self(args)` / `return Self.name(args)` for type-safe self-construction at call sites
+
+**Codemod (MIGR)**
+
+- `ironc migrate --from v2 --to v3 <path>` rewrites v2 source to v3 grammar
+- Deterministic and idempotent; emits unified diff on stderr for review
+- Covers: receiver-methods to in-block, `mut` receivers to default tier, inline defaults to init
+
+**Byte-identity verification (IDENT)**
+
+- `scripts/verify-v3-migration.sh` as release-blocker script
+- Codemod plus v3 compile produces byte-identical generated C to v2.2 for every stdlib module
 
 ### Migration
 
@@ -30,7 +71,7 @@ Run the codemod once against your Iron sources:
 ironc migrate --from v2 --to v3 src/
 ```
 
-The codemod is deterministic and idempotent. Generated C is byte-identical to v2.2 output post-migration (locked by `scripts/verify-v3-migration.sh`). Full step-by-step guide in `docs/site/migration-v2-to-v3.md`.
+The codemod is deterministic and idempotent. Generated C is byte-identical to v2.2 output post-migration (locked by `scripts/verify-v3-migration.sh`). Full step-by-step guide in [docs/site/migration-v2-to-v3.md](docs/site/migration-v2-to-v3.md).
 
 Pin to v2.2.0-alpha until ready to migrate.
 
