@@ -69,6 +69,7 @@
 #include "lsp/obs/log.h"           /* Plan 06 Task 01: JSON-line log sink. */
 #include "lsp/obs/trace.h"         /* Plan 06 Task 01: shutdown histogram. */
 #include "lsp/obs/abort_handler.h" /* Plan 05: SIGABRT boundary. */
+#include "lsp/obs/crash_dump.h"    /* Phase 7 Plan 07-01 Task 01: SIGSEGV + crash dump. */
 
 #include "vendor/stb_ds.h"
 
@@ -155,7 +156,14 @@ int main(int argc, char **argv) {
      * instead of terminating the process. */
     signal(SIGPIPE, SIG_IGN);
 
-    /* ── 3. SIGABRT boundary (Plan 05) ──────────────────────────────────
+    /* ── 3a. Crash-dump handlers (Phase 7 Plan 07-01 Task 01, HARD-14) ──
+     * Install BEFORE the Phase 2 SIGABRT boundary so that SIGSEGV/SIGBUS
+     * flow through the crash-dump handler first. SIGABRT continues to
+     * flow through the Phase 2 sigsetjmp per-doc quarantine path. See
+     * crash_dump.c + 07-01 SUMMARY for the chain discipline. */
+    ilsp_crash_install_handlers();
+
+    /* ── 3b. SIGABRT boundary (Plan 05) ──────────────────────────────
      * Install BEFORE spawning worker threads so the sigaction is
      * inherited. The handler siglongjmp's into the per-doc jmp_buf via
      * the _Thread_local ilsp_current_doc_tls; outside a compile it
