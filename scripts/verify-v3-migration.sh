@@ -42,11 +42,13 @@ fi
 # ---------------------------------------------------------------------------
 # Detect emit-c subcommand (probe for 'emit-c', fall back to 'build --emit-c')
 # ---------------------------------------------------------------------------
-if $IRONC emit-c --help >/dev/null 2>&1; then
+_probe_out=$($IRONC emit-c --help 2>&1 || true)
+if echo "$_probe_out" | grep -qv "unknown command"; then
     SUBCOMMAND="emit-c"
 else
     SUBCOMMAND="build --emit-c"
 fi
+unset _probe_out
 
 # ---------------------------------------------------------------------------
 # --generate mode: regenerate golden C files from sources
@@ -85,19 +87,19 @@ for src in "$SOURCES_DIR"/*.iron; do
 
     printf "%-12s ... " "$name"
 
-    # Emit C into a temp file
-    # shellcheck disable=SC2086
-    if ! emit_output=$($IRONC $SUBCOMMAND "$src" -o "$WORK_DIR/$name.c" 2>&1); then
-        echo "FAIL (ironc error)"
-        echo "  ironc stderr: $emit_output"
-        FAIL=$((FAIL + 1))
-        continue
-    fi
-
-    # No golden yet -- skip diff (not a failure)
+    # No golden yet -- skip diff (not a failure; goldens are populated in a later step)
     if [ ! -f "$EXPECTED_DIR/$name.c" ]; then
         echo "WARN (no golden -- skipping diff; run with --generate to create)"
         WARN=$((WARN + 1))
+        continue
+    fi
+
+    # Golden exists -- emit C and diff
+    # shellcheck disable=SC2086
+    if ! emit_output=$($IRONC $SUBCOMMAND "$src" -o "$WORK_DIR/$name.c" 2>&1); then
+        echo "FAIL (ironc error)"
+        echo "  ironc output: $emit_output"
+        FAIL=$((FAIL + 1))
         continue
     fi
 
