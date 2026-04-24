@@ -14,9 +14,9 @@ object Timer {
 }
 
 patch object Timer {
-    func done() -> Bool {}
-    func update(dt: Float) {}
-    func reset() {}
+    readonly func done() -> Bool {}
+    readonly func update(dt: Float) {}
+    readonly func reset() {}
 }
 
 
@@ -40,6 +40,6 @@ func Duration.seconds(n: Int) -> Duration { return Duration(n * 1000) }
 func Duration.minutes(n: Int) -> Duration { return Duration(n * 60 * 1000) }
 func Duration.from_ms(n: Int) -> Duration { return Duration(n) }
 patch object Duration {
-    func to_ms() -> Int { return self.ms }
+    readonly func to_ms() -> Int { return self.ms }
 }
 

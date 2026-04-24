@@ -51,6 +51,11 @@ static Iron_Program *parse_program(const char *src) {
     while (tokens[count].kind != IRON_TOK_EOF) count++;
     count++;  /* include EOF */
     Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron", &g_arena, &g_diags);
+    /* These fixtures use v2-style object decls without init blocks; the
+     * resolver tests predate the Phase 88 v3-strict default. Disable the
+     * gate so these cases keep exercising the resolver rather than tripping
+     * on E0264. */
+    p.v3_strict_mode = false;
     Iron_Node   *root = iron_parse(&p);
     return (Iron_Program *)root;
 }

@@ -103,6 +103,7 @@ static IronHIR_Module *compile_to_hir(const char *src,
 
     Iron_Parser   p   = iron_parser_create(tokens, count, src, "test.iron",
                                             &g_arena, &g_diags);
+    p.v3_strict_mode = false;  /* dense fixture pre-dates v3-strict default */
     Iron_Node    *root = iron_parse(&p);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_diags.error_count,
                                    "parse errors in compile_to_hir");
@@ -226,6 +227,7 @@ void test_print_ast_dense_program(void) {
     count++;
     Iron_Parser  p = iron_parser_create(tokens, count, k_dense_src,
                                          "test.iron", &g_arena, &g_diags);
+    p.v3_strict_mode = false;  /* dense fixture pre-dates v3-strict default */
     Iron_Node   *root = iron_parse(&p);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 

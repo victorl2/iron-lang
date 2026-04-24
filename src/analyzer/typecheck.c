@@ -2239,10 +2239,29 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             if (md->is_receiver_form && md->param_count > 0) {
                                 Iron_Param *recv_p = (Iron_Param *)md->params[0];
                                 if (recv_p && recv_p->is_mut_receiver) {
-                                    /* obj_id was set above — this branch is gated on
-                                     * mc->object->kind == IRON_NODE_IDENT. */
+                                    /* The real receiver identifier depends on
+                                     * the call form:
+                                     *   Instance method  `x.m(...)`    -> obj_id
+                                     *   Auto-static      `T.m(x, ...)` -> args[0]
+                                     * obj_id is a TYPE symbol in the auto-static
+                                     * case; its is_mutable is always false and
+                                     * must not be used as the mutability check
+                                     * (Phase 89/91 regression). Fall back to the
+                                     * first argument when it is an ident. */
+                                    Iron_Ident *recv_ident = NULL;
                                     if (obj_id->resolved_sym &&
-                                        !obj_id->resolved_sym->is_mutable) {
+                                        obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE) {
+                                        if (mc->arg_count > 0 &&
+                                            mc->args[0] &&
+                                            mc->args[0]->kind == IRON_NODE_IDENT) {
+                                            recv_ident = (Iron_Ident *)mc->args[0];
+                                        }
+                                    } else {
+                                        recv_ident = obj_id;
+                                    }
+                                    if (recv_ident && recv_ident->resolved_sym &&
+                                        recv_ident->resolved_sym->sym_kind != IRON_SYM_TYPE &&
+                                        !recv_ident->resolved_sym->is_mutable) {
                                         char msg[256];
                                         snprintf(msg, sizeof(msg),
                                                  "cannot call mutable method on immutable binding");
@@ -3595,8 +3614,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         if (mf->is_var) {
                             /* pub var: route through synthesized setter. */
                             as->is_pub_setter = true;
-                        } else {
-                            /* pub val: read-only — cannot be written. */
+                        } else if (!ctx->in_init_method) {
+                            /* pub val: read-only outside init — cannot be
+                             * written.  Init bodies are the sole place where
+                             * val fields may be populated (Phase 88 E0264
+                             * requires this). */
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "cannot assign to pub val field '%s' "

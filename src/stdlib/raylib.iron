@@ -1057,38 +1057,38 @@ func RMath.float_equals(x: Float32, y: Float32) -> Bool {}
 func Vector2.zero() -> Vector2 {}
 func Vector2.one() -> Vector2 {}
 patch object Vector2 {
-    func add(other: Vector2) -> Vector2 {}
-    func add_value(add: Float32) -> Vector2 {}
-    func subtract(other: Vector2) -> Vector2 {}
-    func subtract_value(sub: Float32) -> Vector2 {}
-    func length() -> Float32 {}
-    func length_sqr() -> Float32 {}
-    func dot_product(other: Vector2) -> Float32 {}
-    func distance(other: Vector2) -> Float32 {}
-    func distance_sqr(other: Vector2) -> Float32 {}
-    func angle(other: Vector2) -> Float32 {}
-    func line_angle(end: Vector2) -> Float32 {}
-    func scale(scale: Float32) -> Vector2 {}
-    func multiply(other: Vector2) -> Vector2 {}
-    func negate() -> Vector2 {}
-    func divide(other: Vector2) -> Vector2 {}
-    func normalize() -> Vector2 {}
-    func transform(mat: Matrix) -> Vector2 {}
-    func lerp(other: Vector2, amount: Float32) -> Vector2 {}
-    func reflect(normal: Vector2) -> Vector2 {}
-    func min(other: Vector2) -> Vector2 {}
-    func max(other: Vector2) -> Vector2 {}
-    func rotate(angle: Float32) -> Vector2 {}
-    func move_towards(target: Vector2, max_distance: Float32) -> Vector2 {}
-    func invert() -> Vector2 {}
-    func clamp(min: Vector2, max: Vector2) -> Vector2 {}
-    func clamp_value(min: Float32, max: Float32) -> Vector2 {}
-    func equals(other: Vector2) -> Bool {}
-    func refract(n: Vector2, r: Float32) -> Vector2 {}
+    readonly func add(other: Vector2) -> Vector2 {}
+    readonly func add_value(add: Float32) -> Vector2 {}
+    readonly func subtract(other: Vector2) -> Vector2 {}
+    readonly func subtract_value(sub: Float32) -> Vector2 {}
+    readonly func length() -> Float32 {}
+    readonly func length_sqr() -> Float32 {}
+    readonly func dot_product(other: Vector2) -> Float32 {}
+    readonly func distance(other: Vector2) -> Float32 {}
+    readonly func distance_sqr(other: Vector2) -> Float32 {}
+    readonly func angle(other: Vector2) -> Float32 {}
+    readonly func line_angle(end: Vector2) -> Float32 {}
+    readonly func scale(scale: Float32) -> Vector2 {}
+    readonly func multiply(other: Vector2) -> Vector2 {}
+    readonly func negate() -> Vector2 {}
+    readonly func divide(other: Vector2) -> Vector2 {}
+    readonly func normalize() -> Vector2 {}
+    readonly func transform(mat: Matrix) -> Vector2 {}
+    readonly func lerp(other: Vector2, amount: Float32) -> Vector2 {}
+    readonly func reflect(normal: Vector2) -> Vector2 {}
+    readonly func min(other: Vector2) -> Vector2 {}
+    readonly func max(other: Vector2) -> Vector2 {}
+    readonly func rotate(angle: Float32) -> Vector2 {}
+    readonly func move_towards(target: Vector2, max_distance: Float32) -> Vector2 {}
+    readonly func invert() -> Vector2 {}
+    readonly func clamp(min: Vector2, max: Vector2) -> Vector2 {}
+    readonly func clamp_value(min: Float32, max: Float32) -> Vector2 {}
+    readonly func equals(other: Vector2) -> Bool {}
+    readonly func refract(n: Vector2, r: Float32) -> Vector2 {}
 
-    func inside_triangle(p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
-    func inside_polygon(points: [Vector2]) -> Bool {}
-    func on_line(p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
+    readonly func inside_triangle(p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
+    readonly func inside_polygon(points: [Vector2]) -> Bool {}
+    readonly func on_line(p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
 }
 
 
@@ -1101,46 +1101,46 @@ patch object Vector2 {
 func Vector3.zero() -> Vector3 {}
 func Vector3.one() -> Vector3 {}
 patch object Vector3 {
-    func add(other: Vector3) -> Vector3 {}
-    func add_value(add: Float32) -> Vector3 {}
-    func subtract(other: Vector3) -> Vector3 {}
-    func subtract_value(sub: Float32) -> Vector3 {}
-    func scale(scalar: Float32) -> Vector3 {}
-    func multiply(other: Vector3) -> Vector3 {}
-    func cross_product(other: Vector3) -> Vector3 {}
-    func perpendicular() -> Vector3 {}
-    func length() -> Float32 {}
-    func length_sqr() -> Float32 {}
-    func dot_product(other: Vector3) -> Float32 {}
-    func distance(other: Vector3) -> Float32 {}
-    func distance_sqr(other: Vector3) -> Float32 {}
-    func angle(other: Vector3) -> Float32 {}
-    func negate() -> Vector3 {}
-    func divide(other: Vector3) -> Vector3 {}
-    func normalize() -> Vector3 {}
-    func project(other: Vector3) -> Vector3 {}
-    func reject(other: Vector3) -> Vector3 {}
-    func transform(mat: Matrix) -> Vector3 {}
-    func rotate_by_quaternion(q: Quaternion) -> Vector3 {}
-    func rotate_by_axis_angle(axis: Vector3, angle: Float32) -> Vector3 {}
-    func move_towards(target: Vector3, max_distance: Float32) -> Vector3 {}
-    func lerp(other: Vector3, amount: Float32) -> Vector3 {}
-    func cubic_hermite(tangent1: Vector3, v2: Vector3, tangent2: Vector3, amount: Float32) -> Vector3 {}
-    func reflect(normal: Vector3) -> Vector3 {}
-    func min(other: Vector3) -> Vector3 {}
-    func max(other: Vector3) -> Vector3 {}
-    func barycenter(a: Vector3, b: Vector3, c: Vector3) -> Vector3 {}
-    func unproject(projection: Matrix, view: Matrix) -> Vector3 {}
-    func invert() -> Vector3 {}
-    func clamp(min: Vector3, max: Vector3) -> Vector3 {}
-    func clamp_value(min: Float32, max: Float32) -> Vector3 {}
-    func equals(other: Vector3) -> Bool {}
-    func refract(n: Vector3, r: Float32) -> Vector3 {}
+    readonly func add(other: Vector3) -> Vector3 {}
+    readonly func add_value(add: Float32) -> Vector3 {}
+    readonly func subtract(other: Vector3) -> Vector3 {}
+    readonly func subtract_value(sub: Float32) -> Vector3 {}
+    readonly func scale(scalar: Float32) -> Vector3 {}
+    readonly func multiply(other: Vector3) -> Vector3 {}
+    readonly func cross_product(other: Vector3) -> Vector3 {}
+    readonly func perpendicular() -> Vector3 {}
+    readonly func length() -> Float32 {}
+    readonly func length_sqr() -> Float32 {}
+    readonly func dot_product(other: Vector3) -> Float32 {}
+    readonly func distance(other: Vector3) -> Float32 {}
+    readonly func distance_sqr(other: Vector3) -> Float32 {}
+    readonly func angle(other: Vector3) -> Float32 {}
+    readonly func negate() -> Vector3 {}
+    readonly func divide(other: Vector3) -> Vector3 {}
+    readonly func normalize() -> Vector3 {}
+    readonly func project(other: Vector3) -> Vector3 {}
+    readonly func reject(other: Vector3) -> Vector3 {}
+    readonly func transform(mat: Matrix) -> Vector3 {}
+    readonly func rotate_by_quaternion(q: Quaternion) -> Vector3 {}
+    readonly func rotate_by_axis_angle(axis: Vector3, angle: Float32) -> Vector3 {}
+    readonly func move_towards(target: Vector3, max_distance: Float32) -> Vector3 {}
+    readonly func lerp(other: Vector3, amount: Float32) -> Vector3 {}
+    readonly func cubic_hermite(tangent1: Vector3, v2: Vector3, tangent2: Vector3, amount: Float32) -> Vector3 {}
+    readonly func reflect(normal: Vector3) -> Vector3 {}
+    readonly func min(other: Vector3) -> Vector3 {}
+    readonly func max(other: Vector3) -> Vector3 {}
+    readonly func barycenter(a: Vector3, b: Vector3, c: Vector3) -> Vector3 {}
+    readonly func unproject(projection: Matrix, view: Matrix) -> Vector3 {}
+    readonly func invert() -> Vector3 {}
+    readonly func clamp(min: Vector3, max: Vector3) -> Vector3 {}
+    readonly func clamp_value(min: Float32, max: Float32) -> Vector3 {}
+    readonly func equals(other: Vector3) -> Bool {}
+    readonly func refract(n: Vector3, r: Float32) -> Vector3 {}
 -- MATH-03 (carried from Plan 65-02): Vector3ToFloatV — lands now that
 -- Float3 exists (Plan 65-03 Task 1).
-    func to_float_v() -> Float3 {}
+    readonly func to_float_v() -> Float3 {}
 
-    func ortho_normalize(other: Vector3) -> (Vector3, Vector3) {}
+    readonly func ortho_normalize(other: Vector3) -> (Vector3, Vector3) {}
 }
 
 -- Vector3.ortho_normalize landed in Plan 65-04 below (2-tuple out-param).
@@ -1151,26 +1151,26 @@ patch object Vector3 {
 func Vector4.zero() -> Vector4 {}
 func Vector4.one() -> Vector4 {}
 patch object Vector4 {
-    func add(other: Vector4) -> Vector4 {}
-    func add_value(add: Float32) -> Vector4 {}
-    func subtract(other: Vector4) -> Vector4 {}
-    func subtract_value(sub: Float32) -> Vector4 {}
-    func length() -> Float32 {}
-    func length_sqr() -> Float32 {}
-    func dot_product(other: Vector4) -> Float32 {}
-    func distance(other: Vector4) -> Float32 {}
-    func distance_sqr(other: Vector4) -> Float32 {}
-    func scale(scale: Float32) -> Vector4 {}
-    func multiply(other: Vector4) -> Vector4 {}
-    func negate() -> Vector4 {}
-    func divide(other: Vector4) -> Vector4 {}
-    func normalize() -> Vector4 {}
-    func min(other: Vector4) -> Vector4 {}
-    func max(other: Vector4) -> Vector4 {}
-    func lerp(other: Vector4, amount: Float32) -> Vector4 {}
-    func move_towards(target: Vector4, max_distance: Float32) -> Vector4 {}
-    func invert() -> Vector4 {}
-    func equals(other: Vector4) -> Bool {}
+    readonly func add(other: Vector4) -> Vector4 {}
+    readonly func add_value(add: Float32) -> Vector4 {}
+    readonly func subtract(other: Vector4) -> Vector4 {}
+    readonly func subtract_value(sub: Float32) -> Vector4 {}
+    readonly func length() -> Float32 {}
+    readonly func length_sqr() -> Float32 {}
+    readonly func dot_product(other: Vector4) -> Float32 {}
+    readonly func distance(other: Vector4) -> Float32 {}
+    readonly func distance_sqr(other: Vector4) -> Float32 {}
+    readonly func scale(scale: Float32) -> Vector4 {}
+    readonly func multiply(other: Vector4) -> Vector4 {}
+    readonly func negate() -> Vector4 {}
+    readonly func divide(other: Vector4) -> Vector4 {}
+    readonly func normalize() -> Vector4 {}
+    readonly func min(other: Vector4) -> Vector4 {}
+    readonly func max(other: Vector4) -> Vector4 {}
+    readonly func lerp(other: Vector4, amount: Float32) -> Vector4 {}
+    readonly func move_towards(target: Vector4, max_distance: Float32) -> Vector4 {}
+    readonly func invert() -> Vector4 {}
+    readonly func equals(other: Vector4) -> Bool {}
 }
 
 
@@ -1180,23 +1180,23 @@ patch object Vector4 {
 -- Perspective / Ortho take double in raymath; Iron-side is Float32 and
 -- the shim widens via (double) casts. Receiver param `m` (or m1/m2).
 patch object Matrix {
-    func determinant() -> Float32 {}
-    func trace() -> Float32 {}
-    func transpose() -> Matrix {}
-    func invert() -> Matrix {}
+    readonly func determinant() -> Float32 {}
+    readonly func trace() -> Float32 {}
+    readonly func transpose() -> Matrix {}
+    readonly func invert() -> Matrix {}
 
-    func add(other: Matrix) -> Matrix {}
-    func subtract(other: Matrix) -> Matrix {}
-    func multiply(other: Matrix) -> Matrix {}
+    readonly func add(other: Matrix) -> Matrix {}
+    readonly func subtract(other: Matrix) -> Matrix {}
+    readonly func multiply(other: Matrix) -> Matrix {}
 
-    func to_float_v() -> Float16 {}
+    readonly func to_float_v() -> Float16 {}
 
 -- MATH-05 carried from Plan 65-03: MatrixDecompose 3-tuple out-param.
 -- Plan 65-04 Task 1 probe confirmed Branch A (GREEN) — ironc auto-emits
 -- canonical typedef `Iron_Tuple_Vector3_Quaternion_Vector3` with 3 fields
 -- (Iron_Vector3 v0; Iron_Quaternion v1; Iron_Vector3 v2) via the generic
 -- arity-agnostic loop at emit_helpers.c:260-294.
-    func decompose() -> (Vector3, Quaternion, Vector3) {}
+    readonly func decompose() -> (Vector3, Quaternion, Vector3) {}
 }
 
 func Matrix.identity() -> Matrix {}
@@ -1235,29 +1235,29 @@ func Matrix.look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix {}
 -- QuaternionToAxisAngle is the 2-tuple out-param case → declared above
 -- alongside Matrix.decompose as a tuple return.
 patch object Quaternion {
-    func add(other: Quaternion) -> Quaternion {}
-    func add_value(add: Float32) -> Quaternion {}
-    func subtract(other: Quaternion) -> Quaternion {}
-    func subtract_value(sub: Float32) -> Quaternion {}
+    readonly func add(other: Quaternion) -> Quaternion {}
+    readonly func add_value(add: Float32) -> Quaternion {}
+    readonly func subtract(other: Quaternion) -> Quaternion {}
+    readonly func subtract_value(sub: Float32) -> Quaternion {}
 
-    func length() -> Float32 {}
-    func normalize() -> Quaternion {}
-    func invert() -> Quaternion {}
-    func multiply(other: Quaternion) -> Quaternion {}
-    func scale(mul: Float32) -> Quaternion {}
-    func divide(other: Quaternion) -> Quaternion {}
-    func lerp(other: Quaternion, amount: Float32) -> Quaternion {}
-    func nlerp(other: Quaternion, amount: Float32) -> Quaternion {}
-    func slerp(other: Quaternion, amount: Float32) -> Quaternion {}
-    func cubic_hermite_spline(out_tangent1: Quaternion, q2: Quaternion, in_tangent2: Quaternion, t: Float32) -> Quaternion {}
+    readonly func length() -> Float32 {}
+    readonly func normalize() -> Quaternion {}
+    readonly func invert() -> Quaternion {}
+    readonly func multiply(other: Quaternion) -> Quaternion {}
+    readonly func scale(mul: Float32) -> Quaternion {}
+    readonly func divide(other: Quaternion) -> Quaternion {}
+    readonly func lerp(other: Quaternion, amount: Float32) -> Quaternion {}
+    readonly func nlerp(other: Quaternion, amount: Float32) -> Quaternion {}
+    readonly func slerp(other: Quaternion, amount: Float32) -> Quaternion {}
+    readonly func cubic_hermite_spline(out_tangent1: Quaternion, q2: Quaternion, in_tangent2: Quaternion, t: Float32) -> Quaternion {}
 
-    func to_matrix() -> Matrix {}
+    readonly func to_matrix() -> Matrix {}
 
-    func to_axis_angle() -> (Vector3, Float32) {}
+    readonly func to_axis_angle() -> (Vector3, Float32) {}
 
-    func to_euler() -> Vector3 {}
-    func transform(mat: Matrix) -> Quaternion {}
-    func equals(other: Quaternion) -> Bool {}
+    readonly func to_euler() -> Vector3 {}
+    readonly func transform(mat: Matrix) -> Quaternion {}
+    readonly func equals(other: Quaternion) -> Bool {}
 }
 
 func Quaternion.identity() -> Quaternion {}
@@ -1305,19 +1305,19 @@ object Collision {}
 -- convention; the shim casts to raylib's `int` at the boundary.
 
 patch object Color {
-    func is_equal(other: Color) -> Bool {}
-    func fade(alpha: Float32) -> Color {}
-    func to_int() -> Int32 {}
-    func normalize() -> Vector4 {}
+    readonly func is_equal(other: Color) -> Bool {}
+    readonly func fade(alpha: Float32) -> Color {}
+    readonly func to_int() -> Int32 {}
+    readonly func normalize() -> Vector4 {}
 
-    func to_hsv() -> Vector3 {}
+    readonly func to_hsv() -> Vector3 {}
 
-    func tint(tint: Color) -> Color {}
-    func brightness(factor: Float32) -> Color {}
-    func contrast(contrast: Float32) -> Color {}
-    func alpha(alpha: Float32) -> Color {}
-    func alpha_blend(src: Color, tint: Color) -> Color {}
-    func lerp(other: Color, factor: Float32) -> Color {}
+    readonly func tint(tint: Color) -> Color {}
+    readonly func brightness(factor: Float32) -> Color {}
+    readonly func contrast(contrast: Float32) -> Color {}
+    readonly func alpha(alpha: Float32) -> Color {}
+    readonly func alpha_blend(src: Color, tint: Color) -> Color {}
+    readonly func lerp(other: Color, factor: Float32) -> Color {}
 }
 
 func Color.from_normalized(v: Vector4) -> Color {}
@@ -1353,17 +1353,17 @@ func Color.pixel_data_size(width: Int32, height: Int32, format: PixelFormat) -> 
 -- Image load/unload/valid (TEX-01) + narrowed TEX-02
 func Image.load(path: String) -> Image {}
 patch object Image {
-    func unload() {}
-    func is_valid() -> Bool {}
+    readonly func unload() {}
+    readonly func is_valid() -> Bool {}
 
-    func export(path: String) -> Bool {}
-    func export_as_code(path: String) -> Bool {}
+    readonly func export(path: String) -> Bool {}
+    readonly func export_as_code(path: String) -> Bool {}
 
 -- Image data extraction (TEX-06) — reverse-direction `-> [Color]`
-    func load_colors() -> [Color] {}
-    func load_palette(max_palette_size: Int32) -> [Color] {}
-    func get_alpha_border(threshold: Float32) -> Rectangle {}
-    func get_color(x: Int32, y: Int32) -> Color {}
+    readonly func load_colors() -> [Color] {}
+    readonly func load_palette(max_palette_size: Int32) -> [Color] {}
+    readonly func get_alpha_border(threshold: Float32) -> Rectangle {}
+    readonly func get_color(x: Int32, y: Int32) -> Color {}
 
 -- ──────────────────────────────────────────────────────────────────────
 -- Image transforms (Plan 66-03 — TEX-05, 27 bindings)
@@ -1386,35 +1386,35 @@ patch object Image {
 -- see Image.text_ex / Image.draw_text_ex in the Phase 67 section below.
 
 -- Group A — 3 by-value returns (Pattern 1)
-    func copy() -> Image {}
-    func from_rectangle(rec: Rectangle) -> Image {}
-    func from_channel(selected_channel: Int32) -> Image {}
+    readonly func copy() -> Image {}
+    readonly func from_rectangle(rec: Rectangle) -> Image {}
+    readonly func from_channel(selected_channel: Int32) -> Image {}
 
 -- Group B — 24 mutating transforms (Pattern 2)
-    func format(new_format: PixelFormat) -> Image {}
-    func to_pot(fill: Color) -> Image {}
-    func crop(crop: Rectangle) -> Image {}
-    func alpha_crop(threshold: Float32) -> Image {}
-    func alpha_clear(color: Color, threshold: Float32) -> Image {}
-    func alpha_mask(mask: Image) -> Image {}
-    func alpha_premultiply() -> Image {}
-    func blur_gaussian(blur_size: Int32) -> Image {}
-    func resize(new_width: Int32, new_height: Int32) -> Image {}
-    func resize_nn(new_width: Int32, new_height: Int32) -> Image {}
-    func resize_canvas(new_width: Int32, new_height: Int32, offset_x: Int32, offset_y: Int32, fill: Color) -> Image {}
-    func mipmaps() -> Image {}
-    func dither(r_bpp: Int32, g_bpp: Int32, b_bpp: Int32, a_bpp: Int32) -> Image {}
-    func flip_vertical() -> Image {}
-    func flip_horizontal() -> Image {}
-    func rotate(degrees: Int32) -> Image {}
-    func rotate_cw() -> Image {}
-    func rotate_ccw() -> Image {}
-    func color_tint(color: Color) -> Image {}
-    func color_invert() -> Image {}
-    func color_grayscale() -> Image {}
-    func color_contrast(contrast: Float32) -> Image {}
-    func color_brightness(brightness: Int32) -> Image {}
-    func color_replace(color: Color, replace: Color) -> Image {}
+    readonly func format(new_format: PixelFormat) -> Image {}
+    readonly func to_pot(fill: Color) -> Image {}
+    readonly func crop(crop: Rectangle) -> Image {}
+    readonly func alpha_crop(threshold: Float32) -> Image {}
+    readonly func alpha_clear(color: Color, threshold: Float32) -> Image {}
+    readonly func alpha_mask(mask: Image) -> Image {}
+    readonly func alpha_premultiply() -> Image {}
+    readonly func blur_gaussian(blur_size: Int32) -> Image {}
+    readonly func resize(new_width: Int32, new_height: Int32) -> Image {}
+    readonly func resize_nn(new_width: Int32, new_height: Int32) -> Image {}
+    readonly func resize_canvas(new_width: Int32, new_height: Int32, offset_x: Int32, offset_y: Int32, fill: Color) -> Image {}
+    readonly func mipmaps() -> Image {}
+    readonly func dither(r_bpp: Int32, g_bpp: Int32, b_bpp: Int32, a_bpp: Int32) -> Image {}
+    readonly func flip_vertical() -> Image {}
+    readonly func flip_horizontal() -> Image {}
+    readonly func rotate(degrees: Int32) -> Image {}
+    readonly func rotate_cw() -> Image {}
+    readonly func rotate_ccw() -> Image {}
+    readonly func color_tint(color: Color) -> Image {}
+    readonly func color_invert() -> Image {}
+    readonly func color_grayscale() -> Image {}
+    readonly func color_contrast(contrast: Float32) -> Image {}
+    readonly func color_brightness(brightness: Int32) -> Image {}
+    readonly func color_replace(color: Color, replace: Color) -> Image {}
 
 -- ──────────────────────────────────────────────────────────────────────
 -- Image CPU draw (Plan 66-03 — TEX-07, 21 bindings)
@@ -1438,34 +1438,34 @@ patch object Image {
 -- ImageDrawTextEx: Phase 66 deferral CLOSED in Phase 67 Plan 01 Task 2 —
 -- see Image.draw_text_ex in the Phase 67 section below.
 
-    func clear_background(color: Color) -> Image {}
-    func draw_pixel(pos_x: Int32, pos_y: Int32, color: Color) -> Image {}
-    func draw_pixel_v(position: Vector2, color: Color) -> Image {}
-    func draw_line(start_x: Int32, start_y: Int32, end_x: Int32, end_y: Int32, color: Color) -> Image {}
-    func draw_line_v(start: Vector2, finish: Vector2, color: Color) -> Image {}
-    func draw_line_ex(start: Vector2, finish: Vector2, thick: Int32, color: Color) -> Image {}
-    func draw_circle(center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
-    func draw_circle_v(center: Vector2, radius: Int32, color: Color) -> Image {}
-    func draw_circle_lines(center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
-    func draw_circle_lines_v(center: Vector2, radius: Int32, color: Color) -> Image {}
-    func draw_rectangle(pos_x: Int32, pos_y: Int32, width: Int32, height: Int32, color: Color) -> Image {}
-    func draw_rectangle_v(position: Vector2, size: Vector2, color: Color) -> Image {}
-    func draw_rectangle_rec(rec: Rectangle, color: Color) -> Image {}
-    func draw_rectangle_lines(rec: Rectangle, thick: Int32, color: Color) -> Image {}
-    func draw_triangle(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
-    func draw_triangle_ex(v1: Vector2, v2: Vector2, v3: Vector2, c1: Color, c2: Color, c3: Color) -> Image {}
-    func draw_triangle_lines(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
-    func draw_triangle_fan(points: [Vector2], point_count: Int32, color: Color) -> Image {}
-    func draw_triangle_strip(points: [Vector2], point_count: Int32, color: Color) -> Image {}
-    func draw(src: Image, src_rec: Rectangle, dst_rec: Rectangle, tint: Color) -> Image {}
-    func draw_text(text: String, pos_x: Int32, pos_y: Int32, font_size: Int32, color: Color) -> Image {}
+    readonly func clear_background(color: Color) -> Image {}
+    readonly func draw_pixel(pos_x: Int32, pos_y: Int32, color: Color) -> Image {}
+    readonly func draw_pixel_v(position: Vector2, color: Color) -> Image {}
+    readonly func draw_line(start_x: Int32, start_y: Int32, end_x: Int32, end_y: Int32, color: Color) -> Image {}
+    readonly func draw_line_v(start: Vector2, finish: Vector2, color: Color) -> Image {}
+    readonly func draw_line_ex(start: Vector2, finish: Vector2, thick: Int32, color: Color) -> Image {}
+    readonly func draw_circle(center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
+    readonly func draw_circle_v(center: Vector2, radius: Int32, color: Color) -> Image {}
+    readonly func draw_circle_lines(center_x: Int32, center_y: Int32, radius: Int32, color: Color) -> Image {}
+    readonly func draw_circle_lines_v(center: Vector2, radius: Int32, color: Color) -> Image {}
+    readonly func draw_rectangle(pos_x: Int32, pos_y: Int32, width: Int32, height: Int32, color: Color) -> Image {}
+    readonly func draw_rectangle_v(position: Vector2, size: Vector2, color: Color) -> Image {}
+    readonly func draw_rectangle_rec(rec: Rectangle, color: Color) -> Image {}
+    readonly func draw_rectangle_lines(rec: Rectangle, thick: Int32, color: Color) -> Image {}
+    readonly func draw_triangle(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
+    readonly func draw_triangle_ex(v1: Vector2, v2: Vector2, v3: Vector2, c1: Color, c2: Color, c3: Color) -> Image {}
+    readonly func draw_triangle_lines(v1: Vector2, v2: Vector2, v3: Vector2, color: Color) -> Image {}
+    readonly func draw_triangle_fan(points: [Vector2], point_count: Int32, color: Color) -> Image {}
+    readonly func draw_triangle_strip(points: [Vector2], point_count: Int32, color: Color) -> Image {}
+    readonly func draw(src: Image, src_rec: Rectangle, dst_rec: Rectangle, tint: Color) -> Image {}
+    readonly func draw_text(text: String, pos_x: Int32, pos_y: Int32, font_size: Int32, color: Color) -> Image {}
 
-    func draw_text_ex(font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
+    readonly func draw_text_ex(font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
 
-    func to_texture() -> Texture {}
+    readonly func to_texture() -> Texture {}
 
-    func export_to_memory(file_type: String) -> [UInt8] {}
-    func kernel_convolution(kernel: [Float32], kernel_size: Int32) -> Image {}
+    readonly func export_to_memory(file_type: String) -> [UInt8] {}
+    readonly func kernel_convolution(kernel: [Float32], kernel_size: Int32) -> Image {}
 }
 
 func Image.load_anim(path: String) -> Image {}
@@ -1507,16 +1507,16 @@ func Image.text_ex(font: Font, text: String, fontSize: Float32, spacing: Float32
 func Texture.load(path: String) -> Texture {}
 
 patch object Texture {
-    func unload() {}
-    func is_valid() -> Bool {}
+    readonly func unload() {}
+    readonly func is_valid() -> Bool {}
 
-    func update(pixels: Int) {}
-    func update_rec(rec: Rectangle, pixels: Int) {}
+    readonly func update(pixels: Int) {}
+    readonly func update_rec(rec: Rectangle, pixels: Int) {}
 
 -- TEX-11 Config (filter / wrap / mipmaps)
-    func set_filter(filter: TextureFilter) {}
-    func set_wrap(wrap: TextureWrap) {}
-    func gen_mipmaps() -> Texture {}
+    readonly func set_filter(filter: TextureFilter) {}
+    readonly func set_wrap(wrap: TextureWrap) {}
+    readonly func gen_mipmaps() -> Texture {}
 
 -- Texture draw variants (Plan 66-04 — TEX-12, 6 bindings)
 --
@@ -1526,12 +1526,12 @@ patch object Texture {
 -- value args reuse the memcpy template from Phase 63-02/03/04 draws.
 
 -- TEX-12 draw variants
-    func draw(pos_x: Int32, pos_y: Int32, tint: Color) {}
-    func draw_v(position: Vector2, tint: Color) {}
-    func draw_ex(position: Vector2, rotation: Float32, scale: Float32, tint: Color) {}
-    func draw_rec(source: Rectangle, position: Vector2, tint: Color) {}
-    func draw_pro(source: Rectangle, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
-    func draw_n_patch(n_patch_info: NPatchInfo, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
+    readonly func draw(pos_x: Int32, pos_y: Int32, tint: Color) {}
+    readonly func draw_v(position: Vector2, tint: Color) {}
+    readonly func draw_ex(position: Vector2, rotation: Float32, scale: Float32, tint: Color) {}
+    readonly func draw_rec(source: Rectangle, position: Vector2, tint: Color) {}
+    readonly func draw_pro(source: Rectangle, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
+    readonly func draw_n_patch(n_patch_info: NPatchInfo, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
 }
 
 
@@ -1539,8 +1539,8 @@ patch object Texture {
 func Texture.load_cubemap(img: Image, layout: CubemapLayout) -> Texture {}
 func RenderTexture.load(width: Int32, height: Int32) -> RenderTexture {}
 patch object RenderTexture {
-    func unload() {}
-    func is_valid() -> Bool {}
+    readonly func unload() {}
+    readonly func is_valid() -> Bool {}
 }
 
 
@@ -1586,31 +1586,31 @@ func Font.from_image(image: Image, keyColor: Color, firstChar: Int32) -> Font {}
 
 -- TEXT-02 / TEXT-04 / TEXT-06 lifecycle + validity + export
 patch object Font {
-    func is_valid() -> Bool {}
-    func unload() {}
-    func export_as_code(filePath: String) -> Bool {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
+    readonly func export_as_code(filePath: String) -> Bool {}
 
-    func draw_ex(text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
+    readonly func draw_ex(text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
 
 -- draw_pro: same as draw_ex but rotates the baseline around `origin`.
 -- `rotation` is in degrees (raylib convention).
-    func draw_pro(text: String, position: Vector2, origin: Vector2, rotation: Float32, fontSize: Float32, spacing: Float32, tint: Color) {}
+    readonly func draw_pro(text: String, position: Vector2, origin: Vector2, rotation: Float32, fontSize: Float32, spacing: Float32, tint: Color) {}
 
 -- draw_codepoint: render a single codepoint at an exact pixel position.
 -- Use for manual glyph layout (kerning pairs, baseline alignment, ...).
-    func draw_codepoint(codepoint: Int32, position: Vector2, fontSize: Float32, tint: Color) {}
+    readonly func draw_codepoint(codepoint: Int32, position: Vector2, fontSize: Float32, tint: Color) {}
 
 -- draw_codepoints: render an explicit sequence of codepoints with
 -- fixed `spacing` between each glyph (no kerning, no line breaks).
 -- Second Iron_List_int32_t INPUT call site in the raylib binding.
-    func draw_codepoints(codepoints: [Int32], position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
+    readonly func draw_codepoints(codepoints: [Int32], position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
 
 -- ── Plan 67-02 Task 2: Font.* custom-font measure (TEXT-10 custom variant)
 --
 -- Returns exact text bounds as Vector2(width, height) — height
 -- includes line spacing. Unlike Text.measure, accepts Float32 sizes
 -- and per-glyph `spacing`.
-    func measure_ex(text: String, fontSize: Float32, spacing: Float32) -> Vector2 {}
+    readonly func measure_ex(text: String, fontSize: Float32, spacing: Float32) -> Vector2 {}
 
 -- ── Plan 67-02 Task 2: Font.* glyph lookup (TEXT-11)
 --
@@ -1623,9 +1623,9 @@ patch object Font {
 -- get_glyph_atlas_rec: source Rectangle inside the font's atlas
 -- texture; useful for manual Texture.draw_rec uploads of a single
 -- glyph bitmap.
-    func get_glyph_index(codepoint: Int32) -> Int32 {}
-    func get_glyph_info(codepoint: Int32) -> GlyphInfo {}
-    func get_glyph_atlas_rec(codepoint: Int32) -> Rectangle {}
+    readonly func get_glyph_index(codepoint: Int32) -> Int32 {}
+    readonly func get_glyph_info(codepoint: Int32) -> GlyphInfo {}
+    readonly func get_glyph_atlas_rec(codepoint: Int32) -> Rectangle {}
 }
 
 
@@ -2148,8 +2148,8 @@ func Files.unload_dropped(list: FilePathList) {}
 -- while the C shim takes `struct Iron_FilePathList list` — a hard clang
 -- error at any call site. Phase 72-03 residual D7.
 patch object FilePathList {
-    func count() -> Int32 {}
-    func get(index: Int32) -> String {}
+    readonly func count() -> Int32 {}
+    readonly func get(index: Int32) -> String {}
 }
 
 
@@ -2444,10 +2444,10 @@ func Draw.text(text: String, posX: Int32, posY: Int32, fontSize: Int32, color: C
 -- per iron_net.iron convention (TcpSocket uses `s`, TcpListener uses
 -- `l`); `self` is a reserved word in Iron's parser.
 patch object Rectangle {
-    func collides(other: Rectangle) -> Bool {}
-    func intersection(other: Rectangle) -> Rectangle {}
-    func contains_point(point: Vector2) -> Bool {}
-    func collides_circle(center: Vector2, radius: Float32) -> Bool {}
+    readonly func collides(other: Rectangle) -> Bool {}
+    readonly func intersection(other: Rectangle) -> Rectangle {}
+    readonly func contains_point(point: Vector2) -> Bool {}
+    readonly func collides_circle(center: Vector2, radius: Float32) -> Bool {}
 }
 
 
@@ -2471,18 +2471,18 @@ func Collision.lines(start_a: Vector2, end_a: Vector2, start_b: Vector2, end_b: 
 
 -- BoundingBox receiver (2 functions)
 patch object BoundingBox {
-    func collides(other: BoundingBox) -> Bool {}
-    func collides_sphere(center: Vector3, radius: Float32) -> Bool {}
+    readonly func collides(other: BoundingBox) -> Bool {}
+    readonly func collides_sphere(center: Vector3, radius: Float32) -> Bool {}
 }
 
 
 -- Ray receiver (5 functions)
 patch object Ray {
-    func hit_sphere(center: Vector3, radius: Float32) -> RayCollision {}
-    func hit_box(box: BoundingBox) -> RayCollision {}
-    func hit_mesh(mesh: Mesh, transform: Matrix) -> RayCollision {}
-    func hit_triangle(p1: Vector3, p2: Vector3, p3: Vector3) -> RayCollision {}
-    func hit_quad(p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) -> RayCollision {}
+    readonly func hit_sphere(center: Vector3, radius: Float32) -> RayCollision {}
+    readonly func hit_box(box: BoundingBox) -> RayCollision {}
+    readonly func hit_mesh(mesh: Mesh, transform: Matrix) -> RayCollision {}
+    readonly func hit_triangle(p1: Vector3, p2: Vector3, p3: Vector3) -> RayCollision {}
+    readonly func hit_quad(p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) -> RayCollision {}
 }
 
 
@@ -2530,10 +2530,10 @@ func Wave.load(filePath: String) -> Wave {}
 func Wave.load_from_memory(fileType: String, data: [UInt8],
                             dataSize: Int32) -> Wave {}
 patch object Wave {
-    func is_valid() -> Bool {}
-    func unload() {}
-    func export(filePath: String) -> Bool {}
-    func export_as_code(filePath: String) -> Bool {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
+    readonly func export(filePath: String) -> Bool {}
+    readonly func export_as_code(filePath: String) -> Bool {}
 
 -- ── AUDIO-03 Wave manipulation (4 methods; Wave.to_sound in 68-03) ──
 -- Wave.copy returns a fresh Wave by value.
@@ -2553,10 +2553,10 @@ patch object Wave {
 -- across AUDIO-02..11 during Plan 68-05 execution. C shim mangling is
 -- unchanged (Iron_wave_is_valid / Iron_sound_play / Iron_music_seek)
 -- since ironc lowercases the namespace.
-    func copy() -> Wave {}
-    func crop(initFrame: Int32, finalFrame: Int32) -> Wave {}
-    func format(sampleRate: Int32, sampleSize: Int32, channels: Int32) -> Wave {}
-    func load_samples() -> [Float32] {}
+    readonly func copy() -> Wave {}
+    readonly func crop(initFrame: Int32, finalFrame: Int32) -> Wave {}
+    readonly func format(sampleRate: Int32, sampleSize: Int32, channels: Int32) -> Wave {}
+    readonly func load_samples() -> [Float32] {}
 
 -- ── AUDIO-03 bridge: Wave.to_sound() ────────────────────────────────
 -- Aliased with Sound.from_wave(wave). ironc name-mangles the two Iron
@@ -2564,7 +2564,7 @@ patch object Wave {
 -- Iron_sound_from_wave), so iron_raylib.c ships a trivial forwarding
 -- stub — one raylib-facing shim body, two Iron entry points. Use
 -- whichever reads better at the call site.
-    func to_sound() -> Sound {}
+    readonly func to_sound() -> Sound {}
 }
 
 
@@ -2584,10 +2584,10 @@ patch object Wave {
 func Sound.load(filePath: String) -> Sound {}
 func Sound.from_wave(wave: Wave) -> Sound {}
 patch object Sound {
-    func alias() -> Sound {}
-    func is_valid() -> Bool {}
-    func unload() {}
-    func unload_alias() {}
+    readonly func alias() -> Sound {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
+    readonly func unload_alias() {}
 
 -- ── AUDIO-06 Sound management (5 methods) ──────────────────────────
 -- Playback state transitions. raylib is a no-op when the audio device
@@ -2600,18 +2600,18 @@ patch object Sound {
 -- all 16 slots are occupied; Err(DeviceNotReady) fires when
 -- !IsAudioDeviceReady(). Sound.stop stays at Void return (idempotent
 -- slot release). Sound.pause / resume / is_playing unchanged.
-    func play() -> Result[Void, AudioError] {}
-    func stop() {}
-    func pause() {}
-    func resume() {}
-    func is_playing() -> Bool {}
+    readonly func play() -> Result[Void, AudioError] {}
+    readonly func stop() {}
+    readonly func pause() {}
+    readonly func resume() {}
+    readonly func is_playing() -> Bool {}
 
 -- ── AUDIO-07 Sound configure (3 methods) ───────────────────────────
 -- Volume 0..1 (clamped by raylib), pitch multiplier (1.0 = original
 -- pitch), pan 0..1 (0 = full-left, 0.5 = centre, 1 = full-right).
-    func set_volume(volume: Float32) {}
-    func set_pitch(pitch: Float32) {}
-    func set_pan(pan: Float32) {}
+    readonly func set_volume(volume: Float32) {}
+    readonly func set_pitch(pitch: Float32) {}
+    readonly func set_pan(pan: Float32) {}
 
 -- ── AUDIO-08 Sound update (1 method, ABI-FLOAT32 INPUT) ────────────
 -- First live ABI-FLOAT32 INPUT consumer in the raylib binding. Mirror
@@ -2621,7 +2621,7 @@ patch object Sound {
 -- raylib reinterprets based on sound.stream.sampleSize (16-bit short
 -- or 32-bit float). Callers must match the sample format declared
 -- at Sound load time.
-    func update(data: [Float32], sampleCount: Int32) {}
+    readonly func update(data: [Float32], sampleCount: Int32) {}
 }
 
 
@@ -2639,8 +2639,8 @@ patch object Sound {
 func Music.load(filePath: String) -> Music {}
 func Music.load_from_memory(fileType: String, data: [UInt8], dataSize: Int32) -> Music {}
 patch object Music {
-    func is_valid() -> Bool {}
-    func unload() {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
 
 -- Music.looping write-through — Path B fallback.
 -- raylib exposes `bool looping` as a writable public C struct field,
@@ -2659,7 +2659,7 @@ patch object Music {
 -- writes (IRON_NODE_FIELD_ACCESS) — so `m.looping = true` likely
 -- compiles after an ironc rebuild. But the setter is the portable
 -- form that works in all paths; see 68-04 SUMMARY for details.
-    func set_looping(looping: Bool) -> Music {}
+    readonly func set_looping(looping: Bool) -> Music {}
 
 -- ── AUDIO-10 Music management (6 methods) ──────────────────────────
 -- Playback state transitions plus the per-frame update hook.
@@ -2683,12 +2683,12 @@ patch object Music {
 -- (same semantics as Sound.play — shared 16-slot play registry).
 -- Music.stop stays at Void return. Music.is_playing / update / pause
 -- / resume unchanged.
-    func play() -> Result[Void, AudioError] {}
-    func is_playing() -> Bool {}
-    func update() {}
-    func stop() {}
-    func pause() {}
-    func resume() {}
+    readonly func play() -> Result[Void, AudioError] {}
+    readonly func is_playing() -> Bool {}
+    readonly func update() {}
+    readonly func stop() {}
+    readonly func pause() {}
+    readonly func resume() {}
 
 -- ── AUDIO-11 Music configure + query (6 methods) ───────────────────
 -- All time / volume / pitch / pan values are Float32.
@@ -2696,12 +2696,12 @@ patch object Music {
 -- volume and pan are 0..1 (clamped inside raylib).
 -- pitch is a multiplier (1.0 = original speed, 2.0 = double speed,
 -- 0.5 = half speed — resampling artifacts are raylib's problem).
-    func seek(position: Float32) {}
-    func set_volume(volume: Float32) {}
-    func set_pitch(pitch: Float32) {}
-    func set_pan(pan: Float32) {}
-    func get_time_length() -> Float32 {}
-    func get_time_played() -> Float32 {}
+    readonly func seek(position: Float32) {}
+    readonly func set_volume(volume: Float32) {}
+    readonly func set_pitch(pitch: Float32) {}
+    readonly func set_pan(pan: Float32) {}
+    readonly func get_time_length() -> Float32 {}
+    readonly func get_time_played() -> Float32 {}
 }
 
 
@@ -2720,20 +2720,20 @@ patch object Music {
 -- AudioStream. Call BEFORE AudioStream.load().
 func AudioStream.load(sampleRate: UInt32, sampleSize: UInt32, channels: UInt32) -> AudioStream {}
 patch object AudioStream {
-    func is_valid() -> Bool {}
-    func unload() {}
-    func update(data: [Float32], frameCount: Int32) {}
-    func is_processed() -> Bool {}
-    func play() {}
-    func pause() {}
-    func resume() {}
-    func is_playing() -> Bool {}
-    func stop() {}
-    func set_volume(volume: Float32) {}
-    func set_pitch(pitch: Float32) {}
-    func set_pan(pan: Float32) {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
+    readonly func update(data: [Float32], frameCount: Int32) {}
+    readonly func is_processed() -> Bool {}
+    readonly func play() {}
+    readonly func pause() {}
+    readonly func resume() {}
+    readonly func is_playing() -> Bool {}
+    readonly func stop() {}
+    readonly func set_volume(volume: Float32) {}
+    readonly func set_pitch(pitch: Float32) {}
+    readonly func set_pan(pan: Float32) {}
 
-    func detach_processor() {}
+    readonly func detach_processor() {}
 }
 
 func AudioStream.set_buffer_size_default(size: Int32) {}
@@ -2820,13 +2820,13 @@ func Draw.end_mode_3d() {}
 -- Users driving the camera manually should mutate via val re-binding
 -- directly (read-modify-write) and skip this call in .custom mode.
 patch object Camera3D {
-    func update(mode: CameraMode) -> Camera3D {}
+    readonly func update(mode: CameraMode) -> Camera3D {}
 
-    func screen_to_world_ray(position: Vector2) -> Ray {}
+    readonly func screen_to_world_ray(position: Vector2) -> Ray {}
 
-    func world_to_screen(position: Vector3) -> Vector2 {}
+    readonly func world_to_screen(position: Vector3) -> Vector2 {}
 
-    func matrix() -> Matrix {}
+    readonly func matrix() -> Matrix {}
 }
 
 func Camera3D.update_pro(camera: Camera3D, movement: Vector3,
@@ -2957,28 +2957,28 @@ func Draw.grid(slices: Int32, spacing: Float32) {}
 func Model.load(file_name: String) -> Model {}
 func Model.from_mesh(mesh: Mesh) -> Model {}
 patch object Model {
-    func is_valid() -> Bool {}
-    func unload() {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
 
 -- ── MODEL-02: Bounding box — raylib.h:1557 ─────────────────────────────
 -- First 24 B BoundingBox struct-by-value RETURN (Ray / RayCollision
 -- 24/32 B RETURN validated Phase 64-02; identical memcpy template).
-    func bounding_box() -> BoundingBox {}
+    readonly func bounding_box() -> BoundingBox {}
 
 -- ── MODEL-03: Draw variants (6) — raylib.h:1560-1565 ───────────────────
 -- Every suffix preserved: _ex (rotation axis + angle + Vector3 scale),
 -- _wires (wireframe), _points (vertex points). No sugar, no merging.
-    func draw(position: Vector3, scale: Float32, tint: Color) {}
+    readonly func draw(position: Vector3, scale: Float32, tint: Color) {}
 
-    func draw_wires(position: Vector3, scale: Float32, tint: Color) {}
+    readonly func draw_wires(position: Vector3, scale: Float32, tint: Color) {}
 
-    func draw_points(position: Vector3, scale: Float32, tint: Color) {}
+    readonly func draw_points(position: Vector3, scale: Float32, tint: Color) {}
 
-    func set_mesh_material(mesh_id: Int32, material_id: Int32) -> Model {}
+    readonly func set_mesh_material(mesh_id: Int32, material_id: Int32) -> Model {}
 
-    func animation_valid(anim: ModelAnimation) -> Bool {}
-    func update_animation(anim: ModelAnimation, frame: Int32) {}
-    func update_animation_bones(anim: ModelAnimation, frame: Int32) {}
+    readonly func animation_valid(anim: ModelAnimation) -> Bool {}
+    readonly func update_animation(anim: ModelAnimation, frame: Int32) {}
+    readonly func update_animation_bones(anim: ModelAnimation, frame: Int32) {}
 }
 
 func Model.draw_ex(model: Model, position: Vector3, rotation_axis: Vector3,
@@ -2996,13 +2996,13 @@ func Model.draw_points_ex(model: Model, position: Vector3, rotation_axis: Vector
 -- [UInt8] which ironc lowers to Iron_List_uint8_t (ABI-UINT8 closed
 -- Phase 68-01); shim casts to (const void *) at the raylib call site.
 patch object Mesh {
-    func upload(dynamic: Bool) -> Mesh {}
+    readonly func upload(dynamic: Bool) -> Mesh {}
 
-    func unload() {}
-    func export(file_name: String) -> Bool {}
-    func export_as_code(file_name: String) -> Bool {}
-    func bounding_box() -> BoundingBox {}
-    func gen_tangents() -> Mesh {}
+    readonly func unload() {}
+    readonly func export(file_name: String) -> Bool {}
+    readonly func export_as_code(file_name: String) -> Bool {}
+    readonly func bounding_box() -> BoundingBox {}
+    readonly func gen_tangents() -> Mesh {}
 
 -- ── MODEL-05: Mesh draw (2) — raylib.h:1575-1576 ──────────────────────
 -- DrawMesh: first simultaneous 120+40+64 = 224 B struct-by-value input
@@ -3010,7 +3010,7 @@ patch object Mesh {
 -- ceiling; clang evaluates per-struct, not cumulative.
 -- DrawMeshInstanced: first [Matrix] list input — Scan B auto-emits
 -- Iron_List_Iron_Matrix (probed Plan 70-01).
-    func draw(material: Material, transform: Matrix) {}
+    readonly func draw(material: Material, transform: Matrix) {}
 }
 
 func Mesh.update_buffer(mesh: Mesh, index: Int32, data: [UInt8],
@@ -3051,8 +3051,8 @@ func Mesh.cubicmap(cubicmap: Image, cube_size: Vector3) -> Mesh {}
 func Material.load(file_name: String) -> [Material] {}
 func Material.default() -> Material {}
 patch object Material {
-    func is_valid() -> Bool {}
-    func unload() {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
 }
 
 func Material.set_texture(material: Material, map_type: MaterialMapIndex,
@@ -3071,7 +3071,7 @@ func Material.set_texture(material: Material, map_type: MaterialMapIndex,
 func ModelAnimation.load(file_name: String) -> [ModelAnimation] {}
 
 patch object ModelAnimation {
-    func unload() {}
+    readonly func unload() {}
 }
 
 func ModelAnimation.unload_all(anims: [ModelAnimation]) {}
@@ -3103,25 +3103,25 @@ func Draw.bounding_box(box: BoundingBox, color: Color) {}
 func Shader.load(vs_path: String, fs_path: String) -> Shader {}
 func Shader.load_from_memory(vs_code: String, fs_code: String) -> Shader {}
 patch object Shader {
-    func is_valid() -> Bool {}
-    func unload() {}
+    readonly func is_valid() -> Bool {}
+    readonly func unload() {}
 
 -- SHADER-02: Location resolution (3 entries; set_location is Iron-side helper)
 -- Returns -1 if uniform/attrib is optimized out by the GLSL compiler.
-    func get_location(uniform_name: String) -> Int32 {}
-    func get_location_attrib(attrib_name: String) -> Int32 {}
+    readonly func get_location(uniform_name: String) -> Int32 {}
+    readonly func get_location_attrib(attrib_name: String) -> Int32 {}
 -- set_location is the ONLY Iron-side invented helper in Phase 71.
 -- raylib has no C-side setter; users write shader.locs[i] = loc directly in C.
 -- Iron hides _locs as opaque pointer; shim writes `((int *)shader._locs)[(int)index] = (int)loc` in C.
-    func set_location(index: ShaderLocationIndex, loc: Int32) {}
+    readonly func set_location(index: ShaderLocationIndex, loc: Int32) {}
 
 -- SHADER-03: Uniform setters (4 entries)
 -- `value: [UInt8]` is raw little-endian payload bytes (4 for FLOAT, 8 for VEC2, 12 for VEC3/IVEC3, 16 for VEC4/IVEC4).
 -- raylib no-ops if loc <= -1 (SetShaderValueV/Matrix/Texture all guard internally — rcore.c:1433,1444,1456).
-    func set_value(loc: Int32, value: [UInt8], data_type: ShaderUniformDataType) {}
-    func set_value_v(loc: Int32, values: [UInt8], data_type: ShaderUniformDataType, count: Int32) {}
-    func set_value_matrix(loc: Int32, mat: Matrix) {}
-    func set_value_texture(loc: Int32, tex: Texture) {}
+    readonly func set_value(loc: Int32, value: [UInt8], data_type: ShaderUniformDataType) {}
+    readonly func set_value_v(loc: Int32, values: [UInt8], data_type: ShaderUniformDataType, count: Int32) {}
+    readonly func set_value_matrix(loc: Int32, mat: Matrix) {}
+    readonly func set_value_texture(loc: Int32, tex: Texture) {}
 }
 
 
