@@ -149,10 +149,27 @@ CI harness allows Linux to fail on this extension for v1.
 
 ## Version compatibility
 
-This extension targets `ironls` 1.2.x per the `compatible_ironls`
-constraint in `extension.toml`. An out-of-range `ironls` binary
-surfaces a warning in v1 (UI-SPEC S9); Phase 7's HARD-22 promotes
-it to a hard refuse.
+This extension targets `ironls` in the range `>= 1.2.0, < 2.0.0` per
+the `[version_constraints] ironls` entry in `extension.toml`. Phase 7
+HARD-22 / D-10 enforces this with a **hard refuse**: on every
+activation the extension runs `ironls --version`, parses the semver
+token, and aborts `language_server_command` if it falls outside the
+range.
+
+### Troubleshooting: "Iron LSP: detected ironls X.Y.Z, but this extension requires …"
+
+The hard-refuse error surfaces in Zed's notifications and developer
+console. To resolve:
+
+1. Install the latest release from
+   <https://github.com/iron-lang/iron-lang/releases/latest>.
+2. Set `iron_lsp_path` in your Zed settings to the upgraded binary
+   (or clear it so the extension re-downloads on next activation).
+3. Reload the workspace (`Developer: Reload Extensions`).
+
+If you need to pin to a specific release, build the matching
+extension version from `editors/zed/` and install via
+`Extensions → Install Dev Extension`.
 
 ## Development
 

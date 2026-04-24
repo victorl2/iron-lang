@@ -40,9 +40,114 @@ use zed_extension_api::{
 use sha2::{Digest, Sha256};
 
 /// The semver range this extension is known to be compatible with.
-/// Mirrors [language_servers.iron-lsp] compatible_ironls in extension.toml;
-/// UI-SPEC S9. Phase 7 HARD-22 promotes out-of-range to a hard refuse.
-const COMPATIBLE_IRONLS: &str = ">=1.2.0, <1.3.0";
+/// Mirrors [version_constraints] ironls + [language_servers.iron-lsp]
+/// compatible_ironls in extension.toml; UI-SPEC S9. Phase 7 Plan 07-07
+/// (HARD-22, D-10) promotes out-of-range to a HARD REFUSE —
+/// `check_ironls_version` probes `ironls --version` and returns an
+/// Err from `language_server_command` on mismatch. Zed surfaces the
+/// Err message to the user and does not spawn the language server.
+const COMPATIBLE_IRONLS: &str = ">= 1.2.0, < 2.0.0";
+
+/// Minimum inclusive ironls major.minor.patch (parsed from COMPATIBLE_IRONLS).
+const COMPATIBLE_MIN: (u32, u32, u32) = (1, 2, 0);
+
+/// Maximum exclusive ironls major.minor.patch (parsed from COMPATIBLE_IRONLS).
+const COMPATIBLE_MAX_EXCLUSIVE: (u32, u32, u32) = (2, 0, 0);
+
+/// Parse a dotted semver prefix "X.Y.Z" (with optional pre-release suffix
+/// "-alpha", "-alpha.7", etc.) and return (major, minor, patch). Returns
+/// None if the input does not look like a semver core triple. Pre-release
+/// suffixes are accepted within the major range — D-10 policy.
+fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
+    // Strip pre-release / build metadata; only the core triple is
+    // compared. "1.2.0-alpha.7" -> "1.2.0".
+    let core = s.split(|c: char| c == '-' || c == '+').next()?;
+    let mut it = core.split('.');
+    let major: u32 = it.next()?.parse().ok()?;
+    let minor: u32 = it.next()?.parse().ok()?;
+    let patch: u32 = it.next()?.parse().ok()?;
+    Some((major, minor, patch))
+}
+
+/// Inclusive lower bound, exclusive upper bound. Pre-release suffixes
+/// within the range are accepted — v2 tightens if pre-releases become
+/// more than a development convenience. Returns true when `version` is
+/// inside [MIN, MAX_EXCLUSIVE).
+fn version_in_range(version: &str) -> bool {
+    let Some(v) = parse_semver(version) else {
+        return false;
+    };
+    let lo = COMPATIBLE_MIN;
+    let hi = COMPATIBLE_MAX_EXCLUSIVE;
+    v >= lo && v < hi
+}
+
+/// Probe `ironls --version` and HARD-REFUSE activation if the reported
+/// version is outside COMPATIBLE_IRONLS. Returns Ok(()) on success or an
+/// Err carrying a user-facing message that Zed surfaces to the user.
+///
+/// The command runs synchronously via std::process::Command — this is
+/// the only version-detection seam available to a Zed extension because
+/// the WASM runtime does not expose the live LSP initialize result.
+fn check_ironls_version(ironls_path: &str) -> Result<String> {
+    let output = std::process::Command::new(ironls_path)
+        .arg("--version")
+        .output()
+        .map_err(|e| {
+            format!(
+                "Iron LSP: could not run `{} --version`: {}. Set \"iron_lsp_path\" \
+                 in extension settings to a known-good ironls binary.",
+                ironls_path, e
+            )
+        })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // The --version line shape is "ironls <semver> (<git>, <date>)".
+    // Extract the first whitespace-delimited token that begins with a
+    // digit — this tolerates minor format drift across iron/ironc/ironls
+    // without false-matching the git-hash or date fields.
+    let version_str = stdout
+        .split_whitespace()
+        .find(|s| s.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .ok_or_else(|| {
+            format!(
+                "Iron LSP: `{} --version` did not produce a recognizable semver. \
+                 Install the latest ironls from \
+                 https://github.com/iron-lang/iron-lang/releases/latest.",
+                ironls_path
+            )
+        })?
+        .to_string();
+
+    if !version_in_range(&version_str) {
+        log_event(
+            "error",
+            "ironls.version_mismatch",
+            &[
+                ("detected", &version_str),
+                ("range", COMPATIBLE_IRONLS),
+                ("action", "refuse-activation"),
+            ],
+        );
+        return Err(format!(
+            "Iron LSP: detected ironls {}, but this extension requires {}. \
+             The language server will NOT activate. Install the latest \
+             ironls from https://github.com/iron-lang/iron-lang/releases/latest.",
+            version_str, COMPATIBLE_IRONLS
+        ));
+    }
+
+    log_event(
+        "info",
+        "ironls.version_check",
+        &[
+            ("version", &version_str),
+            ("range", COMPATIBLE_IRONLS),
+            ("compatible", "true"),
+        ],
+    );
+    Ok(version_str)
+}
 
 struct IronLspExtension {
     cached_binary_path: Option<String>,
@@ -157,6 +262,11 @@ impl zed::Extension for IronLspExtension {
                     "ironls.discovered",
                     &[("path", &path), ("method", "iron_lsp_path")],
                 );
+                // Phase 7 HARD-22 / D-10: HARD REFUSE if --version is
+                // outside COMPATIBLE_IRONLS. Returning Err here aborts
+                // language_server_command and surfaces the message to
+                // the user via Zed's notification surface.
+                check_ironls_version(&path)?;
                 return Ok(Command {
                     command: path,
                     args: vec![],
@@ -185,8 +295,14 @@ impl zed::Extension for IronLspExtension {
                     "ironls.discovered",
                     &[("path", cached), ("method", "download-cache")],
                 );
+                // Phase 7 HARD-22 / D-10: HARD REFUSE if the cached
+                // binary's --version falls outside COMPATIBLE_IRONLS.
+                // A mismatched cache can survive across extension
+                // upgrades — re-probe every activation.
+                let cached = cached.clone();
+                check_ironls_version(&cached)?;
                 return Ok(Command {
-                    command: cached.clone(),
+                    command: cached,
                     args: vec![],
                     env: vec![],
                 });
@@ -372,6 +488,13 @@ impl zed::Extension for IronLspExtension {
         let binary_path = format!("{}/ironls", version_dir);
         zed::make_file_executable(&binary_path)
             .map_err(|e| format!("Iron LSP: chmod failed: {}", e))?;
+
+        // Phase 7 HARD-22 / D-10: HARD REFUSE if the downloaded
+        // binary's --version falls outside COMPATIBLE_IRONLS. Zed
+        // surfaces the Err message; the cached_binary_path is NOT
+        // populated so a future activation will re-download fresh
+        // after the user upgrades the extension / toolchain.
+        check_ironls_version(&binary_path)?;
 
         log_event(
             "info",

@@ -15,9 +15,21 @@ repository = "https://github.com/iron-lang/iron-lang"
 [language_servers.iron-lsp]
 name = "Iron LSP"
 languages = ["Iron"]
-# UI-SPEC S9: pin the compatible ironls semver range. Phase 7 HARD-22 promotes
-# out-of-range ironls to a hard refuse; v1 surfaces a warning toast.
-compatible_ironls = ">=1.2.0, <1.3.0"
+# UI-SPEC S9 / Phase 7 HARD-22, D-10: out-of-range ironls is a HARD
+# REFUSE — src/lib.rs probes the binary's --version and returns an Err
+# from language_server_command() when the detected version falls
+# outside the range. `compatible_ironls` is kept in sync with the new
+# `[version_constraints]` section below for backward compatibility with
+# tooling that reads the legacy field.
+compatible_ironls = ">= 1.2.0, < 2.0.0"
+
+# Phase 7 Plan 07-07 Task 02 (HARD-22, D-10) — explicit version
+# constraints table. src/lib.rs reads this key via the
+# IRONLS_COMPATIBLE_RANGE constant; the two MUST stay in sync. The
+# `ironls` key matches the LSP server id above so future multi-server
+# extensions can express constraints per server.
+[version_constraints]
+ironls = ">= 1.2.0, < 2.0.0"
 
 # Minimum-permissions capability grant per RESEARCH §V4 Access Control.
 # zed_extension_api::download_file only succeeds against hosts the extension
