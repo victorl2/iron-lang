@@ -165,4 +165,29 @@ print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.i
     set_tests_properties(test_build_time_baseline_shape PROPERTIES
         LABELS "integration;phase-m6-invariant"
         TIMEOUT 10)
+
+    # Phase 7 Plan 07-07 Task 01 (HARD-22, D-10) -- version stamp
+    # coherence across all three binaries. Runs `iron --version`,
+    # `ironc --version`, `ironls --version` and asserts every output
+    # carries the same IRON_VERSION_FULL semver string. This pins the
+    # single-source-of-truth invariant documented in CONTEXT.md D-10:
+    # the CMakeLists.txt IRON_VERSION_FULL variable flows through the
+    # IRON_VERSION_STRING compile-time define into each binary, and
+    # the initialize response's serverInfo.version plus the
+    # --version print all use the same accessor.
+    #
+    # Failure modes the test catches:
+    #   * a hardcoded literal in one binary drifting from IRON_VERSION_FULL
+    #   * the ironls initialize.c forgetting to call ilsp_server_version()
+    #   * a stale build picking up old objects for one binary but not another
+    #   * an install-layout regression where IRON_VERSION_STRING isn't
+    #     plumbed into a newly-added target
+    add_test(NAME test_version_stamp_coherence
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_version_stamp_coherence.sh"
+                $<TARGET_FILE:iron>
+                $<TARGET_FILE:ironc>
+                $<TARGET_FILE:ironls>)
+    set_tests_properties(test_version_stamp_coherence PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 15)
 endif()
