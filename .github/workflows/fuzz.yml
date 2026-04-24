@@ -1,14 +1,15 @@
 name: Fuzz
 
 # Phase 68 Plan 06 (FUZZ-05): Nightly libFuzzer workflow.
+# Phase 7 Plan 07-05 (HARD-19): LSP-specific fuzz harnesses added.
 #
-# Runs all three Iron fuzz targets (fuzz_parser, fuzz_typecheck,
-# fuzz_hir_to_lir) for 10 minutes each on a scheduled nightly cron. This is
-# the standing regression net Plans 01-05 built the machinery for. On any
-# crash, crash-* files are uploaded as a workflow artifact and
-# scripts/fuzz_crash_to_fixture.sh is invoked with --open-issue to minimize
-# the input, compute a top-3-frame crash signature, and dedupe against
-# existing `fuzz-crash`-labeled GitHub issues.
+# Runs all fuzz targets for 10 minutes each on a scheduled nightly cron.
+# Compiler-side (Phase 1): fuzz_parser, fuzz_typecheck, fuzz_hir_to_lir.
+# LSP-side (Phase 7 Plan 07-05): fuzz_lsp_frame, fuzz_lsp_json,
+# fuzz_lsp_dispatch, fuzz_lsp_didChange. On any crash, crash-* files are
+# uploaded as a workflow artifact and scripts/fuzz_crash_to_fixture.sh is
+# invoked with --open-issue to minimize the input, compute a top-3-frame
+# crash signature, and dedupe against existing `fuzz-crash`-labeled issues.
 #
 # Notes (load-bearing — do NOT paraphrase when editing):
 #   - `on: schedule` only. NO push/pull_request triggers — fuzz is nightly
@@ -17,7 +18,7 @@ name: Fuzz
 #   - `permissions.issues: write` is essential; without it
 #     `gh issue create` in the harness step fails silently.
 #   - `strategy.fail-fast: false` — one target's crash must not cancel the
-#     other two matrix cells' 10-minute budgets.
+#     other cells' 10-minute budgets.
 #   - `timeout-minutes: 20` gives each cell slack for build + fuzz + minimize
 #     + issue post on top of the 10-minute (-max_total_time=600) fuzz budget.
 #   - `-seed=1` is deterministic per CONTEXT.md; a crash tonight reproduces
@@ -27,6 +28,14 @@ name: Fuzz
 #     fuzz targets themselves (which enforce their own per-target caps).
 #   - `-timeout=10` is the FUZZ-01 hang-detection spec. Do NOT raise it.
 #   - `actions/upload-artifact@v4` only (@v3 is deprecated as of Jan 2025).
+#   - Compiler-side corpora live under `build/tests/fuzz/corpus/<name>/`
+#     (populated by iron_seed_blobs at build time). LSP-side corpora live
+#     in-tree under `tests/fuzz/lsp/<name>/corpus/` (hand-crafted seeds
+#     per Plan 07-05 D-07). The matrix carries the corpus path so each
+#     cell knows where to point libFuzzer.
+#   - Compiler-side targets pass `-dict=tests/fuzz/iron.dict`. LSP-side
+#     targets have no dict (LSP inputs are bytes, not Iron source), so the
+#     matrix carries an optional `dict` string which the run step conditions on.
 
 on:
   schedule:
@@ -40,8 +49,54 @@ permissions:
 jobs:
   fuzz:
     strategy:
+      # `target`: short name used in artifact labels, issue titles, and
+      #           the crash-triage script. Must be unique across matrix cells.
+      # `binary`: relative path to the libFuzzer executable under build/.
+      # `corpus`: path libFuzzer consumes and writes new coverage inputs to.
+      # `dict`:   optional path to a libFuzzer dictionary file; empty skips -dict.
+      # `build_target`: CMake target name (may differ from the short name).
       matrix:
-        target: [parser, typecheck, hir_to_lir]
+        include:
+          # -- Compiler-side (Phase 1 FUZZ-01..03; do NOT change) --
+          - target: parser
+            binary: build/tests/fuzz/fuzz_parser
+            corpus: build/tests/fuzz/corpus/parser
+            dict:   tests/fuzz/iron.dict
+            build_target: fuzz_parser iron_seed_blobs
+          - target: typecheck
+            binary: build/tests/fuzz/fuzz_typecheck
+            corpus: build/tests/fuzz/corpus/typecheck
+            dict:   tests/fuzz/iron.dict
+            build_target: fuzz_typecheck iron_seed_blobs
+          - target: hir_to_lir
+            binary: build/tests/fuzz/fuzz_hir_to_lir
+            corpus: build/tests/fuzz/corpus/hir_to_lir
+            dict:   tests/fuzz/iron.dict
+            build_target: fuzz_hir_to_lir iron_seed_blobs
+          # -- LSP-side (Phase 7 Plan 07-05 HARD-19) --
+          # Corpora are hand-crafted in-tree (D-07: no live-traffic mining).
+          # No dict: LSP inputs are raw bytes (framed JSON-RPC, binary
+          # document-sync ops), not source code.
+          - target: lsp_frame
+            binary: build/tests/fuzz/lsp/fuzz_lsp_frame
+            corpus: tests/fuzz/lsp/frame/corpus
+            dict:   ''
+            build_target: fuzz_lsp_frame
+          - target: lsp_json
+            binary: build/tests/fuzz/lsp/fuzz_lsp_json
+            corpus: tests/fuzz/lsp/json/corpus
+            dict:   ''
+            build_target: fuzz_lsp_json
+          - target: lsp_dispatch
+            binary: build/tests/fuzz/lsp/fuzz_lsp_dispatch
+            corpus: tests/fuzz/lsp/dispatch/corpus
+            dict:   ''
+            build_target: fuzz_lsp_dispatch
+          - target: lsp_didChange
+            binary: build/tests/fuzz/lsp/fuzz_lsp_didChange
+            corpus: tests/fuzz/lsp/didChange/corpus
+            dict:   ''
+            build_target: fuzz_lsp_didChange
       fail-fast: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -62,25 +117,34 @@ jobs:
             -DIRON_ENABLE_FUZZING=ON \
             -G Ninja
 
-      - name: Build fuzz target + seed blobs
-        run: cmake --build build --target fuzz_${{ matrix.target }} iron_seed_blobs
+      - name: Build fuzz target
+        run: cmake --build build --target ${{ matrix.build_target }}
 
       - name: Run libFuzzer (10 min wall-clock)
         id: fuzz_run
         env:
           ASAN_OPTIONS:  detect_leaks=0:abort_on_error=1:symbolize=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          BINARY:  ${{ matrix.binary }}
+          CORPUS:  ${{ matrix.corpus }}
+          DICT:    ${{ matrix.dict }}
         run: |
           mkdir -p crashes
+          # Build dict arg only if a dict path was supplied (compiler-side
+          # targets carry tests/fuzz/iron.dict; LSP-side targets have none).
+          dict_arg=""
+          if [ -n "$DICT" ]; then
+            dict_arg="-dict=$DICT"
+          fi
           set +e
-          ./build/tests/fuzz/fuzz_${{ matrix.target }} \
+          "$BINARY" \
             -seed=1 \
             -max_total_time=600 \
             -timeout=10 \
             -max_len=8192 \
-            -dict=tests/fuzz/iron.dict \
+            $dict_arg \
             -artifact_prefix=crashes/ \
-            build/tests/fuzz/corpus/${{ matrix.target }}
+            "$CORPUS"
           echo "fuzz_exit=$?" >> $GITHUB_OUTPUT
 
       - name: Upload crash artifacts
