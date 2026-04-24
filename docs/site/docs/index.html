@@ -577,6 +577,7 @@
       <div class="sidebar-section">
         <h3>Functions</h3>
         <a href="#functions">Functions &amp; Methods</a>
+        <a href="#patch">Patch &amp; Extension</a>
         <a href="#tuples">Tuple Returns</a>
         <a href="#lambdas">Lambdas</a>
       </div>
@@ -731,39 +732,60 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
 
       <!-- Objects -->
       <h2 id="objects">Objects</h2>
-      <p>Declared with the <code>object</code> keyword. Construction is positional, following declaration order.</p>
+      <p>Declared with the <code>object</code> keyword. In v3, construction goes through <code>init</code> bodies instead of field declaration order.</p>
       <div class="code-block"><pre><span class="kw">object</span> <span class="ty">Player</span> {
-  <span class="kw">var</span> pos:    <span class="ty">Vec2</span>
-  <span class="kw">var</span> hp:     <span class="ty">Int</span>
-  <span class="kw">val</span> speed:  <span class="ty">Float</span>
-  <span class="kw">val</span> name:   <span class="ty">String</span>
+  <span class="kw">var</span> pos:   <span class="ty">Vec2</span>
+  <span class="kw">var</span> hp:    <span class="ty">Int</span>
+  <span class="kw">val</span> speed: <span class="ty">Float</span>
+  <span class="kw">val</span> name:  <span class="ty">String</span>
+
+  <span class="kw">init</span>(pos: <span class="ty">Vec2</span>, hp: <span class="ty">Int</span>, speed: <span class="ty">Float</span>, name: <span class="ty">String</span>) {
+    <span class="kw">self</span>.pos = pos
+    <span class="kw">self</span>.hp = hp
+    <span class="kw">self</span>.speed = speed
+    <span class="kw">self</span>.name = name
+  }
+
+  <span class="kw">init</span> <span class="fn">hero</span>(name: <span class="ty">String</span>) {
+    <span class="kw">self</span>.pos = <span class="fn">vec2</span>(<span class="nu">100.0</span>, <span class="nu">100.0</span>)
+    <span class="kw">self</span>.hp = <span class="nu">100</span>
+    <span class="kw">self</span>.speed = <span class="nu">200.0</span>
+    <span class="kw">self</span>.name = name
+  }
 }
 
-<span class="kw">val</span> p = <span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">100.0</span>, <span class="nu">100.0</span>), <span class="nu">100</span>, <span class="nu">200.0</span>, <span class="st">"Victor"</span>)</pre></div>
+<span class="kw">val</span> a = <span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">0.0</span>, <span class="nu">0.0</span>), <span class="nu">100</span>, <span class="nu">200.0</span>, <span class="st">"Scout"</span>)
+<span class="kw">val</span> b = <span class="ty">Player</span>.<span class="fn">hero</span>(<span class="st">"Victor"</span>)</pre></div>
 
       <h3>Inheritance &mdash; <code>extends</code></h3>
       <p>Single inheritance only. Child objects inherit all fields and methods from the parent.</p>
       <div class="code-block"><pre><span class="kw">object</span> <span class="ty">Entity</span> {
   <span class="kw">var</span> pos: <span class="ty">Vec2</span>
   <span class="kw">var</span> hp:  <span class="ty">Int</span>
+
+  <span class="kw">init</span>(pos: <span class="ty">Vec2</span>, hp: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.pos = pos
+    <span class="kw">self</span>.hp = hp
+  }
+
+  <span class="kw">func</span> <span class="fn">take_damage</span>(amount: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.hp = <span class="kw">self</span>.hp - amount
+  }
 }
 
 <span class="kw">object</span> <span class="ty">Player</span> <span class="kw">extends</span> <span class="ty">Entity</span> {
-  <span class="kw">val</span> name:   <span class="ty">String</span>
-  <span class="kw">val</span> speed:  <span class="ty">Float</span>
-  <span class="kw">val</span> sprite: <span class="kw">rc</span> <span class="ty">Texture</span>
-}
+  <span class="kw">val</span> armor: <span class="ty">Int</span>
 
-<span class="cm">-- Player has: pos, hp, name, speed, sprite</span>
+  <span class="kw">init</span>(pos: <span class="ty">Vec2</span>, hp: <span class="ty">Int</span>, armor: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.pos = pos
+    <span class="kw">self</span>.hp = hp
+    <span class="kw">self</span>.armor = armor
+  }
 
-<span class="cm">-- override parent methods (no keyword needed)</span>
-<span class="kw">func</span> <span class="ty">Entity</span>.<span class="fn">take_damage</span>(amount: <span class="ty">Int</span>) {
-  <span class="kw">self</span>.<span class="pr">hp</span> -= amount
-}
-
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">take_damage</span>(amount: <span class="ty">Int</span>) {
-  <span class="kw">val</span> reduced = amount - <span class="kw">self</span>.<span class="pr">armor</span>
-  <span class="kw">super</span>.<span class="fn">take_damage</span>(reduced)
+  <span class="kw">func</span> <span class="fn">take_damage</span>(amount: <span class="ty">Int</span>) {
+    <span class="kw">val</span> reduced = amount - <span class="kw">self</span>.armor
+    <span class="kw">super</span>.<span class="fn">take_damage</span>(reduced)
+  }
 }</pre></div>
 
       <!-- Interfaces -->
@@ -773,22 +795,44 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
       <h3>Declaring Interfaces</h3>
       <div class="code-block"><pre><span class="kw">interface</span> <span class="ty">Entity</span> {
   <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>)
-  <span class="kw">func</span> <span class="fn">draw</span>()
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">draw</span>()
 }
 
-<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
+<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">implements</span> <span class="ty">Entity</span> {
   <span class="kw">var</span> pos: <span class="ty">Vec2</span>
   <span class="kw">var</span> vel: <span class="ty">Vec2</span>
+
+  <span class="kw">init</span>(pos: <span class="ty">Vec2</span>, vel: <span class="ty">Vec2</span>) {
+    <span class="kw">self</span>.pos = pos
+    <span class="kw">self</span>.vel = vel
+  }
+
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>) {
+    <span class="kw">self</span>.pos.x += <span class="kw">self</span>.vel.x * dt
+  }
+
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">draw</span>() {
+    <span class="fn">draw_rect</span>(<span class="kw">self</span>.pos, <span class="nu">32</span>, <span class="nu">32</span>)
+  }
 }
 
-<span class="kw">object</span> <span class="ty">Enemy</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
+<span class="kw">object</span> <span class="ty">Enemy</span> <span class="kw">implements</span> <span class="ty">Entity</span> {
   <span class="kw">var</span> pos: <span class="ty">Vec2</span>
   <span class="kw">var</span> hp: <span class="ty">Int</span>
-}
 
-<span class="cm">-- methods defined separately</span>
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">update</span>(dt: <span class="ty">Float</span>) { <span class="kw">self</span>.<span class="pr">pos</span>.x += <span class="kw">self</span>.<span class="pr">vel</span>.x * dt }
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">draw</span>() { <span class="fn">draw_rect</span>(<span class="kw">self</span>.<span class="pr">pos</span>, <span class="nu">32</span>, <span class="nu">32</span>) }</pre></div>
+  <span class="kw">init</span>(pos: <span class="ty">Vec2</span>, hp: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.pos = pos
+    <span class="kw">self</span>.hp = hp
+  }
+
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>) {
+    <span class="kw">self</span>.pos.x -= dt
+  }
+
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">draw</span>() {
+    <span class="fn">draw_rect</span>(<span class="kw">self</span>.pos, <span class="nu">32</span>, <span class="nu">32</span>)
+  }
+}</pre></div>
 
       <h3>Interface-typed Variables</h3>
       <p>Assign any implementing type to an interface variable. The compiler automatically wraps it in a tagged union.</p>
@@ -876,14 +920,23 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 }</pre></div>
 
       <h3>Methods on Enums</h3>
-      <p>Use <code>match self</code> to dispatch on variants inside methods.</p>
-      <div class="code-block"><pre><span class="kw">func</span> <span class="ty">Shape</span>.<span class="fn">area</span>() -> <span class="ty">Float</span> {
-  <span class="kw">match</span> <span class="kw">self</span> {
-    <span class="ty">Shape</span>.<span class="pr">Circle</span>(r) -> <span class="kw">return</span> <span class="nu">3.14159</span> * r * r
-    <span class="ty">Shape</span>.<span class="pr">Rect</span>(w, h) -> <span class="kw">return</span> w * h
-    <span class="ty">Shape</span>.<span class="pr">Point</span> -> <span class="kw">return</span> <span class="nu">0.0</span>
+      <p>Declare enum methods inside the <code>enum</code> block and use <code>match self</code> to dispatch on variants.</p>
+      <div class="code-block"><pre><span class="kw">enum</span> <span class="ty">Shape</span> {
+  <span class="pr">Circle</span>(<span class="ty">Float</span>),
+  <span class="pr">Rect</span>(<span class="ty">Float</span>, <span class="ty">Float</span>),
+  <span class="pr">Point</span>,
+
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">area</span>() -> <span class="ty">Float</span> {
+    <span class="kw">match</span> <span class="kw">self</span> {
+      <span class="ty">Shape</span>.<span class="pr">Circle</span>(r) -> <span class="kw">return</span> <span class="nu">3.14159</span> * r * r
+      <span class="ty">Shape</span>.<span class="pr">Rect</span>(w, h) -> <span class="kw">return</span> w * h
+      <span class="ty">Shape</span>.<span class="pr">Point</span> -> <span class="kw">return</span> <span class="nu">0.0</span>
+    }
   }
-}</pre></div>
+}
+
+<span class="kw">val</span> s = <span class="ty">Shape</span>.<span class="pr">Circle</span>(<span class="nu">5.0</span>)
+<span class="fn">println</span>(<span class="st">"area: {s.area()}"</span>)</pre></div>
 
       <h3>Recursive Enums</h3>
       <p>Self-referencing variants are automatically heap-allocated (auto-boxed).</p>
@@ -903,18 +956,23 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
   <span class="kw">return</span> <span class="kw">null</span>
 }
 
-<span class="cm">-- generic object</span>
+<span class="cm">-- generic object with in-block methods</span>
 <span class="kw">object</span> <span class="ty">Pool</span>[<span class="ty">T</span>] {
   <span class="kw">var</span> items: [<span class="ty">T</span>]
   <span class="kw">var</span> count: <span class="ty">Int</span>
-}
 
-<span class="kw">func</span> <span class="ty">Pool</span>[<span class="ty">T</span>].<span class="fn">get</span>() -> <span class="ty">T?</span> {
-  <span class="kw">if</span> <span class="kw">self</span>.<span class="pr">count</span> > <span class="nu">0</span> {
-    <span class="kw">self</span>.<span class="pr">count</span> -= <span class="nu">1</span>
-    <span class="kw">return</span> <span class="kw">self</span>.<span class="pr">items</span>[<span class="kw">self</span>.<span class="pr">count</span>]
+  <span class="kw">init</span>(items: [<span class="ty">T</span>], count: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.items = items
+    <span class="kw">self</span>.count = count
   }
-  <span class="kw">return</span> <span class="kw">null</span>
+
+  <span class="kw">func</span> <span class="fn">get</span>() -> <span class="ty">T?</span> {
+    <span class="kw">if</span> <span class="kw">self</span>.count > <span class="nu">0</span> {
+      <span class="kw">self</span>.count -= <span class="nu">1</span>
+      <span class="kw">return</span> <span class="kw">self</span>.items[<span class="kw">self</span>.count]
+    }
+    <span class="kw">return</span> <span class="kw">null</span>
+  }
 }
 
 <span class="cm">-- usage</span>
@@ -931,13 +989,37 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 }</pre></div>
 
       <h3>Methods</h3>
-      <p>Methods use <code>func TypeName.method_name()</code> syntax &mdash; not nested inside the object block. <code>self</code> is implicit and always mutable.</p>
-      <div class="code-block"><pre><span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">new</span>(name: <span class="ty">String</span>) -> <span class="ty">Player</span> {
-  <span class="kw">return</span> <span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">100.0</span>, <span class="nu">100.0</span>), <span class="nu">100</span>, <span class="nu">200.0</span>, name)
+      <p>In v3, instance methods live inside the <code>object</code> block. Use plain <code>func</code> for mutating methods, <code>readonly func</code> for read-only methods, and <code>pure func</code> when the compiler should enforce no writes and no I/O.</p>
+      <div class="code-block"><pre><span class="kw">object</span> <span class="ty">Player</span> {
+  <span class="kw">var</span> hp: <span class="ty">Int</span>
+
+  <span class="kw">init</span>(hp: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.hp = hp
+  }
+
+  <span class="kw">func</span> <span class="fn">take_damage</span>(amount: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.hp = <span class="kw">self</span>.hp - amount
+  }
+
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">is_alive</span>() -> <span class="ty">Bool</span> {
+    <span class="kw">return</span> <span class="kw">self</span>.hp > <span class="nu">0</span>
+  }
+
+  <span class="kw">pure</span> <span class="kw">func</span> <span class="fn">clamped_hp</span>() -> <span class="ty">Int</span> {
+    <span class="kw">return</span> <span class="fn">max</span>(<span class="nu">0</span>, <span class="kw">self</span>.hp)
+  }
+}</pre></div>
+
+      <h3 id="patch">Patch &mdash; Open Extension</h3>
+      <p><code>patch object T { ... }</code> adds methods and named <code>init</code>s to types you do not own, including built-in primitives. Patches are program-wide and may not add fields.</p>
+      <div class="code-block"><pre><span class="kw">patch</span> <span class="kw">object</span> <span class="ty">Int</span> {
+  <span class="kw">pub</span> <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">double</span>() -> <span class="ty">Int</span> {
+    <span class="kw">return</span> <span class="kw">self</span> * <span class="nu">2</span>
+  }
 }
 
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">is_alive</span>() -> <span class="ty">Bool</span> {
-  <span class="kw">return</span> <span class="kw">self</span>.<span class="pr">hp</span> > <span class="nu">0</span>
+<span class="kw">func</span> <span class="fn">main</span>() {
+  <span class="fn">println</span>(<span class="st">"{5.double()}"</span>)
 }</pre></div>
 
       <h3>Passing Convention</h3>
@@ -1503,9 +1585,23 @@ score.<span class="fn">lock</span>(<span class="kw">func</span>(<span class="kw"
 <span class="kw">val</span> body = rb.<span class="fn">create_body</span>(pos, mass)</pre></div>
 
       <h3>Visibility</h3>
-      <p>Everything is public by default. Use <code>private</code> to restrict to the current file.</p>
-      <div class="code-block"><pre><span class="kw">private</span> <span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">recalc</span>() {
-  <span class="kw">self</span>.<span class="pr">hp</span> = <span class="fn">clamp</span>(<span class="kw">self</span>.<span class="pr">hp</span>, <span class="nu">0</span>, <span class="nu">100</span>)
+      <p>Everything is private by default in v3. Add <code>pub</code> to expose an object, field, method, or <code>init</code> across module boundaries. The old public-by-default <code>private</code> model was removed.</p>
+      <div class="code-block"><pre><span class="kw">pub</span> <span class="kw">object</span> <span class="ty">Player</span> {
+  <span class="kw">var</span> health: <span class="ty">Int</span>
+  <span class="kw">pub</span> <span class="kw">var</span> name: <span class="ty">String</span>
+
+  <span class="kw">pub</span> <span class="kw">init</span>(health: <span class="ty">Int</span>, name: <span class="ty">String</span>) {
+    <span class="kw">self</span>.health = health
+    <span class="kw">self</span>.name = name
+  }
+
+  <span class="kw">pub</span> <span class="kw">func</span> <span class="fn">take_damage</span>(n: <span class="ty">Int</span>) {
+    <span class="kw">self</span>.health = <span class="kw">self</span>.health - n
+  }
+
+  <span class="kw">func</span> <span class="fn">recalc</span>() {
+    <span class="kw">self</span>.health = <span class="fn">clamp</span>(<span class="kw">self</span>.health, <span class="nu">0</span>, <span class="nu">100</span>)
+  }
 }</pre></div>
 
       <!-- Comptime -->
@@ -1735,8 +1831,12 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
           <tr><td><code>var</code></td><td>Mutable binding</td></tr>
           <tr><td><code>func</code></td><td>Function / method declaration</td></tr>
           <tr><td><code>object</code></td><td>Data structure declaration</td></tr>
+          <tr><td><code>init</code></td><td>Constructor declaration inside an object</td></tr>
           <tr><td><code>enum</code></td><td>Enumeration declaration</td></tr>
           <tr><td><code>interface</code></td><td>Interface declaration</td></tr>
+          <tr><td><code>pub</code></td><td>Opt-in cross-module visibility</td></tr>
+          <tr><td><code>readonly</code></td><td>Method modifier: no field writes</td></tr>
+          <tr><td><code>pure</code></td><td>Method modifier: no field writes, no I/O</td></tr>
           <tr><td><code>import</code></td><td>Module import</td></tr>
           <tr><td><code>if</code> / <code>elif</code> / <code>else</code></td><td>Conditional branching</td></tr>
           <tr><td><code>for</code> / <code>while</code></td><td>Loops</td></tr>
@@ -1747,9 +1847,9 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
           <tr><td><code>leak</code></td><td>Intentional permanent allocation</td></tr>
           <tr><td><code>defer</code></td><td>Execute at scope exit</td></tr>
           <tr><td><code>rc</code></td><td>Reference-counted wrapper</td></tr>
-          <tr><td><code>private</code></td><td>File-scoped visibility</td></tr>
+          <tr><td><code>patch</code></td><td>Open extension for existing types</td></tr>
           <tr><td><code>extends</code></td><td>Single inheritance</td></tr>
-          <tr><td><code>impl</code></td><td>Interface implementation (static dispatch)</td></tr>
+          <tr><td><code>implements</code></td><td>Interface implementation (static dispatch)</td></tr>
           <tr><td><code>super</code></td><td>Call parent method</td></tr>
           <tr><td><code>is</code></td><td>Runtime type check</td></tr>
           <tr><td><code>spawn</code></td><td>Launch a thread</td></tr>
@@ -1775,32 +1875,36 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
   <span class="kw">val</span> speed:  <span class="ty">Float</span>
   <span class="kw">val</span> name:   <span class="ty">String</span>
   <span class="kw">val</span> sprite: <span class="kw">rc</span> <span class="ty">Texture</span>
-}
 
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">new</span>(name: <span class="ty">String</span>) -> <span class="ty">Player</span> {
-  <span class="kw">return</span> <span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">100.0</span>, <span class="nu">100.0</span>), <span class="nu">100</span>, <span class="nu">200.0</span>, name, <span class="kw">rc</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>))
-}
+  <span class="kw">init</span> <span class="fn">hero</span>(name: <span class="ty">String</span>) {
+    <span class="kw">self</span>.pos = <span class="fn">vec2</span>(<span class="nu">100.0</span>, <span class="nu">100.0</span>)
+    <span class="kw">self</span>.hp = <span class="nu">100</span>
+    <span class="kw">self</span>.speed = <span class="nu">200.0</span>
+    <span class="kw">self</span>.name = name
+    <span class="kw">self</span>.sprite = <span class="kw">rc</span> <span class="fn">load_texture</span>(<span class="st">"hero.png"</span>)
+  }
 
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">update</span>(dt: <span class="ty">Float</span>) {
-  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">RIGHT</span>) { <span class="kw">self</span>.<span class="pr">pos</span>.x += <span class="kw">self</span>.<span class="pr">speed</span> * dt }
-  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">LEFT</span>)  { <span class="kw">self</span>.<span class="pr">pos</span>.x -= <span class="kw">self</span>.<span class="pr">speed</span> * dt }
-  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">UP</span>)    { <span class="kw">self</span>.<span class="pr">pos</span>.y -= <span class="kw">self</span>.<span class="pr">speed</span> * dt }
-  <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">DOWN</span>)  { <span class="kw">self</span>.<span class="pr">pos</span>.y += <span class="kw">self</span>.<span class="pr">speed</span> * dt }
-}
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>) {
+    <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">RIGHT</span>) { <span class="kw">self</span>.pos.x += <span class="kw">self</span>.speed * dt }
+    <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">LEFT</span>)  { <span class="kw">self</span>.pos.x -= <span class="kw">self</span>.speed * dt }
+    <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">UP</span>)    { <span class="kw">self</span>.pos.y -= <span class="kw">self</span>.speed * dt }
+    <span class="kw">if</span> <span class="fn">is_key_down</span>(.<span class="pr">DOWN</span>)  { <span class="kw">self</span>.pos.y += <span class="kw">self</span>.speed * dt }
+  }
 
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">draw</span>() {
-  <span class="fn">draw_texture</span>(<span class="kw">self</span>.<span class="pr">sprite</span>, <span class="kw">self</span>.<span class="pr">pos</span>)
-}
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">draw</span>() {
+    <span class="fn">draw_texture</span>(<span class="kw">self</span>.sprite, <span class="kw">self</span>.pos)
+  }
 
-<span class="kw">func</span> <span class="ty">Player</span>.<span class="fn">is_alive</span>() -> <span class="ty">Bool</span> {
-  <span class="kw">return</span> <span class="kw">self</span>.<span class="pr">hp</span> > <span class="nu">0</span>
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">is_alive</span>() -> <span class="ty">Bool</span> {
+    <span class="kw">return</span> <span class="kw">self</span>.hp > <span class="nu">0</span>
+  }
 }
 
 <span class="kw">func</span> <span class="fn">main</span>() {
   <span class="kw">val</span> window = <span class="fn">init_window</span>(<span class="nu">800</span>, <span class="nu">600</span>, <span class="st">"My Game"</span>)
   <span class="kw">defer</span> <span class="fn">close_window</span>(window)
 
-  <span class="kw">var</span> player = <span class="ty">Player</span>.<span class="fn">new</span>(<span class="st">"Victor"</span>)
+  <span class="kw">var</span> player = <span class="ty">Player</span>.<span class="fn">hero</span>(<span class="st">"Victor"</span>)
 
   <span class="kw">val</span> bullets = <span class="kw">heap</span> [<span class="ty">Bullet</span>; <span class="nu">256</span>]
   <span class="kw">var</span> bullet_count = <span class="nu">0</span>
