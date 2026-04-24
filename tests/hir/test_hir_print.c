@@ -47,7 +47,7 @@ static char *read_snapshot(const char *path) {
     fseek(f, 0, SEEK_SET);
     char *buf = malloc((size_t)len + 1);
     if (!buf) { fclose(f); return NULL; }
-    fread(buf, 1, (size_t)len, f);
+    size_t nr = fread(buf, 1, (size_t)len, f); (void)nr;
     buf[len] = '\0';
     fclose(f);
     return buf;
