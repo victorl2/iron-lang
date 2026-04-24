@@ -1,6 +1,10 @@
 object Pair {
   var a: Int
   var b: Int
+    init(a: Int, b: Int) {
+        self.a = a
+        self.b = b
+    }
 }
 
 func main() {

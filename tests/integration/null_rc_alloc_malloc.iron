@@ -36,6 +36,10 @@
 object Config {
   var max_retries: Int
   var timeout_ms: Int
+    init(max_retries: Int, timeout_ms: Int) {
+        self.max_retries = max_retries
+        self.timeout_ms = timeout_ms
+    }
 }
 
 func main() {

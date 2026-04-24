@@ -6,10 +6,18 @@ interface Shape {
 
 object Circle impl Shape {
   var r: Int
+
+    init(r: Int) {
+        self.r = r
+    }
 }
 
 object Square impl Shape {
   var s: Int
+
+    init(s: Int) {
+        self.s = s
+    }
 }
 
 func Circle.area() -> Int {

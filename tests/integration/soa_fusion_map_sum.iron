@@ -21,6 +21,13 @@ object Particle impl Entity {
   var y: Int
   var z: Int
   var mass: Int
+
+    init(x: Int, y: Int, z: Int, mass: Int) {
+        self.x = x
+        self.y = y
+        self.z = z
+        self.mass = mass
+    }
 }
 
 object Bullet impl Entity {
@@ -28,6 +35,13 @@ object Bullet impl Entity {
   var y: Int
   var z: Int
   var speed: Int
+
+    init(x: Int, y: Int, z: Int, speed: Int) {
+        self.x = x
+        self.y = y
+        self.z = z
+        self.speed = speed
+    }
 }
 
 func Particle.get_x() -> Int {

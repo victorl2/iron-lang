@@ -11,6 +11,10 @@ interface Shape {
 
 object Circle impl Shape {
   var radius: Int
+
+    init(radius: Int) {
+        self.radius = radius
+    }
 }
 
 func Circle.area() -> Int {

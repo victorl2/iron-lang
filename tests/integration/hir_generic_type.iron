@@ -1,10 +1,16 @@
 -- Generic-style: Using multiple concrete types to verify type system
 object IntBox {
   var value: Int
+    init(value: Int) {
+        self.value = value
+    }
 }
 
 object StringBox {
   var value: String
+    init(value: String) {
+        self.value = value
+    }
 }
 
 func main() {

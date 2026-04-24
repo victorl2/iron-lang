@@ -1,5 +1,8 @@
 object Node {
   var data: Int
+    init(data: Int) {
+        self.data = data
+    }
 }
 
 func main() {

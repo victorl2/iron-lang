@@ -2,6 +2,10 @@
 object Range {
   var lo: Int
   var hi: Int
+    init(lo: Int, hi: Int) {
+        self.lo = lo
+        self.hi = hi
+    }
 }
 
 func Range.size() -> Int {

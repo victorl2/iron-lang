@@ -8,11 +8,21 @@ interface Pair {
 object IntPair impl Pair {
   var a: Int
   var b: Int
+
+    init(a: Int, b: Int) {
+        self.a = a
+        self.b = b
+    }
 }
 
 object FloatPair impl Pair {
   var a: Int
   var b: Int
+
+    init(a: Int, b: Int) {
+        self.a = a
+        self.b = b
+    }
 }
 
 func IntPair.sum() -> Int {

@@ -7,6 +7,10 @@
 object Counter {
     pub var count: Int
 
+    init(count: Int) {
+        self.count = count
+    }
+
     func bump_mut() {
         self.count = self.count + 1  -- default mutating method
     }

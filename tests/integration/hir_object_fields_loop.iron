@@ -1,6 +1,10 @@
 object Item {
   var id: Int
   var score: Int
+    init(id: Int, score: Int) {
+        self.id = id
+        self.score = score
+    }
 }
 
 func main() {

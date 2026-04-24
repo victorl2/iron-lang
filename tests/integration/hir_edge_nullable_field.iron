@@ -2,6 +2,10 @@
 object Config {
   var name: String
   var priority: Int
+    init(name: String, priority: Int) {
+        self.name = name
+        self.priority = priority
+    }
 }
 
 func get_priority(c: Config) -> String {

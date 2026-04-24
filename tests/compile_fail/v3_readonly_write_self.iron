@@ -8,6 +8,10 @@
 object Counter {
     pub var count: Int
 
+    init(count: Int) {
+        self.count = count
+    }
+
     readonly func bump() {
         self.count = self.count + 1  -- E0238 fires here
     }

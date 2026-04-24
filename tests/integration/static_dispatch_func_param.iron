@@ -6,10 +6,18 @@ interface Greeting {
 
 object Formal impl Greeting {
   var name: String
+
+    init(name: String) {
+        self.name = name
+    }
 }
 
 object Casual impl Greeting {
   var name: String
+
+    init(name: String) {
+        self.name = name
+    }
 }
 
 func Formal.greet() -> String {

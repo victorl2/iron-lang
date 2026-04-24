@@ -9,10 +9,19 @@ interface Vehicle {
 object Car impl Vehicle {
   var max_speed: Int
   var tank: Int
+
+    init(max_speed: Int, tank: Int) {
+        self.max_speed = max_speed
+        self.tank = tank
+    }
 }
 
 object Bike impl Vehicle {
   var max_speed: Int
+
+    init(max_speed: Int) {
+        self.max_speed = max_speed
+    }
 }
 
 func Car.speed() -> Int {

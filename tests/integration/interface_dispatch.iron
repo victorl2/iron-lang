@@ -9,16 +9,28 @@ interface Animal {
 object Dog {
   var dog_name: String
   var breed: String
+    init(dog_name: String, breed: String) {
+        self.dog_name = dog_name
+        self.breed = breed
+    }
 }
 
 object Cat {
   var cat_name: String
   var indoor: Int
+    init(cat_name: String, indoor: Int) {
+        self.cat_name = cat_name
+        self.indoor = indoor
+    }
 }
 
 object Bird {
   var bird_name: String
   var can_fly: Int
+    init(bird_name: String, can_fly: Int) {
+        self.bird_name = bird_name
+        self.can_fly = can_fly
+    }
 }
 
 func Dog.speak() -> String {

@@ -1,5 +1,8 @@
 object Data {
   var values: [Int]
+    init(values: [Int]) {
+        self.values = values
+    }
 }
 
 func main() {

@@ -16,6 +16,10 @@
 object Point {
     var value: Int
 
+    init(value: Int) {
+        self.value = value
+    }
+
     func set(value: Int) {
         self.value = value
     }

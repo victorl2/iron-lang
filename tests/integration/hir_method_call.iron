@@ -1,5 +1,8 @@
 object Counter {
   var count: Int
+    init(count: Int) {
+        self.count = count
+    }
 }
 
 func Counter.increment() -> Int {

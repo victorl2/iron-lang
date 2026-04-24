@@ -7,6 +7,10 @@ interface Shape {
 
 object TinyDot impl Shape {
   var x: Int
+
+    init(x: Int) {
+        self.x = x
+    }
 }
 
 object HugeRect impl Shape {
@@ -19,6 +23,18 @@ object HugeRect impl Shape {
   var color_b: Int
   var color_a: Int
   var z_index: Int
+
+    init(x1: Int, y1: Int, x2: Int, y2: Int, color_r: Int, color_g: Int, color_b: Int, color_a: Int, z_index: Int) {
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
+        self.color_r = color_r
+        self.color_g = color_g
+        self.color_b = color_b
+        self.color_a = color_a
+        self.z_index = z_index
+    }
 }
 
 func TinyDot.area() -> Int {

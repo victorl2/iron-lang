@@ -15,6 +15,10 @@ func swap_at(arr: [Int], i: Int, j: Int) -> [Int] {
 object PartResult {
   var arr: [Int]
   var pi:  Int
+    init(arr: [Int], pi: Int) {
+        self.arr = arr
+        self.pi = pi
+    }
 }
 
 func partition(arr: [Int], low: Int, high: Int) -> PartResult {

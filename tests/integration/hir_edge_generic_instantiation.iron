@@ -1,14 +1,23 @@
 -- Generic-style: multiple concrete type instantiations
 object IntWrapper {
   var value: Int
+    init(value: Int) {
+        self.value = value
+    }
 }
 
 object FloatWrapper {
   var value: Float
+    init(value: Float) {
+        self.value = value
+    }
 }
 
 object StringWrapper {
   var value: String
+    init(value: String) {
+        self.value = value
+    }
 }
 
 func IntWrapper.doubled() -> Int {
