@@ -35,4 +35,16 @@ if(IRON_BUILD_LSP)
             LABELS "integration;phase-m6-invariant"
             TIMEOUT 30)
     endif()
+
+    # Phase 7 Plan 07-02 Task 01 (HARD-15, D-03) -- test_rss_cap_trips_exit_42.sh:
+    # export IRON_LSP_RSS_CAP_BYTES=65536 (64 KiB tiny cap), spawn ironls,
+    # keep stdin open via FIFO holder, wait for the 5s sampler to trip the
+    # cap, assert exit code exactly 42 AND that the rss-restart-<iso8601>.log
+    # marker file was written under $XDG_STATE_HOME/iron-lsp/.
+    add_test(NAME test_rss_cap_trips_exit_42
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_rss_cap_trips_exit_42.sh"
+                $<TARGET_FILE:ironls>)
+    set_tests_properties(test_rss_cap_trips_exit_42 PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 45)
 endif()

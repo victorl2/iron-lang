@@ -72,6 +72,7 @@
 #include "lsp/obs/abort_handler.h" /* Plan 05: SIGABRT boundary. */
 #include "lsp/obs/crash_dump.h"    /* Phase 7 Plan 07-01 Task 01: SIGSEGV + crash dump. */
 #include "lsp/obs/parent_watch.h"  /* Phase 7 Plan 07-01 Task 02: parent-death detection. */
+#include "lsp/obs/rss.h"           /* Phase 7 Plan 07-02 Task 01: RSS cap + exit-42 restart. */
 #include "lsp/supervisor/supervisor.h" /* Phase 7 Plan 07-01 Task 02: --supervised mode. */
 
 #include "vendor/stb_ds.h"
@@ -183,6 +184,47 @@ int main(int argc, char **argv) {
      * warnings can reach the log sink, and BEFORE spawning the reader
      * thread so there is exactly one descendant to inherit the watcher. */
     ilsp_parent_watch_init();
+
+    /* ── 4c. RSS cap (Phase 7 Plan 07-02 Task 01, HARD-15, D-03) ──────
+     * Resolve the effective cap in priority order:
+     *   1. --rss-cap=<bytes> explicitly set on argv (args.rss_cap_explicit)
+     *   2. env IRON_LSP_RSS_CAP_BYTES
+     *   3. compiled-in default 1073741824 bytes (1 GiB)
+     * IRON_LSP_RSS_CAP_BYTES=0 (env) disables the cap entirely per
+     * D-03; an explicit --rss-cap=0 on argv has the same meaning.
+     * ilsp_rss_cap_init(0) is a documented no-op. */
+    {
+        uint64_t cap = 0;
+        bool     cap_set = false;
+        if (args.rss_cap_explicit) {
+            cap     = args.rss_cap_bytes;
+            cap_set = true;
+        } else {
+            const char *env = getenv("IRON_LSP_RSS_CAP_BYTES");
+            if (env && env[0] != '\0') {
+                char *endp = NULL;
+                unsigned long long v = strtoull(env, &endp, 10);
+                if (endp && *endp == '\0') {
+                    cap     = (uint64_t)v;
+                    cap_set = true;
+                }
+            }
+        }
+        if (!cap_set) {
+            cap = 1073741824ULL;  /* 1 GiB default per D-03. */
+        }
+        /* Install (or disable when cap == 0). */
+        if (ilsp_rss_cap_init(cap) != 0) {
+            ilsp_log(ILSP_LOG_WARN, "rss-cap-init",
+                     "ilsp_rss_cap_init(%llu) failed; continuing without cap",
+                     (unsigned long long)cap);
+        } else {
+            ilsp_log(ILSP_LOG_INFO, "rss-cap-init",
+                     "RSS cap %s (cap_bytes=%llu)",
+                     (cap == 0) ? "disabled" : "enabled",
+                     (unsigned long long)cap);
+        }
+    }
 
     /* ── 5. Server singleton init ───────────────────────────────────── */
     g_server.lifecycle         = ILSP_LIFECYCLE_UNINIT;
