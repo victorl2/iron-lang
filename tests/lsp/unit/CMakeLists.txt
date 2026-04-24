@@ -193,7 +193,12 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_fmt.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/format.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/range_format.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/on_type_format.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/on_type_format.c
+        # Phase 7 Plan 07-07 (HARD-22, D-10): handlers_lifecycle.c calls
+        # ilsp_server_version() for the initialize response server-info block.
+        # Every test linking dispatch.c must resolve this symbol.
+        # Rule 3 (08-02 Task 1): blocking link-graph fix inherited from Phase 7.
+        ${CMAKE_SOURCE_DIR}/src/lsp/cli/version.c)
     set(_LSP_PLAN03_TRANSPORT_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
@@ -953,7 +958,11 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_fmt.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/format.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/range_format.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/on_type_format.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/fmt/on_type_format.c
+        # Phase 7 Plan 07-07 (HARD-22, D-10): handlers_lifecycle.c calls
+        # ilsp_server_version() for the initialize response server-info block.
+        # Rule 3 (08-02 Task 1): blocking link-graph fix inherited from Phase 7.
+        ${CMAKE_SOURCE_DIR}/src/lsp/cli/version.c)
     target_include_directories(test_workspace_diagnostic PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor

@@ -53,7 +53,7 @@
                 },
                 {
                     "name": "keyword.iron",
-                    "match": "\\b(and|await|comptime|defer|elif|else|enum|extends|extern|false|for|free|func|heap|if|impl|import|in|interface|is|leak|match|not|null|object|or|parallel|pool|private|rc|return|self|spawn|super|true|val|var|while)\\b"
+                    "match": "\\b(and|await|comptime|defer|elif|else|enum|extends|extern|false|for|free|func|heap|if|impl|import|in|init|interface|is|leak|match|mut|not|null|object|or|parallel|patch|pool|private|pub|pure|rc|readonly|return|self|spawn|super|true|val|var|while)\\b"
                 }
             ]
         },
