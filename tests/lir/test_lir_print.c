@@ -60,7 +60,7 @@ static bool compare_snapshot(const char *ir_output, const char *expected_path) {
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
     char *expected = malloc((size_t)len + 1);
-    fread(expected, 1, (size_t)len, f);
+    size_t nr = fread(expected, 1, (size_t)len, f); (void)nr;
     expected[len] = '\0';
     fclose(f);
     bool match = strcmp(ir_output, expected) == 0;
