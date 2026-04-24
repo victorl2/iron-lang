@@ -22,8 +22,8 @@ TextMate syntax highlighting and a full LSP 3.17 client that delegates to
   `ironls` alongside `ironc`; follow the install instructions at
   <https://iron-lang.dev/install>.
 - Compatible `ironls` versions: see `ironLspCompatibleIronlsRange` in
-  `package.json` (currently `>=1.2.0, <1.3.0`). A warning is shown when
-  the detected server version falls outside the range.
+  `package.json` (currently `>= 1.2.0, < 2.0.0`). An incompatible server
+  triggers a **hard refuse** — see the "Version mismatch" section below.
 
 ## Install
 
@@ -64,6 +64,24 @@ If the extension cannot locate the server, you will see one of:
 
 Each error has an **Open Settings** button that jumps to the
 `iron.languageServer` settings scope.
+
+### Version mismatch
+
+Phase 7 HARD-22 / UI-SPEC S9 — when the extension detects an `ironls`
+version outside `ironLspCompatibleIronlsRange` (`>= 1.2.0, < 2.0.0`),
+it refuses to activate the language client:
+
+> **Iron LSP: detected ironls X.Y.Z, but this extension requires
+> &gt;= 1.2.0 .. &lt; 2.0.0. The language server will NOT activate.
+> Install the latest ironls to continue.**
+
+Click **Update Iron LSP** in the toast to open
+<https://github.com/iron-lang/iron-lang/releases/latest>. Install the
+updated binary, then reload the window (**Developer: Reload Window**).
+
+This also triggers if the installed `ironls` is old enough that it does
+not report a version via `--version`. Upgrade to the latest release and
+the language client will activate normally.
 
 ### Diagnose report
 
