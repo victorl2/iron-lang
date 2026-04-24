@@ -1,0 +1,75 @@
+name: slos
+
+# Phase 7 Plan 07-04 Task 01 (HARD-18, D-06) -- per-PR SLO enforcement.
+#
+# Builds ironls in Release mode, runs tests/lsp/slos/measurement.py at
+# 100 samples/method over 3 canonical fixtures (small/medium/large).
+# p50 thresholds enforced on medium_500loc.iron ONLY:
+#   textDocument/hover       < 20 ms
+#   textDocument/completion  < 100 ms
+#   textDocument/diagnostic  < 500 ms
+#   textDocument/definition  < 50 ms
+# p95/p99 recorded into slo-result.json artifact (30-day retention)
+# but not enforced -- runner CPU variance makes tail latency flaky;
+# p50 with the ~20% headroom baked into D-06 is the stable gate.
+#
+# Matrix: ubuntu-latest only at v1. macOS runner CPU variance is
+# higher and the SLO gate is explicitly calibrated against Linux
+# runner numbers; a macos-latest run would need its own thresholds
+# (deferred to v1.x OPS). See docs/dev/slo-runbook.md §"Threshold-
+# tuning policy" for the re-calibration procedure before extending.
+
+on:
+  pull_request:
+    paths:
+      - 'src/lsp/**'
+      - 'src/**/*.c'
+      - 'src/**/*.h'
+      - 'tests/lsp/slos/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/slos.yml'
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  slos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang cmake
+
+      - name: Measurement harness self-test
+        # Fast guard: validates percentile + threshold + framing +
+        # fixture LoC window + D-06 literal thresholds in < 1 s so a
+        # harness regression fails the job before we pay ~2 minutes
+        # of Release build cost.
+        run: python3 tests/lsp/slos/measurement.py --self-test
+
+      - name: Configure + build ironls Release
+        run: |
+          cmake -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DIRON_BUILD_LSP=ON
+          cmake --build build -j4 --target ironls
+
+      - name: Measure SLOs (100 samples/method/fixture)
+        run: |
+          python3 tests/lsp/slos/measurement.py \
+              --ironls ./build/ironls \
+              --fixtures-root tests/lsp/slos/fixtures \
+              --samples 100 \
+              --output-json slo-result.json
+
+      - name: Upload slo-result.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slo-result
+          path: slo-result.json
+          retention-days: 30

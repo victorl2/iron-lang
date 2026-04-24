@@ -1,0 +1,46 @@
+// Phase 7 Plan 07-04 Task 01 (HARD-18, D-06) -- SLO fixture (small).
+// 50 LoC canonical document. Informational only: p50 thresholds are
+// enforced on the medium fixture (medium_500loc.iron), not this one.
+// Intentionally exercises a single object + 5 methods + cross-method
+// field reads so hover / completion / definition have real work to
+// do on each request.
+
+object Counter {
+  val start: Int
+  var n: Int = 0
+}
+
+func Counter.bump() -> Int {
+  n = n + 1
+  return n
+}
+
+func Counter.add(delta: Int) -> Int {
+  n = n + delta
+  return n
+}
+
+func Counter.reset() -> Int {
+  n = start
+  return n
+}
+
+func Counter.peek() -> Int {
+  return n
+}
+
+func Counter.double() -> Int {
+  val previous: Int = n
+  n = n + previous
+  return n
+}
+
+func main() {
+  val c: Counter = Counter { start: 10, n: 10 }
+  val _a: Int = c.bump()
+  val _b: Int = c.add(5)
+  val _c: Int = c.reset()
+  val _d: Int = c.peek()
+  val _e: Int = c.double()
+  return
+}
