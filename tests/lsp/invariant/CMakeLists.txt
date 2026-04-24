@@ -47,4 +47,32 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_rss_cap_trips_exit_42 PROPERTIES
         LABELS "integration;phase-m6-invariant"
         TIMEOUT 45)
+
+    # Phase 7 Plan 07-02 Task 02 (HARD-16, D-04) -- Python soak harness
+    # self-test. Validates analyze() logic (peak + linear-regression
+    # growth) with synthetic RSS curves WITHOUT actually running a
+    # full soak. CI-time guard against regressions in the analyzer
+    # that would otherwise only surface on a real 30-min/8h run.
+    add_test(NAME test_soak_harness_self_test
+        COMMAND python3 "${CMAKE_SOURCE_DIR}/tests/lsp/soak/harness.py"
+                --self-test)
+    set_tests_properties(test_soak_harness_self_test PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 30)
+
+    # Phase 7 Plan 07-02 Task 02 (HARD-16, D-04) -- lock-in guard for
+    # the committed workload files. Confirms workload.jsonl has exactly
+    # 28,800 events and short.jsonl has exactly 1,800 events, mitigating
+    # T-07-02-02 (workload drift).
+    add_test(NAME test_soak_workload_counts
+        COMMAND python3 -c "
+import sys
+full = open('${CMAKE_SOURCE_DIR}/tests/lsp/soak/workload.jsonl').readlines()
+short = open('${CMAKE_SOURCE_DIR}/tests/lsp/soak/short.jsonl').readlines()
+assert len(full) == 28800, f'workload.jsonl: {len(full)} != 28800'
+assert len(short) == 1800, f'short.jsonl: {len(short)} != 1800'
+print('OK: 28800 + 1800')")
+    set_tests_properties(test_soak_workload_counts PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 10)
 endif()
