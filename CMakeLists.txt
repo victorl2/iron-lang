@@ -29,6 +29,22 @@ option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSani
 option(IRON_ENABLE_FUZZING "Build libFuzzer fuzz targets (requires clang)" OFF)
 option(IRON_ENABLE_COVERAGE "Build with llvm-cov instrumentation (requires clang)" OFF)
 
+# Phase 7 Plan 07-03 (HARD-17, D-05) -- IRON_SANITIZER selector.
+# When IRON_ENABLE_SANITIZERS=ON, this selects which sanitizer flavour to use:
+#   address  -- AddressSanitizer + UndefinedBehaviorSanitizer (existing default)
+#   thread   -- ThreadSanitizer (TSAN) for the Phase 7 race-detection CI job
+# TSAN and ASan/UBSan are compile-time mutually exclusive (shadow memory layout
+# conflicts), so they MUST be separate build directories; the selector picks
+# one flavour per IRON_ENABLE_SANITIZERS=ON build. TSAN is further excluded
+# from IRON_ENABLE_FUZZING (libFuzzer + TSAN unsupported by clang -- libFuzzer
+# already ships -fsanitize=fuzzer,address,undefined coverage instrumentation;
+# adding -fsanitize=thread produces incompatible shadow-memory layouts). See
+# .planning/phases/07-m6-production-hardening/07-RESEARCH.md §"TSAN + libFuzzer
+# incompatibility" for verified clang-docs citations.
+set(IRON_SANITIZER "address" CACHE STRING
+    "Sanitizer flavour when IRON_ENABLE_SANITIZERS=ON: 'address' (ASan+UBSan, default) or 'thread' (TSAN).")
+set_property(CACHE IRON_SANITIZER PROPERTY STRINGS address thread)
+
 # Three-way mutex: at most one of SANITIZERS / FUZZING / COVERAGE may be ON.
 # llvm-cov and libFuzzer profile formats conflict; sanitizer instrumentation
 # distorts coverage line counts and fuzzer coverage metrics. Use separate
@@ -47,10 +63,37 @@ if(IRON_ENABLE_COVERAGE AND IRON_ENABLE_SANITIZERS)
         "Use separate build directories.")
 endif()
 if(IRON_ENABLE_FUZZING AND IRON_ENABLE_SANITIZERS)
+    # Phase 7 Plan 07-03 (HARD-17, D-05) extension: the message now names
+    # `thread` explicitly so `-DIRON_SANITIZER=thread -DIRON_ENABLE_FUZZING=ON`
+    # fails fast with a grep-matchable "thread" + "fuzzing" diagnostic.
     message(FATAL_ERROR
-        "IRON_ENABLE_FUZZING and IRON_ENABLE_SANITIZERS are mutually exclusive "
-        "(libFuzzer ships its own sanitizer-equivalent instrumentation via "
-        "-fsanitize=fuzzer,address,undefined). Use separate build directories.")
+        "IRON_ENABLE_FUZZING and IRON_ENABLE_SANITIZERS (both 'address' and "
+        "'thread' flavours) are mutually exclusive: libFuzzer ships its own "
+        "sanitizer-equivalent instrumentation via -fsanitize=fuzzer,address,"
+        "undefined, and thread sanitizer (TSAN) is incompatible with "
+        "libFuzzer per clang docs. Use separate build directories.")
+endif()
+
+# Phase 7 Plan 07-03 (HARD-17, D-05) -- validate IRON_SANITIZER value and
+# enforce TSAN-vs-fuzzing exclusion. The IRON_SANITIZER value is only
+# meaningful when IRON_ENABLE_SANITIZERS=ON, but we validate early so that
+# typos like -DIRON_SANITIZER=memory fail fast with a clear diagnostic.
+if(IRON_ENABLE_SANITIZERS)
+    if(NOT IRON_SANITIZER MATCHES "^(address|thread)$")
+        message(FATAL_ERROR
+            "IRON_SANITIZER must be 'address' or 'thread'; got '${IRON_SANITIZER}'. "
+            "Allowed values: address (ASan+UBSan, default), thread (TSAN).")
+    endif()
+    if(IRON_SANITIZER STREQUAL "thread" AND IRON_ENABLE_FUZZING)
+        # Belt-and-braces: the IRON_ENABLE_FUZZING + IRON_ENABLE_SANITIZERS
+        # mutex above already catches this, but we surface a TSAN-specific
+        # message so future maintainers understand why these can't combine.
+        message(FATAL_ERROR
+            "IRON_SANITIZER=thread is incompatible with IRON_ENABLE_FUZZING=ON "
+            "(libFuzzer + TSAN unsupported by clang -- libFuzzer embeds "
+            "-fsanitize=fuzzer,address,undefined and TSAN's shadow memory "
+            "layout conflicts with ASan's). Use separate build directories.")
+    endif()
 endif()
 
 if(MSVC)
@@ -74,8 +117,24 @@ else()
         )
     endif()
     if(IRON_ENABLE_SANITIZERS)
-        add_compile_options(-fsanitize=address,undefined)
-        add_link_options(-fsanitize=address,undefined)
+        # Phase 7 Plan 07-03 (HARD-17, D-05) -- IRON_SANITIZER selector drives
+        # which sanitizer flavour is installed. The IRON_SANITIZER value was
+        # already validated against address|thread above; this block just maps
+        # it to the corresponding clang flags.
+        if(IRON_SANITIZER STREQUAL "thread")
+            # TSAN needs -g for source-level race reports; -fno-omit-frame-pointer
+            # keeps stack traces readable. Phase 7 invariant: zero
+            # `WARNING: ThreadSanitizer:` lines in the 2-worker mini-soak stderr.
+            add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+            add_link_options(-fsanitize=thread)
+            message(STATUS "Iron: ThreadSanitizer ON (IRON_SANITIZER=thread)")
+        else()
+            # address|default: existing ASan+UBSan behaviour preserved
+            # byte-for-byte from pre-Phase-7 CMakeLists.txt so all existing
+            # sanitizer-based ctest invariants remain green.
+            add_compile_options(-fsanitize=address,undefined)
+            add_link_options(-fsanitize=address,undefined)
+        endif()
     endif()
     if(IRON_ENABLE_FUZZING)
         if(NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
