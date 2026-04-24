@@ -222,9 +222,12 @@ void iron_diaglist_free(Iron_DiagList *list);
  * (Phase 80 MUT). */
 #define IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE 291
 
-/* Phase 4 Plan 04-01 (D-06) — P1 quickfix set for LSP code actions. */
-#define IRON_ERR_TYPE_MISMATCH_LITERAL 235   /* narrowing of IRON_ERR_TYPE_MISMATCH for literal RHS */
-#define IRON_ERR_MISSING_RETURN        236   /* function body reaches end without returning a value */
+/* Phase 4 Plan 04-01 (D-06) — P1 quickfix set for LSP code actions.
+ * RENUMBERED (F3 Phase 8 rebase):
+ *   IRON_ERR_TYPE_MISMATCH_LITERAL 235 → 292 (235 owned by IRON_ERR_MUT_CALL_ON_VAL, Phase 80 MUT)
+ *   IRON_ERR_MISSING_RETURN        236 → 293 (236 owned by IRON_ERR_MUT_ON_PRIMITIVE, Phase 80 MUT) */
+#define IRON_ERR_TYPE_MISMATCH_LITERAL 292   /* narrowing of IRON_ERR_TYPE_MISMATCH for literal RHS */
+#define IRON_ERR_MISSING_RETURN        293   /* function body reaches end without returning a value */
 
 /* Cancellation meta-diagnostic — emitted by iron_analyze_buffer on cancel.
  * Level is IRON_DIAG_NOTE so it does NOT bump error_count and does NOT change
