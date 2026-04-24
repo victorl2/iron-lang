@@ -10,6 +10,34 @@ in the [Zed editor](https://zed.dev/). Ships with:
 - automatic `ironls` binary download from GitHub Releases with
   SHA-256 verification.
 
+**Tracks:** Iron v3.0.0-alpha.1 (current main-branch alpha). See the
+**Version compatibility** section below for the exact `ironls` range the
+extension accepts (the hard-refuse constant bumps atomically in a later
+phase).
+
+## Iron syntax overview
+
+Iron v3 introduces first-class surface features surfaced by `ironls`
+completion, hover, and diagnostics — all rendered by Zed's standard LSP
+client UI:
+
+- **`init` blocks** — anonymous (`init(x: Int, y: Int) { ... }`) and named
+  (`init Named(x: Int) { ... }`) constructors declared as first-class
+  object members; replaces the v2 receiver-method initializer pattern.
+- **`patch` extensions** — reopen an existing object or primitive type
+  (`patch Int { ... }`, `patch Player { ... }`) to add methods.
+- **`pub` visibility** — symbol-level export modifier distinguishing
+  module-public from module-private decls.
+- **`pure` methods** — side-effect-restricted method annotation used by
+  the compiler for memoization + reordering safety.
+- **`readonly` + `mut` mutation tiers** — transitive-readonly bindings
+  and explicit mutable bindings; the type system enforces compatibility
+  at call boundaries.
+
+Legacy pre-v3 keywords (`val`, `var`, `object`, `interface`, `impl`, etc.)
+continue to work unchanged. The complete roster is 44 keywords,
+drift-guarded at build time by `test_grammar_keyword_drift_tree_sitter`.
+
 ## Requirements
 
 - **Zed 0.200+** (the `zed_extension_api` 0.7 surface + `wasm32-wasip2`
