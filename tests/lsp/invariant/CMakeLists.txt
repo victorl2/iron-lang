@@ -101,4 +101,31 @@ print('OK: 300')")
     set_tests_properties(test_tsan_workload_count PROPERTIES
         LABELS "integration;phase-m6-invariant"
         TIMEOUT 10)
+
+    # Phase 7 Plan 07-04 Task 01 (HARD-18, D-06) -- SLO measurement
+    # harness self-test. Validates the pure-Python percentile function,
+    # the threshold enforcement decision, the LSP framing round-trip,
+    # the medium-fixture LoC window, and the D-06 locked literal
+    # thresholds (20/100/500/50 ms) in < 1 s. Mitigates T-07-04-06
+    # (percentile regression masking threshold enforcement) cheaply
+    # enough that every normal ctest run exercises it pre-build.
+    add_test(NAME test_slo_measurement_self_test
+        COMMAND python3 "${CMAKE_SOURCE_DIR}/tests/lsp/slos/measurement.py"
+                --self-test)
+    set_tests_properties(test_slo_measurement_self_test PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 30)
+
+    # Phase 7 Plan 07-04 Task 01 (HARD-18, D-06) -- medium fixture
+    # LoC guard. Plan done-criterion locks medium_500loc.iron to
+    # 495..505 lines; this invariant catches accidental drift.
+    add_test(NAME test_slo_medium_fixture_loc
+        COMMAND python3 -c "
+with open('${CMAKE_SOURCE_DIR}/tests/lsp/slos/fixtures/medium_500loc.iron') as f:
+    n = sum(1 for _ in f)
+assert 495 <= n <= 505, f'medium_500loc.iron: {n} outside 495..505'
+print(f'OK: {n}')")
+    set_tests_properties(test_slo_medium_fixture_loc PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 10)
 endif()

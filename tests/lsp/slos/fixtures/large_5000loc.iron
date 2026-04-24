@@ -1,0 +1,5000 @@
+// Phase 7 Plan 07-04 Task 01 (HARD-18, D-06) -- SLO fixture (large 5000 LoC).
+// Deterministic output of tests/lsp/slos/gen_large.py at SEED=20260423.
+// Informational fixture: p50 thresholds are enforced on the medium
+// (500 LoC) fixture, not this one. A 5000 LoC file exercises the
+// p95/p99 tail samples at a size approaching the Iron stdlib.iron
+// upper bound; p95/p99 are recorded but not enforced (D-06).
+
+val CONST_000: Int = 643
+val CONST_001: Int = 381
+val CONST_002: Int = 660
+val CONST_003: Int = 627
+val CONST_004: Int = 85
+val CONST_005: Int = 115
+val CONST_006: Int = 930
+val CONST_007: Int = 783
+val CONST_008: Int = 233
+val CONST_009: Int = 111
+val CONST_010: Int = 870
+val CONST_011: Int = 799
+val CONST_012: Int = 990
+val CONST_013: Int = 943
+val CONST_014: Int = 395
+val CONST_015: Int = 183
+val CONST_016: Int = 915
+val CONST_017: Int = 813
+val CONST_018: Int = 195
+val CONST_019: Int = 930
+val CONST_020: Int = 172
+val CONST_021: Int = 790
+val CONST_022: Int = 927
+val CONST_023: Int = 289
+val CONST_024: Int = 664
+val CONST_025: Int = 74
+val CONST_026: Int = 516
+val CONST_027: Int = 25
+val CONST_028: Int = 130
+val CONST_029: Int = 8
+val CONST_030: Int = 864
+val CONST_031: Int = 707
+val CONST_032: Int = 340
+val CONST_033: Int = 577
+val CONST_034: Int = 707
+val CONST_035: Int = 360
+val CONST_036: Int = 314
+val CONST_037: Int = 371
+val CONST_038: Int = 640
+val CONST_039: Int = 379
+
+object Mod000 {
+  val id: Int
+  var counter: Int = 631
+}
+
+func Mod000.op_0(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod000.op_1(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod000.op_2(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod000.op_3(a: Int) -> Int {
+  var acc: Int = 29
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod000.op_4(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod000.op_5(a: Int) -> Int {
+  var acc: Int = 29
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod000.op_6(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod000.op_7(a: Int) -> Int {
+  var acc: Int = 81
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod000.op_8(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod000.op_9(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod000.op_10(a: Int) -> Int {
+  var acc: Int = 65
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod000.op_11(a: Int) -> Int {
+  var acc: Int = 53
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_009
+  return acc
+}
+
+object Mod001 {
+  val id: Int
+  var counter: Int = 323
+}
+
+func Mod001.op_0(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod001.op_1(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod001.op_2(a: Int) -> Int {
+  var acc: Int = 41
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod001.op_3(a: Int) -> Int {
+  var acc: Int = 32
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod001.op_4(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod001.op_5(a: Int) -> Int {
+  var acc: Int = 94
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod001.op_6(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod001.op_7(a: Int) -> Int {
+  var acc: Int = 17
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod001.op_8(a: Int) -> Int {
+  var acc: Int = 17
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod001.op_9(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod001.op_10(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod001.op_11(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_023
+  return acc
+}
+
+object Mod002 {
+  val id: Int
+  var counter: Int = 195
+}
+
+func Mod002.op_0(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod002.op_1(a: Int) -> Int {
+  var acc: Int = 34
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod002.op_2(a: Int) -> Int {
+  var acc: Int = 73
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod002.op_3(a: Int) -> Int {
+  var acc: Int = 56
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod002.op_4(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod002.op_5(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod002.op_6(a: Int) -> Int {
+  var acc: Int = 10
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod002.op_7(a: Int) -> Int {
+  var acc: Int = 45
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod002.op_8(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod002.op_9(a: Int) -> Int {
+  var acc: Int = 33
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod002.op_10(a: Int) -> Int {
+  var acc: Int = 84
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod002.op_11(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_019
+  return acc
+}
+
+object Mod003 {
+  val id: Int
+  var counter: Int = 103
+}
+
+func Mod003.op_0(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod003.op_1(a: Int) -> Int {
+  var acc: Int = 40
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod003.op_2(a: Int) -> Int {
+  var acc: Int = 91
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod003.op_3(a: Int) -> Int {
+  var acc: Int = 86
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod003.op_4(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod003.op_5(a: Int) -> Int {
+  var acc: Int = 93
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod003.op_6(a: Int) -> Int {
+  var acc: Int = 45
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod003.op_7(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod003.op_8(a: Int) -> Int {
+  var acc: Int = 13
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod003.op_9(a: Int) -> Int {
+  var acc: Int = 94
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod003.op_10(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod003.op_11(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_001
+  return acc
+}
+
+object Mod004 {
+  val id: Int
+  var counter: Int = 713
+}
+
+func Mod004.op_0(a: Int) -> Int {
+  var acc: Int = 73
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod004.op_1(a: Int) -> Int {
+  var acc: Int = 32
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod004.op_2(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod004.op_3(a: Int) -> Int {
+  var acc: Int = 7
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod004.op_4(a: Int) -> Int {
+  var acc: Int = 55
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod004.op_5(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod004.op_6(a: Int) -> Int {
+  var acc: Int = 81
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod004.op_7(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod004.op_8(a: Int) -> Int {
+  var acc: Int = 3
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod004.op_9(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod004.op_10(a: Int) -> Int {
+  var acc: Int = 22
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod004.op_11(a: Int) -> Int {
+  var acc: Int = 86
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_034
+  return acc
+}
+
+object Mod005 {
+  val id: Int
+  var counter: Int = 248
+}
+
+func Mod005.op_0(a: Int) -> Int {
+  var acc: Int = 2
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod005.op_1(a: Int) -> Int {
+  var acc: Int = 85
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod005.op_2(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod005.op_3(a: Int) -> Int {
+  var acc: Int = 47
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod005.op_4(a: Int) -> Int {
+  var acc: Int = 18
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod005.op_5(a: Int) -> Int {
+  var acc: Int = 34
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod005.op_6(a: Int) -> Int {
+  var acc: Int = 19
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod005.op_7(a: Int) -> Int {
+  var acc: Int = 7
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod005.op_8(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod005.op_9(a: Int) -> Int {
+  var acc: Int = 50
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod005.op_10(a: Int) -> Int {
+  var acc: Int = 41
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod005.op_11(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_007
+  return acc
+}
+
+object Mod006 {
+  val id: Int
+  var counter: Int = 38
+}
+
+func Mod006.op_0(a: Int) -> Int {
+  var acc: Int = 29
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod006.op_1(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod006.op_2(a: Int) -> Int {
+  var acc: Int = 89
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod006.op_3(a: Int) -> Int {
+  var acc: Int = 79
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod006.op_4(a: Int) -> Int {
+  var acc: Int = 48
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod006.op_5(a: Int) -> Int {
+  var acc: Int = 3
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod006.op_6(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_038
+  return acc
+}
+
+func Mod006.op_7(a: Int) -> Int {
+  var acc: Int = 73
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod006.op_8(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod006.op_9(a: Int) -> Int {
+  var acc: Int = 83
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod006.op_10(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod006.op_11(a: Int) -> Int {
+  var acc: Int = 83
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_017
+  return acc
+}
+
+object Mod007 {
+  val id: Int
+  var counter: Int = 856
+}
+
+func Mod007.op_0(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod007.op_1(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod007.op_2(a: Int) -> Int {
+  var acc: Int = 34
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod007.op_3(a: Int) -> Int {
+  var acc: Int = 45
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_038
+  return acc
+}
+
+func Mod007.op_4(a: Int) -> Int {
+  var acc: Int = 61
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod007.op_5(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod007.op_6(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod007.op_7(a: Int) -> Int {
+  var acc: Int = 84
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod007.op_8(a: Int) -> Int {
+  var acc: Int = 94
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod007.op_9(a: Int) -> Int {
+  var acc: Int = 67
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod007.op_10(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod007.op_11(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_001
+  return acc
+}
+
+object Mod008 {
+  val id: Int
+  var counter: Int = 152
+}
+
+func Mod008.op_0(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod008.op_1(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod008.op_2(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod008.op_3(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod008.op_4(a: Int) -> Int {
+  var acc: Int = 47
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod008.op_5(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod008.op_6(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod008.op_7(a: Int) -> Int {
+  var acc: Int = 23
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod008.op_8(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod008.op_9(a: Int) -> Int {
+  var acc: Int = 82
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod008.op_10(a: Int) -> Int {
+  var acc: Int = 23
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod008.op_11(a: Int) -> Int {
+  var acc: Int = 64
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_006
+  return acc
+}
+
+object Mod009 {
+  val id: Int
+  var counter: Int = 537
+}
+
+func Mod009.op_0(a: Int) -> Int {
+  var acc: Int = 8
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod009.op_1(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod009.op_2(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod009.op_3(a: Int) -> Int {
+  var acc: Int = 46
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod009.op_4(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod009.op_5(a: Int) -> Int {
+  var acc: Int = 48
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod009.op_6(a: Int) -> Int {
+  var acc: Int = 39
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod009.op_7(a: Int) -> Int {
+  var acc: Int = 94
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod009.op_8(a: Int) -> Int {
+  var acc: Int = 42
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod009.op_9(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod009.op_10(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod009.op_11(a: Int) -> Int {
+  var acc: Int = 91
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_034
+  return acc
+}
+
+object Mod010 {
+  val id: Int
+  var counter: Int = 416
+}
+
+func Mod010.op_0(a: Int) -> Int {
+  var acc: Int = 23
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod010.op_1(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod010.op_2(a: Int) -> Int {
+  var acc: Int = 56
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod010.op_3(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod010.op_4(a: Int) -> Int {
+  var acc: Int = 46
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod010.op_5(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod010.op_6(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod010.op_7(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod010.op_8(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod010.op_9(a: Int) -> Int {
+  var acc: Int = 94
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod010.op_10(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod010.op_11(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_023
+  return acc
+}
+
+object Mod011 {
+  val id: Int
+  var counter: Int = 659
+}
+
+func Mod011.op_0(a: Int) -> Int {
+  var acc: Int = 49
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod011.op_1(a: Int) -> Int {
+  var acc: Int = 20
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod011.op_2(a: Int) -> Int {
+  var acc: Int = 93
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod011.op_3(a: Int) -> Int {
+  var acc: Int = 33
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod011.op_4(a: Int) -> Int {
+  var acc: Int = 93
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod011.op_5(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod011.op_6(a: Int) -> Int {
+  var acc: Int = 56
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod011.op_7(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod011.op_8(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod011.op_9(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod011.op_10(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod011.op_11(a: Int) -> Int {
+  var acc: Int = 74
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_030
+  return acc
+}
+
+object Mod012 {
+  val id: Int
+  var counter: Int = 911
+}
+
+func Mod012.op_0(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod012.op_1(a: Int) -> Int {
+  var acc: Int = 73
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod012.op_2(a: Int) -> Int {
+  var acc: Int = 20
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod012.op_3(a: Int) -> Int {
+  var acc: Int = 1
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod012.op_4(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod012.op_5(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod012.op_6(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod012.op_7(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod012.op_8(a: Int) -> Int {
+  var acc: Int = 48
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod012.op_9(a: Int) -> Int {
+  var acc: Int = 86
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod012.op_10(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod012.op_11(a: Int) -> Int {
+  var acc: Int = 2
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_019
+  return acc
+}
+
+object Mod013 {
+  val id: Int
+  var counter: Int = 595
+}
+
+func Mod013.op_0(a: Int) -> Int {
+  var acc: Int = 17
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod013.op_1(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod013.op_2(a: Int) -> Int {
+  var acc: Int = 81
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod013.op_3(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod013.op_4(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod013.op_5(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod013.op_6(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod013.op_7(a: Int) -> Int {
+  var acc: Int = 31
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod013.op_8(a: Int) -> Int {
+  var acc: Int = 91
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod013.op_9(a: Int) -> Int {
+  var acc: Int = 46
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod013.op_10(a: Int) -> Int {
+  var acc: Int = 24
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod013.op_11(a: Int) -> Int {
+  var acc: Int = 79
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_027
+  return acc
+}
+
+object Mod014 {
+  val id: Int
+  var counter: Int = 609
+}
+
+func Mod014.op_0(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod014.op_1(a: Int) -> Int {
+  var acc: Int = 86
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod014.op_2(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod014.op_3(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod014.op_4(a: Int) -> Int {
+  var acc: Int = 55
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod014.op_5(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod014.op_6(a: Int) -> Int {
+  var acc: Int = 97
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod014.op_7(a: Int) -> Int {
+  var acc: Int = 66
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_038
+  return acc
+}
+
+func Mod014.op_8(a: Int) -> Int {
+  var acc: Int = 20
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod014.op_9(a: Int) -> Int {
+  var acc: Int = 69
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod014.op_10(a: Int) -> Int {
+  var acc: Int = 11
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod014.op_11(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_001
+  return acc
+}
+
+object Mod015 {
+  val id: Int
+  var counter: Int = 979
+}
+
+func Mod015.op_0(a: Int) -> Int {
+  var acc: Int = 19
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod015.op_1(a: Int) -> Int {
+  var acc: Int = 68
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod015.op_2(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod015.op_3(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod015.op_4(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod015.op_5(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod015.op_6(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod015.op_7(a: Int) -> Int {
+  var acc: Int = 28
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod015.op_8(a: Int) -> Int {
+  var acc: Int = 64
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod015.op_9(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod015.op_10(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod015.op_11(a: Int) -> Int {
+  var acc: Int = 68
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_038
+  return acc
+}
+
+object Mod016 {
+  val id: Int
+  var counter: Int = 470
+}
+
+func Mod016.op_0(a: Int) -> Int {
+  var acc: Int = 59
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod016.op_1(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod016.op_2(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_038
+  return acc
+}
+
+func Mod016.op_3(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod016.op_4(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod016.op_5(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod016.op_6(a: Int) -> Int {
+  var acc: Int = 86
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod016.op_7(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod016.op_8(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod016.op_9(a: Int) -> Int {
+  var acc: Int = 4
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod016.op_10(a: Int) -> Int {
+  var acc: Int = 4
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod016.op_11(a: Int) -> Int {
+  var acc: Int = 85
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_001
+  return acc
+}
+
+object Mod017 {
+  val id: Int
+  var counter: Int = 778
+}
+
+func Mod017.op_0(a: Int) -> Int {
+  var acc: Int = 85
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod017.op_1(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod017.op_2(a: Int) -> Int {
+  var acc: Int = 94
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod017.op_3(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod017.op_4(a: Int) -> Int {
+  var acc: Int = 10
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod017.op_5(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod017.op_6(a: Int) -> Int {
+  var acc: Int = 59
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod017.op_7(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod017.op_8(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod017.op_9(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod017.op_10(a: Int) -> Int {
+  var acc: Int = 9
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod017.op_11(a: Int) -> Int {
+  var acc: Int = 82
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_004
+  return acc
+}
+
+object Mod018 {
+  val id: Int
+  var counter: Int = 307
+}
+
+func Mod018.op_0(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod018.op_1(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod018.op_2(a: Int) -> Int {
+  var acc: Int = 70
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod018.op_3(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod018.op_4(a: Int) -> Int {
+  var acc: Int = 2
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod018.op_5(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod018.op_6(a: Int) -> Int {
+  var acc: Int = 47
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod018.op_7(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod018.op_8(a: Int) -> Int {
+  var acc: Int = 1
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod018.op_9(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod018.op_10(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod018.op_11(a: Int) -> Int {
+  var acc: Int = 42
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_037
+  return acc
+}
+
+object Mod019 {
+  val id: Int
+  var counter: Int = 781
+}
+
+func Mod019.op_0(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod019.op_1(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod019.op_2(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod019.op_3(a: Int) -> Int {
+  var acc: Int = 7
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod019.op_4(a: Int) -> Int {
+  var acc: Int = 62
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod019.op_5(a: Int) -> Int {
+  var acc: Int = 10
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod019.op_6(a: Int) -> Int {
+  var acc: Int = 8
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod019.op_7(a: Int) -> Int {
+  var acc: Int = 68
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod019.op_8(a: Int) -> Int {
+  var acc: Int = 85
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod019.op_9(a: Int) -> Int {
+  var acc: Int = 87
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod019.op_10(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod019.op_11(a: Int) -> Int {
+  var acc: Int = 69
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_007
+  return acc
+}
+
+object Mod020 {
+  val id: Int
+  var counter: Int = 855
+}
+
+func Mod020.op_0(a: Int) -> Int {
+  var acc: Int = 9
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod020.op_1(a: Int) -> Int {
+  var acc: Int = 41
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod020.op_2(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod020.op_3(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod020.op_4(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod020.op_5(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod020.op_6(a: Int) -> Int {
+  var acc: Int = 46
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod020.op_7(a: Int) -> Int {
+  var acc: Int = 70
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod020.op_8(a: Int) -> Int {
+  var acc: Int = 55
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod020.op_9(a: Int) -> Int {
+  var acc: Int = 61
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_038
+  return acc
+}
+
+func Mod020.op_10(a: Int) -> Int {
+  var acc: Int = 97
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod020.op_11(a: Int) -> Int {
+  var acc: Int = 17
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_026
+  return acc
+}
+
+object Mod021 {
+  val id: Int
+  var counter: Int = 262
+}
+
+func Mod021.op_0(a: Int) -> Int {
+  var acc: Int = 31
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod021.op_1(a: Int) -> Int {
+  var acc: Int = 28
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod021.op_2(a: Int) -> Int {
+  var acc: Int = 31
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod021.op_3(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod021.op_4(a: Int) -> Int {
+  var acc: Int = 18
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod021.op_5(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod021.op_6(a: Int) -> Int {
+  var acc: Int = 97
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod021.op_7(a: Int) -> Int {
+  var acc: Int = 23
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod021.op_8(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod021.op_9(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod021.op_10(a: Int) -> Int {
+  var acc: Int = 56
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod021.op_11(a: Int) -> Int {
+  var acc: Int = 68
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_036
+  return acc
+}
+
+object Mod022 {
+  val id: Int
+  var counter: Int = 223
+}
+
+func Mod022.op_0(a: Int) -> Int {
+  var acc: Int = 28
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod022.op_1(a: Int) -> Int {
+  var acc: Int = 48
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod022.op_2(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod022.op_3(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod022.op_4(a: Int) -> Int {
+  var acc: Int = 89
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod022.op_5(a: Int) -> Int {
+  var acc: Int = 62
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod022.op_6(a: Int) -> Int {
+  var acc: Int = 33
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod022.op_7(a: Int) -> Int {
+  var acc: Int = 89
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod022.op_8(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod022.op_9(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod022.op_10(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod022.op_11(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_014
+  return acc
+}
+
+object Mod023 {
+  val id: Int
+  var counter: Int = 715
+}
+
+func Mod023.op_0(a: Int) -> Int {
+  var acc: Int = 3
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod023.op_1(a: Int) -> Int {
+  var acc: Int = 55
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod023.op_2(a: Int) -> Int {
+  var acc: Int = 83
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod023.op_3(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod023.op_4(a: Int) -> Int {
+  var acc: Int = 39
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_038
+  return acc
+}
+
+func Mod023.op_5(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod023.op_6(a: Int) -> Int {
+  var acc: Int = 24
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod023.op_7(a: Int) -> Int {
+  var acc: Int = 66
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod023.op_8(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod023.op_9(a: Int) -> Int {
+  var acc: Int = 17
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod023.op_10(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod023.op_11(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_005
+  return acc
+}
+
+object Mod024 {
+  val id: Int
+  var counter: Int = 501
+}
+
+func Mod024.op_0(a: Int) -> Int {
+  var acc: Int = 68
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod024.op_1(a: Int) -> Int {
+  var acc: Int = 20
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod024.op_2(a: Int) -> Int {
+  var acc: Int = 86
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod024.op_3(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod024.op_4(a: Int) -> Int {
+  var acc: Int = 74
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod024.op_5(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod024.op_6(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod024.op_7(a: Int) -> Int {
+  var acc: Int = 67
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod024.op_8(a: Int) -> Int {
+  var acc: Int = 40
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod024.op_9(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod024.op_10(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod024.op_11(a: Int) -> Int {
+  var acc: Int = 45
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_032
+  return acc
+}
+
+object Mod025 {
+  val id: Int
+  var counter: Int = 97
+}
+
+func Mod025.op_0(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod025.op_1(a: Int) -> Int {
+  var acc: Int = 81
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod025.op_2(a: Int) -> Int {
+  var acc: Int = 24
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod025.op_3(a: Int) -> Int {
+  var acc: Int = 64
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod025.op_4(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod025.op_5(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod025.op_6(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod025.op_7(a: Int) -> Int {
+  var acc: Int = 8
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod025.op_8(a: Int) -> Int {
+  var acc: Int = 66
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod025.op_9(a: Int) -> Int {
+  var acc: Int = 2
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod025.op_10(a: Int) -> Int {
+  var acc: Int = 47
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod025.op_11(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_039
+  return acc
+}
+
+object Mod026 {
+  val id: Int
+  var counter: Int = 327
+}
+
+func Mod026.op_0(a: Int) -> Int {
+  var acc: Int = 29
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod026.op_1(a: Int) -> Int {
+  var acc: Int = 34
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod026.op_2(a: Int) -> Int {
+  var acc: Int = 38
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod026.op_3(a: Int) -> Int {
+  var acc: Int = 38
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod026.op_4(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod026.op_5(a: Int) -> Int {
+  var acc: Int = 91
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod026.op_6(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod026.op_7(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod026.op_8(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod026.op_9(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod026.op_10(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod026.op_11(a: Int) -> Int {
+  var acc: Int = 46
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_005
+  return acc
+}
+
+object Mod027 {
+  val id: Int
+  var counter: Int = 85
+}
+
+func Mod027.op_0(a: Int) -> Int {
+  var acc: Int = 97
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod027.op_1(a: Int) -> Int {
+  var acc: Int = 19
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod027.op_2(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod027.op_3(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod027.op_4(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod027.op_5(a: Int) -> Int {
+  var acc: Int = 62
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod027.op_6(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod027.op_7(a: Int) -> Int {
+  var acc: Int = 4
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod027.op_8(a: Int) -> Int {
+  var acc: Int = 73
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod027.op_9(a: Int) -> Int {
+  var acc: Int = 40
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod027.op_10(a: Int) -> Int {
+  var acc: Int = 48
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod027.op_11(a: Int) -> Int {
+  var acc: Int = 11
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_017
+  return acc
+}
+
+object Mod028 {
+  val id: Int
+  var counter: Int = 865
+}
+
+func Mod028.op_0(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod028.op_1(a: Int) -> Int {
+  var acc: Int = 87
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod028.op_2(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod028.op_3(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod028.op_4(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod028.op_5(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod028.op_6(a: Int) -> Int {
+  var acc: Int = 18
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod028.op_7(a: Int) -> Int {
+  var acc: Int = 58
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod028.op_8(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod028.op_9(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod028.op_10(a: Int) -> Int {
+  var acc: Int = 47
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod028.op_11(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_004
+  return acc
+}
+
+object Mod029 {
+  val id: Int
+  var counter: Int = 76
+}
+
+func Mod029.op_0(a: Int) -> Int {
+  var acc: Int = 89
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod029.op_1(a: Int) -> Int {
+  var acc: Int = 61
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod029.op_2(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod029.op_3(a: Int) -> Int {
+  var acc: Int = 3
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod029.op_4(a: Int) -> Int {
+  var acc: Int = 76
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod029.op_5(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod029.op_6(a: Int) -> Int {
+  var acc: Int = 53
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod029.op_7(a: Int) -> Int {
+  var acc: Int = 50
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod029.op_8(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod029.op_9(a: Int) -> Int {
+  var acc: Int = 4
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod029.op_10(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod029.op_11(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_023
+  return acc
+}
+
+object Mod030 {
+  val id: Int
+  var counter: Int = 833
+}
+
+func Mod030.op_0(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod030.op_1(a: Int) -> Int {
+  var acc: Int = 38
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod030.op_2(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod030.op_3(a: Int) -> Int {
+  var acc: Int = 1
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod030.op_4(a: Int) -> Int {
+  var acc: Int = 8
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod030.op_5(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod030.op_6(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod030.op_7(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod030.op_8(a: Int) -> Int {
+  var acc: Int = 74
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod030.op_9(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod030.op_10(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod030.op_11(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_035
+  return acc
+}
+
+object Mod031 {
+  val id: Int
+  var counter: Int = 478
+}
+
+func Mod031.op_0(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod031.op_1(a: Int) -> Int {
+  var acc: Int = 79
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod031.op_2(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod031.op_3(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod031.op_4(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod031.op_5(a: Int) -> Int {
+  var acc: Int = 29
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod031.op_6(a: Int) -> Int {
+  var acc: Int = 39
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod031.op_7(a: Int) -> Int {
+  var acc: Int = 87
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod031.op_8(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod031.op_9(a: Int) -> Int {
+  var acc: Int = 79
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod031.op_10(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod031.op_11(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_017
+  return acc
+}
+
+object Mod032 {
+  val id: Int
+  var counter: Int = 345
+}
+
+func Mod032.op_0(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod032.op_1(a: Int) -> Int {
+  var acc: Int = 53
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod032.op_2(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod032.op_3(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod032.op_4(a: Int) -> Int {
+  var acc: Int = 77
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod032.op_5(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod032.op_6(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod032.op_7(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod032.op_8(a: Int) -> Int {
+  var acc: Int = 23
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod032.op_9(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod032.op_10(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod032.op_11(a: Int) -> Int {
+  var acc: Int = 46
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_028
+  return acc
+}
+
+object Mod033 {
+  val id: Int
+  var counter: Int = 606
+}
+
+func Mod033.op_0(a: Int) -> Int {
+  var acc: Int = 28
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod033.op_1(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod033.op_2(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod033.op_3(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod033.op_4(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod033.op_5(a: Int) -> Int {
+  var acc: Int = 2
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod033.op_6(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod033.op_7(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod033.op_8(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod033.op_9(a: Int) -> Int {
+  var acc: Int = 10
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod033.op_10(a: Int) -> Int {
+  var acc: Int = 69
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod033.op_11(a: Int) -> Int {
+  var acc: Int = 48
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_020
+  return acc
+}
+
+object Mod034 {
+  val id: Int
+  var counter: Int = 322
+}
+
+func Mod034.op_0(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod034.op_1(a: Int) -> Int {
+  var acc: Int = 62
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod034.op_2(a: Int) -> Int {
+  var acc: Int = 97
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod034.op_3(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod034.op_4(a: Int) -> Int {
+  var acc: Int = 56
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod034.op_5(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod034.op_6(a: Int) -> Int {
+  var acc: Int = 17
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod034.op_7(a: Int) -> Int {
+  var acc: Int = 73
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod034.op_8(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_015
+  return acc
+}
+
+func Mod034.op_9(a: Int) -> Int {
+  var acc: Int = 7
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod034.op_10(a: Int) -> Int {
+  var acc: Int = 5
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod034.op_11(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_002
+  return acc
+}
+
+object Mod035 {
+  val id: Int
+  var counter: Int = 835
+}
+
+func Mod035.op_0(a: Int) -> Int {
+  var acc: Int = 97
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod035.op_1(a: Int) -> Int {
+  var acc: Int = 79
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod035.op_2(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod035.op_3(a: Int) -> Int {
+  var acc: Int = 40
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod035.op_4(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod035.op_5(a: Int) -> Int {
+  var acc: Int = 29
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod035.op_6(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod035.op_7(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod035.op_8(a: Int) -> Int {
+  var acc: Int = 40
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod035.op_9(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod035.op_10(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_000
+  return acc
+}
+
+func Mod035.op_11(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_016
+  return acc
+}
+
+object Mod036 {
+  val id: Int
+  var counter: Int = 81
+}
+
+func Mod036.op_0(a: Int) -> Int {
+  var acc: Int = 42
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod036.op_1(a: Int) -> Int {
+  var acc: Int = 8
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod036.op_2(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod036.op_3(a: Int) -> Int {
+  var acc: Int = 28
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod036.op_4(a: Int) -> Int {
+  var acc: Int = 49
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod036.op_5(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod036.op_6(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod036.op_7(a: Int) -> Int {
+  var acc: Int = 83
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod036.op_8(a: Int) -> Int {
+  var acc: Int = 34
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod036.op_9(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod036.op_10(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod036.op_11(a: Int) -> Int {
+  var acc: Int = 20
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_023
+  return acc
+}
+
+object Mod037 {
+  val id: Int
+  var counter: Int = 749
+}
+
+func Mod037.op_0(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod037.op_1(a: Int) -> Int {
+  var acc: Int = 87
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod037.op_2(a: Int) -> Int {
+  var acc: Int = 68
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod037.op_3(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod037.op_4(a: Int) -> Int {
+  var acc: Int = 50
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod037.op_5(a: Int) -> Int {
+  var acc: Int = 22
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod037.op_6(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod037.op_7(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod037.op_8(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod037.op_9(a: Int) -> Int {
+  var acc: Int = 94
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod037.op_10(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod037.op_11(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_012
+  return acc
+}
+
+object Mod038 {
+  val id: Int
+  var counter: Int = 243
+}
+
+func Mod038.op_0(a: Int) -> Int {
+  var acc: Int = 82
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod038.op_1(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod038.op_2(a: Int) -> Int {
+  var acc: Int = 50
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod038.op_3(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod038.op_4(a: Int) -> Int {
+  var acc: Int = 33
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod038.op_5(a: Int) -> Int {
+  var acc: Int = 67
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod038.op_6(a: Int) -> Int {
+  var acc: Int = 74
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod038.op_7(a: Int) -> Int {
+  var acc: Int = 64
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_037
+  return acc
+}
+
+func Mod038.op_8(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod038.op_9(a: Int) -> Int {
+  var acc: Int = 82
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod038.op_10(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod038.op_11(a: Int) -> Int {
+  var acc: Int = 7
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_001
+  return acc
+}
+
+object Mod039 {
+  val id: Int
+  var counter: Int = 446
+}
+
+func Mod039.op_0(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_032
+  return acc
+}
+
+func Mod039.op_1(a: Int) -> Int {
+  var acc: Int = 72
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod039.op_2(a: Int) -> Int {
+  var acc: Int = 84
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_004
+  return acc
+}
+
+func Mod039.op_3(a: Int) -> Int {
+  var acc: Int = 34
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod039.op_4(a: Int) -> Int {
+  var acc: Int = 3
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod039.op_5(a: Int) -> Int {
+  var acc: Int = 59
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod039.op_6(a: Int) -> Int {
+  var acc: Int = 79
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod039.op_7(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod039.op_8(a: Int) -> Int {
+  var acc: Int = 3
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod039.op_9(a: Int) -> Int {
+  var acc: Int = 7
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod039.op_10(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_002
+  return acc
+}
+
+func Mod039.op_11(a: Int) -> Int {
+  var acc: Int = 39
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_033
+  return acc
+}
+
+object Mod040 {
+  val id: Int
+  var counter: Int = 907
+}
+
+func Mod040.op_0(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod040.op_1(a: Int) -> Int {
+  var acc: Int = 33
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod040.op_2(a: Int) -> Int {
+  var acc: Int = 28
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod040.op_3(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod040.op_4(a: Int) -> Int {
+  var acc: Int = 69
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_025
+  return acc
+}
+
+func Mod040.op_5(a: Int) -> Int {
+  var acc: Int = 5
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod040.op_6(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod040.op_7(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod040.op_8(a: Int) -> Int {
+  var acc: Int = 83
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod040.op_9(a: Int) -> Int {
+  var acc: Int = 6
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod040.op_10(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_010
+  return acc
+}
+
+func Mod040.op_11(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_031
+  return acc
+}
+
+object Mod041 {
+  val id: Int
+  var counter: Int = 74
+}
+
+func Mod041.op_0(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod041.op_1(a: Int) -> Int {
+  var acc: Int = 19
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod041.op_2(a: Int) -> Int {
+  var acc: Int = 91
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_028
+  return acc
+}
+
+func Mod041.op_3(a: Int) -> Int {
+  var acc: Int = 4
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod041.op_4(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod041.op_5(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod041.op_6(a: Int) -> Int {
+  var acc: Int = 13
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod041.op_7(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_011
+  return acc
+}
+
+func Mod041.op_8(a: Int) -> Int {
+  var acc: Int = 71
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod041.op_9(a: Int) -> Int {
+  var acc: Int = 91
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod041.op_10(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod041.op_11(a: Int) -> Int {
+  var acc: Int = 7
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_002
+  return acc
+}
+
+object Mod042 {
+  val id: Int
+  var counter: Int = 365
+}
+
+func Mod042.op_0(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod042.op_1(a: Int) -> Int {
+  var acc: Int = 9
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod042.op_2(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_001
+  return acc
+}
+
+func Mod042.op_3(a: Int) -> Int {
+  var acc: Int = 95
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_024
+  return acc
+}
+
+func Mod042.op_4(a: Int) -> Int {
+  var acc: Int = 33
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod042.op_5(a: Int) -> Int {
+  var acc: Int = 54
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod042.op_6(a: Int) -> Int {
+  var acc: Int = 38
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod042.op_7(a: Int) -> Int {
+  var acc: Int = 70
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod042.op_8(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod042.op_9(a: Int) -> Int {
+  var acc: Int = 45
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod042.op_10(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod042.op_11(a: Int) -> Int {
+  var acc: Int = 51
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_018
+  return acc
+}
+
+object Mod043 {
+  val id: Int
+  var counter: Int = 689
+}
+
+func Mod043.op_0(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod043.op_1(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod043.op_2(a: Int) -> Int {
+  var acc: Int = 2
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod043.op_3(a: Int) -> Int {
+  var acc: Int = 29
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod043.op_4(a: Int) -> Int {
+  var acc: Int = 55
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod043.op_5(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod043.op_6(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod043.op_7(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod043.op_8(a: Int) -> Int {
+  var acc: Int = 28
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_009
+  return acc
+}
+
+func Mod043.op_9(a: Int) -> Int {
+  var acc: Int = 84
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod043.op_10(a: Int) -> Int {
+  var acc: Int = 78
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_012
+  return acc
+}
+
+func Mod043.op_11(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_015
+  return acc
+}
+
+object Mod044 {
+  val id: Int
+  var counter: Int = 786
+}
+
+func Mod044.op_0(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod044.op_1(a: Int) -> Int {
+  var acc: Int = 49
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_021
+  return acc
+}
+
+func Mod044.op_2(a: Int) -> Int {
+  var acc: Int = 74
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + CONST_017
+  return acc
+}
+
+func Mod044.op_3(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_031
+  return acc
+}
+
+func Mod044.op_4(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_020
+  return acc
+}
+
+func Mod044.op_5(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod044.op_6(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod044.op_7(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_023
+  return acc
+}
+
+func Mod044.op_8(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod044.op_9(a: Int) -> Int {
+  var acc: Int = 42
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod044.op_10(a: Int) -> Int {
+  var acc: Int = 24
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod044.op_11(a: Int) -> Int {
+  var acc: Int = 38
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_008
+  return acc
+}
+
+object Mod045 {
+  val id: Int
+  var counter: Int = 416
+}
+
+func Mod045.op_0(a: Int) -> Int {
+  var acc: Int = 19
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_006
+  return acc
+}
+
+func Mod045.op_1(a: Int) -> Int {
+  var acc: Int = 24
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod045.op_2(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod045.op_3(a: Int) -> Int {
+  var acc: Int = 8
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod045.op_4(a: Int) -> Int {
+  var acc: Int = 67
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod045.op_5(a: Int) -> Int {
+  var acc: Int = 56
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + CONST_016
+  return acc
+}
+
+func Mod045.op_6(a: Int) -> Int {
+  var acc: Int = 18
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod045.op_7(a: Int) -> Int {
+  var acc: Int = 12
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod045.op_8(a: Int) -> Int {
+  var acc: Int = 20
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_003
+  return acc
+}
+
+func Mod045.op_9(a: Int) -> Int {
+  var acc: Int = 76
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_027
+  return acc
+}
+
+func Mod045.op_10(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod045.op_11(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_001
+  return acc
+}
+
+object Mod046 {
+  val id: Int
+  var counter: Int = 737
+}
+
+func Mod046.op_0(a: Int) -> Int {
+  var acc: Int = 88
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_035
+  return acc
+}
+
+func Mod046.op_1(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_019
+  return acc
+}
+
+func Mod046.op_2(a: Int) -> Int {
+  var acc: Int = 64
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod046.op_3(a: Int) -> Int {
+  var acc: Int = 60
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod046.op_4(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod046.op_5(a: Int) -> Int {
+  var acc: Int = 44
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod046.op_6(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod046.op_7(a: Int) -> Int {
+  var acc: Int = 53
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_033
+  return acc
+}
+
+func Mod046.op_8(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_005
+  return acc
+}
+
+func Mod046.op_9(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_029
+  return acc
+}
+
+func Mod046.op_10(a: Int) -> Int {
+  var acc: Int = 5
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_018
+  return acc
+}
+
+func Mod046.op_11(a: Int) -> Int {
+  var acc: Int = 39
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_029
+  return acc
+}
+
+object Mod047 {
+  val id: Int
+  var counter: Int = 283
+}
+
+func Mod047.op_0(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_008
+  return acc
+}
+
+func Mod047.op_1(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_034
+  return acc
+}
+
+func Mod047.op_2(a: Int) -> Int {
+  var acc: Int = 58
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_022
+  return acc
+}
+
+func Mod047.op_3(a: Int) -> Int {
+  var acc: Int = 92
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod047.op_4(a: Int) -> Int {
+  var acc: Int = 2
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_026
+  return acc
+}
+
+func Mod047.op_5(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + CONST_007
+  return acc
+}
+
+func Mod047.op_6(a: Int) -> Int {
+  var acc: Int = 42
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + CONST_014
+  return acc
+}
+
+func Mod047.op_7(a: Int) -> Int {
+  var acc: Int = 4
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_039
+  return acc
+}
+
+func Mod047.op_8(a: Int) -> Int {
+  var acc: Int = 56
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + CONST_036
+  return acc
+}
+
+func Mod047.op_9(a: Int) -> Int {
+  var acc: Int = 34
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + CONST_013
+  return acc
+}
+
+func Mod047.op_10(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + CONST_030
+  return acc
+}
+
+func Mod047.op_11(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + CONST_023
+  return acc
+}
+
+func main() {
+  val x0: Mod000 = Mod000 { id: 0, counter: 0 }
+  val x1: Mod001 = Mod001 { id: 1, counter: 3 }
+  val x2: Mod002 = Mod002 { id: 2, counter: 6 }
+  val x3: Mod003 = Mod003 { id: 3, counter: 9 }
+  val x4: Mod004 = Mod004 { id: 4, counter: 12 }
+  val x5: Mod005 = Mod005 { id: 5, counter: 15 }
+  val x6: Mod006 = Mod006 { id: 6, counter: 18 }
+  val x7: Mod007 = Mod007 { id: 7, counter: 21 }
+  val x8: Mod008 = Mod008 { id: 8, counter: 24 }
+  val x9: Mod009 = Mod009 { id: 9, counter: 27 }
+  val x10: Mod010 = Mod010 { id: 10, counter: 30 }
+  val x11: Mod011 = Mod011 { id: 11, counter: 33 }
+  val x12: Mod012 = Mod012 { id: 12, counter: 36 }
+  val x13: Mod013 = Mod013 { id: 13, counter: 39 }
+  val x14: Mod014 = Mod014 { id: 14, counter: 42 }
+  val x15: Mod015 = Mod015 { id: 15, counter: 45 }
+  val x16: Mod016 = Mod016 { id: 16, counter: 48 }
+  val x17: Mod017 = Mod017 { id: 17, counter: 51 }
+  val x18: Mod018 = Mod018 { id: 18, counter: 54 }
+  val x19: Mod019 = Mod019 { id: 19, counter: 57 }
+  val x20: Mod020 = Mod020 { id: 20, counter: 60 }
+  val x21: Mod021 = Mod021 { id: 21, counter: 63 }
+  val x22: Mod022 = Mod022 { id: 22, counter: 66 }
+  val x23: Mod023 = Mod023 { id: 23, counter: 69 }
+  val x24: Mod024 = Mod024 { id: 24, counter: 72 }
+  val x25: Mod025 = Mod025 { id: 25, counter: 75 }
+  val x26: Mod026 = Mod026 { id: 26, counter: 78 }
+  val x27: Mod027 = Mod027 { id: 27, counter: 81 }
+  val x28: Mod028 = Mod028 { id: 28, counter: 84 }
+  val x29: Mod029 = Mod029 { id: 29, counter: 87 }
+  val x30: Mod030 = Mod030 { id: 30, counter: 90 }
+  val x31: Mod031 = Mod031 { id: 31, counter: 93 }
+  val x32: Mod032 = Mod032 { id: 32, counter: 96 }
+  val x33: Mod033 = Mod033 { id: 33, counter: 99 }
+  val x34: Mod034 = Mod034 { id: 34, counter: 102 }
+  val x35: Mod035 = Mod035 { id: 35, counter: 105 }
+  val x36: Mod036 = Mod036 { id: 36, counter: 108 }
+  val x37: Mod037 = Mod037 { id: 37, counter: 111 }
+  val x38: Mod038 = Mod038 { id: 38, counter: 114 }
+  val x39: Mod039 = Mod039 { id: 39, counter: 117 }
+  val x40: Mod040 = Mod040 { id: 40, counter: 120 }
+  val x41: Mod041 = Mod041 { id: 41, counter: 123 }
+  val x42: Mod042 = Mod042 { id: 42, counter: 126 }
+  val x43: Mod043 = Mod043 { id: 43, counter: 129 }
+  val x44: Mod044 = Mod044 { id: 44, counter: 132 }
+  val x45: Mod045 = Mod045 { id: 45, counter: 135 }
+  val x46: Mod046 = Mod046 { id: 46, counter: 138 }
+  val x47: Mod047 = Mod047 { id: 47, counter: 141 }
+  val _r0: Int = x0.op_0(1)
+  val _r1: Int = x1.op_0(2)
+  val _r2: Int = x2.op_0(3)
+  val _r3: Int = x3.op_0(4)
+  val _r4: Int = x4.op_0(5)
+  val _r5: Int = x5.op_0(6)
+  val _r6: Int = x6.op_0(7)
+  val _r7: Int = x7.op_0(8)
+  val _r8: Int = x8.op_0(9)
+  val _r9: Int = x9.op_0(10)
+  val _r10: Int = x10.op_0(11)
+  val _r11: Int = x11.op_0(12)
+  val _r12: Int = x12.op_0(13)
+  val _r13: Int = x13.op_0(14)
+  val _r14: Int = x14.op_0(15)
+  val _r15: Int = x15.op_0(16)
+  val _r16: Int = x16.op_0(17)
+  val _r17: Int = x17.op_0(18)
+  val _r18: Int = x18.op_0(19)
+  val _r19: Int = x19.op_0(20)
+  val _r20: Int = x20.op_0(21)
+  val _r21: Int = x21.op_0(22)
+  val _r22: Int = x22.op_0(23)
+  val _r23: Int = x23.op_0(24)
+  val _r24: Int = x24.op_0(25)
+  val _r25: Int = x25.op_0(26)
+  val _r26: Int = x26.op_0(27)
+  val _r27: Int = x27.op_0(28)
+  val _r28: Int = x28.op_0(29)
+  val _r29: Int = x29.op_0(30)
+  val _r30: Int = x30.op_0(31)
+  val _r31: Int = x31.op_0(32)
+  val _r32: Int = x32.op_0(33)
+  val _r33: Int = x33.op_0(34)
+  val _r34: Int = x34.op_0(35)
+  val _r35: Int = x35.op_0(36)
+  val _r36: Int = x36.op_0(37)
+  val _r37: Int = x37.op_0(38)
+  val _r38: Int = x38.op_0(39)
+  val _r39: Int = x39.op_0(40)
+  val _r40: Int = x40.op_0(41)
+  val _r41: Int = x41.op_0(42)
+  val _r42: Int = x42.op_0(43)
+  val _r43: Int = x43.op_0(44)
+  val _r44: Int = x44.op_0(45)
+  val _r45: Int = x45.op_0(46)
+  val _r46: Int = x46.op_0(47)
+  val _r47: Int = x47.op_0(48)
+  return
+}
+// slo-large-pad line 04995
+// slo-large-pad line 04996
+// slo-large-pad line 04997
+// slo-large-pad line 04998
+// slo-large-pad line 04999
