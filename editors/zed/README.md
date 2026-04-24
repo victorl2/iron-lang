@@ -128,17 +128,17 @@ Usually network-related:
 - No ironls release exists for your platform (check the
   [releases page](https://github.com/iron-lang/iron-lang/releases)).
 
-### macOS Gatekeeper blocks `ironls`
+### macOS Gatekeeper
 
-v1 does **not** ship notarized macOS binaries — that's Phase 7
-HARD-21. In the meantime, run:
-
-```sh
-xattr -dr com.apple.quarantine "$(zed --extensions-dir)/iron-lsp/work_dir/ironls"
-```
-
-(exact path depends on Zed's extensions dir layout; Zed's docs have
-the canonical location).
+`ironls` binaries attached to GitHub Releases are Developer-ID signed,
+Apple-notarized, and stapled per Phase 7 HARD-21 (see
+`scripts/ci/sign_and_notarize_macos.sh` +
+`docs/dev/apple-notarization-setup.md`). Gatekeeper accepts them
+silently on first launch — no `xattr -dr com.apple.quarantine` dance
+required. If you built `ironls` locally and pointed `iron_lsp_path` at
+it, that local binary is *not* signed and Gatekeeper may quarantine
+it; in that case either use the release binary via the download flow
+or sign your local copy yourself.
 
 ### Zed on Linux
 
