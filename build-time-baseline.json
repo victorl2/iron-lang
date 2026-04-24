@@ -1,12 +1,12 @@
 [
-  {"sha":"seed","ts":"2026-04-23T00:00:00Z","seconds":124.5,"os":"ubuntu-latest"},
-  {"sha":"seed","ts":"2026-04-23T00:10:00Z","seconds":126.8,"os":"ubuntu-latest"},
-  {"sha":"seed","ts":"2026-04-23T00:20:00Z","seconds":123.1,"os":"ubuntu-latest"},
-  {"sha":"seed","ts":"2026-04-23T00:30:00Z","seconds":125.7,"os":"ubuntu-latest"},
-  {"sha":"seed","ts":"2026-04-23T00:40:00Z","seconds":124.0,"os":"ubuntu-latest"},
-  {"sha":"seed","ts":"2026-04-23T00:50:00Z","seconds":148.3,"os":"macos-latest"},
-  {"sha":"seed","ts":"2026-04-23T01:00:00Z","seconds":150.1,"os":"macos-latest"},
-  {"sha":"seed","ts":"2026-04-23T01:10:00Z","seconds":147.2,"os":"macos-latest"},
-  {"sha":"seed","ts":"2026-04-23T01:20:00Z","seconds":149.5,"os":"macos-latest"},
-  {"sha":"seed","ts":"2026-04-23T01:30:00Z","seconds":148.8,"os":"macos-latest"}
+  {"sha":"seed-v3","ts":"2026-04-24T19:00:00Z","seconds":158.4,"os":"ubuntu-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:10:00Z","seconds":161.2,"os":"ubuntu-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:20:00Z","seconds":160.1,"os":"ubuntu-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:30:00Z","seconds":162.0,"os":"ubuntu-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:40:00Z","seconds":159.6,"os":"ubuntu-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:00:00Z","seconds":148.3,"os":"macos-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:10:00Z","seconds":150.1,"os":"macos-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:20:00Z","seconds":147.2,"os":"macos-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:30:00Z","seconds":149.5,"os":"macos-latest"},
+  {"sha":"seed-v3","ts":"2026-04-24T19:40:00Z","seconds":148.8,"os":"macos-latest"}
 ]
