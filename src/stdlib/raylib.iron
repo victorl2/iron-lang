@@ -1085,6 +1085,10 @@ patch object Vector2 {
     func clamp_value(min: Float32, max: Float32) -> Vector2 {}
     func equals(other: Vector2) -> Bool {}
     func refract(n: Vector2, r: Float32) -> Vector2 {}
+
+    func inside_triangle(p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
+    func inside_polygon(points: [Vector2]) -> Bool {}
+    func on_line(p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
 }
 
 
@@ -1135,6 +1139,8 @@ patch object Vector3 {
 -- MATH-03 (carried from Plan 65-02): Vector3ToFloatV — lands now that
 -- Float3 exists (Plan 65-03 Task 1).
     func to_float_v() -> Float3 {}
+
+    func ortho_normalize(other: Vector3) -> (Vector3, Vector3) {}
 }
 
 -- Vector3.ortho_normalize landed in Plan 65-04 below (2-tuple out-param).
@@ -1178,14 +1184,22 @@ patch object Matrix {
     func trace() -> Float32 {}
     func transpose() -> Matrix {}
     func invert() -> Matrix {}
-}
 
-func Matrix.identity() -> Matrix {}
-patch object Matrix {
     func add(other: Matrix) -> Matrix {}
     func subtract(other: Matrix) -> Matrix {}
     func multiply(other: Matrix) -> Matrix {}
+
+    func to_float_v() -> Float16 {}
+
+-- MATH-05 carried from Plan 65-03: MatrixDecompose 3-tuple out-param.
+-- Plan 65-04 Task 1 probe confirmed Branch A (GREEN) — ironc auto-emits
+-- canonical typedef `Iron_Tuple_Vector3_Quaternion_Vector3` with 3 fields
+-- (Iron_Vector3 v0; Iron_Quaternion v1; Iron_Vector3 v2) via the generic
+-- arity-agnostic loop at emit_helpers.c:260-294.
+    func decompose() -> (Vector3, Quaternion, Vector3) {}
 }
+
+func Matrix.identity() -> Matrix {}
 
 func Matrix.translate(x: Float32, y: Float32, z: Float32) -> Matrix {}
 func Matrix.rotate(axis: Vector3, angle: Float32) -> Matrix {}
@@ -1199,24 +1213,11 @@ func Matrix.frustum(left: Float32, right: Float32, bottom: Float32, top: Float32
 func Matrix.perspective(fovy: Float32, aspect: Float32, near_plane: Float32, far_plane: Float32) -> Matrix {}
 func Matrix.ortho(left: Float32, right: Float32, bottom: Float32, top: Float32, near_plane: Float32, far_plane: Float32) -> Matrix {}
 func Matrix.look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix {}
-patch object Matrix {
-    func to_float_v() -> Float16 {}
-
--- MATH-05 carried from Plan 65-03: MatrixDecompose 3-tuple out-param.
--- Plan 65-04 Task 1 probe confirmed Branch A (GREEN) — ironc auto-emits
--- canonical typedef `Iron_Tuple_Vector3_Quaternion_Vector3` with 3 fields
--- (Iron_Vector3 v0; Iron_Quaternion v1; Iron_Vector3 v2) via the generic
--- arity-agnostic loop at emit_helpers.c:260-294.
-    func decompose() -> (Vector3, Quaternion, Vector3) {}
-}
 
 
 -- MATH-03 carried from Plan 65-02: Vector3OrthoNormalize 2-tuple
 -- out-param (mutates both args). Raymath signature:
 -- `void Vector3OrthoNormalize(Vector3 *v1, Vector3 *v2)`.
-patch object Vector3 {
-    func ortho_normalize(other: Vector3) -> (Vector3, Vector3) {}
-}
 
 
 -- MATH-06: Quaternion methods (24 of 24 functions, raymath.h lines
@@ -1238,10 +1239,7 @@ patch object Quaternion {
     func add_value(add: Float32) -> Quaternion {}
     func subtract(other: Quaternion) -> Quaternion {}
     func subtract_value(sub: Float32) -> Quaternion {}
-}
 
-func Quaternion.identity() -> Quaternion {}
-patch object Quaternion {
     func length() -> Float32 {}
     func normalize() -> Quaternion {}
     func invert() -> Quaternion {}
@@ -1252,25 +1250,24 @@ patch object Quaternion {
     func nlerp(other: Quaternion, amount: Float32) -> Quaternion {}
     func slerp(other: Quaternion, amount: Float32) -> Quaternion {}
     func cubic_hermite_spline(out_tangent1: Quaternion, q2: Quaternion, in_tangent2: Quaternion, t: Float32) -> Quaternion {}
-}
 
-func Quaternion.from_vector3_to_vector3(from: Vector3, to: Vector3) -> Quaternion {}
-func Quaternion.from_matrix(mat: Matrix) -> Quaternion {}
-patch object Quaternion {
     func to_matrix() -> Matrix {}
-}
 
-func Quaternion.from_axis_angle(axis: Vector3, angle: Float32) -> Quaternion {}
-patch object Quaternion {
     func to_axis_angle() -> (Vector3, Float32) {}
-}
 
-func Quaternion.from_euler(pitch: Float32, yaw: Float32, roll: Float32) -> Quaternion {}
-patch object Quaternion {
     func to_euler() -> Vector3 {}
     func transform(mat: Matrix) -> Quaternion {}
     func equals(other: Quaternion) -> Bool {}
 }
+
+func Quaternion.identity() -> Quaternion {}
+
+func Quaternion.from_vector3_to_vector3(from: Vector3, to: Vector3) -> Quaternion {}
+func Quaternion.from_matrix(mat: Matrix) -> Quaternion {}
+
+func Quaternion.from_axis_angle(axis: Vector3, angle: Float32) -> Quaternion {}
+
+func Quaternion.from_euler(pitch: Float32, yaw: Float32, roll: Float32) -> Quaternion {}
 
 
 -- Matrix.decompose landed immediately below (Plan 65-04 Task 2).
@@ -1312,15 +1309,9 @@ patch object Color {
     func fade(alpha: Float32) -> Color {}
     func to_int() -> Int32 {}
     func normalize() -> Vector4 {}
-}
 
-func Color.from_normalized(v: Vector4) -> Color {}
-patch object Color {
     func to_hsv() -> Vector3 {}
-}
 
-func Color.from_hsv(hue: Float32, saturation: Float32, value: Float32) -> Color {}
-patch object Color {
     func tint(tint: Color) -> Color {}
     func brightness(factor: Float32) -> Color {}
     func contrast(contrast: Float32) -> Color {}
@@ -1328,6 +1319,10 @@ patch object Color {
     func alpha_blend(src: Color, tint: Color) -> Color {}
     func lerp(other: Color, factor: Float32) -> Color {}
 }
+
+func Color.from_normalized(v: Vector4) -> Color {}
+
+func Color.from_hsv(hue: Float32, saturation: Float32, value: Float32) -> Color {}
 
 func Color.from_int(hex_value: UInt32) -> Color {}
 func Color.from_pixel_data(data: Int, format: PixelFormat) -> Color {}
@@ -1360,25 +1355,7 @@ func Image.load(path: String) -> Image {}
 patch object Image {
     func unload() {}
     func is_valid() -> Bool {}
-}
 
-func Image.load_anim(path: String) -> Image {}
-func Image.from_texture(tex: Texture) -> Image {}
-func Image.from_screen() -> Image {}
-
--- Image generation (TEX-03)
-func Image.color(width: Int32, height: Int32, color: Color) -> Image {}
-func Image.gradient_linear(width: Int32, height: Int32, direction: Int32, start: Color, finish: Color) -> Image {}
-func Image.gradient_radial(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
-func Image.gradient_square(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
-func Image.checked(width: Int32, height: Int32, checks_x: Int32, checks_y: Int32, c1: Color, c2: Color) -> Image {}
-func Image.white_noise(width: Int32, height: Int32, factor: Float32) -> Image {}
-func Image.perlin_noise(width: Int32, height: Int32, offset_x: Int32, offset_y: Int32, scale: Float32) -> Image {}
-func Image.cellular(width: Int32, height: Int32, tile_size: Int32) -> Image {}
-func Image.text(width: Int32, height: Int32, text: String) -> Image {}
-
--- Image export (narrowed TEX-04)
-patch object Image {
     func export(path: String) -> Bool {}
     func export_as_code(path: String) -> Bool {}
 
@@ -1482,7 +1459,31 @@ patch object Image {
     func draw_triangle_strip(points: [Vector2], point_count: Int32, color: Color) -> Image {}
     func draw(src: Image, src_rec: Rectangle, dst_rec: Rectangle, tint: Color) -> Image {}
     func draw_text(text: String, pos_x: Int32, pos_y: Int32, font_size: Int32, color: Color) -> Image {}
+
+    func draw_text_ex(font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
+
+    func to_texture() -> Texture {}
+
+    func export_to_memory(file_type: String) -> [UInt8] {}
+    func kernel_convolution(kernel: [Float32], kernel_size: Int32) -> Image {}
 }
+
+func Image.load_anim(path: String) -> Image {}
+func Image.from_texture(tex: Texture) -> Image {}
+func Image.from_screen() -> Image {}
+
+-- Image generation (TEX-03)
+func Image.color(width: Int32, height: Int32, color: Color) -> Image {}
+func Image.gradient_linear(width: Int32, height: Int32, direction: Int32, start: Color, finish: Color) -> Image {}
+func Image.gradient_radial(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
+func Image.gradient_square(width: Int32, height: Int32, density: Float32, inner: Color, outer: Color) -> Image {}
+func Image.checked(width: Int32, height: Int32, checks_x: Int32, checks_y: Int32, c1: Color, c2: Color) -> Image {}
+func Image.white_noise(width: Int32, height: Int32, factor: Float32) -> Image {}
+func Image.perlin_noise(width: Int32, height: Int32, offset_x: Int32, offset_y: Int32, scale: Float32) -> Image {}
+func Image.cellular(width: Int32, height: Int32, tile_size: Int32) -> Image {}
+func Image.text(width: Int32, height: Int32, text: String) -> Image {}
+
+-- Image export (narrowed TEX-04)
 
 
 -- Phase 66 Font-dependent deferrals closed in Phase 67 Plan 01 Task 2
@@ -1491,9 +1492,6 @@ patch object Image {
 -- (Phase 66-03 Pattern 2 mutating-return-by-value). Font lifetime MUST
 -- outlive the call — raylib reads Font._recs / _glyphs internally.
 func Image.text_ex(font: Font, text: String, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
-patch object Image {
-    func draw_text_ex(font: Font, text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) -> Image {}
-}
 
 
 -- Texture + RenderTexture load/update/config (Plan 66-04 — TEX-08/09/10/11, 12 bindings)
@@ -1507,27 +1505,11 @@ patch object Image {
 
 -- TEX-08 Texture load/unload/valid
 func Texture.load(path: String) -> Texture {}
-patch object Image {
-    func to_texture() -> Texture {}
-}
 
 patch object Texture {
     func unload() {}
     func is_valid() -> Bool {}
-}
 
-
--- TEX-09 Cubemap + RenderTexture
-func Texture.load_cubemap(img: Image, layout: CubemapLayout) -> Texture {}
-func RenderTexture.load(width: Int32, height: Int32) -> RenderTexture {}
-patch object RenderTexture {
-    func unload() {}
-    func is_valid() -> Bool {}
-}
-
-
--- TEX-10 Texture update (opaque void* via Int pointer cast)
-patch object Texture {
     func update(pixels: Int) {}
     func update_rec(rec: Rectangle, pixels: Int) {}
 
@@ -1551,6 +1533,18 @@ patch object Texture {
     func draw_pro(source: Rectangle, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
     func draw_n_patch(n_patch_info: NPatchInfo, dest: Rectangle, origin: Vector2, rotation: Float32, tint: Color) {}
 }
+
+
+-- TEX-09 Cubemap + RenderTexture
+func Texture.load_cubemap(img: Image, layout: CubemapLayout) -> Texture {}
+func RenderTexture.load(width: Int32, height: Int32) -> RenderTexture {}
+patch object RenderTexture {
+    func unload() {}
+    func is_valid() -> Bool {}
+}
+
+
+-- TEX-10 Texture update (opaque void* via Int pointer cast)
 
 
 -- ══════════════════════════════════════════════════════════════════════
@@ -1595,42 +1589,7 @@ patch object Font {
     func is_valid() -> Bool {}
     func unload() {}
     func export_as_code(filePath: String) -> Bool {}
-}
 
-
--- TEXT-05 Font data operations. gen_image_atlas bakes an atlas Image +
--- per-glyph source Rectangles from an input [GlyphInfo] array, returning
--- both as a tuple. unload_data releases a [GlyphInfo] array allocated by
--- raylib (Font.load_data, deferred). First (Image, [Rectangle]) tuple
--- RETURN and first [GlyphInfo] INPUT in the raylib binding.
-func Font.gen_image_atlas(glyphs: [GlyphInfo], fontSize: Int32, padding: Int32, packMethod: Int32) -> (Image, [Rectangle]) {}
-func Font.unload_data(glyphs: [GlyphInfo]) {}
-
--- ── Plan 67-02 Task 1: Text.* default-font utilities (TEXT-09, TEXT-10 default)
---
--- Text.measure: width in pixels of `text` at `fontSize` using raylib's
--- embedded default font. Requires Window.init() (same Pitfall 1 as
--- Draw.text above). For custom-font measurement use Font.measure_ex
--- (Plan 67-02 Task 2 below).
---
--- Text.set_line_spacing: vertical gap in pixels between lines when
--- raylib draws multi-line text. Applies to every draw (default and
--- custom font) that follows. Mutates raylib's internal global state.
-func Text.measure(text: String, fontSize: Int32) -> Int32 {}
-func Text.set_line_spacing(spacing: Int32) {}
-
--- ── Plan 67-02 Task 2: Font.* instance methods — custom-font draws (TEXT-08)
---
--- Explicit-receiver convention: `func Font.method(font: Font, ...)`
--- matches Font.is_valid / Font.unload above + Texture.unload /
--- RenderTexture.unload (Phases 66-04/05) + every other instance method
--- in this file. Lowercase-receiver form (e.g. `func font.draw_ex(...)`)
--- would fail analyzer resolution because `font` is not a declared type.
--- Rule 1 auto-fix carried over from Plan 67-01.
-
--- draw_ex: axis-aligned custom-font draw at `position` with horizontal
--- glyph spacing.
-patch object Font {
     func draw_ex(text: String, position: Vector2, fontSize: Float32, spacing: Float32, tint: Color) {}
 
 -- draw_pro: same as draw_ex but rotates the baseline around `origin`.
@@ -1668,6 +1627,40 @@ patch object Font {
     func get_glyph_info(codepoint: Int32) -> GlyphInfo {}
     func get_glyph_atlas_rec(codepoint: Int32) -> Rectangle {}
 }
+
+
+-- TEXT-05 Font data operations. gen_image_atlas bakes an atlas Image +
+-- per-glyph source Rectangles from an input [GlyphInfo] array, returning
+-- both as a tuple. unload_data releases a [GlyphInfo] array allocated by
+-- raylib (Font.load_data, deferred). First (Image, [Rectangle]) tuple
+-- RETURN and first [GlyphInfo] INPUT in the raylib binding.
+func Font.gen_image_atlas(glyphs: [GlyphInfo], fontSize: Int32, padding: Int32, packMethod: Int32) -> (Image, [Rectangle]) {}
+func Font.unload_data(glyphs: [GlyphInfo]) {}
+
+-- ── Plan 67-02 Task 1: Text.* default-font utilities (TEXT-09, TEXT-10 default)
+--
+-- Text.measure: width in pixels of `text` at `fontSize` using raylib's
+-- embedded default font. Requires Window.init() (same Pitfall 1 as
+-- Draw.text above). For custom-font measurement use Font.measure_ex
+-- (Plan 67-02 Task 2 below).
+--
+-- Text.set_line_spacing: vertical gap in pixels between lines when
+-- raylib draws multi-line text. Applies to every draw (default and
+-- custom font) that follows. Mutates raylib's internal global state.
+func Text.measure(text: String, fontSize: Int32) -> Int32 {}
+func Text.set_line_spacing(spacing: Int32) {}
+
+-- ── Plan 67-02 Task 2: Font.* instance methods — custom-font draws (TEXT-08)
+--
+-- Explicit-receiver convention: `func Font.method(font: Font, ...)`
+-- matches Font.is_valid / Font.unload above + Texture.unload /
+-- RenderTexture.unload (Phases 66-04/05) + every other instance method
+-- in this file. Lowercase-receiver form (e.g. `func font.draw_ex(...)`)
+-- would fail analyzer resolution because `font` is not a declared type.
+-- Rule 1 auto-fix carried over from Plan 67-01.
+
+-- draw_ex: axis-aligned custom-font draw at `position` with horizontal
+-- glyph spacing.
 
 
 -- ── UTF-8 / codepoint utilities (TEXT-12) — Plan 67-03 ────────────────
@@ -2460,11 +2453,6 @@ patch object Rectangle {
 
 -- Vector2 receiver (3 functions). Receiver param is named `point`
 -- (idiomatic for a point-in-shape query).
-patch object Vector2 {
-    func inside_triangle(p1: Vector2, p2: Vector2, p3: Vector2) -> Bool {}
-    func inside_polygon(points: [Vector2]) -> Bool {}
-    func on_line(p1: Vector2, p2: Vector2, threshold: Int32) -> Bool {}
-}
 
 
 -- Collision namespace (4 pair-based 2D tests)
@@ -2744,6 +2732,8 @@ patch object AudioStream {
     func set_volume(volume: Float32) {}
     func set_pitch(pitch: Float32) {}
     func set_pan(pan: Float32) {}
+
+    func detach_processor() {}
 }
 
 func AudioStream.set_buffer_size_default(size: Int32) {}
@@ -2769,9 +2759,6 @@ func AudioStream.set_buffer_size_default(size: Int32) {}
 -- no GC, no blocking). Violating this is undefined behavior.
 func AudioStream.set_callback(stream: AudioStream, cb: func(Int, UInt32)) {}
 func AudioStream.attach_processor(stream: AudioStream, cb: func(Int, UInt32)) {}
-patch object AudioStream {
-    func detach_processor() {}
-}
 
 func Audio.attach_mixed_processor(cb: func(Int, UInt32)) {}
 func Audio.detach_mixed_processor() {}
@@ -2834,6 +2821,12 @@ func Draw.end_mode_3d() {}
 -- directly (read-modify-write) and skip this call in .custom mode.
 patch object Camera3D {
     func update(mode: CameraMode) -> Camera3D {}
+
+    func screen_to_world_ray(position: Vector2) -> Ray {}
+
+    func world_to_screen(position: Vector3) -> Vector2 {}
+
+    func matrix() -> Matrix {}
 }
 
 func Camera3D.update_pro(camera: Camera3D, movement: Vector3,
@@ -2855,21 +2848,12 @@ func Camera3D.update_pro(camera: Camera3D, movement: Vector3,
 --
 -- raylib's GetMouseRay (raylib.h:1063) is a backward-compat alias for
 -- GetScreenToWorldRay — Iron binds only the canonical name.
-patch object Camera3D {
-    func screen_to_world_ray(position: Vector2) -> Ray {}
-}
 
 func Camera3D.screen_to_world_ray_ex(camera: Camera3D, position: Vector2,
                                      width: Int32, height: Int32) -> Ray {}
-patch object Camera3D {
-    func world_to_screen(position: Vector3) -> Vector2 {}
-}
 
 func Camera3D.world_to_screen_ex(camera: Camera3D, position: Vector3,
                                  width: Int32, height: Int32) -> Vector2 {}
-patch object Camera3D {
-    func matrix() -> Matrix {}
-}
 
 
 -- ── DRAW3D-04: 3D primitives batch 1 — raylib.h:1526-1537 ───────────
@@ -2985,19 +2969,23 @@ patch object Model {
 -- Every suffix preserved: _ex (rotation axis + angle + Vector3 scale),
 -- _wires (wireframe), _points (vertex points). No sugar, no merging.
     func draw(position: Vector3, scale: Float32, tint: Color) {}
+
+    func draw_wires(position: Vector3, scale: Float32, tint: Color) {}
+
+    func draw_points(position: Vector3, scale: Float32, tint: Color) {}
+
+    func set_mesh_material(mesh_id: Int32, material_id: Int32) -> Model {}
+
+    func animation_valid(anim: ModelAnimation) -> Bool {}
+    func update_animation(anim: ModelAnimation, frame: Int32) {}
+    func update_animation_bones(anim: ModelAnimation, frame: Int32) {}
 }
 
 func Model.draw_ex(model: Model, position: Vector3, rotation_axis: Vector3,
                    rotation_angle: Float32, scale: Vector3, tint: Color) {}
-patch object Model {
-    func draw_wires(position: Vector3, scale: Float32, tint: Color) {}
-}
 
 func Model.draw_wires_ex(model: Model, position: Vector3, rotation_axis: Vector3,
                          rotation_angle: Float32, scale: Vector3, tint: Color) {}
-patch object Model {
-    func draw_points(position: Vector3, scale: Float32, tint: Color) {}
-}
 
 func Model.draw_points_ex(model: Model, position: Vector3, rotation_axis: Vector3,
                           rotation_angle: Float32, scale: Vector3, tint: Color) {}
@@ -3009,11 +2997,7 @@ func Model.draw_points_ex(model: Model, position: Vector3, rotation_axis: Vector
 -- Phase 68-01); shim casts to (const void *) at the raylib call site.
 patch object Mesh {
     func upload(dynamic: Bool) -> Mesh {}
-}
 
-func Mesh.update_buffer(mesh: Mesh, index: Int32, data: [UInt8],
-                        data_size: Int32, offset: Int32) {}
-patch object Mesh {
     func unload() {}
     func export(file_name: String) -> Bool {}
     func export_as_code(file_name: String) -> Bool {}
@@ -3028,6 +3012,9 @@ patch object Mesh {
 -- Iron_List_Iron_Matrix (probed Plan 70-01).
     func draw(material: Material, transform: Matrix) {}
 }
+
+func Mesh.update_buffer(mesh: Mesh, index: Int32, data: [UInt8],
+                        data_size: Int32, offset: Int32) {}
 
 func Mesh.draw_instanced(mesh: Mesh, material: Material,
                          transforms: [Matrix], instances: Int32) {}
@@ -3070,9 +3057,6 @@ patch object Material {
 
 func Material.set_texture(material: Material, map_type: MaterialMapIndex,
                            texture: Texture) -> Material {}
-patch object Model {
-    func set_mesh_material(mesh_id: Int32, material_id: Int32) -> Model {}
-}
 
 
 -- ── MODEL-08: Model animations (6) — raylib.h:1604-1609 ──────────────
@@ -3085,11 +3069,6 @@ patch object Model {
 -- anim.unload() — singular variant for non-list-owned animations.
 -- ModelAnimation.unload_all(anims) — namespace-level for list-cleanup.
 func ModelAnimation.load(file_name: String) -> [ModelAnimation] {}
-patch object Model {
-    func animation_valid(anim: ModelAnimation) -> Bool {}
-    func update_animation(anim: ModelAnimation, frame: Int32) {}
-    func update_animation_bones(anim: ModelAnimation, frame: Int32) {}
-}
 
 patch object ModelAnimation {
     func unload() {}
@@ -3248,10 +3227,6 @@ func Font.load_data(file_data: [UInt8], data_size: Int32, font_size: Int32, code
 func Image.load_raw(file_name: String, width: Int32, height: Int32, format: Int32, header_size: Int32) -> Image {}
 func Image.load_from_memory(file_type: String, file_data: [UInt8], data_size: Int32) -> Image {}
 func Image.load_anim_from_memory(file_type: String, file_data: [UInt8], data_size: Int32) -> (Image, Int32) {}
-patch object Image {
-    func export_to_memory(file_type: String) -> [UInt8] {}
-    func kernel_convolution(kernel: [Float32], kernel_size: Int32) -> Image {}
-}
 
 
 -- ══════════════════════════════════════════════════════════════════════
