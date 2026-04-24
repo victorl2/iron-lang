@@ -114,6 +114,12 @@ else()
         add_compile_options(
             -Wno-type-limits -Wno-unused-value -Wno-format-truncation
             -Wno-unused-but-set-variable
+            # F10 Phase 8 rebase: GCC's -Wmisleading-indentation fires on
+            # inline `case IRON_NODE_FOO: { ... } for (...) PUSH(x); break; }`
+            # patterns in src/lsp/facade/nav/*.c and src/lsp/facade/edit/rename/
+            # that clang accepts. These are not real bugs (the braces delimit
+            # the case body correctly); Phase 9 AST-* can reformat at leisure.
+            -Wno-misleading-indentation
         )
     endif()
     if(IRON_ENABLE_SANITIZERS)
@@ -282,6 +288,15 @@ if(IRON_ENABLE_FUZZING)
     add_subdirectory(tests/fuzz/lsp)
 endif()
 
+# ── ironls option (must be declared BEFORE tests/lsp subdirs that gate on it) ──
+# F1 Phase 8 rebase: tests/lsp/invariant/CMakeLists.txt and
+# tests/lsp/{unit,smoke,fmt}/CMakeLists.txt all gate on IRON_BUILD_LSP; the
+# option() declaration was previously at line 334 (after add_subdirectory),
+# leaving IRON_BUILD_LSP undefined when the test subdirs were processed and
+# silently skipping every phase-m6-invariant test. Move the option up so
+# test gates see the correct ON default.
+option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
+
 # ── Tests ──────────────────────────────────────────────────────────────────
 enable_testing()
 
@@ -325,7 +340,7 @@ target_compile_definitions(ironc PRIVATE
 # lib so the LSP analyzer output never diverges from the compiler's. Platform
 # posture follows the compiler: Linux + macOS in v1; Windows is hard-failed
 # with a friendly FATAL_ERROR until the compiler's MSVC issues clear.
-option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
+# option(IRON_BUILD_LSP) declared above before test subdirs (F1 Phase 8 rebase).
 
 if(IRON_BUILD_LSP AND WIN32)
     message(FATAL_ERROR
