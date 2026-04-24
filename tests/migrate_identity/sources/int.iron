@@ -1,0 +1,8 @@
+-- int.iron -- Iron wrapper for Int / Int32 decimal-conversion methods.
+-- Phase 78 FMT-01/FMT-02. Runtime shim at src/runtime/iron_fmt.c.
+
+-- Int (signed 64-bit): full Int64 range including INT64_MIN.
+func Int.to_string() -> String {}
+
+-- Int32: distinct from Int — type-first design, no implicit widening.
+func Int32.to_string() -> String {}

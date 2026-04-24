@@ -1,0 +1,22 @@
+-- TEST-15 lock: val field assigned more than once inside init.
+-- Expected diagnostic: E0248 IRON_ERR_INIT_VAL_DOUBLE_ASSIGN.
+--
+-- Phase 85 substitute for TEST-07 missing-init (deferred to Phase 88 alongside
+-- INIT-02 mandatory-init enforcement per 85-CONTEXT.md).
+--
+-- Compile_fail is NOT auto-discovered by tests/run_tests.sh; verify via:
+--   ./build/ironc build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+
+object Id {
+    val value: Int
+
+    init(v: Int) {
+        self.value = v
+        self.value = v
+    }
+}
+
+func main() {
+    val i: Id = Id(42)
+    println("unreachable")
+}

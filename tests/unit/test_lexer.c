@@ -105,6 +105,144 @@ void test_identifier_not_keyword(void) {
     arrfree(toks);
 }
 
+/* ── Phase 83 ACCESS-02 / ACCESS-07: `pub` keyword + non-keywords ────────── */
+/* Phase 83 introduces `pub` as the sole visibility-opt-in keyword.
+ * `priv` and `public` must remain plain identifiers (ACCESS-07 guard:
+ * `priv` is NOT a keyword in v3.0; the v2.2 `private` keyword is preserved
+ * through Phase 83 and may be removed in Phase 88). */
+
+void test_lexer_pub_keyword(void) {
+    Iron_Token *toks = lex("pub");
+    TEST_ASSERT_EQUAL(IRON_TOK_PUB, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_priv_not_keyword(void) {
+    /* ACCESS-07 guard: `priv` is NOT a keyword in v3.0 — only `pub` opts in. */
+    Iron_Token *toks = lex("priv");
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("priv", toks[0].value);
+    arrfree(toks);
+}
+
+void test_lexer_public_not_keyword(void) {
+    /* Only `pub` is the keyword; `public` is a plain identifier. */
+    Iron_Token *toks = lex("public");
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("public", toks[0].value);
+    arrfree(toks);
+}
+
+void test_lexer_private_still_keyword(void) {
+    /* v2.2 `private` keyword preserved through Phase 83 for pure-superset
+     * guard; Phase 88 may remove it. */
+    Iron_Token *toks = lex("private");
+    TEST_ASSERT_EQUAL(IRON_TOK_PRIVATE, toks[0].kind);
+    arrfree(toks);
+}
+
+void test_lexer_pub_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_PUB", iron_token_kind_str(IRON_TOK_PUB));
+}
+
+/* ── Phase 84 MUTTIER-01: `readonly` + `pure` keyword tokens ─────────────── */
+/* Phase 84 introduces two new modifier keywords on object-block methods.
+ * `readonly` forbids self-field writes; `pure` is readonly plus no-I/O and
+ * no-mutable-global. Both are keywords: lexing them on their own must yield
+ * IRON_TOK_READONLY / IRON_TOK_PURE, never IRON_TOK_IDENTIFIER. Plan 84-02
+ * consumes the AST flags wired up here to fire tier-violation diagnostics. */
+
+void test_lexer_readonly_keyword(void) {
+    Iron_Token *toks = lex("readonly");
+    TEST_ASSERT_EQUAL(IRON_TOK_READONLY, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_pure_keyword(void) {
+    Iron_Token *toks = lex("pure");
+    TEST_ASSERT_EQUAL(IRON_TOK_PURE, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_readonly_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_READONLY",
+                             iron_token_kind_str(IRON_TOK_READONLY));
+}
+
+void test_lexer_pure_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_PURE",
+                             iron_token_kind_str(IRON_TOK_PURE));
+}
+
+/* ── Phase 85 INIT-03: `init` keyword token ──────────────────────────────── */
+/* Phase 85 introduces `init` as the mandatory-construction keyword inside
+ * object blocks. Lexing `init` on its own MUST yield IRON_TOK_INIT, never
+ * IRON_TOK_IDENTIFIER. The parser (Task 2) consumes IRON_TOK_INIT inside
+ * `iron_parse_object_decl` to build MethodDecls with is_init=true. The
+ * `init_in_val_position_still_keyword` guard prevents the keyword from
+ * degrading to an identifier in token contexts where the parser would
+ * otherwise accept `val init = 1` as a legal declaration. */
+
+void test_lexer_init_keyword(void) {
+    Iron_Token *toks = lex("init");
+    TEST_ASSERT_EQUAL(IRON_TOK_INIT, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_init_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_INIT",
+                             iron_token_kind_str(IRON_TOK_INIT));
+}
+
+void test_lexer_init_in_val_position_still_keyword(void) {
+    /* `val init = 1` must lex as [VAL, INIT, ASSIGN, INTEGER] so the parser
+     * rejects `init` as an identifier in a val/var/func name position.
+     * Downstream (Task 2) dispatch treats the keyword as a hard constraint. */
+    Iron_Token *toks = lex("val init = 1");
+    TEST_ASSERT_EQUAL(IRON_TOK_VAL,     toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_INIT,    toks[1].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_ASSIGN,  toks[2].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_INTEGER, toks[3].kind);
+    arrfree(toks);
+}
+
+/* ── Phase 86 PATCH-01: `patch` keyword token ────────────────────────────── */
+/* Phase 86 introduces `patch` as the open-extension block modifier. The
+ * grammar is `patch object T { methods+inits }` — no fields allowed inside
+ * the block (Plan 86-01 rejects them with E0253). Lexing `patch` on its
+ * own must yield IRON_TOK_PATCH, never IRON_TOK_IDENTIFIER. The adjacency
+ * test guards the parser's expected lookahead: `patch object Foo` must
+ * yield three consecutive tokens [PATCH, OBJECT, IDENTIFIER]. Plan 86-02
+ * consumes the resulting Iron_ObjectDecl(is_patch=true) to wire the
+ * type-patch registry without touching the parser again. */
+
+void test_lexer_patch_keyword(void) {
+    Iron_Token *toks = lex("patch");
+    TEST_ASSERT_EQUAL(IRON_TOK_PATCH, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_EOF, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_lexer_patch_kind_str(void) {
+    TEST_ASSERT_EQUAL_STRING("IRON_TOK_PATCH",
+                             iron_token_kind_str(IRON_TOK_PATCH));
+}
+
+void test_lexer_patch_adjacent_to_object(void) {
+    /* Parser expects this exact token sequence to dispatch to
+     * iron_parse_patch_decl in Plan 86-01 Task 2. */
+    Iron_Token *toks = lex("patch object Foo");
+    TEST_ASSERT_EQUAL(IRON_TOK_PATCH,      toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_OBJECT,     toks[1].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[2].kind);
+    TEST_ASSERT_EQUAL_STRING("Foo",        toks[2].value);
+    arrfree(toks);
+}
+
 /* ── Literal tests ───────────────────────────────────────────────────────── */
 
 void test_integer_literal(void) {
@@ -399,6 +537,29 @@ int main(void) {
     RUN_TEST(test_keyword_func);
     RUN_TEST(test_all_37_keywords);
     RUN_TEST(test_identifier_not_keyword);
+
+    /* Phase 83 ACCESS-02 / ACCESS-07: `pub` keyword + non-keyword guards */
+    RUN_TEST(test_lexer_pub_keyword);
+    RUN_TEST(test_lexer_priv_not_keyword);
+    RUN_TEST(test_lexer_public_not_keyword);
+    RUN_TEST(test_lexer_private_still_keyword);
+    RUN_TEST(test_lexer_pub_kind_str);
+
+    /* Phase 84 MUTTIER-01: readonly + pure keyword recognition. */
+    RUN_TEST(test_lexer_readonly_keyword);
+    RUN_TEST(test_lexer_pure_keyword);
+    RUN_TEST(test_lexer_readonly_kind_str);
+    RUN_TEST(test_lexer_pure_kind_str);
+
+    /* Phase 85 INIT-03: init keyword recognition. */
+    RUN_TEST(test_lexer_init_keyword);
+    RUN_TEST(test_lexer_init_kind_str);
+    RUN_TEST(test_lexer_init_in_val_position_still_keyword);
+
+    /* Phase 86 PATCH-01: patch keyword recognition. */
+    RUN_TEST(test_lexer_patch_keyword);
+    RUN_TEST(test_lexer_patch_kind_str);
+    RUN_TEST(test_lexer_patch_adjacent_to_object);
 
     RUN_TEST(test_integer_literal);
     RUN_TEST(test_float_literal);

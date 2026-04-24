@@ -10,33 +10,73 @@ interface Animal {
 
 object Dog impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Cat impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Bird impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Fish impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Frog impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Snake impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Hawk impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Bear impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Wolf impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 object Fox impl Animal {
   var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
 }
 
 func Dog.value() -> Int {

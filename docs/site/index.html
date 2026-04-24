@@ -779,6 +779,46 @@
       .install { padding: 2rem 0.75rem; }
       footer { padding: 2rem 0.75rem 1rem; }
     }
+
+    /* ── Breaking-change banner ─────────────────────── */
+    .banner-breaking {
+      background: rgba(232, 89, 12, 0.1);
+      border-bottom: 1px solid rgba(232, 89, 12, 0.35);
+      padding: 0.65rem 2rem;
+      text-align: center;
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      position: sticky;
+      top: 64px;
+      z-index: 90;
+    }
+
+    .banner-breaking strong {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .banner-breaking code {
+      font-family: var(--font-mono);
+      font-size: 0.82em;
+      background: rgba(255,255,255,0.07);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+
+    .banner-breaking a {
+      color: var(--text);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .banner-breaking a:hover {
+      color: var(--accent-hover);
+    }
+
+    @media (max-width: 640px) {
+      .banner-breaking { font-size: 0.82rem; padding: 0.6rem 1rem; top: 64px; }
+    }
   </style>
 </head>
 <body>
@@ -810,6 +850,14 @@
   </nav>
   <div class="nav-overlay" id="navOverlay"></div>
 
+  <!-- ── v3 Breaking-change banner ───────────────────── -->
+  <div class="banner-breaking">
+    <strong>v3.0.0-alpha released &mdash; breaking change.</strong>
+    Methods now live inside <code>object</code> blocks.
+    Run <code>ironc migrate --from v2 --to v3</code> to upgrade.
+    <a href="migration-v2-to-v3.html">Migration guide</a>
+  </div>
+
   <!-- ── Hero ─────────────────────────────────────────── -->
   <section class="hero">
     <div class="hero-content">
@@ -819,7 +867,7 @@
         <a href="/docs/" class="btn btn-primary">Get Started</a>
         <a href="/docs/#full-example" class="btn btn-secondary">See Examples</a>
       </div>
-      <div class="hero-version">Latest: __IRON_VERSION__ &middot; Apache 2.0</div>
+      <div class="hero-version">Latest: v3.0.0-alpha &middot; Apache 2.0</div>
     </div>
     <div class="hero-code">
       <div class="code-window">
@@ -830,29 +878,34 @@
           <span class="code-filename">app.iron</span>
         </div>
         <div class="code-body">
-<pre><span class="cm">-- Write interfaces, the compiler does the rest</span>
+<pre><span class="cm">-- v3: methods live inside object blocks</span>
 <span class="kw">interface</span> <span class="ty">Entity</span> {
   <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>)
-  <span class="kw">func</span> <span class="fn">draw</span>()
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">draw</span>()
 }
 
-<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
-  <span class="kw">var</span> pos: <span class="ty">Vec2</span>, vel: <span class="ty">Vec2</span>
-}
+<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">implements</span> <span class="ty">Entity</span> {
+  <span class="kw">var</span> pos: <span class="ty">Vec2</span>
+  <span class="kw">var</span> vel: <span class="ty">Vec2</span>
 
-<span class="kw">object</span> <span class="ty">Enemy</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
-  <span class="kw">var</span> pos: <span class="ty">Vec2</span>, hp: <span class="ty">Int</span>
-}
+  <span class="kw">init</span>(pos: <span class="ty">Vec2</span>, vel: <span class="ty">Vec2</span>) {
+    <span class="kw">self</span>.pos = pos
+    <span class="kw">self</span>.vel = vel
+  }
 
-<span class="cm">-- The compiler generates:</span>
-<span class="cm">-- Tagged unions (no vtables)</span>
-<span class="cm">-- Per-type loops (no branch misprediction)</span>
-<span class="cm">-- Cache-optimal memory layout</span>
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>) {
+    <span class="kw">self</span>.pos.x += <span class="kw">self</span>.vel.x * dt
+  }
+
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">draw</span>() {
+    <span class="fn">draw_circle</span>(<span class="kw">self</span>.pos, <span class="nu">8.0</span>, <span class="ty">WHITE</span>)
+  }
+}
 
 <span class="kw">func</span> <span class="fn">main</span>() {
+  <span class="cm">-- compiler: tagged unions, no vtables</span>
   <span class="kw">var</span> entities: [<span class="ty">Entity</span>] = []
-  entities.<span class="fn">push</span>(<span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">0</span>,<span class="nu">0</span>), <span class="fn">vec2</span>(<span class="nu">0</span>,<span class="nu">0</span>)))
-  entities.<span class="fn">push</span>(<span class="ty">Enemy</span>(<span class="fn">vec2</span>(<span class="nu">5</span>,<span class="nu">3</span>), <span class="nu">100</span>))
+  entities.<span class="fn">push</span>(<span class="ty">Player</span>(<span class="fn">vec2</span>(<span class="nu">0</span>,<span class="nu">0</span>), <span class="fn">vec2</span>(<span class="nu">1</span>,<span class="nu">0</span>)))
 
   <span class="kw">for</span> e <span class="kw">in</span> entities {
     e.<span class="fn">update</span>(<span class="fn">get_frame_time</span>())
@@ -1116,6 +1169,7 @@ ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class
           <li><a href="/raylib/">Raylib</a></li>
           <li><a href="/docs/#full-example">Examples</a></li>
           <li><a href="/docs/#standard-library">Standard Library</a></li>
+          <li><a href="migration-v2-to-v3.html">v2 to v3 Migration</a></li>
         </ul>
       </div>
       <div class="footer-col">

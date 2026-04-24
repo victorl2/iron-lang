@@ -1,0 +1,13 @@
+interface Comparable {
+    readonly func cmp(other: Int) -> Int
+}
+
+patch object Int implements Comparable {
+    pub readonly func cmp(other: Int) -> Int { return self - other }
+}
+
+func main() {
+    val a: Int = 5
+    val d: Int = a.cmp(3)
+    println("d={d}")
+}

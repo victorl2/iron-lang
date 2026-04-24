@@ -1,0 +1,20 @@
+-- Negative test: a pub field's synthesized accessor name collides with a
+-- user-declared method of the same name in the same object body.
+--
+-- Locks ACCESS-06: E03XE = IRON_ERR_ACCESSOR_NAME_RESERVED (237).
+-- Verify: `./build/ironc build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"`
+-- Compile_fail category is NOT auto-discovered by tests/run_tests.sh (see
+-- commit 3bc6329 Phase 80-03 convention).
+
+object Profile {
+    pub val name: Int
+
+    func name() -> Int {
+        return 0
+    }
+}
+
+func main() {
+    var p: Profile = Profile(7)
+    println("{p.name}")
+}

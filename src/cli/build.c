@@ -1157,6 +1157,8 @@ int iron_build(const char *source_path, const char *output_path,
     Iron_Parser parser = iron_parser_create(tokens, token_count,
                                             source, source_path,
                                             &arena, &diags);
+    /* Phase 88: propagate --strict-v3 gate to parser */
+    parser.v3_strict_mode = opts.strict_v3;
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
 

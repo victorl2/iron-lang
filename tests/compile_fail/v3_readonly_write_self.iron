@@ -1,0 +1,24 @@
+-- v3_readonly_write_self.iron -- Phase 84 TEST-09 lock.
+-- MUST fail with IRON_ERR_READONLY_WRITE_SELF (E0238).
+--
+-- Reject: readonly method writing self.field directly.
+-- Compile_fail is NOT auto-discovered by tests/run_tests.sh; verify via:
+--   ./build/ironc build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+
+object Counter {
+    pub var count: Int
+
+    init(count: Int) {
+        self.count = count
+    }
+
+    readonly func bump() {
+        self.count = self.count + 1  -- E0238 fires here
+    }
+}
+
+func main() {
+    var c: Counter = Counter(0)
+    c.bump()
+    println("unreachable")
+}

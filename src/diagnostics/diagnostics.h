@@ -137,6 +137,75 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_MUT_CALL_ON_VAL      235
 #define IRON_ERR_MUT_ON_PRIMITIVE     236
 
+/* ACCESS (Phase 83) — visibility / accessor synthesis errors.
+ * IRON_ERR_ACCESSOR_NAME_RESERVED fires when a user-declared method in an
+ * object body shares a name with a synthesized getter/setter from a `pub`
+ * field in the same object. Locks ACCESS-06. */
+#define IRON_ERR_ACCESSOR_NAME_RESERVED 237
+
+/* MUTTIER (Phase 84) — mutation-tier enforcement errors.
+ * 238/239 fire from readonly-method context; 240..244 fire from pure-method
+ * context; 245 is the parse-time placement/exclusivity error allocated by
+ * Plan 84-01. Each tier-violation code carries a tier-specific message so
+ * users see the distinct violation category without squinting at a shared
+ * diagnostic. Plan 84-02 wires the enforcement into the IRON_NODE_ASSIGN,
+ * IRON_NODE_METHOD_CALL, IRON_NODE_CALL, and IRON_NODE_IDENT handlers in
+ * typecheck.c; flag propagation rides on TypeCtx.in_readonly_method /
+ * TypeCtx.in_pure_method, save/restored at method boundary. */
+#define IRON_ERR_READONLY_WRITE_SELF        238
+#define IRON_ERR_READONLY_CALLS_MUTATING    239
+#define IRON_ERR_PURE_IO                    240
+#define IRON_ERR_PURE_MUTABLE_GLOBAL        241
+#define IRON_ERR_PURE_NON_PURE_CALL         242
+#define IRON_ERR_PURE_PARAM_WRITE           243
+#define IRON_ERR_PURE_WRITE_SELF            244
+#define IRON_ERR_TIER_MODIFIER_PLACEMENT    245
+
+/* INIT (Phase 85) - mandatory-construction enforcement errors.
+ * Plan 85-01 reserves the constants; Plan 85-02 wires the emit sites in
+ * typecheck.c definite-assignment + delegation-rejection + return-value
+ * paths. Each code carries a category-specific message so users see the
+ * distinct violation without squinting at a shared diagnostic. */
+#define IRON_ERR_INIT_READ_BEFORE_ASSIGN    246   /* INIT-05 */
+#define IRON_ERR_INIT_UNASSIGNED_EXIT       247   /* INIT-06 */
+#define IRON_ERR_INIT_VAL_DOUBLE_ASSIGN     248   /* INIT-12 */
+#define IRON_ERR_INIT_METHOD_ON_PARTIAL     249   /* INIT-09 */
+#define IRON_ERR_INIT_EARLY_RETURN          250   /* INIT-10 */
+#define IRON_ERR_INIT_DELEGATION            251   /* INIT-14 */
+#define IRON_ERR_INIT_RETURN_VALUE          252   /* INIT-11 typecheck branch */
+
+/* Phase 86 PATCH: open-extension diagnostics.
+ *
+ * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser
+ * emits E0253 when a field declaration appears inside a patch body. E0254
+ * (target not found) and E0255 (conflicting patch definitions) are reserved
+ * here so Plan 86-02's resolver + typechecker collision scan have stable
+ * IDs at the time Plan 86-01 lands. All three live in the 2xx typecheck
+ * range; PATCH does not touch the 3xx LIR or 4xx lowering ranges. */
+#define IRON_ERR_PATCH_ADDS_FIELD           253   /* PATCH-05 */
+#define IRON_ERR_PATCH_TARGET_NOT_FOUND     254   /* PATCH-04 */
+#define IRON_ERR_PATCH_CONFLICT             255   /* PATCH-03 */
+
+/* Phase 87 IFACE + SELF range (256-259).
+ * E0256: interfaces cannot declare init (IFACE-04 upgrade from the Phase 85
+ *   generic IRON_ERR_UNEXPECTED_TOKEN path to a dedicated code).
+ * E0257: interface method tier-strengthening violation — implementation is
+ *   weaker than its interface sig tier (IFACE-02).
+ * E0258 reserved for Plan 87-02 PATCH-08: patch adds interface conformance
+ *   but is missing required methods (retroactive-conformance completeness).
+ * E0259 reserved for Plan 87-02 SELF: Self used outside method / interface
+ *   context. */
+#define IRON_ERR_IFACE_CANNOT_DECLARE_INIT  256   /* IFACE-04 */
+#define IRON_ERR_IFACE_METHOD_TIER_MISMATCH 257   /* IFACE-02 */
+/* Phase 87-02 PATCH-08: retroactive conformance completeness check.
+ * Emitted when a patch or object declares `implements I` but a required
+ * interface method is not provided across in-object + patch decls. */
+#define IRON_ERR_IFACE_CONFORMANCE_MISSING  258   /* PATCH-08 */
+/* Phase 87-02 SELF: Self type used outside a method or interface sig.
+ * Emitted when `Self` appears as a return-type annotation in a top-level
+ * free function or any other non-method context. */
+#define IRON_ERR_SELF_OUTSIDE_CONTEXT       259   /* SELF outside method/iface */
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301
@@ -179,6 +248,15 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_WARN_NOT_STRINGABLE        602
 #define IRON_WARN_POSSIBLE_OVERFLOW     603
 #define IRON_WARN_SPAWN_DATA_RACE      604
+
+/* Phase 88 BREAK range (260-264): hard rejection of removed v2 syntax.
+ * All five are gated behind Iron_Parser.v3_strict_mode (default false in Phase 88).
+ * Phase 89 flips the default to true after codemod migrates the tree. */
+#define IRON_ERR_V3_RECEIVER_SYNTAX    260   /* BREAK-01: func (recv: T) name() */
+#define IRON_ERR_V3_MUT_RECEIVER       261   /* BREAK-02: func (mut recv: T) name() */
+#define IRON_ERR_V3_INLINE_DEFAULT     262   /* BREAK-03: var x: T = expr in object body */
+#define IRON_ERR_V3_MUT_KEYWORD        263   /* BREAK-04: mut keyword removed */
+#define IRON_ERR_V3_NO_INIT            264   /* INIT-02: object with fields but no init */
 
 /* Web-target LIR main-loop split pass errors (700 range) — Phase 5 WEB-EMIT-04.
  *

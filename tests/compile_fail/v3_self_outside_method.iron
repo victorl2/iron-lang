@@ -1,0 +1,5 @@
+func bad() -> Self {
+    return 0
+}
+
+func main() {}

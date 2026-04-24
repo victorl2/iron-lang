@@ -1,0 +1,39 @@
+-- v3_readonly_transitive.iron -- Phase 84 TEST-05 lock.
+--
+-- What this proves:
+--   MUTTIER-02 positive: `readonly func` with no self-writes compiles.
+--   MUTTIER-05 positive: readonly methods callable from a `val`-bound receiver.
+--   MUTTIER-06 positive: readonly -> readonly call compiles.
+--   MUTTIER-06 positive: readonly -> pure call compiles.
+--   Phase 83 retrofit proof: pub-field read from inside readonly method compiles
+--     (the synth getter carries is_readonly=true + is_pure=true after Plan 84-01).
+--
+-- Shape mirrors tests/integration/v3_pub_field_synthesis.iron so diff shows
+-- only the readonly + pure modifier delta.
+
+object Point {
+    pub val x: Int
+    pub val y: Int
+
+    readonly func sum() -> Int {
+        -- readonly call chain: sum() -> self.x (synth getter, readonly+pure)
+        return self.x + self.y
+    }
+
+    pure func origin_dist_sq() -> Int {
+        -- pure -> synth getter (is_pure=true) compiles
+        return self.x * self.x + self.y * self.y
+    }
+
+    readonly func describe() -> Int {
+        -- readonly -> readonly (sum) and readonly -> pure (origin_dist_sq)
+        return self.sum() + self.origin_dist_sq()
+    }
+}
+
+func main() {
+    val p: Point = Point(3, 4)  -- val binding; still permits readonly calls
+    println("{p.sum()}")
+    println("{p.origin_dist_sq()}")
+    println("{p.describe()}")
+}

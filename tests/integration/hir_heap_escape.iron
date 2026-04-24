@@ -1,6 +1,9 @@
 -- hir_heap_escape: heap allocation accessed in main scope
 object Item {
   var value: Int
+    init(value: Int) {
+        self.value = value
+    }
 }
 
 func main() {

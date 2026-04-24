@@ -13,6 +13,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stddef.h>
 
 /* ── Resolver context ────────────────────────────────────────────────────── */
@@ -74,6 +75,13 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
     switch ((int)(node->kind)) {
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)node;
+            /* Phase 86 PATCH-02: patches are NOT type declarations. An
+             * is_patch=true ObjectDecl contributes methods/inits to an
+             * existing type; treating it as a new type would collide on
+             * the real target's name and shadow the original. The patch
+             * registry (iron_type_patch_registry_build) keys on
+             * target_type_name, so no global symbol is needed here. */
+            if (od->is_patch) break;
             /* Create an object type and attach to symbol */
             Iron_Type *ty = iron_type_make_object(ctx->arena, od);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, od->name,
@@ -220,9 +228,21 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    "'self' used outside of method", NULL);
                     return;
                 }
-                /* Receiver-form methods have no implicit `self`; the receiver
-                 * is bound under its declared name. Emit a clean Iron
-                 * diagnostic here so we don't leak `Iron_self_x` into clang. */
+                /* Receiver-form methods:
+                 *   - Phase 82 in-block methods (`object T { func m() { self.x } }`)
+                 *     synthesize a receiver param literally named `self`, so the
+                 *     symbol IS in scope and resolves cleanly.
+                 *   - Phase 79 style (`func (t: T) m()`) binds the receiver under
+                 *     its declared name (e.g. `t`); `self` is NOT in scope, so
+                 *     emit the "use the receiver's declared name" diagnostic
+                 *     rather than leaking `Iron_self_x` into clang.
+                 * Probe the scope: if `self` resolves, use it; otherwise, for
+                 * receiver-form methods, emit the Phase 79 diagnostic. */
+                Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, "self");
+                if (sym) {
+                    id->resolved_sym = sym;
+                    return;
+                }
                 if (ctx->current_method->is_receiver_form) {
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_SELF_OUTSIDE_METHOD, id->span,
@@ -231,9 +251,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    NULL);
                     return;
                 }
-                /* self is defined in the method scope — just look it up */
-                Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, "self");
-                if (sym) id->resolved_sym = sym;
+                /* Non-receiver-form method where implicit `self` was defined
+                 * earlier in this branch at the md->owner_sym site — falling
+                 * through here means the sym wasn't in scope, which would be
+                 * a bug; remain silent and let downstream catch it. */
                 return;
             }
 
@@ -294,6 +315,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     iron_scope_lookup(ctx->global_scope, od->extends_name);
                 id->resolved_sym = parent_sym; /* may be NULL; caller checks */
                 return;
+            }
+
+            /* Phase 87-02 SELF-01/02/03: "Self" is a contextual type keyword
+             * that refers to the enclosing ObjectDecl type. Like lowercase
+             * "self", it is not defined as a regular symbol in scope; the
+             * typechecker handles its resolution. In method context, silently
+             * skip the undefined-identifier check. Outside method context the
+             * typechecker will emit E0259. */
+            if (strcmp(id->name, "Self") == 0) {
+                /* No resolver-level symbol; typechecker handles resolution. */
+                break;
             }
 
             /* Normal identifier */
@@ -826,6 +858,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     fa->resolved_type = NULL;
                     fa->object        = (Iron_Node *)ident_node;
                     fa->field         = member;
+                    /* Phase 83-02: defensive default so downstream passes
+                     * do not read uninitialized state if this rewrite is
+                     * ever exercised before typecheck. */
+                    fa->is_pub_access = false;
                     *(Iron_FieldAccess *)ec = *fa;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 }
@@ -888,6 +924,208 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* sentinel — never a real node kind */
             break;
     }
+}
+
+/* ── Phase 86 PATCH-02/04: program-global patch registry ─────────────────── */
+
+/* One entry per `patch object T { ... }` contribution. `target` is the
+ * target type name (aliases od->target_type_name / od->name — same arena
+ * strdup). `methods` is a stb_ds dynamic array of Iron_MethodDecl *
+ * contributed by this patch body ONLY; the lookup path walks multiple
+ * entries when several patches target the same type and flattens them
+ * into a single array via a registry-owned concat buffer. */
+typedef struct PatchEntry {
+    const char       *target;
+    Iron_MethodDecl **methods;
+} PatchEntry;
+
+/* One registry per Iron_Program. The struct layout is hidden from the
+ * public API via the forward-declared Iron_TypePatchRegistry typedef in
+ * resolve.h — callers only see the opaque handle. */
+struct Iron_TypePatchRegistry {
+    PatchEntry       *entries;           /* stb_ds */
+    /* Scratch buffer for concat results from iron_type_patch_lookup.
+     * Cached to keep the lookup result lifetime tied to the registry per
+     * the API contract. Freed via arrfree at iron_type_patch_registry_free. */
+    Iron_MethodDecl **lookup_scratch;    /* stb_ds */
+};
+
+/* Primitive target allowlist. Locked per Plan 86-02 <must_haves>: Int,
+ * Int32, Float, String, Bool. Targets outside this list that do not
+ * resolve to a user-declared object emit E0254. Extend only via an
+ * explicit Plan change; the allowlist is spec surface. */
+static const char *const k_primitive_patch_targets[] = {
+    "Int", "Int32", "Float", "String", "Bool"
+};
+static const int k_primitive_patch_target_count =
+    (int)(sizeof(k_primitive_patch_targets) / sizeof(k_primitive_patch_targets[0]));
+
+static bool patch_target_is_primitive(const char *name) {
+    if (!name) return false;
+    for (int i = 0; i < k_primitive_patch_target_count; i++) {
+        if (strcmp(k_primitive_patch_targets[i], name) == 0) return true;
+    }
+    return false;
+}
+
+/* Return the stb_ds index of the entry whose target matches `name`, or
+ * -1 if no entry exists yet. Linear scan; realistic programs have a
+ * handful of patched targets. Promote to a hash if a benchmark motivates. */
+static int patch_registry_find_entry(Iron_TypePatchRegistry *reg,
+                                      const char *name) {
+    if (!reg || !name) return -1;
+    for (ptrdiff_t i = 0; i < arrlen(reg->entries); i++) {
+        if (reg->entries[i].target &&
+            strcmp(reg->entries[i].target, name) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+Iron_TypePatchRegistry *iron_type_patch_registry_build(Iron_Program *program,
+                                                       Iron_Scope    *global_scope,
+                                                       Iron_Arena    *arena,
+                                                       Iron_DiagList *diags) {
+    (void)arena; /* registry itself is heap-owned via stb_ds; arena holds shared MethodDecl * */
+    if (!program) return NULL;
+
+    Iron_TypePatchRegistry *reg =
+        (Iron_TypePatchRegistry *)malloc(sizeof(Iron_TypePatchRegistry));
+    if (!reg) iron_oom_abort("resolve.c:iron_type_patch_registry_build reg");
+    reg->entries        = NULL;
+    reg->lookup_scratch = NULL;
+
+    /* Pass A: register patch targets. Walk every top-level ObjectDecl with
+     * is_patch=true; validate target (user object OR primitive allowlist);
+     * emit E0254 on unknown targets and skip registration (the patch's
+     * methods remain reachable via their MethodDecl nodes but are never
+     * dispatched). */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        if (!od->is_patch) continue;
+        const char *target = od->target_type_name ? od->target_type_name : od->name;
+        if (!target) continue;
+
+        bool target_is_user_object = false;
+        if (global_scope) {
+            Iron_Symbol *sym = iron_scope_lookup(global_scope, target);
+            /* Accept user objects (sym_kind=IRON_SYM_TYPE with decl_node pointing
+             * at an OBJECT_DECL) — primitives also live under IRON_SYM_TYPE but
+             * their decl_node is NULL; the primitive allowlist covers them
+             * explicitly below so we do not confuse a patch on `Int64` (not in
+             * the allowlist) with a valid user object. */
+            if (sym && sym->sym_kind == IRON_SYM_TYPE && sym->decl_node &&
+                sym->decl_node->kind == IRON_NODE_OBJECT_DECL) {
+                target_is_user_object = true;
+            }
+        }
+        bool target_is_primitive = patch_target_is_primitive(target);
+
+        if (!target_is_user_object && !target_is_primitive) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "patch target '%s' not found (expected user type or "
+                     "primitive Int/Int32/Float/String/Bool)",
+                     target);
+            const char *msg_copy = iron_arena_strdup(arena, msg, strlen(msg));
+            if (!msg_copy) iron_oom_abort("resolve.c:patch target msg");
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_PATCH_TARGET_NOT_FOUND, od->span,
+                           msg_copy, NULL);
+            continue;
+        }
+
+        /* Reserve an entry if none exists for this target yet. Same-target
+         * multi-patch is a single lookup-merge: each patch body contributes
+         * its own PatchEntry; iron_type_patch_lookup flattens them. This
+         * preserves declaration-order across patches for dispatch (Plan
+         * 86-02 collision scan guarantees same-name uniqueness). */
+        PatchEntry e;
+        e.target  = target;
+        e.methods = NULL;
+        arrput(reg->entries, e);
+    }
+
+    /* Pass B: collect every patched MethodDecl * into the appropriate
+     * entry. Plan 86-01's iron_parse_patch_decl flushed patched members
+     * as top-level Iron_MethodDecl nodes via the extra_decls_out channel;
+     * their type_name is set to the patch target. We attribute a method
+     * to a patch entry when its type_name matches a registered patch
+     * target AND a matching patch ObjectDecl precedes it in decl order.
+     *
+     * Attribution strategy: per top-level MethodDecl, we look for a patch
+     * ObjectDecl on the same target whose span occurs before ours. If
+     * there are N patch bodies on the same target, the nearest preceding
+     * is_patch=true ObjectDecl on that target is the owning body; the
+     * order-preserving walk naturally groups methods under their flushed
+     * patch parent. Since the parser flushes the body's methods
+     * immediately after the ObjectDecl, a simple "last patch target seen
+     * before this method" state is sufficient.
+     *
+     * We still scan every entry, not every MethodDecl — keeps the
+     * attribution deterministic even when parser output order changes. */
+    const char *last_patch_target = NULL;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        if (d->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            if (od->is_patch) {
+                last_patch_target = od->target_type_name
+                                    ? od->target_type_name : od->name;
+            } else {
+                last_patch_target = NULL;
+            }
+            continue;
+        }
+        if (d->kind != IRON_NODE_METHOD_DECL) {
+            /* Classic func decls in between break the run; a classic
+             * method on a non-patched type also clears the state. */
+            if (d->kind != IRON_NODE_FUNC_DECL) last_patch_target = NULL;
+            continue;
+        }
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!last_patch_target || !md->type_name) continue;
+        /* Only gather methods whose type_name matches the current patch
+         * body's target — a safety net against accidental runs if the
+         * flush order ever changes. */
+        if (strcmp(md->type_name, last_patch_target) != 0) continue;
+
+        int idx = patch_registry_find_entry(reg, last_patch_target);
+        if (idx < 0) continue; /* unknown target — E0254 already emitted */
+        arrput(reg->entries[idx].methods, md);
+    }
+
+    return reg;
+}
+
+Iron_MethodDecl **iron_type_patch_lookup(Iron_TypePatchRegistry *reg,
+                                          const char              *target_type_name) {
+    if (!reg || !target_type_name) return NULL;
+    /* Reset the scratch buffer; preserve the caller contract by returning
+     * a registry-owned pointer whose lifetime equals the registry. */
+    arrsetlen(reg->lookup_scratch, 0);
+    for (ptrdiff_t i = 0; i < arrlen(reg->entries); i++) {
+        if (!reg->entries[i].target) continue;
+        if (strcmp(reg->entries[i].target, target_type_name) != 0) continue;
+        for (ptrdiff_t j = 0; j < arrlen(reg->entries[i].methods); j++) {
+            arrput(reg->lookup_scratch, reg->entries[i].methods[j]);
+        }
+    }
+    return reg->lookup_scratch;
+}
+
+void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
+    if (!reg) return;
+    for (ptrdiff_t i = 0; i < arrlen(reg->entries); i++) {
+        arrfree(reg->entries[i].methods);
+    }
+    arrfree(reg->entries);
+    arrfree(reg->lookup_scratch);
+    free(reg);
 }
 
 /* ── Entry point ─────────────────────────────────────────────────────────── */

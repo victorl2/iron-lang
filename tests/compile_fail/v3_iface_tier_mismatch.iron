@@ -1,0 +1,10 @@
+interface Cmp {
+    readonly func cmp(other: Int) -> Int
+}
+
+object Bad impl Cmp {
+    init() {}
+    func cmp(other: Int) -> Int { return 0 }
+}
+
+func main() {}

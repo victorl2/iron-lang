@@ -5,10 +5,17 @@ interface Shape {
 object Rect {
   var width: Int
   var height: Int
+    init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
 }
 
 object Square {
   var side: Int
+    init(side: Int) {
+        self.side = side
+    }
 }
 
 func Rect.area() -> Int {

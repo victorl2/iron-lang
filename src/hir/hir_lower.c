@@ -649,6 +649,41 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Assignment (including compound assignment desugaring) ────────────── */
     case IRON_NODE_ASSIGN: {
         Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+
+        /* Phase 83-02 ACCESS-05: pub-setter dispatch.
+         * When the typechecker flagged this assign as a pub-var-field write,
+         * lower it as a call to the synthesized set_<field> method rather
+         * than a direct field store. The synth setter body runs the actual
+         * self.<field> = _v store with its own direct-access FieldAccess
+         * (is_pub_access=false), so there is no infinite loop.
+         *
+         * The target FieldAccess is NEVER lowered in this branch — its
+         * is_pub_access flag (set during LHS typecheck) is intentionally
+         * unread here. The assign becomes a statement-level method call
+         * expression. */
+        if (as->is_pub_setter && as->target &&
+            as->target->kind == IRON_NODE_FIELD_ACCESS) {
+            Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+            IronHIR_Expr *obj   = lower_expr_hir(ctx, tfa->object);
+            IronHIR_Expr *value = lower_expr_hir(ctx, as->value);
+            /* Build the setter name: set_<field>. Arena-alloc so the HIR
+             * expression can reference the string stably. */
+            size_t flen = strlen(tfa->field);
+            char *setter_name = (char *)iron_arena_alloc(
+                mod->arena, flen + 5 /* "set_" + NUL */,
+                _Alignof(char));
+            if (!setter_name) iron_oom_abort("hir_lower.c:ASSIGN pub_setter name");
+            snprintf(setter_name, flen + 5, "set_%s", tfa->field);
+            /* One-arg method call: set_<field>(value). */
+            IronHIR_Expr **args = NULL;
+            arrput(args, value);
+            IronHIR_Expr *mc = iron_hir_expr_method_call(
+                mod, obj, setter_name, args, 1, NULL, span);
+            IronHIR_Stmt *s = iron_hir_stmt_expr(mod, mc, span);
+            iron_hir_block_add_stmt(blk, s);
+            return NULL;
+        }
+
         IronHIR_Expr *target = lower_expr_hir(ctx, as->target);
         IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
 
@@ -1283,6 +1318,20 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_FIELD_ACCESS: {
         Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
         IronHIR_Expr *obj = lower_expr_hir(ctx, fa->object);
+        /* Phase 83-02 ACCESS-05: pub-getter dispatch.
+         * When the typechecker flagged this read as a pub-field access, lower
+         * it as a zero-arg method call against the synthesized getter named
+         * after the field. The synthesized getter body uses direct field load
+         * (its inner FieldAccess has is_pub_access=false), so no recursion.
+         *
+         * Non-pub reads fall through to the normal field-load path,
+         * preserving the pure-superset guard. */
+        if (fa->is_pub_access) {
+            IronHIR_Expr **args = NULL;  /* zero-arg getter */
+            return iron_hir_expr_method_call(mod, obj, fa->field,
+                                              args, 0,
+                                              fa->resolved_type, span);
+        }
         return iron_hir_expr_field_access(mod, obj, fa->field,
                                            fa->resolved_type, span);
     }
@@ -1841,6 +1890,23 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     Iron_Block *body = (Iron_Block *)md->body;
     for (int i = 0; i < body->stmt_count; i++) {
         lower_stmt_hir(ctx, body->stmts[i]);
+    }
+
+    /* Phase 85 INIT-11: init always returns Self implicitly. The parser
+     * forbids explicit `return <expr>` inside init (INIT-11 + E0252), so the
+     * only control path into C-land is natural-exit. Append an implicit
+     * `return self` at the tail of the lowered body so the init function
+     * (whose resolved_return_type is now the enclosing object type) produces
+     * a properly-typed C return. The definite-assignment pass (Plan 85-02)
+     * already guaranteed every field was written on every exit path before
+     * this point, so reading `self` here is safe. */
+    if (md->is_init && fn->param_count > 0 &&
+        fn->params[0].name && strcmp(fn->params[0].name, "self") == 0) {
+        IronHIR_Expr *self_expr = iron_hir_expr_ident(
+            ctx->module, fn->params[0].var_id,
+            fn->params[0].name, fn->params[0].type, md->span);
+        IronHIR_Stmt *ret_s = iron_hir_stmt_return(ctx->module, self_expr, md->span);
+        iron_hir_block_add_stmt(fn->body, ret_s);
     }
 
     pop_defer_scope_hir(ctx);

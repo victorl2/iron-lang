@@ -730,11 +730,16 @@ static void lower_type_decls_from_ast(HIR_to_LIR_Ctx *ctx) {
                                       iface->name, NULL);
     }
 
-    /* 0b: Objects */
+    /* 0b: Objects.  Skip `patch object T { ... }` entries — those attach
+     * methods to an already-declared object and must not register a second
+     * type_decl (which would cause the C backend to emit a duplicate struct
+     * for T).  PATCH-01 sets is_patch on the AST node; the non-patch object
+     * decl for T is registered separately. */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind != IRON_NODE_OBJECT_DECL) continue;
         Iron_ObjectDecl *obj = (Iron_ObjectDecl *)decl;
+        if (obj->is_patch) continue;
         Iron_Type *obj_type = iron_type_make_object(ctx->lir_arena, obj);
         iron_lir_module_add_type_decl(ctx->lir_module, IRON_LIR_TYPE_OBJECT,
                                       obj->name, obj_type);
@@ -1333,11 +1338,13 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * free function. */
         bool synth_self = false;
         Iron_Type *synth_self_type = NULL;
+        int tf_param_count = -1;
         if (is_static_call && ctx->hir) {
             for (int fi = 0; fi < ctx->hir->func_count; fi++) {
                 IronHIR_Func *tf = ctx->hir->funcs[fi];
                 if (!tf || !tf->name) continue;
                 if (strcmp(tf->name, mangled) != 0) continue;
+                tf_param_count = tf->param_count;
                 if (tf->param_count > 0 && tf->params[0].name &&
                     strcmp(tf->params[0].name, "self") == 0) {
                     synth_self = true;
@@ -1347,11 +1354,33 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
+        /* Auto-static UFCS shape: `T.method(x, ...)` where the first explicit
+         * argument has type T is really `x.method(...)`. This applies only
+         * when the callee's declared arity equals the call-site arg count
+         * (i.e. the synth self slot is filled by x, not by a zero init).
+         * For true static methods like `func Url.build(u: Url)`, the callee
+         * has (self, u) and the call has (u), so parity doesn't match and
+         * we fall through to the synth_self path. */
+        bool ufcs_static = false;
+        if (is_static_call && synth_self && synth_self_type &&
+            tf_param_count == expr->method_call.arg_count &&
+            expr->method_call.arg_count > 0 &&
+            expr->method_call.args[0] &&
+            expr->method_call.args[0]->type &&
+            iron_type_equals(expr->method_call.args[0]->type, synth_self_type)) {
+            ufcs_static = true;
+        }
+
         /* Build args: instance methods pass self as first arg, static methods
          * don't — except for the synth_self case above. */
         IronLIR_ValueId *args = NULL;
         if (!is_static_call) {
             IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+            arrput(args, self_val);
+        } else if (ufcs_static) {
+            /* args[0] IS the receiver — skip synth_self, consume it here and
+             * let the loop below start at i=1. */
+            IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.args[0]);
             arrput(args, self_val);
         } else if (synth_self) {
             /* Emit a zero-init value of the receiver type. We lean on the
@@ -1365,7 +1394,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                                        self_alloca, synth_self_type, span);
             arrput(args, self_load->id);
         }
-        for (int i = 0; i < expr->method_call.arg_count; i++) {
+        for (int i = (ufcs_static ? 1 : 0); i < expr->method_call.arg_count; i++) {
             IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
             arrput(args, av);
         }

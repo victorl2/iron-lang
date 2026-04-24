@@ -22,6 +22,13 @@ object Job impl Task {
   var owner_id: Int
   var kind: Int
   var cost: Int
+
+    init(priority: Int, owner_id: Int, kind: Int, cost: Int) {
+        self.priority = priority
+        self.owner_id = owner_id
+        self.kind = kind
+        self.cost = cost
+    }
 }
 
 object Chore impl Task {
@@ -29,6 +36,13 @@ object Chore impl Task {
   var room: Int
   var day: Int
   var hours: Int
+
+    init(priority: Int, room: Int, day: Int, hours: Int) {
+        self.priority = priority
+        self.room = room
+        self.day = day
+        self.hours = hours
+    }
 }
 
 func Job.get_priority() -> Int {

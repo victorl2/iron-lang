@@ -1,0 +1,16 @@
+patch object Int {
+    pub readonly func shared() -> Int {
+        return self + 1
+    }
+}
+
+patch object Int {
+    pub readonly func shared() -> Int {
+        return self + 2
+    }
+}
+
+func main() {
+    val a: Int = 5
+    println("{a.shared()}")
+}

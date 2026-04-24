@@ -1,0 +1,14 @@
+patch object Foo {
+    var extra: Int
+}
+
+object Foo {
+    var x: Int
+    init(v: Int) {
+        self.x = v
+    }
+}
+
+func main() {
+    val f: Foo = Foo(1)
+}

@@ -8,14 +8,26 @@ interface Animal {
 
 object Dog impl Animal {
   var volume: Int
+
+    init(volume: Int) {
+        self.volume = volume
+    }
 }
 
 object Cat impl Animal {
   var pitch: Int
+
+    init(pitch: Int) {
+        self.pitch = pitch
+    }
 }
 
 object Bird impl Animal {
   var freq: Int
+
+    init(freq: Int) {
+        self.freq = freq
+    }
 }
 
 func Dog.sound() -> Int {

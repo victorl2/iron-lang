@@ -2804,9 +2804,19 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             first_arg = false;
             IronLIR_ValueId arg_id = instr->call.args[i];
 
-            /* Pointer-receiver self: emit &arg for the first argument */
+            /* Pointer-receiver self: emit &arg for the first argument.
+             * If the arg is the enclosing function's first parameter and
+             * that function takes self by pointer (is_mut_receiver_method),
+             * the argument is ALREADY a pointer — emit it directly instead
+             * of taking its address, which would yield a pointer-to-pointer
+             * and silently miscompile (and segfault) through the setter. */
             if (self_by_addr && i == 0) {
-                iron_strbuf_appendf(sb, "&");
+                bool arg_is_enclosing_self_ptr =
+                    fn && fn->is_mut_receiver_method &&
+                    arg_id == 1;
+                if (!arg_is_enclosing_self_ptr) {
+                    iron_strbuf_appendf(sb, "&");
+                }
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 continue;
             }
@@ -3146,6 +3156,18 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
             if (!ret_wrapped) {
                 iron_strbuf_appendf(sb, "return ");
+                /* Phase 85 INIT-11: when an init body returns `self` and the
+                 * callee is a mut-receiver method (self passed as `T *_v1`),
+                 * dereference so the return matches the by-value signature.
+                 * Without this the emitted `return _v1` would try to return
+                 * a pointer from a function whose signature is `T f(T *self)`.
+                 * The is_mut_receiver_method + vid==1 duo is the exact
+                 * signal used by emit_val_is_heap_ptr for `self->field`
+                 * rewrites, so reusing it keeps the two sites in lockstep. */
+                if (fn->is_mut_receiver_method &&
+                    instr->ret.value == 1) {
+                    iron_strbuf_appendf(sb, "*");
+                }
                 emit_expr_to_buf(sb, instr->ret.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ";\n");
             }

@@ -32,6 +32,7 @@
 #include "lexer/lexer.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <string.h>
 #include <stdbool.h>
@@ -68,12 +69,66 @@ static Iron_Program *parse_and_resolve(const char *src) {
     return prog;
 }
 
+/* parse_and_resolve_no_strict: parse with v3_strict_mode=false for tests that
+ * exercise typecheck / resolve behavior on objects that lack init constructors.
+ * The E0264 init requirement is verified by gate-specific tests; these tests
+ * focus on type resolution and construction semantics. */
+static Iron_Program *parse_and_resolve_no_strict(const char *src) {
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;  /* include EOF */
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron", &g_arena, &g_diags);
+    p.v3_strict_mode = false;
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    iron_typecheck(prog, global, &g_arena, &g_diags);
+    return prog;
+}
+
 /* Check if a specific error code was emitted */
 static bool has_error(int code) {
     for (int i = 0; i < g_diags.count; i++) {
         if (g_diags.items[i].code == code) return true;
     }
     return false;
+}
+
+/* Check if any diagnostic message contains the given substring. Used by
+ * Phase 86 PATCH tests to lock ASCII-only message substrings without
+ * coupling to the full diagnostic wording. */
+static bool has_error_msg_substring(const char *needle) {
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].message &&
+            strstr(g_diags.items[i].message, needle) != NULL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Parse + resolve WITHOUT running the typechecker. Phase 86 Task 1 RED
+ * tests reach into the per-program patch registry directly, which is
+ * built on top of resolve's global scope; the typechecker would add
+ * dispatch errors we do not want to assert on at Task 1. Side effect:
+ * stashes the resolved global scope in g_global_scope_for_patch so
+ * callers can pass it to iron_type_patch_registry_build. */
+static Iron_Scope *g_global_scope_for_patch = NULL;
+
+static Iron_Program *parse_and_resolve_only(const char *src) {
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    g_global_scope_for_patch = iron_resolve(prog, &g_arena, &g_diags);
+    return prog;
 }
 
 /* Find the first val/var decl in the first function's body */
@@ -353,7 +408,7 @@ void test_construct_expr_type(void) {
         "func main() {\n"
         "  val p = Point(1, 2)\n"
         "}\n";
-    Iron_Program *prog = parse_and_resolve(src);
+    Iron_Program *prog = parse_and_resolve_no_strict(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
     /* Second decl is func main; get first stmt */
@@ -1318,6 +1373,1614 @@ void test_typecheck_nested_tuple(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
 }
 
+/* ── Phase 83-02 Task 2: property-syntax dispatch flag plumbing ─────────────
+ * typecheck sets Iron_FieldAccess.is_pub_access when the resolved field
+ * carries is_pub, and sets Iron_AssignStmt.is_pub_setter when the assignment
+ * target is a pub var field. Writing to a pub val field (pub without var)
+ * emits IRON_ERR_VAL_REASSIGN with a message naming 'pub val'. HIR consumes
+ * these bits in a separate end-to-end smoke-compile test. */
+
+/* Find the FieldAccess expression in the first println/val-init statement of
+ * the function named `func_name`. Returns NULL when not found. Walks
+ * down common expression nests: interpolated-string parts, val/var init. */
+static Iron_FieldAccess *find_field_access_in_func(Iron_Program *prog,
+                                                   const char *func_name) {
+    for (int di = 0; di < prog->decl_count; di++) {
+        Iron_Node *dn = prog->decls[di];
+        if (dn->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)dn;
+        if (!fd->name || strcmp(fd->name, func_name) != 0) continue;
+        Iron_Block *body = (Iron_Block *)fd->body;
+        if (!body) return NULL;
+        for (int si = 0; si < body->stmt_count; si++) {
+            Iron_Node *st = body->stmts[si];
+            /* val/var init may directly be a FIELD_ACCESS */
+            Iron_Node *init = NULL;
+            if (st->kind == IRON_NODE_VAL_DECL) init = ((Iron_ValDecl *)st)->init;
+            else if (st->kind == IRON_NODE_VAR_DECL) init = ((Iron_VarDecl *)st)->init;
+            if (init && init->kind == IRON_NODE_FIELD_ACCESS) {
+                return (Iron_FieldAccess *)init;
+            }
+            if (init && init->kind == IRON_NODE_INTERP_STRING) {
+                Iron_InterpString *is = (Iron_InterpString *)init;
+                for (int pi = 0; pi < is->part_count; pi++) {
+                    if (is->parts[pi] &&
+                        is->parts[pi]->kind == IRON_NODE_FIELD_ACCESS) {
+                        return (Iron_FieldAccess *)is->parts[pi];
+                    }
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+/* Find the first IRON_NODE_ASSIGN statement in the function body. */
+static Iron_AssignStmt *find_assign_in_func(Iron_Program *prog,
+                                            const char *func_name) {
+    for (int di = 0; di < prog->decl_count; di++) {
+        Iron_Node *dn = prog->decls[di];
+        if (dn->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)dn;
+        if (!fd->name || strcmp(fd->name, func_name) != 0) continue;
+        Iron_Block *body = (Iron_Block *)fd->body;
+        if (!body) return NULL;
+        for (int si = 0; si < body->stmt_count; si++) {
+            if (body->stmts[si]->kind == IRON_NODE_ASSIGN) {
+                return (Iron_AssignStmt *)body->stmts[si];
+            }
+        }
+    }
+    return NULL;
+}
+
+void test_pub_field_read_sets_is_pub_access(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object P {\n"
+        "  pub val x: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(0)\n"
+        "  val r: Int = p.x\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_FieldAccess *fa = find_field_access_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(fa);
+    TEST_ASSERT_EQUAL_STRING("x", fa->field);
+    TEST_ASSERT_TRUE(fa->is_pub_access);
+}
+
+void test_pub_field_write_sets_is_pub_setter(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object Q {\n"
+        "  pub var h: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  var q: Q = Q(0)\n"
+        "  q.h = 5\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_AssignStmt *as = find_assign_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(as);
+    TEST_ASSERT_TRUE(as->is_pub_setter);
+}
+
+void test_non_pub_field_read_is_pub_access_false(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object R {\n"
+        "  val unsealed: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  val r: R = R(0)\n"
+        "  val u: Int = r.unsealed\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_FieldAccess *fa = find_field_access_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(fa);
+    TEST_ASSERT_EQUAL_STRING("unsealed", fa->field);
+    TEST_ASSERT_FALSE(fa->is_pub_access);
+}
+
+void test_non_pub_field_write_is_pub_setter_false(void) {
+    Iron_Program *prog = parse_and_resolve(
+        "object S {\n"
+        "  var m: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  var s: S = S(0)\n"
+        "  s.m = 9\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_TYPE_MISMATCH));
+    Iron_AssignStmt *as = find_assign_in_func(prog, "main");
+    TEST_ASSERT_NOT_NULL(as);
+    TEST_ASSERT_FALSE(as->is_pub_setter);
+}
+
+void test_pub_val_assign_rejected_with_val_reassign(void) {
+    /* pub val is read-only: assigning to a pub val field through property
+     * syntax must emit IRON_ERR_VAL_REASSIGN (203) with a message that
+     * references pub val so the error hint is specific. */
+    parse_and_resolve(
+        "object V {\n"
+        "  pub val locked: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  var v: V = V(0)\n"
+        "  v.locked = 7\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_VAL_REASSIGN));
+    bool found_msg = false;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_ERR_VAL_REASSIGN &&
+            g_diags.items[i].message &&
+            strstr(g_diags.items[i].message, "pub val") != NULL) {
+            found_msg = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_msg,
+        "expected IRON_ERR_VAL_REASSIGN diagnostic citing 'pub val'");
+}
+
+/* ── Phase 84 MUTTIER-02: readonly tier enforcement (Plan 84-02 Task 1) ──── */
+
+void test_readonly_writes_self_emits_E0238(void) {
+    /* Writing self.field inside a readonly method must emit
+     * IRON_ERR_READONLY_WRITE_SELF (238). The Phase 80 MUT-03 chain walk
+     * is reused: walk the FieldAccess target to its root ident and check
+     * the root name is "self". */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func bump() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+}
+
+void test_readonly_reads_self_is_ok(void) {
+    /* Reading self.field from a readonly method is legal. No E0238,
+     * no E0239, no type mismatch. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func read() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_readonly_calls_readonly_is_ok(void) {
+    /* MUTTIER-06 positive: readonly can call readonly on self. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func read() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "  readonly func chain() -> Int {\n"
+        "    return self.read()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_readonly_calls_mutating_emits_E0239(void) {
+    /* Calling a default-mutating method from readonly context must emit
+     * IRON_ERR_READONLY_CALLS_MUTATING (239). Uses Phase 80 MUT-04 callee
+     * inspection extended with caller-tier check. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  func bump() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "  readonly func chain() {\n"
+        "    self.bump()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_readonly_calls_pure_is_ok(void) {
+    /* MUTTIER-06 positive: readonly can call pure (pure is stronger
+     * than readonly, so the transitive rule allows the call). */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  pure func get() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "  readonly func chain() -> Int {\n"
+        "    return self.get()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+}
+
+void test_plain_method_calls_mutating_is_ok(void) {
+    /* MUTTIER-01 regression: a default-mutating method can call any
+     * tier — no tier checks fire from a non-readonly, non-pure caller. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  func a_set() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "  func b() {\n"
+        "    self.a_set()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+void test_synth_getter_callable_from_readonly(void) {
+    /* Phase 83-84 bridge: every `pub val`/`pub var` getter is retrofitted
+     * is_readonly=true AND is_pure=true in iron_parse_object_decl. That
+     * means a readonly method can read the property without tripping
+     * E0239 (mutating-call) or E0242 (non-pure call). */
+    parse_and_resolve(
+        "object X {\n"
+        "  pub val a: Int\n"
+        "  readonly func wrap() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+}
+
+/* ── Phase 84 MUTTIER-03: pure tier enforcement (Plan 84-02 Task 2) ──────── */
+
+void test_pure_writes_self_emits_E0244(void) {
+    /* Pure method writing self.field must emit IRON_ERR_PURE_WRITE_SELF
+     * (244), not E0238 — pure gets a distinct error code for clearer
+     * diagnostic messaging. Method name is `bump` (not `mut`, which is a
+     * reserved token for Phase 80 receiver-mut). */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  pure func bump() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_WRITE_SELF));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+}
+
+void test_pure_calls_println_emits_E0240(void) {
+    /* Pure method calling println is I/O; reject with IRON_ERR_PURE_IO (240). */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func log() {\n"
+        "    println(\"hi\")\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_IO));
+}
+
+void test_pure_calls_print_emits_E0240(void) {
+    /* print is also on the pure I/O blocklist. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func log() {\n"
+        "    print(\"hi\")\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_IO));
+}
+
+void test_pure_heap_alloc_is_ok(void) {
+    /* 84-CONTEXT.md locks heap-alloc-allowed for pure tier. A pure method
+     * returning an array literal does not trip any tier error. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func mk() -> [Int] {\n"
+        "    return [1, 2, 3]\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_IO));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_PARAM_WRITE));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_WRITE_SELF));
+}
+
+void test_pure_writes_param_emits_E0243(void) {
+    /* Pure method writing to a param (var n) must emit
+     * IRON_ERR_PURE_PARAM_WRITE (243). Uses `var n: Int` param and
+     * re-assignment `n = 5` — avoids the INDEX path entirely so the
+     * check lands in the ident-write branch of IRON_NODE_ASSIGN. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func tweak(var n: Int) -> Int {\n"
+        "    n = 5\n"
+        "    return n\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_PARAM_WRITE));
+}
+
+void test_pure_calls_non_pure_method_emits_E0242(void) {
+    /* Pure cannot call readonly (only pure). E0242 fires. */
+    parse_and_resolve(
+        "object X {\n"
+        "  readonly func ro() -> Int {\n"
+        "    return 1\n"
+        "  }\n"
+        "  pure func p() -> Int {\n"
+        "    return self.ro()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+}
+
+void test_pure_calls_pure_method_is_ok(void) {
+    /* MUTTIER-06 positive: pure -> pure is legal. */
+    parse_and_resolve(
+        "object X {\n"
+        "  pure func p1() -> Int {\n"
+        "    return 1\n"
+        "  }\n"
+        "  pure func p2() -> Int {\n"
+        "    return self.p1()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_IO));
+}
+
+void test_pure_reads_mutable_global_emits_E0241(void) {
+    /* Reading a top-level `var` from a pure method is a mutable-global
+     * access; emit IRON_ERR_PURE_MUTABLE_GLOBAL (241). */
+    parse_and_resolve(
+        "var counter: Int = 0\n"
+        "object X {\n"
+        "  pure func get() -> Int {\n"
+        "    return counter\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+}
+
+void test_pure_writes_mutable_global_emits_E0241(void) {
+    /* Writing to a top-level `var` from a pure method is also a
+     * mutable-global access; emit IRON_ERR_PURE_MUTABLE_GLOBAL. */
+    parse_and_resolve(
+        "var counter: Int = 0\n"
+        "object X {\n"
+        "  pure func set() {\n"
+        "    counter = 5\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+}
+
+void test_pure_reads_val_global_is_ok(void) {
+    /* Top-level `val` is immutable; pure can read it without tripping
+     * E0241. */
+    parse_and_resolve(
+        "val PI: Float = 3.14\n"
+        "object X {\n"
+        "  pure func c() -> Float {\n"
+        "    return PI\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_MUTABLE_GLOBAL));
+}
+
+void test_mutating_calls_on_val_binding_still_emits_E0235(void) {
+    /* MUTTIER-04 regression: Phase 80 E0235 (val-bound receiver +
+     * mutating method) still fires after the Plan 84-02 additions. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  func bump() {\n"
+        "    self.a = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val x: X = X(0)\n"
+        "  x.bump()\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_MUT_CALL_ON_VAL));
+}
+
+void test_readonly_callable_on_val_binding(void) {
+    /* MUTTIER-05: val x = X(); x.readonly_method() is accepted. The
+     * readonly method is NOT is_mut_receiver, so MUT-04 never fires;
+     * and the caller is main() (not readonly or pure) so no tier check
+     * fires either. */
+    parse_and_resolve(
+        "object X {\n"
+        "  var a: Int\n"
+        "  readonly func read() -> Int {\n"
+        "    return self.a\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val x: X = X(0)\n"
+        "  val r: Int = x.read()\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_MUT_CALL_ON_VAL));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_READONLY_CALLS_MUTATING));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PURE_NON_PURE_CALL));
+}
+
+/* ── Phase 85 INIT Plan 85-02 Task 1: definite-assignment + delegation + return-value ── */
+
+void test_init_read_before_assign_emits_E0246(void) {
+    /* Reading self.x inside init body BEFORE x is assigned fires E0246. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  init() {\n"
+        "    val tmp: Int = self.x\n"
+        "    self.x = 1\n"
+        "    self.y = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_READ_BEFORE_ASSIGN));
+}
+
+void test_init_all_fields_assigned_no_E0247(void) {
+    /* init assigns every field on every exit path -> no E0247. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_missing_field_emits_E0247(void) {
+    /* init leaves `y` unassigned on the exit path -> E0247. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_missing_on_branch_emits_E0247(void) {
+    /* then-branch assigns x, else-branch does not -> x unassigned on merged
+     * path -> E0247 at init exit. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(c: Bool) {\n"
+        "    if c {\n"
+        "      self.x = 1\n"
+        "    } else {\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_assigned_on_both_branches_ok(void) {
+    /* Both then and else assign x -> merged path assigns x -> no E0247. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(c: Bool) {\n"
+        "    if c {\n"
+        "      self.x = 1\n"
+        "    } else {\n"
+        "      self.x = 2\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_init_val_double_assign_emits_E0248(void) {
+    /* val field assigned twice in init body -> E0248 at the second write. */
+    parse_and_resolve(
+        "object P {\n"
+        "  val x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.x = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_VAL_DOUBLE_ASSIGN));
+}
+
+void test_init_var_double_assign_ok(void) {
+    /* var field assigned twice is legal in init (var writes freely). */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.x = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_VAL_DOUBLE_ASSIGN));
+}
+
+void test_init_method_on_partial_self_emits_E0249(void) {
+    /* Calling self.helper() while some field still unassigned -> E0249. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  func helper() {}\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.helper()\n"
+        "    self.y = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_METHOD_ON_PARTIAL));
+}
+
+void test_init_method_on_full_self_ok(void) {
+    /* Calling self.helper() once all fields assigned -> no E0249. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  func helper() {}\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    self.helper()\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_METHOD_ON_PARTIAL));
+}
+
+void test_init_early_return_emits_E0250(void) {
+    /* Bare `return` inside an init body while some field is still
+     * unassigned -> E0250. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(c: Bool) {\n"
+        "    if c {\n"
+        "      return\n"
+        "    }\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_EARLY_RETURN));
+}
+
+void test_init_bare_return_after_full_assign_ok(void) {
+    /* Bare return after all fields assigned is legal -> no E0250. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    return\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_EARLY_RETURN));
+}
+
+void test_init_return_value_emits_E0252(void) {
+    /* `return <expr>` inside init body -> E0252 regardless of assignment
+     * state. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.x = 1\n"
+        "    return 5\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_RETURN_VALUE));
+}
+
+void test_init_delegation_to_anonymous_emits_E0251(void) {
+    /* Inside a named init body, constructing P(...) (the enclosing type)
+     * is delegation -> E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init alt() {\n"
+        "    val tmp: P = P(0)\n"
+        "    self.x = 2\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_init_delegation_to_named_emits_E0251(void) {
+    /* Inside an init body, calling P.alt() where alt is a named init on the
+     * enclosing type -> E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    val tmp: P = P.alt()\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "  init alt() { self.x = 9 }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_init_delegation_via_self_init_emits_E0251(void) {
+    /* self.init(...) inside any init body -> E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init() {\n"
+        "    self.init()\n"
+        "    self.x = 1\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_method_call_Type_args_not_delegation(void) {
+    /* INIT-16 regression: non-init method bodies may construct P(args) and
+     * must NOT emit E0251. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  func clone() -> P {\n"
+        "    return P(self.x)\n"
+        "  }\n"
+        "}\n"
+        "func main() {}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+/* ── Phase 85 INIT Plan 85-02 Task 2: call-site dispatch + INIT-16 regression ── */
+
+void test_construct_dispatches_to_anonymous_init(void) {
+    /* Explicit anonymous init(v: Int) dispatches from Type(args) call site;
+     * type-checks clean. Plan 85-01 stores the anonymous init as
+     * method_name="init" + init_name=NULL. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_construct_falls_back_to_v2_2_positional_when_no_init(void) {
+    /* Object with no explicit init still accepts v2.2 positional
+     * construction. Gate is OFF here so E0264 does not fire; this test
+     * verifies that the positional-fallback resolver path still works
+     * regardless of the default strict_v3 setting. */
+    parse_and_resolve_no_strict(
+        "object P {\n"
+        "  var x: Int\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_construct_arg_count_checked_against_init_params(void) {
+    /* When an explicit anonymous init exists, arg count is checked against
+     * init params (excluding synth self) -- NOT against raw field count. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  var y: Int\n"
+        "  init(only: Int) {\n"
+        "    self.x = only\n"
+        "    self.y = 0\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(1, 2)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ARG_COUNT));
+}
+
+void test_construct_arg_types_checked_against_init_params(void) {
+    /* Anonymous init(s: String); caller passes P(42) -- String expected,
+     * Int given -> E0217 against the init param type, not the field type. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: String\n"
+        "  init(s: String) { self.x = s }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P(42)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ARG_TYPE));
+}
+
+void test_named_init_dispatch(void) {
+    /* P.zero() dispatches to init zero() named init; type-checks clean. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init zero() { self.x = 0 }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P.zero()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_named_init_wrong_args(void) {
+    /* P.zero(5) where zero takes no args -> E0216. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init zero() { self.x = 0 }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P.zero(5)\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_ARG_COUNT));
+}
+
+void test_named_init_unknown_name_falls_through(void) {
+    /* P.not_a_real_init() — <not_a_real_init> is not a declared init and
+     * there is no classic method by that name, so the existing method
+     * resolver emits its usual diagnostic (NOT a new init-specific error).
+     * The test asserts we do NOT emit E0251 for an unknown name (no
+     * spurious delegation); any other diagnostic is fine. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "}\n"
+        "func main() {\n"
+        "  val p: P = P.not_a_real_init()\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
+}
+
+void test_method_body_can_call_Type_args(void) {
+    /* INIT-16 regression: non-init method body constructs via P(self.x)
+     * with explicit init present -> type-checks clean; no E0251. readonly
+     * on clone() prevents the Phase 80 mut-receiver-on-val diagnostic
+     * which is orthogonal to INIT-16. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  readonly func clone() -> P {\n"
+        "    return P(self.x)\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val a: P = P(1)\n"
+        "  val b: P = a.clone()\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_method_body_can_call_Type_name_args(void) {
+    /* INIT-16 regression: non-init method body calls P.zero() -> no E0251,
+     * no other errors. */
+    parse_and_resolve(
+        "object P {\n"
+        "  var x: Int\n"
+        "  init(v: Int) { self.x = v }\n"
+        "  init zero() { self.x = 0 }\n"
+        "  readonly func fresh() -> P {\n"
+        "    return P.zero()\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val a: P = P(1)\n"
+        "  val b: P = a.fresh()\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_INIT_DELEGATION));
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Phase 86 Plan 86-02 Task 1 RED: patch registry + primitive targets + E0254 ── */
+
+void test_patch_registry_registers_user_object(void) {
+    /* PATCH-02: patches on user objects register against the target type. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pub readonly func describe() -> Int { return self.x }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(reg);
+    Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Foo");
+    TEST_ASSERT_NOT_NULL(methods);
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(methods));
+    TEST_ASSERT_EQUAL_STRING("describe", methods[0]->method_name);
+    TEST_ASSERT_EQUAL_STRING("Foo", methods[0]->type_name);
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_registry_registers_primitive(void) {
+    /* PATCH-04: primitives (Int, Int32, Float, String, Bool) are valid
+     * targets without a user-declared object of the same name. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(reg);
+    Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Int");
+    TEST_ASSERT_NOT_NULL(methods);
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(methods));
+    TEST_ASSERT_EQUAL_STRING("double", methods[0]->method_name);
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_unknown_target_emits_e0254(void) {
+    /* PATCH-04: `patch object Xyzzy` with no user type and no primitive
+     * match emits IRON_ERR_PATCH_TARGET_NOT_FOUND with 'patch target'
+     * in the message. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Xyzzy {\n"
+        "    func foo() -> Int { return 1 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("patch target"),
+        "expected locked 'patch target' substring in E0254 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("Xyzzy"),
+        "expected unknown target name 'Xyzzy' in E0254 message");
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_multiple_patches_same_target(void) {
+    /* Task 1 alone does not run the collision scan — two distinct methods
+     * on the same target both register, lookup returns a 2-element array. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Int {\n"
+        "    pub readonly func triple() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND));
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
+    TEST_ASSERT_NOT_NULL(reg);
+    Iron_MethodDecl **methods = iron_type_patch_lookup(reg, "Int");
+    TEST_ASSERT_NOT_NULL(methods);
+    TEST_ASSERT_EQUAL_INT(2, (int)arrlen(methods));
+    iron_type_patch_registry_free(reg);
+}
+
+void test_patch_primitive_names_allowlist(void) {
+    /* Each primitive in the allowlist (Int, Int32, Float, String, Bool)
+     * accepts a patch without E0254. */
+    Iron_Program *prog = parse_and_resolve_only(
+        "patch object Int    { pub readonly func a() -> Int { return self } }\n"
+        "patch object Int32  { pub readonly func a() -> Int { return 1    } }\n"
+        "patch object Float  { pub readonly func a() -> Int { return 1    } }\n"
+        "patch object String { pub readonly func a() -> Int { return 1    } }\n"
+        "patch object Bool   { pub readonly func a() -> Int { return 1    } }\n"
+    );
+    TEST_ASSERT_NOT_NULL(prog);
+
+    Iron_TypePatchRegistry *reg =
+        iron_type_patch_registry_build(prog, g_global_scope_for_patch,
+                                       &g_arena, &g_diags);
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_PATCH_TARGET_NOT_FOUND),
+        "primitives Int/Int32/Float/String/Bool must NOT emit E0254");
+
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Int")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Int32")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Float")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "String")));
+    TEST_ASSERT_EQUAL_INT(1, (int)arrlen(iron_type_patch_lookup(reg, "Bool")));
+    iron_type_patch_registry_free(reg);
+}
+
+/* ── Phase 86 Plan 86-02 Task 2 RED: collision scan + dispatch + regression locks ── */
+
+void test_patch_patch_collision(void) {
+    /* PATCH-03: two patches on the same target declaring the same method
+     * name fire IRON_ERR_PATCH_CONFLICT with 'conflicting patch' locked
+     * in the message. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PATCH_CONFLICT));
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("conflicting patch"),
+        "expected 'conflicting patch' substring in E0255 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("Int.double"),
+        "expected 'Int.double' to appear in E0255 message");
+}
+
+void test_patch_object_collision(void) {
+    /* PATCH-06: patch method name collides with existing in-object method
+     * -> same IRON_ERR_PATCH_CONFLICT. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "    pub readonly func bar() -> Int { return self.x }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pub readonly func bar() -> Int { return self.x }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PATCH_CONFLICT));
+}
+
+void test_patch_collision_across_different_targets_no_error(void) {
+    /* Different targets never collide even if the method name matches. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Float {\n"
+        "    pub readonly func double() -> Int { return 1 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_CONFLICT));
+}
+
+void test_patch_collision_different_names_no_error(void) {
+    /* Same target, different method names -> no collision. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "patch object Int {\n"
+        "    pub readonly func triple() -> Int { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_PATCH_CONFLICT));
+}
+
+void test_patch_method_call_dispatches_through_registry_user(void) {
+    /* PATCH-02 dispatch: object Foo + patch-Foo.describe resolves
+     * mc->resolved_type on `f.describe()` to Int. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pub readonly func describe() -> Int { return self.x }\n"
+        "}\n"
+        "func main() {\n"
+        "    val f: Foo = Foo(7)\n"
+        "    val r: Int = f.describe()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_patch_method_call_dispatches_through_registry_primitive(void) {
+    /* PATCH-04 dispatch: patch-Int.double typechecks 5.double() with
+     * resolved_type Int. */
+    parse_and_resolve(
+        "patch object Int {\n"
+        "    pub readonly func double() -> Int { return self }\n"
+        "}\n"
+        "func main() {\n"
+        "    val r: Int = 5.double()\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_patch_named_init_dispatches(void) {
+    /* Patched named init Foo.from_x(7) dispatches through the registry. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    init from_x(v: Int) { self.x = v }\n"
+        "}\n"
+        "func main() {\n"
+        "    val f: Foo = Foo.from_x(7)\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+void test_patched_init_unassigned_field(void) {
+    /* PATCH-07 regression: patched init that leaves a field unassigned
+     * fires E0247 (same branch as in-object inits). */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    var y: Int\n"
+        "    init(v: Int) { self.x = v\n self.y = 0 }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    init only_x(v: Int) { self.x = v }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_INIT_UNASSIGNED_EXIT));
+}
+
+void test_patched_readonly_method_write_self_rejected(void) {
+    /* PATCH-09 regression: patched readonly method writing self.field
+     * fires E0238 (same branch as in-object readonly methods). */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    readonly func broken() { self.x = 1 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_READONLY_WRITE_SELF));
+}
+
+void test_patched_pure_method_io_rejected(void) {
+    /* PATCH-09 regression: patched pure method calling an I/O builtin
+     * fires E0240 (same branch as in-object pure methods). */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    var x: Int\n"
+        "    init(v: Int) { self.x = v }\n"
+        "}\n"
+        "patch object Foo {\n"
+        "    pure func broken() { println(\"bad\") }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_PURE_IO));
+}
+
+/* ── Phase 87 Plan 87-01 Task 2: IFACE-02 tier-strengthening (E0257) ─────── */
+/* Tests 9-18 covering the 3x3 tier matrix (iface default/readonly/pure x
+ * impl default/readonly/pure), default-body inheritance, and locked
+ * message substring verification. */
+
+void test_iface_readonly_impl_default_mutating_rejected(void) {
+    /* IFACE-02: readonly iface sig + mutating impl => E0257.
+     * Implementation is an in-object in-block method (Phase 82) so it gets
+     * a MethodDecl with is_readonly=false, which is the mismatch. */
+    parse_and_resolve(
+        "interface Cmp {\n"
+        "    readonly func cmp() -> Int\n"
+        "}\n"
+        "object Foo impl Cmp {\n"
+        "    init() {}\n"
+        "    func cmp() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for mutating impl of readonly iface method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("requires readonly"),
+        "expected 'requires readonly' in E0257 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("implementation is"),
+        "expected 'implementation is' in E0257 message");
+}
+
+void test_iface_pure_impl_readonly_rejected(void) {
+    /* IFACE-02: pure iface sig + readonly impl => E0257.
+     * Uses in-block readonly method (Phase 82/84) so is_readonly=true but
+     * is_pure=false — weaker than required pure. */
+    parse_and_resolve(
+        "interface Hash {\n"
+        "    pure func hash() -> Int\n"
+        "}\n"
+        "object Foo impl Hash {\n"
+        "    init() {}\n"
+        "    readonly func hash() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for readonly impl of pure iface method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("requires pure"),
+        "expected 'requires pure' in E0257 message");
+}
+
+void test_iface_pure_impl_default_rejected(void) {
+    /* IFACE-02: pure iface sig + mutating impl => E0257. */
+    parse_and_resolve(
+        "interface Hash {\n"
+        "    pure func hash() -> Int\n"
+        "}\n"
+        "object Bar impl Hash {\n"
+        "    init() {}\n"
+        "    func hash() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for mutating impl of pure iface method");
+}
+
+void test_iface_readonly_impl_readonly_accepted(void) {
+    /* IFACE-02: readonly iface sig + readonly impl => zero E0257. */
+    parse_and_resolve(
+        "interface Cmp {\n"
+        "    readonly func cmp() -> Int\n"
+        "}\n"
+        "object Foo impl Cmp {\n"
+        "    init() {}\n"
+        "    readonly func cmp() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for readonly impl of readonly iface method");
+}
+
+void test_iface_readonly_impl_pure_accepted(void) {
+    /* IFACE-02: readonly iface sig + pure impl => zero E0257 (pure >= readonly). */
+    parse_and_resolve(
+        "interface Cmp {\n"
+        "    readonly func cmp() -> Int\n"
+        "}\n"
+        "object Foo impl Cmp {\n"
+        "    init() {}\n"
+        "    pure func cmp() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for pure impl of readonly iface method");
+}
+
+void test_iface_pure_impl_pure_accepted(void) {
+    /* IFACE-02: pure iface sig + pure impl => zero E0257. */
+    parse_and_resolve(
+        "interface Hash {\n"
+        "    pure func hash() -> Int\n"
+        "}\n"
+        "object Foo impl Hash {\n"
+        "    init() {}\n"
+        "    pure func hash() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for pure impl of pure iface method");
+}
+
+void test_iface_default_impl_mutating_accepted(void) {
+    /* IFACE-02: default iface sig + mutating impl => zero E0257. */
+    parse_and_resolve(
+        "interface Base {\n"
+        "    func run()\n"
+        "}\n"
+        "object Foo impl Base {\n"
+        "    init() {}\n"
+        "    func run() { return }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for mutating impl of default iface method");
+}
+
+void test_iface_default_impl_readonly_accepted(void) {
+    /* IFACE-02: default iface sig + readonly impl => zero E0257. */
+    parse_and_resolve(
+        "interface Base {\n"
+        "    func run()\n"
+        "}\n"
+        "object Foo impl Base {\n"
+        "    init() {}\n"
+        "    readonly func run() { return }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire for readonly impl of default iface method");
+}
+
+void test_iface_default_body_inherited_no_mismatch(void) {
+    /* IFACE-03/02 interaction: implementer has no override for a default-body
+     * method. No impl MethodDecl exists => no tier comparison => zero E0257. */
+    parse_and_resolve(
+        "interface D {\n"
+        "    readonly func foo() -> Int { return 42 }\n"
+        "}\n"
+        "object Foo impl D {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "E0257 should NOT fire when implementer inherits the default body");
+}
+
+void test_iface_tier_mismatch_E0257_locked_substring(void) {
+    /* Lock the exact ASCII substrings that Plan 87-03 compile_fail fixtures
+     * will grep: "interface method" + "requires" + "implementation is". */
+    parse_and_resolve(
+        "interface Sig {\n"
+        "    readonly func go() -> Int\n"
+        "}\n"
+        "object Impl impl Sig {\n"
+        "    init() {}\n"
+        "    func go() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("interface method"),
+        "expected 'interface method' prefix in E0257 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("requires"),
+        "expected 'requires' in E0257 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("implementation is"),
+        "expected 'implementation is' suffix in E0257 message");
+}
+
+/* ── Phase 87-02 SELF-01/02/03 + IFACE-05: Self type resolution ───────────── */
+
+/* test_self_return_resolves_to_enclosing: method with `-> Self` return type;
+ * the resolved_return_type should be the Point object type. */
+void test_self_return_resolves_to_enclosing(void) {
+    /* Use var (not pub val) to avoid the pub-val init-assignment restriction. */
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "object Point {\n"
+        "    var x: Int\n"
+        "    init(x: Int) { self.x = x }\n"
+        "    readonly func double_x() -> Self { return Self(self.x * 2) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)prog->decls[i];
+            if (strcmp(md->method_name, "double_x") == 0) {
+                TEST_ASSERT_NOT_NULL(md->resolved_return_type);
+                TEST_ASSERT_EQUAL_INT(IRON_TYPE_OBJECT, md->resolved_return_type->kind);
+                TEST_ASSERT_EQUAL_STRING("Point", md->resolved_return_type->object.decl->name);
+                return;
+            }
+        }
+    }
+    TEST_FAIL_MESSAGE("double_x MethodDecl not found");
+}
+
+/* test_self_named_init_resolves: method `Self.from_x(v)` resolves to Point type.
+ * Uses var (not pub val) to avoid the pub-val init-assignment restriction. */
+void test_self_named_init_resolves(void) {
+    parse_and_resolve(
+        "object Point {\n"
+        "    var x: Int\n"
+        "    init from_x(x: Int) { self.x = x }\n"
+        "    readonly func make_shifted(o: Int) -> Self { return Self.from_x(self.x + o) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* test_self_outside_method_rejected: `func free_fn() -> Self` emits E0259. */
+void test_self_outside_method_rejected(void) {
+    parse_and_resolve(
+        "func free_fn() -> Self { return 0 }\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_SELF_OUTSIDE_CONTEXT),
+        "expected E0259 for Self in free function return type");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("'Self' is only valid"),
+        "expected locked substring \"'Self' is only valid\" in E0259 message");
+}
+
+/* test_self_return_inside_init: `func make_self() -> Self { return Self() }` inside
+ * object with parameterless init: zero diags, return type is the object. */
+void test_self_return_inside_init(void) {
+    parse_and_resolve(
+        "object P {\n"
+        "    init() {}\n"
+        "    func make_self() -> Self { return Self() }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* test_self_in_interface_sig_bound_to_implementer: Cat impl Clone where
+ * Clone has `readonly func clone() -> Self`; Cat.clone returns Cat; no E0257. */
+void test_self_in_interface_sig_bound_to_implementer(void) {
+    parse_and_resolve(
+        "interface Clone {\n"
+        "    readonly func clone() -> Self\n"
+        "}\n"
+        "object Cat impl Clone {\n"
+        "    init() {}\n"
+        "    readonly func clone() -> Cat { return self }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* test_self_in_nested_method_resolves_correctly: Self inside A resolves to A,
+ * Self inside B resolves to B — no cross-object bleed.
+ * Uses var fields to avoid the pub-val init-assignment restriction. */
+void test_self_in_nested_method_resolves_correctly(void) {
+    parse_and_resolve(
+        "object A {\n"
+        "    var x: Int\n"
+        "    init(x: Int) { self.x = x }\n"
+        "    readonly func copy() -> Self { return Self(self.x) }\n"
+        "}\n"
+        "object B {\n"
+        "    var y: Int\n"
+        "    init(y: Int) { self.y = y }\n"
+        "    readonly func copy() -> Self { return Self(self.y) }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+}
+
+/* ── Phase 87-02 PATCH-08: retroactive conformance + E0258 ───────────────── */
+
+/* test_patch_retroactive_conformance_full: patch declares implements and provides
+ * all required interface methods => zero E0258. */
+void test_patch_retroactive_conformance_full(void) {
+    parse_and_resolve(
+        "interface Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int\n"
+        "}\n"
+        "patch object Int implements Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int { return self - other }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire when patch provides all required interface methods");
+}
+
+/* test_patch_retroactive_missing_method_e0258: patch declares implements but body
+ * has no methods => E0258 with locked substrings. */
+void test_patch_retroactive_missing_method_e0258(void) {
+    parse_and_resolve(
+        "interface Comparable {\n"
+        "    readonly func cmp(other: Int) -> Int\n"
+        "}\n"
+        "patch object Int implements Comparable {\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "expected E0258 when patch declares implements but omits required method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("missing interface method"),
+        "expected locked substring 'missing interface method' in E0258 message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("cmp"),
+        "expected method name 'cmp' in E0258 message");
+}
+
+/* test_patch_retroactive_partial_coverage: interface with 2 methods, patch provides
+ * only 1 => E0258 fires exactly once for the missing method. */
+void test_patch_retroactive_partial_coverage(void) {
+    parse_and_resolve(
+        "interface TwoMethods {\n"
+        "    readonly func foo() -> Int\n"
+        "    readonly func bar() -> Int\n"
+        "}\n"
+        "patch object Int implements TwoMethods {\n"
+        "    readonly func foo() -> Int { return 0 }\n"
+        "}\n"
+    );
+    int e258_count = 0;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_ERR_IFACE_CONFORMANCE_MISSING) {
+            e258_count++;
+        }
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, e258_count,
+        "expected exactly 1 E0258 for the one missing method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("bar"),
+        "expected missing method name 'bar' in E0258 message");
+}
+
+/* test_patch_retroactive_with_default_body: interface method has a default body;
+ * patch declares implements but provides no override => zero E0258. */
+void test_patch_retroactive_with_default_body(void) {
+    parse_and_resolve(
+        "interface HasDefault {\n"
+        "    readonly func greet() -> Int { return 42 }\n"
+        "}\n"
+        "patch object Int implements HasDefault {\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire when interface method has a default body");
+}
+
+/* test_patch_retroactive_tier_strengthening: interface has readonly method; patch
+ * provides a mutating impl => E0257 fires (tier mismatch, not E0258). */
+void test_patch_retroactive_tier_strengthening(void) {
+    parse_and_resolve(
+        "interface ReadOnly {\n"
+        "    readonly func get() -> Int\n"
+        "}\n"
+        "patch object Int implements ReadOnly {\n"
+        "    func get() -> Int { return 0 }\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
+        "expected E0257 for mutating patch impl of readonly iface method");
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire when method is present but has wrong tier");
+}
+
+/* test_classic_object_conformance_still_works: classic object declares impl and
+ * provides all required methods => zero E0258 (regression). */
+void test_classic_object_conformance_still_works(void) {
+    parse_and_resolve(
+        "interface Runnable {\n"
+        "    func run()\n"
+        "}\n"
+        "object Worker impl Runnable {\n"
+        "    init() {}\n"
+        "    func run() { return }\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "E0258 should NOT fire for classic object satisfying all interface methods");
+}
+
+/* test_classic_object_missing_method_emits_e0258: classic object declares impl but
+ * omits a required interface method => E0258 fires. */
+void test_classic_object_missing_method_emits_e0258(void) {
+    parse_and_resolve(
+        "interface Runnable {\n"
+        "    func run()\n"
+        "}\n"
+        "object Worker impl Runnable {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
+        "expected E0258 for classic object missing required interface method");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("missing interface method"),
+        "expected locked substring 'missing interface method' in E0258 message");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1409,6 +3072,113 @@ int main(void) {
     RUN_TEST(test_typecheck_tuple_equality_mismatched_arity);
     RUN_TEST(test_typecheck_tuple_equality_mismatched_element_type);
     RUN_TEST(test_typecheck_nested_tuple);
+
+    /* Phase 83-02 Task 2: pub-field dispatch flag plumbing. */
+    RUN_TEST(test_pub_field_read_sets_is_pub_access);
+    RUN_TEST(test_pub_field_write_sets_is_pub_setter);
+    RUN_TEST(test_non_pub_field_read_is_pub_access_false);
+    RUN_TEST(test_non_pub_field_write_is_pub_setter_false);
+    RUN_TEST(test_pub_val_assign_rejected_with_val_reassign);
+
+    /* Phase 84 MUTTIER-02 Task 1: readonly tier enforcement. */
+    RUN_TEST(test_readonly_writes_self_emits_E0238);
+    RUN_TEST(test_readonly_reads_self_is_ok);
+    RUN_TEST(test_readonly_calls_readonly_is_ok);
+    RUN_TEST(test_readonly_calls_mutating_emits_E0239);
+    RUN_TEST(test_readonly_calls_pure_is_ok);
+    RUN_TEST(test_plain_method_calls_mutating_is_ok);
+    RUN_TEST(test_synth_getter_callable_from_readonly);
+
+    /* Phase 84 MUTTIER-03 Task 2: pure tier enforcement. */
+    RUN_TEST(test_pure_writes_self_emits_E0244);
+    RUN_TEST(test_pure_calls_println_emits_E0240);
+    RUN_TEST(test_pure_calls_print_emits_E0240);
+    RUN_TEST(test_pure_heap_alloc_is_ok);
+    RUN_TEST(test_pure_writes_param_emits_E0243);
+    RUN_TEST(test_pure_calls_non_pure_method_emits_E0242);
+    RUN_TEST(test_pure_calls_pure_method_is_ok);
+    RUN_TEST(test_pure_reads_mutable_global_emits_E0241);
+    RUN_TEST(test_pure_writes_mutable_global_emits_E0241);
+    RUN_TEST(test_pure_reads_val_global_is_ok);
+    RUN_TEST(test_mutating_calls_on_val_binding_still_emits_E0235);
+    RUN_TEST(test_readonly_callable_on_val_binding);
+
+    /* Phase 85 INIT Plan 85-02 Task 1: definite-assignment + delegation + return-value. */
+    RUN_TEST(test_init_read_before_assign_emits_E0246);
+    RUN_TEST(test_init_all_fields_assigned_no_E0247);
+    RUN_TEST(test_init_missing_field_emits_E0247);
+    RUN_TEST(test_init_missing_on_branch_emits_E0247);
+    RUN_TEST(test_init_assigned_on_both_branches_ok);
+    RUN_TEST(test_init_val_double_assign_emits_E0248);
+    RUN_TEST(test_init_var_double_assign_ok);
+    RUN_TEST(test_init_method_on_partial_self_emits_E0249);
+    RUN_TEST(test_init_method_on_full_self_ok);
+    RUN_TEST(test_init_early_return_emits_E0250);
+    RUN_TEST(test_init_bare_return_after_full_assign_ok);
+    RUN_TEST(test_init_return_value_emits_E0252);
+    RUN_TEST(test_init_delegation_to_anonymous_emits_E0251);
+    RUN_TEST(test_init_delegation_to_named_emits_E0251);
+    RUN_TEST(test_init_delegation_via_self_init_emits_E0251);
+    RUN_TEST(test_method_call_Type_args_not_delegation);
+
+    /* Phase 85 INIT Plan 85-02 Task 2: call-site dispatch + INIT-16 regression. */
+    RUN_TEST(test_construct_dispatches_to_anonymous_init);
+    RUN_TEST(test_construct_falls_back_to_v2_2_positional_when_no_init);
+    RUN_TEST(test_construct_arg_count_checked_against_init_params);
+    RUN_TEST(test_construct_arg_types_checked_against_init_params);
+    RUN_TEST(test_named_init_dispatch);
+    RUN_TEST(test_named_init_wrong_args);
+    RUN_TEST(test_named_init_unknown_name_falls_through);
+    RUN_TEST(test_method_body_can_call_Type_args);
+    RUN_TEST(test_method_body_can_call_Type_name_args);
+
+    /* Phase 86 Plan 86-02 Task 1: patch registry + primitive targets + E0254. */
+    RUN_TEST(test_patch_registry_registers_user_object);
+    RUN_TEST(test_patch_registry_registers_primitive);
+    RUN_TEST(test_patch_unknown_target_emits_e0254);
+    RUN_TEST(test_patch_multiple_patches_same_target);
+    RUN_TEST(test_patch_primitive_names_allowlist);
+
+    /* Phase 86 Plan 86-02 Task 2: collision scan + dispatch + regression locks. */
+    RUN_TEST(test_patch_patch_collision);
+    RUN_TEST(test_patch_object_collision);
+    RUN_TEST(test_patch_collision_across_different_targets_no_error);
+    RUN_TEST(test_patch_collision_different_names_no_error);
+    RUN_TEST(test_patch_method_call_dispatches_through_registry_user);
+    RUN_TEST(test_patch_method_call_dispatches_through_registry_primitive);
+    RUN_TEST(test_patch_named_init_dispatches);
+    RUN_TEST(test_patched_init_unassigned_field);
+    RUN_TEST(test_patched_readonly_method_write_self_rejected);
+    RUN_TEST(test_patched_pure_method_io_rejected);
+
+    /* Phase 87 Plan 87-01 Task 2: IFACE-02 tier-strengthening (E0257). */
+    RUN_TEST(test_iface_readonly_impl_default_mutating_rejected);
+    RUN_TEST(test_iface_pure_impl_readonly_rejected);
+    RUN_TEST(test_iface_pure_impl_default_rejected);
+    RUN_TEST(test_iface_readonly_impl_readonly_accepted);
+    RUN_TEST(test_iface_readonly_impl_pure_accepted);
+    RUN_TEST(test_iface_pure_impl_pure_accepted);
+    RUN_TEST(test_iface_default_impl_mutating_accepted);
+    RUN_TEST(test_iface_default_impl_readonly_accepted);
+    RUN_TEST(test_iface_default_body_inherited_no_mismatch);
+    RUN_TEST(test_iface_tier_mismatch_E0257_locked_substring);
+
+    /* Phase 87-02 SELF-01/02/03 + IFACE-05: Self type + Self-constructor resolution. */
+    RUN_TEST(test_self_return_resolves_to_enclosing);
+    RUN_TEST(test_self_named_init_resolves);
+    RUN_TEST(test_self_outside_method_rejected);
+    RUN_TEST(test_self_return_inside_init);
+    RUN_TEST(test_self_in_interface_sig_bound_to_implementer);
+    RUN_TEST(test_self_in_nested_method_resolves_correctly);
+
+    /* Phase 87-02 PATCH-08: retroactive conformance scan + E0258. */
+    RUN_TEST(test_patch_retroactive_conformance_full);
+    RUN_TEST(test_patch_retroactive_missing_method_e0258);
+    RUN_TEST(test_patch_retroactive_partial_coverage);
+    RUN_TEST(test_patch_retroactive_with_default_body);
+    RUN_TEST(test_patch_retroactive_tier_strengthening);
+    RUN_TEST(test_classic_object_conformance_still_works);
+    RUN_TEST(test_classic_object_missing_method_emits_e0258);
 
     return UNITY_END();
 }

@@ -15,6 +15,10 @@ func hash_key(key: Int, cap: Int) -> Int {
 object InsertResult {
   var keys: [Int]
   var vals: [Int]
+    init(keys: [Int], vals: [Int]) {
+        self.keys = keys
+        self.vals = vals
+    }
 }
 
 -- Insert key->value using linear probing. empty=-9999, deleted=-9998

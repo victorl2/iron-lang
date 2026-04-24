@@ -175,6 +175,20 @@ typedef struct Iron_ObjectDecl {
     int           implements_count;
     Iron_Node   **generic_params;
     int           generic_param_count;
+    /* Phase 86 PATCH-01 additions (trailing fields; preserves ABI layout for
+     * every existing reader that stops at generic_param_count).
+     *
+     * is_patch          false for classic `object T {}`; true for
+     *                   `patch object T {}`. Plan 86-02 resolver walks all
+     *                   program decls keying on this bit.
+     * target_type_name  NULL when is_patch=false; identifier after
+     *                   `patch object` when true. For patches
+     *                   target_type_name == name (both point to the same
+     *                   arena-strdup) so the resolver can key the patch
+     *                   registry without an is_patch branch at every
+     *                   lookup site. */
+    bool          is_patch;           /* PATCH-01 */
+    const char   *target_type_name;   /* PATCH-02 */
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -212,6 +226,15 @@ typedef struct {
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
     struct Iron_Type **resolved_param_types;  /* set by type checker (extern func FFI) */
     bool               is_fusible;            /* Phase 49: @fusible annotation */
+    /* Phase 87 IFACE-01: tier modifiers on interface method signatures. These
+     * fields are populated ONLY for Iron_FuncDecl nodes stored inside an
+     * Iron_InterfaceDecl.method_sigs array (i.e. interface sigs). Top-level
+     * function declarations keep both bits false (Phase 84 already rejects
+     * readonly/pure on top-level funcs via E0245). The has_default_body
+     * invariant is encoded by body != NULL on an interface sig — no separate
+     * flag. Defaults false at every allocation site. */
+    bool               is_readonly;
+    bool               is_pure;
 } Iron_FuncDecl;
 
 typedef struct {
@@ -238,6 +261,39 @@ typedef struct {
      * declared name. False for the classic `func Type.method(...)`
      * form where hir_lower prepends an implicit self. */
     bool               is_receiver_form;
+    /* Phase 83 ACCESS-03/04: true when this MethodDecl was synthesized by
+     * the parser as an accessor (getter or setter) for a `pub val`/`pub var`
+     * field. Plan 83-02 flips it on while synthesizing accessor methods;
+     * Phase 84 MUTTIER reads it to retrofit the getter as `readonly`.
+     * Default false on every construction site; Plan 83-01 only threads
+     * the default, no writer yet. */
+    bool               is_synth_accessor;
+    /* Phase 84 MUTTIER-01/02: true when this method was declared with the
+     * `readonly` modifier in an object block (or retrofitted onto a synth
+     * accessor getter). Defaults false. Plan 84-02 reads this bit to
+     * reject self-field writes (E0238) and mutating-method calls (E0239)
+     * from readonly contexts. Mutual exclusion with is_pure is enforced
+     * at parse time via IRON_ERR_TIER_MODIFIER_PLACEMENT. */
+    bool               is_readonly;
+    /* Phase 84 MUTTIER-03: true when declared with `pure`. Defaults false.
+     * Plan 84-02 reads it to reject I/O (E0240), mutable globals (E0241),
+     * non-pure calls (E0242), param writes (E0243), and self-writes (E0244).
+     * Synth getters are retrofitted is_readonly=true AND is_pure=true in
+     * iron_parse_object_decl. Synth setters keep both false. */
+    bool               is_pure;
+    /* Phase 85 INIT-03/07: true when this MethodDecl is an init declaration
+     * (anonymous or named). Plan 85-02 reads it to gate definite-assignment
+     * analysis, reject `self.init(...)` delegation (INIT-14), reject return
+     * values (INIT-11), and enforce the "no methods before full assignment"
+     * rule (INIT-09). Defaults false at every construction site. */
+    bool               is_init;
+    /* Phase 85 INIT-08: named-init identifier for call-site dispatch. NULL
+     * for non-init methods AND for anonymous init. Anonymous init dispatch
+     * lives on Type(args); named dispatch on Type.<init_name>(args). When
+     * is_init is true and init_name is NULL, method_name == "init"; when
+     * is_init is true and init_name != NULL, method_name == init_name so
+     * the symbol-table lookup for `Type.<init_name>` hits naturally. */
+    const char        *init_name;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -266,6 +322,11 @@ typedef struct {
     const char   *name;
     Iron_Node    *type_ann;
     bool          is_var;
+    /* Phase 83 ACCESS-02: true when the field was declared with the `pub`
+     * modifier inside an `object X { ... }` body. Plan 83-02 reads this bit
+     * to decide whether to synthesize accessor methods. Default false;
+     * Phase 88 BREAK may flip the default to public-by-default. */
+    bool          is_pub;
 } Iron_Field;
 
 typedef struct {
@@ -300,6 +361,13 @@ typedef struct {
     bool          is_tuple;
     Iron_Node   **tuple_elems;      /* array of Iron_TypeAnnotation* for element types */
     int           tuple_elem_count;
+    /* Phase 87-02 SELF-01/02: true when the type annotation is literally the
+     * identifier "Self" in return-type position of a method or interface sig.
+     * Set by iron_parse_type_annotation when ann->name == "Self". The
+     * typechecker resolves is_self_type to the enclosing ObjectDecl type via
+     * TypeCtx.enclosing_type_name, or emits E0259 if used outside a
+     * method/interface context. Defaults false at every allocation site. */
+    bool          is_self_type;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0
@@ -357,6 +425,12 @@ typedef struct {
     Iron_Node    *target;
     Iron_Node    *value;
     Iron_OpKind   op;  /* ASSIGN, PLUS_ASSIGN, etc. */
+    /* Phase 83-02 ACCESS-05: set to true by the typechecker when the LHS is
+     * a field access on a `pub var` field. HIR reads this bit to lower the
+     * assign as a `set_<field>(value)` method call against the synthesized
+     * setter instead of emitting a direct field store. Default false at
+     * every construction site; arena zero-init covers non-pub assigns. */
+    bool          is_pub_setter;
 } Iron_AssignStmt;
 
 typedef struct {
@@ -543,6 +617,12 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *object;
     const char        *field;
+    /* Phase 83-02 ACCESS-05: set to true by the typechecker when the matched
+     * field on the object has is_pub=true. HIR reads this bit to lower the
+     * access as a zero-arg method call on the synthesized getter instead of
+     * emitting a direct field load. Default false at every construction
+     * site; arena zero-init covers non-pub field accesses. */
+    bool               is_pub_access;
 } Iron_FieldAccess;
 
 typedef struct {

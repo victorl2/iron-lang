@@ -1,0 +1,3 @@
+interface Bad {
+    init(x: Int)
+}

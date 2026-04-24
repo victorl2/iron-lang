@@ -34,6 +34,7 @@ static const KeywordEntry kw_table[] = {
     { "impl",       IRON_TOK_IMPL       },
     { "import",     IRON_TOK_IMPORT     },
     { "in",         IRON_TOK_IN         },
+    { "init",       IRON_TOK_INIT       },  /* Phase 85 INIT-03 */
     { "interface",  IRON_TOK_INTERFACE  },
     { "is",         IRON_TOK_IS         },
     { "leak",       IRON_TOK_LEAK       },
@@ -44,9 +45,13 @@ static const KeywordEntry kw_table[] = {
     { "object",     IRON_TOK_OBJECT     },
     { "or",         IRON_TOK_OR         },
     { "parallel",   IRON_TOK_PARALLEL   },
+    { "patch",      IRON_TOK_PATCH      },  /* Phase 86 PATCH-01 */
     { "pool",       IRON_TOK_POOL       },
     { "private",    IRON_TOK_PRIVATE    },
+    { "pub",        IRON_TOK_PUB        },
+    { "pure",       IRON_TOK_PURE       },  /* Phase 84 MUTTIER-03 */
     { "rc",         IRON_TOK_RC         },
+    { "readonly",   IRON_TOK_READONLY   },  /* Phase 84 MUTTIER-02 */
     { "return",     IRON_TOK_RETURN     },
     { "self",       IRON_TOK_SELF       },
     { "spawn",      IRON_TOK_SPAWN      },
@@ -94,6 +99,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_IMPL]          = "IRON_TOK_IMPL",
     [IRON_TOK_IMPORT]        = "IRON_TOK_IMPORT",
     [IRON_TOK_IN]            = "IRON_TOK_IN",
+    [IRON_TOK_INIT]          = "IRON_TOK_INIT",
     [IRON_TOK_INTERFACE]     = "IRON_TOK_INTERFACE",
     [IRON_TOK_IS]            = "IRON_TOK_IS",
     [IRON_TOK_LEAK]          = "IRON_TOK_LEAK",
@@ -104,9 +110,13 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_OBJECT]        = "IRON_TOK_OBJECT",
     [IRON_TOK_OR]            = "IRON_TOK_OR",
     [IRON_TOK_PARALLEL]      = "IRON_TOK_PARALLEL",
+    [IRON_TOK_PATCH]         = "IRON_TOK_PATCH",
     [IRON_TOK_POOL]          = "IRON_TOK_POOL",
     [IRON_TOK_PRIVATE]       = "IRON_TOK_PRIVATE",
+    [IRON_TOK_PUB]           = "IRON_TOK_PUB",
+    [IRON_TOK_PURE]          = "IRON_TOK_PURE",
     [IRON_TOK_RC]            = "IRON_TOK_RC",
+    [IRON_TOK_READONLY]      = "IRON_TOK_READONLY",
     [IRON_TOK_RETURN]        = "IRON_TOK_RETURN",
     [IRON_TOK_SELF]          = "IRON_TOK_SELF",
     [IRON_TOK_SPAWN]         = "IRON_TOK_SPAWN",

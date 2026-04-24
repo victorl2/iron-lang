@@ -1,0 +1,12 @@
+object Config {
+    var timeout: Int
+    var retries: Int
+    init(t: Int, r: Int) {
+        self.timeout = t
+        self.retries = r
+    }
+}
+
+object Legacy {
+    var timeout: Int = 30
+}

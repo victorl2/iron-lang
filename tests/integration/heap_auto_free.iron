@@ -4,11 +4,19 @@
 object Data {
   var value: Int
   var label: String
+    init(value: Int, label: String) {
+        self.value = value
+        self.label = label
+    }
 }
 
 object Point {
   var x: Int
   var y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
 }
 
 func make_point(px: Int, py: Int) -> Int {

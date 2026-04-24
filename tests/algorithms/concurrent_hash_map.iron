@@ -15,6 +15,10 @@ func hash_key(key: Int, cap: Int) -> Int {
 object MapResult {
   var keys: [Int]
   var vals: [Int]
+    init(keys: [Int], vals: [Int]) {
+        self.keys = keys
+        self.vals = vals
+    }
 }
 
 func hm_insert(keys: [Int], vals: [Int], key: Int, val_in: Int) -> MapResult {

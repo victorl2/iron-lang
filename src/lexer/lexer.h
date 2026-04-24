@@ -16,7 +16,7 @@ typedef enum {
     IRON_TOK_STRING,
     IRON_TOK_INTERP_STRING,
 
-    /* Keywords (39 total, alphabetical) */
+    /* Keywords (44 total, alphabetical) */
     IRON_TOK_AND,
     IRON_TOK_AWAIT,
     IRON_TOK_COMPTIME,
@@ -35,6 +35,7 @@ typedef enum {
     IRON_TOK_IMPL,
     IRON_TOK_IMPORT,
     IRON_TOK_IN,
+    IRON_TOK_INIT,       /* Phase 85 INIT-03: `init` method modifier for construction. */
     IRON_TOK_INTERFACE,
     IRON_TOK_IS,
     IRON_TOK_LEAK,
@@ -45,9 +46,13 @@ typedef enum {
     IRON_TOK_OBJECT,
     IRON_TOK_OR,
     IRON_TOK_PARALLEL,
+    IRON_TOK_PATCH,      /* Phase 86 PATCH-01: open-extension block modifier. */
     IRON_TOK_POOL,
     IRON_TOK_PRIVATE,
+    IRON_TOK_PUB,
+    IRON_TOK_PURE,       /* Phase 84 MUTTIER-03: `pure` method modifier. */
     IRON_TOK_RC,
+    IRON_TOK_READONLY,   /* Phase 84 MUTTIER-02: `readonly` method modifier. */
     IRON_TOK_RETURN,
     IRON_TOK_SELF,
     IRON_TOK_SPAWN,

@@ -15,12 +15,24 @@ object Gauge impl Sensor {
   var level: Int
   var scale: Int
   var debug_id: Int
+
+    init(level: Int, scale: Int, debug_id: Int) {
+        self.level = level
+        self.scale = scale
+        self.debug_id = debug_id
+    }
 }
 
 object Meter impl Sensor {
   var level: Int
   var offset: Int
   var debug_id: Int
+
+    init(level: Int, offset: Int, debug_id: Int) {
+        self.level = level
+        self.offset = offset
+        self.debug_id = debug_id
+    }
 }
 
 func Gauge.reading() -> Int {

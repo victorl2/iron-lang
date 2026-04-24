@@ -5,12 +5,21 @@
 object Point {
   var x: Int
   var y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
 }
 
 object Rectangle {
   var origin: Point
   var width: Int
   var height: Int
+    init(origin: Point, width: Int, height: Int) {
+        self.origin = origin
+        self.width = width
+        self.height = height
+    }
 }
 
 object Segment {
@@ -18,6 +27,12 @@ object Segment {
   var start_y: Int
   var end_x: Int
   var end_y: Int
+    init(start_x: Int, start_y: Int, end_x: Int, end_y: Int) {
+        self.start_x = start_x
+        self.start_y = start_y
+        self.end_x = end_x
+        self.end_y = end_y
+    }
 }
 
 func Point.to_string() -> String {

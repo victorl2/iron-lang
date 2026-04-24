@@ -179,13 +179,69 @@ object Player {
 }
 ```
 
-### Construction — Positional, Parentheses
+### Init — Mandatory Constructors (v3.0+)
+
+Every object must declare at least one `init`. Fieldless objects receive a
+synthesized empty init automatically. Two forms exist:
+
+**Anonymous init** — constructed via `Type(args)`:
 
 ```
-val p = Player(vec2(100.0, 100.0), 100, 200.0, "Victor")
+object Vec2 {
+  val x: Float
+  val y: Float
+
+  init(x: Float, y: Float) {
+    self.x = x
+    self.y = y
+  }
+}
+
+val v = Vec2(3.0, 4.0)    -- anonymous init
 ```
 
-Fields follow declaration order. No named fields at construction site.
+**Named init** — constructed via `Type.name(args)`:
+
+```
+object Vec2 {
+  val x: Float
+  val y: Float
+
+  init(x: Float, y: Float) {
+    self.x = x
+    self.y = y
+  }
+
+  init zero() {
+    self.x = 0.0
+    self.y = 0.0
+  }
+}
+
+val a = Vec2(3.0, 4.0)    -- anonymous
+val b = Vec2.zero()       -- named
+```
+
+The compiler enforces definite assignment: every field must be assigned on
+every exit path through the `init` body. `val` fields may only be assigned
+once. Inline field defaults (`var x: Int = 0`) are a parse error in v3.0;
+assign in `init` instead.
+
+**Fieldless objects** need no init declaration:
+
+```
+object Marker {}    -- synthesized empty init; Marker() is valid
+```
+
+### Construction (pre-v3 reference)
+
+In v2.x, construction used positional arguments matching declaration order
+and field defaults were allowed inline. This syntax is removed in v3.0.
+
+```
+-- v2.2 style (removed in v3.0):
+-- val p = Player(vec2(100.0, 100.0), 100, 200.0, "Victor")
+```
 
 ### Inheritance — `extends`
 
@@ -212,22 +268,36 @@ object Enemy extends Entity {
 -- Enemy has: pos, hp, damage, ai_state
 ```
 
-Parent methods are available on children. Children can override by defining the same method.
+Parent methods are available on children. Children can override by defining the same method inside their own `object` block.
 
 ```
-func Entity.take_damage(amount: Int) {
-  self.hp -= amount
+object Entity {
+  var pos: Vec2
+  var hp:  Int
+
+  func take_damage(amount: Int) {
+    self.hp = self.hp - amount
+  }
 }
 
--- Player overrides: no keyword needed, compiler knows
-func Player.take_damage(amount: Int) {
-  self.hp -= amount / 2
+object Player extends Entity {
+  val name:  String
+  val speed: Float
+
+  -- override: no keyword needed, compiler knows
+  func take_damage(amount: Int) {
+    self.hp = self.hp - amount / 2
+  }
 }
 
--- call parent method with super
-func Player.take_damage(amount: Int) {
-  val reduced = amount - self.armor
-  super.take_damage(reduced)
+object Knight extends Entity {
+  val armor: Int
+
+  -- call parent method with super
+  func take_damage(amount: Int) {
+    val reduced = amount - self.armor
+    super.take_damage(reduced)
+  }
 }
 ```
 
@@ -252,18 +322,24 @@ object Player extends Entity implements Drawable, Updatable, Collidable {
   val name:   String
   val speed:  Float
   val sprite: rc Texture
-}
 
-func Player.draw() {
-  draw_texture(self.sprite, self.pos)
-}
+  pub init(name: String, speed: Float, sprite: rc Texture) {
+    self.name   = name
+    self.speed  = speed
+    self.sprite = sprite
+  }
 
-func Player.update(dt: Float) {
-  if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
-}
+  pub func draw() {
+    draw_texture(self.sprite, self.pos)
+  }
 
-func Player.get_bounds() -> Rect {
-  return Rect(self.pos.x, self.pos.y, 32.0, 32.0)
+  pub func update(dt: Float) {
+    if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
+  }
+
+  pub func get_bounds() -> Rect {
+    return Rect(self.pos.x, self.pos.y, 32.0, 32.0)
+  }
 }
 ```
 
@@ -272,9 +348,9 @@ Missing an interface method is a compile error:
 ```
 object Rock implements Drawable {
   val pos: Vec2
-}
 
--- COMPILE ERROR: Rock implements Drawable but missing func Rock.draw()
+  -- COMPILE ERROR: Rock implements Drawable but missing func draw()
+}
 ```
 
 Interfaces can be used as types for polymorphism:
@@ -290,6 +366,49 @@ func draw_all(items: [Drawable]) {
 val drawables: [Drawable] = [player, enemy, particle, ui_element]
 draw_all(drawables)
 ```
+
+### Patch — Open Extension (v3.0+)
+
+`patch object T { ... }` adds methods and named inits to any type,
+including types you do not own and built-in primitives. Patches are
+program-wide and may not add fields.
+
+```
+patch object Int {
+  pub readonly func double() -> Int {
+    return self * 2
+  }
+
+  pub readonly func clamp(lo: Int, hi: Int) -> Int {
+    if self < lo { return lo }
+    if self > hi { return hi }
+    return self
+  }
+}
+
+func main() {
+  println("{5.double()}")           -- 10
+  println("{200.clamp(0, 100)}")    -- 100
+}
+```
+
+Patches may also declare retroactive interface conformance:
+
+```
+interface Describable {
+  readonly func describe() -> String
+}
+
+patch object Int implements Describable {
+  pub readonly func describe() -> String {
+    return "Int(" + self.to_string() + ")"
+  }
+}
+```
+
+Rules: patches may not add fields or change the visibility of existing
+members. Duplicate method signatures across patches for the same type
+are a compile error (E03XX).
 
 ### Runtime type checking — `is`
 
@@ -315,55 +434,99 @@ func add(a: Float, b: Float) -> Float {
 }
 ```
 
-### Methods
+### In-block methods (v3.0+)
 
-Iron supports two method declaration forms. Both compile to the same underlying function and are interchangeable at the call site.
-
-**Receiver-method form (v2.1+, preferred for instance methods)**
-
-```
-func (p: Player) update(dt: Float) {
-  if is_key_down(.RIGHT) { p.pos.x += p.speed * dt }
-}
-
-func (p: Player) draw() {
-  draw_texture(p.sprite, p.pos)
-}
-
-func (p: Player) is_alive() -> Bool {
-  return p.hp > 0
-}
-```
-
-The receiver is declared in parentheses after `func` and is available in the body under its chosen name (`p` above). The receiver type must be a named object or enum — tuples, arrays, function types, and generics are rejected. Note that `self` is **not** defined inside a receiver-form method; use the receiver's declared name (`p` in the examples above). Referencing `self` in a receiver-form body is a compile-time error.
-
-**Static form (all versions; required for type-level utilities)**
-
-Static-form methods are written `func TypeName.method_name(...)`. Inside the body, `self` is implicit for non-stub methods — it's auto-bound to the receiver and is always mutable. Use this form for factories and utility helpers that don't need a receiver (constructors, static queries, conversion helpers).
+Instance methods are declared inside the `object` block. The receiver is
+always named `self` and is implicit — no receiver parameter is declared.
+Accessing a field inside a method requires the explicit `self.` prefix;
+bare field names without `self.` are a compile error.
 
 ```
-func Player.new(name: String) -> Player {
-  return Player(vec2(100.0, 100.0), 100, 200.0, name)
-}
+object Player {
+  var health: Int
+  var name:   String
 
-func Player.from_spawn(spawn: SpawnPoint) -> Player {
-  return Player.new(spawn.name)
+  init(health: Int, name: String) {
+    self.health = health
+    self.name   = name
+  }
+
+  func take_damage(n: Int) {
+    self.health = self.health - n
+  }
+
+  readonly func is_alive() -> Bool {
+    return self.health > 0
+  }
 }
 ```
 
-**Call sites**
+Call sites are unchanged: `player.take_damage(5)` works exactly as before.
 
-Both forms support instance-style and static-style calls interchangeably:
+**Removed in v3.0:** The receiver-method form `func (p: Player) name()`
+and the mutable receiver form `func (mut p: Player) name()` are parse
+errors in v3.0. Use `ironc migrate --from v2 --to v3` to convert existing
+code automatically.
+
+### Mutation tiers
+
+Every in-block method belongs to one of three tiers. The tier is declared
+at the `func` keyword:
+
+| Tier | Declaration | Can write `self.field`? | Can do I/O / globals? |
+|------|-------------|------------------------|-----------------------|
+| Default | `func name()` | Yes | Yes |
+| Read-only | `readonly func name()` | No | Yes |
+| Pure | `pure func name()` | No | No |
+
+The default tier is mutating, matching v2.2 mutable-receiver behavior.
+Non-mutating methods opt in with `readonly` or `pure`.
 
 ```
-player.update(dt)         -- instance-style (most natural)
-Player.update(player, dt) -- static-style equivalent
-Player.new("Iron")        -- static utility (only form that makes sense)
+object Counter {
+  var value: Int
+
+  init(start: Int) {
+    self.value = start
+  }
+
+  func increment() {
+    self.value = self.value + 1    -- default tier: may write fields
+  }
+
+  readonly func current() -> Int {
+    return self.value              -- no writes allowed
+  }
+
+  pure func doubled() -> Int {
+    return self.value * 2          -- no writes, no I/O
+  }
+}
 ```
 
-**Migration note (v2.0 → v2.1)**
+The compiler enforces tiers transitively. A `readonly` method may only
+call other `readonly` or `pure` methods on `self`. A `pure` method may
+only call other `pure` methods.
 
-The stdlib migrated most instance-method stubs (`Timer.update(t: Timer, dt: Float)`) to the receiver form (`func (t: Timer) update(dt: Float)`) in v2.1. Existing user code written in the static form keeps working identically — there is no breaking change.
+```
+-- error[E03F1]: readonly func cannot write to self.value
+readonly func reset() {
+  self.value = 0    -- rejected
+}
+
+-- error[E03F2]: readonly func cannot call mutating method
+readonly func reset_via_call() {
+  self.increment()  -- rejected
+}
+```
+
+### Static/factory methods
+
+Factory and utility helpers that do not need an instance receiver are
+written as standalone functions or named inits (see Init section below).
+The `func TypeName.method_name(...)` static-form syntax from v2.x is
+no longer supported for instance methods; it was replaced by in-block
+declarations in v3.0.
 
 ### Passing Convention
 
@@ -457,23 +620,41 @@ menu.show()
 
 ### Visibility
 
-Everything in a module is public by default. Use `private` to restrict to the current file.
+**v3.0:** Everything is private by default. Add `pub` to expose a field,
+method, or object across module boundaries.
 
 ```
--- player.iron
-object Player {            -- public, visible to importers
-  var pos: Vec2
-  var hp:  Int
-}
+-- player.iron (v3.0)
+pub object Player {            -- public: visible to importers
+  var health: Int              -- private field
+  pub var name: String         -- public field (getter + setter)
 
-func Player.new() -> Player {        -- public
-  return Player(Vec2(0.0, 0.0), 100)
-}
+  pub init(health: Int, name: String) {
+    self.health = health
+    self.name   = name
+  }
 
-private func Player.recalc() {       -- only visible within this file
-  self.hp = clamp(self.hp, 0, 100)
+  pub func take_damage(n: Int) {
+    self.health = self.health - n
+  }
+
+  func recalc_stats() {        -- private: only callable inside Player
+    self.health = clamp(self.health, 0, 100)
+  }
 }
 ```
+
+`pub var field` synthesizes a getter and a setter; `pub val field`
+synthesizes a read-only getter. Call sites use property syntax:
+`player.name` rather than an explicit getter call.
+
+The codemod does not add `pub` automatically after migration. You must
+audit your exported API and add `pub` to any declaration that must cross
+module boundaries.
+
+**v2.x (removed in v3.0):** The old model was public-by-default with an
+explicit `private` keyword to restrict scope. That behavior is reversed
+in v3.0.
 
 ### Entry Point
 
@@ -893,30 +1074,42 @@ draw {
 
 ## Access Control
 
-Everything is public by default. Use `private` to restrict visibility to the current file.
+**v3.0:** All declarations are private by default. Use `pub` to opt into
+cross-module visibility. This is enforced by the compiler — omitting `pub`
+on a referenced declaration is a hard error, not a convention.
 
 ```
--- public by default
-object Player {
-  var pos:  Vec2
-  var hp:   Int
-  val name: String
+-- v3.0 access control
+pub object Player {
+  var health: Int              -- private field
+  pub var name: String         -- public property
+
+  pub init(health: Int, name: String) {
+    self.health = health
+    self.name   = name
+  }
+
+  pub func take_damage(n: Int) {
+    self.health = self.health - n
+    self.recalc_stats()
+  }
+
+  func recalc_stats() {        -- private: not exported
+    self.health = clamp(self.health, 0, 100)
+  }
 }
 
-func Player.update(dt: Float) {
-  self.pos.x += self.speed * dt
-}
-
--- private: only accessible within this file
-private object InternalState {
+-- private implementation detail: not importable
+object InternalMetrics {
   var tick_count: Int
   var debug_mode: Bool
 }
-
-private func Player.recalc_stats() {
-  self.hp = clamp(self.hp, 0, 100)
-}
 ```
+
+**v2.x reference (removed):** Public-by-default with `private` keyword.
+Replace `private func` with an unprefixed in-block method and remove the
+`private` keyword. Replace any "public by default" field with `pub var` or
+`pub val` as needed.
 
 ---
 
@@ -987,14 +1180,21 @@ match shape {
 
 ### Methods on Enums
 
-Methods can be defined on enum types, using `match self` to dispatch on variants.
+Methods on enum types are declared inside the `enum` block and use
+`match self` to dispatch on variants.
 
 ```
-func Shape.area() -> Float {
-  match self {
-    Shape.Circle(r) -> return 3.14159 * r * r
-    Shape.Rect(w, h) -> return w * h
-    Shape.Point -> return 0.0
+enum Shape {
+  Circle(Float),
+  Rect(Float, Float),
+  Point,
+
+  readonly func area() -> Float {
+    match self {
+      Shape.Circle(r)  -> return 3.14159 * r * r
+      Shape.Rect(w, h) -> return w * h
+      Shape.Point      -> return 0.0
+    }
   }
 }
 
@@ -1061,24 +1261,28 @@ func find[T](items: [T], check: func(T) -> Bool) -> T? {
   return null
 }
 
--- generic object
+-- generic object with in-block methods
 object Pool[T] {
   var items: [T]
   var count: Int
-}
 
--- generic method
-func Pool[T].get() -> T? {
-  if self.count > 0 {
-    self.count -= 1
-    return self.items[self.count]
+  init(items: [T], count: Int) {
+    self.items = items
+    self.count = count
   }
-  return null
-}
 
-func Pool[T].put(item: T) {
-  self.items[self.count] = item
-  self.count += 1
+  func get() -> T? {
+    if self.count > 0 {
+      self.count -= 1
+      return self.items[self.count]
+    }
+    return null
+  }
+
+  func put(item: T) {
+    self.items[self.count] = item
+    self.count += 1
+  }
 }
 
 -- usage
@@ -1232,38 +1436,42 @@ Comptime functions **cannot**:
 import raylib
 import math as m
 
-object Player {
+pub object Player {
   var pos:    Vec2
   var hp:     Int
   val speed:  Float
-  val name:   String
+  pub val name:   String
   val sprite: rc Texture
-}
 
-func Player.new(name: String) -> Player {
-  return Player(vec2(100.0, 100.0), 100, 200.0, name, rc load_texture("hero.png"))
-}
+  pub init(name: String) {
+    self.pos    = vec2(100.0, 100.0)
+    self.hp     = 100
+    self.speed  = 200.0
+    self.name   = name
+    self.sprite = rc load_texture("hero.png")
+  }
 
-func Player.update(dt: Float) {
-  if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
-  if is_key_down(.LEFT)  { self.pos.x -= self.speed * dt }
-  if is_key_down(.UP)    { self.pos.y -= self.speed * dt }
-  if is_key_down(.DOWN)  { self.pos.y += self.speed * dt }
-}
+  pub func update(dt: Float) {
+    if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
+    if is_key_down(.LEFT)  { self.pos.x -= self.speed * dt }
+    if is_key_down(.UP)    { self.pos.y -= self.speed * dt }
+    if is_key_down(.DOWN)  { self.pos.y += self.speed * dt }
+  }
 
-func Player.draw() {
-  draw_texture(self.sprite, self.pos)
-}
+  pub readonly func draw() {
+    draw_texture(self.sprite, self.pos)
+  }
 
-func Player.is_alive() -> Bool {
-  return self.hp > 0
+  pub readonly func is_alive() -> Bool {
+    return self.hp > 0
+  }
 }
 
 func main() {
   val window = init_window(800, 600, "My Game")
   defer close_window(window)
 
-  var player = Player.new("Victor")
+  var player = Player("Victor")
 
   val bullets = heap [Bullet; 256]
   var bullet_count = 0
@@ -1307,6 +1515,12 @@ func       -- function/method declaration
 object     -- data structure declaration
 enum       -- enumeration declaration
 interface  -- interface declaration
+patch      -- open extension of existing types (v3.0+)
+init       -- constructor declaration inside object block (v3.0+)
+pub        -- opt-in cross-module visibility (v3.0+)
+readonly   -- method modifier: no field writes (v3.0+)
+pure       -- method modifier: no field writes, no I/O (v3.0+)
+self       -- implicit method receiver (required in-block, v3.0+)
 import     -- module import
 if         -- conditional
 elif       -- else-if
@@ -1321,14 +1535,12 @@ free       -- heap deallocation
 leak       -- intentional permanent allocation
 defer      -- execute at scope exit
 rc         -- reference-counted wrapper
-private    -- file-scoped visibility
 extends    -- single inheritance
 implements -- interface implementation
 super      -- call parent method
 is         -- runtime type check
 spawn      -- launch a thread
 await      -- wait for thread result
-parallel   -- parallel for loop
 pool       -- create a thread pool
 true       -- boolean literal
 false      -- boolean literal
@@ -1336,7 +1548,6 @@ null       -- nullable empty value
 not        -- logical negation
 and        -- logical and
 or         -- logical or
-self       -- implicit method receiver
 comptime   -- compile-time evaluation at call site
 ```
 

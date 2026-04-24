@@ -7,6 +7,10 @@
 object Point {
   var x: Int
   var y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
 }
 
 object Rect {
@@ -14,6 +18,12 @@ object Rect {
   var y: Int
   var w: Int
   var h: Int
+    init(x: Int, y: Int, w: Int, h: Int) {
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+    }
 }
 
 func make_point(x: Int, y: Int) -> Point {

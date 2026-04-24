@@ -1,0 +1,42 @@
+-- v3_methods_in_block.iron — Phase 82 TEST-01 lock.
+--
+-- What this proves:
+--   GRAMMAR-01: method declarations inside `object X { ... }` parse.
+--   GRAMMAR-02: inside a method body, `self` resolves to the enclosing instance.
+--   GRAMMAR-03: a parameter whose name shadows a field name resolves to the
+--               parameter when used bare; `self.field` still reaches the field.
+--   GRAMMAR-04: `obj.method(args)` dispatches to the in-block method via the
+--               existing Phase 79 receiver-form path.
+--   GRAMMAR-05: the `object` keyword is retained.
+--
+-- Shape mirrors tests/integration/mut_receiver_basic.iron so side-by-side
+-- comparison against the v2.2 mut-receiver fixture is trivial. The only
+-- grammar delta is methods living inside the object body instead of after it.
+
+object Point {
+    var value: Int
+
+    init(value: Int) {
+        self.value = value
+    }
+
+    func set(value: Int) {
+        self.value = value
+    }
+
+    func read() -> Int {
+        return self.value
+    }
+
+    func double() {
+        self.value = self.value + self.value
+    }
+}
+
+func main() {
+    var p: Point = Point(0)
+    p.set(7)
+    println("{p.read()}")
+    p.double()
+    println("{p.read()}")
+}

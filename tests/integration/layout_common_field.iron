@@ -8,11 +8,21 @@ interface Named {
 object Cat impl Named {
   var id: Int
   var lives: Int
+
+    init(id: Int, lives: Int) {
+        self.id = id
+        self.lives = lives
+    }
 }
 
 object Dog impl Named {
   var id: Int
   var tricks: Int
+
+    init(id: Int, tricks: Int) {
+        self.id = id
+        self.tricks = tricks
+    }
 }
 
 func Cat.get_id() -> Int {

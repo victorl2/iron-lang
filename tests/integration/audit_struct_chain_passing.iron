@@ -1,6 +1,10 @@
 object Vec2 {
   var x: Int
   var y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
 }
 
 func make_vec(x: Int, y: Int) -> Vec2 {

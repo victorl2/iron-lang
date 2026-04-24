@@ -15,6 +15,8 @@ typedef struct {
     const char    *filename;
     const char    *source;       /* original source text for diagnostics */
     bool           in_error_recovery;
+    /* Phase 88: BREAK gate -- default false; flip true after Phase 89 codemod */
+    bool           v3_strict_mode;
 } Iron_Parser;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */

@@ -75,9 +75,10 @@ static Iron_Node *iron_parse_expr(Iron_Parser *p);
 static Iron_Node *iron_parse_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_block(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p);
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private);
+static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private);
-static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private);
+static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private);
 static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private);
 static Iron_Node *iron_parse_import_decl(Iron_Parser *p);
@@ -108,6 +109,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.filename          = filename;
     p.source            = source;
     p.in_error_recovery = false;
+    p.v3_strict_mode    = true;
     return p;
 }
 
@@ -145,6 +147,23 @@ static bool iron_check(Iron_Parser *p, Iron_TokenKind kind) {
 static bool iron_check_name(Iron_Parser *p) {
     Iron_TokenKind k = iron_peek(p);
     return k == IRON_TOK_IDENTIFIER;
+}
+
+/* Phase 85 INIT: `init` is a contextual keyword - reserved inside
+ * object-block bodies and interface-block bodies, but MUST remain usable
+ * as a regular identifier in parameter names and in classic
+ * `func Type.init(...)` method-declaration / `obj.init(...)` call-site
+ * positions so the pure-superset guard holds through Phase 87 (v2.2
+ * stdlib and raylib bindings already use `init` as a parameter name in
+ * reduce and as the method name for Window.init / Audio.init). This
+ * helper accepts either IRON_TOK_IDENTIFIER or IRON_TOK_INIT in the
+ * places that downstream code treats the token as a bare name; the
+ * object-block body loop explicitly branches on IRON_TOK_INIT BEFORE
+ * calling this helper so the init keyword still wins inside
+ * `object X { ... }`. */
+static bool iron_check_name_or_init(Iron_Parser *p) {
+    Iron_TokenKind k = iron_peek(p);
+    return k == IRON_TOK_IDENTIFIER || k == IRON_TOK_INIT;
 }
 
 static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
@@ -451,6 +470,11 @@ static Iron_Node *iron_parse_type_annotation(Iron_Parser *p) {
     ann->name = iron_arena_strdup(p->arena, name_tok->value,
                                   strlen(name_tok->value));
     if (!ann->name) iron_oom_abort("parser.c:iron_parse_type_annotation named name");
+    /* Phase 87-02 SELF-01/02: mark "Self" as the contextual Self type.
+     * "Self" lexes as IRON_TOK_IDENTIFIER (not a keyword) so we detect it
+     * by string comparison here. The typechecker resolves is_self_type to
+     * the enclosing ObjectDecl type or emits E0259. */
+    ann->is_self_type = (strcmp(ann->name, "Self") == 0);
 
     /* nullable? */
     ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
@@ -553,7 +577,21 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
             /* val is default, just consume */
         }
 
-        if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        /* Phase 88 BREAK-04: reject 'mut' keyword in param position when strict-v3 gate is ON.
+         * Consume 'mut' for recovery so the rest of the param list keeps parsing cleanly. */
+        if (p->v3_strict_mode && iron_check(p, IRON_TOK_MUT)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_V3_MUT_KEYWORD,
+                           iron_token_span(p, iron_current(p)),
+                           "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                           "or declare a default in-object method to mutate self",
+                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+            iron_advance(p);  /* consume 'mut' for recovery */
+        }
+
+        /* Phase 85 INIT: accept IRON_TOK_INIT as a parameter name so stdlib
+         * `reduce(init: U, ...)` lexes under pure-superset. */
+        if (!iron_check_name_or_init(p)) {
             iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected parameter name");
@@ -1108,7 +1146,12 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
         /* Field access / method call: expr.name or expr.name(args) */
         if (cur == IRON_TOK_DOT) {
             iron_advance(p);
-            if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+            /* Phase 85 INIT: accept IRON_TOK_INIT as a method name at call
+             * sites so `Window.init(...)` and `Audio.init()` continue to
+             * parse under pure-superset. The keyword is only hard inside
+             * object-block / interface-block bodies; here it denotes the
+             * method named "init" declared via `func Type.init(...)`. */
+            if (!iron_check_name_or_init(p)) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
@@ -1202,11 +1245,14 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
                 /* Field access: obj.field */
                 Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
                 if (!fa) iron_oom_abort("parser.c:iron_parse_expr_prec FieldAccess");
-                fa->kind   = IRON_NODE_FIELD_ACCESS;
-                fa->span   = iron_span_merge(left->span,
+                fa->kind          = IRON_NODE_FIELD_ACCESS;
+                fa->span          = iron_span_merge(left->span,
                                              iron_token_span(p, iron_current(p)));
-                fa->object = left;
-                fa->field  = name;
+                fa->object        = left;
+                fa->field         = name;
+                /* Phase 83-02: defensive default; typecheck flips it for
+                 * pub-field reads so HIR routes through synthesized getter. */
+                fa->is_pub_access = false;
                 left = (Iron_Node *)fa;
             }
             continue;
@@ -2064,6 +2110,23 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
             return iron_parse_spawn_stmt(p);
         case IRON_TOK_LBRACE:
             return iron_parse_block(p);
+        case IRON_TOK_MUT:
+            /* Phase 88 BREAK-04: 'mut' as a statement-level prefix is removed in v3.0.
+             * When strict-v3 is ON emit E0263; consume 'mut' and parse the remainder
+             * as an expression statement for recovery.
+             * Gate OFF: fall through to expression-statement / default path so
+             * existing gate-off behavior is completely unchanged. */
+            if (p->v3_strict_mode) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_V3_MUT_KEYWORD,
+                               iron_token_span(p, t),
+                               "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                               "or declare a default in-object method to mutate self",
+                               "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+                iron_advance(p);  /* consume 'mut' for recovery */
+                return iron_parse_expr(p);
+            }
+            __attribute__((fallthrough));
         /* -Wswitch-enum opt-out: statement switch only handles the token kinds
          * that begin a statement keyword; every other Iron_TokenKind falls
          * through to the expression-statement / assignment default below. */
@@ -2090,11 +2153,14 @@ static Iron_Node *iron_parse_stmt(Iron_Parser *p) {
                 Iron_Node *val = iron_parse_expr(p);
                 Iron_AssignStmt *a = ARENA_ALLOC(p->arena, Iron_AssignStmt);
                 if (!a) iron_oom_abort("parser.c:iron_parse_stmt AssignStmt");
-                a->kind   = IRON_NODE_ASSIGN;
-                a->span   = iron_span_merge(expr->span, val->span);
-                a->target = expr;
-                a->value  = val;
-                a->op     = (Iron_OpKind)op;
+                a->kind          = IRON_NODE_ASSIGN;
+                a->span          = iron_span_merge(expr->span, val->span);
+                a->target        = expr;
+                a->value         = val;
+                a->op            = (Iron_OpKind)op;
+                /* Phase 83-02: defensive default; typecheck flips it for
+                 * writes to pub var fields so HIR emits set_<field>(value). */
+                a->is_pub_setter = false;
                 return (Iron_Node *)a;
             }
 
@@ -2264,6 +2330,8 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
     f->generic_params       = NULL;
     f->generic_param_count  = 0;
     f->resolved_return_type = NULL;
+    f->is_readonly          = false;  /* Phase 87: readonly/pure only valid on iface sigs */
+    f->is_pure              = false;
     return (Iron_Node *)f;
 }
 
@@ -2303,6 +2371,24 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         } else if (iron_check(p, IRON_TOK_MUT)) {
             iron_advance(p);
             recv_is_mut = true;
+        }
+
+        /* Phase 88 BREAK-01/02: reject receiver-method form when strict-v3 gate is ON.
+         * E0260 for plain receiver, E0261 for mut-receiver. Both forms removed in v3.0. */
+        if (p->v3_strict_mode) {
+            int code = recv_is_mut ? IRON_ERR_V3_MUT_RECEIVER : IRON_ERR_V3_RECEIVER_SYNTAX;
+            const char *msg = recv_is_mut
+                ? "mut-receiver syntax 'func (mut recv: T) name()' removed in v3.0; "
+                  "declare as a default method inside 'object T { func name() { ... } }'"
+                : "receiver-method syntax 'func (recv: T) name()' removed in v3.0; "
+                  "declare as a method inside 'object T { func name() { ... } }'";
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code,
+                           iron_token_span(p, start),
+                           msg,
+                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
         }
 
         if (!iron_check_name(p)) {
@@ -2433,6 +2519,11 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         rm->elem_type_name       = NULL;
         rm->is_fusible           = false;
         rm->is_receiver_form     = true;
+        rm->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
+        rm->is_readonly          = false;  /* Phase 84: receiver form has no tier modifier */
+        rm->is_pure              = false;
+        rm->is_init              = false;  /* Phase 85: receiver form is never init */
+        rm->init_name            = NULL;
         return (Iron_Node *)rm;
     }
 
@@ -2469,7 +2560,12 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
             return iron_make_error(p);
         }
 
-        if (!iron_check_name(p)) {
+        /* Phase 85 INIT: accept IRON_TOK_INIT for array extension method
+         * name to keep stdlib list.iron / set.iron room to use `init` if
+         * needed in future extensions. Currently no in-tree file exercises
+         * this branch but the symmetry with classic Type.method form is
+         * worth preserving. */
+        if (!iron_check_name_or_init(p)) {
             iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected method name after '[T].'");
@@ -2518,6 +2614,11 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
                                                      strlen(elem_type_tok->value));
         if (!m->elem_type_name) iron_oom_abort("parser.c:iron_parse_func_or_method array elem_type_name");
         m->is_receiver_form     = false;
+        m->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
+        m->is_readonly          = false;  /* Phase 84: array extension has no tier modifier */
+        m->is_pure              = false;
+        m->is_init              = false;  /* Phase 85: array extension is never init */
+        m->init_name            = NULL;
         return (Iron_Node *)m;
     }
 
@@ -2543,7 +2644,10 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     /* Check for method: TypeName.method_name */
     if (iron_check(p, IRON_TOK_DOT)) {
         iron_advance(p);  /* consume '.' */
-        if (!iron_check_name(p)) {
+        /* Phase 85 INIT: accept IRON_TOK_INIT as the method name in classic
+         * `func Type.init(...)` form so stdlib `func Window.init(...)` and
+         * `func Audio.init()` continue to parse under pure-superset. */
+        if (!iron_check_name_or_init(p)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
@@ -2589,6 +2693,11 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->is_array_extension   = false;
         m->elem_type_name       = NULL;
         m->is_receiver_form     = false;
+        m->is_synth_accessor    = false;  /* Phase 83-01: default; 83-02 writes */
+        m->is_readonly          = false;  /* Phase 84: classic Type.method has no tier modifier */
+        m->is_pure              = false;
+        m->is_init              = false;  /* Phase 85: classic Type.method is never init */
+        m->init_name            = NULL;
         return (Iron_Node *)m;
     }
 
@@ -2620,10 +2729,13 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     f->generic_params       = generic_params;
     f->generic_param_count  = generic_count;
     f->resolved_return_type = NULL;  /* set by type checker */
+    f->is_readonly          = false;  /* Phase 87: readonly/pure only valid on iface sigs */
+    f->is_pure              = false;
     return (Iron_Node *)f;
 }
 
-static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
+                                         Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'object' */
 
@@ -2678,10 +2790,335 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
 
     Iron_Node **fields = NULL;
     int field_count    = 0;
+    int var_field_count = 0;  /* mutable (var) fields only — used for E0264 */
 
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+
+        /* Phase 83 ACCESS-02: optional `pub` modifier on fields and methods.
+         * At method level in Plan 83-01 the bit is silently accepted but has
+         * no AST effect — methods default public in v2.2; Phase 88 flips the
+         * default. At field level the bit lands on Iron_Field.is_pub and
+         * drives accessor synthesis in Plan 83-02. */
+        bool member_is_pub = false;
+        if (iron_check(p, IRON_TOK_PUB)) {
+            iron_advance(p);
+            member_is_pub = true;
+        }
+
+        /* Phase 84 MUTTIER-01/02/03: optional tier modifier after pub, before
+         * func. `readonly` XOR `pure` — never both. Valid only on object-block
+         * methods; top-level placement is rejected by the top-level decl loop
+         * via IRON_ERR_TIER_MODIFIER_PLACEMENT. */
+        bool member_is_readonly = false;
+        bool member_is_pure     = false;
+        if (iron_check(p, IRON_TOK_READONLY)) {
+            iron_advance(p);
+            member_is_readonly = true;
+            if (iron_check(p, IRON_TOK_PURE)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'readonly' and 'pure' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'pure' to recover */
+            }
+        } else if (iron_check(p, IRON_TOK_PURE)) {
+            iron_advance(p);
+            member_is_pure = true;
+            if (iron_check(p, IRON_TOK_READONLY)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'pure' and 'readonly' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'readonly' to recover */
+            }
+        }
+
+        /* Phase 85 INIT-03/07/08/11: init declaration inside object body.
+         *
+         * Two forms are accepted:
+         *   Anonymous: `init(params) { body }`        -> init_name = NULL
+         *   Named:     `init <ident>(params) { body }` -> init_name = <ident>
+         *
+         * Flag interactions with previously-consumed modifiers:
+         *   `readonly init` / `pure init`: Phase 84 E0245 already rejected
+         *     these at the modifier-consumption block above (the modifier
+         *     keyword was consumed but `init` is not `func`, so we fall
+         *     through and the readonly/pure flags would be silently dropped).
+         *     To honor MUTTIER-07 we emit E0245 here when a tier flag is
+         *     set - the modifier is a placement violation on an init.
+         *   `pub init`: init visibility is tied to the object; reject with
+         *     IRON_ERR_UNEXPECTED_TOKEN and a locked message. Recovery
+         *     continues parsing the init so one diagnostic = one signal.
+         *
+         * Return-type rejection (INIT-11 parser side): `init() -> T` is a
+         * parse error; the `->` token is consumed and the type annotation
+         * discarded so the rest of the object body keeps parsing cleanly.
+         *
+         * The resulting Iron_MethodDecl mirrors the Phase 82 in-block shape
+         * (is_receiver_form = true, synthesized self param) so Phase 79's
+         * resolver path handles it without modification. Plan 85-02 reads
+         * is_init to gate definite-assignment and delegation-rejection. */
+        if (iron_check(p, IRON_TOK_INIT)) {
+            Iron_Token *istart = iron_current(p);
+            if (member_is_pub) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, istart),
+                               "init visibility is tied to its object; "
+                               "cannot be marked pub", NULL);
+                /* Recover: continue parsing the init so a single diagnostic
+                 * represents the pub-init violation. */
+            }
+            if (member_is_readonly || member_is_pure) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, istart),
+                               "init cannot be 'readonly' or 'pure' - init "
+                               "always writes self to initialize fields",
+                               NULL);
+                /* Drop the tier flags; init is always default-mutating. */
+                member_is_readonly = false;
+                member_is_pure     = false;
+            }
+            iron_advance(p);  /* consume 'init' */
+
+            /* Named vs anonymous: named form has IDENTIFIER before `(`. */
+            const char *init_name = NULL;
+            const char *method_name = NULL;
+            if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                Iron_Token *nt = iron_advance(p);
+                init_name = iron_arena_strdup(p->arena, nt->value,
+                                               strlen(nt->value));
+                if (!init_name) iron_oom_abort("parser.c:iron_parse_object_decl init name");
+                /* Named init uses its name for call-site dispatch. */
+                method_name = init_name;
+            } else {
+                /* Anonymous init: method_name is the literal "init" so the
+                 * resolver finds it under Type.init and Plan 85-02 can match
+                 * on method_name == "init" when is_init is true. */
+                method_name = iron_arena_strdup(p->arena, "init", 4);
+                if (!method_name) iron_oom_abort("parser.c:iron_parse_object_decl anon init name");
+            }
+
+            /* Explicit params (no receiver in source; synth self below). */
+            int explicit_count = 0;
+            Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
+
+            /* INIT-11 parser branch: explicit return type is forbidden on
+             * init. Emit a diagnostic and consume the `-> T` so later tokens
+             * still parse as an init body. */
+            if (iron_check(p, IRON_TOK_ARROW)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "init cannot declare a return type - init "
+                               "always returns Self", NULL);
+                iron_advance(p);  /* consume '->' */
+                (void)iron_parse_type_annotation(p);  /* discard the type */
+            }
+
+            Iron_Node *ibody = iron_parse_block(p);
+
+            /* Synthesize self param; mirrors Phase 82 in-block synthesis. */
+            Iron_Param *synth_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!synth_self) iron_oom_abort("parser.c:iron_parse_object_decl init synth self");
+            synth_self->kind            = IRON_NODE_PARAM;
+            synth_self->span            = iron_token_span(p, istart);
+            synth_self->is_var          = false;
+            /* Init ALWAYS writes self.field to establish initial values;
+             * the receiver is mutating regardless of any tier modifier that
+             * might have been rejected above. Plan 85-02 relies on this. */
+            synth_self->is_mut_receiver = true;
+            synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_object_decl init self name");
+
+            Iron_TypeAnnotation *self_type = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!self_type) iron_oom_abort("parser.c:iron_parse_object_decl init self type");
+            memset(self_type, 0, sizeof(*self_type));
+            self_type->kind = IRON_NODE_TYPE_ANNOTATION;
+            self_type->span = iron_token_span(p, istart);
+            self_type->name = iron_arena_strdup(p->arena, name_tok->value,
+                                                 strlen(name_tok->value));
+            if (!self_type->name) iron_oom_abort("parser.c:iron_parse_object_decl init self type name");
+            synth_self->type_ann = (Iron_Node *)self_type;
+
+            int total = explicit_count + 1;
+            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *) * (size_t)total,
+                _Alignof(Iron_Node *));
+            if (!all_params) iron_oom_abort("parser.c:iron_parse_object_decl init params array");
+            all_params[0] = (Iron_Node *)synth_self;
+            for (int i = 0; i < explicit_count; i++) {
+                all_params[i + 1] = explicit_params[i];
+            }
+
+            Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!m) iron_oom_abort("parser.c:iron_parse_object_decl init MethodDecl");
+            m->kind                 = IRON_NODE_METHOD_DECL;
+            m->span                 = iron_span_merge(iron_token_span(p, istart),
+                                                       ibody ? ibody->span
+                                                             : iron_token_span(p, istart));
+            m->type_name            = iron_arena_strdup(p->arena, name_tok->value,
+                                                         strlen(name_tok->value));
+            if (!m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl init type_name");
+            m->method_name          = method_name;
+            m->params               = all_params;
+            m->param_count          = total;
+            m->return_type          = NULL;   /* INIT-11: always NULL */
+            m->body                 = ibody;
+            m->is_private           = false;
+            m->generic_params       = NULL;
+            m->generic_param_count  = 0;
+            m->resolved_return_type = NULL;
+            m->owner_sym            = NULL;
+            m->is_array_extension   = false;
+            m->elem_type_name       = NULL;
+            m->is_fusible           = false;
+            m->is_receiver_form     = true;   /* triggers Phase 79 resolver */
+            m->is_synth_accessor    = false;
+            m->is_readonly          = false;
+            m->is_pure              = false;
+            m->is_init              = true;
+            m->init_name            = init_name;  /* NULL for anonymous */
+
+            if (extra_decls_out) {
+                arrput(*extra_decls_out, (Iron_Node *)m);
+            }
+            iron_skip_newlines(p);
+            continue;
+        }
+
+        /* Phase 82 GRAMMAR-01..04: in-block method declaration.
+         * `func name(params) [-> ret] { body }` inside an object body
+         * desugars to a top-level Iron_MethodDecl with is_receiver_form=true,
+         * identical in shape to `func (r: T) name()` from Phase 79. The
+         * synthesized `self` param is prepended to the explicit param list.
+         * The resulting MethodDecl is pushed into *extra_decls_out; the
+         * top-level iron_parse loop flushes it into program->decls
+         * immediately after this ObjectDecl. */
+        if (iron_check(p, IRON_TOK_FUNC)) {
+            Iron_Token *fstart = iron_current(p);
+            iron_advance(p);  /* consume 'func' */
+
+            if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+                iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "expected method name in object body");
+                iron_parser_sync_stmt(p);
+                iron_skip_newlines(p);
+                continue;
+            }
+            Iron_Token *mname_tok = iron_advance(p);
+
+            /* Explicit params (no receiver in source; we synthesize self). */
+            int explicit_count = 0;
+            Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
+
+            /* Optional return type */
+            Iron_Node *mret = NULL;
+            if (iron_match(p, IRON_TOK_ARROW)) {
+                mret = iron_parse_type_annotation(p);
+            }
+
+            /* Body */
+            Iron_Node *mbody = iron_parse_block(p);
+
+            /* Synthesize the implicit `self` receiver param. Mirrors the
+             * receiver-param synthesis pattern at parser.c:2392-2411. */
+            Iron_Param *synth_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!synth_self) iron_oom_abort("parser.c:iron_parse_object_decl in-block synth self");
+            synth_self->kind            = IRON_NODE_PARAM;
+            synth_self->span            = iron_token_span(p, fstart);
+            synth_self->is_var          = false;
+            /* Phase 82 in-block method receivers are default-mutating per
+             * CONTEXT.md: "Default-mutating receiver ABI uses pointer-receiver
+             * from Phase 82 onward — matches v2.2 `mut` path." Phase 84 MUTTIER
+             * flips is_mut_receiver off for readonly/pure methods: those tiers
+             * cannot write self, so the receiver binding is logically non-mut
+             * and MUT-04 (E0235) must NOT fire when a val-bound receiver calls
+             * a readonly/pure method (MUTTIER-05 lock). Mutable-default methods
+             * keep is_mut_receiver=true; readonly/pure methods get false. */
+            synth_self->is_mut_receiver = !(member_is_readonly || member_is_pure);
+            synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_object_decl in-block self name");
+
+            /* Type annotation for self: the enclosing object type. */
+            Iron_TypeAnnotation *self_type = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!self_type) iron_oom_abort("parser.c:iron_parse_object_decl in-block self type");
+            memset(self_type, 0, sizeof(*self_type));
+            self_type->kind = IRON_NODE_TYPE_ANNOTATION;
+            self_type->span = iron_token_span(p, fstart);
+            self_type->name = iron_arena_strdup(p->arena, name_tok->value,
+                                                 strlen(name_tok->value));
+            if (!self_type->name) iron_oom_abort("parser.c:iron_parse_object_decl in-block self type name");
+            synth_self->type_ann = (Iron_Node *)self_type;
+
+            /* Prepend synth_self to explicit params. */
+            int total = explicit_count + 1;
+            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *) * (size_t)total,
+                _Alignof(Iron_Node *));
+            if (!all_params) iron_oom_abort("parser.c:iron_parse_object_decl in-block params array");
+            all_params[0] = (Iron_Node *)synth_self;
+            for (int i = 0; i < explicit_count; i++) {
+                all_params[i + 1] = explicit_params[i];
+            }
+
+            /* Build the Iron_MethodDecl; mirror parser.c:2413-2436. */
+            Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!m) iron_oom_abort("parser.c:iron_parse_object_decl in-block MethodDecl");
+            m->kind                 = IRON_NODE_METHOD_DECL;
+            m->span                 = iron_span_merge(iron_token_span(p, fstart),
+                                                       mbody ? mbody->span
+                                                             : iron_token_span(p, fstart));
+            m->type_name            = iron_arena_strdup(p->arena, name_tok->value,
+                                                         strlen(name_tok->value));
+            if (!m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl in-block type_name");
+            m->method_name          = iron_arena_strdup(p->arena, mname_tok->value,
+                                                         strlen(mname_tok->value));
+            if (!m->method_name) iron_oom_abort("parser.c:iron_parse_object_decl in-block method_name");
+            m->params               = all_params;
+            m->param_count          = total;
+            m->return_type          = mret;
+            m->body                 = mbody;
+            m->is_private           = false;  /* Phase 82: default public; Phase 83 adds pub opt-in */
+            m->generic_params       = NULL;
+            m->generic_param_count  = 0;
+            m->resolved_return_type = NULL;
+            m->owner_sym            = NULL;
+            m->is_array_extension   = false;
+            m->elem_type_name       = NULL;
+            m->is_fusible           = false;
+            m->is_receiver_form     = true;   /* CRITICAL: triggers Phase 79 resolver path */
+            /* Phase 83-01: `pub` on methods is silently accepted — methods
+             * default public in v2.2 so `pub func foo()` and `func foo()`
+             * are semantically identical today. Phase 88 may reinterpret the
+             * bit when the default flips to private. */
+            (void)member_is_pub;
+            /* Phase 83-01: default; Plan 83-02 flips on for synthesized
+             * accessor methods; Phase 84 MUTTIER reads the bit. */
+            m->is_synth_accessor    = false;
+            /* Phase 84 MUTTIER-01/02/03: carry the tier modifier consumed by
+             * the object body loop onto the AST. Plan 84-02 reads these bits
+             * to fire tier-violation diagnostics (E0238..E0244). */
+            m->is_readonly          = member_is_readonly;
+            m->is_pure              = member_is_pure;
+            /* Phase 85 INIT: Phase 82 in-block `func` is never init; the init
+             * branch lives separately above. Defaults here for defensive
+             * clarity so grep for is_init finds intent at every site. */
+            m->is_init              = false;
+            m->init_name            = NULL;
+
+            if (extra_decls_out) {
+                arrput(*extra_decls_out, (Iron_Node *)m);
+            }
+            iron_skip_newlines(p);
+            continue;
+        }
 
         bool is_var = false;
         Iron_Token *field_start = iron_current(p);
@@ -2714,6 +3151,19 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
             ftype = iron_parse_type_annotation(p);
         }
 
+        /* Phase 88 BREAK-03: reject inline field defaults 'var x: T = expr' when
+         * strict-v3 gate is ON. Consume and discard the initializer for recovery. */
+        if (p->v3_strict_mode && iron_check(p, IRON_TOK_ASSIGN)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_V3_INLINE_DEFAULT,
+                           iron_token_span(p, iron_current(p)),
+                           "inline field defaults 'var x: T = expr' removed in v3.0; "
+                           "assign fields in an init instead",
+                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+            iron_advance(p);  /* consume '=' */
+            (void)iron_parse_expr(p);  /* discard initializer expression for recovery */
+        }
+
         Iron_Field *field = ARENA_ALLOC(p->arena, Iron_Field);
         if (!field) iron_oom_abort("parser.c:iron_parse_object_decl Field");
         field->kind       = IRON_NODE_FIELD;
@@ -2725,9 +3175,497 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
         if (!field->name) iron_oom_abort("parser.c:iron_parse_object_decl Field name");
         field->type_ann   = ftype;
         field->is_var     = is_var;
+        /* Phase 83 ACCESS-02: is_pub carries the optional `pub` modifier
+         * consumed earlier in this iteration. Plan 83-02 reads it to drive
+         * accessor synthesis. */
+        field->is_pub     = member_is_pub;
         arrput(fields, (Iron_Node *)field);
         field_count++;
+        if (is_var) var_field_count++;
         iron_skip_newlines(p);
+    }
+
+    /* Phase 83-02 ACCESS-03/04/06: synthesize accessor methods for every
+     * `pub val` and `pub var` field, then scan for user-declared methods that
+     * collide with a synthesized name.
+     *
+     * Accessors are standard receiver-form Iron_MethodDecl nodes pushed into
+     * *extra_decls_out — identical in shape to Phase 82 in-block methods —
+     * so they ride the existing resolver / typecheck / HIR / LIR / emit
+     * pipeline unchanged. Phase 84 MUTTIER reads is_synth_accessor to
+     * retrofit `readonly` on getters.
+     *
+     * Getter  (pub val or pub var): `return self.<field>`  (1 param: self; return_type = field type)
+     * Setter  (pub var only):       `self.<field> = _v`    (2 params: self + _v; return_type NULL)
+     *
+     * Collision scan runs AFTER synthesis so user methods flushed earlier in
+     * this iteration are still reachable via *extra_decls_out. We compare
+     * type_name + method_name and only emit on user-declared (non-synth)
+     * methods whose type_name matches the enclosing object. */
+    if (extra_decls_out) {
+        /* Record the extra_decls_out range covered by this object so the
+         * collision scan below does not pick up methods from earlier objects
+         * in the program. The synthesis loop appends to the array; the scan
+         * walks the full range and filters by type_name == enclosing. */
+        const char *enclosing = name_tok->value;
+        size_t enclosing_len  = strlen(enclosing);
+
+        for (int fi = 0; fi < field_count; fi++) {
+            Iron_Field *field = (Iron_Field *)fields[fi];
+            if (!field->is_pub) continue;
+
+            Iron_Span field_span = field->span;
+
+            /* ── Getter ─────────────────────────────────────────────────── */
+            Iron_Param *g_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!g_self) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self");
+            g_self->kind            = IRON_NODE_PARAM;
+            g_self->span            = field_span;
+            g_self->is_var          = false;
+            /* Getter: read-only receiver. Phase 84 will read this bit via
+             * is_synth_accessor + is_mut_receiver to confirm readonly. */
+            g_self->is_mut_receiver = false;
+            g_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!g_self->name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self name");
+
+            Iron_TypeAnnotation *g_self_ty = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!g_self_ty) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self type");
+            memset(g_self_ty, 0, sizeof(*g_self_ty));
+            g_self_ty->kind = IRON_NODE_TYPE_ANNOTATION;
+            g_self_ty->span = field_span;
+            g_self_ty->name = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!g_self_ty->name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self type name");
+            g_self->type_ann = (Iron_Node *)g_self_ty;
+
+            /* Getter body: `return self.<field>` */
+            Iron_Ident *g_self_ref = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!g_self_ref) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self ref");
+            g_self_ref->kind             = IRON_NODE_IDENT;
+            g_self_ref->span             = field_span;
+            g_self_ref->resolved_type    = NULL;
+            g_self_ref->name             = iron_arena_strdup(p->arena, "self", 4);
+            if (!g_self_ref->name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter self ref name");
+            g_self_ref->resolved_sym     = NULL;
+            g_self_ref->constraint_name  = NULL;
+
+            Iron_FieldAccess *g_fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+            if (!g_fa) iron_oom_abort("parser.c:iron_parse_object_decl synth getter field access");
+            g_fa->kind          = IRON_NODE_FIELD_ACCESS;
+            g_fa->span          = field_span;
+            g_fa->resolved_type = NULL;
+            g_fa->object        = (Iron_Node *)g_self_ref;
+            g_fa->field         = field->name;
+            /* Synth getter body: direct field load, is_pub_access stays
+             * false so HIR does NOT recurse through this same getter. */
+            g_fa->is_pub_access = false;
+
+            Iron_ReturnStmt *g_ret = ARENA_ALLOC(p->arena, Iron_ReturnStmt);
+            if (!g_ret) iron_oom_abort("parser.c:iron_parse_object_decl synth getter return");
+            g_ret->kind  = IRON_NODE_RETURN;
+            g_ret->span  = field_span;
+            g_ret->value = (Iron_Node *)g_fa;
+
+            Iron_Block *g_body = ARENA_ALLOC(p->arena, Iron_Block);
+            if (!g_body) iron_oom_abort("parser.c:iron_parse_object_decl synth getter body");
+            g_body->kind       = IRON_NODE_BLOCK;
+            g_body->span       = field_span;
+            g_body->stmts      = NULL;
+            g_body->stmt_count = 0;
+            arrput(g_body->stmts, (Iron_Node *)g_ret);
+            g_body->stmt_count = 1;
+
+            /* Getter params array: [self] */
+            Iron_Node **g_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *),
+                _Alignof(Iron_Node *));
+            if (!g_params) iron_oom_abort("parser.c:iron_parse_object_decl synth getter params");
+            g_params[0] = (Iron_Node *)g_self;
+
+            Iron_MethodDecl *g_m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!g_m) iron_oom_abort("parser.c:iron_parse_object_decl synth getter MethodDecl");
+            g_m->kind                 = IRON_NODE_METHOD_DECL;
+            g_m->span                 = field_span;
+            g_m->type_name            = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!g_m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl synth getter type_name");
+            g_m->method_name          = field->name;  /* arena-owned, safe to share */
+            g_m->params               = g_params;
+            g_m->param_count          = 1;
+            /* Sharing field->type_ann is safe: types are read-only post-parse
+             * so the AST printer and downstream passes treat this as a fresh
+             * read of the same annotation. Matches Phase 82's shared-type
+             * pattern for in-block method receivers. */
+            g_m->return_type          = field->type_ann;
+            g_m->body                 = (Iron_Node *)g_body;
+            g_m->is_private           = false;
+            g_m->generic_params       = NULL;
+            g_m->generic_param_count  = 0;
+            g_m->resolved_return_type = NULL;
+            g_m->owner_sym            = NULL;
+            g_m->is_array_extension   = false;
+            g_m->elem_type_name       = NULL;
+            g_m->is_fusible           = false;
+            g_m->is_receiver_form     = true;
+            g_m->is_synth_accessor    = true;  /* Phase 83-02 marker */
+            /* Phase 84 MUTTIER retrofit: a synthesized getter is a read-only
+             * field load. Mark both tiers true so readonly AND pure methods
+             * can call `obj.field` through this getter without tripping
+             * E0239 (readonly calls mutating) or E0242 (pure calls non-pure)
+             * in Plan 84-02. */
+            g_m->is_readonly          = true;
+            g_m->is_pure              = true;
+            /* Phase 85 INIT: synth getter is never init - it's an accessor
+             * over a pre-existing field, not a constructor. */
+            g_m->is_init              = false;
+            g_m->init_name            = NULL;
+            arrput(*extra_decls_out, (Iron_Node *)g_m);
+
+            if (!field->is_var) continue;
+
+            /* ── Setter (pub var only) ──────────────────────────────────── */
+            Iron_Param *s_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!s_self) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self");
+            s_self->kind            = IRON_NODE_PARAM;
+            s_self->span            = field_span;
+            s_self->is_var          = false;
+            s_self->is_mut_receiver = true;   /* setter mutates self.field */
+            s_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!s_self->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self name");
+
+            Iron_TypeAnnotation *s_self_ty = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!s_self_ty) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self type");
+            memset(s_self_ty, 0, sizeof(*s_self_ty));
+            s_self_ty->kind = IRON_NODE_TYPE_ANNOTATION;
+            s_self_ty->span = field_span;
+            s_self_ty->name = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!s_self_ty->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self type name");
+            s_self->type_ann = (Iron_Node *)s_self_ty;
+
+            Iron_Param *s_v = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!s_v) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v");
+            s_v->kind            = IRON_NODE_PARAM;
+            s_v->span            = field_span;
+            s_v->is_var          = false;
+            s_v->is_mut_receiver = false;
+            s_v->name            = iron_arena_strdup(p->arena, "_v", 2);
+            if (!s_v->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v name");
+            /* Reuse the field's type_ann for `_v` — read-only shared. */
+            s_v->type_ann = field->type_ann;
+
+            /* Setter body: `self.<field> = _v` */
+            Iron_Ident *s_self_ref = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!s_self_ref) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self ref");
+            s_self_ref->kind            = IRON_NODE_IDENT;
+            s_self_ref->span            = field_span;
+            s_self_ref->resolved_type   = NULL;
+            s_self_ref->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!s_self_ref->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter self ref name");
+            s_self_ref->resolved_sym    = NULL;
+            s_self_ref->constraint_name = NULL;
+
+            Iron_FieldAccess *s_fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+            if (!s_fa) iron_oom_abort("parser.c:iron_parse_object_decl synth setter field access");
+            s_fa->kind          = IRON_NODE_FIELD_ACCESS;
+            s_fa->span          = field_span;
+            s_fa->resolved_type = NULL;
+            s_fa->object        = (Iron_Node *)s_self_ref;
+            s_fa->field         = field->name;
+            /* Synth setter body: direct field store target; the typechecker
+             * path inside a synth accessor suppresses the rewrite so this
+             * stays false and HIR emits a plain store, not a re-dispatch. */
+            s_fa->is_pub_access = false;
+
+            Iron_Ident *s_v_ref = ARENA_ALLOC(p->arena, Iron_Ident);
+            if (!s_v_ref) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v ref");
+            s_v_ref->kind            = IRON_NODE_IDENT;
+            s_v_ref->span            = field_span;
+            s_v_ref->resolved_type   = NULL;
+            s_v_ref->name            = iron_arena_strdup(p->arena, "_v", 2);
+            if (!s_v_ref->name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter v ref name");
+            s_v_ref->resolved_sym    = NULL;
+            s_v_ref->constraint_name = NULL;
+
+            Iron_AssignStmt *s_as = ARENA_ALLOC(p->arena, Iron_AssignStmt);
+            if (!s_as) iron_oom_abort("parser.c:iron_parse_object_decl synth setter assign");
+            s_as->kind          = IRON_NODE_ASSIGN;
+            s_as->span          = field_span;
+            s_as->target        = (Iron_Node *)s_fa;
+            s_as->value         = (Iron_Node *)s_v_ref;
+            s_as->op            = IRON_TOK_ASSIGN;
+            /* Synth setter body's own assign: direct store, not a recursive
+             * dispatch. The typechecker's synth-accessor guard leaves this
+             * false so HIR emits `set_field %self.field, _v`. */
+            s_as->is_pub_setter = false;
+
+            Iron_Block *s_body = ARENA_ALLOC(p->arena, Iron_Block);
+            if (!s_body) iron_oom_abort("parser.c:iron_parse_object_decl synth setter body");
+            s_body->kind       = IRON_NODE_BLOCK;
+            s_body->span       = field_span;
+            s_body->stmts      = NULL;
+            s_body->stmt_count = 0;
+            arrput(s_body->stmts, (Iron_Node *)s_as);
+            s_body->stmt_count = 1;
+
+            Iron_Node **s_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *) * 2,
+                _Alignof(Iron_Node *));
+            if (!s_params) iron_oom_abort("parser.c:iron_parse_object_decl synth setter params array");
+            s_params[0] = (Iron_Node *)s_self;
+            s_params[1] = (Iron_Node *)s_v;
+
+            /* method_name = "set_<field>" */
+            size_t fname_len = strlen(field->name);
+            char  *setter_name = (char *)iron_arena_alloc(
+                p->arena, fname_len + 5 /* "set_" + NUL */,
+                _Alignof(char));
+            if (!setter_name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter name");
+            snprintf(setter_name, fname_len + 5, "set_%s", field->name);
+
+            Iron_MethodDecl *s_m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!s_m) iron_oom_abort("parser.c:iron_parse_object_decl synth setter MethodDecl");
+            s_m->kind                 = IRON_NODE_METHOD_DECL;
+            s_m->span                 = field_span;
+            s_m->type_name            = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+            if (!s_m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl synth setter type_name");
+            s_m->method_name          = setter_name;
+            s_m->params               = s_params;
+            s_m->param_count          = 2;
+            s_m->return_type          = NULL;  /* setter returns void */
+            s_m->body                 = (Iron_Node *)s_body;
+            s_m->is_private           = false;
+            s_m->generic_params       = NULL;
+            s_m->generic_param_count  = 0;
+            s_m->resolved_return_type = NULL;
+            s_m->owner_sym            = NULL;
+            s_m->is_array_extension   = false;
+            s_m->elem_type_name       = NULL;
+            s_m->is_fusible           = false;
+            s_m->is_receiver_form     = true;
+            s_m->is_synth_accessor    = true;
+            /* Phase 84 MUTTIER: synth setter writes self.field — default
+             * mutating. Spell the false-false explicitly for audit; arena
+             * zero-init already gives this, but future readers should see
+             * the intent on the line, not inferred. */
+            s_m->is_readonly          = false;
+            s_m->is_pure              = false;
+            /* Phase 85 INIT: synth setter is never init - it writes a single
+             * field rather than constructing the object. */
+            s_m->is_init              = false;
+            s_m->init_name            = NULL;
+            arrput(*extra_decls_out, (Iron_Node *)s_m);
+        }
+
+        /* ── Collision scan (ACCESS-06) ─────────────────────────────────────
+         * Walk the *extra_decls_out array. For every user-declared
+         * (is_synth_accessor == false) Iron_MethodDecl whose type_name
+         * matches the enclosing object, check whether its method_name
+         * collides with any synthesized accessor's method_name in the same
+         * object. On collision, emit IRON_ERR_ACCESSOR_NAME_RESERVED (237)
+         * with the locked message text.
+         *
+         * Both the synthesized node and the user node remain in the AST;
+         * the diagnostic blocks compilation downstream. A duplicate-method
+         * detection in the resolver is subsumed by this cleaner message. */
+        int extra_count = (int)arrlen(*extra_decls_out);
+        for (int ui = 0; ui < extra_count; ui++) {
+            Iron_Node *un = (*extra_decls_out)[ui];
+            if (!un || un->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *um = (Iron_MethodDecl *)un;
+            if (um->is_synth_accessor) continue;
+            if (!um->type_name || strcmp(um->type_name, enclosing) != 0) continue;
+
+            for (int si = 0; si < extra_count; si++) {
+                if (si == ui) continue;
+                Iron_Node *sn = (*extra_decls_out)[si];
+                if (!sn || sn->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *sm = (Iron_MethodDecl *)sn;
+                if (!sm->is_synth_accessor) continue;
+                if (!sm->type_name || strcmp(sm->type_name, enclosing) != 0) continue;
+                if (!sm->method_name || !um->method_name) continue;
+                if (strcmp(sm->method_name, um->method_name) != 0) continue;
+
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "name '%s' reserved by synthesized accessor from pub field",
+                         um->method_name);
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_ACCESSOR_NAME_RESERVED,
+                               um->span, msg, NULL);
+                break;  /* one diagnostic per colliding user method */
+            }
+        }
+
+        /* Phase 85 INIT-07: duplicate-init detection scan.
+         *
+         * After the accessor collision scan (which already walked
+         * extra_decls_out), we run a second O(N^2) pass restricted to
+         * is_init=true MethodDecls whose type_name matches the enclosing
+         * object. Two classes of duplicate:
+         *   (1) two anonymous inits (init_name NULL on both) -> E0201 with
+         *       "duplicate anonymous init; only one allowed per object"
+         *   (2) two named inits with the same init_name -> E0201 with
+         *       "duplicate named init '<name>'"
+         *
+         * A diagnostic fires on the LATER of each duplicate pair (ui > si)
+         * so the first-declared init is the "canonical" one referenced by
+         * any Plan 85-02 downstream analysis that walks the array. */
+        int init_scan_count = (int)arrlen(*extra_decls_out);
+        for (int ui = 0; ui < init_scan_count; ui++) {
+            Iron_Node *un = (*extra_decls_out)[ui];
+            if (!un || un->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *um = (Iron_MethodDecl *)un;
+            if (!um->is_init) continue;
+            if (!um->type_name || strcmp(um->type_name, enclosing) != 0) continue;
+
+            for (int si = 0; si < ui; si++) {
+                Iron_Node *sn = (*extra_decls_out)[si];
+                if (!sn || sn->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *sm = (Iron_MethodDecl *)sn;
+                if (!sm->is_init) continue;
+                if (!sm->type_name || strcmp(sm->type_name, enclosing) != 0) continue;
+
+                /* Both anonymous (init_name NULL on both)? */
+                if (sm->init_name == NULL && um->init_name == NULL) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_DUPLICATE_DECL,
+                                   um->span,
+                                   "duplicate anonymous init; only one "
+                                   "allowed per object", NULL);
+                    break;
+                }
+                /* Both named with same init_name? */
+                if (sm->init_name && um->init_name &&
+                    strcmp(sm->init_name, um->init_name) == 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "duplicate named init '%s'",
+                             um->init_name);
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_DUPLICATE_DECL,
+                                   um->span, msg, NULL);
+                    break;
+                }
+            }
+        }
+
+        /* Phase 85 INIT-13: field-less auto-synth.
+         *
+         * An object with zero fields AND zero user-declared inits receives
+         * a synthesized empty `init() {}` so every object has exactly one
+         * callable init even before Phase 88 flips the mandatory-init gate.
+         * This preserves pure-superset during Phase 85-87: v2.2 field-less
+         * objects still "just work" via the positional-constructor path;
+         * adding the synth here makes is_init visible on the AST so later
+         * phases can rely on it.
+         *
+         * The synth shape mirrors user-declared anonymous init:
+         *   is_init = true, init_name = NULL, method_name = "init",
+         *   param_count = 1 (synth self), body = empty Iron_Block,
+         *   is_receiver_form = true, is_mut_receiver on self. */
+        if (field_count == 0) {
+            bool has_user_init = false;
+            for (int i = 0; i < (int)arrlen(*extra_decls_out); i++) {
+                Iron_Node *d = (*extra_decls_out)[i];
+                if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *mm = (Iron_MethodDecl *)d;
+                if (mm->is_init && mm->type_name &&
+                    strcmp(mm->type_name, enclosing) == 0) {
+                    has_user_init = true;
+                    break;
+                }
+            }
+            if (!has_user_init) {
+                Iron_Span ospan = iron_token_span(p, name_tok);
+
+                Iron_Block *empty_body = ARENA_ALLOC(p->arena, Iron_Block);
+                if (!empty_body) iron_oom_abort("parser.c:iron_parse_object_decl fieldless init body");
+                empty_body->kind       = IRON_NODE_BLOCK;
+                empty_body->span       = ospan;
+                empty_body->stmts      = NULL;
+                empty_body->stmt_count = 0;
+
+                Iron_Param *ss = ARENA_ALLOC(p->arena, Iron_Param);
+                if (!ss) iron_oom_abort("parser.c:iron_parse_object_decl fieldless self");
+                ss->kind            = IRON_NODE_PARAM;
+                ss->span            = ospan;
+                ss->is_var          = false;
+                ss->is_mut_receiver = true;
+                ss->name            = iron_arena_strdup(p->arena, "self", 4);
+                if (!ss->name) iron_oom_abort("parser.c:iron_parse_object_decl fieldless self name");
+
+                Iron_TypeAnnotation *sty = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+                if (!sty) iron_oom_abort("parser.c:iron_parse_object_decl fieldless self ty");
+                memset(sty, 0, sizeof(*sty));
+                sty->kind = IRON_NODE_TYPE_ANNOTATION;
+                sty->span = ospan;
+                sty->name = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+                if (!sty->name) iron_oom_abort("parser.c:iron_parse_object_decl fieldless self ty name");
+                ss->type_ann = (Iron_Node *)sty;
+
+                Iron_Node **sparams = (Iron_Node **)iron_arena_alloc(
+                    p->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+                if (!sparams) iron_oom_abort("parser.c:iron_parse_object_decl fieldless params");
+                sparams[0] = (Iron_Node *)ss;
+
+                Iron_MethodDecl *synth = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+                if (!synth) iron_oom_abort("parser.c:iron_parse_object_decl fieldless synth init");
+                synth->kind                 = IRON_NODE_METHOD_DECL;
+                synth->span                 = ospan;
+                synth->type_name            = iron_arena_strdup(p->arena, enclosing, enclosing_len);
+                if (!synth->type_name) iron_oom_abort("parser.c:iron_parse_object_decl fieldless synth type_name");
+                synth->method_name          = iron_arena_strdup(p->arena, "init", 4);
+                if (!synth->method_name) iron_oom_abort("parser.c:iron_parse_object_decl fieldless synth method_name");
+                synth->params               = sparams;
+                synth->param_count          = 1;
+                synth->return_type          = NULL;
+                synth->body                 = (Iron_Node *)empty_body;
+                synth->is_private           = false;
+                synth->generic_params       = NULL;
+                synth->generic_param_count  = 0;
+                synth->resolved_return_type = NULL;
+                synth->owner_sym            = NULL;
+                synth->is_array_extension   = false;
+                synth->elem_type_name       = NULL;
+                synth->is_fusible           = false;
+                synth->is_receiver_form     = true;
+                synth->is_synth_accessor    = false;
+                synth->is_readonly          = false;
+                synth->is_pure              = false;
+                synth->is_init              = true;
+                synth->init_name            = NULL;  /* anonymous */
+                arrput(*extra_decls_out, (Iron_Node *)synth);
+            }
+        }
+
+        /* Phase 88 INIT-02: when strict-v3 gate is ON, an object with mutable (var)
+         * fields but no user-declared init is an error. val-only objects are treated as
+         * C-layout types whose lifetime is managed by C (e.g. raylib structs); they do
+         * not need an Iron init constructor because they are never constructed from Iron
+         * code directly. Only var fields require assignment in an init body. */
+        if (p->v3_strict_mode && var_field_count > 0) {
+            bool has_user_init = false;
+            for (int i = 0; i < (int)arrlen(*extra_decls_out); i++) {
+                Iron_Node *d = (*extra_decls_out)[i];
+                if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *mm = (Iron_MethodDecl *)d;
+                if (mm->is_init && !mm->is_synth_accessor && mm->type_name &&
+                    strcmp(mm->type_name, enclosing) == 0) {
+                    has_user_init = true;
+                    break;
+                }
+            }
+            if (!has_user_init) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "object '%s' has %d mutable field(s) but no init; "
+                         "v3.0 requires an explicit init to construct objects with mutable fields",
+                         enclosing, var_field_count);
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_V3_NO_INIT,
+                               iron_token_span(p, name_tok),
+                               msg,
+                               "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+            }
+        }
     }
 
     Iron_Token *end = iron_current(p);
@@ -2750,7 +3688,415 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private) {
     n->implements_count        = impl_count;
     n->generic_params          = generic_params;
     n->generic_param_count     = generic_count;
+    /* Phase 86 PATCH-01: classic `object T {}` is never a patch. Defensive
+     * explicit defaults so Plan 86-02 resolver walking decls for
+     * is_patch=true has no uninitialized reads. ARENA_ALLOC zeroes the
+     * struct, but spelling these out documents intent at the only classic
+     * alloc site. */
+    n->is_patch                = false;
+    n->target_type_name        = NULL;
     (void)is_private;  /* stored but not used in AST yet */
+    return (Iron_Node *)n;
+}
+
+/* ── Phase 86 PATCH-01/02/05: patch object T { ... } ─────────────────────── */
+/*
+ * `patch object T { methods+inits }` contributes methods (and optionally
+ * inits) to an existing type T without modifying T's original decl. The
+ * resulting AST node is an Iron_ObjectDecl with is_patch=true,
+ * target_type_name=T, field_count=0 — Plan 86-02 walks program decls
+ * keying on is_patch to wire the type-patch registry and extend dispatch.
+ *
+ * Body grammar mirrors the object-body method/init branches (Phase 82 in-
+ * block func, Phase 83 pub, Phase 84 readonly/pure, Phase 85 init). The
+ * difference: field declarations (val/var) inside a patch body emit E0253
+ * IRON_ERR_PATCH_ADDS_FIELD and are consumed-and-dropped for recovery;
+ * the resulting ObjectDecl always has field_count=0.
+ *
+ * Generic patch targets (`patch object List[T] { ... }`) are deferred to
+ * v3.1+ per 86-CONTEXT.md Deferred Ideas and rejected with a locked
+ * IRON_ERR_UNEXPECTED_TOKEN message.
+ *
+ * Body-consumption is an inline replay of the object-body loop rather
+ * than a shared helper. The plan's <interfaces> block permits either
+ * "extracted helper or inline replay"; replay keeps iron_parse_object_decl
+ * 100% untouched (strongest regression guarantee for the 70+ existing
+ * object/method parser tests) at the cost of ~duplicating the body-
+ * consumption arm. Phase 87+ may refactor to a shared helper if another
+ * consumer appears (`trait` extension would be the candidate).
+ */
+static Iron_Node *iron_parse_patch_decl(Iron_Parser *p,
+                                        Iron_Node ***extra_decls_out) {
+    Iron_Token *start = iron_current(p);
+    iron_advance(p);  /* consume 'patch' */
+
+    /* Expect `object` next. Locked diagnostic on mismatch. */
+    if (!iron_check(p, IRON_TOK_OBJECT)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected 'object' after 'patch'", NULL);
+        p->in_error_recovery = true;
+        iron_parser_sync_toplevel(p);
+        return iron_make_error(p);
+    }
+    iron_advance(p);  /* consume 'object' */
+
+    /* Patch target name. */
+    if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected patch target name", NULL);
+        p->in_error_recovery = true;
+        iron_parser_sync_toplevel(p);
+        return iron_make_error(p);
+    }
+    Iron_Token *name_tok = iron_advance(p);
+    const char *target_name = iron_arena_strdup(p->arena, name_tok->value,
+                                                 strlen(name_tok->value));
+    if (!target_name) iron_oom_abort("parser.c:iron_parse_patch_decl target_name");
+
+    /* Generic patch targets (`patch object List[T] { ... }`) are deferred
+     * to v3.1+ per 86-CONTEXT.md. Emit locked rejection and consume the
+     * [T] tokens so the body still parses cleanly. */
+    if (iron_check(p, IRON_TOK_LBRACKET)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "generic patch targets not supported in v3.0", NULL);
+        int generic_count = 0;
+        (void)iron_parse_generic_params(p, &generic_count, p->arena);
+    }
+
+    /* Phase 87-02 PATCH-08: optional `implements I, J, K` clause.
+     * "implements" is a contextual keyword lexed as IRON_TOK_IDENTIFIER;
+     * we detect it by string comparison, matching the Phase 85 init-as-
+     * contextual-keyword precedent. Patches do NOT accept `extends`. */
+    const char **impl_names = NULL;
+    int          impl_count = 0;
+    if (iron_check(p, IRON_TOK_IDENTIFIER) &&
+        strcmp(iron_current(p)->value, "implements") == 0) {
+        iron_advance(p);  /* consume 'implements' */
+        iron_skip_newlines(p);
+        while (iron_check(p, IRON_TOK_IDENTIFIER)) {
+            Iron_Token *it = iron_advance(p);
+            const char *iname = iron_arena_strdup(p->arena, it->value,
+                                                   strlen(it->value));
+            if (!iname) iron_oom_abort("parser.c:iron_parse_patch_decl impl iname");
+            arrput(impl_names, iname);
+            impl_count++;
+            iron_skip_newlines(p);
+            if (!iron_match(p, IRON_TOK_COMMA)) break;
+            iron_skip_newlines(p);
+        }
+    }
+
+    /* Body. Patches do NOT accept `extends`. */
+    if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
+    iron_skip_newlines(p);
+
+    while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
+        iron_skip_newlines(p);
+        if (iron_check(p, IRON_TOK_RBRACE)) break;
+
+        /* Optional pub modifier (Phase 83). */
+        bool member_is_pub = false;
+        if (iron_check(p, IRON_TOK_PUB)) {
+            iron_advance(p);
+            member_is_pub = true;
+        }
+
+        /* Optional readonly/pure modifier (Phase 84). */
+        bool member_is_readonly = false;
+        bool member_is_pure     = false;
+        if (iron_check(p, IRON_TOK_READONLY)) {
+            iron_advance(p);
+            member_is_readonly = true;
+            if (iron_check(p, IRON_TOK_PURE)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'readonly' and 'pure' "
+                               "- pick one tier", NULL);
+                iron_advance(p);
+            }
+        } else if (iron_check(p, IRON_TOK_PURE)) {
+            iron_advance(p);
+            member_is_pure = true;
+            if (iron_check(p, IRON_TOK_READONLY)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'pure' and 'readonly' "
+                               "- pick one tier", NULL);
+                iron_advance(p);
+            }
+        }
+
+        /* Phase 85 INIT inside a patch body: same grammar as classic
+         * object body. `readonly init` / `pure init` / `pub init` all
+         * rejected via the same precedent paths. */
+        if (iron_check(p, IRON_TOK_INIT)) {
+            Iron_Token *istart = iron_current(p);
+            if (member_is_pub) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, istart),
+                               "init visibility is tied to its object; "
+                               "cannot be marked pub", NULL);
+            }
+            if (member_is_readonly || member_is_pure) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, istart),
+                               "init cannot be 'readonly' or 'pure' - init "
+                               "always writes self to initialize fields",
+                               NULL);
+                member_is_readonly = false;
+                member_is_pure     = false;
+            }
+            iron_advance(p);  /* consume 'init' */
+
+            const char *init_name   = NULL;
+            const char *method_name = NULL;
+            if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                Iron_Token *nt = iron_advance(p);
+                init_name = iron_arena_strdup(p->arena, nt->value,
+                                               strlen(nt->value));
+                if (!init_name) iron_oom_abort("parser.c:iron_parse_patch_decl init name");
+                method_name = init_name;
+            } else {
+                method_name = iron_arena_strdup(p->arena, "init", 4);
+                if (!method_name) iron_oom_abort("parser.c:iron_parse_patch_decl anon init name");
+            }
+
+            int explicit_count = 0;
+            Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
+
+            if (iron_check(p, IRON_TOK_ARROW)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "init cannot declare a return type - init "
+                               "always returns Self", NULL);
+                iron_advance(p);
+                (void)iron_parse_type_annotation(p);
+            }
+
+            Iron_Node *ibody = iron_parse_block(p);
+
+            Iron_Param *synth_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!synth_self) iron_oom_abort("parser.c:iron_parse_patch_decl init synth self");
+            synth_self->kind            = IRON_NODE_PARAM;
+            synth_self->span            = iron_token_span(p, istart);
+            synth_self->is_var          = false;
+            synth_self->is_mut_receiver = true;
+            synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_patch_decl init self name");
+
+            Iron_TypeAnnotation *self_type = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!self_type) iron_oom_abort("parser.c:iron_parse_patch_decl init self type");
+            memset(self_type, 0, sizeof(*self_type));
+            self_type->kind = IRON_NODE_TYPE_ANNOTATION;
+            self_type->span = iron_token_span(p, istart);
+            self_type->name = iron_arena_strdup(p->arena, target_name,
+                                                 strlen(target_name));
+            if (!self_type->name) iron_oom_abort("parser.c:iron_parse_patch_decl init self type name");
+            synth_self->type_ann = (Iron_Node *)self_type;
+
+            int total = explicit_count + 1;
+            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *) * (size_t)total,
+                _Alignof(Iron_Node *));
+            if (!all_params) iron_oom_abort("parser.c:iron_parse_patch_decl init params array");
+            all_params[0] = (Iron_Node *)synth_self;
+            for (int i = 0; i < explicit_count; i++) {
+                all_params[i + 1] = explicit_params[i];
+            }
+
+            Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!m) iron_oom_abort("parser.c:iron_parse_patch_decl init MethodDecl");
+            m->kind                 = IRON_NODE_METHOD_DECL;
+            m->span                 = iron_span_merge(iron_token_span(p, istart),
+                                                       ibody ? ibody->span
+                                                             : iron_token_span(p, istart));
+            m->type_name            = iron_arena_strdup(p->arena, target_name,
+                                                         strlen(target_name));
+            if (!m->type_name) iron_oom_abort("parser.c:iron_parse_patch_decl init type_name");
+            m->method_name          = method_name;
+            m->params               = all_params;
+            m->param_count          = total;
+            m->return_type          = NULL;
+            m->body                 = ibody;
+            m->is_private           = false;
+            m->generic_params       = NULL;
+            m->generic_param_count  = 0;
+            m->resolved_return_type = NULL;
+            m->owner_sym            = NULL;
+            m->is_array_extension   = false;
+            m->elem_type_name       = NULL;
+            m->is_fusible           = false;
+            m->is_receiver_form     = true;
+            m->is_synth_accessor    = false;
+            m->is_readonly          = false;
+            m->is_pure              = false;
+            m->is_init              = true;
+            m->init_name            = init_name;
+
+            if (extra_decls_out) {
+                arrput(*extra_decls_out, (Iron_Node *)m);
+            }
+            iron_skip_newlines(p);
+            continue;
+        }
+
+        /* Phase 82 in-block func inside patch body. */
+        if (iron_check(p, IRON_TOK_FUNC)) {
+            Iron_Token *fstart = iron_current(p);
+            iron_advance(p);  /* consume 'func' */
+
+            if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "expected method name in patch body", NULL);
+                iron_parser_sync_stmt(p);
+                iron_skip_newlines(p);
+                continue;
+            }
+            Iron_Token *mname_tok = iron_advance(p);
+
+            int explicit_count = 0;
+            Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
+
+            Iron_Node *mret = NULL;
+            if (iron_match(p, IRON_TOK_ARROW)) {
+                mret = iron_parse_type_annotation(p);
+            }
+
+            Iron_Node *mbody = iron_parse_block(p);
+
+            Iron_Param *synth_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!synth_self) iron_oom_abort("parser.c:iron_parse_patch_decl method synth self");
+            synth_self->kind            = IRON_NODE_PARAM;
+            synth_self->span            = iron_token_span(p, fstart);
+            synth_self->is_var          = false;
+            /* Mirror Phase 82 in-block receiver mutability: default-mutating
+             * unless readonly/pure, matching iron_parse_object_decl. */
+            synth_self->is_mut_receiver = !(member_is_readonly || member_is_pure);
+            synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_patch_decl method self name");
+
+            Iron_TypeAnnotation *self_type = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!self_type) iron_oom_abort("parser.c:iron_parse_patch_decl method self type");
+            memset(self_type, 0, sizeof(*self_type));
+            self_type->kind = IRON_NODE_TYPE_ANNOTATION;
+            self_type->span = iron_token_span(p, fstart);
+            self_type->name = iron_arena_strdup(p->arena, target_name,
+                                                 strlen(target_name));
+            if (!self_type->name) iron_oom_abort("parser.c:iron_parse_patch_decl method self type name");
+            synth_self->type_ann = (Iron_Node *)self_type;
+
+            int total = explicit_count + 1;
+            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *) * (size_t)total,
+                _Alignof(Iron_Node *));
+            if (!all_params) iron_oom_abort("parser.c:iron_parse_patch_decl method params array");
+            all_params[0] = (Iron_Node *)synth_self;
+            for (int i = 0; i < explicit_count; i++) {
+                all_params[i + 1] = explicit_params[i];
+            }
+
+            Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!m) iron_oom_abort("parser.c:iron_parse_patch_decl method MethodDecl");
+            m->kind                 = IRON_NODE_METHOD_DECL;
+            m->span                 = iron_span_merge(iron_token_span(p, fstart),
+                                                       mbody ? mbody->span
+                                                             : iron_token_span(p, fstart));
+            m->type_name            = iron_arena_strdup(p->arena, target_name,
+                                                         strlen(target_name));
+            if (!m->type_name) iron_oom_abort("parser.c:iron_parse_patch_decl method type_name");
+            m->method_name          = iron_arena_strdup(p->arena, mname_tok->value,
+                                                         strlen(mname_tok->value));
+            if (!m->method_name) iron_oom_abort("parser.c:iron_parse_patch_decl method method_name");
+            m->params               = all_params;
+            m->param_count          = total;
+            m->return_type          = mret;
+            m->body                 = mbody;
+            m->is_private           = false;
+            m->generic_params       = NULL;
+            m->generic_param_count  = 0;
+            m->resolved_return_type = NULL;
+            m->owner_sym            = NULL;
+            m->is_array_extension   = false;
+            m->elem_type_name       = NULL;
+            m->is_fusible           = false;
+            m->is_receiver_form     = true;
+            (void)member_is_pub;  /* pub on methods: silent accept (Phase 83) */
+            m->is_synth_accessor    = false;
+            m->is_readonly          = member_is_readonly;
+            m->is_pure              = member_is_pure;
+            m->is_init              = false;
+            m->init_name            = NULL;
+
+            if (extra_decls_out) {
+                arrput(*extra_decls_out, (Iron_Node *)m);
+            }
+            iron_skip_newlines(p);
+            continue;
+        }
+
+        /* PATCH-05: var/val at patch body position. Emit E0253, consume
+         * the declaration, drop it. field_count stays 0. */
+        if (iron_check(p, IRON_TOK_VAR) || iron_check(p, IRON_TOK_VAL)) {
+            Iron_Token *ftok = iron_current(p);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_PATCH_ADDS_FIELD,
+                           iron_token_span(p, ftok),
+                           "patches may only add methods and inits; "
+                           "fields must be declared on the original object",
+                           NULL);
+            iron_advance(p);  /* consume var/val */
+            /* Consume the rest of the field declaration: name [: type]
+             * [= expr]. Stop at newline/RBRACE/EOF. */
+            iron_parser_sync_stmt(p);
+            iron_skip_newlines(p);
+            continue;
+        }
+
+        /* Unknown token at patch body position. */
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected method or init declaration in patch body",
+                       NULL);
+        iron_parser_sync_stmt(p);
+        iron_skip_newlines(p);
+    }
+
+    Iron_Token *end = iron_current(p);
+    iron_expect(p, IRON_TOK_RBRACE);
+
+    Iron_ObjectDecl *n     = ARENA_ALLOC(p->arena, Iron_ObjectDecl);
+    if (!n) iron_oom_abort("parser.c:iron_parse_patch_decl ObjectDecl");
+    n->kind                = IRON_NODE_OBJECT_DECL;
+    n->span                = iron_span_merge(iron_token_span(p, start),
+                                              iron_token_span(p, end));
+    n->name                = target_name;
+    n->fields              = NULL;
+    n->field_count         = 0;
+    n->extends_name        = NULL;
+    /* Phase 87-02 PATCH-08: populate implements clause if present. */
+    n->implements_names    = impl_names;
+    n->implements_count    = impl_count;
+    n->generic_params      = NULL;
+    n->generic_param_count = 0;
+    /* PATCH-01/02: the is_patch bit is the resolver's dispatch key; both
+     * target_type_name and name point to the same arena-strdup so Plan
+     * 86-02 can key the registry via either field. */
+    n->is_patch            = true;
+    n->target_type_name    = target_name;
     return (Iron_Node *)n;
 }
 
@@ -2777,7 +4123,56 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
 
-        /* Method signature: func name(params) [-> Type] — no body */
+        /* Phase 85 INIT-15 / Phase 87 IFACE-04: interfaces describe behavior,
+         * not construction. Reject `init` in interface bodies with a clear
+         * message pointing at the Self-returning factory alternative.
+         * Phase 87 upgrades the error code from the generic
+         * IRON_ERR_UNEXPECTED_TOKEN to the dedicated
+         * IRON_ERR_IFACE_CANNOT_DECLARE_INIT (E0256). */
+        if (iron_check(p, IRON_TOK_INIT)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_IFACE_CANNOT_DECLARE_INIT,
+                           iron_token_span(p, iron_current(p)),
+                           "interfaces may not declare init; use "
+                           "Self-returning methods for factory patterns",
+                           NULL);
+            iron_advance(p);  /* consume 'init' */
+            iron_parser_sync_stmt(p);
+            continue;
+        }
+
+        /* Phase 87 IFACE-01: consume optional readonly/pure tier modifier before
+         * func in interface body. Mirrors the pattern in iron_parse_object_decl
+         * body loop (parser.c:2756) and iron_parse_patch_decl (parser.c:3688).
+         * First-wins XOR recovery: emit E0245 and consume the second modifier
+         * if both appear together. */
+        bool member_is_readonly = false;
+        bool member_is_pure     = false;
+        if (iron_check(p, IRON_TOK_READONLY)) {
+            iron_advance(p);
+            member_is_readonly = true;
+            if (iron_check(p, IRON_TOK_PURE)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'readonly' and 'pure' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'pure' to recover */
+            }
+        } else if (iron_check(p, IRON_TOK_PURE)) {
+            iron_advance(p);
+            member_is_pure = true;
+            if (iron_check(p, IRON_TOK_READONLY)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                               iron_token_span(p, iron_current(p)),
+                               "method cannot be both 'pure' and 'readonly' "
+                               "- pick one tier", NULL);
+                iron_advance(p);  /* consume 'readonly' to recover */
+            }
+        }
+
+        /* Method signature: [readonly|pure] func name(params) [-> Type] [{ body }] */
         if (!iron_check(p, IRON_TOK_FUNC)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
@@ -2804,7 +4199,16 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
             sig_ret = iron_parse_type_annotation(p);
         }
 
-        /* Store as a FuncDecl with NULL body to represent a signature */
+        /* Phase 87 IFACE-03: accept an optional default body after the return
+         * type annotation. body != NULL is the has_default_body signal per
+         * the ast.h Iron_FuncDecl invariant documented above. */
+        Iron_Node *sig_body = NULL;
+        if (iron_check(p, IRON_TOK_LBRACE)) {
+            sig_body = iron_parse_block(p);
+        }
+
+        /* Store as a FuncDecl. body == NULL means signature-only; body != NULL
+         * means has_default_body (Phase 87 IFACE-03 invariant). */
         Iron_FuncDecl *sig        = ARENA_ALLOC(p->arena, Iron_FuncDecl);
         if (!sig) iron_oom_abort("parser.c:iron_parse_interface_decl sig FuncDecl");
         sig->kind                 = IRON_NODE_FUNC_DECL;
@@ -2816,13 +4220,18 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         sig->params               = sig_params;
         sig->param_count          = sig_param_count;
         sig->return_type          = sig_ret;
-        sig->body                 = NULL;  /* no body — it's a signature */
+        sig->body                 = sig_body;  /* NULL = sig-only; non-NULL = default body */
         sig->is_private           = false;
         sig->is_extern            = false;
         sig->extern_c_name        = NULL;
         sig->generic_params       = NULL;
         sig->generic_param_count  = 0;
         sig->resolved_return_type = NULL;  /* set by type checker */
+        sig->resolved_param_types = NULL;
+        sig->is_fusible           = false;
+        /* Phase 87 IFACE-01: tier modifier bits from the pre-func consumption above. */
+        sig->is_readonly          = member_is_readonly;
+        sig->is_pure              = member_is_pure;
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
@@ -2972,7 +4381,8 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)n;
 }
 
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
+                                  Iron_Node ***extra_decls_out) {
     switch ((int)iron_peek(p)) {
         case IRON_TOK_AT: {
             iron_advance(p);  /* consume '@' */
@@ -3016,7 +4426,13 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private) {
             return n;
         }
         case IRON_TOK_OBJECT:    {
-            Iron_Node *n = iron_parse_object_decl(p, is_private);
+            Iron_Node *n = iron_parse_object_decl(p, is_private, extra_decls_out);
+            p->in_error_recovery = false;
+            return n;
+        }
+        case IRON_TOK_PATCH:     {
+            /* Phase 86 PATCH-01: `patch object T { methods+inits }`. */
+            Iron_Node *n = iron_parse_patch_decl(p, extra_decls_out);
             p->in_error_recovery = false;
             return n;
         }
@@ -3070,6 +4486,14 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     Iron_Node **decls = NULL;
     int decl_count    = 0;
 
+    /* Phase 82 GRAMMAR: in-block methods synthesized by iron_parse_object_decl
+     * are delivered here via this extra-decls channel. Each call to
+     * iron_parse_decl may append zero or more Iron_MethodDecl nodes to
+     * *extra_decls; we flush them into `decls` after every iteration so they
+     * appear at program->decls ordered after their enclosing ObjectDecl. The
+     * storage is reused across iterations (arrsetlen(..., 0)). */
+    Iron_Node **extra_decls = NULL;
+
     while (!iron_check(p, IRON_TOK_EOF)) {
         int pos_before = p->pos;
         iron_skip_newlines(p);
@@ -3082,15 +4506,60 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             continue;
         }
 
+        /* Phase 83 ACCESS-02: `pub` outside an object body is illegal in
+         * v2.2/v3.0. Top-level decls default public; there is no opt-in
+         * knob. Phase 88 may reinterpret top-level `pub` when the default
+         * flips — for now fail fast with a clear message. */
+        if (iron_check(p, IRON_TOK_PUB)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "'pub' modifier only valid on object-block declarations");
+            iron_advance(p);  /* consume pub */
+            iron_parser_sync_toplevel(p);
+            continue;
+        }
+
+        /* Phase 84 MUTTIER-01/02/03: `readonly` and `pure` are only valid on
+         * object-block methods. At top level fail fast with E0245
+         * (IRON_ERR_TIER_MODIFIER_PLACEMENT) so the user gets a clear
+         * pointer to the actual usage site. */
+        if (iron_check(p, IRON_TOK_READONLY)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                           iron_token_span(p, iron_current(p)),
+                           "'readonly' modifier only valid on object-block methods",
+                           NULL);
+            iron_advance(p);
+            iron_parser_sync_toplevel(p);
+            continue;
+        }
+        if (iron_check(p, IRON_TOK_PURE)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                           iron_token_span(p, iron_current(p)),
+                           "'pure' modifier only valid on object-block methods",
+                           NULL);
+            iron_advance(p);
+            iron_parser_sync_toplevel(p);
+            continue;
+        }
+
         bool is_private = false;
         if (iron_check(p, IRON_TOK_PRIVATE)) {
             iron_advance(p);
             is_private = true;
         }
 
-        Iron_Node *d = iron_parse_decl(p, is_private);
+        Iron_Node *d = iron_parse_decl(p, is_private, &extra_decls);
         arrput(decls, d);
         decl_count++;
+        /* Phase 82: flush any in-block methods synthesized during this decl
+         * so they live at top level right after their enclosing ObjectDecl. */
+        for (int i = 0; i < (int)arrlen(extra_decls); i++) {
+            arrput(decls, extra_decls[i]);
+            decl_count++;
+        }
+        if (arrlen(extra_decls) > 0) arrsetlen(extra_decls, 0);
         iron_skip_newlines(p);
         /* No-progress guard at the top level: if iron_parse_decl failed to
          * consume any tokens, emit one generic diagnostic and skip one token.
@@ -3102,6 +4571,72 @@ Iron_Node *iron_parse(Iron_Parser *p) {
                            iron_token_span(p, iron_current(p)),
                            "unexpected token at top level; skipping", NULL);
             if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
+        }
+    }
+    arrfree(extra_decls);
+
+    /* Phase 85 INIT-13 post-parse cleanup: drop any field-less auto-synth
+     * init that collides with a user-declared classic-form method
+     * `func Type.init(...)`. This keeps pure-superset alive for stdlib
+     * raylib bindings that define `func Window.init(...)` AND declare
+     * `object Window {}` in the same module. The auto-synth fires at
+     * object-body finalization time (before the user classic init is
+     * visible to the loop) so this post-parse scan is the cleanest place
+     * to reconcile. Identification markers for the synth:
+     *   - is_init == true
+     *   - body is an empty Iron_Block (stmt_count == 0) with span equal
+     *     to the ObjectDecl's name-token span (matches what INIT-13
+     *     writes; user-written empty `init() {}` is distinguishable
+     *     because its span covers the `init` keyword, not the object
+     *     name). A classic-form user init has is_init=false because it
+     *     comes through iron_parse_func_or_method, not the object-body
+     *     init branch.
+     *
+     * Collision rule: same type_name + method_name=="init" + one side
+     * has is_init=true (the synth) and the other has is_init=false (the
+     * classic user decl). The synth yields. */
+    for (int i = 0; i < decl_count; i++) {
+        Iron_Node *n = decls[i];
+        if (!n || n->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *synth = (Iron_MethodDecl *)n;
+        if (!synth->is_init) continue;
+        if (synth->init_name != NULL) continue;  /* only anonymous synth */
+        /* A user-written anonymous init has the SAME shape as the synth;
+         * we must only drop the synth when a CLASSIC user init
+         * (is_init=false) collides. Check the synth's body is empty:
+         * the INIT-13 auto-synth always emits an empty block. A user
+         * init with non-empty body cannot have fired INIT-13 (has_user_init
+         * would have been true). A user init with empty body `init() {}`
+         * is indistinguishable at the AST level - but in that case the
+         * duplicate-scan in iron_parse_object_decl already rejected any
+         * true duplicate, so we rely on the classic-form collision being
+         * the only residual case to clean up here. */
+        if (!synth->body || synth->body->kind != IRON_NODE_BLOCK) continue;
+        Iron_Block *b = (Iron_Block *)synth->body;
+        if (b->stmt_count != 0) continue;
+
+        /* Look for a classic-form user init on the same type. */
+        bool classic_exists = false;
+        for (int j = 0; j < decl_count; j++) {
+            if (j == i) continue;
+            Iron_Node *m = decls[j];
+            if (!m || m->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *mm = (Iron_MethodDecl *)m;
+            if (mm->is_init) continue;  /* another init-keyword decl is not "classic" */
+            if (!mm->type_name || !synth->type_name) continue;
+            if (strcmp(mm->type_name, synth->type_name) != 0) continue;
+            if (!mm->method_name) continue;
+            if (strcmp(mm->method_name, "init") != 0) continue;
+            classic_exists = true;
+            break;
+        }
+        if (classic_exists) {
+            /* Drop the synth: shift tail left. */
+            for (int k = i; k < decl_count - 1; k++) {
+                decls[k] = decls[k + 1];
+            }
+            decl_count--;
+            i--;  /* recheck this index after shift */
         }
     }
 

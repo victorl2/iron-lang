@@ -2,6 +2,11 @@ object GameState {
   var score: Int
   var lives: Int
   var running: Bool
+    init(score: Int, lives: Int, running: Bool) {
+        self.score = score
+        self.lives = lives
+        self.running = running
+    }
 }
 
 func main() {
