@@ -29,11 +29,12 @@ func main() {
     Window.init(Int32(SCREEN_W), Int32(SCREEN_H), "Iron Pong")
     Window.set_target_fps(Int32(60))
 
-    -- Audio: bounce on paddle/wall collisions. Sound.is_valid() gates
-    -- every play() call so a missing-asset runtime (CI / headless) is
-    -- non-fatal — the game still plays silently.
+    -- Audio: bounce on paddle/wall collisions. bounce.is_valid() gates
+    -- every bounce.play() call so a missing-asset runtime (CI / headless)
+    -- is non-fatal — the game still plays silently. Bound as `var` because
+    -- the v3 patch-object methods play / unload take a mutable receiver.
     Audio.init()
-    val bounce: Sound = Sound.load("tests/assets/bounce.wav")
+    var bounce: Sound = Sound.load("tests/assets/bounce.wav")
 
     -- Game state, ball state, paddle positions, and scores.
     var state: GameState = GameState.TITLE
@@ -76,15 +77,15 @@ func main() {
             if ball_y < 0 {
                 ball_y = 0
                 ball_vy = -ball_vy
-                if Sound.is_valid(bounce) {
-                    val _r = Sound.play(bounce)
+                if bounce.is_valid() {
+                    val _r = bounce.play()
                 }
             }
             if ball_y > SCREEN_H - BALL_SIZE {
                 ball_y = SCREEN_H - BALL_SIZE
                 ball_vy = -ball_vy
-                if Sound.is_valid(bounce) {
-                    val _r = Sound.play(bounce)
+                if bounce.is_valid() {
+                    val _r = bounce.play()
                 }
             }
 
@@ -93,8 +94,8 @@ func main() {
                 if ball_y + BALL_SIZE > left_y and ball_y < left_y + PADDLE_H {
                     ball_x = PADDLE_W
                     ball_vx = -ball_vx
-                    if Sound.is_valid(bounce) {
-                        val _r = Sound.play(bounce)
+                    if bounce.is_valid() {
+                        val _r = bounce.play()
                     }
                 }
             }
@@ -103,8 +104,8 @@ func main() {
                 if ball_y + BALL_SIZE > right_y and ball_y < right_y + PADDLE_H {
                     ball_x = SCREEN_W - PADDLE_W - BALL_SIZE
                     ball_vx = -ball_vx
-                    if Sound.is_valid(bounce) {
-                        val _r = Sound.play(bounce)
+                    if bounce.is_valid() {
+                        val _r = bounce.play()
                     }
                 }
             }
@@ -193,7 +194,7 @@ func main() {
         Draw.end()
     }
 
-    Sound.unload(bounce)
+    bounce.unload()
     Audio.close()
     Window.close()
 }
