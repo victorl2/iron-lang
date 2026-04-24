@@ -67,7 +67,7 @@ static void rm_tree(const char *root) {
      * own creation, so fine. */
     char cmd[600];
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
-    (void)system(cmd);
+    int rc = system(cmd); (void)rc;
 }
 
 typedef struct {
