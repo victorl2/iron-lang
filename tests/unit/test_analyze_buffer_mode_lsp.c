@@ -44,17 +44,20 @@ void setUp(void) {
     snprintf(scratch_dir, sizeof(scratch_dir),
              "/tmp/iron_test_lsp_mode_%d", (int)getpid());
     (void)mkdir(scratch_dir, 0755);
-    (void)chdir(scratch_dir);
+    /* glibc marks chdir/system as warn_unused_result; plain (void) cast does
+     * not silence gcc -Werror=unused-result. Store into a volatile sink
+     * consumed by the next statement so the suppressor is load-bearing. */
+    int unused_rc = chdir(scratch_dir); (void)unused_rc;
     /* Fresh slate — no stale .iron-build from a previous run. */
-    (void)system("rm -rf .iron-build 2>/dev/null");
+    unused_rc = system("rm -rf .iron-build 2>/dev/null"); (void)unused_rc;
 }
 
 void tearDown(void) {
     /* Scrub any FS artifacts we created under the scratch dir, then return
      * cwd to whatever it was before this test case. */
-    (void)system("rm -rf .iron-build 2>/dev/null");
+    int unused_rc = system("rm -rf .iron-build 2>/dev/null"); (void)unused_rc;
     if (saved_cwd[0] != '\0') {
-        (void)chdir(saved_cwd);
+        unused_rc = chdir(saved_cwd); (void)unused_rc;
     }
     (void)rmdir(scratch_dir);
     iron_diaglist_free(&diags);

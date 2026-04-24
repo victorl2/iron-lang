@@ -67,7 +67,7 @@ jobs:
           TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tests/lsp/tsan/suppressions.txt halt_on_error=0 print_suppressions=1 second_deadlock_stack=1"
         run: |
           python3 tests/lsp/tsan/driver.py \
-              --ironls build-tsan/src/lsp/ironls \
+              --ironls build-tsan/ironls \
               --workload tests/lsp/tsan/workload.jsonl \
               --fixtures-root tests/lsp/tsan/fixtures \
               --suppressions tests/lsp/tsan/suppressions.txt \
