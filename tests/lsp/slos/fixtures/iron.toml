@@ -1,0 +1,14 @@
+[package]
+name = "slo_workspace"
+version = "0.1.0"
+
+# Phase 7 Plan 07-04 Task 01 (HARD-18, D-06) -- canonical SLO workspace.
+# Three canonical Iron documents at 50 / 500 / 5000 LoC drive the per-PR
+# SLO job (.github/workflows/slos.yml). Enforcement applies ONLY to the
+# medium (500 LoC) fixture; small + large are recorded but informational.
+# p50 thresholds (medium, per D-06):
+#   textDocument/hover       < 20 ms
+#   textDocument/completion  < 100 ms
+#   textDocument/diagnostic  < 500 ms
+#   textDocument/definition  < 50 ms   (self-imposed)
+# p95/p99 recorded to slo-result.json as observability; not enforced.
