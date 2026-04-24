@@ -56,6 +56,7 @@ static void test_macro_noop_when_unsealed(void) {
 static void test_macro_tolerates_null(void) {
     Iron_Program *p = NULL;
     IRON_AST_ASSERT_UNSEALED(p);
+    (void)p; /* IRON_AST_ASSERT_UNSEALED is a no-op under NDEBUG */
     TEST_PASS();
 }
 

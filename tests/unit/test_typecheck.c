@@ -83,8 +83,8 @@ static Iron_Program *parse_and_resolve_no_strict(const char *src) {
     p.v3_strict_mode = false;
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
-    iron_typecheck(prog, global, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
+    iron_typecheck(prog, global, &g_arena, &g_diags, NULL);
     return prog;
 }
 
@@ -127,7 +127,7 @@ static Iron_Program *parse_and_resolve_only(const char *src) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    g_global_scope_for_patch = iron_resolve(prog, &g_arena, &g_diags);
+    g_global_scope_for_patch = iron_resolve(prog, &g_arena, &g_diags, NULL);
     return prog;
 }
 

@@ -50,13 +50,20 @@ static void test_fifo_within_priority(void) {
     IronLsp_Writer *w = ilsp_writer_create(sink);
     TEST_ASSERT_NOT_NULL(w);
 
-    size_t l1, l2, l3;
+    /* NB: must sequence dup_body BEFORE reading the length — C argument
+     * evaluation order is unspecified, so inlining `dup_body(..., &l1)` and
+     * `l1` as sibling args would pass the pre-dup uninitialized value under
+     * some compilers (gcc evaluates right-to-left). Rule 1 bugfix (08-02). */
+    size_t l1 = 0, l2 = 0, l3 = 0;
+    char *b1 = dup_body("R1", &l1);
     TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
-        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, dup_body("R1", &l1), l1));
+        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, b1, l1));
+    char *b2 = dup_body("R2", &l2);
     TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
-        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, dup_body("R2", &l2), l2));
+        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, b2, l2));
+    char *b3 = dup_body("R3", &l3);
     TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
-        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, dup_body("R3", &l3), l3));
+        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, b3, l3));
 
     /* Drain all three serially on the calling thread. */
     TEST_ASSERT_TRUE(ilsp_writer_drain_one(w));
