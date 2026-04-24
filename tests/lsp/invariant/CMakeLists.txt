@@ -190,4 +190,22 @@ print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.i
     set_tests_properties(test_version_stamp_coherence PROPERTIES
         LABELS "integration;phase-m6-invariant"
         TIMEOUT 15)
+
+    # Phase 7 Plan 07-08 Task 01 (HARD-24, D-11) -- test_phase7_audit.sh:
+    # meta-gate that verifies every Phase 7 D-14 artifact still exists,
+    # every phase-m{1..6}-invariant CTest label is populated, and both
+    # parity harnesses are registered in the CTest graph. This is the
+    # regression fence that catches accidental removal of Phase 7
+    # critical infrastructure (for example parity.yml) BEFORE branch
+    # protection would catch the missing `parity` required status check.
+    #
+    # Passes WORKING_DIRECTORY so the script can resolve REPO_ROOT
+    # robustly regardless of where ctest invokes it from.
+    add_test(NAME test_phase7_audit
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_phase7_audit.sh"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_phase7_audit PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        ENVIRONMENT "IRON_BUILD_DIR=${CMAKE_BINARY_DIR}"
+        TIMEOUT 30)
 endif()
