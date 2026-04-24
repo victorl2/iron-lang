@@ -6,7 +6,7 @@ project(iron VERSION 3.0.0 LANGUAGES C)
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "3.0.0-alpha")
+set(IRON_VERSION_FULL "3.0.0-alpha.1")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
