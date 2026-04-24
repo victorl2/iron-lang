@@ -275,6 +275,11 @@ endif()
 # .github/workflows/fuzz.yml (see Phase 68 CONTEXT.md).
 if(IRON_ENABLE_FUZZING)
     add_subdirectory(tests/fuzz)
+    # Phase 7 Plan 07-05 (HARD-19): LSP-specific fuzz harnesses.
+    # Mirrors the compiler-side fuzz subtree; same gating (requires
+    # clang, enforced at CMakeLists.txt:129-133 above). Four targets:
+    # fuzz_lsp_frame, fuzz_lsp_json, fuzz_lsp_dispatch, fuzz_lsp_didChange.
+    add_subdirectory(tests/fuzz/lsp)
 endif()
 
 # ── Tests ──────────────────────────────────────────────────────────────────
