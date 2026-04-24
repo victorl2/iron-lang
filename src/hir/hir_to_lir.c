@@ -730,11 +730,16 @@ static void lower_type_decls_from_ast(HIR_to_LIR_Ctx *ctx) {
                                       iface->name, NULL);
     }
 
-    /* 0b: Objects */
+    /* 0b: Objects.  Skip `patch object T { ... }` entries — those attach
+     * methods to an already-declared object and must not register a second
+     * type_decl (which would cause the C backend to emit a duplicate struct
+     * for T).  PATCH-01 sets is_patch on the AST node; the non-patch object
+     * decl for T is registered separately. */
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
         if (decl->kind != IRON_NODE_OBJECT_DECL) continue;
         Iron_ObjectDecl *obj = (Iron_ObjectDecl *)decl;
+        if (obj->is_patch) continue;
         Iron_Type *obj_type = iron_type_make_object(ctx->lir_arena, obj);
         iron_lir_module_add_type_decl(ctx->lir_module, IRON_LIR_TYPE_OBJECT,
                                       obj->name, obj_type);
