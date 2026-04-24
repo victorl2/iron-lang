@@ -2040,6 +2040,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         iron_scope_lookup(ctx->global_scope, ctx->enclosing_type_name);
                     if (concrete_sym) {
                         self_recv->resolved_sym = concrete_sym;
+                        self_recv->resolved_type = concrete_sym->type;
                         obj_type_mc = concrete_sym->type;
                     }
                 }

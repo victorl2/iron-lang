@@ -2804,9 +2804,19 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             first_arg = false;
             IronLIR_ValueId arg_id = instr->call.args[i];
 
-            /* Pointer-receiver self: emit &arg for the first argument */
+            /* Pointer-receiver self: emit &arg for the first argument.
+             * If the arg is the enclosing function's first parameter and
+             * that function takes self by pointer (is_mut_receiver_method),
+             * the argument is ALREADY a pointer — emit it directly instead
+             * of taking its address, which would yield a pointer-to-pointer
+             * and silently miscompile (and segfault) through the setter. */
             if (self_by_addr && i == 0) {
-                iron_strbuf_appendf(sb, "&");
+                bool arg_is_enclosing_self_ptr =
+                    fn && fn->is_mut_receiver_method &&
+                    arg_id == 1;
+                if (!arg_is_enclosing_self_ptr) {
+                    iron_strbuf_appendf(sb, "&");
+                }
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 continue;
             }
