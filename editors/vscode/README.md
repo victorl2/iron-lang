@@ -4,6 +4,33 @@ Iron language support for [Visual Studio Code](https://code.visualstudio.com/):
 TextMate syntax highlighting and a full LSP 3.17 client that delegates to
 [`ironls`](https://github.com/iron-lang/iron-lang), the Iron language server.
 
+**Tracks:** Iron v3.0.0-alpha.1 (current main-branch alpha). See the
+**Version mismatch** section below for the exact `ironls` binary the
+extension accepts.
+
+## Iron syntax overview
+
+Iron v3 introduces the following first-class surface features (all
+highlighted by the TextMate grammar and understood by `ironls`):
+
+- **`init` blocks** — anonymous (`init(x: Int, y: Int) { ... }`) and named
+  (`init Named(x: Int) { ... }`) constructors declared as first-class
+  object members; replaces the v2 receiver-method initializer pattern.
+- **`patch` extensions** — reopen an existing object or primitive type
+  (`patch Int { ... }`, `patch Player { ... }`) to add methods.
+- **`pub` visibility** — symbol-level export modifier distinguishing
+  module-public from module-private decls.
+- **`pure` methods** — side-effect-restricted method annotation used by
+  the compiler for memoization + reordering safety.
+- **`readonly` + `mut` mutation tiers** — transitive-readonly bindings
+  and explicit mutable bindings; the type system enforces compatibility
+  at call boundaries.
+
+Legacy pre-v3 keywords (`val`, `var`, `object`, `interface`, `impl`,
+`func`, `for`, `while`, `if/else/elif/match`, `return`, `import`,
+`comptime`, etc.) continue to work unchanged. The complete roster is 44
+keywords, drift-guarded at build time by `test_grammar_keyword_drift_*`.
+
 ## Features
 
 - Syntax highlighting for `.iron` files via the drift-guarded TextMate
