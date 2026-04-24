@@ -214,7 +214,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">collides</span>(paddle, ball) { <span class="syn-cm">-- reverse velocity</span> }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2342">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2461">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -226,7 +226,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> overlap = <span class="syn-ty">Rectangle</span>.<span class="syn-fn">intersection</span>(paddle, ball)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2343">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2462">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -238,7 +238,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">contains_point</span>(button, <span class="syn-ty">Mouse</span>.<span class="syn-fn">get_position</span>()) { <span class="syn-cm">-- hover</span> }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2344">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2463">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -250,7 +250,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Rectangle</span>.<span class="syn-fn">collides_circle</span>(wall, ball_center, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>)) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2345">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2464">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -262,7 +262,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Vector2</span>.<span class="syn-fn">inside_triangle</span>(cursor, a, b, c) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2349">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L1103">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -274,7 +274,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Vector2</span>.<span class="syn-fn">inside_polygon</span>(cursor, hex_vertices) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2350">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L1104">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -286,7 +286,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Vector2</span>.<span class="syn-fn">on_line</span>(cursor, start, finish, <span class="syn-ty">Int32</span>(<span class="syn-nu">5</span>)) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2351">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L1105">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -298,7 +298,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">circles</span>(a_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>), b_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>)) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2354">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2473">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -310,7 +310,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">circle_line</span>(ball, <span class="syn-ty">Float32</span>(<span class="syn-nu">5.0</span>), wall_a, wall_b) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2355">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2474">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -322,7 +322,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">point_circle</span>(cursor, center, <span class="syn-ty">Float32</span>(<span class="syn-nu">20.0</span>)) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2356">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2475">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -334,7 +334,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> (hit, point) = <span class="syn-ty">Collision</span>.<span class="syn-fn">lines</span>(a1, a2, b1, b2)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2357">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2476">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -348,7 +348,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">BoundingBox</span>.<span class="syn-fn">collides</span>(player_bbox, enemy_bbox) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2368">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2488">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -360,7 +360,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">BoundingBox</span>.<span class="syn-fn">collides_sphere</span>(box, pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>)) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2369">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2489">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -372,7 +372,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Collision</span>.<span class="syn-fn">spheres</span>(a_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), b_pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>)) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2379">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2504">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -385,7 +385,7 @@
 <span class="syn-kw">if</span> hit.hit { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2372">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2495">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -397,7 +397,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_box</span>(ray, <span class="syn-ty">Model</span>.<span class="syn-fn">bounding_box</span>(model))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2373">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2496">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -409,7 +409,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_mesh</span>(ray, mesh, <span class="syn-ty">Matrix</span>.<span class="syn-fn">identity</span>())</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2374">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2497">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -421,7 +421,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_triangle</span>(ray, a, b, c)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2375">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2498">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -433,7 +433,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> hit = <span class="syn-ty">Ray</span>.<span class="syn-fn">hit_quad</span>(ray, tl, tr, br, bl)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2376">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2499">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/collision_smoke.iron">Test usage</a>
         </p>
       </article>

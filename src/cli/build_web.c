@@ -691,7 +691,6 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         "vendor/raylib/rtext.c",
         "vendor/raylib/rmodels.c",
         "vendor/raylib/raudio.c",
-        "vendor/raylib/utils.c",
         "stdlib/iron_raylib.c",         /* Phase 60 Plan 01 shim */
         "stdlib/iron_raylib_layout.c",  /* Phase 60 Plan 01 ABI asserts */
     };

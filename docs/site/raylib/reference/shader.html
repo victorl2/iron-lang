@@ -215,7 +215,7 @@
 <span class="syn-kw">val</span> fx_invert    = <span class="syn-ty">Shader</span>.<span class="syn-fn">load</span>(<span class="syn-st">""</span>, <span class="syn-st">"tests/assets/shaders/invert.fs"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2922">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3113">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
         </p>
       </article>
@@ -227,7 +227,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> s = <span class="syn-ty">Shader</span>.<span class="syn-fn">load_from_memory</span>(vs_src, fs_src)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2923">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3114">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -239,7 +239,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Shader</span>.<span class="syn-fn">is_valid</span>(fx_invert) { <span class="syn-ty">Shader</span>.<span class="syn-fn">unload</span>(fx_invert) }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2924">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3116">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -253,7 +253,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> loc_intensity = <span class="syn-ty">Shader</span>.<span class="syn-fn">get_location</span>(fx_invert, <span class="syn-st">"u_intensity"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2929">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3121">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
         </p>
       </article>
@@ -265,7 +265,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> attr = <span class="syn-ty">Shader</span>.<span class="syn-fn">get_location_attrib</span>(shader, <span class="syn-st">"a_custom"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2930">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3122">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -273,11 +273,11 @@
       <article class="api-entry">
         <h3 id="shader-set-location"><code>Shader.set_location(shader, index: ShaderLocationIndex, loc: Int32)</code></h3>
         <p class="signature-meta">Category: <a href="#location">Locations</a> &middot; raylib: Iron-side helper (no raylib call)</p>
-        <p>Manually set one of the 26 built-in shader locations in <code>Shader.locs[]</code>. Rare &mdash; raylib auto-populates standard locations when you <code>Shader.load</code>.</p>
+        <p>Manually set one of the 30 built-in shader locations in <code>Shader.locs[]</code>. Rare &mdash; raylib auto-populates standard locations when you <code>Shader.load</code>.</p>
         <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_location</span>(shader, <span class="syn-ty">ShaderLocationIndex</span>.<span class="syn-pr">MATRIX_MODEL</span>, loc)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2934">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3126">Iron source</a> &middot;
           <a href="/raylib/reference/enums.html#shaderlocationindex">ShaderLocationIndex enum</a>
         </p>
       </article>
@@ -287,13 +287,13 @@
       <article class="api-entry">
         <h3 id="shader-set-value"><code>Shader.set_value(shader, loc: Int32, value: [UInt8], data_type: ShaderUniformDataType)</code></h3>
         <p class="signature-meta">Category: <a href="#uniforms">Uniforms</a> &middot; raylib: <code>SetShaderValue</code></p>
-        <p>Write single uniform by byte buffer. Use <code>data_type</code> to tell raylib how to unpack (FLOAT / VEC2 / VEC3 / VEC4 / INT / IVEC2 / IVEC3 / IVEC4 / SAMPLER2D).</p>
+        <p>Write single uniform by byte buffer. Use <code>data_type</code> to tell raylib how to unpack (FLOAT / VEC2 / VEC3 / VEC4 / INT / IVEC2 / IVEC3 / IVEC4 / UINT / UIVEC2 / UIVEC3 / UIVEC4 / SAMPLER2D).</p>
         <pre><code class="iron"><span class="syn-cm">-- Float32(1.0) IEEE-754 LE = [0x00, 0x00, 0x80, 0x3F]</span>
 <span class="syn-kw">val</span> intensity_bytes: [<span class="syn-ty">UInt8</span>] = [<span class="syn-ty">UInt8</span>(<span class="syn-nu">0</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">0</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">128</span>), <span class="syn-ty">UInt8</span>(<span class="syn-nu">63</span>)]
 <span class="syn-ty">Shader</span>.<span class="syn-fn">set_value</span>(fx_invert, loc_intensity, intensity_bytes, <span class="syn-ty">ShaderUniformDataType</span>.<span class="syn-pr">FLOAT</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2939">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3131">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
         </p>
       </article>
@@ -305,7 +305,7 @@
         <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_value_v</span>(shader, loc, packed, <span class="syn-ty">ShaderUniformDataType</span>.<span class="syn-pr">VEC4</span>, <span class="syn-ty">Int32</span>(<span class="syn-nu">4</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2940">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3132">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -317,7 +317,7 @@
         <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_value_matrix</span>(shader, loc_model, <span class="syn-ty">Matrix</span>.<span class="syn-fn">identity</span>())</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2941">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3133">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -329,7 +329,7 @@
         <pre><code class="iron"><span class="syn-ty">Shader</span>.<span class="syn-fn">set_value_texture</span>(shader, loc_bg, background_tex)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2942">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3134">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/shaders_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -345,7 +345,7 @@
 <span class="syn-ty">Draw</span>.<span class="syn-fn">end_shader_mode</span>()</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2120">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2238">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron">Test usage</a>
         </p>
       </article>

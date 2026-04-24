@@ -1,4 +1,4 @@
--- raylib.iron — Iron bindings for raylib 5.5
+-- raylib.iron — Iron bindings for raylib 6.0
 --
 -- Ships with the Iron compiler; loaded when user writes `import raylib`.
 --
@@ -476,7 +476,8 @@ enum ShaderLocationIndex {
     MAP_BRDF          = 25,
     VERTEX_BONEIDS    = 26,
     VERTEX_BONEWEIGHTS = 27,
-    BONE_MATRICES     = 28,
+    MATRIX_BONETRANSFORMS = 28,
+    VERTEX_INSTANCETRANSFORM = 29,
 }
 
 -- ── ShaderUniformDataType (ENUM-18) — raylib.h:811-821 ──────────────
@@ -489,7 +490,11 @@ enum ShaderUniformDataType {
     IVEC2     = 5,
     IVEC3     = 6,
     IVEC4     = 7,
-    SAMPLER2D = 8,
+    UINT      = 8,
+    UIVEC2    = 9,
+    UIVEC3    = 10,
+    UIVEC4    = 11,
+    SAMPLER2D = 12,
 }
 
 -- ── ShaderAttributeDataType (ENUM-19) — raylib.h:824-829 ────────────
@@ -793,8 +798,17 @@ object BoneInfo {
     val parent: Int32
 }
 
--- Mesh vertex data. 14 opaque pointer fields plus plain `vaoId` GPU
--- handle. `_vboId` is `unsigned int *` (array of GPU IDs), opaque. (TYPE-15)
+-- Model skeleton — explicit in raylib 6. `bindPose` is `Transform *`
+-- and kept opaque on the Iron side. (TYPE-14b)
+object ModelSkeleton {
+    val boneCount: Int32
+    val _bones: Int
+    val _bindPose: Int
+}
+
+-- Mesh vertex data. raylib 6 moves skinning metadata ahead of the runtime
+-- animated buffers and renames `boneIds` to `boneIndices`. `_vboId` stays
+-- opaque. (TYPE-15)
 object Mesh {
     val vertexCount: Int32
     val triangleCount: Int32
@@ -805,12 +819,11 @@ object Mesh {
     val _tangents: Int
     val _colors: Int
     val _indices: Int
+    val boneCount: Int32
+    val _boneIndices: Int
+    val _boneWeights: Int
     val _animVertices: Int
     val _animNormals: Int
-    val _boneIds: Int
-    val _boneWeights: Int
-    val _boneMatrices: Int
-    val boneCount: Int32
     val vaoId: UInt32
     val _vboId: Int
 }
@@ -839,7 +852,8 @@ object Material {
     val _params_3: Float32
 }
 
--- 3D model — embeds `transform: Matrix` plus 5 opaque pointer fields. (TYPE-21)
+-- 3D model — raylib 6 embeds a `ModelSkeleton` plus runtime pose / bone
+-- matrix pointers. Those runtime pointers stay opaque in Iron. (TYPE-21)
 object Model {
     val transform: Matrix
     val meshCount: Int32
@@ -847,17 +861,14 @@ object Model {
     val _meshes: Int
     val _materials: Int
     val _meshMaterial: Int
-    val boneCount: Int32
-    val _bones: Int
-    val _bindPose: Int
+    val skeleton: ModelSkeleton
+    val _currentPose: Int
+    val _boneMatrices: Int
 }
 
--- Skeletal animation. `_framePoses` mirrors C `Transform **`. (TYPE-22)
+-- Skeletal animation — raylib 6 stores the name first and keeps only the
+-- keyframe pose table as a pointer. (TYPE-22)
 object ModelAnimation {
-    val boneCount: Int32
-    val frameCount: Int32
-    val _bones: Int
-    val _framePoses: Int
     val _name_00: UInt8
     val _name_01: UInt8
     val _name_02: UInt8
@@ -890,6 +901,9 @@ object ModelAnimation {
     val _name_29: UInt8
     val _name_30: UInt8
     val _name_31: UInt8
+    val boneCount: Int32
+    val keyframeCount: Int32
+    val _keyframePoses: Int
 }
 
 -- ══════════════════════════════════════════════════════════════════════
@@ -953,9 +967,9 @@ object Music {
     val _ctxData: Int
 }
 
--- File path list — `_paths` is `char **` (opaque double-indirect). (TYPE-30)
+-- File path list — raylib 6 drops the old `capacity` field. `_paths` stays
+-- an opaque `char **`. (TYPE-30)
 object FilePathList {
-    val capacity: UInt32
     val count: UInt32
     val _paths: Int
 }
@@ -1221,7 +1235,7 @@ func Matrix.look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix {}
 
 
 -- MATH-06: Quaternion methods (24 of 24 functions, raymath.h lines
--- 1731-2170). Raymath 5.5 exposes exactly 24 Quaternion RMAPI functions
+-- 1731-2170). Raymath 6.0 exposes exactly 24 Quaternion RMAPI functions
 -- (verified via `grep -cE '^RMAPI [A-Za-z0-9_]+ Quaternion[A-Z]' raymath.h`).
 -- Plan text claimed 26 pre-emptively — resolved GREEN at 24.
 --
@@ -1769,7 +1783,7 @@ func Text.to_integer(text: String) -> Int32 {}
 func Text.to_float(text: String) -> Float32 {}
 
 -- ══════════════════════════════════════════════════════════════════════
--- raylib 5.5 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
+-- raylib 6.0 canonical 26-color palette (TEX-14 closed Phase 66 Plan 01)
 -- ══════════════════════════════════════════════════════════════════════
 --
 -- RGBA values copied verbatim from src/vendor/raylib/raylib.h lines 175-201.
@@ -2265,7 +2279,7 @@ func Draw.line_bezier(start: Vector2, end: Vector2, thick: Float32, color: Color
 --                                           `s` / `e` are degrees, `seg` is
 --                                           tessellation step count
 --   `circle_sector_lines(...)`            — outline of the sector
---   `circle_gradient(cx, cy, r, i, o)`    — filled with radial gradient;
+--   `circle_gradient(center, r, i, o)`     — filled with radial gradient;
 --                                           `i` is inner color, `o` is outer
 --   `circle_v(center, r, color)`          — filled, Vector2 center
 --   `circle_lines(cx, cy, r, color)`      — outline, Int32 center
@@ -2273,7 +2287,7 @@ func Draw.line_bezier(start: Vector2, end: Vector2, thick: Float32, color: Color
 func Draw.circle(cx: Int32, cy: Int32, r: Float32, color: Color) {}
 func Draw.circle_sector(center: Vector2, r: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
 func Draw.circle_sector_lines(center: Vector2, r: Float32, start: Float32, end: Float32, segments: Int32, color: Color) {}
-func Draw.circle_gradient(cx: Int32, cy: Int32, r: Float32, inner: Color, outer: Color) {}
+func Draw.circle_gradient(center: Vector2, r: Float32, inner: Color, outer: Color) {}
 func Draw.circle_v(center: Vector2, r: Float32, color: Color) {}
 func Draw.circle_lines(cx: Int32, cy: Int32, r: Float32, color: Color) {}
 func Draw.circle_lines_v(center: Vector2, r: Float32, color: Color) {}
@@ -2966,19 +2980,18 @@ patch object Model {
     readonly func bounding_box() -> BoundingBox {}
 
 -- ── MODEL-03: Draw variants (6) — raylib.h:1560-1565 ───────────────────
--- Every suffix preserved: _ex (rotation axis + angle + Vector3 scale),
--- _wires (wireframe), _points (vertex points). No sugar, no merging.
+-- Every suffix preserved that still exists in raylib 6: _ex and _wires.
     readonly func draw(position: Vector3, scale: Float32, tint: Color) {}
 
     readonly func draw_wires(position: Vector3, scale: Float32, tint: Color) {}
 
-    readonly func draw_points(position: Vector3, scale: Float32, tint: Color) {}
-
     readonly func set_mesh_material(mesh_id: Int32, material_id: Int32) -> Model {}
 
     readonly func animation_valid(anim: ModelAnimation) -> Bool {}
-    readonly func update_animation(anim: ModelAnimation, frame: Int32) {}
-    readonly func update_animation_bones(anim: ModelAnimation, frame: Int32) {}
+    readonly func update_animation(anim: ModelAnimation, frame: Float32) {}
+    readonly func update_animation_ex(anim_a: ModelAnimation, frame_a: Float32,
+                                      anim_b: ModelAnimation, frame_b: Float32,
+                                      blend: Float32) {}
 }
 
 func Model.draw_ex(model: Model, position: Vector3, rotation_axis: Vector3,
@@ -2986,9 +2999,6 @@ func Model.draw_ex(model: Model, position: Vector3, rotation_axis: Vector3,
 
 func Model.draw_wires_ex(model: Model, position: Vector3, rotation_axis: Vector3,
                          rotation_angle: Float32, scale: Vector3, tint: Color) {}
-
-func Model.draw_points_ex(model: Model, position: Vector3, rotation_axis: Vector3,
-                          rotation_angle: Float32, scale: Vector3, tint: Color) {}
 
 -- ── MODEL-04: Mesh operations (7) — raylib.h:1572-1580 ────────────────
 -- Mutating-return-by-value for UploadMesh + GenMeshTangents (Phase 66-03
@@ -3044,7 +3054,7 @@ func Mesh.cubicmap(cubicmap: Image, cube_size: Vector3) -> Mesh {}
 
 -- ── MODEL-07: Materials (6) — raylib.h:1596-1601 ──────────────────────
 -- Material is 40 B (CORRECTION: CONTEXT.md said ~296 B — verified 40 B
--- against raylib 5.5). Same memcpy template as Image (40 B, Phase 66).
+-- against raylib 6.0). Same memcpy template as Image (40 B, Phase 66).
 -- set_texture + set_mesh_material use mutating-return-by-value (Phase 66-03).
 -- MaterialMapIndex enum at call site: `material.set_texture(MaterialMapIndex.ALBEDO, tex)`
 -- (Pitfall 1 — NO .ordinal suffix, NO .albedo shorthand).
@@ -3061,12 +3071,12 @@ func Material.set_texture(material: Material, map_type: MaterialMapIndex,
 
 -- ── MODEL-08: Model animations (6) — raylib.h:1604-1609 ──────────────
 -- LoadModelAnimations returns raylib-owned ModelAnimation*; Iron deep-copies
--- into Iron_List_Iron_ModelAnimation (56 B × count) and free()s only the
--- outer wrapper, preserving interior _bones / _framePoses for unload_all.
+-- into Iron_List_Iron_ModelAnimation and free()s only the outer wrapper,
+-- preserving interior _keyframePoses for unload/unload_all.
 -- IsModelAnimationValid takes Model + ModelAnimation per raylib (Pitfall 11);
 -- bound as model.animation_valid(anim) — NOT anim.is_valid() (which would
 -- require implicit Model context raylib does not accept).
--- anim.unload() — singular variant for non-list-owned animations.
+-- anim.unload() remains as an Iron convenience for non-list-owned animations.
 -- ModelAnimation.unload_all(anims) — namespace-level for list-cleanup.
 func ModelAnimation.load(file_name: String) -> [ModelAnimation] {}
 
@@ -3215,7 +3225,7 @@ func Random.unload_sequence(seq: [Int32]) {}
 --   • Mutating-return-by-value → Phase 66-03 Iron_image_crop
 --
 -- Omission documented in 73-01-SUMMARY.md:
---   • Image.load_svg — LoadImageSvg not exposed in vendored raylib 5.5
+--   • Image.load_svg — LoadImageSvg not exposed in vendored raylib 6.0
 --     (grep src/vendor/raylib/raylib.h → 0 matches); deferred to a
 --     future raylib vendor bump.
 

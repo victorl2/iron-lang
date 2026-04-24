@@ -215,7 +215,16 @@ struct Iron_BoneInfo {
     int  parent;
 };
 
-/* Mesh — 14 pointer fields + plain `vaoId` + 1 pointer-array. */
+/* ModelSkeleton — explicit in raylib 6. `bindPose` is an opaque
+ * Transform[] pointer on the Iron side. */
+struct Iron_ModelSkeleton {
+    int                    boneCount;
+    struct Iron_BoneInfo  *_bones;
+    struct Iron_Transform *_bindPose;
+};
+
+/* Mesh — raylib 6 moves skinning metadata before the runtime animation
+ * buffers and renames boneIds -> boneIndices. */
 struct Iron_Mesh {
     int            vertexCount;
     int            triangleCount;
@@ -226,12 +235,11 @@ struct Iron_Mesh {
     float         *_tangents;
     unsigned char *_colors;
     unsigned short*_indices;
+    int            boneCount;
+    unsigned char *_boneIndices;
+    float         *_boneWeights;
     float         *_animVertices;
     float         *_animNormals;
-    unsigned char *_boneIds;
-    float         *_boneWeights;
-    struct Iron_Matrix *_boneMatrices;
-    int            boneCount;
     unsigned int   vaoId;
     unsigned int  *_vboId;
 };
@@ -256,27 +264,25 @@ struct Iron_Material {
     float                    params[4];
 };
 
-/* Model — embedded Matrix + 5 opaque pointer fields. */
+/* Model — raylib 6 embeds a skeleton plus runtime pose/bone-matrix pointers. */
 struct Iron_Model {
-    struct Iron_Matrix transform;
-    int                meshCount;
-    int                materialCount;
-    struct Iron_Mesh      *_meshes;
-    struct Iron_Material  *_materials;
-    int                   *_meshMaterial;
-    int                    boneCount;
-    struct Iron_BoneInfo  *_bones;
-    struct Iron_Transform *_bindPose;
+    struct Iron_Matrix        transform;
+    int                       meshCount;
+    int                       materialCount;
+    struct Iron_Mesh         *_meshes;
+    struct Iron_Material     *_materials;
+    int                      *_meshMaterial;
+    struct Iron_ModelSkeleton skeleton;
+    struct Iron_Transform    *_currentPose;
+    struct Iron_Matrix       *_boneMatrices;
 };
 
-/* ModelAnimation — 2 pointers, double-indirect framePoses, and inline
- * char[32] name at the end. */
+/* ModelAnimation — raylib 6 stores the name first, then the pose table. */
 struct Iron_ModelAnimation {
-    int                     boneCount;
-    int                     frameCount;
-    struct Iron_BoneInfo   *_bones;
-    struct Iron_Transform **_framePoses;
     char                    name[32];
+    int                     boneCount;
+    int                     keyframeCount;
+    struct Iron_Transform **_keyframePoses;
 };
 
 /* ── 3D helpers / audio / file types (Plan 60-05) ─────────────────── */
@@ -344,7 +350,6 @@ struct Iron_Music {
 
 /* FilePathList — `_paths` mirrors raylib's `char **paths`. */
 struct Iron_FilePathList {
-    unsigned int capacity;
     unsigned int count;
     void        *_paths;
 };
@@ -556,7 +561,7 @@ void Iron_draw_line_bezier(struct Iron_Vector2 start, struct Iron_Vector2 end, f
 void Iron_draw_circle(int32_t cx, int32_t cy, float r, struct Iron_Color color);
 void Iron_draw_circle_sector(struct Iron_Vector2 center, float r, float start, float end, int32_t segments, struct Iron_Color color);
 void Iron_draw_circle_sector_lines(struct Iron_Vector2 center, float r, float start, float end, int32_t segments, struct Iron_Color color);
-void Iron_draw_circle_gradient(int32_t cx, int32_t cy, float r, struct Iron_Color inner, struct Iron_Color outer);
+void Iron_draw_circle_gradient(struct Iron_Vector2 center, float r, struct Iron_Color inner, struct Iron_Color outer);
 void Iron_draw_circle_v(struct Iron_Vector2 center, float r, struct Iron_Color color);
 void Iron_draw_circle_lines(int32_t cx, int32_t cy, float r, struct Iron_Color color);
 void Iron_draw_circle_lines_v(struct Iron_Vector2 center, float r, struct Iron_Color color);
@@ -910,7 +915,7 @@ Iron_Tuple_Vector3_Quaternion_Vector3 Iron_matrix_decompose(struct Iron_Matrix s
 Iron_Tuple_Vector3_Vector3 Iron_vector3_ortho_normalize(struct Iron_Vector3 self, struct Iron_Vector3 other);
 
 /* Quaternion methods — 24 of 24 functions (MATH-06, raymath.h lines
- * 1731-2170). Raymath 5.5 Quaternion RMAPI count verified at 24 via
+ * 1731-2170). Raymath 6.0 Quaternion RMAPI count verified at 24 via
  * `grep -cE '^RMAPI [A-Za-z0-9_]+ Quaternion[A-Z]' raymath.h` = 24.
  * Plan text claimed 26 pre-emptively — resolved GREEN at 24.
  *
@@ -1820,12 +1825,6 @@ void Iron_model_draw_wires(struct Iron_Model model, struct Iron_Vector3 position
 void Iron_model_draw_wires_ex(struct Iron_Model model, struct Iron_Vector3 position,
                               struct Iron_Vector3 rotation_axis, float rotation_angle,
                               struct Iron_Vector3 scale, struct Iron_Color tint);
-void Iron_model_draw_points(struct Iron_Model model, struct Iron_Vector3 position,
-                            float scale, struct Iron_Color tint);
-void Iron_model_draw_points_ex(struct Iron_Model model, struct Iron_Vector3 position,
-                               struct Iron_Vector3 rotation_axis, float rotation_angle,
-                               struct Iron_Vector3 scale, struct Iron_Color tint);
-
 /* Iron's [Matrix] lowers to Iron_List_Iron_Matrix in C (ARRAY_PARAM_LIST
  * mode, first consumer is Iron_mesh_draw_instanced below — probed GREEN
  * in Plan 70-01). Layout-compatible with the compiler-emitted
@@ -1918,10 +1917,13 @@ bool                          Iron_model_animation_valid(struct Iron_Model model
                                                          struct Iron_ModelAnimation anim);
 void                          Iron_model_update_animation(struct Iron_Model model,
                                                           struct Iron_ModelAnimation anim,
-                                                          int32_t frame);
-void                          Iron_model_update_animation_bones(struct Iron_Model model,
-                                                                struct Iron_ModelAnimation anim,
-                                                                int32_t frame);
+                                                          float frame);
+void                          Iron_model_update_animation_ex(struct Iron_Model model,
+                                                             struct Iron_ModelAnimation anim_a,
+                                                             float frame_a,
+                                                             struct Iron_ModelAnimation anim_b,
+                                                             float frame_b,
+                                                             float blend);
 void                          Iron_modelanimation_unload(struct Iron_ModelAnimation anim);
 void                          Iron_modelanimation_unload_all(Iron_List_Iron_ModelAnimation anims);
 
@@ -2030,7 +2032,7 @@ void              Iron_random_unload_sequence(Iron_List_int32_t seq);
  * pre-existing Font / Image sections in raylib.iron.
  *
  * Omissions documented in 73-01-SUMMARY.md:
- *   • Image.load_svg — LoadImageSvg not in vendored raylib 5.5 source.
+ *   • Image.load_svg — LoadImageSvg not in vendored raylib 6.0 source.
  * ════════════════════════════════════════════════════════════════════ */
 
 /* Tuple typedef for Image.load_anim_from_memory -> (Image, Int32).

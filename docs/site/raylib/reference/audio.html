@@ -216,7 +216,7 @@
 <span class="syn-ty">Audio</span>.<span class="syn-fn">close</span>()</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2392">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2517">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
         </p>
       </article>
@@ -228,7 +228,7 @@
         <pre><code class="iron"><span class="syn-ty">Audio</span>.<span class="syn-fn">set_master_volume</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2395">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2520">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -242,7 +242,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> w = <span class="syn-ty">Wave</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/bounce.wav"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2405">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2543">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -254,7 +254,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> w = <span class="syn-ty">Wave</span>.<span class="syn-fn">load_from_memory</span>(<span class="syn-st">".wav"</span>, bytes, <span class="syn-ty">Int32</span>(bytes.length))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2406">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2544">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -266,7 +266,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Wave</span>.<span class="syn-fn">is_valid</span>(w) { <span class="syn-ty">Wave</span>.<span class="syn-fn">unload</span>(w) }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2408">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2547">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -278,7 +278,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> short = <span class="syn-ty">Wave</span>.<span class="syn-fn">crop</span>(w, <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">22050</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2431">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2570">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -290,7 +290,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> samples = <span class="syn-ty">Wave</span>.<span class="syn-fn">load_samples</span>(w)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2434">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2573">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -302,7 +302,7 @@
         <pre><code class="iron"><span class="syn-ty">Wave</span>.<span class="syn-fn">export</span>(w, <span class="syn-st">"bounce.wav"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2410">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2549">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -314,7 +314,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> s = <span class="syn-ty">Wave</span>.<span class="syn-fn">to_sound</span>(w)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2442">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2581">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -328,7 +328,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> bounce = <span class="syn-ty">Sound</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/bounce.wav"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2457">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2598">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
         </p>
       </article>
@@ -342,7 +342,7 @@
 <span class="syn-ty">Sound</span>.<span class="syn-fn">unload_alias</span>(copy)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2459">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2599">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -354,7 +354,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Sound</span>.<span class="syn-fn">is_valid</span>(bounce) { <span class="syn-ty">Sound</span>.<span class="syn-fn">unload</span>(bounce) }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2460">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2602">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
         </p>
       </article>
@@ -368,7 +368,7 @@
 }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2468">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2617">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">Test usage</a>
         </p>
       </article>
@@ -380,7 +380,7 @@
         <pre><code class="iron"><span class="syn-ty">Sound</span>.<span class="syn-fn">set_volume</span>(bounce, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.8</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2477">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2626">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -392,7 +392,7 @@
         <pre><code class="iron"><span class="syn-ty">Sound</span>.<span class="syn-fn">update</span>(s, samples, <span class="syn-ty">Int32</span>(samples.length))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2489">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2638">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -406,7 +406,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> bgm = <span class="syn-ty">Music</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/loop.ogg"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2502">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2653">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -418,7 +418,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Music</span>.<span class="syn-fn">is_valid</span>(bgm) { <span class="syn-ty">Music</span>.<span class="syn-fn">unload</span>(bgm) }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2504">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2656">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -433,7 +433,7 @@
 }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2543">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2700">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -446,7 +446,7 @@
 <span class="syn-ty">Music</span>.<span class="syn-fn">seek</span>(bgm, <span class="syn-ty">Float32</span>(<span class="syn-nu">30.0</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2556">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2713">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -458,7 +458,7 @@
         <pre><code class="iron"><span class="syn-kw">var</span> bgm2 = <span class="syn-ty">Music</span>.<span class="syn-fn">set_looping</span>(bgm, <span class="syn-kw">true</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2524">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2714">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -472,7 +472,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> st = <span class="syn-ty">AudioStream</span>.<span class="syn-fn">load</span>(<span class="syn-ty">UInt32</span>(<span class="syn-nu">44100</span>), <span class="syn-ty">UInt32</span>(<span class="syn-nu">16</span>), <span class="syn-ty">UInt32</span>(<span class="syn-nu">2</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2576">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2735">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -486,7 +486,7 @@
 }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2579">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2739">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -498,7 +498,7 @@
         <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">unload</span>(st)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2577">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2737">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -510,7 +510,7 @@
         <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">play</span>(st)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2581">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2741">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -522,7 +522,7 @@
         <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">set_volume</span>(st, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.7</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2586">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2746">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -534,7 +534,7 @@
         <pre><code class="iron"><span class="syn-ty">AudioStream</span>.<span class="syn-fn">set_buffer_size_default</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">4096</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2589">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2753">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -553,7 +553,7 @@
         <pre><code class="iron"><span class="syn-cm">-- Not yet available from Iron.</span></code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2610">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2753">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -565,7 +565,7 @@
         <pre><code class="iron"><span class="syn-cm">-- Not yet available from Iron.</span></code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2611">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2753">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -577,7 +577,7 @@
         <pre><code class="iron"><span class="syn-cm">-- Not yet available from Iron.</span></code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2613">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2753">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/audio_smoke.iron">Test usage</a>
         </p>
       </article>

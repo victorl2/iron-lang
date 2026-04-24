@@ -221,8 +221,8 @@ window because there are no published consumers yet.)*
 
 ### Still deferred
 
-- **D2** `Image.load_svg` — waiting on raylib 5.6+ vendor bump (v2.3
-  scope).
+- **D2** `Image.load_svg` — still unavailable in the vendored raylib 6.0
+  public header.
 - **Wildcard-discard statement** — `_ = <expr>` at statement position
   is rejected as `error[E0102]: expected expression`. The idiomatic
   discard form is `val _r = <expr>`. v2.3+ ironc improvement.
@@ -260,7 +260,7 @@ First-class **raylib** binding for Iron. You can now write games in Iron that co
 #### What's in the box
 
 - **698 raylib functions** bound across namespaced receivers — `Window.*`, `Draw.*`, `Audio.*`, `Keyboard.*` / `Mouse.*` / `Gamepad.*` / `Touch.*` / `Gestures.*`, `Camera3D.*`, `Math3D.*` (raymath), `Models.*`, `Shader.*`, `Image.*` / `Texture.*`, `Font.*` / `Text.*`, `Sound.*` / `Music.*`, `Files.*` / `Random.*`.
-- **Vendored raylib 5.5** — builds per-source (no amalgamation), compile-time ABI enforcement (413 `_Static_assert`s pin every `sizeof` + `offsetof` between `Iron_<T>` and raylib `<T>` so any drift is a hard clang error).
+- **Vendored raylib 6.0** — builds per-source (no amalgamation), compile-time ABI enforcement (413 `_Static_assert`s pin every `sizeof` + `offsetof` between `Iron_<T>` and raylib `<T>` so any drift is a hard clang error).
 - **5 canonical examples**: `pong` (full state machine + paddles + bounce audio + web-ready frame-loop split), `rotating_cube`, `model_viewer`, `post_fx`, `raylib_showcase` (12-category end-to-end demo).
 - **Web target**: `iron build --target=web` produces `dist/web/index.{html,js,wasm}` from the same Iron source, including canonical `while not Window.should_close()` main-loop lifting into a web-safe frame state.
 - **Documentation site** (docs.ironlang.org/raylib): landing, getting-started guide, 14-page category API reference, examples gallery.
@@ -284,7 +284,7 @@ First-class **raylib** binding for Iron. You can now write games in Iron that co
 #### Still deferred
 
 - **D1** proper receiver-method grammar (`func (t: Timer) update(dt: Float)`) — dedicated ironc grammar milestone.
-- **D2** `Image.load_svg` — waiting on raylib 5.6+ vendor bump.
+- **D2** `Image.load_svg` — still unavailable in the vendored raylib 6.0 public header.
 - **D4** per-stream AUDIO-12 slot bookkeeping refinement — awaiting user feedback on realistic workloads.
 
 #### Install

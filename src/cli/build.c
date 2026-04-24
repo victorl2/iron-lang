@@ -705,7 +705,6 @@ static int invoke_clang(const char *c_file, const char *output,
             "vendor/raylib/rtext.c",
             "vendor/raylib/rmodels.c",
             "vendor/raylib/raudio.c",
-            "vendor/raylib/utils.c",
             "vendor/raylib/rglfw.c",
             NULL
         };
