@@ -75,4 +75,30 @@ print('OK: 28800 + 1800')")
     set_tests_properties(test_soak_workload_counts PROPERTIES
         LABELS "integration;phase-m6-invariant"
         TIMEOUT 10)
+
+    # Phase 7 Plan 07-03 Task 01 (HARD-17, D-05) -- TSAN driver
+    # self-test. Validates detect_tsan_finding() against synthetic
+    # WARNING/clean/multi-warning/embedded-quote fixtures AND asserts
+    # the committed workload.jsonl has exactly 300 events. Mitigates
+    # T-07-03-01 (detector regression masking real races) cheaply
+    # enough (< 1 s) that every normal ctest run exercises it.
+    add_test(NAME test_tsan_driver_self_test
+        COMMAND python3 "${CMAKE_SOURCE_DIR}/tests/lsp/tsan/driver.py"
+                --self-test)
+    set_tests_properties(test_tsan_driver_self_test PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 30)
+
+    # Phase 7 Plan 07-03 Task 01 (HARD-17, D-05) -- lock-in guard for
+    # the committed TSAN workload. 300 is the D-05-locked event count;
+    # drift is caught here so tsan.yml doesn't silently run a shorter
+    # soak.
+    add_test(NAME test_tsan_workload_count
+        COMMAND python3 -c "
+wl = open('${CMAKE_SOURCE_DIR}/tests/lsp/tsan/workload.jsonl').readlines()
+assert len(wl) == 300, f'tsan/workload.jsonl: {len(wl)} != 300'
+print('OK: 300')")
+    set_tests_properties(test_tsan_workload_count PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 10)
 endif()

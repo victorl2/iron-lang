@@ -1,0 +1,36 @@
+// Phase 7 Plan 07-03 Task 01 (HARD-17, D-05) -- TSAN fixture doc_a.
+//
+// doc_a imports symbols defined in doc_b so cross-file reference /
+// definition / workspace-symbol requests exercise the workspace index
+// lock paths (src/lsp/store/workspace_index.c, NAV-01). The driver
+// rotates hover + completion + definition requests across this file
+// in parallel with didChange bursts, so the coalescing mailbox
+// (src/lsp/workers/mailbox.c) and writer queue (src/lsp/transport/
+// writer.c) are both under contention.
+
+import doc_b
+
+val DOC_A_ID: Int = 1
+val DOC_A_TAG: String = "doc_a"
+
+func compute_a(n: Int) -> Int {
+  var acc: Int = 0
+  acc = acc + n
+  acc = acc * n
+  acc = acc + doc_b.DOC_B_ID
+  acc = acc - doc_b.helper_b(n)
+  acc = acc + doc_b.helper_b(n + 1)
+  return acc
+}
+
+func chain_a(x: Int, y: Int) -> Int {
+  var total: Int = 0
+  total = total + compute_a(x)
+  total = total + doc_b.helper_b(y)
+  total = total + compute_a(y)
+  return total
+}
+
+func label_a() -> String {
+  return DOC_A_TAG
+}

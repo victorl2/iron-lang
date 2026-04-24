@@ -1,0 +1,31 @@
+# Phase 7 Plan 07-03 (HARD-17, D-05) -- ThreadSanitizer suppressions.
+#
+# v1 LAND: THIS FILE IS INTENTIONALLY EMPTY (no active suppressions).
+#
+# Policy (D-05 + CONTEXT §specifics + threat model T-07-03-01):
+#
+#   1. Zero suppressions at v1 land. Any TSAN finding must be fixed at
+#      the source, not suppressed.
+#   2. Adding an entry requires:
+#      (a) CODEOWNERS review on the PR that adds it.
+#      (b) An inline comment on every suppression line explaining:
+#            - what was flagged (function / file + line),
+#            - why it is a false positive (not a real race),
+#            - why it cannot be fixed (e.g. lives in vendored code
+#              like yyjson / stb_ds that we do not patch).
+#   3. If this file ever grows beyond 5 entries, that is a red flag for
+#      real races hiding under "false positive" labels -- the reviewer
+#      should require fresh justification for every entry.
+#
+# Suppression file format:
+#   Each non-comment line has the form `<kind>:<function_or_pattern>`.
+#   Recognised kinds for TSAN: `race`, `thread`, `mutex`, `signal`,
+#   `deadlock`, `called_from_lib`.
+#   See https://clang.llvm.org/docs/ThreadSanitizer.html#blacklist
+#
+# Example (hypothetical; do NOT add without CODEOWNERS sign-off):
+#   # Vendored yyjson uses relaxed atomics internally; single-producer/
+#   # single-consumer pattern verified via code review (see PR #1234).
+#   # race:yyjson_internal_atomic_load
+#
+# -- no active suppressions --

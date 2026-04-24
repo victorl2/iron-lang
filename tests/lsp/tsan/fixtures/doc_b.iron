@@ -1,0 +1,28 @@
+// Phase 7 Plan 07-03 Task 01 (HARD-17, D-05) -- TSAN fixture doc_b.
+//
+// doc_b is the "target" side of the cross-reference: doc_a imports
+// DOC_B_ID and helper_b. Driver events that edit doc_b while doc_a is
+// being hovered force concurrent workspace-index updates.
+
+val DOC_B_ID: Int = 2
+val DOC_B_TAG: String = "doc_b"
+
+func helper_b(n: Int) -> Int {
+  var acc: Int = 0
+  acc = acc + n
+  acc = acc * DOC_B_ID
+  acc = acc + n
+  return acc
+}
+
+func chain_b(x: Int) -> Int {
+  var total: Int = 0
+  total = total + helper_b(x)
+  total = total + helper_b(x + 1)
+  total = total + helper_b(x + 2)
+  return total
+}
+
+func label_b() -> String {
+  return DOC_B_TAG
+}
