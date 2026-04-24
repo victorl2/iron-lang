@@ -860,3 +860,24 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m6-invariant"
         TIMEOUT 30)
 endif()
+
+# ── Phase 7 Plan 07-02 Task 01 (HARD-15, D-03): RSS measurement + cap
+#    Unity test. Mocks /proc/self/status + task_info via the testing
+#    hooks exposed from rss.h; exercises cap-trip branch by injecting
+#    a synthetic RSS reading. Labelled phase-m6-invariant. ────────────
+if(IRON_BUILD_LSP)
+    add_executable(test_rss_current_bytes
+        lsp/obs/test_rss_current_bytes.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/rss.c)
+    target_include_directories(test_rss_current_bytes PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_rss_current_bytes PRIVATE _GNU_SOURCE)
+    target_link_libraries(test_rss_current_bytes
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_rss_current_bytes COMMAND test_rss_current_bytes)
+    set_tests_properties(test_rss_current_bytes PROPERTIES
+        LABELS "unit;phase-m6-invariant"
+        TIMEOUT 30)
+endif()
