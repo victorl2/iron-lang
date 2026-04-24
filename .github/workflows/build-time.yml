@@ -1,0 +1,113 @@
+name: build-time
+
+# Phase 7 Plan 07-04 Task 02 (HARD-23, D-06) -- CI build-time regression
+# alert with per-OS rolling 20-sample baseline.
+#
+# PR-mode: measure `cmake -B build && cmake --build build -j4`
+#   wall-clock, compare against rolling avg, fail if current >
+#   1.15 x baseline for the current OS.
+# Push-to-main: same measurement + APPEND the sample to
+#   build-time-baseline.json (FIFO-trimmed per-OS to 20 entries) and
+#   commit the updated baseline via github-actions[bot].
+#
+# Per-OS windows mean ubuntu-latest and macos-latest baselines are
+# independent; a single runner-class flake only perturbs one slice.
+# WARMUP tolerance: first 5 samples per OS skip the threshold check
+# so the seed baseline doesn't trip the gate during initial fill.
+#
+# T-07-04-03 mitigation: a GitHub Actions concurrency group keyed on
+# `build-time-baseline` serialises any push-to-main run so two pushes
+# in quick succession cannot race on the file write.
+#
+# T-07-04-04 mitigation: permissions.contents is `write` ONLY on the
+# push-to-main append step; the PR-mode job drops to read-only so a
+# malicious PR author cannot touch the baseline.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'scripts/ci/**'
+      - 'tests/**/CMakeLists.txt'
+      - '.github/workflows/build-time.yml'
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  # Serialise push-to-main baseline writes; PRs run concurrently.
+  group: build-time-baseline-${{ github.event_name == 'push' && 'main' || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  build-time:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      # Default is read; only the push-to-main commit step needs write.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install deps (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang cmake
+
+      - name: Install deps (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install ninja cmake
+
+      - name: Self-test build_time_check.py
+        # Fast guard: validates FIFO trim + per-OS isolation + threshold
+        # decision + warmup tolerance in < 1 s so a harness regression
+        # fails before we spend 2 minutes measuring a real build.
+        run: python3 scripts/ci/build_time_check.py --self-test
+
+      - name: Check build time (PR mode)
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/ci/build_time_check.py \
+              --mode check \
+              --os ${{ matrix.os }} \
+              --sha ${{ github.sha }}
+
+      - name: Measure + append baseline (main push)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          python3 scripts/ci/build_time_check.py \
+              --mode append-and-check \
+              --os ${{ matrix.os }} \
+              --sha ${{ github.sha }}
+
+      - name: Commit updated baseline (main push only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          if ! git diff --quiet build-time-baseline.json; then
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.name "github-actions[bot]"
+            git add build-time-baseline.json
+            git commit -m "chore(ci): update build-time baseline for ${{ matrix.os }} [skip ci]"
+            # Pull any concurrent ubuntu/macos baseline update before pushing
+            # (concurrency group above already serialises, but rebase adds
+            # belt-and-braces for the rare interleave window).
+            git pull --rebase origin main || true
+            git push origin HEAD:main
+          else
+            echo "baseline unchanged (warmup or no-op); nothing to commit"
+          fi
+
+      - name: Manual run (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 scripts/ci/build_time_check.py \
+              --mode check \
+              --os ${{ matrix.os }} \
+              --sha ${{ github.sha }}

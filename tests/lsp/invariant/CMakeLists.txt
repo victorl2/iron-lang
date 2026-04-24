@@ -128,4 +128,41 @@ print(f'OK: {n}')")
     set_tests_properties(test_slo_medium_fixture_loc PROPERTIES
         LABELS "integration;phase-m6-invariant"
         TIMEOUT 10)
+
+    # Phase 7 Plan 07-04 Task 02 (HARD-23, D-06) -- build-time regression
+    # script self-test. Validates FIFO-trim per-OS window behaviour +
+    # threshold decision at 1.15 + warmup tolerance + literal constants
+    # (1.15 threshold, 20-sample window) in < 1 s. Catches drift in the
+    # rolling-baseline logic before any real build is measured.
+    add_test(NAME test_build_time_self_test
+        COMMAND python3 "${CMAKE_SOURCE_DIR}/scripts/ci/build_time_check.py"
+                --self-test)
+    set_tests_properties(test_build_time_self_test PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 30)
+
+    # Phase 7 Plan 07-04 Task 02 (HARD-23, D-06) -- baseline JSON shape
+    # guard. The committed build-time-baseline.json MUST be a JSON
+    # array of objects with required keys {sha, ts, seconds, os} and
+    # must contain at least 5 samples per OS (warmup tolerance seed).
+    # T-07-04-03 mitigation: catches accidental corruption of the
+    # baseline file in PRs that don't touch the workflow.
+    add_test(NAME test_build_time_baseline_shape
+        COMMAND python3 -c "
+import json
+b = json.load(open('${CMAKE_SOURCE_DIR}/build-time-baseline.json'))
+assert isinstance(b, list), 'baseline must be a JSON array'
+assert len(b) >= 5, f'baseline needs >= 5 seed samples, got {len(b)}'
+for i, e in enumerate(b):
+    for k in ('sha', 'ts', 'seconds', 'os'):
+        assert k in e, f'entry {i} missing {k}'
+per_os = {}
+for e in b:
+    per_os[e['os']] = per_os.get(e['os'], 0) + 1
+for os_name, count in per_os.items():
+    assert count >= 5, f'{os_name} has {count} samples; need >= 5 for warmup'
+print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.items())))")
+    set_tests_properties(test_build_time_baseline_shape PROPERTIES
+        LABELS "integration;phase-m6-invariant"
+        TIMEOUT 10)
 endif()
