@@ -29,6 +29,7 @@
 #include "lsp/transport/json.h"
 #include "lsp/transport/writer.h"
 #include "lsp/transport/types.h"
+#include "lsp/cli/version.h"             /* Phase 7 Plan 07-07 (HARD-22, D-10): ilsp_server_version */
 #include "vendor/yyjson/yyjson.h"
 #include "util/arena.h"
 
@@ -188,10 +189,17 @@ void ilsp_handle_initialize(IronLsp_Server    *s,
     yyjson_mut_val *caps = ilsp_capabilities_build(rd, enc);
     yyjson_mut_obj_add_val(rd, result, "capabilities", caps);
 
-    /* serverInfo -- optional but useful for client logs. */
+    /* serverInfo -- optional but useful for client logs.
+     *
+     * Phase 7 Plan 07-07 (HARD-22, D-10): version flows from the
+     * CMakeLists.txt IRON_VERSION_FULL single source of truth via the
+     * IRON_VERSION_STRING compile-time define -> ilsp_server_version().
+     * Extensions read this field and HARD-REFUSE activation when it
+     * falls outside their compatibility range (VSCode/Zed/Neovim all
+     * pin `>=1.2.0, <2.0.0` per D-10). */
     yyjson_mut_val *info = yyjson_mut_obj(rd);
     yyjson_mut_obj_add_strcpy(rd, info, "name",    "ironls");
-    yyjson_mut_obj_add_strcpy(rd, info, "version", "1.2.0-alpha");
+    yyjson_mut_obj_add_strcpy(rd, info, "version", ilsp_server_version());
     yyjson_mut_obj_add_val   (rd, result, "serverInfo", info);
 
     enqueue_response(s, rd, arena);
