@@ -53,7 +53,7 @@ add_test(NAME test_parity_ironc_lsp
 # CLI/LSP parity surface) AND add phase-m1-invariant so Plan 05's CORE-22
 # parity gate runs in Phase 2's CI sweep as well.
 set_tests_properties(test_parity_ironc_lsp PROPERTIES
-    LABELS "integration;phase-m0-invariant;phase-m1-invariant"
+    LABELS "integration;phase-m0-invariant;phase-m1-invariant;phase-m6-invariant"
     TIMEOUT 300)
 
 # Phase 5 Plan 05-02 (D-08, FMT-02) -- CLI <-> LSP formatter parity.
@@ -90,5 +90,5 @@ add_test(NAME test_parity_ironc_lsp_fmt
          COMMAND test_parity_ironc_lsp_fmt
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(test_parity_ironc_lsp_fmt PROPERTIES
-    LABELS "integration;phase-m4-invariant"
+    LABELS "integration;phase-m4-invariant;phase-m6-invariant"
     TIMEOUT 300)
