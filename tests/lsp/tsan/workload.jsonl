@@ -1,0 +1,300 @@
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #2\nval counter: Int = 643\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 2}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #3\nval counter: Int = 381\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 3}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #4\nval counter: Int = 660\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 4}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #5\nval counter: Int = 627\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 5}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #6\nval counter: Int = 85\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 6}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #7\nval counter: Int = 115\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 7}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #8\nval counter: Int = 930\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 8}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #9\nval counter: Int = 783\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 9}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #10\nval counter: Int = 233\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 10}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #11\nval counter: Int = 111\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 11}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #12\nval counter: Int = 870\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 12}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #13\nval counter: Int = 799\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 13}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #14\nval counter: Int = 990\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 14}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #15\nval counter: Int = 943\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 15}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #16\nval counter: Int = 395\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 16}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #17\nval counter: Int = 183\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 17}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #18\nval counter: Int = 915\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 18}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #19\nval counter: Int = 813\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 19}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #20\nval counter: Int = 195\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 20}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #21\nval counter: Int = 930\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 21}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #22\nval counter: Int = 172\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 22}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #23\nval counter: Int = 790\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 23}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #24\nval counter: Int = 927\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 24}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #25\nval counter: Int = 289\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 25}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #26\nval counter: Int = 664\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 26}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #27\nval counter: Int = 74\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 27}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #28\nval counter: Int = 516\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 28}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #29\nval counter: Int = 25\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 29}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #30\nval counter: Int = 130\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 30}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #31\nval counter: Int = 8\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 31}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #32\nval counter: Int = 864\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 32}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #33\nval counter: Int = 707\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 33}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #34\nval counter: Int = 340\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 34}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #35\nval counter: Int = 577\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 35}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #36\nval counter: Int = 707\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 36}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #37\nval counter: Int = 360\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 37}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #38\nval counter: Int = 314\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 38}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #39\nval counter: Int = 371\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 39}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #40\nval counter: Int = 640\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 40}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #41\nval counter: Int = 379\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 41}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #42\nval counter: Int = 631\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 42}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #43\nval counter: Int = 806\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 43}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #44\nval counter: Int = 116\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 44}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #45\nval counter: Int = 653\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 45}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #46\nval counter: Int = 95\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 46}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #47\nval counter: Int = 737\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 47}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #48\nval counter: Int = 686\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 48}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #49\nval counter: Int = 913\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 49}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #50\nval counter: Int = 338\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 50}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #51\nval counter: Int = 207\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 51}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #52\nval counter: Int = 237\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 52}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #53\nval counter: Int = 565\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 53}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #54\nval counter: Int = 285\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 54}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #55\nval counter: Int = 561\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 55}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #56\nval counter: Int = 347\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 56}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #57\nval counter: Int = 180\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 57}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #58\nval counter: Int = 225\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 58}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #59\nval counter: Int = 762\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 59}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #60\nval counter: Int = 72\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 60}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// burst change #61\nval counter: Int = 63\n"}], "textDocument": {"uri": "file:///fixtures/doc_a.iron", "version": 61}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #62\nval flag_0: Int = 479\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 62}}}
+{"id": 1001, "method": "textDocument/hover", "params": {"position": {"character": 11, "line": 13}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1002, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 8, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #63\nval flag_3: Int = 184\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 63}}}
+{"id": 1003, "method": "textDocument/hover", "params": {"position": {"character": 5, "line": 11}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1004, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 2, "line": 23}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #64\nval flag_6: Int = 561\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 64}}}
+{"id": 1005, "method": "textDocument/hover", "params": {"position": {"character": 7, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1006, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 9, "line": 23}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #65\nval flag_9: Int = 950\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 65}}}
+{"id": 1007, "method": "textDocument/hover", "params": {"position": {"character": 18, "line": 20}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1008, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 11, "line": 12}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #66\nval flag_12: Int = 817\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 66}}}
+{"id": 1009, "method": "textDocument/hover", "params": {"position": {"character": 15, "line": 23}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1010, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 12, "line": 14}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #67\nval flag_15: Int = 289\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 67}}}
+{"id": 1011, "method": "textDocument/hover", "params": {"position": {"character": 17, "line": 23}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1012, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 13, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #68\nval flag_18: Int = 436\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 68}}}
+{"id": 1013, "method": "textDocument/hover", "params": {"position": {"character": 13, "line": 20}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1014, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 9, "line": 11}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #69\nval flag_21: Int = 262\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 69}}}
+{"id": 1015, "method": "textDocument/hover", "params": {"position": {"character": 14, "line": 22}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1016, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 13, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #70\nval flag_24: Int = 751\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 70}}}
+{"id": 1017, "method": "textDocument/hover", "params": {"position": {"character": 17, "line": 28}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1018, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 16, "line": 14}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #71\nval flag_27: Int = 499\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 71}}}
+{"id": 1019, "method": "textDocument/hover", "params": {"position": {"character": 6, "line": 24}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1020, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 2, "line": 30}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #72\nval flag_30: Int = 918\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 72}}}
+{"id": 1021, "method": "textDocument/hover", "params": {"position": {"character": 6, "line": 27}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1022, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 2, "line": 21}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #73\nval flag_33: Int = 281\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 73}}}
+{"id": 1023, "method": "textDocument/hover", "params": {"position": {"character": 4, "line": 21}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1024, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 20, "line": 12}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #74\nval flag_36: Int = 194\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 74}}}
+{"id": 1025, "method": "textDocument/hover", "params": {"position": {"character": 4, "line": 26}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1026, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 8, "line": 21}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #75\nval flag_39: Int = 295\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 75}}}
+{"id": 1027, "method": "textDocument/hover", "params": {"position": {"character": 4, "line": 28}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1028, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 10, "line": 28}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #76\nval flag_42: Int = 796\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 76}}}
+{"id": 1029, "method": "textDocument/hover", "params": {"position": {"character": 14, "line": 25}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1030, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 3, "line": 28}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #77\nval flag_45: Int = 304\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 77}}}
+{"id": 1031, "method": "textDocument/hover", "params": {"position": {"character": 20, "line": 23}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1032, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 13, "line": 23}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #78\nval flag_48: Int = 123\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 78}}}
+{"id": 1033, "method": "textDocument/hover", "params": {"position": {"character": 5, "line": 11}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1034, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 7, "line": 11}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #79\nval flag_51: Int = 943\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 79}}}
+{"id": 1035, "method": "textDocument/hover", "params": {"position": {"character": 4, "line": 14}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1036, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 18, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #80\nval flag_54: Int = 357\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 80}}}
+{"id": 1037, "method": "textDocument/hover", "params": {"position": {"character": 6, "line": 26}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1038, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 12, "line": 29}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// interleave change #81\nval flag_57: Int = 496\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 81}}}
+{"id": 1039, "method": "textDocument/hover", "params": {"position": {"character": 10, "line": 12}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1040, "method": "textDocument/completion", "params": {"context": {"triggerKind": 1}, "position": {"character": 19, "line": 14}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1041, "method": "workspace/symbol", "params": {"query": "doc_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1042, "method": "workspace/symbol", "params": {"query": "compute_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1043, "method": "workspace/symbol", "params": {"query": "DOC_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1044, "method": "workspace/symbol", "params": {"query": "DOC_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1045, "method": "workspace/symbol", "params": {"query": "label_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1046, "method": "workspace/symbol", "params": {"query": "label_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1047, "method": "workspace/symbol", "params": {"query": "helper_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1048, "method": "workspace/symbol", "params": {"query": "chain_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1049, "method": "workspace/symbol", "params": {"query": "doc_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1050, "method": "workspace/symbol", "params": {"query": "doc_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1051, "method": "workspace/symbol", "params": {"query": "doc_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1052, "method": "workspace/symbol", "params": {"query": "doc_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1053, "method": "workspace/symbol", "params": {"query": "compute_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1054, "method": "workspace/symbol", "params": {"query": "compute_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1055, "method": "workspace/symbol", "params": {"query": "compute_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1056, "method": "workspace/symbol", "params": {"query": "helper_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1057, "method": "workspace/symbol", "params": {"query": "compute_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1058, "method": "workspace/symbol", "params": {"query": "doc_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1059, "method": "workspace/symbol", "params": {"query": "chain_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1060, "method": "workspace/symbol", "params": {"query": "chain_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1061, "method": "workspace/symbol", "params": {"query": "label_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1062, "method": "workspace/symbol", "params": {"query": "DOC_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1063, "method": "workspace/symbol", "params": {"query": "label_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1064, "method": "workspace/symbol", "params": {"query": "chain_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1065, "method": "workspace/symbol", "params": {"query": "label_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1066, "method": "workspace/symbol", "params": {"query": "label_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1067, "method": "workspace/symbol", "params": {"query": "DOC_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_b.iron"}]}}
+{"id": 1068, "method": "workspace/symbol", "params": {"query": "chain_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1069, "method": "workspace/symbol", "params": {"query": "label_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1070, "method": "workspace/symbol", "params": {"query": "chain_"}}
+{"method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"type": 2, "uri": "file:///fixtures/doc_a.iron"}]}}
+{"id": 1071, "method": "textDocument/definition", "params": {"position": {"character": 13, "line": 25}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1072, "method": "textDocument/definition", "params": {"position": {"character": 20, "line": 19}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1073, "method": "textDocument/definition", "params": {"position": {"character": 27, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #82\nval xref_tag_3: Int = 358\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 82}}}
+{"id": 1074, "method": "textDocument/definition", "params": {"position": {"character": 23, "line": 29}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1075, "method": "textDocument/definition", "params": {"position": {"character": 25, "line": 25}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1076, "method": "textDocument/definition", "params": {"position": {"character": 24, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #83\nval xref_tag_7: Int = 86\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 83}}}
+{"id": 1077, "method": "textDocument/definition", "params": {"position": {"character": 27, "line": 30}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1078, "method": "textDocument/definition", "params": {"position": {"character": 30, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1079, "method": "textDocument/definition", "params": {"position": {"character": 17, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #84\nval xref_tag_11: Int = 477\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 84}}}
+{"id": 1080, "method": "textDocument/definition", "params": {"position": {"character": 17, "line": 25}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1081, "method": "textDocument/definition", "params": {"position": {"character": 10, "line": 30}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1082, "method": "textDocument/definition", "params": {"position": {"character": 24, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #85\nval xref_tag_15: Int = 337\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 85}}}
+{"id": 1083, "method": "textDocument/definition", "params": {"position": {"character": 19, "line": 29}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1084, "method": "textDocument/definition", "params": {"position": {"character": 24, "line": 26}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1085, "method": "textDocument/definition", "params": {"position": {"character": 22, "line": 19}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #86\nval xref_tag_19: Int = 188\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 86}}}
+{"id": 1086, "method": "textDocument/definition", "params": {"position": {"character": 16, "line": 19}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1087, "method": "textDocument/definition", "params": {"position": {"character": 12, "line": 19}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1088, "method": "textDocument/definition", "params": {"position": {"character": 18, "line": 19}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #87\nval xref_tag_23: Int = 37\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 87}}}
+{"id": 1089, "method": "textDocument/definition", "params": {"position": {"character": 10, "line": 28}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1090, "method": "textDocument/definition", "params": {"position": {"character": 12, "line": 19}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1091, "method": "textDocument/definition", "params": {"position": {"character": 11, "line": 26}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #88\nval xref_tag_27: Int = 448\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 88}}}
+{"id": 1092, "method": "textDocument/definition", "params": {"position": {"character": 14, "line": 23}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1093, "method": "textDocument/definition", "params": {"position": {"character": 20, "line": 30}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1094, "method": "textDocument/definition", "params": {"position": {"character": 14, "line": 28}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #89\nval xref_tag_31: Int = 368\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 89}}}
+{"id": 1095, "method": "textDocument/definition", "params": {"position": {"character": 22, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1096, "method": "textDocument/definition", "params": {"position": {"character": 16, "line": 30}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1097, "method": "textDocument/definition", "params": {"position": {"character": 21, "line": 29}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #90\nval xref_tag_35: Int = 420\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 90}}}
+{"id": 1098, "method": "textDocument/definition", "params": {"position": {"character": 20, "line": 30}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1099, "method": "textDocument/definition", "params": {"position": {"character": 17, "line": 27}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1100, "method": "textDocument/definition", "params": {"position": {"character": 29, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #91\nval xref_tag_39: Int = 382\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 91}}}
+{"id": 1101, "method": "textDocument/definition", "params": {"position": {"character": 13, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1102, "method": "textDocument/definition", "params": {"position": {"character": 17, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1103, "method": "textDocument/definition", "params": {"position": {"character": 25, "line": 19}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #92\nval xref_tag_43: Int = 471\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 92}}}
+{"id": 1104, "method": "textDocument/definition", "params": {"position": {"character": 27, "line": 22}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1105, "method": "textDocument/definition", "params": {"position": {"character": 26, "line": 20}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1106, "method": "textDocument/definition", "params": {"position": {"character": 29, "line": 28}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #93\nval xref_tag_47: Int = 86\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 93}}}
+{"id": 1107, "method": "textDocument/definition", "params": {"position": {"character": 29, "line": 21}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1108, "method": "textDocument/definition", "params": {"position": {"character": 10, "line": 25}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1109, "method": "textDocument/definition", "params": {"position": {"character": 21, "line": 25}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #94\nval xref_tag_51: Int = 464\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 94}}}
+{"id": 1110, "method": "textDocument/definition", "params": {"position": {"character": 10, "line": 22}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1111, "method": "textDocument/definition", "params": {"position": {"character": 21, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1112, "method": "textDocument/definition", "params": {"position": {"character": 15, "line": 17}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #95\nval xref_tag_55: Int = 336\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 95}}}
+{"id": 1113, "method": "textDocument/definition", "params": {"position": {"character": 28, "line": 26}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1114, "method": "textDocument/definition", "params": {"position": {"character": 29, "line": 26}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"id": 1115, "method": "textDocument/definition", "params": {"position": {"character": 28, "line": 24}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "textDocument/didChange", "params": {"contentChanges": [{"text": "// xref edit #96\nval xref_tag_59: Int = 141\n"}], "textDocument": {"uri": "file:///fixtures/doc_b.iron", "version": 96}}}
+{"id": 1116, "method": "textDocument/hover", "params": {"position": {"character": 4, "line": 21}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1106}}
+{"method": "$/cancelRequest", "params": {"id": 1109}}
+{"method": "$/cancelRequest", "params": {"id": 1092}}
+{"method": "$/cancelRequest", "params": {"id": 1092}}
+{"id": 1117, "method": "textDocument/hover", "params": {"position": {"character": 10, "line": 29}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1110}}
+{"method": "$/cancelRequest", "params": {"id": 1083}}
+{"method": "$/cancelRequest", "params": {"id": 1116}}
+{"method": "$/cancelRequest", "params": {"id": 1115}}
+{"id": 1118, "method": "textDocument/hover", "params": {"position": {"character": 3, "line": 30}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1082}}
+{"method": "$/cancelRequest", "params": {"id": 1118}}
+{"method": "$/cancelRequest", "params": {"id": 1096}}
+{"method": "$/cancelRequest", "params": {"id": 1088}}
+{"id": 1119, "method": "textDocument/hover", "params": {"position": {"character": 16, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1107}}
+{"method": "$/cancelRequest", "params": {"id": 1100}}
+{"method": "$/cancelRequest", "params": {"id": 1069}}
+{"method": "$/cancelRequest", "params": {"id": 1072}}
+{"id": 1120, "method": "textDocument/hover", "params": {"position": {"character": 14, "line": 18}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1099}}
+{"method": "$/cancelRequest", "params": {"id": 1087}}
+{"method": "$/cancelRequest", "params": {"id": 1096}}
+{"method": "$/cancelRequest", "params": {"id": 1103}}
+{"id": 1121, "method": "textDocument/hover", "params": {"position": {"character": 17, "line": 25}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1100}}
+{"method": "$/cancelRequest", "params": {"id": 1103}}
+{"method": "$/cancelRequest", "params": {"id": 1116}}
+{"method": "$/cancelRequest", "params": {"id": 1103}}
+{"id": 1122, "method": "textDocument/hover", "params": {"position": {"character": 2, "line": 14}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1072}}
+{"method": "$/cancelRequest", "params": {"id": 1070}}
+{"method": "$/cancelRequest", "params": {"id": 1065}}
+{"method": "$/cancelRequest", "params": {"id": 1106}}
+{"id": 1123, "method": "textDocument/hover", "params": {"position": {"character": 17, "line": 13}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1111}}
+{"method": "$/cancelRequest", "params": {"id": 1090}}
+{"method": "$/cancelRequest", "params": {"id": 1086}}
+{"method": "$/cancelRequest", "params": {"id": 1098}}
+{"id": 1124, "method": "textDocument/hover", "params": {"position": {"character": 7, "line": 27}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1104}}
+{"method": "$/cancelRequest", "params": {"id": 1104}}
+{"method": "$/cancelRequest", "params": {"id": 1102}}
+{"method": "$/cancelRequest", "params": {"id": 1084}}
+{"id": 1125, "method": "textDocument/hover", "params": {"position": {"character": 4, "line": 14}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1066}}
+{"method": "$/cancelRequest", "params": {"id": 1074}}
+{"method": "$/cancelRequest", "params": {"id": 1090}}
+{"method": "$/cancelRequest", "params": {"id": 1117}}
+{"id": 1126, "method": "textDocument/hover", "params": {"position": {"character": 16, "line": 24}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1086}}
+{"method": "$/cancelRequest", "params": {"id": 1085}}
+{"method": "$/cancelRequest", "params": {"id": 1085}}
+{"method": "$/cancelRequest", "params": {"id": 1114}}
+{"id": 1127, "method": "textDocument/hover", "params": {"position": {"character": 12, "line": 15}, "textDocument": {"uri": "file:///fixtures/doc_a.iron"}}}
+{"method": "$/cancelRequest", "params": {"id": 1094}}
+{"method": "$/cancelRequest", "params": {"id": 1117}}
+{"method": "$/cancelRequest", "params": {"id": 1078}}
+{"method": "$/cancelRequest", "params": {"id": 1099}}
