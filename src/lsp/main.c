@@ -67,6 +67,7 @@
 #include "lsp/transport/writer.h"
 #include "lsp/facade/types.h"
 #include "lsp/cli/args.h"          /* Phase 7 Plan 07-01 Task 02: argv parser. */
+#include "lsp/cli/version.h"       /* Phase 7 Plan 07-07 Task 01 (HARD-22, D-10): version accessor. */
 #include "lsp/obs/log.h"           /* Plan 06 Task 01: JSON-line log sink. */
 #include "lsp/obs/trace.h"         /* Plan 06 Task 01: shutdown histogram. */
 #include "lsp/obs/abort_handler.h" /* Plan 05: SIGABRT boundary. */
@@ -118,9 +119,14 @@ int main(int argc, char **argv) {
     /* ── 1. argv parse (Phase 7 Plan 07-01 Task 02: centralised) ─────── */
     IlspArgs args = ilsp_args_parse(argc, argv);
     if (args.want_version) {
+        /* Phase 7 Plan 07-07 (HARD-22, D-10): route the --version print
+         * through ilsp_server_version() so it reads the same compile-time
+         * IRON_VERSION_STRING bytes that the initialize response's
+         * serverInfo.version emits. test_version_stamp_coherence pins
+         * this byte-for-byte match across iron/ironc/ironls. */
         printf("%s %s (%s, %s)\n",
                IRON_BINARY_NAME,
-               IRON_VERSION_STRING,
+               ilsp_server_version(),
                IRON_GIT_HASH,
                IRON_BUILD_DATE);
         return 0;
@@ -174,7 +180,7 @@ int main(int argc, char **argv) {
     if (have_level) ilsp_log_set_level(level_arg);
     ilsp_log(ILSP_LOG_INFO, "startup",
              "ironls %s (%s, %s) pid=%d mode=%s",
-             IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE,
+             ilsp_server_version(), IRON_GIT_HASH, IRON_BUILD_DATE,
              (int)getpid(),
              (args.mode == ILSP_MODE_SUPERVISED_WORKER) ? "worker" : "normal");
 

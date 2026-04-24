@@ -639,6 +639,11 @@ if(IRON_BUILD_LSP)
         src/lsp/obs/parent_watch.c
         src/lsp/supervisor/supervisor.c
         src/lsp/cli/args.c
+        # Phase 7 Plan 07-07 Task 01 (HARD-22, D-10): runtime accessor for
+        # the compile-time IRON_VERSION_STRING define. Consumed by
+        # src/lsp/main.c (--version flag) and src/lsp/server/handlers_lifecycle.c
+        # (initialize response serverInfo.version) so both read the same bytes.
+        src/lsp/cli/version.c
         # Phase 7 Plan 07-02 Task 01 (HARD-15, D-03): RSS measurement +
         # 5s sampler + 1 GiB default cap + _exit(42) self-restart.
         src/lsp/obs/rss.c
