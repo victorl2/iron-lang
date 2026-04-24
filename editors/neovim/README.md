@@ -197,21 +197,33 @@ Neovim alongside the system one.
 You are on Neovim < 0.11.3 and something else is calling `vim.lsp.config`
 before our version guard gets a chance to `return {}`. Upgrade Neovim.
 
-### `[iron-lsp] ironls version X is outside the supported range (A..B).`
+### Version mismatch (`[iron-lsp] detected ironls X.Y.Z, but this config requires …`)
 
-The installed `ironls` is outside the range declared in
-`lsp/ironls.lua`'s `compatible_ironls` field. In v1 this is a warning;
-Phase 7 HARD-22 may promote it to a hard refuse. Either upgrade / downgrade
-`ironls`, or ignore the warning if you understand the mismatch.
+Phase 7 HARD-22 / D-10 / UI-SPEC S9 — when the attached `ironls` reports
+a `serverInfo.version` outside the range `>= 1.2.0, < 2.0.0`
+(`IRON_LSP_COMPATIBLE_VERSION_RANGE` in `lsp/ironls.lua`), the
+`on_attach` hook refuses the attach:
+
+1. `vim.notify` ERROR surfaces the detected version, the compatible
+   range, and a one-line install command.
+2. `vim.lsp.buf_detach_client(bufnr, client.id)` removes the client
+   from the buffer so no language features fire.
+
+To recover: install the latest `ironls` from
+<https://github.com/iron-lang/iron-lang/releases/latest>, then reopen
+the `.iron` buffer (or restart Neovim). The detach is buffer-scoped;
+the LSP client is not silently left running in a half-active state.
 
 ---
 
 ## Version compatibility
 
-This config targets `ironls` 1.2.x per the `compatible_ironls` field in
-`lsp/ironls.lua` ("1.2.0..<1.3.0"). Phase 7 HARD-22 work will stamp
-`IRON_VERSION_FULL` into the server and promote the range check to a hard
-refuse-to-start when the server is outside the declared window.
+This config targets `ironls` in `>= 1.2.0, < 2.0.0` per the
+`IRON_LSP_COMPATIBLE_VERSION_RANGE` constant in `lsp/ironls.lua`. The
+`on_attach` hook enforces the range as a hard refuse (Phase 7 HARD-22
+/ D-10). Minor/patch bumps within `1.2.x` / `1.3.x` / `1.999.x` are
+compatible by definition; a `2.0.0` release signals breaking LSP
+semantics and will require an updated config.
 
 ---
 

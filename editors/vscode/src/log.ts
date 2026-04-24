@@ -10,12 +10,19 @@ export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
 // S5 event vocabulary. Kept as a const tuple so tests + callers can
 // enumerate valid events.
+//
+// Phase 7 Plan 07-07 (HARD-22, D-10): `ironls.version_mismatch` is
+// emitted from extension.ts when the detected ironls version falls
+// outside `ironLspCompatibleIronlsRange` or cannot be probed. It is
+// the structured counterpart to the UI-SPEC S9 red toast shown on
+// hard-refuse activation.
 export const EVENTS = [
   'ext.activate',
   'ext.deactivate',
   'ironls.discovered',
   'ironls.not_found',
   'ironls.version_check',
+  'ironls.version_mismatch',
   'ironls.spawn.ok',
   'ironls.spawn.failed',
   'lsp.initialize.start',
