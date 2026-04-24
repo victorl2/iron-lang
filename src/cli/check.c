@@ -150,6 +150,11 @@ static char *check_read_stdlib(const char *path, long *out_size) {
 /* ── Check: lex + parse + analyze, no codegen ────────────────────────────── */
 
 int iron_check(const char *source_path, bool verbose, bool strict_v3) {
+    /* F8 Phase 8 rebase: iron_analyze_buffer owns parser construction internally,
+     * so the strict_v3 toggle can no longer be threaded through the caller. The
+     * flag is preserved in the signature (callers in src/cli/main.c) and
+     * XXX_PHASE_9 will wire it via a new iron_analyze_buffer mode param. */
+    (void)strict_v3;  /* XXX_PHASE_9 — re-plumb strict_v3 through iron_analyze_buffer */
     /* Resolve runtime lib/src base directory once for this check */
     char *base_dir = get_iron_lib_dir();
     if (!base_dir) return 1;
