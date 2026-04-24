@@ -155,7 +155,7 @@ static void test_find_root(void) {
     /* Cleanup. */
     char rm[1280];
     snprintf(rm, sizeof(rm), "rm -rf %s", root);
-    (void)system(rm);
+    int rm_rc = system(rm); (void)rm_rc;
 }
 
 /* ── Test 4: didChangeWatchedFiles routes through dispatcher ───────── */
