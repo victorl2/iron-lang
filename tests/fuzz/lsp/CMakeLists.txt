@@ -79,3 +79,39 @@ add_executable(fuzz_lsp_json
 iron_lsp_fuzz_common_includes(fuzz_lsp_json)
 iron_lsp_fuzz_common_flags(fuzz_lsp_json)
 target_link_libraries(fuzz_lsp_json PRIVATE iron_runtime)
+
+# ── fuzz_lsp_dispatch ─────────────────────────────────────────────────
+# Method dispatcher (src/lsp/server/dispatch.c). Links the real handler
+# table + bsearch lookup + full dispatch.c so ilsp_handler_lookup is
+# fuzzed against adversarial method names. The harness never calls
+# ilsp_dispatch_route (which would need a fully-wired server); it only
+# reaches the pure table-lookup path. Unused handler addresses are
+# satisfied by the stubs TU below, which __builtin_trap() if ever
+# invoked -- accidental escape from the documented harness surface
+# will surface immediately in CI.
+add_executable(fuzz_lsp_dispatch
+    ${CMAKE_CURRENT_SOURCE_DIR}/dispatch/fuzz_target.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/dispatch/handler_stubs.c
+    ${_LSP_SRC}/server/dispatch.c
+    ${_LSP_SRC}/server/lifecycle.c
+    ${_LSP_SRC}/transport/json.c
+    ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+iron_lsp_fuzz_common_includes(fuzz_lsp_dispatch)
+iron_lsp_fuzz_common_flags(fuzz_lsp_dispatch)
+target_link_libraries(fuzz_lsp_dispatch PRIVATE iron_runtime)
+
+# ── fuzz_lsp_didChange ────────────────────────────────────────────────
+# Document store state machine (src/lsp/store/document.c + line_index.c
+# + utf.c + sha256.c). Exercises create -> incremental/full-replace×N ->
+# destroy through adversarial (range, text, version) sequences; asserts
+# the T-02-09 / T-02-13 must-not-mutate-on-reject invariant by snapshot
+# diff after each apply call.
+add_executable(fuzz_lsp_didChange
+    ${CMAKE_CURRENT_SOURCE_DIR}/didChange/fuzz_target.c
+    ${_LSP_SRC}/store/document.c
+    ${_LSP_SRC}/store/line_index.c
+    ${_LSP_SRC}/store/utf.c
+    ${_LSP_SRC}/store/sha256.c)
+iron_lsp_fuzz_common_includes(fuzz_lsp_didChange)
+iron_lsp_fuzz_common_flags(fuzz_lsp_didChange)
+target_link_libraries(fuzz_lsp_didChange PRIVATE iron_runtime)
