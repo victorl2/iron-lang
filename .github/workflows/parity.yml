@@ -1,0 +1,68 @@
+name: parity
+
+# HARD-24 (Phase 7 Plan 07-08) — dedicated Core-Value parity gate.
+#
+# A single-job workflow produces a stable GitHub-status-check name (`parity`)
+# that can be wired into branch protection as a required status check. This
+# is intentionally NOT a matrix: branch-protection required-check names match
+# exactly, so `parity` is load-bearing — do not rename, do not introduce a
+# matrix, do not wrap in a containing job. See docs/dev/ci-gates.md.
+#
+# Divergence between `ironc` CLI output and `ironls` facade output means the
+# LSP would lie to the user. This gate exists to prevent that PR from merging.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang cmake
+
+      - name: Configure (Release, IRON_BUILD_LSP=ON)
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DIRON_BUILD_LSP=ON
+
+      - name: Build iron + ironc + ironls + parity harnesses
+        run: cmake --build build -j4 --target iron ironc ironls test_parity_ironc_lsp test_parity_ironc_lsp_fmt
+
+      - name: Run parity tests
+        id: parity
+        run: |
+          set -o pipefail
+          if ctest --test-dir build -R 'test_parity_ironc_lsp(_fmt)?$' --output-on-failure -j4 2>&1 | tee parity-output.log; then
+            echo "parity: PASS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Parity divergence detected"
+              echo ""
+              echo "The Core Value gate (\`test_parity_ironc_lsp\` + \`test_parity_ironc_lsp_fmt\`) failed."
+              echo "Divergence means the LSP would lie to the user. This PR cannot merge."
+              echo ""
+              echo "### First diverging fixture / diff (first 80 lines of failure context):"
+              echo ""
+              echo '```'
+              grep -A 50 -iE 'FAIL|diverge|mismatch|Expected|Actual' parity-output.log | head -80
+              echo '```'
+              echo ""
+              echo "See \`docs/dev/ci-gates.md\` for the zero-bypass policy and the full required-status-check list."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Upload parity log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-output
+          path: parity-output.log
+          retention-days: 14
