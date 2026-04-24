@@ -201,11 +201,11 @@
       <h1>Math</h1>
       <p class="subtitle">All 143 raymath functions as idiomatic Iron methods on Vector2/3/4, Matrix, Quaternion + scalar helpers.</p>
       <div class="callout">
-        <div class="callout-title">MATH-01..08 reference</div>
+        <div class="callout-title">Math reference</div>
         <p>All 143 raymath functions bound as idiomatic Iron methods on <code>Vector2</code> / <code>Vector3</code> / <code>Vector4</code>, <code>Matrix</code>, <code>Quaternion</code>, plus <code>RMath.*</code> scalar helpers.</p>
       </div>
 
-      <h2 id="scalars">Scalars (MATH-01)</h2>
+      <h2 id="scalars">Scalars</h2>
 
       <article class="api-entry">
         <h3 id="rmath-clamp"><code>RMath.clamp(value, min, max: Float32) -&gt; Float32</code></h3>
@@ -255,7 +255,7 @@
         </p>
       </article>
 
-      <h2 id="vector2">Vector2 (MATH-02)</h2>
+      <h2 id="vector2">Vector2</h2>
 
       <article class="api-entry">
         <h3 id="vector2-zero"><code>Vector2.zero() / Vector2.one() -&gt; Vector2</code></h3>
@@ -389,7 +389,7 @@
         </p>
       </article>
 
-      <h2 id="vector3">Vector3 (MATH-03)</h2>
+      <h2 id="vector3">Vector3</h2>
 
       <article class="api-entry">
         <h3 id="vector3-zero"><code>Vector3.zero() / one() -&gt; Vector3</code></h3>
@@ -535,7 +535,7 @@
         </p>
       </article>
 
-      <h2 id="vector4">Vector4 (MATH-04)</h2>
+      <h2 id="vector4">Vector4</h2>
 
       <article class="api-entry">
         <h3 id="vector4-zero"><code>Vector4.zero() / one() -&gt; Vector4</code></h3>
@@ -585,7 +585,7 @@
         </p>
       </article>
 
-      <h2 id="matrix">Matrix (MATH-05)</h2>
+      <h2 id="matrix">Matrix</h2>
 
       <article class="api-entry">
         <h3 id="matrix-identity"><code>Matrix.identity() -&gt; Matrix</code></h3>
@@ -695,7 +695,7 @@
         </p>
       </article>
 
-      <h2 id="quaternion">Quaternion (MATH-06)</h2>
+      <h2 id="quaternion">Quaternion</h2>
 
       <article class="api-entry">
         <h3 id="quaternion-identity"><code>Quaternion.identity() -&gt; Quaternion</code></h3>
@@ -817,14 +817,14 @@
         </p>
       </article>
 
-      <h2 id="notes">Notes (MATH-07..08)</h2>
+      <h2 id="notes">Notes</h2>
 
       <div class="callout">
-        <div class="callout-title">MATH-07 &mdash; Test coverage</div>
-        <p>Every method above is exercised in <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/raymath_smoke.iron"><code>tests/manual/raymath_smoke.iron</code></a> with reproducible numeric assertions (canonical test vectors for normalized vectors, identity matrices, axis-aligned rotations).</p>
+        <div class="callout-title">Test coverage</div>
+        <p>Every method above is exercised in <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/raymath_smoke.iron"><code>tests/manual/raymath_smoke.iron</code></a> with reproducible numeric assertions covering normalized vectors, identity matrices, and axis-aligned rotations.</p>
       </div>
       <div class="callout">
-        <div class="callout-title">MATH-08 &mdash; Float32 ABI</div>
+        <div class="callout-title">Float32 ABI</div>
         <p>All scalar parameters are <code>Float32</code> &mdash; byte-identical to raylib's C <code>float</code> at the FFI boundary. <code>Int32</code> is used for indices/counts; <code>Bool</code> for predicates.</p>
       </div>
 

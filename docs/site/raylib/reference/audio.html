@@ -201,11 +201,11 @@
       <h1>Audio</h1>
       <p class="subtitle">Audio device, Wave, Sound, Music, AudioStream — every raudio.c binding.</p>
       <div class="callout">
-        <div class="callout-title">AUDIO-01..12 reference</div>
+        <div class="callout-title">Audio reference</div>
         <p>Every <code>raudio.c</code> binding &mdash; audio device, Wave (CPU), Sound (short GPU one-shot), Music (streaming BGM), AudioStream (low-level).</p>
       </div>
 
-      <h2 id="device">Audio device (AUDIO-01)</h2>
+      <h2 id="device">Audio device</h2>
 
       <article class="api-entry">
         <h3 id="audio-init"><code>Audio.init() / Audio.close() / Audio.is_ready() -&gt; Bool</code></h3>
@@ -233,7 +233,7 @@
         </p>
       </article>
 
-      <h2 id="wave">Wave (AUDIO-02..04)</h2>
+      <h2 id="wave">Wave</h2>
 
       <article class="api-entry">
         <h3 id="wave-load"><code>Wave.load(filePath: String) -&gt; Wave</code></h3>
@@ -319,7 +319,7 @@
         </p>
       </article>
 
-      <h2 id="sound">Sound (AUDIO-05..08)</h2>
+      <h2 id="sound">Sound</h2>
 
       <article class="api-entry">
         <h3 id="sound-load"><code>Sound.load(filePath: String) -&gt; Sound</code></h3>
@@ -397,7 +397,7 @@
         </p>
       </article>
 
-      <h2 id="music">Music (AUDIO-09..11)</h2>
+      <h2 id="music">Music</h2>
 
       <article class="api-entry">
         <h3 id="music-load"><code>Music.load(filePath: String) -&gt; Music / Music.load_from_memory(fileType, data: [UInt8], dataSize)</code></h3>
@@ -454,7 +454,7 @@
       <article class="api-entry">
         <h3 id="music-set-params"><code>Music.set_volume / set_pitch / set_pan / set_looping(music, value)</code></h3>
         <p class="signature-meta">Category: <a href="#music">Music</a> &middot; raylib: <code>SetMusicVolume / Pitch / Pan + SetMusicStreamLooping</code></p>
-        <p>Per-track mixer params + loop flag. <code>set_looping</code> returns the updated Music (mutating-return fallback).</p>
+        <p>Per-track mixer parameters plus loop flag. <code>set_looping</code> returns the updated <code>Music</code> value.</p>
         <pre><code class="iron"><span class="syn-kw">var</span> bgm2 = <span class="syn-ty">Music</span>.<span class="syn-fn">set_looping</span>(bgm, <span class="syn-kw">true</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
@@ -463,7 +463,7 @@
         </p>
       </article>
 
-      <h2 id="audiostream">AudioStream (AUDIO-12)</h2>
+      <h2 id="audiostream">AudioStream</h2>
 
       <article class="api-entry">
         <h3 id="audiostream-load"><code>AudioStream.load(sampleRate: UInt32, sampleSize: UInt32, channels: UInt32) -&gt; AudioStream</code></h3>
@@ -539,18 +539,18 @@
         </p>
       </article>
 
-      <h2 id="callbacks">Audio callbacks (AUDIO-12 deferred)</h2>
+      <h2 id="callbacks">Audio callbacks</h2>
 
       <div class="callout">
-        <div class="callout-title">Phase 73 deferral &mdash; 5 callback entries</div>
-        <p>The following 5 callback-accepting entries ship as Iron surface declarations in <code>raylib.iron</code>, with runtime trampoline infrastructure wired (16-slot registry, iron_raylib.c:4497-4599). The <code>func(Int, UInt32)</code> lambda ↔ <code>Iron_Closure</code> foreign-method FFI lowering is the final piece — deferred to a post-alpha ironc codegen milestone. Use <code>AudioStream.update</code> in the main loop as the working alternative.</p>
+        <div class="callout-title">Declared, but not yet usable</div>
+        <p>The following callback-based audio APIs are declared in <code>raylib.iron</code>, but they are not usable from Iron yet. The missing piece is compiler support for passing Iron closures through this FFI callback shape. Until that lands, use <code>AudioStream.update</code> in the main loop instead.</p>
       </div>
 
       <article class="api-entry">
-        <h3 id="audiostream-set-callback"><code>AudioStream.set_callback(stream, cb: func(Int, UInt32))</code> <em>(Phase 73 deferral)</em></h3>
+        <h3 id="audiostream-set-callback"><code>AudioStream.set_callback(stream, cb: func(Int, UInt32))</code> <em>(currently unavailable)</em></h3>
         <p class="signature-meta">Category: <a href="#callbacks">Callbacks</a> &middot; raylib: <code>SetAudioStreamCallback</code></p>
-        <p>Per-stream audio-thread callback. Deferred — use the <code>update</code> pattern.</p>
-        <pre><code class="iron"><span class="syn-cm">-- Surface declared; FFI lowering deferred to post-alpha.</span></code></pre>
+        <p>Per-stream audio-thread callback. This API is documented for completeness, but it is not usable from Iron yet; use the <code>update</code> pattern instead.</p>
+        <pre><code class="iron"><span class="syn-cm">-- Not yet available from Iron.</span></code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2610">Iron source</a> &middot;
@@ -559,10 +559,10 @@
       </article>
 
       <article class="api-entry">
-        <h3 id="audiostream-attach-processor"><code>AudioStream.attach_processor(stream, cb) / detach_processor(stream)</code> <em>(Phase 73 deferral)</em></h3>
+        <h3 id="audiostream-attach-processor"><code>AudioStream.attach_processor(stream, cb) / detach_processor(stream)</code> <em>(currently unavailable)</em></h3>
         <p class="signature-meta">Category: <a href="#callbacks">Callbacks</a> &middot; raylib: <code>AttachAudioStreamProcessor / Detach</code></p>
-        <p>Add/remove per-stream DSP processor. Deferred &mdash; same FFI lowering concern.</p>
-        <pre><code class="iron"><span class="syn-cm">-- Surface declared; FFI lowering deferred to post-alpha.</span></code></pre>
+        <p>Add or remove a per-stream DSP processor. This API is not usable from Iron yet for the same callback-FFI reason.</p>
+        <pre><code class="iron"><span class="syn-cm">-- Not yet available from Iron.</span></code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2611">Iron source</a> &middot;
@@ -571,10 +571,10 @@
       </article>
 
       <article class="api-entry">
-        <h3 id="audio-attach-mixed"><code>Audio.attach_mixed_processor(cb) / detach_mixed_processor()</code> <em>(Phase 73 deferral)</em></h3>
+        <h3 id="audio-attach-mixed"><code>Audio.attach_mixed_processor(cb) / detach_mixed_processor()</code> <em>(currently unavailable)</em></h3>
         <p class="signature-meta">Category: <a href="#callbacks">Callbacks</a> &middot; raylib: <code>AttachAudioMixedProcessor / DetachAudioMixedProcessor</code></p>
-        <p>Master-bus DSP processor applied to every stream. Deferred.</p>
-        <pre><code class="iron"><span class="syn-cm">-- Surface declared; FFI lowering deferred to post-alpha.</span></code></pre>
+        <p>Master-bus DSP processor applied to every stream. This API is not usable from Iron yet.</p>
+        <pre><code class="iron"><span class="syn-cm">-- Not yet available from Iron.</span></code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2613">Iron source</a> &middot;

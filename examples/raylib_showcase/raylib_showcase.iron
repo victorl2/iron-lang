@@ -1,21 +1,11 @@
 -- examples/raylib_showcase/raylib_showcase.iron
--- Phase 73-03 canonical single-file showcase — API-10 deliverable.
+-- Single-file raylib showcase covering 2D, 3D, audio, shaders, and input.
 --
--- Proves Iron's v2.0.0-alpha raylib binding works end-to-end across all
--- 12 in-scope categories on both native and web targets.
+-- Runs on native and web targets from the same source file.
 --
 -- Invocation: ./build/ironc build examples/raylib_showcase/raylib_showcase.iron
 --             ./raylib_showcase        (run from repo root for asset resolution)
 --             ./build/ironc build --target=web examples/raylib_showcase/raylib_showcase.iron
---
--- Naming note: the .iron file shares the directory basename so ironc's
--- output-binary-name derivation (basename of .iron → binary) produces
--- `./raylib_showcase` — matches the other 3 Phase 69-71 showcase conventions
--- (rotating_cube/rotating_cube.iron, model_viewer/model_viewer.iron,
---  post_fx/post_fx.iron). Plan 73-03 originally specified `showcase.iron`
--- inside `raylib_showcase/`; renamed per Rule-3 deviation so the
--- `.gitignore` `raylib_showcase` entry and the success-criteria
--- `./raylib_showcase` binary target both align with the produced artifact.
 --
 -- Expected runtime: window opens; user sees a RAYWHITE background with a
 -- red rectangle, a procedural red/blue checker texture, a grayscale-filtered
@@ -23,28 +13,21 @@
 -- over a grid, bounding-box wireframe, and status/help text. SPACE plays
 -- the bounce.wav sound (AUDIO category). ESC exits cleanly.
 --
--- Assets (reuse only — NO new vendoring per Phase 73 asset-strategy decision):
---   • tests/assets/bounce.wav      (Phase 68)
---   • tests/assets/models/cube.obj (Phase 70)
---   • tests/assets/shaders/grayscale.fs (Phase 71)
+-- Assets used:
+--   • tests/assets/bounce.wav
+--   • tests/assets/models/cube.obj
+--   • tests/assets/shaders/grayscale.fs
 --   • procedural 2D texture via Image.checked → to_texture (TEX category)
 --   • Font.default() implicitly via Draw.text (TEXT category)
 --
--- Structure: one ~column-0 `-- ── <CAT>: ───` tag per in-scope category
+-- Structure: one ~column-0 `-- ── <CAT>: ───` tag per category
 -- (12 total). Each category hits 1–2 API calls sufficient to prove the
 -- binding compiles + links + resolves symbols at runtime.
 --
 -- Conveniences used:
---   • 73-02 shipped Color.rgb / Vector2.of / Vector3.of / Rectangle.of
---     constructor sugar — adopted here for ergonomic rect + vector setup.
---   • Camera3D.projection is typed as CameraProjection (D5 closed) so
---     the enum variant is passed directly, no Int32(0) workaround.
---
--- Canonical template chain:
---   examples/pong/pong.iron (Phase 68-05, 2D + audio idiom)
---   examples/rotating_cube/rotating_cube.iron (Phase 69-04, Camera3D idiom)
---   examples/model_viewer/model_viewer.iron (Phase 70-04, Model.load fallback)
---   examples/post_fx/post_fx.iron (Phase 71-02, shader-mode nesting)
+--   • `Color.rgb`, `Vector2.of`, `Vector3.of`, and `Rectangle.of` keep
+--     setup compact.
+--   • Camera projection uses `CameraProjection.PERSPECTIVE` directly.
 
 import raylib
 
@@ -58,7 +41,7 @@ func main() -> Int32 {
     val blip = Sound.load("tests/assets/bounce.wav")
 
 -- ── TEX: procedural checker via Image.checked → to_texture ───────────
-    -- Uses Color.rgb sugar from 73-02 for palette values.
+    -- Use Color.rgb for compact palette setup.
     val red_checker  = Color.rgb(UInt8(230), UInt8(41),  UInt8(55))   -- RED-ish
     val blue_checker = Color.rgb(UInt8(0),   UInt8(121), UInt8(241))  -- BLUE-ish
     val checker_img  = Image.checked(Int32(64), Int32(64), Int32(8), Int32(8), red_checker, blue_checker)
@@ -97,9 +80,7 @@ func main() -> Int32 {
 
     while not Window.should_close() {
 -- ── INPUT: Keyboard.is_pressed gated SPACE → Sound.play ──────────────
-        -- Phase 81: Sound.play returns Result[Void, AudioError]; discard via
-        -- `val _r`. Benign degrade — if 16 slots are saturated, SPACE-blip
-        -- silently no-ops rather than raising to the user.
+        -- Sound playback is fire-and-forget, so the result is bound and ignored.
         if Keyboard.is_pressed(KeyboardKey.SPACE) {
             val _r = Sound.play(blip)
         }
@@ -107,7 +88,7 @@ func main() -> Int32 {
 -- ── COLL: Rectangle.collides checks two overlapping rects each frame ─
         val hit = Rectangle.collides(r1, r2)
 
-        -- Orbital camera update (Phase 69 idiom).
+        -- Orbital camera update.
         cam = Camera3D.update(cam, CameraMode.ORBITAL)
 
 -- ── DRAW2D: Draw.begin/clear/rectangle primitives ────────────────────

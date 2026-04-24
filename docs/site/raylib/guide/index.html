@@ -574,7 +574,7 @@
 
       <div class="callout">
         <div class="callout-title">Every snippet is real</div>
-        <p>All code in this guide is lifted verbatim from working files under <code>examples/</code>. Copy-paste works out of the box on v2.0.0-alpha.</p>
+        <p>All code in this guide is lifted verbatim from working files under <code>examples/</code>. Copy-paste works out of the box with the current Iron release.</p>
       </div>
 
       <h2 id="overview">Overview</h2>
@@ -616,13 +616,13 @@
         <li><code>Window.set_target_fps(60)</code> &mdash; caps the main loop at 60 FPS (delta time is handled internally).</li>
         <li><code>while not Window.should_close()</code> &mdash; loop until the user closes the window or presses ESC. <strong>Iron uses <code>not</code>, not <code>!</code></strong>.</li>
         <li><code>Draw.begin()</code> / <code>Draw.end()</code> &mdash; bracket every frame's render commands.</li>
-        <li><code>Draw.clear(BLACK)</code> &mdash; wipe the framebuffer. <code>BLACK</code>, <code>WHITE</code>, <code>RED</code>, etc. are canonical <code>Color</code> constants from the binding.</li>
+        <li><code>Draw.clear(BLACK)</code> &mdash; wipe the framebuffer. <code>BLACK</code>, <code>WHITE</code>, <code>RED</code>, and the other built-in color constants come from the binding.</li>
         <li><code>Draw.text(str, x, y, size, color)</code> &mdash; draws text using the default font. Every integer argument is explicitly boxed (<code>Int32(200)</code>) because raylib's C ABI takes <code>int</code>, and Iron is strict about integer widths at foreign boundaries.</li>
         <li><code>Window.close()</code> &mdash; releases the GL context, audio device, and window handle.</li>
       </ul>
 
       <h2 id="pong-intro">Pong &mdash; a complete 2D game</h2>
-      <p>The canonical <code>examples/pong/pong.iron</code> file exercises the whole 2D surface: state machine, paddles, ball, collision, audio. It's the Iron raylib reference 2D game &mdash; when you want to see how <em>everything</em> fits, read pong first. We'll walk through the structural pieces here.</p>
+      <p>The <code>examples/pong/pong.iron</code> file exercises the whole 2D surface: state machine, paddles, ball, collision, and audio. It is the best small reference game in the repo when you want to see how the pieces fit together. We'll walk through the structural pieces here.</p>
       <p class="source-link">Source: <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">examples/pong/pong.iron</a></p>
 
       <h3 id="pong-setup">Setup &amp; state</h3>
@@ -654,19 +654,12 @@
     <span class="syn-ty">Window</span>.<span class="syn-fn">set_target_fps</span>(<span class="syn-nu">60</span>)
     <span class="syn-cm">-- ...</span>
 }</code></pre>
-      <p>Iron has no stdlib <code>Int.to_string()</code>, so pong also declares <code>int_to_str</code> locally &mdash; a pattern worth copying whenever you need to format a score:</p>
-      <pre><code><span class="syn-kw">func</span> <span class="syn-fn">int_to_str</span>(n: <span class="syn-ty">Int</span>) -&gt; <span class="syn-ty">String</span> {
-    <span class="syn-kw">if</span> n == <span class="syn-nu">0</span> { <span class="syn-kw">return</span> <span class="syn-st">"0"</span> }
-    <span class="syn-kw">var</span> x = n
-    <span class="syn-kw">var</span> s = <span class="syn-st">""</span>
-    <span class="syn-kw">while</span> x &gt; <span class="syn-nu">0</span> {
-        <span class="syn-kw">val</span> d = x % <span class="syn-nu">10</span>
-        <span class="syn-kw">val</span> digit_char = <span class="syn-ty">String</span>.<span class="syn-fn">from_byte</span>(<span class="syn-nu">48</span> + d)
-        s = <span class="syn-st">"{digit_char}{s}"</span>
-        x = x / <span class="syn-nu">10</span>
-    }
-    <span class="syn-kw">return</span> s
-}</code></pre>
+      <p>Pong formats its scores with <code>to_string()</code> and <code>pad_left(3, " ")</code> so the scoreboard stays fixed-width as scores grow:</p>
+      <pre><code><span class="syn-kw">val</span> left_str = left_score.<span class="syn-fn">to_string</span>().<span class="syn-fn">pad_left</span>(<span class="syn-nu">3</span>, <span class="syn-st">" "</span>)
+<span class="syn-kw">val</span> right_str = right_score.<span class="syn-fn">to_string</span>().<span class="syn-fn">pad_left</span>(<span class="syn-nu">3</span>, <span class="syn-st">" "</span>)
+
+<span class="syn-ty">Draw</span>.<span class="syn-fn">text</span>(left_str, <span class="syn-ty">Int32</span>(<span class="syn-nu">200</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">20</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">40</span>), <span class="syn-pr">WHITE</span>)
+<span class="syn-ty">Draw</span>.<span class="syn-fn">text</span>(right_str, <span class="syn-ty">Int32</span>(<span class="syn-nu">600</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">20</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">40</span>), <span class="syn-pr">WHITE</span>)</code></pre>
 
       <h3 id="pong-ball">The ball</h3>
       <p>The ball's origin is captured in a <code>Vector2</code>; its velocity is updated each frame and its position is drawn as a filled rectangle. The plain <code>Vector2</code> constructor takes <code>Float32</code> components &mdash; raylib is float-first at the ABI boundary:</p>
@@ -678,7 +671,7 @@
       <p>For the full ball update loop (velocity integration + bounds reflection) see the pong source on GitHub; the key binding calls are <code>Draw.rectangle</code> for the ball body, <code>Draw.line</code> for the divider, and <code>Rectangle.collides</code> for edge/paddle overlap checks.</p>
 
       <h3 id="pong-paddles">Paddles &amp; input</h3>
-      <p>Player input is polled with <code>Keyboard.is_down</code> (held) and <code>Keyboard.is_pressed</code> (edge). Every Iron raylib program reuses the same <code>KeyboardKey</code> enum from the Phase 60 binding:</p>
+      <p>Player input is polled with <code>Keyboard.is_down</code> (held) and <code>Keyboard.is_pressed</code> (edge). Every Iron raylib program uses the same <code>KeyboardKey</code> enum exposed by the binding:</p>
       <pre><code><span class="syn-kw">val</span> _kb_start: <span class="syn-ty">Bool</span>      = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_pressed</span>(start_key)
 <span class="syn-kw">val</span> _kb_left_up: <span class="syn-ty">Bool</span>    = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_down</span>(left_up)
 <span class="syn-kw">val</span> _kb_left_down: <span class="syn-ty">Bool</span>  = <span class="syn-ty">Keyboard</span>.<span class="syn-fn">is_down</span>(left_down)
@@ -703,13 +696,13 @@
 
 <span class="syn-cm">-- In the collision handler:</span>
 <span class="syn-kw">if</span> <span class="syn-ty">Sound</span>.<span class="syn-fn">is_valid</span>(bounce) {
-    <span class="syn-ty">Sound</span>.<span class="syn-fn">play</span>(bounce)
+    <span class="syn-kw">val</span> _r = <span class="syn-ty">Sound</span>.<span class="syn-fn">play</span>(bounce)
 }
 
 <span class="syn-cm">-- Teardown: unload the sound, then close the audio device</span>
 <span class="syn-ty">Sound</span>.<span class="syn-fn">unload</span>(bounce)
 <span class="syn-ty">Audio</span>.<span class="syn-fn">close</span>()</code></pre>
-      <p>The <code>Sound.is_valid</code> guard is the Iron idiom for "asset failed to load at runtime (missing file, wrong format, headless CI)" &mdash; a missing bounce.wav should not crash the game. For streaming / music / mixed-pool audio, see the <a href="/raylib/reference/audio.html">Audio reference</a>.</p>
+      <p>The <code>Sound.is_valid</code> guard is the common pattern for "asset failed to load at runtime (missing file, wrong format, headless CI)" &mdash; a missing bounce.wav should not crash the game. Binding the result of <code>Sound.play</code> keeps the call explicit while still treating playback as fire-and-forget. For streaming / music / mixed-pool audio, see the <a href="/raylib/reference/audio.html">Audio reference</a>.</p>
       <p class="source-link">Full source: <a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron">pong.iron on GitHub</a></p>
 
       <h2 id="cube-intro">Rotating cube &mdash; your first 3D scene</h2>
@@ -723,11 +716,11 @@
     <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>)),
     <span class="syn-ty">Vector3</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>),  <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>)),
     <span class="syn-ty">Float32</span>(<span class="syn-nu">45.0</span>),
-    <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>)  <span class="syn-cm">-- projection = PERSPECTIVE</span>
+    <span class="syn-ty">CameraProjection</span>.<span class="syn-pr">PERSPECTIVE</span>
 )</code></pre>
       <div class="callout">
-        <div class="callout-title">Why <code>Int32(0)</code> and not <code>CameraProjection.PERSPECTIVE</code>?</div>
-        <p>ironc v2.0.0-alpha has a known codegen bug when an enum ordinal is used inside a struct initializer. Passing <code>Int32(0)</code> is byte-identical at the C ABI and matches <code>CameraProjection.PERSPECTIVE</code>. Deferred to a post-alpha codegen fix.</p>
+        <div class="callout-title">Use the enum directly</div>
+        <p><code>CameraProjection.PERSPECTIVE</code> and <code>CameraProjection.ORTHOGRAPHIC</code> can be passed directly to <code>Camera3D(...)</code>.</p>
       </div>
 
       <h3 id="cube-loop">The 3D render loop</h3>
@@ -817,7 +810,7 @@
         }
     }
 
-    <span class="syn-cm">-- raylib no-ops if loc_intensity == -1 (uniform not found)</span>
+    <span class="syn-cm">-- raylib ignores the write if loc_intensity == -1 (uniform not found)</span>
     <span class="syn-kw">if</span> loc_intensity &gt;= <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>) {
         <span class="syn-ty">Shader</span>.<span class="syn-fn">set_value</span>(fx_invert, loc_intensity, intensity_bytes, <span class="syn-ty">ShaderUniformDataType</span>.<span class="syn-pr">FLOAT</span>)
     }
@@ -829,15 +822,15 @@
       <p>When you know <em>what</em> you need but not the exact signature, jump into the reference. Start with <a href="/raylib/reference/types.html">Types</a> for the core value types (<code>Vector2</code>, <code>Vector3</code>, <code>Color</code>, <code>Rectangle</code>, <code>Camera3D</code>), then <a href="/raylib/reference/enums.html">Enums</a>, then the category you need. Every entry lists signature, one-line description, a 3-5 line example, and 3 cross-links (raylib.h upstream, Iron source line, test usage).</p>
 
       <h2 id="examples">Examples gallery</h2>
-      <p>Five canonical consumers under <code>examples/</code> exercise every category of the binding. Read their source for "how it's actually done" patterns:</p>
+      <p>Five example programs under <code>examples/</code> exercise every category of the binding. Read their source for concrete usage patterns:</p>
       <ul>
         <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/pong/pong.iron"><code>pong</code></a> &mdash; 2D game: window, input, draw, collision, audio.</li>
         <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron"><code>rotating_cube</code></a> &mdash; 3D scene: Camera3D, 3D drawing, orbital camera mode.</li>
         <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron"><code>model_viewer</code></a> &mdash; 3D model loading with procedural fallback.</li>
         <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/post_fx/post_fx.iron"><code>post_fx</code></a> &mdash; shader pipeline with RenderTexture and interactive uniforms.</li>
-        <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron"><code>raylib_showcase</code></a> &mdash; single-file 12-category canonical demo.</li>
+        <li><a href="https://github.com/victorl2/iron-lang/blob/main/examples/raylib_showcase/raylib_showcase.iron"><code>raylib_showcase</code></a> &mdash; single-file showcase covering the full binding.</li>
       </ul>
-      <p>When the <a href="/raylib/examples/">examples gallery</a> ships (Plan 74-03), each of these gets a screenshot card.</p>
+      <p>The <a href="/raylib/examples/">examples gallery</a> adds screenshot cards for each of these programs.</p>
     </main>
   </div>
 
