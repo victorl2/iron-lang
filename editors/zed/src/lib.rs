@@ -61,7 +61,7 @@ const COMPATIBLE_MAX_EXCLUSIVE: (u32, u32, u32) = (2, 0, 0);
 fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
     // Strip pre-release / build metadata; only the core triple is
     // compared. "1.2.0-alpha.7" -> "1.2.0".
-    let core = s.split(|c: char| c == '-' || c == '+').next()?;
+    let core = s.split(['-', '+']).next()?;
     let mut it = core.split('.');
     let major: u32 = it.next()?.parse().ok()?;
     let minor: u32 = it.next()?.parse().ok()?;
