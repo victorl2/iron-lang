@@ -1,0 +1,12 @@
+func main() {
+  val captured_0 = 0
+  val f0 = func() -> Int {
+    return captured_0
+  }
+  val captured_3 = 3
+  val f3 = func() -> Int {
+    return captured_3
+  }
+  println("{f0()}")
+  println("{f3()}")
+}

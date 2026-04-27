@@ -1,0 +1,17 @@
+func main() {
+  val arr = fill(5, 42)
+  println("len = {len(arr)}")
+  println("{arr[0]}, {arr[2]}, {arr[4]}")
+  val zeros = fill(3, 0)
+  println("{zeros[0]}, {zeros[1]}, {zeros[2]}")
+  var data = fill(4, 10)
+  data[1] = 20
+  data[3] = 40
+  println("{data[0]}, {data[1]}, {data[2]}, {data[3]}")
+  val items = fill(5, 1)
+  var sum = 0
+  for x in items {
+    sum = (sum + x)
+  }
+  println("sum = {sum}")
+}

@@ -1,0 +1,43 @@
+func main() {
+  val i_zero: Int = 0
+  val i_pos: Int = 42
+  val i_neg: Int = -42
+  val i_max: Int = 9223372036854775807
+  val i_min_top: Int = -9223372036854775807
+  val i_min: Int = (i_min_top - 1)
+  println(i_zero.to_string())
+  println(i_pos.to_string())
+  println(i_neg.to_string())
+  println(i_max.to_string())
+  println(i_min.to_string())
+  val i32_zero: Int32 = Int32(0)
+  val i32_max: Int32 = Int32(2147483647)
+  val i32_min: Int32 = Int32(-2147483648)
+  println(i32_zero.to_string())
+  println(i32_max.to_string())
+  println(i32_min.to_string())
+  val f_one_half: Float = 1.5
+  val f_trim: Float = 1.0
+  val f_zero: Float = 0.0
+  val f_neg_zero: Float = -0.0
+  val f_neg: Float = -3.14
+  println(f_one_half.to_string())
+  println(f_trim.to_string())
+  println(f_zero.to_string())
+  println(f_neg_zero.to_string())
+  println(f_neg.to_string())
+  val zero_f: Float = 0.0
+  val one_f: Float = 1.0
+  val neg_one_f: Float = -1.0
+  val f_nan: Float = (zero_f / zero_f)
+  val f_pinf: Float = (one_f / zero_f)
+  val f_ninf: Float = (neg_one_f / zero_f)
+  println(f_nan.to_string())
+  println(f_pinf.to_string())
+  println(f_ninf.to_string())
+  val s: String = 42.to_string()
+  println(s.pad_left(5, " "))
+  println(s.pad_right(5, "_"))
+  println(s.pad_left(1, " "))
+  println("9".pad_left(3, "0"))
+}

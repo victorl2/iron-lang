@@ -1,0 +1,37 @@
+import hint
+
+func main() {
+  val a = Hint.black_box(42)
+  if (a == 42) {
+    println("identity_pos ok")
+  } else {
+    println("identity_pos FAIL (got {a})")
+  }
+  val b = Hint.black_box(0)
+  if (b == 0) {
+    println("identity_zero ok")
+  } else {
+    println("identity_zero FAIL (got {b})")
+  }
+  val c = Hint.black_box(-1000)
+  if (c == -1000) {
+    println("identity_neg ok")
+  } else {
+    println("identity_neg FAIL (got {c})")
+  }
+  val d = Hint.black_box(9223372036854775807)
+  if (d == 9223372036854775807) {
+    println("identity_max ok")
+  } else {
+    println("identity_max FAIL (got {d})")
+  }
+  var sum = 0
+  for i in range(100) {
+    sum = (sum + Hint.black_box((i * 2)))
+  }
+  if (sum == 9900) {
+    println("accumulator ok")
+  } else {
+    println("accumulator FAIL (got {sum})")
+  }
+}

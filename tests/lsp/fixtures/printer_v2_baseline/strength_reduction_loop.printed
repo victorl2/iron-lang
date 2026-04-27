@@ -1,0 +1,26 @@
+func main() {
+  val rows = 3
+  val cols = 4
+  var grid = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  var i = 0
+  while (i < rows) {
+    var j = 0
+    while (j < cols) {
+      val idx = ((i * cols) + j)
+      grid[idx] = (idx + 1)
+      j = (j + 1)
+    }
+    i = (i + 1)
+  }
+  var sum = 0
+  var k = 0
+  while (k < (rows * cols)) {
+    sum = (sum + grid[k])
+    k = (k + 1)
+  }
+  println("{sum}")
+  val first = grid[0]
+  val last = grid[11]
+  println("{first}")
+  println("{last}")
+}

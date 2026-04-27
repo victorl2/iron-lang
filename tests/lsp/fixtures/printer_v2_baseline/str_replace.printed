@@ -1,0 +1,6 @@
+func main() {
+  val s = "abcabc"
+  println(s.replace("a", "x"))
+  println("hello world".replace("world", "Iron"))
+  println("no match".replace("xyz", "abc"))
+}

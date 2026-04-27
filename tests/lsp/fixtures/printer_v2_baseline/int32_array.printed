@@ -1,0 +1,26 @@
+func sum_array(arr: [Int32], n: Int) -> Int32 {
+  var total: Int32 = Int32(0)
+  var i = 0
+  while (i < n) {
+    total = (total + arr[i])
+    i = (i + 1)
+  }
+  return total
+}
+
+func main() {
+  var arr = fill(5, Int32(0))
+  arr[0] = Int32(10)
+  arr[1] = Int32(20)
+  arr[2] = Int32(30)
+  arr[3] = Int32(40)
+  arr[4] = Int32(50)
+  val first: Int32 = arr[0]
+  println("{first}")
+  val s: Int32 = (arr[0] + arr[1])
+  println("{s}")
+  val total = sum_array(arr, 5)
+  println("{total}")
+  arr[2] = (arr[0] + arr[4])
+  println("{arr[2]}")
+}

@@ -1,0 +1,33 @@
+func add(x: Int, y: Int) -> Int {
+  return (x + y)
+}
+
+object Pair {
+  val a: Int
+  val b: Int
+}
+
+func main() {
+  val int_lit = 42
+  val str_lit = "hello"
+  val bool_lit = true
+  val ident = int_lit
+  val binop = (int_lit + 1)
+  val unary = -int_lit
+  val call = add(int_lit, 1)
+  val pair = Pair(int_lit, call)
+  val field = pair.a
+  val arr = [1, 2, 3]
+  val index = arr[0]
+  val interp = "value: {int_lit}"
+  println("int: {int_lit}")
+  println("str: {str_lit}")
+  println("bool: {bool_lit}")
+  println("ident: {ident}")
+  println("binop: {binop}")
+  println("unary: {unary}")
+  println("call: {call}")
+  println("field: {field}")
+  println("index: {index}")
+  println(interp)
+}

@@ -1,0 +1,59 @@
+interface Widget {
+  func score() -> Int
+}
+
+object Button impl Widget {
+  var priority: Int
+  var x: Int
+  var debug_tag: Int
+}
+
+func (mut self: Button) init(priority: Int, x: Int, debug_tag: Int) {
+  self.priority = priority
+  self.x = x
+  self.debug_tag = debug_tag
+}
+
+object Slider impl Widget {
+  var priority: Int
+  var pos: Int
+  var debug_tag: Int
+}
+
+func (mut self: Slider) init(priority: Int, pos: Int, debug_tag: Int) {
+  self.priority = priority
+  self.pos = pos
+  self.debug_tag = debug_tag
+}
+
+object Label impl Widget {
+  var priority: Int
+  var len: Int
+  var debug_tag: Int
+}
+
+func (mut self: Label) init(priority: Int, len: Int, debug_tag: Int) {
+  self.priority = priority
+  self.len = len
+  self.debug_tag = debug_tag
+}
+
+func Button.score() -> Int {
+  return ((self.priority * 100) + self.x)
+}
+
+func Slider.score() -> Int {
+  return ((self.priority * 100) + self.pos)
+}
+
+func Label.score() -> Int {
+  return ((self.priority * 100) + self.len)
+}
+
+func main() {
+  val widgets = [Button(3, 50, 999), Slider(2, 30, 998), Label(5, 80, 997), Button(1, 10, 996), Slider(4, 60, 995), Label(2, 40, 994), Button(5, 90, 993), Slider(1, 20, 992), Label(3, 70, 991), Button(4, 55, 990), Slider(3, 45, 989), Label(1, 15, 988), Button(2, 35, 987), Slider(5, 85, 986), Label(4, 65, 985)]
+  val total = widgets.map(func(w: Widget) -> Int {
+    return w.score()
+  }).sum()
+  println("{total}")
+}

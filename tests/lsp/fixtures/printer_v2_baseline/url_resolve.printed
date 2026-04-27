@@ -1,0 +1,28 @@
+import url
+
+func check_resolve(base_str: String, ref: String, expected: String) {
+  val (null) = Url.parse(base_str)
+  if (err.code != 0) {
+    println("base parse failed")
+    return
+  }
+  val (null) = Url.resolve(base, ref)
+  if (rerr.code != 0) {
+    println("resolve failed")
+    return
+  }
+  val built = Url.build(result)
+  if (built == expected) {
+    println("ok {ref}")
+  } else {
+    println("FAIL {ref}: got {built}")
+  }
+}
+
+func main() {
+  val base = "http://a/b/c/d;p?q"
+  check_resolve(base, "g", "http://a/b/c/g")
+  check_resolve(base, "/g", "http://a/g")
+  check_resolve(base, "../../g", "http://a/g")
+  check_resolve(base, "#s", "http://a/b/c/d;p?q#s")
+}

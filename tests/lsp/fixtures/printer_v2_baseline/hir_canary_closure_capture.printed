@@ -1,0 +1,12 @@
+func main() {
+  var count = 0
+  val bump = func() {
+    count += 1
+  }
+  bump()
+  bump()
+  bump()
+  bump()
+  bump()
+  println("count: {count}")
+}

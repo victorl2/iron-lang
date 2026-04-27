@@ -1,0 +1,9 @@
+enum Shape {
+  Circle(Float),
+  Rectangle(Float, Float),
+  Point,
+}
+
+func main() {
+  println("adt_enum_decl: ok")
+}

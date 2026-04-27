@@ -1,0 +1,22 @@
+object IntBox {
+  var value: Int
+}
+
+func (mut self: IntBox) init(value: Int) {
+  self.value = value
+}
+
+object StringBox {
+  var value: String
+}
+
+func (mut self: StringBox) init(value: String) {
+  self.value = value
+}
+
+func main() {
+  val ib = IntBox(42)
+  val sb = StringBox("hello")
+  println("{ib.value}")
+  println(sb.value)
+}

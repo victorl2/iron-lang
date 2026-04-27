@@ -1,0 +1,69 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+func (mut self: Circle) init(radius: Int) {
+  self.radius = radius
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func (mut self: Square) init(side: Int) {
+  self.side = side
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func main() {
+  val arr1 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  val result1 = arr1.map(func(x: Int) -> Int {
+    return (x + 10)
+  }).map(func(x: Int) -> Int {
+    return (x * 2)
+  }).filter(func(x: Int) -> Bool {
+    return (x > 25)
+  }).map(func(x: Int) -> Int {
+    return (x - 5)
+  }).reduce(0, func(acc: Int, x: Int) -> Int {
+    return (acc + x)
+  })
+  println("{result1}")
+  val shapes = [Circle(5), Square(4), Circle(3), Square(6), Circle(2)]
+  val result2 = shapes.map(func(s: Shape) -> Int {
+    return s.area()
+  }).filter(func(a: Int) -> Bool {
+    return (a > 10)
+  }).map(func(a: Int) -> Int {
+    return (a + 1)
+  }).filter(func(a: Int) -> Bool {
+    return (a < 100)
+  }).sum()
+  println("{result2}")
+  val arr3 = [1, 2, 3, 4, 5, 6, 7, 8]
+  val result3 = arr3.map(func(x: Int) -> Int {
+    return (x * 3)
+  }).filter(func(x: Int) -> Bool {
+    return (x > 10)
+  }).map(func(x: Int) -> Int {
+    return (x - 5)
+  }).filter(func(x: Int) -> Bool {
+    return (x > 5)
+  }).map(func(x: Int) -> Int {
+    return (x * 2)
+  }).reduce(0, func(acc: Int, x: Int) -> Int {
+    return (acc + x)
+  })
+  println("{result3}")
+}

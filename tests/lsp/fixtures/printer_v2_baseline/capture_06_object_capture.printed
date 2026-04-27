@@ -1,0 +1,17 @@
+object Counter {
+  var value: Int
+}
+
+func (mut self: Counter) init(value: Int) {
+  self.value = value
+}
+
+func main() {
+  var c = Counter(0)
+  val inc = func() {
+    c.value += 1
+  }
+  inc()
+  inc()
+  println("{c.value}")
+}

@@ -1,0 +1,13 @@
+func sum_to(n: Int) -> Int {
+  var sum = 0
+  var i = 1
+  while (i <= n) {
+    sum = (sum + i)
+    i = (i + 1)
+  }
+  return sum
+}
+
+func main() {
+  println("sum: {sum_to(10)}")
+}

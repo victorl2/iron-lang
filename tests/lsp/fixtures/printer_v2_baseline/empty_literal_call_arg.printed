@@ -1,0 +1,8 @@
+func count_ints(xs: [Int]) -> Int {
+  return xs.len()
+}
+
+func main() {
+  var n = count_ints([])
+  println("{n}")
+}

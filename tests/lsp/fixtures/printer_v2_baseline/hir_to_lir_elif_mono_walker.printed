@@ -1,0 +1,23 @@
+func classify(n: Int) -> Int {
+  var bucket = -1
+  if (n < 0) {
+    bucket = 0
+  } elif (n == 0) {
+    bucket = 1
+  } elif (n < 10) {
+    bucket = 2
+  } elif (n < 100) {
+    bucket = 3
+  } else {
+    bucket = 4
+  }
+  return bucket
+}
+
+func main() {
+  var total = 0
+  for i in range(10) {
+    total = (total + classify((i - 5)))
+  }
+  println("total: {total}")
+}

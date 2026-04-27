@@ -1,0 +1,60 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+func (mut self: Circle) init(radius: Int) {
+  self.radius = radius
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func (mut self: Square) init(side: Int) {
+  self.side = side
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func main() {
+  val shapes = [Circle(5)]
+  var total1 = 0
+  for s in shapes {
+    total1 = (total1 + s.area())
+  }
+  println("{total1}")
+  val mixed = [Circle(5), Square(1)]
+  val result2 = mixed.map(func(s: Shape) -> Int {
+    return s.area()
+  }).filter(func(a: Int) -> Bool {
+    return (a > 10)
+  }).sum()
+  println("{result2}")
+  val mixed2 = [Circle(5), Square(2)]
+  val result3 = mixed2.map(func(s: Shape) -> Int {
+    return s.area()
+  }).filter(func(a: Int) -> Bool {
+    return (a > 50)
+  }).sum()
+  println("{result3}")
+  val single = [42]
+  val result4 = single.map(func(x: Int) -> Int {
+    return (x * 2)
+  }).sum()
+  println("{result4}")
+  val single2 = [10]
+  val result5 = single2.reduce(5, func(acc: Int, x: Int) -> Int {
+    return (acc + x)
+  })
+  println("{result5}")
+}

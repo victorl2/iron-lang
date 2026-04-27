@@ -1,0 +1,4 @@
+func main() {
+  defer println("cleanup")
+  println("body")
+}

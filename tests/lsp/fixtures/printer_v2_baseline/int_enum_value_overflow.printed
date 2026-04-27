@@ -1,0 +1,31 @@
+enum Priority {
+  LOW,
+  MEDIUM,
+  HIGH,
+  MAX_INT,
+}
+
+func describe(p: Priority) -> String {
+  match p {
+    Priority.LOW -> {
+      return "low"
+    }
+    Priority.MEDIUM -> {
+      return "med"
+    }
+    Priority.HIGH -> {
+      return "high"
+    }
+    Priority.MAX_INT -> {
+      return "max"
+    }
+  }
+  return "unknown"
+}
+
+func main() {
+  println(describe(Priority.LOW))
+  println(describe(Priority.MEDIUM))
+  println(describe(Priority.HIGH))
+  println(describe(Priority.MAX_INT))
+}

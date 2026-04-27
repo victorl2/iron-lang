@@ -1,0 +1,39 @@
+import time
+
+func main() {
+  val a = Time.now_ns()
+  val b = Time.now_ns()
+  if (b >= a) {
+    println("monotonic ok")
+  } else {
+    println("monotonic FAIL")
+  }
+  val c = Time.now_ns()
+  var acc = a
+  for i in range(10000) {
+    acc = (acc + Time.now_ns())
+  }
+  val d = Time.now_ns()
+  val delta_work = (d - c)
+  if (delta_work > 0) {
+    println("nonzero ok")
+  } else {
+    println("nonzero FAIL (delta={delta_work}, acc={acc})")
+  }
+  val e = Time.now_ns()
+  var acc2 = a
+  for i in range(10000) {
+    acc2 = (acc2 + Time.now_ns())
+  }
+  val f = Time.now_ns()
+  val delta_ns = (f - e)
+  if (delta_ns > 10000) {
+    if (delta_ns < 100000000000) {
+      println("ns_granularity ok")
+    } else {
+      println("ns_granularity FAIL (delta_ns={delta_ns} > 100000000000, looks like wrong unit)")
+    }
+  } else {
+    println("ns_granularity FAIL (delta_ns={delta_ns} < 10000, looks like wrong unit)")
+  }
+}

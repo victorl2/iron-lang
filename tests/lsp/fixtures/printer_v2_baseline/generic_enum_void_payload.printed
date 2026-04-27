@@ -1,0 +1,16 @@
+enum Result {
+  Ok(T),
+  Err(E),
+}
+
+func main() {
+  val r: Result[Void, Int] = Result.Err(42)
+  match r {
+    Result.Ok(_) -> {
+      println("ok")
+    }
+    Result.Err(code) -> {
+      println("err")
+    }
+  }
+}

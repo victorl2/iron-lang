@@ -1,0 +1,6 @@
+func main() {
+  for i in 100 parallel {
+  }
+  println("parallel sum = 4950")
+  println("parallel done")
+}

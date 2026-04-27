@@ -1,0 +1,35 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+func (mut self: Circle) init(radius: Int) {
+  self.radius = radius
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func (mut self: Square) init(side: Int) {
+  self.side = side
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func main() {
+  var shapes = [Circle(1), Square(2), Circle(3)]
+  println("{shapes.len()}")
+  var last = shapes.pop()
+  println("{last.area()}")
+  println("{shapes.len()}")
+}

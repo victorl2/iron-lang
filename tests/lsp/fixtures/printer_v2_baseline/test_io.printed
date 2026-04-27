@@ -1,0 +1,10 @@
+import io
+
+func main() {
+  val exists = IO.file_exists("/tmp")
+  println("io works")
+  IO.write_file("/tmp/iron_test_io_read.txt", "hello from iron")
+  val content = IO.read_file("/tmp/iron_test_io_read.txt")
+  println(content)
+  IO.delete_file("/tmp/iron_test_io_read.txt")
+}

@@ -1,0 +1,16 @@
+func compose(f: func, g: func) -> func {
+  return func(x: Int) -> Int {
+    return f(g(x))
+  }
+}
+
+func main() {
+  val offset = 10
+  val scale = 3
+  val transform = compose(func(x: Int) -> Int {
+    return (x + offset)
+  }, func(x: Int) -> Int {
+    return (x * scale)
+  })
+  println("{transform(5)}")
+}

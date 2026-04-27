@@ -1,0 +1,17 @@
+func main() {
+  val arr = [1, 2, 3, 4, 5]
+  val result = arr.map(func(x: Int) -> Int {
+    return (x * x)
+  }).filter(func(x: Int) -> Bool {
+    return (x > 4)
+  }).reduce(0, func(acc: Int, x: Int) -> Int {
+    return (acc + x)
+  })
+  println("{result}")
+  val mapped = arr.map(func(x: Int) -> Int {
+    return (x + 10)
+  })
+  for v in mapped {
+    println("{v}")
+  }
+}
