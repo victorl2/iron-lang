@@ -1,9 +1,8 @@
 object Counter {
   var count: Int
-}
-
-func (mut self: Counter) init(count: Int) {
-  self.count = count
+  init(count: Int) {
+    self.count = count
+  }
 }
 
 func Counter.increment() -> Int {

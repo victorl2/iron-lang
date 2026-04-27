@@ -1,9 +1,8 @@
 object Counter {
   var value: Int
-}
-
-func (mut self: Counter) init(value: Int) {
-  self.value = value
+  init(value: Int) {
+    self.value = value
+  }
 }
 
 func Counter.bump() -> Int {

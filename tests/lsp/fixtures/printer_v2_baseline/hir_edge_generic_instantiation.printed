@@ -1,25 +1,22 @@
 object IntWrapper {
   var value: Int
-}
-
-func (mut self: IntWrapper) init(value: Int) {
-  self.value = value
+  init(value: Int) {
+    self.value = value
+  }
 }
 
 object FloatWrapper {
   var value: Float
-}
-
-func (mut self: FloatWrapper) init(value: Float) {
-  self.value = value
+  init(value: Float) {
+    self.value = value
+  }
 }
 
 object StringWrapper {
   var value: String
-}
-
-func (mut self: StringWrapper) init(value: String) {
-  self.value = value
+  init(value: String) {
+    self.value = value
+  }
 }
 
 func IntWrapper.doubled() -> Int {

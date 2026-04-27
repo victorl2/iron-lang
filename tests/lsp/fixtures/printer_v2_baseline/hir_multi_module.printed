@@ -1,11 +1,10 @@
 object Range {
   var lo: Int
   var hi: Int
-}
-
-func (mut self: Range) init(lo: Int, hi: Int) {
-  self.lo = lo
-  self.hi = hi
+  init(lo: Int, hi: Int) {
+    self.lo = lo
+    self.hi = hi
+  }
 }
 
 func Range.size() -> Int {

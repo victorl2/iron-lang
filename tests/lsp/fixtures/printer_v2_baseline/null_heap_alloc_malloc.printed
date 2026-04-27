@@ -1,11 +1,10 @@
 object Point {
   var x: Int
   var y: Int
-}
-
-func (mut self: Point) init(x: Int, y: Int) {
-  self.x = x
-  self.y = y
+  init(x: Int, y: Int) {
+    self.x = x
+    self.y = y
+  }
 }
 
 func main() {

@@ -5,21 +5,19 @@ interface Small2 {
 object S2A impl Small2 {
   var a: Int
   var b: Int
-}
-
-func (mut self: S2A) init(a: Int, b: Int) {
-  self.a = a
-  self.b = b
+  init(a: Int, b: Int) {
+    self.a = a
+    self.b = b
+  }
 }
 
 object S2B impl Small2 {
   var a: Int
   var b: Int
-}
-
-func (mut self: S2B) init(a: Int, b: Int) {
-  self.a = a
-  self.b = b
+  init(a: Int, b: Int) {
+    self.a = a
+    self.b = b
+  }
 }
 
 func S2A.get_a() -> Int {
@@ -39,13 +37,12 @@ object M4A impl Medium4 {
   var y: Int
   var z: Int
   var w: Int
-}
-
-func (mut self: M4A) init(x: Int, y: Int, z: Int, w: Int) {
-  self.x = x
-  self.y = y
-  self.z = z
-  self.w = w
+  init(x: Int, y: Int, z: Int, w: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.w = w
+  }
 }
 
 object M4B impl Medium4 {
@@ -53,13 +50,12 @@ object M4B impl Medium4 {
   var y: Int
   var z: Int
   var w: Int
-}
-
-func (mut self: M4B) init(x: Int, y: Int, z: Int, w: Int) {
-  self.x = x
-  self.y = y
-  self.z = z
-  self.w = w
+  init(x: Int, y: Int, z: Int, w: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.w = w
+  }
 }
 
 func M4A.get_x() -> Int {
@@ -79,13 +75,12 @@ object F4A impl Full4 {
   var b: Int
   var c: Int
   var d: Int
-}
-
-func (mut self: F4A) init(a: Int, b: Int, c: Int, d: Int) {
-  self.a = a
-  self.b = b
-  self.c = c
-  self.d = d
+  init(a: Int, b: Int, c: Int, d: Int) {
+    self.a = a
+    self.b = b
+    self.c = c
+    self.d = d
+  }
 }
 
 object F4B impl Full4 {
@@ -93,13 +88,12 @@ object F4B impl Full4 {
   var b: Int
   var c: Int
   var d: Int
-}
-
-func (mut self: F4B) init(a: Int, b: Int, c: Int, d: Int) {
-  self.a = a
-  self.b = b
-  self.c = c
-  self.d = d
+  init(a: Int, b: Int, c: Int, d: Int) {
+    self.a = a
+    self.b = b
+    self.c = c
+    self.d = d
+  }
 }
 
 func F4A.total() -> Int {
@@ -119,21 +113,19 @@ object WithExtra impl HasValue {
   var extra1: Int
   var extra2: Int
   var extra3: Int
-}
-
-func (mut self: WithExtra) init(num: Int, extra1: Int, extra2: Int, extra3: Int) {
-  self.num = num
-  self.extra1 = extra1
-  self.extra2 = extra2
-  self.extra3 = extra3
+  init(num: Int, extra1: Int, extra2: Int, extra3: Int) {
+    self.num = num
+    self.extra1 = extra1
+    self.extra2 = extra2
+    self.extra3 = extra3
+  }
 }
 
 object WithoutExtra impl HasValue {
   var num: Int
-}
-
-func (mut self: WithoutExtra) init(num: Int) {
-  self.num = num
+  init(num: Int) {
+    self.num = num
+  }
 }
 
 func WithExtra.value() -> Int {
@@ -151,21 +143,19 @@ interface Identified {
 object TypeA impl Identified {
   var id: Int
   var data_a: Int
-}
-
-func (mut self: TypeA) init(id: Int, data_a: Int) {
-  self.id = id
-  self.data_a = data_a
+  init(id: Int, data_a: Int) {
+    self.id = id
+    self.data_a = data_a
+  }
 }
 
 object TypeB impl Identified {
   var id: Int
   var data_b: Int
-}
-
-func (mut self: TypeB) init(id: Int, data_b: Int) {
-  self.id = id
-  self.data_b = data_b
+  init(id: Int, data_b: Int) {
+    self.id = id
+    self.data_b = data_b
+  }
 }
 
 func TypeA.get_id() -> Int {

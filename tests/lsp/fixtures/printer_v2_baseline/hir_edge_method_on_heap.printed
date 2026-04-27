@@ -1,11 +1,10 @@
 object Vec {
   var x: Int
   var y: Int
-}
-
-func (mut self: Vec) init(x: Int, y: Int) {
-  self.x = x
-  self.y = y
+  init(x: Int, y: Int) {
+    self.x = x
+    self.y = y
+  }
 }
 
 func Vec.dot(other: Vec) -> Int {

@@ -6,31 +6,28 @@ interface Animal {
 object Dog {
   var dog_name: String
   var breed: String
-}
-
-func (mut self: Dog) init(dog_name: String, breed: String) {
-  self.dog_name = dog_name
-  self.breed = breed
+  init(dog_name: String, breed: String) {
+    self.dog_name = dog_name
+    self.breed = breed
+  }
 }
 
 object Cat {
   var cat_name: String
   var indoor: Int
-}
-
-func (mut self: Cat) init(cat_name: String, indoor: Int) {
-  self.cat_name = cat_name
-  self.indoor = indoor
+  init(cat_name: String, indoor: Int) {
+    self.cat_name = cat_name
+    self.indoor = indoor
+  }
 }
 
 object Bird {
   var bird_name: String
   var can_fly: Int
-}
-
-func (mut self: Bird) init(bird_name: String, can_fly: Int) {
-  self.bird_name = bird_name
-  self.can_fly = can_fly
+  init(bird_name: String, can_fly: Int) {
+    self.bird_name = bird_name
+    self.can_fly = can_fly
+  }
 }
 
 func Dog.speak() -> String {

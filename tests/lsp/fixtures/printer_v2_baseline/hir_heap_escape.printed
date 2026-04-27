@@ -1,9 +1,8 @@
 object Item {
   var value: Int
-}
-
-func (mut self: Item) init(value: Int) {
-  self.value = value
+  init(value: Int) {
+    self.value = value
+  }
 }
 
 func main() {

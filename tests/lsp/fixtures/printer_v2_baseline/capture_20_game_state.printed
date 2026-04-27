@@ -2,12 +2,11 @@ object GameState {
   var score: Int
   var lives: Int
   var running: Bool
-}
-
-func (mut self: GameState) init(score: Int, lives: Int, running: Bool) {
-  self.score = score
-  self.lives = lives
-  self.running = running
+  init(score: Int, lives: Int, running: Bool) {
+    self.score = score
+    self.lives = lives
+    self.running = running
+  }
 }
 
 func main() {

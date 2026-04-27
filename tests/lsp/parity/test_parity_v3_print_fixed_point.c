@@ -132,10 +132,7 @@ static int format_contains(const char *path, const char *needle) {
 /* ── v3 fixed-point tests (one per v3 fixture in the corpus) ──────────── */
 
 void test_v3_init_anonymous_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 3 implementation pending");
-    /* Real assertion (Task 3):
-     *   - format(v3_init_anonymous_and_named.iron) contains "init("
-     *   - fixed_point_holds(...) returns 1 */
+    /* Phase 9 Plan 09-02 Task 3: anonymous-init in-block emission. */
     TEST_ASSERT_TRUE_MESSAGE(
         format_contains(FIXTURE_PATH("v3_init_anonymous_and_named.iron"), "init("),
         "anonymous init(...) shape");
@@ -145,7 +142,7 @@ void test_v3_init_anonymous_fixed_point(void) {
 }
 
 void test_v3_init_named_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 3 implementation pending");
+    /* Phase 9 Plan 09-02 Task 3: named-init in-block emission. */
     TEST_ASSERT_TRUE_MESSAGE(
         format_contains(FIXTURE_PATH("v3_init_anonymous_and_named.iron"),
                          "init zero("),
@@ -156,7 +153,7 @@ void test_v3_init_named_fixed_point(void) {
 }
 
 void test_v3_patch_primitive_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 3 implementation pending");
+    /* Phase 9 Plan 09-02 Task 3: patch prefix + method-merge for patch decls. */
     TEST_ASSERT_TRUE_MESSAGE(
         format_contains(FIXTURE_PATH("v3_patch_primitive.iron"),
                          "patch object Int"),
@@ -167,7 +164,7 @@ void test_v3_patch_primitive_fixed_point(void) {
 }
 
 void test_v3_patch_implements_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 3 implementation pending");
+    /* Phase 9 Plan 09-02 Task 3: patch + implements clause round-trips. */
     TEST_ASSERT_TRUE_MESSAGE(
         format_contains(FIXTURE_PATH("v3_patch_implements.iron"),
                          "patch object Int"),
@@ -178,7 +175,7 @@ void test_v3_patch_implements_fixed_point(void) {
 }
 
 void test_v3_methods_in_block_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 3 implementation pending");
+    /* Phase 9 Plan 09-02 Task 3: methods-in-block fixed-point. */
     TEST_ASSERT_TRUE_MESSAGE(
         fixed_point_holds(FIXTURE_PATH("v3_methods_in_block.iron")),
         "fixed-point on v3_methods_in_block.iron");
@@ -214,7 +211,11 @@ void test_v3_pure_method_fixed_point(void) {
  * against fresh iron_format_source output of the matching
  * tests/integration/<name>.iron fixture. Zero diffs is the invariant. */
 void test_v2_printer_zero_regression(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 3 implementation pending");
+    /* Phase 9 Plan 09-02 Task 3: every non-v3 fixture in tests/integration/
+     * must produce iron_format_source output byte-identical to the Wave 0
+     * baseline snapshot. The bit-explicit `is_receiver_form` filter in
+     * printer.c (Pitfall 3 mitigation) is the structural cause; this loop
+     * is the empirical witness. */
 
     DIR *d = opendir(BASELINE_DIR);
     TEST_ASSERT_NOT_NULL_MESSAGE(d, BASELINE_DIR);

@@ -5,19 +5,17 @@ interface Shape {
 object Rect {
   var width: Int
   var height: Int
-}
-
-func (mut self: Rect) init(width: Int, height: Int) {
-  self.width = width
-  self.height = height
+  init(width: Int, height: Int) {
+    self.width = width
+    self.height = height
+  }
 }
 
 object Square {
   var side: Int
-}
-
-func (mut self: Square) init(side: Int) {
-  self.side = side
+  init(side: Int) {
+    self.side = side
+  }
 }
 
 func Rect.area() -> Int {

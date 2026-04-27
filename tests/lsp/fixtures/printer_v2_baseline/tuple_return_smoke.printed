@@ -1,7 +1,6 @@
 object Smoke {
-}
-
-func (mut self: Smoke) init() {
+  init() {
+  }
 }
 
 func Smoke.pair() -> (null) {

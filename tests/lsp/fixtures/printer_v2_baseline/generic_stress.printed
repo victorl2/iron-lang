@@ -1,31 +1,28 @@
 object IntPair {
   var first: Int
   var second: Int
-}
-
-func (mut self: IntPair) init(first: Int, second: Int) {
-  self.first = first
-  self.second = second
+  init(first: Int, second: Int) {
+    self.first = first
+    self.second = second
+  }
 }
 
 object StringPair {
   var first: String
   var second: String
-}
-
-func (mut self: StringPair) init(first: String, second: String) {
-  self.first = first
-  self.second = second
+  init(first: String, second: String) {
+    self.first = first
+    self.second = second
+  }
 }
 
 object Counter {
   var value: Int
   var step: Int
-}
-
-func (mut self: Counter) init(value: Int, step: Int) {
-  self.value = value
-  self.step = step
+  init(value: Int, step: Int) {
+    self.value = value
+    self.step = step
+  }
 }
 
 func IntPair.sum() -> Int {
