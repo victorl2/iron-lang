@@ -99,6 +99,62 @@ static const char *join_dotted(Iron_Arena *arena,
     return buf;
 }
 
+/* Phase 9 D-04: assemble a patch-method name_path of the form
+ *   "<mod>.<target>::patch::<method>"
+ * (or "<target>::patch::<method>" when mod is empty). The "::patch::"
+ * separator is structurally absent from any v2 name_path string, which
+ * makes patch-method identity collision-disjoint from every v2 method
+ * identity by construction. */
+static const char *patch_join_path(Iron_Arena *arena,
+                                     const char *mod,
+                                     const char *target,
+                                     const char *method) {
+    size_t lm = mod    ? strlen(mod)    : 0;
+    size_t lt = target ? strlen(target) : 0;
+    size_t lk = method ? strlen(method) : 0;
+    /* "<mod>." + target + "::patch::" + method + NUL */
+    size_t total = lm + 1 + lt + 9 + lk + 1;
+    char *buf = (char *)iron_arena_alloc(arena, total, 1);
+    if (!buf) return "";
+    size_t o = 0;
+    if (lm > 0) {
+        memcpy(buf + o, mod, lm); o += lm;
+        buf[o++] = '.';
+    }
+    if (lt > 0) { memcpy(buf + o, target, lt); o += lt; }
+    /* "::patch::" — 9 bytes */
+    memcpy(buf + o, "::patch::", 9); o += 9;
+    if (lk > 0) { memcpy(buf + o, method, lk); o += lk; }
+    buf[o] = '\0';
+    return buf;
+}
+
+/* Phase 9 D-04: walk program->decls[] for an Iron_ObjectDecl whose
+ * is_patch==true && target_type_name matches the method's owning
+ * type_name. Returns the target type name when matched, NULL otherwise.
+ * Never writes through any AST pointer (NAV-15 sealed-tree contract).
+ *
+ * NOTE: O(N) per derive call; acceptable per Phase 9 SLO budget
+ * (HARD-18, T-09-01-09). Phase 11 may build a patch index if needed. */
+static const char *find_patch_target_for_method(const Iron_Node    *decl,
+                                                  const Iron_Program *program) {
+    if (!decl || !program) return NULL;
+    if (decl->kind != IRON_NODE_METHOD_DECL) return NULL;
+    const Iron_MethodDecl *md = (const Iron_MethodDecl *)decl;
+    if (!md->type_name) return NULL;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        const Iron_ObjectDecl *od = (const Iron_ObjectDecl *)d;
+        if (!od->is_patch) continue;
+        if (!od->target_type_name) continue;
+        if (strcmp(od->target_type_name, md->type_name) == 0) {
+            return od->target_type_name;
+        }
+    }
+    return NULL;
+}
+
 /* Walk program->decls looking for an object/interface/enum whose
  * methods[] or fields[] array contains the given decl_node. Returns
  * the owning decl's name, or NULL if not found. Used to build the
@@ -181,7 +237,42 @@ IronLsp_SymbolId ilsp_symbol_id_derive(const Iron_Symbol         *sym,
     const char *base = sym->name ? sym->name : decl_node_name(sym->decl_node);
     if (!base) base = "";
 
-    const char *name_path = join_dotted(arena, mod, owner, base);
+    /* Phase 9 D-04: detect v3 init / patch-method forms and route to
+     * disjoint name_path encodings. v2 inputs (where is_init=false and
+     * the owning ObjectDecl is_patch=false) fall through to the
+     * existing join_dotted call site BYTE-IDENTICALLY (Pitfall 6 zero-
+     * churn invariant — read of already-sealed flag fields, no writes).
+     */
+    bool is_init_form = false;
+    const char *init_segment = NULL;
+    if (sym->decl_node && sym->decl_node->kind == IRON_NODE_METHOD_DECL) {
+        const Iron_MethodDecl *md = (const Iron_MethodDecl *)sym->decl_node;
+        if (md->is_init) {
+            is_init_form = true;
+            init_segment = md->init_name ? md->init_name : "init";
+        }
+    }
+    const char *patch_target =
+        find_patch_target_for_method(sym->decl_node, program);
+
+    const char *name_path;
+    if (patch_target) {
+        /* "<mod>.<target>::patch::<method>" — `::patch::` separator is
+         * structurally absent from every v2 name_path so collisions are
+         * impossible by separator-disjointness (D-05 + Pitfall 6). */
+        name_path = patch_join_path(arena, mod, patch_target, base);
+    } else if (is_init_form) {
+        /* "<mod>.<TypeName>.init" or "<mod>.<TypeName>.<init_name>" —
+         * an anonymous init has owner=type_name and base=method_name
+         * which the parser pins to "init", so the existing join_dotted
+         * already produces the correct string. We rely on init_segment
+         * here for symmetry with named-init handling and to keep the
+         * D-04 recipe explicit at the read site. */
+        name_path = join_dotted(arena, mod, owner ? owner : "", init_segment);
+    } else {
+        /* Existing v2 path — UNCHANGED. */
+        name_path = join_dotted(arena, mod, owner, base);
+    }
 
     /* Intern the canonical_path so the triple's strings live as long as
      * the arena (not the caller's stack). */

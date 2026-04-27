@@ -34,6 +34,7 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -47,12 +48,13 @@ void tearDown(void) {}
 
 /* ── Path resolution ─────────────────────────────────────────────────── */
 
-/* Tests are launched from build/ via CTest. Integration fixtures live at
- * ../tests/integration/ and the baseline file at
- * ../tests/lsp/fixtures/symbol_id_v2_baseline.txt. */
-static const char *INTEGRATION_DIR = "../tests/integration";
+/* Path resolution uses the compile-time IRON_SOURCE_TREE_ROOT macro so
+ * canonical_path strings are CWD-independent. Both the regen path and
+ * the regression test path produce byte-identical paths regardless of
+ * whether the binary is launched from build/ or build/tests/lsp/unit/.
+ */
 #ifndef IRON_SOURCE_TREE_ROOT
-static const char *BASELINE_FILE   = "../tests/lsp/fixtures/symbol_id_v2_baseline.txt";
+#  error "IRON_SOURCE_TREE_ROOT must be defined at compile time"
 #endif
 
 static bool dir_exists(const char *path) {
@@ -61,25 +63,17 @@ static bool dir_exists(const char *path) {
 }
 
 static const char *resolve_integration_dir(void) {
-    if (dir_exists(INTEGRATION_DIR)) return INTEGRATION_DIR;
-#ifdef IRON_SOURCE_TREE_ROOT
     static char buf[1024];
     snprintf(buf, sizeof(buf), "%s/tests/integration", IRON_SOURCE_TREE_ROOT);
     if (dir_exists(buf)) return buf;
-#endif
     return NULL;
 }
 
 static const char *resolve_baseline_file(void) {
-    /* Always returns the canonical write path; readers tolerate "missing". */
-#ifdef IRON_SOURCE_TREE_ROOT
     static char buf[1024];
     snprintf(buf, sizeof(buf), "%s/tests/lsp/fixtures/symbol_id_v2_baseline.txt",
              IRON_SOURCE_TREE_ROOT);
     return buf;
-#else
-    return BASELINE_FILE;
-#endif
 }
 
 /* ── Triple emission helpers ─────────────────────────────────────────── */
@@ -198,26 +192,202 @@ static void free_lines(char **lines) {
     arrfree(lines);
 }
 
-/* ── Wave 0 stub tests ───────────────────────────────────────────────── */
+/* ── Walk every fixture (v2 + v3) ───────────────────────────────────── */
 
+typedef struct {
+    char     *canonical;   /* heap */
+    char     *name_path;   /* heap */
+    uint64_t  hash;
+    int       kind;
+} TripleRow;
+
+/* Collect (canonical, name_path, hash, kind) tuples from every .iron
+ * fixture in the integration dir. include_v3=true to include v3_*. */
+static TripleRow *collect_triples(const char *integration_dir,
+                                    bool include_v3) {
+    TripleRow *rows = NULL;
+    DIR *d = opendir(integration_dir);
+    if (!d) return rows;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        const char *name = de->d_name;
+        if (!name || name[0] == '.') continue;
+        size_t n = strlen(name);
+        if (n < 5 || strcmp(name + n - 5, ".iron") != 0) continue;
+        bool is_v3 = (strncmp(name, "v3_", 3) == 0);
+        if (is_v3 && !include_v3) continue;
+
+        char full[1024];
+        snprintf(full, sizeof(full), "%s/%s", integration_dir, name);
+        FILE *f = fopen(full, "rb");
+        if (!f) continue;
+        if (fseek(f, 0, SEEK_END) != 0) { fclose(f); continue; }
+        long sz = ftell(f);
+        rewind(f);
+        char *src = (char *)malloc((size_t)sz + 1);
+        if (!src) { fclose(f); continue; }
+        size_t got = fread(src, 1, (size_t)sz, f);
+        fclose(f);
+        src[got] = '\0';
+
+        Iron_Arena arena = iron_arena_create(64 * 1024);
+        Iron_DiagList diags = iron_diaglist_create();
+        Iron_AnalyzeResult r = iron_analyze_buffer(src, got, full,
+                                                    IRON_ANALYSIS_MODE_LSP,
+                                                    &arena, &diags, NULL);
+        if (r.global_scope && r.program) {
+            for (ptrdiff_t i = 0; i < shlen(r.global_scope->symbols); i++) {
+                Iron_Symbol *sym = r.global_scope->symbols[i].value;
+                if (!sym || !sym->decl_node) continue;
+                IronLsp_SymbolId id = ilsp_symbol_id_derive(sym, full,
+                                                              r.program, &arena);
+                if (!id.canonical_path || !id.name_path) continue;
+                TripleRow row = {0};
+                row.canonical = strdup(id.canonical_path);
+                row.name_path = strdup(id.name_path);
+                row.hash      = id.hash;
+                row.kind      = (int)id.kind;
+                arrput(rows, row);
+            }
+        }
+        iron_diaglist_free(&diags);
+        iron_arena_free(&arena);
+        free(src);
+    }
+    closedir(d);
+    return rows;
+}
+
+static void free_rows(TripleRow *rows) {
+    for (ptrdiff_t i = 0; i < arrlen(rows); i++) {
+        free(rows[i].canonical);
+        free(rows[i].name_path);
+    }
+    arrfree(rows);
+}
+
+/* ── Test 01: zero churn vs v2 baseline snapshot ─────────────────────── */
 static void test_v2_zero_churn(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 01 Task 2 implementation pending");
+    const char *idir = resolve_integration_dir();
+    TEST_ASSERT_NOT_NULL_MESSAGE(idir, "integration dir not found");
+
+    /* Regenerate v2 lines using the new ilsp_symbol_id_derive. */
+    char **lines = NULL;
+    collect_v2_triples(idir, &lines);
+    TEST_ASSERT_GREATER_THAN_MESSAGE(0, arrlen(lines),
+        "expected to find at least one v2 triple");
+    qsort(lines, (size_t)arrlen(lines), sizeof(char *), qcmp_str);
+
+    /* Read baseline file. */
+    const char *base_path = resolve_baseline_file();
+    FILE *f = fopen(base_path, "rb");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, "baseline file missing — re-run with REGEN");
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); TEST_FAIL_MESSAGE("seek"); }
+    long sz = ftell(f);
+    rewind(f);
+    char *blob = (char *)malloc((size_t)sz + 1);
+    TEST_ASSERT_NOT_NULL(blob);
+    size_t got = fread(blob, 1, (size_t)sz, f);
+    fclose(f);
+    blob[got] = '\0';
+
+    /* Build current snapshot blob. */
+    size_t cur_cap = 0;
+    for (ptrdiff_t i = 0; i < arrlen(lines); i++) {
+        cur_cap += strlen(lines[i]) + 1;
+    }
+    char *cur = (char *)malloc(cur_cap + 1);
+    TEST_ASSERT_NOT_NULL(cur);
+    size_t o = 0;
+    for (ptrdiff_t i = 0; i < arrlen(lines); i++) {
+        size_t L = strlen(lines[i]);
+        memcpy(cur + o, lines[i], L); o += L;
+        cur[o++] = '\n';
+    }
+    cur[o] = '\0';
+
+    if (strcmp(cur, blob) != 0) {
+        /* Surface a snippet of the first divergence to aid debugging. */
+        size_t i = 0;
+        while (i < got && i < o && blob[i] == cur[i]) i++;
+        size_t lstart = i;
+        while (lstart > 0 && blob[lstart - 1] != '\n') lstart--;
+        char snippet[256];
+        size_t snip_n = 0;
+        while (snip_n < sizeof(snippet) - 1 && lstart < got &&
+               blob[lstart] != '\n') {
+            snippet[snip_n++] = blob[lstart++];
+        }
+        snippet[snip_n] = '\0';
+        char msg[512];
+        snprintf(msg, sizeof(msg),
+            "v2 zero-churn breach: divergence at byte %zu: baseline=\"%s\"",
+            i, snippet);
+        free(blob); free(cur); free_lines(lines);
+        TEST_FAIL_MESSAGE(msg);
+    }
+    free(blob);
+    free(cur);
+    free_lines(lines);
 }
 
+/* ── Test 02: zero hash collisions across v2 + v3 corpus ────────────── */
 static void test_v2_v3_zero_collisions(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 01 Task 2 implementation pending");
-}
+    const char *idir = resolve_integration_dir();
+    TEST_ASSERT_NOT_NULL_MESSAGE(idir, "integration dir not found");
 
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((unused))
-#endif
-static void wave0_helpers_alive(void) {
-    (void)resolve_integration_dir;
-    (void)resolve_baseline_file;
-    (void)collect_v2_triples;
-    (void)write_baseline;
-    (void)free_lines;
-    (void)kind_name;
+    TripleRow *rows = collect_triples(idir, /*include_v3=*/true);
+    TEST_ASSERT_GREATER_THAN_MESSAGE(0, arrlen(rows),
+        "expected to find at least one symbol triple");
+
+    /* Build a hash -> first-seen-row index. For every subsequent row
+     * with the same hash, both the canonical and name_path strings must
+     * be byte-identical (== same canonical decl). Otherwise the hash
+     * collides on a structurally distinct symbol — D-05 invariant
+     * violation. */
+    struct { uint64_t key; int value; } *htab = NULL;
+    hmdefault(htab, -1);
+
+    int collisions = 0;
+    char *first_collision_msg = NULL;
+    for (ptrdiff_t i = 0; i < arrlen(rows); i++) {
+        int prev = hmget(htab, rows[i].hash);
+        if (prev < 0) {
+            hmput(htab, rows[i].hash, (int)i);
+            continue;
+        }
+        if (rows[prev].kind == rows[i].kind &&
+            strcmp(rows[prev].canonical, rows[i].canonical) == 0 &&
+            strcmp(rows[prev].name_path, rows[i].name_path) == 0) {
+            /* Same canonical decl seen twice — fine, just a duplicate
+             * symbol-table entry. */
+            continue;
+        }
+        if (collisions == 0) {
+            first_collision_msg = (char *)malloc(1024);
+            if (first_collision_msg) {
+                snprintf(first_collision_msg, 1024,
+                    "hash collision: 0x%016" PRIx64 " — A=(%s|%s|%s) B=(%s|%s|%s)",
+                    rows[i].hash,
+                    rows[prev].canonical, rows[prev].name_path,
+                    kind_name((Iron_SymbolKind)rows[prev].kind),
+                    rows[i].canonical, rows[i].name_path,
+                    kind_name((Iron_SymbolKind)rows[i].kind));
+            }
+        }
+        collisions++;
+    }
+    hmfree(htab);
+
+    if (collisions != 0 && first_collision_msg) {
+        free_rows(rows);
+        char *m = first_collision_msg;
+        TEST_FAIL_MESSAGE(m);
+    }
+    if (first_collision_msg) free(first_collision_msg);
+    free_rows(rows);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, collisions,
+        "v2+v3 corpus must have zero hash collisions on distinct decls");
 }
 
 int main(void) {

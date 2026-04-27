@@ -98,32 +98,104 @@ static const char *fixture_path(char *buf, size_t cap, const char *name) {
 
 /* ── Test 01: init body cursor resolves to METHOD_DECL (anonymous) ──── */
 static void test_init_body_resolves(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 01 Task 2 implementation pending");
+    char buf[1024];
+    const char *path = fixture_path(buf, sizeof(buf),
+                                     "v3_init_anonymous_and_named.iron");
+    TEST_ASSERT_NOT_NULL_MESSAGE(path, "fixture v3_init_anonymous_and_named.iron not found");
+    V3NavHarness h;
+    bool ok = harness_init_from_file(&h, path, path);
+    TEST_ASSERT_TRUE_MESSAGE(ok, "analyze of init fixture failed");
+
+    /* Source line 13 (1-based) is "        self.count = v" — the body
+     * of the anonymous init(v: Int) { ... }. LSP Position is 0-based,
+     * so line 12, column 14 lands inside "count". */
+    IronLsp_Position pos = { .line = 12, .character = 14 };
+    Iron_Node *n = ilsp_nav_node_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
+    TEST_ASSERT_NOT_NULL_MESSAGE(n, "node_at returned NULL inside init body");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_METHOD_DECL, n->kind,
+        "cursor inside init body should resolve to METHOD_DECL");
+    Iron_MethodDecl *md = (Iron_MethodDecl *)n;
+    TEST_ASSERT_TRUE_MESSAGE(md->is_init,
+        "anonymous init MUST have is_init=true");
+    TEST_ASSERT_NULL_MESSAGE(md->init_name,
+        "anonymous init MUST have init_name==NULL");
+    TEST_ASSERT_NOT_NULL(md->type_name);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("Counter", md->type_name,
+        "init's owning type_name MUST match source object");
+
+    harness_free(&h);
 }
 
 /* ── Test 02: named-init body cursor resolves correctly ─────────────── */
 static void test_named_init_resolves(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 01 Task 2 implementation pending");
+    char buf[1024];
+    const char *path = fixture_path(buf, sizeof(buf),
+                                     "v3_init_anonymous_and_named.iron");
+    TEST_ASSERT_NOT_NULL_MESSAGE(path, "fixture v3_init_anonymous_and_named.iron not found");
+    V3NavHarness h;
+    bool ok = harness_init_from_file(&h, path, path);
+    TEST_ASSERT_TRUE_MESSAGE(ok, "analyze of init fixture failed");
+
+    /* Source line 17 (1-based) "        self.count = 0" — body of
+     * `init zero() { ... }`. Position is 0-based: line 16 col 14. */
+    IronLsp_Position pos = { .line = 16, .character = 14 };
+    Iron_Node *n = ilsp_nav_node_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
+    TEST_ASSERT_NOT_NULL_MESSAGE(n, "node_at returned NULL inside named-init body");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_METHOD_DECL, n->kind,
+        "cursor inside named-init body should resolve to METHOD_DECL");
+    Iron_MethodDecl *md = (Iron_MethodDecl *)n;
+    TEST_ASSERT_TRUE_MESSAGE(md->is_init,
+        "named init MUST have is_init=true");
+    TEST_ASSERT_NOT_NULL_MESSAGE(md->init_name,
+        "named init MUST have non-NULL init_name");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("zero", md->init_name,
+        "init_name MUST match source token");
+    TEST_ASSERT_NOT_NULL(md->type_name);
+    TEST_ASSERT_EQUAL_STRING("Counter", md->type_name);
+
+    harness_free(&h);
 }
 
 /* ── Test 03: patch-method body cursor resolves correctly ───────────── */
 static void test_patch_method_body_resolves(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 01 Task 2 implementation pending");
-}
-
-/* Suppress -Wunused-function for harness helpers in Wave 0. They become
- * live in Task 2 when TEST_IGNORE is removed. */
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((unused))
-#endif
-static void wave0_helpers_alive(void) {
-    char buf[16];
-    (void)fixture_path(buf, sizeof(buf), "x.iron");
+    char buf[1024];
+    const char *path = fixture_path(buf, sizeof(buf),
+                                     "v3_patch_primitive.iron");
+    TEST_ASSERT_NOT_NULL_MESSAGE(path, "fixture v3_patch_primitive.iron not found");
     V3NavHarness h;
-    (void)h;
-    (void)harness_init_from_file;
-    (void)harness_free;
-    (void)load_file;
+    bool ok = harness_init_from_file(&h, path, path);
+    TEST_ASSERT_TRUE_MESSAGE(ok, "analyze of patch fixture failed");
+
+    /* Source line 3 (1-based) "        return self * 2" — body of
+     * `pub readonly func double() -> Int`. Position is 0-based: line 2
+     * col 14. */
+    IronLsp_Position pos = { .line = 2, .character = 14 };
+    Iron_Node *n = ilsp_nav_node_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
+    TEST_ASSERT_NOT_NULL_MESSAGE(n, "node_at returned NULL inside patch-method body");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_METHOD_DECL, n->kind,
+        "cursor inside patch-method body should resolve to METHOD_DECL");
+    Iron_MethodDecl *md = (Iron_MethodDecl *)n;
+    TEST_ASSERT_NOT_NULL(md->type_name);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("Int", md->type_name,
+        "patch-method type_name MUST match the patch target");
+
+    /* Walk program->decls[] for the owning Iron_ObjectDecl with
+     * is_patch=true && target_type_name=="Int". */
+    bool found_patch_object = false;
+    for (int i = 0; i < h.program->decl_count; i++) {
+        Iron_Node *d = h.program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        if (od->is_patch && od->target_type_name &&
+            strcmp(od->target_type_name, "Int") == 0) {
+            found_patch_object = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_patch_object,
+        "expected an Iron_ObjectDecl with is_patch=true && target=='Int'");
+
+    harness_free(&h);
 }
 
 int main(void) {
