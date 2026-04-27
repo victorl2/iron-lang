@@ -185,10 +185,7 @@ void test_v3_methods_in_block_fixed_point(void) {
 }
 
 void test_v3_pub_field_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 2 implementation pending");
-    /* Real assertion (Task 2):
-     *   - format(...) contains "pub var " or "pub val "
-     *   - fixed_point_holds returns 1 (passes once Task 3 lands too) */
+    /* Phase 9 Plan 09-02 Task 2: pub-prefix emission on Iron_Field. */
     int has_pub_field =
         format_contains(FIXTURE_PATH("v3_pub_field_synthesis.iron"), "pub val ") ||
         format_contains(FIXTURE_PATH("v3_pub_field_synthesis.iron"), "pub var ");
@@ -196,7 +193,7 @@ void test_v3_pub_field_fixed_point(void) {
 }
 
 void test_v3_readonly_transitive_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 2 implementation pending");
+    /* Phase 9 Plan 09-02 Task 2: readonly modifier prefix on method. */
     TEST_ASSERT_TRUE_MESSAGE(
         format_contains(FIXTURE_PATH("v3_readonly_transitive.iron"),
                          "readonly func "),
@@ -204,7 +201,7 @@ void test_v3_readonly_transitive_fixed_point(void) {
 }
 
 void test_v3_pure_method_fixed_point(void) {
-    TEST_IGNORE_MESSAGE("Phase 9 Plan 02 Task 2 implementation pending");
+    /* Phase 9 Plan 09-02 Task 2: pure modifier prefix on method. */
     TEST_ASSERT_TRUE_MESSAGE(
         format_contains(FIXTURE_PATH("v3_pure_method.iron"),
                          "pure func "),

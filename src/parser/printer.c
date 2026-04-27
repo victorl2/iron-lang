@@ -225,6 +225,12 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             for (int i = 0; i < n->field_count; i++) {
                 print_indent(ctx);
                 Iron_Field *f = (Iron_Field *)n->fields[i];
+                /* Phase 9 Plan 09-02 D-10: pub prefix on field rendered
+                 * inside an object body. Mirrors the standalone IRON_NODE_FIELD
+                 * arm; this is the load-bearing path because that standalone
+                 * arm is otherwise unreachable from iron_print_ast (fields
+                 * only enter the printer through their owning object). */
+                if (f->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
                 iron_strbuf_appendf(ctx->sb, "%s %s", f->is_var ? "var" : "val", f->name);
                 if (f->type_ann) {
                     iron_strbuf_appendf(ctx->sb, ": ");
@@ -286,6 +292,18 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *n = (Iron_FuncDecl *)node;
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
+            /* Phase 9 Plan 09-02 D-10: tier modifier prefix in locked order
+             * (visibility-before-tier-before-func). Iron_FuncDecl carries
+             * is_readonly / is_pure for interface method signatures only —
+             * top-level func decls reject these tokens at parse time
+             * (parser.c:4937-4955), so on a parsed-clean program these bits
+             * are only ever true for nodes stored inside an Iron_InterfaceDecl
+             * method_sigs array. is_pub is intentionally absent on
+             * Iron_FuncDecl (parser silently drops `pub` on object-block
+             * methods at parser.c:3444 / :4385 and rejects it on top-level
+             * func decls at parser.c:4937). */
+            if (n->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
+            if (n->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
             iron_strbuf_appendf(ctx->sb, "func %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
             print_params(ctx, n->params, n->param_count);
@@ -303,6 +321,21 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *n = (Iron_MethodDecl *)node;
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
+            /* Phase 9 Plan 09-02 D-10: tier modifier prefix on the standalone
+             * (top-level) method print path. Locked order is
+             * `[private] [readonly|pure] func ...`. Iron_MethodDecl has no
+             * is_pub field — the parser silently drops `pub` on methods
+             * (parser.c:3444 / :4385) because methods default public in
+             * v2.2/v3.0. is_init / init_name are NOT printed on this
+             * standalone path; the in-block init form `init [name](args)` is
+             * emitted only via print_method_in_block (Task 3). On the
+             * standalone path an init method (if any reaches it before the
+             * Task 3 method-merge lands) falls through to the legacy
+             * `func Type.init(...)` shape, which is acceptable as a transient
+             * since v3 fixtures with init methods are exercised exclusively
+             * by the parity test that the merge satisfies. */
+            if (n->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
+            if (n->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
             if (n->is_receiver_form && n->param_count > 0) {
                 /* Receiver form: `func (recv: Type) method[G](rest...)`.
                  * By parser invariant, params[0] is the receiver. */
@@ -711,6 +744,11 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD: {
             Iron_Field *f = (Iron_Field *)node;
+            /* Phase 9 Plan 09-02 D-10: pub prefix on field. Iron_Field is
+             * the only ast node that carries is_pub on the v3 surface
+             * (parser.c:3529); FuncDecl / MethodDecl have no equivalent
+             * because methods default public. */
+            if (f->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             iron_strbuf_appendf(ctx->sb, "%s %s", f->is_var ? "var" : "val", f->name);
             if (f->type_ann) {
                 iron_strbuf_appendf(ctx->sb, ": ");
