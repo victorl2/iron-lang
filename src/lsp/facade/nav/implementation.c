@@ -250,6 +250,13 @@ void ilsp_facade_nav_implementation(IronLsp_Server             *server,
             Iron_Node *d = program->decls[i];
             if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            /* XXX_PHASE_11 - patches are not interface implementors in
+             * the v2 result class; Phase 11 PATCH-01 surfaces them as a
+             * separate result class. Skip is_patch ObjectDecls from the
+             * implementor count + emit pass so textDocument/implementation
+             * never lists a patch decl as a native implementor of the
+             * interface under the cursor. */
+            if (od->is_patch) continue;
             for (int j = 0; j < od->implements_count; j++) {
                 if (od->implements_names[j] &&
                     strcmp(od->implements_names[j], ifc->name) == 0) {
@@ -269,6 +276,11 @@ void ilsp_facade_nav_implementation(IronLsp_Server             *server,
             Iron_Node *d = program->decls[i];
             if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            /* XXX_PHASE_11 - patches are not interface implementors in
+             * the v2 result class; mirror the count-pass guard above so
+             * the emit pass and the count pass agree. Phase 11 PATCH-01
+             * replaces both with proper virtual rendering. */
+            if (od->is_patch) continue;
             bool matches = false;
             for (int j = 0; j < od->implements_count; j++) {
                 if (od->implements_names[j] &&
