@@ -123,6 +123,17 @@ static void render_params(SB *sb, Iron_Node **params, int count,
 
 static const char *signature_func(Iron_FuncDecl *fd, Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
+    /* Phase 9 AST-06: modifier prefix on hover signature line. Locked
+     * order per CONTEXT.md D-10: readonly|pure -> func. Mutual exclusion
+     * of readonly + pure is enforced by the parser at
+     * src/parser/parser.c:3162-3180; both fields cannot be true at once,
+     * so the order between them is academic for emission. Note:
+     * Phase 83 only landed `pub` on Iron_Field; Iron_FuncDecl carries
+     * is_private (v2 inverse) but no is_pub bit yet. Phase 10 VIS-05
+     * is the place to surface visibility on funcs/methods once the AST
+     * gains the field. */
+    if (fd->is_readonly) sb_append(&sb, "readonly ");
+    if (fd->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");
     sb_append(&sb, fd->name ? fd->name : "_");
     sb_append(&sb, "(");
@@ -137,6 +148,32 @@ static const char *signature_func(Iron_FuncDecl *fd, Iron_Arena *arena) {
 
 static const char *signature_method(Iron_MethodDecl *md, Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
+    /* Phase 9 AST-06: init form precedes any tier modifier per parser
+     * rules (src/parser/parser.c:3232-3247). Anonymous init: `init(...)`.
+     * Named init: `init <name>(...)`. is_init excludes pub/readonly/pure
+     * by parser grammar so the modifier prefix is emitted only on the
+     * regular method form. */
+    if (md->is_init) {
+        sb_append(&sb, "init");
+        if (md->init_name) {
+            sb_append(&sb, " ");
+            sb_append(&sb, md->init_name);
+        }
+        sb_append(&sb, "(");
+        render_params(&sb, md->params, md->param_count, arena);
+        sb_append(&sb, ")");
+        if (md->return_type) {
+            sb_append(&sb, " -> ");
+            sb_append(&sb, render_type_ann(md->return_type, arena));
+        }
+        return sb.buf ? sb.buf : "";
+    }
+    /* Regular method form: readonly|pure -> func Type.method. Phase 83
+     * lands `pub` only on Iron_Field; Iron_MethodDecl gains visibility
+     * bits in a future phase, so this signature line cannot yet surface
+     * a method-level pub modifier. */
+    if (md->is_readonly) sb_append(&sb, "readonly ");
+    if (md->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");
     sb_append(&sb, md->type_name ? md->type_name : "_");
     sb_append(&sb, ".");
@@ -153,6 +190,11 @@ static const char *signature_method(Iron_MethodDecl *md, Iron_Arena *arena) {
 
 static const char *signature_object(Iron_ObjectDecl *od, Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
+    /* Phase 9 AST-06: emit `patch ` prefix for patch decls so hover on
+     * `patch object Int { ... }` does not silently render as a regular
+     * `object Int` declaration. Phase 11 PATCH-02 will surface the
+     * target_type_name relationship as a feature. */
+    if (od->is_patch) sb_append(&sb, "patch ");
     sb_append(&sb, "object ");
     sb_append(&sb, od->name ? od->name : "_");
     if (od->extends_name) {
@@ -267,6 +309,11 @@ static const char *signature_field(Iron_Field *fd,
                                      const char *owner_name,
                                      Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
+    /* Phase 9 AST-06: emit `pub ` prefix when is_pub is true so hover
+     * on `pub var health: Int` no longer hides the visibility modifier.
+     * Phase 10 VIS-05 will turn this into a feature with semantic
+     * meaning. */
+    if (fd->is_pub) sb_append(&sb, "pub ");
     if (owner_name) {
         sb_append(&sb, owner_name);
         sb_append(&sb, ".");
