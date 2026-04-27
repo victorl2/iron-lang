@@ -1,0 +1,53 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+}
+
+func (mut self: Circle) init(radius: Int) {
+  self.radius = radius
+}
+
+object Square impl Shape {
+  var side: Int
+}
+
+func (mut self: Square) init(side: Int) {
+  self.side = side
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func main() {
+  var areas = [3]
+  for i in range(9999) {
+    val idx = (i + 1)
+    if ((idx % 2) == 0) {
+      val r = ((idx % 50) + 1)
+      areas.push(((r * r) * 3))
+    } else {
+      val s = ((idx % 30) + 1)
+      areas.push((s * s))
+    }
+  }
+  println("{areas.len()}")
+  val result = areas.filter(func(a: Int) -> Bool {
+    return (a > 10)
+  }).sum()
+  println("{result}")
+  val shapes = [Circle(5), Square(4), Circle(3), Square(6), Circle(2), Circle(7), Square(8), Circle(1), Square(9), Circle(10), Circle(4), Square(3), Circle(6), Square(2), Circle(8), Circle(9), Square(7), Circle(11), Square(5), Circle(12), Circle(1), Square(10), Circle(2), Square(1), Circle(3), Circle(13), Square(11), Circle(14), Square(12), Circle(15), Circle(16), Square(13), Circle(17), Square(14), Circle(18), Circle(19), Square(15), Circle(20), Square(16), Circle(21), Circle(22), Square(17), Circle(23), Square(18), Circle(24), Circle(25), Square(19), Circle(26), Square(20), Circle(27)]
+  val shape_total = shapes.map(func(s: Shape) -> Int {
+    return s.area()
+  }).filter(func(a: Int) -> Bool {
+    return (a > 10)
+  }).sum()
+  println("{shape_total}")
+}

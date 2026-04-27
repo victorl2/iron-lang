@@ -1,0 +1,11 @@
+func main() {
+  println("{(1 << 0)}")
+  println("{(1 << 1)}")
+  println("{(1 << 10)}")
+  println("{(1024 >> 10)}")
+  println("{(7 >> 1)}")
+  println("{(-8 >> 1)}")
+  println("{(-1 >> 63)}")
+  println("{(0 << 5)}")
+  println("{(0 >> 5)}")
+}

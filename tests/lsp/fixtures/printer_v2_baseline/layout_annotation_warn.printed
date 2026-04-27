@@ -1,0 +1,41 @@
+interface Pair {
+  func sum() -> Int
+}
+
+object IntPair impl Pair {
+  var a: Int
+  var b: Int
+}
+
+func (mut self: IntPair) init(a: Int, b: Int) {
+  self.a = a
+  self.b = b
+}
+
+object FloatPair impl Pair {
+  var a: Int
+  var b: Int
+}
+
+func (mut self: FloatPair) init(a: Int, b: Int) {
+  self.a = a
+  self.b = b
+}
+
+func IntPair.sum() -> Int {
+  return (self.a + self.b)
+}
+
+func FloatPair.sum() -> Int {
+  return (self.a + self.b)
+}
+
+func main() {
+  val pairs: [Pair] = [IntPair(3, 4), FloatPair(5, 6)]
+  var total = 0
+  for p in pairs {
+    total = (total + p.sum())
+  }
+  println("{total}")
+  println("done")
+}

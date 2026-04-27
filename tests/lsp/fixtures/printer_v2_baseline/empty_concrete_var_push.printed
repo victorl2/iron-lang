@@ -1,0 +1,9 @@
+func main() {
+  var ints: [Int] = []
+  ints.push(7)
+  ints.push(42)
+  println("{ints.sum()}")
+  var strs: [String] = []
+  strs.push("hi")
+  println("{strs.len()}")
+}

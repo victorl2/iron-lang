@@ -1,0 +1,21 @@
+import url
+
+func main() {
+  val (null) = Url.parse("https://example.com/path?q=1#frag")
+  if (e1.code != 0) {
+    println("parse failed")
+    return
+  }
+  println(u1.scheme)
+  println(u1.host)
+  println(u1.path)
+  println(u1.query)
+  println(u1.fragment)
+  val (null) = Url.parse("")
+  if (e2.code == 2000) {
+    println("empty ok")
+  }
+  println("{Url.default_port("http")}")
+  println("{Url.default_port("https")}")
+  println("{Url.default_port("bogus")}")
+}

@@ -1,0 +1,40 @@
+func add32(a: Int32, b: Int32) -> Int32 {
+  return (a + b)
+}
+
+func identity32(x: Int32) -> Int32 {
+  return x
+}
+
+func main() {
+  val x: Int32 = 42
+  println("val literal: {x}")
+  var y: Int32 = 100
+  println("var literal: {y}")
+  val r1 = add32(Int32(10), Int32(20))
+  println("func args explicit: {r1}")
+  val r2 = add32(x, y)
+  println("func args vars: {r2}")
+  val z: Int32 = (x + y)
+  println("arithmetic: {z}")
+  var sum: Int32 = Int32(0)
+  for i in range(10) {
+    sum = add32(sum, Int32(1))
+  }
+  println("inlined loop: {sum}")
+  val v: Int32 = 99
+  val w = identity32(v)
+  println("identity: {w}")
+  var a: Int32 = Int32(0)
+  a = 77
+  println("assign literal: {a}")
+  val ret = return_literal()
+  println("return literal: {ret}")
+  val big: Int32 = Int32(2147483647)
+  val overflow: Int32 = (big + Int32(1))
+  println("overflow: {overflow}")
+}
+
+func return_literal() -> Int32 {
+  return 55
+}

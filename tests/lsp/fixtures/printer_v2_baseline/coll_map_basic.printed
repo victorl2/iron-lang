@@ -1,0 +1,9 @@
+func main() {
+  val arr = [1, 2, 3, 4, 5]
+  val doubled = arr.map(func(x: Int) -> Int {
+    return (x * 2)
+  })
+  for v in doubled {
+    println("{v}")
+  }
+}

@@ -1,0 +1,8 @@
+enum Color {
+  RGB(Int, Int, Int),
+  Named(String),
+}
+
+func main() {
+  println("adt_enum_construct: ok")
+}

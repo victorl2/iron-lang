@@ -1,0 +1,51 @@
+interface Shape {
+  func area() -> Int
+}
+
+object TinyDot impl Shape {
+  var x: Int
+}
+
+func (mut self: TinyDot) init(x: Int) {
+  self.x = x
+}
+
+object HugeRect impl Shape {
+  var x1: Int
+  var y1: Int
+  var x2: Int
+  var y2: Int
+  var color_r: Int
+  var color_g: Int
+  var color_b: Int
+  var color_a: Int
+  var z_index: Int
+}
+
+func (mut self: HugeRect) init(x1: Int, y1: Int, x2: Int, y2: Int, color_r: Int, color_g: Int, color_b: Int, color_a: Int, z_index: Int) {
+  self.x1 = x1
+  self.y1 = y1
+  self.x2 = x2
+  self.y2 = y2
+  self.color_r = color_r
+  self.color_g = color_g
+  self.color_b = color_b
+  self.color_a = color_a
+  self.z_index = z_index
+}
+
+func TinyDot.area() -> Int {
+  return 0
+}
+
+func HugeRect.area() -> Int {
+  return ((self.x2 - self.x1) * (self.y2 - self.y1))
+}
+
+func main() {
+  val s1: Shape = TinyDot(5)
+  val s2: Shape = HugeRect(0, 0, 10, 20, 255, 128, 0, 255, 1)
+  println("{s1.area()}")
+  println("{s2.area()}")
+  println("done")
+}

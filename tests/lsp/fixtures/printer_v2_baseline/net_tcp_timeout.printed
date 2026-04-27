@@ -1,0 +1,10 @@
+import net
+
+func main() {
+  val (null) = Net.tcp_dial("192.0.2.1", 80, 500)
+  if (err.code == 1004) {
+    println("dial timeout ok")
+  } else {
+    println("unexpected")
+  }
+}

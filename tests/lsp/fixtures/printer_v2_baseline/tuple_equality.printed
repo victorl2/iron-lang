@@ -1,0 +1,15 @@
+func main() {
+  val a: (null) = [1, "x"]
+  val b: (null) = [1, "x"]
+  val c: (null) = [2, "x"]
+  if (a == b) {
+    println("ab-eq")
+  } else {
+    println("ab-ne")
+  }
+  if (a == c) {
+    println("ac-eq")
+  } else {
+    println("ac-ne")
+  }
+}

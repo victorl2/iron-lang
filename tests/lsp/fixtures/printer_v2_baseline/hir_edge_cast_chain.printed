@@ -1,0 +1,11 @@
+func main() {
+  val n = 42
+  val f = Float(n)
+  val back = Int(f)
+  println("{n}")
+  println("{back}")
+  val pi = 3.14
+  val pi_int = Int(pi)
+  val pi_float = Float(pi_int)
+  println("{pi_int}")
+}

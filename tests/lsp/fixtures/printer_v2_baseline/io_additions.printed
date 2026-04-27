@@ -1,0 +1,21 @@
+import io
+
+func main() {
+  IO.write_file("/tmp/iron_append_test.txt", "line1")
+  IO.append_file("/tmp/iron_append_test.txt", "line2")
+  val content = IO.read_file("/tmp/iron_append_test.txt")
+  println("append ok")
+  val b = IO.basename("/a/b/c.txt")
+  println(b)
+  val d = IO.dirname("/a/b/c.txt")
+  println(d)
+  val j = IO.join_path("a", "b")
+  println(j)
+  val e = IO.extension("file.iron")
+  println(e)
+  val isdir = IO.is_dir(".")
+  println("{isdir}")
+  IO.write_file("/tmp/iron_lines_test.txt", "alpha")
+  val lines = IO.read_lines("/tmp/iron_lines_test.txt")
+  println("read_lines ok")
+}

@@ -1,0 +1,52 @@
+object Data {
+  var value: Int
+  var label: String
+}
+
+func (mut self: Data) init(value: Int, label: String) {
+  self.value = value
+  self.label = label
+}
+
+object Point {
+  var x: Int
+  var y: Int
+}
+
+func (mut self: Point) init(x: Int, y: Int) {
+  self.x = x
+  self.y = y
+}
+
+func make_point(px: Int, py: Int) -> Int {
+  val p = heap Point(px, py)
+  return (p.x + p.y)
+}
+
+func main() {
+  for i in range(5) {
+    val d = heap Data(i, "item")
+    println("data: {d.value}")
+  }
+  println("loop done")
+  for i in range(6) {
+    if (i > 2) {
+      val p = heap Point(i, (i * 2))
+      println("point: {p.x},{p.y}")
+    }
+  }
+  println("cond done")
+  val r1 = make_point(3, 4)
+  val r2 = make_point(10, 20)
+  println("sum1: {r1}")
+  println("sum2: {r2}")
+  for a in range(3) {
+    for b in range(3) {
+      if (a == b) {
+        val d = heap Data((a + b), "diag")
+        println("diag: {d.value}")
+      }
+    }
+  }
+  println("done")
+}

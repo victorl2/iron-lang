@@ -1,0 +1,29 @@
+func compute(n: Int) -> Int {
+  var result = 0
+  var i = 0
+  while (i < n) {
+    result = (result + i)
+    i = (i + 1)
+  }
+  return result
+}
+
+func main() {
+  val h1 = spawn("task1") {
+    return compute(10)
+  }
+  val h2 = spawn("task2") {
+    return compute(5)
+  }
+  val h3 = spawn("task3") {
+    return compute(20)
+  }
+  val r1 = await h1
+  val r2 = await h2
+  val r3 = await h3
+  println("sum(10) = {r1}")
+  println("sum(5) = {r2}")
+  println("sum(20) = {r3}")
+  println("tasks: 3")
+  println("done")
+}

@@ -1,0 +1,8 @@
+func pair() -> (null) {
+  return [7, 99]
+}
+
+func main() {
+  val (null) = pair()
+  println("{x}")
+}

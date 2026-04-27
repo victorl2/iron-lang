@@ -1,0 +1,9 @@
+func coords() -> (null) {
+  return [1, [2, 3]]
+}
+
+func main() {
+  val (null) = coords()
+  val (null) = bc
+  println("{a} {b} {c}")
+}

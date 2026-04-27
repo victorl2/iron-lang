@@ -1,0 +1,45 @@
+func process(x: Int) -> String {
+  defer println("cleanup A")
+  if (x < 0) {
+    return "negative"
+  }
+  defer println("cleanup B")
+  if (x == 0) {
+    return "zero"
+  }
+  defer println("cleanup C")
+  return "positive"
+}
+
+func validate(code: Int) -> String {
+  defer println("exit validate")
+  if (code < 0) {
+    defer println("bad code cleanup")
+    return "invalid: negative"
+  }
+  if (code > 999) {
+    defer println("overflow cleanup")
+    return "invalid: overflow"
+  }
+  if (code == 0) {
+    return "empty"
+  }
+  return "ok"
+}
+
+func main() {
+  println(process(-1))
+  println("---")
+  println(process(0))
+  println("---")
+  println(process(1))
+  println("---")
+  println(validate(-5))
+  println("---")
+  println(validate(1000))
+  println("---")
+  println(validate(0))
+  println("---")
+  println(validate(42))
+  println("done")
+}

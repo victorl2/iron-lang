@@ -1,0 +1,48 @@
+interface Task {
+  func get_priority() -> Int
+}
+
+object Job impl Task {
+  var priority: Int
+  var owner_id: Int
+  var kind: Int
+  var cost: Int
+}
+
+func (mut self: Job) init(priority: Int, owner_id: Int, kind: Int, cost: Int) {
+  self.priority = priority
+  self.owner_id = owner_id
+  self.kind = kind
+  self.cost = cost
+}
+
+object Chore impl Task {
+  var priority: Int
+  var room: Int
+  var day: Int
+  var hours: Int
+}
+
+func (mut self: Chore) init(priority: Int, room: Int, day: Int, hours: Int) {
+  self.priority = priority
+  self.room = room
+  self.day = day
+  self.hours = hours
+}
+
+func Job.get_priority() -> Int {
+  return self.priority
+}
+
+func Chore.get_priority() -> Int {
+  return self.priority
+}
+
+func main() {
+  val tasks = [Job(3, 10, 20, 30), Chore(5, 1, 2, 4), Job(7, 40, 50, 12), Chore(2, 8, 6, 3), Job(9, 15, 25, 35)]
+  val total = tasks.map(func(t: Task) -> Int {
+    return t.get_priority()
+  }).sum()
+  println("{total}")
+  println("compressed_done")
+}

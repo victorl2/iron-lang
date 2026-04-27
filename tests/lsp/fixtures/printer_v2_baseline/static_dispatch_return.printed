@@ -1,0 +1,43 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var r: Int
+}
+
+func (mut self: Circle) init(r: Int) {
+  self.r = r
+}
+
+object Square impl Shape {
+  var s: Int
+}
+
+func (mut self: Square) init(s: Int) {
+  self.s = s
+}
+
+func Circle.area() -> Int {
+  return ((self.r * self.r) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.s * self.s)
+}
+
+func make_shape(kind: Int, size: Int) -> Shape {
+  if (kind == 0) {
+    return Circle(size)
+  } else {
+    return Square(size)
+  }
+}
+
+func main() {
+  val s1 = make_shape(0, 5)
+  val s2 = make_shape(1, 4)
+  println("{s1.area()}")
+  println("{s2.area()}")
+  println("done")
+}

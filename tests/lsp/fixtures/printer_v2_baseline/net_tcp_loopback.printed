@@ -1,0 +1,16 @@
+import net
+
+func main() {
+  val (null) = Net.tcp_listen("127.0.0.1", 34501)
+  if (lerr.code != 0) {
+    println("listen failed")
+    return
+  }
+  val (null) = TcpListener.accept(listener, 100)
+  if (aerr.code == 1004) {
+    println("accept timeout ok")
+  } else {
+    println("unexpected")
+  }
+  TcpListener.close(listener)
+}

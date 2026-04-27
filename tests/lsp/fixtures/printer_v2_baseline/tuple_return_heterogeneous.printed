@@ -1,0 +1,8 @@
+func describe() -> (null) {
+  return [42, "hello"]
+}
+
+func main() {
+  val (null) = describe()
+  println("{s} {n}")
+}

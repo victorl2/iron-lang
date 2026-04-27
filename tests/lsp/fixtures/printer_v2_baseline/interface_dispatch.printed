@@ -1,0 +1,96 @@
+interface Animal {
+  func speak() -> String
+  func name() -> String
+}
+
+object Dog {
+  var dog_name: String
+  var breed: String
+}
+
+func (mut self: Dog) init(dog_name: String, breed: String) {
+  self.dog_name = dog_name
+  self.breed = breed
+}
+
+object Cat {
+  var cat_name: String
+  var indoor: Int
+}
+
+func (mut self: Cat) init(cat_name: String, indoor: Int) {
+  self.cat_name = cat_name
+  self.indoor = indoor
+}
+
+object Bird {
+  var bird_name: String
+  var can_fly: Int
+}
+
+func (mut self: Bird) init(bird_name: String, can_fly: Int) {
+  self.bird_name = bird_name
+  self.can_fly = can_fly
+}
+
+func Dog.speak() -> String {
+  return "Woof!"
+}
+
+func Dog.name() -> String {
+  return self.dog_name
+}
+
+func Cat.speak() -> String {
+  return "Meow!"
+}
+
+func Cat.name() -> String {
+  return self.cat_name
+}
+
+func Bird.speak() -> String {
+  if (self.can_fly == 1) {
+    return "Tweet from above!"
+  } else {
+    return "Tweet from ground!"
+  }
+}
+
+func Bird.name() -> String {
+  return self.bird_name
+}
+
+func describe_dog(d: Dog) -> String {
+  return "{d.name()}: {d.speak()}"
+}
+
+func describe_cat(c: Cat) -> String {
+  return "{c.name()}: {c.speak()}"
+}
+
+func describe_bird(b: Bird) -> String {
+  return "{b.name()}: {b.speak()}"
+}
+
+func main() {
+  val d1 = Dog("Rex", "Labrador")
+  val d2 = Dog("Max", "Poodle")
+  val c1 = Cat("Whiskers", 1)
+  val c2 = Cat("Shadow", 0)
+  val b1 = Bird("Tweety", 1)
+  val b2 = Bird("Penguin", 0)
+  println(describe_dog(d1))
+  println(describe_dog(d2))
+  println(describe_cat(c1))
+  println(describe_cat(c2))
+  println(describe_bird(b1))
+  println(describe_bird(b2))
+  println("name: {d1.name()}")
+  println("speak: {c1.speak()}")
+  for i in range(3) {
+    val dog = Dog("dog", "breed")
+    println("loop dog: {dog.speak()}")
+  }
+  println("done")
+}

@@ -1,0 +1,24 @@
+func classify_pair(a: Int, b: Int) -> Int {
+  if (a > 0) {
+    if (b > 0) {
+      return 1
+    } else {
+      return 2
+    }
+  } else {
+    if (b > 0) {
+      return 3
+    } else {
+      return 4
+    }
+  }
+}
+
+func main() {
+  var total = 0
+  total = (total + classify_pair(1, 1))
+  total = (total + classify_pair(1, -1))
+  total = (total + classify_pair(-1, 1))
+  total = (total + classify_pair(-1, -1))
+  println("total: {total}")
+}

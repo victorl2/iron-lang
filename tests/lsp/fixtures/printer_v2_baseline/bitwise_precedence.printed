@@ -1,0 +1,33 @@
+func main() {
+  val a1 = 1
+  val b1 = 6
+  val c1 = 4
+  val r1 = (a1 | (b1 & c1))
+  println("{r1}")
+  val a2 = 1
+  val b2 = 2
+  val c2 = 1
+  val r2 = (a2 << (b2 + c2))
+  println("{r2}")
+  val a3 = 5
+  val b3 = 3
+  val r3 = (~a3 & b3)
+  println("{r3}")
+  val a4 = 1
+  val b4 = 2
+  val c4 = 3
+  val r4 = ((a4 + b4) << c4)
+  println("{r4}")
+  val r5 = (~5 * 2)
+  println("{r5}")
+  val a6 = 12
+  val b6 = 10
+  val c6 = 6
+  val r6 = (a6 ^ (b6 & c6))
+  println("{r6}")
+  val a7 = 12
+  val b7 = 10
+  val c7 = 1
+  val r7 = ((a7 & b7) | c7)
+  println("{r7}")
+}

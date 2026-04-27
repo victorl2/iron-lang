@@ -1,0 +1,9 @@
+func sum_pair(p: (null)) -> Int {
+  val (null) = p
+  return (a + b)
+}
+
+func main() {
+  val pair: (null) = [10, 20]
+  println("{sum_pair(pair)}")
+}

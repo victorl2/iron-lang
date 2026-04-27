@@ -1,0 +1,27 @@
+func bucket(n: Int) -> Int {
+  if (n < -10) {
+    return 0
+  } elif (n < 0) {
+    return 1
+  } elif (n == 0) {
+    return 2
+  } elif (n < 10) {
+    return 3
+  } elif (n < 100) {
+    return 4
+  } else {
+    return 5
+  }
+}
+
+func main() {
+  var total = 0
+  total = (total + bucket(-20))
+  total = (total + bucket(-15))
+  total = (total + bucket(-5))
+  total = (total + bucket(0))
+  total = (total + bucket(5))
+  total = (total + bucket(50))
+  total = (total + bucket(500))
+  println("total: {total}")
+}

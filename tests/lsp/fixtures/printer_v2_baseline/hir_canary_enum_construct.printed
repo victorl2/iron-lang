@@ -1,0 +1,31 @@
+enum Color {
+  Red(Int),
+  Green(Int),
+  Blue(Int),
+}
+
+func Color.intensity() -> Int {
+  match self {
+    Color.Red(v) -> {
+      return v
+    }
+    Color.Green(v) -> {
+      return (v * 2)
+    }
+    Color.Blue(v) -> {
+      return (v * 3)
+    }
+  }
+  return 0
+}
+
+func main() {
+  val r = Color.Red(10)
+  val g = Color.Green(10)
+  val b = Color.Blue(10)
+  var total = 0
+  total = (total + r.intensity())
+  total = (total + g.intensity())
+  total = (total + b.intensity())
+  println("total: {total}")
+}

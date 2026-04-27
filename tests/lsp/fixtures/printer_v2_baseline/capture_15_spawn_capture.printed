@@ -1,0 +1,11 @@
+func main() {
+  val data = [10, 20, 30]
+  val h = spawn("sum_task") {
+    var sum = 0
+    for item in data {
+      sum = (sum + item)
+    }
+    println("sum: {sum}")
+  }
+  await h
+}

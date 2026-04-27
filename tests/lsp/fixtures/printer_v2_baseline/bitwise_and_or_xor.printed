@@ -1,0 +1,11 @@
+func main() {
+  val a = 12
+  val b = 10
+  println("{(a & b)}")
+  println("{(a | b)}")
+  println("{(a ^ b)}")
+  println("{(a ^ a)}")
+  println("{(a ^ 0)}")
+  println("{(a & 0)}")
+  println("{(a | 0)}")
+}

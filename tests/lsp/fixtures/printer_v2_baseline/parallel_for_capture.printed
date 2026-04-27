@@ -1,0 +1,27 @@
+func main() {
+  for i in 100 parallel {
+    var work = (i * i)
+    work = (work + 1)
+  }
+  println("parallel 100 done")
+  for i in 50 parallel {
+    var x = (i + 1)
+    x = (x * 2)
+  }
+  println("parallel 50 done")
+  var seq_sum = 0
+  for i in range(10) {
+    seq_sum = (seq_sum + (i + 1))
+  }
+  println("seq sum 1-10: {seq_sum}")
+  for i in 20 parallel {
+    var t = (i * 3)
+    t = (t + i)
+  }
+  var post_count = 0
+  for i in range(5) {
+    post_count = (post_count + 1)
+  }
+  println("post parallel count: {post_count}")
+  println("done")
+}

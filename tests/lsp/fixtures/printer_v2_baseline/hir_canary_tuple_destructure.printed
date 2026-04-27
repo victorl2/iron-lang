@@ -1,0 +1,8 @@
+func make_pair() -> (null) {
+  return [21, 34]
+}
+
+func main() {
+  val (null) = make_pair()
+  println("sum: {(a + b)}")
+}
