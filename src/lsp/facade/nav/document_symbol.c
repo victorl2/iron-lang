@@ -323,6 +323,14 @@ void ilsp_facade_nav_document_symbol(IronLsp_Server       *server,
                 arr[w++] = build_func((Iron_FuncDecl *)d, doc, enc, arena);
                 break;
             case IRON_NODE_METHOD_DECL:
+                /* XXX_PHASE_10 - methods of v3 objects appear at top
+                 * level of the documentSymbol tree rather than nested
+                 * under their owning object, because the v3 parser
+                 * hoists method-in-block (init / regular / patch) to
+                 * top-level Iron_MethodDecl siblings. Cosmetic only;
+                 * proper nesting requires a method-by-type-name index
+                 * (~40 LoC) closer to feature work than plumbing.
+                 * Phase 10 owns the fix (see RESEARCH.md §6 Q3). */
                 arr[w++] = build_method((Iron_MethodDecl *)d, doc, enc, arena);
                 break;
             case IRON_NODE_VAL_DECL:

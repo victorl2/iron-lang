@@ -134,6 +134,12 @@ static bool find_decl_by_name(const Iron_Program   *program,
         if (!d) continue;
         if (d->kind == IRON_NODE_OBJECT_DECL) {
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            /* XXX_PHASE_11 - patches are not native subtypes/supertypes;
+             * Phase 11 PATCH-02 surfaces them as virtual `methods of T`
+             * entries instead. Skip is_patch ObjectDecls from the
+             * find-by-name path so type_hierarchy never names a patch
+             * decl as the parent/child of a real object. */
+            if (od->is_patch) continue;
             if (od->name && strcmp(od->name, name) == 0) {
                 if (out_obj) *out_obj = od;
                 return true;
@@ -424,6 +430,12 @@ void ilsp_facade_nav_type_hierarchy_subtypes(
                     Iron_Node *d = p->decls[j];
                     if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
                     Iron_ObjectDecl *ood = (Iron_ObjectDecl *)d;
+                    /* XXX_PHASE_11 - patches are not native subtypes;
+                     * Phase 11 PATCH-02 surfaces them as virtual
+                     * `methods of T` entries instead. Skip is_patch
+                     * ObjectDecls so subtypes never lists a patch as a
+                     * descendant of a real object. */
+                    if (ood->is_patch) continue;
                     if (!ood->extends_name ||
                         strcmp(ood->extends_name,
                                od->name ? od->name : "") != 0) continue;
