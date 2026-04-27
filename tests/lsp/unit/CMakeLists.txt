@@ -629,6 +629,48 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 30)
 
+    # ── Phase 9 Plan 01 (AST-02 / AST-03): v3 walker + corpus regression ─
+    # test_v3_node_at: D-12 cases 1-3 fixture-driven verification that the
+    # NAV-16 walker descends into init / named-init / patch-method bodies.
+    # Wave 0 ships TEST_IGNORE'd; Task 2 flips to real assertions.
+    add_executable(test_v3_node_at test_v3_node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c)
+    target_include_directories(test_v3_node_at PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_node_at PRIVATE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_node_at
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_node_at COMMAND test_v3_node_at)
+    set_tests_properties(test_v3_node_at PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    # test_v3_symbol_id_corpus: D-04/D-05 zero-churn + zero-collision drift
+    # guard. Wave 0 ships TEST_IGNORE'd plus a REGEN_SYMBOL_ID_BASELINE=1
+    # one-shot regen path; Task 2 flips assertions live.
+    add_executable(test_v3_symbol_id_corpus test_v3_symbol_id_corpus.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c)
+    target_include_directories(test_v3_symbol_id_corpus PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_symbol_id_corpus PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_symbol_id_corpus
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_symbol_id_corpus COMMAND test_v3_symbol_id_corpus)
+    set_tests_properties(test_v3_symbol_id_corpus PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 120)
+
     # ── Phase 3 Plan 02 Task 01 (NAV-01): workspace_index ────────────────
     # Per-file arena-scoped IndexEntry map with warm-seed, lazy analyze,
     # LRU cap, and path + dep invalidation.  Test drives the store API
