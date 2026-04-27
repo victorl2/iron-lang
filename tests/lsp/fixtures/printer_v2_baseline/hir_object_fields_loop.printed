@@ -1,11 +1,10 @@
 object Item {
   var id: Int
   var score: Int
-}
-
-func (mut self: Item) init(id: Int, score: Int) {
-  self.id = id
-  self.score = score
+  init(id: Int, score: Int) {
+    self.id = id
+    self.score = score
+  }
 }
 
 func main() {

@@ -4,26 +4,23 @@ interface Animal {
 
 object Dog impl Animal {
   var volume: Int
-}
-
-func (mut self: Dog) init(volume: Int) {
-  self.volume = volume
+  init(volume: Int) {
+    self.volume = volume
+  }
 }
 
 object Cat impl Animal {
   var pitch: Int
-}
-
-func (mut self: Cat) init(pitch: Int) {
-  self.pitch = pitch
+  init(pitch: Int) {
+    self.pitch = pitch
+  }
 }
 
 object Bird impl Animal {
   var freq: Int
-}
-
-func (mut self: Bird) init(freq: Int) {
-  self.freq = freq
+  init(freq: Int) {
+    self.freq = freq
+  }
 }
 
 func Dog.sound() -> Int {

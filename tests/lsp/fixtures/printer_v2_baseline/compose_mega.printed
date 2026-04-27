@@ -6,36 +6,33 @@ object Button impl Widget {
   var priority: Int
   var x: Int
   var debug_tag: Int
-}
-
-func (mut self: Button) init(priority: Int, x: Int, debug_tag: Int) {
-  self.priority = priority
-  self.x = x
-  self.debug_tag = debug_tag
+  init(priority: Int, x: Int, debug_tag: Int) {
+    self.priority = priority
+    self.x = x
+    self.debug_tag = debug_tag
+  }
 }
 
 object Slider impl Widget {
   var priority: Int
   var pos: Int
   var debug_tag: Int
-}
-
-func (mut self: Slider) init(priority: Int, pos: Int, debug_tag: Int) {
-  self.priority = priority
-  self.pos = pos
-  self.debug_tag = debug_tag
+  init(priority: Int, pos: Int, debug_tag: Int) {
+    self.priority = priority
+    self.pos = pos
+    self.debug_tag = debug_tag
+  }
 }
 
 object Label impl Widget {
   var priority: Int
   var len: Int
   var debug_tag: Int
-}
-
-func (mut self: Label) init(priority: Int, len: Int, debug_tag: Int) {
-  self.priority = priority
-  self.len = len
-  self.debug_tag = debug_tag
+  init(priority: Int, len: Int, debug_tag: Int) {
+    self.priority = priority
+    self.len = len
+    self.debug_tag = debug_tag
+  }
 }
 
 func Button.score() -> Int {

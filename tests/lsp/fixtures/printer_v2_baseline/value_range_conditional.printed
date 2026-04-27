@@ -6,24 +6,22 @@ object Gauge impl Sensor {
   var level: Int
   var scale: Int
   var debug_id: Int
-}
-
-func (mut self: Gauge) init(level: Int, scale: Int, debug_id: Int) {
-  self.level = level
-  self.scale = scale
-  self.debug_id = debug_id
+  init(level: Int, scale: Int, debug_id: Int) {
+    self.level = level
+    self.scale = scale
+    self.debug_id = debug_id
+  }
 }
 
 object Meter impl Sensor {
   var level: Int
   var offset: Int
   var debug_id: Int
-}
-
-func (mut self: Meter) init(level: Int, offset: Int, debug_id: Int) {
-  self.level = level
-  self.offset = offset
-  self.debug_id = debug_id
+  init(level: Int, offset: Int, debug_id: Int) {
+    self.level = level
+    self.offset = offset
+    self.debug_id = debug_id
+  }
 }
 
 func Gauge.reading() -> Int {

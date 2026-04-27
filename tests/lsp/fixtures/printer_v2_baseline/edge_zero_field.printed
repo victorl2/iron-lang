@@ -3,15 +3,13 @@ interface Marker {
 }
 
 object TypeA impl Marker {
-}
-
-func (mut self: TypeA) init() {
+  init() {
+  }
 }
 
 object TypeB impl Marker {
-}
-
-func (mut self: TypeB) init() {
+  init() {
+  }
 }
 
 func TypeA.tag() -> Int {

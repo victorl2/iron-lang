@@ -1,11 +1,10 @@
 object Pair {
   var a: Int
   var b: Int
-}
-
-func (mut self: Pair) init(a: Int, b: Int) {
-  self.a = a
-  self.b = b
+  init(a: Int, b: Int) {
+    self.a = a
+    self.b = b
+  }
 }
 
 func main() {

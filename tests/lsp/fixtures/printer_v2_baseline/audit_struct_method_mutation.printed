@@ -1,11 +1,10 @@
 object Counter {
   var count: Int
   var name: String
-}
-
-func (mut self: Counter) init(count: Int, name: String) {
-  self.count = count
-  self.name = name
+  init(count: Int, name: String) {
+    self.count = count
+    self.name = name
+  }
 }
 
 func Counter.increment(amount: Int) -> Counter {

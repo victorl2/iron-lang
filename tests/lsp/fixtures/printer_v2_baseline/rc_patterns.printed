@@ -1,21 +1,19 @@
 object Config {
   var name: String
   var value: Int
-}
-
-func (mut self: Config) init(name: String, value: Int) {
-  self.name = name
-  self.value = value
+  init(name: String, value: Int) {
+    self.name = name
+    self.value = value
+  }
 }
 
 object Node {
   var id: Int
   var label: String
-}
-
-func (mut self: Node) init(id: Int, label: String) {
-  self.id = id
-  self.label = label
+  init(id: Int, label: String) {
+    self.id = id
+    self.label = label
+  }
 }
 
 func main() {

@@ -4,18 +4,16 @@ interface Shape {
 
 object Circle impl Shape {
   var r: Int
-}
-
-func (mut self: Circle) init(r: Int) {
-  self.r = r
+  init(r: Int) {
+    self.r = r
+  }
 }
 
 object Square impl Shape {
   var s: Int
-}
-
-func (mut self: Square) init(s: Int) {
-  self.s = s
+  init(s: Int) {
+    self.s = s
+  }
 }
 
 func Circle.area() -> Int {

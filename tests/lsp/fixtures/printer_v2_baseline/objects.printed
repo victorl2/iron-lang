@@ -1,11 +1,10 @@
 object Vec2 {
   var x: Float
   var y: Float
-}
-
-func (mut self: Vec2) init(x: Float, y: Float) {
-  self.x = x
-  self.y = y
+  init(x: Float, y: Float) {
+    self.x = x
+    self.y = y
+  }
 }
 
 func Vec2.length() -> Float {

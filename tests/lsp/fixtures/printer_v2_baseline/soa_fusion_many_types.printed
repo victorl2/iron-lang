@@ -7,13 +7,12 @@ object Soldier impl Unit {
   var armor: Int
   var pos_x: Int
   var pos_y: Int
-}
-
-func (mut self: Soldier) init(power: Int, armor: Int, pos_x: Int, pos_y: Int) {
-  self.power = power
-  self.armor = armor
-  self.pos_x = pos_x
-  self.pos_y = pos_y
+  init(power: Int, armor: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.armor = armor
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
 }
 
 object Archer impl Unit {
@@ -21,13 +20,12 @@ object Archer impl Unit {
   var range: Int
   var pos_x: Int
   var pos_y: Int
-}
-
-func (mut self: Archer) init(power: Int, range: Int, pos_x: Int, pos_y: Int) {
-  self.power = power
-  self.range = range
-  self.pos_x = pos_x
-  self.pos_y = pos_y
+  init(power: Int, range: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.range = range
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
 }
 
 object Mage impl Unit {
@@ -35,13 +33,12 @@ object Mage impl Unit {
   var mana: Int
   var pos_x: Int
   var pos_y: Int
-}
-
-func (mut self: Mage) init(power: Int, mana: Int, pos_x: Int, pos_y: Int) {
-  self.power = power
-  self.mana = mana
-  self.pos_x = pos_x
-  self.pos_y = pos_y
+  init(power: Int, mana: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.mana = mana
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
 }
 
 object Healer impl Unit {
@@ -49,13 +46,12 @@ object Healer impl Unit {
   var heal: Int
   var pos_x: Int
   var pos_y: Int
-}
-
-func (mut self: Healer) init(power: Int, heal: Int, pos_x: Int, pos_y: Int) {
-  self.power = power
-  self.heal = heal
-  self.pos_x = pos_x
-  self.pos_y = pos_y
+  init(power: Int, heal: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.heal = heal
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
 }
 
 func Soldier.get_power() -> Int {

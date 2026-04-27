@@ -1,11 +1,10 @@
 object Config {
   var name: String
   var priority: Int
-}
-
-func (mut self: Config) init(name: String, priority: Int) {
-  self.name = name
-  self.priority = priority
+  init(name: String, priority: Int) {
+    self.name = name
+    self.priority = priority
+  }
 }
 
 func get_priority(c: Config) -> String {

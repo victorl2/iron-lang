@@ -4,82 +4,72 @@ interface Animal {
 
 object Dog impl Animal {
   var n: Int
-}
-
-func (mut self: Dog) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Cat impl Animal {
   var n: Int
-}
-
-func (mut self: Cat) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Bird impl Animal {
   var n: Int
-}
-
-func (mut self: Bird) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Fish impl Animal {
   var n: Int
-}
-
-func (mut self: Fish) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Frog impl Animal {
   var n: Int
-}
-
-func (mut self: Frog) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Snake impl Animal {
   var n: Int
-}
-
-func (mut self: Snake) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Hawk impl Animal {
   var n: Int
-}
-
-func (mut self: Hawk) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Bear impl Animal {
   var n: Int
-}
-
-func (mut self: Bear) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Wolf impl Animal {
   var n: Int
-}
-
-func (mut self: Wolf) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 object Fox impl Animal {
   var n: Int
-}
-
-func (mut self: Fox) init(n: Int) {
-  self.n = n
+  init(n: Int) {
+    self.n = n
+  }
 }
 
 func Dog.value() -> Int {

@@ -4,18 +4,16 @@ interface Greeting {
 
 object Formal impl Greeting {
   var name: String
-}
-
-func (mut self: Formal) init(name: String) {
-  self.name = name
+  init(name: String) {
+    self.name = name
+  }
 }
 
 object Casual impl Greeting {
   var name: String
-}
-
-func (mut self: Casual) init(name: String) {
-  self.name = name
+  init(name: String) {
+    self.name = name
+  }
 }
 
 func Formal.greet() -> String {

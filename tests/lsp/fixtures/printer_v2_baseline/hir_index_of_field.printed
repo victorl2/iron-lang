@@ -1,9 +1,8 @@
 object Data {
   var values: [Int]
-}
-
-func (mut self: Data) init(values: [Int]) {
-  self.values = values
+  init(values: [Int]) {
+    self.values = values
+  }
 }
 
 func main() {
