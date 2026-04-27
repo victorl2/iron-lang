@@ -81,3 +81,63 @@ If a future refactor finds that 5 ms per keystroke is too slow,
 incremental re-analyze belongs ABOVE the sealed-AST layer: the shared
 per-file cache would hold multiple sealed programs keyed by
 content-hash, never mutate any of them in place.
+
+## v3 sealed-tree coverage
+
+Iron v3.0 (Phase 8 rebase, 2026-04-24) added flag-bearing variants of
+existing AST node kinds for `init` / `patch` / `pub` / `readonly` /
+`pure` / `mut` semantics. None of these introduce a new
+`Iron_NodeKind` value — they are boolean flags and scalar fields on
+existing structs (`Iron_ObjectDecl.is_patch` + `target_type_name`,
+`Iron_MethodDecl.is_init` + `init_name` + `is_readonly` + `is_pure`,
+`Iron_FuncDecl.is_readonly` + `is_pure` on interface method sigs,
+`Iron_Field.is_pub`, `Iron_FieldAccess.is_pub_access`,
+`Iron_Param.is_mut_receiver`, `Iron_AssignStmt.is_pub_setter`).
+
+These additions are covered transitively by the existing sealed-tree
+contract: every flag field is part of the `Iron_Program` graph
+allocated against the analyze arena. Once `iron_analyze_with_mode`
+sets `program->sealed = true`, no consumer outside `src/analyzer/` or
+`src/parser/` may write to any of the new flag fields. The existing
+`IRON_AST_ASSERT_UNSEALED(program)` macro fires on any rogue write
+regardless of which struct field was targeted; no per-field
+enforcement is required.
+
+The single change to existing TUs is in `src/lsp/facade/nav/symbol_id.c`
+(Phase 9 Plan 01), where the symbol identity triple's `name_path`
+component is extended to encode v3 axes (`<Type>.init`,
+`<Type>.<init_name>`, `<target>::patch::<method>`) — see Phase 9 AST-03.
+That change is a read of already-sealed flag fields and writes only into
+the per-request arena's name_path string, which is downstream of the
+sealed `Iron_Program` graph. The contract holds.
+
+## v3 consumers
+
+The following Phase 9 readers operate on v3 flag fields under the
+sealed-tree contract:
+
+- `src/lsp/facade/nav/symbol_id.c` — derives identity triples encoding
+  init / patch axes (Plan 09-01).
+- `src/lsp/facade/nav/node_at.c` — descends into init / patch method
+  bodies via the smallest-covering-span scan (Plan 09-01).
+- `src/lsp/facade/hover.c` — emits `readonly` / `pure` / `init` /
+  `patch` / `pub` modifier prefix in the hover signature line so users
+  no longer see v3 declarations rendered as plain v2 text (Plan 09-03).
+- `src/lsp/facade/nav/type_hierarchy.c` — excludes `is_patch` objects
+  from supertypes / subtypes results so type-hierarchy never lists a
+  patch decl as the parent or child of a real object (Plan 09-03).
+- `src/lsp/facade/nav/implementation.c` — excludes `is_patch` objects
+  from interface implementor lists in both the count pass and emit
+  pass of the same-file harvest (Plan 09-03).
+- `src/lsp/facade/nav/document_symbol.c` — read-only consumer; the
+  v3 method-in-block hoisting cosmetic (methods at top level rather
+  than nested under their owning object) is tracked by an
+  `XXX_PHASE_10` marker for Phase 10 ownership (Plan 09-03).
+- `src/cli/check.c` — threads strict_v3 through `iron_analyze_buffer`
+  via the 3-valued `IronAnalysisMode` enum (Plan 09-01).
+- `src/parser/printer.c` — round-trips v3 modifiers (Plan 09-02 owns
+  this consumer; this TU is in `src/parser/` and is permitted to write
+  during analysis pre-seal but not on a sealed program).
+
+All other Phase 9 reads of v3 fields live behind the same read-only
+contract.
