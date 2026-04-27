@@ -143,14 +143,34 @@ Iron_Node *ilsp_nav_node_at(const IronLsp_Document   *doc,
     uint32_t line = 0, col = 0;
     if (!position_to_iron_line_col(doc, pos, enc, &line, &col)) return NULL;
 
-    /* Scan top-level decls for the one whose span covers (line, col). */
+    /* Scan top-level decls for the one whose span covers (line, col).
+     *
+     * Phase 9 D-06/D-07 (NAV-16 v3 walker descent): the parser hoists v3
+     * method-in-block methods (regular methods, init / named init, and
+     * patch methods) to top-level Iron_Program decls via extra_decls_out
+     * (see src/parser/parser.c:3331-3460). The hoisted MethodDecl span
+     * is fully nested inside the source object's OBJECT_DECL span. A
+     * naive "first-covering decl wins" scan returns the OBJECT_DECL,
+     * which is too coarse for cursor-in-method-body queries. We pick the
+     * smallest covering span instead — that yields the hoisted
+     * MethodDecl when it nests inside the object body, while still
+     * returning the OBJECT_DECL for cursor positions inside the object's
+     * fields[]/decl-header but outside any method body. */
     Iron_Node *covering = NULL;
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *d = program->decls[i];
         if (!d || d->kind == IRON_NODE_ERROR) continue;
-        if (span_covers(&d->span, line, col)) {
+        if (!span_covers(&d->span, line, col)) continue;
+        if (covering == NULL) {
             covering = d;
-            break;
+            continue;
+        }
+        /* Pick the more specific (smaller) span. */
+        if (span_covers(&covering->span,
+                         d->span.line, d->span.col) &&
+            span_covers(&covering->span,
+                         d->span.end_line, d->span.end_col)) {
+            covering = d;
         }
     }
     if (!covering) return NULL;  /* cursor is in whitespace */
