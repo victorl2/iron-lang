@@ -12,15 +12,26 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 
-/* ── Analysis mode (HARD-02) ──────────────────────────────────────────────── */
-/* Controls compile-time side effects and cascade-suppression behaviour.
- * CLI preserves legacy semantics; LSP disables comptime FS I/O and disables
- * cascade-suppression (in_error_recovery effect on diagnostic emission).
- * Plan 01: enum declared; behavioural gating lands in Plan 05 (FS) and
- * Plan 02 (cascade-suppression). */
+/* ── Analysis mode (HARD-02 + Phase 9 D-11) ───────────────────────────────── */
+/* Controls compile-time side effects, cascade-suppression behaviour, AND v3
+ * grammar-strictness enforcement.
+ *
+ *   CLI         — legacy `ironc check`/`ironc build` defaults: comptime FS
+ *                 I/O enabled, cascade-suppression on, v3_strict_mode = true.
+ *   LSP         — comptime FS I/O disabled (HARD-04), cascade-suppression
+ *                 disabled (HARD-02 — every diagnostic surfaces;
+ *                 the client dedupes), v3_strict_mode = false (lenient on
+ *                 partial input mid-edit).
+ *   CLI_LENIENT — same as CLI for FS / cascade behavior, but with
+ *                 v3_strict_mode = false. Used by `ironc check --lenient`
+ *                 to honor the inverse of `--strict-v3`. Phase 9 D-11
+ *                 Option A: extending the enum is a smaller blast radius
+ *                 (3 edit sites) than threading a parallel `bool strict_v3`
+ *                 argument through the analyzer entry. */
 typedef enum {
-    IRON_ANALYSIS_MODE_CLI = 0,
-    IRON_ANALYSIS_MODE_LSP = 1
+    IRON_ANALYSIS_MODE_CLI         = 0,
+    IRON_ANALYSIS_MODE_LSP         = 1,
+    IRON_ANALYSIS_MODE_CLI_LENIENT = 2
 } IronAnalysisMode;
 
 /* Result of running the full analysis pipeline. */

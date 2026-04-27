@@ -177,6 +177,14 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
     Iron_Parser parser = iron_parser_create(tokens, token_count, source,
                                             filename, arena, diags);
     iron_parser_set_mode(&parser, mode); /* HARD-02: LSP mode disables cascade suppression */
+    /* Phase 9 D-11 (Option A): derive v3 grammar strictness from the
+     * IronAnalysisMode bit. CLI keeps the legacy default (strict); both
+     * LSP and CLI_LENIENT route to lenient parsing so partial source
+     * mid-edit still produces a usable AST and `ironc check --lenient`
+     * honors its semantics. AST-01 invariant: this is a parser-state
+     * read site, not an AST write — NAV-15 sealed-tree contract is
+     * upstream of this point and unaffected. */
+    parser.v3_strict_mode = (mode == IRON_ANALYSIS_MODE_CLI);
     iron_parser_set_cancel_flag(&parser, cancel_flag); /* HARD-05 */
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
