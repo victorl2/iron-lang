@@ -235,13 +235,13 @@ jobs:
           test -s dist/web/index.js   || { echo "FAIL: dist/web/index.js missing or empty"; cat /tmp/phase8_build.log; exit 1; }
           test -s dist/web/index.wasm || { echo "FAIL: dist/web/index.wasm missing or empty"; cat /tmp/phase8_build.log; exit 1; }
 
-          # Regression guard: raylib must be passed to emcc as 7 individual
+          # Regression guard: raylib must be passed to emcc as individual
           # sources, NOT as the old `raylib.c` amalgamation driver. The
           # amalgamation pattern broke the build when rlgl.h's implementation
           # block re-emitted in a second re-include within the same TU.
           # Native builds already compile each raylib source as its own TU
           # (see build.c:636+); the web path now does the same.
-          for rl in rcore rshapes rtextures rtext rmodels raudio utils; do
+          for rl in rcore rshapes rtextures rtext rmodels raudio; do
             grep -qE "vendor/raylib/${rl}\.c\b" /tmp/phase8_build.log \
               || { echo "FAIL: raylib source ${rl}.c not in emcc argv — per-source compilation regressed"; cat /tmp/phase8_build.log; exit 1; }
           done

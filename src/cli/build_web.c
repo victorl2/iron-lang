@@ -683,7 +683,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      * They live under stdlib/, not vendor/raylib/, but share the
      * conditional-on-use_raylib lifecycle so they fit cleanly into
      * the same allocation / free / emcc-append loops below. */
-#define IRON_WEB_RAYLIB_SRC_COUNT 9
+#define IRON_WEB_RAYLIB_SRC_COUNT 8
     const char *rl_rel_paths[IRON_WEB_RAYLIB_SRC_COUNT] = {
         "vendor/raylib/rcore.c",
         "vendor/raylib/rshapes.c",
@@ -773,13 +773,14 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *      [20..22] -I include paths (src, stdlib, vendor)
      *      [23]    c_file_path (emitted C from emit_web_module)
      *      [24..36] 13 Iron runtime/stdlib source files
-     *      [37..46] raylib entries when opts.use_raylib: 7 raylib .c files +
-     *                -DPLATFORM_WEB + -DGRAPHICS_API_OPENGL_ES2 +
-     *                -I<lib>/vendor/raylib (10 slots)
-     *      [47..62] up to 16 --preload-file pairs (8 assets × 2 slots)
-     *      [63]    NULL terminator
+     *      [37..47] raylib entries when opts.use_raylib: 6 vendor raylib .c files +
+     *                2 Iron shim .c files + -DPLATFORM_WEB +
+     *                -DGRAPHICS_API_OPENGL_ES2 + -I<lib>/vendor/raylib (11 slots)
+     *      [48..63] up to 8 --preload-file pairs (8 assets × 2 slots)
+     *      [64]    NULL terminator
      *
-     *    High-water mark with every feature on: 63 slots used, ~17 free.
+     *    High-water mark with release flags and every feature on: 64 slots used;
+     *    debug adds one more slot, still leaving safe margin.
      *    Allocate 80 slots — safe margin for future phases.
      */
     const int max_argv = 80;
@@ -861,7 +862,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      * rglfw is excluded: PLATFORM_WEB routes rcore.c through rcore_web.c
      * via raylib's platform dispatch, not through rcore_desktop_glfw.c.
      *
-     * The 7 raylib source paths are heap-allocated above via rl_abs_paths;
+     * The 6 raylib source paths plus the 2 Iron shim paths are heap-allocated above via rl_abs_paths;
      * rl_i_flag is the heap-allocated -I flag. Both are freed on every
      * exit path.
      */
