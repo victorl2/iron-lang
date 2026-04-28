@@ -55,6 +55,9 @@ typedef enum {
     ILSP_RENAME_FAIL_STDLIB_IMPLEMENTOR = 2,  /* PITFALL B stdlib */
     ILSP_RENAME_FAIL_DEP_IMPLEMENTOR    = 3,  /* PITFALL B dep */
     ILSP_RENAME_FAIL_CANCELLED          = 4,  /* cancel flag observed */
+    /* NEW Phase 10 VIS-04: cross-module hidden symbol; rename refused
+     * loudly via window/showMessage (WARNING) + null WorkspaceEdit. */
+    ILSP_RENAME_FAIL_VISIBILITY         = 5,  /* E03PV cross-module hidden */
 } IronLsp_RenameOutcome;
 
 typedef struct IronLsp_RenameResult {
