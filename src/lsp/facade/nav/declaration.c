@@ -30,7 +30,11 @@ void ilsp_facade_nav_declaration(IronLsp_Server        *server,
                                   size_t                *out_n) {
     /* Same resolver as definition. Phase 3 contract: when the resolved
      * symbol is extern, the decl_node is the prototype -- identical
-     * return shape. */
+     * return shape.
+     *
+     * Phase 10 VIS-03: visibility gate inherited via delegation to
+     * the shared definition resolver. No new code here; declaration
+     * answers depend on the same decl_node visibility check. */
     ilsp_facade_nav_definition(server, doc, pos, cancel, arena,
                                 out_links, out_n);
 }
