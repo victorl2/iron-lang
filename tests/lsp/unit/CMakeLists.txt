@@ -827,6 +827,11 @@ if(IRON_BUILD_LSP)
         # Phase 10 Plan 10-01: visibility predicate consumed by every
         # nav-facade test that exercises ilsp_vis_can_see in 10-02.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/visibility.c
+        # Phase 11 Plan 11-01: patch_lookup helpers consumed by the
+        # implementation/type_hierarchy/hover/references/completion
+        # surfaces. Routed through the shared nav-facade source list
+        # so every nav unit test links the patch helpers.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/patch_lookup.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/definition.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/declaration.c
