@@ -1,0 +1,17 @@
+-- Phase 11 Plan 11-03 multi-file fixture: PATCH-05 forward-compat private case.
+-- Per RESEARCH Conflict 3: Iron v3 grammar has no `private patch object T`
+-- form today; the parser drops `private`/`pub` on patch decls. This
+-- fixture is structurally identical to patch_references_pub/ today.
+-- When a future grammar phase adds patch-level visibility, this
+-- fixture's expected behavior flips: cross-module call sites should
+-- be HIDDEN from the references result (per roadmap criterion 5).
+-- Until then, both fixture sets verify the positive cross-module
+-- discovery path works correctly.
+
+object Helper {
+    val key: Int
+}
+
+patch object Helper {
+    readonly func compute() -> Int { return 42 }
+}

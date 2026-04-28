@@ -1,0 +1,8 @@
+-- Phase 11 Plan 11-03 multi-file fixture: forward-compat private case (importer side).
+
+import mod_a
+
+func main() -> Int {
+    val h: Helper = Helper(21)
+    return h.compute()
+}
