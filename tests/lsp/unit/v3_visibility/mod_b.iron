@@ -1,3 +1,8 @@
-/* Phase 10 fixture stub -- full content lands in Task 5. */
+/* Phase 10 fixture: requester module. */
 import mod_a
-func main() -> Int { return public_fn() + private_fn() }
+
+func main() -> Int {
+    val a = public_fn()
+    val b = private_fn()
+    return a + b
+}
