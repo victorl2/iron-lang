@@ -3,6 +3,79 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v3.1.0-alpha: Raylib 6 (2026-04-28)
+
+## Iron v3.1.0-alpha: Raylib 6
+
+*Released: 2026-04-28*
+
+Updates the vendored raylib tree from 5.5 to 6.0 and refreshes the
+Iron raylib binding, C shims, ABI layout checks, manual coverage,
+and reference docs to match the new API surface. The Iron language
+itself is unchanged: v3.1 is a binding bump on top of the v3.0
+grammar.
+
+### Vendored raylib bumped to 6.0
+
+`src/vendor/raylib/` now tracks raylib 6.0. Native and web build
+source lists are updated for files removed upstream (msf_gif,
+rl_gputex, utils) and files added (rcore_memory,
+rcore_desktop_win32, rcore_web_emscripten, rlsw, rltexgpu,
+cgltf_write).
+
+### Binding API changes
+
+The Iron-side binding mirrors raylib 6 layouts:
+
+- New `ModelSkeleton` object (boneCount, bones, bindPose). `Model`
+  now embeds a `ModelSkeleton` and exposes `currentPose` and
+  `boneMatrices` runtime pointers.
+- `Mesh` reorders skinning metadata ahead of the runtime animated
+  buffers; `boneIds` is renamed to `boneIndices`.
+- `ModelAnimation` reorders fields, renames `frameCount` to
+  `keyframeCount`, and exposes `keyframePoses` (Float32 keyframe
+  pose table).
+- `FilePathList` drops the `capacity` field that raylib 6 removed.
+- `ShaderLocationIndex.BONE_MATRICES` is renamed to
+  `MATRIX_BONETRANSFORMS` (28). New entry `VERTEX_INSTANCETRANSFORM`
+  (29).
+- `ShaderUniformDataType` adds `UINT`, `UIVEC2`, `UIVEC3`, `UIVEC4`
+  (values 8-11). `SAMPLER2D` moves from 8 to 12.
+- `Draw.circle_gradient` signature is now
+  `(center: Vector2, r, inner, outer)` (was
+  `(cx, cy, r, inner, outer)`).
+- The model point draw wrappers were dropped, matching the upstream
+  removal.
+
+### Docs
+
+Reference pages under `docs/site/raylib/reference/` (audio, coll,
+draw2d, draw3d, enums, file, input, math, model, shader, tex, text,
+types, window) and the raylib top page were refreshed to match the
+shipped binding.
+
+### What's next
+
+- Raylib `Image.load_svg` (carry-over from v3.0's deferred D2; the
+  vendor side is now in place).
+- Generic-enum completion at return sites
+  (`return Result.Err(e)` from a `Result[Void, E]` body).
+- `_ = <expr>` wildcard-discard at statement position.
+- Asset pipeline (ASSET-01/02) and web matrix CI coverage carry
+  over.
+
+### Install
+
+```bash
+curl -fsSL https://ironlang.org/install.sh | bash
+```
+
+Pin to a specific version:
+
+```bash
+curl -fsSL https://ironlang.org/install.sh | bash -s -- --version v3.1.0-alpha
+```
+
 ## v3.0.0-alpha — Method Ergonomics (2026-04-23)
 
 ### Breaking
