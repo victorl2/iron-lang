@@ -1,0 +1,20 @@
+-- Phase 11 Plan 11-02 fixture: PATCH-03 primitive receiver dot-completion.
+-- Asserts: completion at `n.|<cursor>` includes `double` (the patch
+-- method) when the receiver is typed Int. TIER-03 prefix machinery
+-- (Phase 10 D-10) flows through patches automatically because patched
+-- methods are still Iron_MethodDecl nodes routing through maybe_push.
+--
+-- Mirrors integration/v3_patch_primitive.iron: no explicit `self` param
+-- on primitive patches; the body uses bare `self`. `self * 2` is the
+-- canonical primitive-patch shape.
+
+patch object Int {
+    readonly func double() -> Int {
+        return self * 2
+    }
+}
+
+func main() -> Int {
+    val n: Int = 21
+    return n.double()
+}

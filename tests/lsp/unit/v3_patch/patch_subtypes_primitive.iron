@@ -1,0 +1,21 @@
+-- Phase 11 Plan 11-02 fixture: PATCH-02 primitive subtypes case.
+-- Asserts: typeHierarchy/subtypes on a primitive type token returns
+-- TypeHierarchyItem[] containing patch methods as virtual entries with
+-- kind=SymbolKind.Method (6) and detail starting "[patch from ".
+--
+-- v3 grammar reality:
+--   - Iron's parser drops `self` parameters on primitive patches so
+--     the body uses bare `self` (mirrors integration/v3_patch_primitive.iron).
+--   - readonly/pure tier modifiers flow through hover + completion
+--     unchanged (Phase 10 D-10/D-11).
+
+patch object Int {
+    readonly func double() -> Int {
+        return self * 2
+    }
+}
+
+func main() -> Int {
+    val n: Int = 21
+    return n
+}
