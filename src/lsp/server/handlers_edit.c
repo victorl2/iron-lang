@@ -951,6 +951,15 @@ void ilsp_handle_text_document_rename(IronLsp_Server    *s,
             iron_arena_free(&work_arena);
             return;
         }
+        case ILSP_RENAME_FAIL_VISIBILITY: {
+            /* Phase 10 VIS-04 (D-07): cross-module hidden symbol. The
+             * apply.c gate already emitted window/showMessage(WARNING)
+             * with E03PV text; the response payload is `null`
+             * WorkspaceEdit per LSP rename contract for refusal. */
+            yyjson_mut_val *null_val = yyjson_mut_null(rd);
+            enqueue_result(s, &body_arena, id_v, rd, null_val);
+            break;
+        }
         case ILSP_RENAME_FAIL_CANCELLED:
         default:
             /* Drop silently. */
