@@ -194,9 +194,33 @@ static void emit_top_level(IronLsp_CompletionCandidate **out_arr,
         /* Keep imports out of bucket 2 (they're module names, not
          * symbols). Plan 04-03 may surface them via bucket 3. */
         if (d->kind == IRON_NODE_IMPORT_DECL) continue;
+        /* NEW Phase 10 TIER-03 (D-10): build tier-prefixed detail for
+         * method-bearing decls (FUNC_DECL + METHOD_DECL only). Mutual
+         * exclusion is parser-enforced (parser.c:3162-3180). FIELD,
+         * ENUM_VARIANT, VAL_DECL, VAR_DECL, PARAM remain untouched. */
+        const char *tier_prefix = "";
+        switch ((int)d->kind) {
+            case IRON_NODE_FUNC_DECL: {
+                const Iron_FuncDecl *fd = (const Iron_FuncDecl *)d;
+                if      (fd->is_readonly) tier_prefix = "readonly func";
+                else if (fd->is_pure)     tier_prefix = "pure func";
+                else                       tier_prefix = "func";
+                break;
+            }
+            case IRON_NODE_METHOD_DECL: {
+                const Iron_MethodDecl *md = (const Iron_MethodDecl *)d;
+                if      (md->is_readonly) tier_prefix = "readonly func";
+                else if (md->is_pure)     tier_prefix = "pure func";
+                else                       tier_prefix = "func";
+                break;
+            }
+            default:
+                tier_prefix = "";
+                break;
+        }
         maybe_push(out_arr, arena, nm, lsp_kind_from_decl(d),
                     ILSP_COMPLETION_BUCKET_TOP_LEVEL,
-                    "", canonical_path, nm,
+                    tier_prefix, canonical_path, nm,
                     decl_is_extern(d), false, query_prefix);
     }
 }
