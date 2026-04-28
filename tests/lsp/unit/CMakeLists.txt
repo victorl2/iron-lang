@@ -127,6 +127,21 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/symbol_id.c
+        # Phase 10 Plan 10-01: visibility predicate consumed by every
+        # nav-facade TU (definition/type_definition/references/hover/
+        # implementation/workspace_symbol/rename/apply). Linked here so
+        # m1-invariant tests using _LSP_PLAN03_SERVER_SRC resolve
+        # ilsp_vis_can_see + ilsp_vis_is_public symbols.
+        # Phase 11 Plan 11-02 (Rule 3 link-graph fix): retroactive
+        # registration; Plan 10-01/11-01 shipped the source file but only
+        # registered it in _LSP_PHASE3_NAV_FACADE_SRC, leaving m1 binaries
+        # with broken links to implementation.c's patch + visibility refs.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/visibility.c
+        # Phase 11 Plan 11-01: patch_lookup helpers consumed by
+        # implementation.c (PATCH-01) + type_hierarchy.c (PATCH-02) +
+        # complete/buckets.c (PATCH-03) + hover.c/references.c (Plan 11-03).
+        # Same Rule 3 link-graph fix as visibility.c above.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/patch_lookup.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/definition.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/declaration.c
