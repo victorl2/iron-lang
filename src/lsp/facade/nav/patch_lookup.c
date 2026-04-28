@@ -17,6 +17,7 @@
 #include "lsp/facade/nav/visibility.h"
 #include "lsp/store/workspace_index.h"
 #include "analyzer/resolve.h"
+#include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
@@ -141,10 +142,28 @@ bool ilsp_patch_target_matches_interface(
 /* ── ilsp_patch_for_each_method ──────────────────────────────────── */
 
 /* Visit every patched method on `target_type_name` in a single program.
- * Builds + frees an Iron_TypePatchRegistry inside this function scope
- * per Pitfall 1. Returns false via *out_stop when the visitor requests
- * short-circuit; *out_visited is incremented for each method that
- * passes the visibility filter. */
+ *
+ * DEVIATION (Rule 3): CONTEXT D-01 prescribed building the
+ * Iron_TypePatchRegistry to enumerate methods, but
+ * iron_type_patch_registry_build (a) requires `global_scope` to validate
+ * user-object targets (resolve.c:1115-1121 only sets
+ * `target_is_user_object=true` when global_scope can resolve the target
+ * to an IRON_NODE_OBJECT_DECL Iron_Symbol) AND (b) calls iron_diag_emit
+ * on the diags pointer unconditionally when the target validates as
+ * neither primitive nor user-object (resolve.c:1130). Both make the
+ * registry unusable from the LSP boundary where global_scope isn't
+ * available and diags are intentionally suppressed.
+ *
+ * We instead walk `program->decls` directly: for every top-level
+ * Iron_MethodDecl whose `type_name` matches `target_type_name`, find
+ * the enclosing patch ObjectDecl via patch_enclosing_in_program (the
+ * symbol_id.c:139-156 idiom). This mirrors the parser's flushing
+ * convention: patched method bodies are emitted as top-level
+ * Iron_MethodDecl nodes in program->decls with type_name set to the
+ * patch target. Rule 1 fix preserves the public helper signature; the
+ * registry build is no longer load-bearing here. Pitfall 1 (build/free
+ * pairing) still applies to plans 11-02..03 if they choose registry
+ * directly. */
 static void for_each_method_in_program(
     Iron_Program     *program,
     Iron_Arena       *req_arena,
@@ -155,35 +174,63 @@ static void for_each_method_in_program(
     size_t           *out_visited,
     bool             *out_stop)
 {
-    if (!program || !visit) return;
+    (void)req_arena;
+    if (!program || !visit || !target_type_name) return;
 
-    Iron_TypePatchRegistry *reg = iron_type_patch_registry_build(
-        program, /*global_scope=*/NULL, req_arena, /*diags=*/NULL);
-    if (!reg) return;
+    /* Mirror the resolve.c:1165-1195 flush-aware walk. Patch ObjectDecls
+     * are followed by their flushed METHOD_DECLs in declaration order;
+     * methods whose type_name matches `last_patch_target` belong to
+     * that patch body. A non-patch ObjectDecl (or a non-method/non-func
+     * decl) clears `last_patch_target` so a subsequent native method on
+     * the same type name is NOT misattributed to a patch. */
+    Iron_ObjectDecl *last_patch = NULL;
+    const char      *last_patch_target = NULL;
 
-    Iron_MethodDecl **methods =
-        iron_type_patch_lookup(reg, target_type_name);
-    if (methods) {
-        ptrdiff_t mlen = arrlen(methods);
-        for (ptrdiff_t i = 0; i < mlen; i++) {
-            if (*out_stop) break;
-            Iron_MethodDecl *m = methods[i];
-            if (!m) continue;
-            Iron_ObjectDecl *od = patch_enclosing_in_program(program, m);
-            if (!od) continue;
-            const char *od_path =
-                od->span.filename ? od->span.filename : "";
-            if (!ilsp_vis_can_see(od_path,
-                                   requester_canonical_path,
-                                   (const Iron_Node *)od)) {
-                continue;
+    for (int i = 0; i < program->decl_count; i++) {
+        if (*out_stop) break;
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+
+        if (d->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            if (od->is_patch) {
+                last_patch = od;
+                last_patch_target =
+                    od->target_type_name ? od->target_type_name : od->name;
+            } else {
+                last_patch = NULL;
+                last_patch_target = NULL;
             }
-            if (!visit(m, od, userdata)) { *out_stop = true; break; }
-            (*out_visited)++;
+            continue;
         }
-    }
 
-    iron_type_patch_registry_free(reg);
+        if (d->kind != IRON_NODE_METHOD_DECL) {
+            /* Classic func decls do not break the patch run (the parser
+             * may interleave a synthesized self-param IRON_NODE_FUNC_DECL
+             * but the resolver tolerates it). Other decl kinds clear. */
+            if (d->kind != IRON_NODE_FUNC_DECL) {
+                last_patch = NULL;
+                last_patch_target = NULL;
+            }
+            continue;
+        }
+
+        if (!last_patch || !last_patch_target) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (!m->type_name) continue;
+        if (strcmp(m->type_name, last_patch_target) != 0) continue;
+        if (strcmp(last_patch_target, target_type_name) != 0) continue;
+
+        const char *od_path =
+            last_patch->span.filename ? last_patch->span.filename : "";
+        if (!ilsp_vis_can_see(od_path,
+                               requester_canonical_path,
+                               (const Iron_Node *)last_patch)) {
+            continue;
+        }
+        if (!visit(m, last_patch, userdata)) { *out_stop = true; break; }
+        (*out_visited)++;
+    }
 }
 
 size_t ilsp_patch_for_each_method(

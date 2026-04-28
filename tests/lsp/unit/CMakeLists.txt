@@ -1115,27 +1115,45 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 60)
 
-    # ── Phase 11 Plan 11-01 Wave 0 stubs (PATCH-01 + D-15 helpers) ───────
-    # Flipped in Task 4 to real assertions; Wave 0 stubs only need Unity to
-    # compile and report IGNORED. Full link sets land in Task 4 once
-    # patch_lookup.c (Task 2) is on disk.
-    add_executable(test_v3_patch_predicate test_v3_patch_predicate.c)
+    # ── Phase 11 Plan 11-01 (PATCH-01 + D-15 helpers) ───────────────────
+    # Predicate test: minimal link set (patch_lookup.c + visibility.c +
+    # nav_common.c + line_index/utf/yyjson) plus iron_compiler for the
+    # registry build path (real fixture parse in test 8). Mirrors Phase
+    # 10 test_v3_visibility_predicate shape (lines 678-694).
+    add_executable(test_v3_patch_predicate test_v3_patch_predicate.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/patch_lookup.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/visibility.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_v3_patch_predicate PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
         ${CMAKE_BINARY_DIR}/generated)
-    target_link_libraries(test_v3_patch_predicate unity pthread m)
+    target_compile_definitions(test_v3_patch_predicate PRIVATE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_patch_predicate
+        iron_compiler iron_runtime unity pthread m)
     add_test(NAME test_v3_patch_predicate COMMAND test_v3_patch_predicate)
     set_tests_properties(test_v3_patch_predicate PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
-    add_executable(test_v3_patch_implementation test_v3_patch_implementation.c)
+    # PATCH-01 facade test: full nav facade link set (patch_lookup.c is
+    # already on _LSP_PHASE3_NAV_FACADE_SRC) + IRON_SOURCE_TREE_ROOT
+    # define so fixture_path() can locate tests/lsp/unit/v3_patch/*.iron.
+    add_executable(test_v3_patch_implementation test_v3_patch_implementation.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_v3_patch_implementation PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
         ${CMAKE_BINARY_DIR}/generated)
-    target_link_libraries(test_v3_patch_implementation unity pthread m)
+    target_compile_definitions(test_v3_patch_implementation PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_patch_implementation
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_v3_patch_implementation COMMAND test_v3_patch_implementation)
     set_tests_properties(test_v3_patch_implementation PROPERTIES
         LABELS "unit;phase-m2-invariant"

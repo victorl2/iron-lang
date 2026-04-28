@@ -6,7 +6,7 @@ interface Greeter {
     func hi() -> String
 }
 
-object MyGreeter {
+object MyGreeter impl Greeter {
     func hi() -> String { return "hello" }
 }
 
