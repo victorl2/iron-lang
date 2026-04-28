@@ -21,6 +21,7 @@
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/node_at.h"
+#include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/compile.h"
@@ -184,6 +185,54 @@ static IronLsp_SymbolId triple_for_iface_in_doc(const char *canonical_path,
     return ilsp_symbol_id_derive(&fake, canonical_path, NULL, arena);
 }
 
+/* PATCH-01 (Plan 11-01) ── visitor for ilsp_patch_for_each_method.
+ *
+ * Pushes one IronLsp_ImplEntry per patch method into a pre-sized
+ * `local[]` buffer (the count pass guaranteed cap is sufficient).
+ * Each entry carries spans pointing at the method body so Case A
+ * emission yields one Location per patch method (D-04).
+ *
+ * The visitor returns true to continue iteration; we never short
+ * circuit because the count pass and emit pass must agree.  When
+ * the cap is exceeded (defensive guard against count-pass drift),
+ * the entry is silently dropped to avoid out-of-bounds writes. */
+struct ilsp_patch_emit_ctx {
+    IronLsp_ImplEntry *out;
+    size_t            *out_li;
+    size_t             cap;
+    const char        *canonical_path;
+};
+
+static bool ilsp_patch_emit_visit(Iron_MethodDecl *mm,
+                                   Iron_ObjectDecl *patch_od,
+                                   void            *ud) {
+    (void)patch_od;
+    struct ilsp_patch_emit_ctx *ctx = (struct ilsp_patch_emit_ctx *)ud;
+    if (!ctx || !ctx->out_li) return true;
+    if (*ctx->out_li >= ctx->cap) return true;  /* defensive cap guard */
+
+    IronLsp_ImplEntry pe = {0};
+    pe.canonical_path    = ctx->canonical_path;
+    pe.object_name       = (patch_od && patch_od->target_type_name)
+                              ? patch_od->target_type_name : "";
+    pe.object_decl_span  = mm->span;
+    pe.object_ident_span = mm->span;
+    pe.impl_clause_span  = mm->span;
+    pe.methods           = NULL;
+
+    /* Populate methods so Case B (cursor on iface method sig) can
+     * match by name; the matching method itself is the only
+     * candidate from this patch entry. */
+    IronLsp_ImplMethod im = {0};
+    im.name       = mm->method_name ? mm->method_name : "";
+    im.sig_span   = mm->span;
+    im.ident_span = mm->span;
+    arrput(pe.methods, im);
+
+    ctx->out[(*ctx->out_li)++] = pe;
+    return true;
+}
+
 /* ── Public facade entry ─────────────────────────────────────────── */
 
 void ilsp_facade_nav_implementation(IronLsp_Server             *server,
@@ -251,13 +300,57 @@ void ilsp_facade_nav_implementation(IronLsp_Server             *server,
             Iron_Node *d = program->decls[i];
             if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
-            /* XXX_PHASE_11 - patches are not interface implementors in
-             * the v2 result class; Phase 11 PATCH-01 surfaces them as a
-             * separate result class. Skip is_patch ObjectDecls from the
-             * implementor count + emit pass so textDocument/implementation
-             * never lists a patch decl as a native implementor of the
-             * interface under the cursor. */
-            if (od->is_patch) continue;
+            /* PATCH-01 (Plan 11-01) -- patch ObjectDecls contribute to the
+             * implementor count when their target user-object lists the
+             * interface under the cursor in implements_names[]. Each
+             * matching patch counts as ONE entry in the count pass; the
+             * emit pass below produces one IronLsp_ImplEntry per patch
+             * method (D-04: per-method Location). Visibility predicate
+             * applied with the enclosing patch ObjectDecl as decl_node
+             * per RESEARCH Conflict 3 forward-compat shape (no-op for
+             * ObjectDecl today; activates when grammar adds patch
+             * visibility). */
+            if (od->is_patch) {
+                if (!ilsp_patch_target_matches_interface(od, ifc, program)) continue;
+                const char *patch_decl_path =
+                    (od->span.filename) ? od->span.filename : "";
+                const char *patch_requester = (doc && doc->uri) ? doc->uri : "";
+                if (!ilsp_vis_can_see(patch_decl_path, patch_requester,
+                                       (const Iron_Node *)od)) {
+                    continue;
+                }
+                /* Multiple `patch object T` decls in the same program
+                 * aggregate their methods under one target_type_name in
+                 * the registry, so we count methods ONCE per target.
+                 * Skip later-seen patches of the same target. */
+                bool already_counted = false;
+                for (int qi = 0; qi < i; qi++) {
+                    Iron_Node *prior = program->decls[qi];
+                    if (!prior || prior->kind != IRON_NODE_OBJECT_DECL) continue;
+                    Iron_ObjectDecl *pod = (Iron_ObjectDecl *)prior;
+                    if (!pod->is_patch || !pod->target_type_name) continue;
+                    if (od->target_type_name &&
+                        strcmp(pod->target_type_name, od->target_type_name) == 0) {
+                        already_counted = true; break;
+                    }
+                }
+                if (already_counted) continue;
+                /* Count one entry per patch method on this target. The
+                 * emit pass mirrors this count by walking patch methods
+                 * via ilsp_patch_for_each_method. */
+                size_t patch_method_count = 0;
+                for (int k = 0; k < program->decl_count; k++) {
+                    Iron_Node *mn = program->decls[k];
+                    if (!mn || mn->kind != IRON_NODE_METHOD_DECL) continue;
+                    Iron_MethodDecl *mm = (Iron_MethodDecl *)mn;
+                    if (!mm->type_name || !od->target_type_name) continue;
+                    if (strcmp(mm->type_name, od->target_type_name) == 0) {
+                        patch_method_count++;
+                    }
+                }
+                local_count += (int)patch_method_count;
+                continue;  /* don't fall through to implements_names match */
+            }
             /* NEW Phase 10 VIS-03 (RESEARCH Conflict 2): filter each
              * implementor by cross-module visibility. Per-impl gate (NOT
              * per-request) so partial visibility is honored. Stdlib
@@ -295,11 +388,55 @@ void ilsp_facade_nav_implementation(IronLsp_Server             *server,
             Iron_Node *d = program->decls[i];
             if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
-            /* XXX_PHASE_11 - patches are not interface implementors in
-             * the v2 result class; mirror the count-pass guard above so
-             * the emit pass and the count pass agree. Phase 11 PATCH-01
-             * replaces both with proper virtual rendering. */
-            if (od->is_patch) continue;
+            /* PATCH-01 (Plan 11-01) -- emit ONE IronLsp_ImplEntry per patch
+             * method on this target (D-04). Each ImplEntry has spans
+             * pointing at the method body so Case A's per-impl emission
+             * yields one Location per patch method (mirrors the natural
+             * read of "navigate to the methods that satisfy the
+             * interface"). Routes through ilsp_patch_for_each_method so
+             * the helper's visibility + cancel discipline applies; the
+             * visitor pushes one ImplEntry per yielded method into the
+             * pre-sized `local[]` buffer (count-pass above ensured cap). */
+            if (od->is_patch) {
+                if (!ilsp_patch_target_matches_interface(od, ifc, program)) continue;
+                /* The count pass already counted one unit per patch
+                 * method on this target.  ilsp_patch_for_each_method
+                 * iterates the registry's per-target methods array; we
+                 * route through it here (rather than inline) so the
+                 * helper's visibility filter + cancel discipline runs
+                 * uniformly, and the emit logic stays centralized in
+                 * ilsp_patch_emit_visit. The helper rebuilds the
+                 * registry per call, so we invoke it once per matching
+                 * patch decl encountered in this pass.  Subsequent
+                 * matches for the same target_type_name within the
+                 * same program would re-emit duplicates -- we guard
+                 * by short-circuiting after the first call per target
+                 * via a same-target seen-bit on the inline scan. */
+                bool already_emitted = false;
+                for (int qi = 0; qi < i; qi++) {
+                    Iron_Node *prior = program->decls[qi];
+                    if (!prior || prior->kind != IRON_NODE_OBJECT_DECL) continue;
+                    Iron_ObjectDecl *pod = (Iron_ObjectDecl *)prior;
+                    if (!pod->is_patch || !pod->target_type_name) continue;
+                    if (od->target_type_name &&
+                        strcmp(pod->target_type_name, od->target_type_name) == 0) {
+                        already_emitted = true; break;
+                    }
+                }
+                if (!already_emitted) {
+                    struct ilsp_patch_emit_ctx ectx = {
+                        .out            = local,
+                        .out_li         = &li,
+                        .cap            = (size_t)local_count,
+                        .canonical_path = doc_key,
+                    };
+                    ilsp_patch_for_each_method(
+                        program, /*wi=*/NULL, od->target_type_name,
+                        (doc && doc->uri) ? doc->uri : "",
+                        ilsp_patch_emit_visit, &ectx, /*cancel=*/NULL);
+                }
+                continue;  /* don't fall through to implements_names match */
+            }
             /* NEW Phase 10 VIS-03 (RESEARCH Conflict 2): mirror the
              * count-pass visibility gate so the emit pass and count
              * pass agree on which implementors are kept. */
