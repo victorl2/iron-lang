@@ -620,6 +620,12 @@ static yyjson_mut_val *type_hierarchy_item_to_json(
     yyjson_mut_val *o = yyjson_mut_obj(rd);
     yyjson_mut_obj_add_strcpy(rd, o, "name", it->name ? it->name : "");
     yyjson_mut_obj_add_int   (rd, o, "kind", it->kind);
+    /* Phase 11 PATCH-02 (Plan 11-02 Task 1): optional detail field per
+     * LSP 3.17 spec. Only emitted for patch-method virtual entries
+     * (NULL for pre-existing native subtypes). */
+    if (it->detail) {
+        yyjson_mut_obj_add_strcpy(rd, o, "detail", it->detail);
+    }
     yyjson_mut_obj_add_strcpy(rd, o, "uri",  it->uri  ? it->uri  : "");
 
     yyjson_mut_val *range = yyjson_mut_obj(rd);
