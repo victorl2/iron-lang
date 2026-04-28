@@ -1,0 +1,17 @@
+-- Phase 11 Plan 11-03 multi-file fixture: PATCH-05 cross-module references (declarer side).
+-- Notes (parser quirks per RESEARCH R-11-10):
+--   - parser.c:4937-4943 rejects top-level `pub`
+--   - parser.c:4385 silently drops `pub` on members inside patch body
+--   - Iron_ObjectDecl carries no is_pub/is_private axis (RESEARCH Conflict 3)
+-- So this fixture's `pub` keyword (if added) is a forward-compat marker
+-- that has no behavioral effect today; visibility gate defaults-true for
+-- ObjectDecl regardless. The cross-module reference walker still finds
+-- call sites in mod_b.iron — that's what we assert.
+
+object Greeter {
+    val name: String
+}
+
+patch object Greeter {
+    readonly func greet() -> String { return "hi" }
+}

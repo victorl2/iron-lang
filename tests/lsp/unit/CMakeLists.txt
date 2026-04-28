@@ -1223,6 +1223,32 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
+    # ── Phase 11 Plan 11-03 (PATCH-04 hover + PATCH-05 references) ──────
+    # Wave 0 stubs (TEST_IGNORE_MESSAGE); flipped to real assertions in
+    # Task 5 with full nav facade link set. Minimal link set here is fine
+    # because the Wave 0 stubs have no external dependencies beyond unity.
+    add_executable(test_v3_patch_hover test_v3_patch_hover.c)
+    target_include_directories(test_v3_patch_hover PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(test_v3_patch_hover unity pthread m)
+    add_test(NAME test_v3_patch_hover COMMAND test_v3_patch_hover)
+    set_tests_properties(test_v3_patch_hover PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_patch_references test_v3_patch_references.c)
+    target_include_directories(test_v3_patch_references PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(test_v3_patch_references unity pthread m)
+    add_test(NAME test_v3_patch_references COMMAND test_v3_patch_references)
+    set_tests_properties(test_v3_patch_references PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
     # ── Phase 10 Plan 10-03 (TIER-03 + TIER-04) ─────────────────────────
     # 2 facade tests (completion detail tier prefix + signature_help label
     # tier prefix). Each links the full nav facade stack so the v3 tier
