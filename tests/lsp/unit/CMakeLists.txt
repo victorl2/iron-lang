@@ -1110,14 +1110,18 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 60)
 
-    # ── Phase 10 Plan 10-03 Wave 0 stubs (TIER-03 + TIER-04) ─────────────
+    # ── Phase 10 Plan 10-03 (TIER-03 + TIER-04) ─────────────────────────
     # 2 facade tests (completion detail tier prefix + signature_help label
     # tier prefix). Each links the full nav facade stack so the v3 tier
     # rendering shipped by Tasks 3 + 4 is exercised against real bytes.
-    # Stubs land in Wave 0 with TEST_IGNORE_MESSAGE; flipped to real
-    # assertions in Task 5.
+    # The TIER-03 completion test additionally pulls in the edit/complete
+    # source family (buckets.c + context_classify.c) since it drives
+    # ilsp_complete_buckets_build directly. Wave 0 stubs landed with
+    # TEST_IGNORE_MESSAGE; flipped to real assertions in Task 5.
     add_executable(test_v3_tier_completion test_v3_tier_completion.c
-        ${_LSP_PHASE3_NAV_FACADE_SRC})
+        ${_LSP_PHASE3_NAV_FACADE_SRC}
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c)
     target_include_directories(test_v3_tier_completion PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
