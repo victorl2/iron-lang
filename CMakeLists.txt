@@ -542,6 +542,12 @@ if(IRON_BUILD_LSP)
         # cross-module gate with stdlib carve-out. Consumed by Plans
         # 10-02 (nav fan-out) and 10-03 (hover/completion/sig-help).
         src/lsp/facade/nav/visibility.c
+        # Phase 11 Plan 11-01 (PATCH-01..05, D-15): patch_lookup helpers
+        # consumed by implementation.c (PATCH-01), type_hierarchy.c
+        # (PATCH-02), complete/buckets.c (PATCH-03), hover.c (PATCH-04),
+        # references.c (PATCH-05). Cross-file iteration routes through
+        # workspace_index per RESEARCH Conflict 1 (NOT dep_map).
+        src/lsp/facade/nav/patch_lookup.c
         src/lsp/facade/nav/definition.c
         src/lsp/facade/nav/declaration.c
         src/lsp/facade/nav/type_definition.c
