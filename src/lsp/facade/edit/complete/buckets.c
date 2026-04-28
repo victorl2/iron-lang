@@ -27,6 +27,7 @@
 #include "lsp/facade/edit/complete/buckets.h"
 #include "lsp/facade/edit/complete/context_classify.h"
 #include "lsp/facade/nav/fuzzy.h"
+#include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/server/server.h"
 #include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
@@ -422,6 +423,33 @@ static void emit_keywords(IronLsp_CompletionCandidate **out_arr,
 
 /* ── MEMBER_AFTER_DOT ─────────────────────────────────────────────── */
 
+/* Phase 11 PATCH-03 (Plan 11-02): visitor state for the patch-method
+ * walk inside emit_member_fields. Each yielded (Iron_MethodDecl,
+ * Iron_ObjectDecl) pair becomes a CompletionCandidate via maybe_push.
+ * TIER-03 prefix machinery (Phase 10 D-10) is computed inline so the
+ * member-after-dot detail rendering matches the native walk above. */
+struct patch_member_emit_ctx {
+    IronLsp_CompletionCandidate **out;
+    Iron_Arena                   *arena;
+    const char                   *prefix;
+};
+
+static bool emit_patch_member_field(Iron_MethodDecl *m,
+                                      Iron_ObjectDecl *p,
+                                      void           *ud) {
+    struct patch_member_emit_ctx *st = (struct patch_member_emit_ctx *)ud;
+    (void)p;
+    if (!st || !m || !m->method_name) return true;
+    const char *tier_prefix = "func";
+    if      (m->is_readonly) tier_prefix = "readonly func";
+    else if (m->is_pure)     tier_prefix = "pure func";
+    maybe_push(st->out, st->arena, m->method_name, LSP_CK_METHOD,
+                ILSP_COMPLETION_BUCKET_LOCAL,
+                tier_prefix, "", m->method_name,
+                false, false, st->prefix);
+    return true;
+}
+
 /* Find the object type for a `x.|` cursor by walking back one ident in
  * the document buffer and looking it up in program->decls (val/var).
  * If the resolved type is an object, emit its fields + methods. */
@@ -432,7 +460,9 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
                                  Iron_Program            *program,
                                  size_t                          cursor_byte,
                                  const char                     *query_prefix) {
-    (void)server;
+    /* Phase 11 PATCH-03 (Plan 11-02): server is now consumed via
+     * server->workspace_index by the patch-method walk below; the
+     * pre-Phase-11 `(void)server;` is therefore dropped. */
     if (!doc || !doc->text || !program) return;
     if (cursor_byte == 0) return;
     /* Back up over `.` plus any identifier the user is typing. */
@@ -503,17 +533,44 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         }
         break;
     }
-    /* Methods: walk program-level method decls with matching type_name. */
+    /* Methods: walk program-level method decls with matching type_name.
+     * Phase 11 PATCH-03 (Plan 11-02 D-09..D-11): tier prefix computed via
+     * the same Phase 10 TIER-03 D-10 idiom used in emit_top_level so the
+     * member-after-dot detail rendering matches: `func` / `readonly func`
+     * / `pure func`. Patches inherit the same machinery via the patch
+     * walk below. */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *d = program->decls[i];
         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
         if (!md->type_name || strcmp(md->type_name, type_name) != 0) continue;
         if (!md->method_name) continue;
+        const char *tier_prefix = "func";
+        if      (md->is_readonly) tier_prefix = "readonly func";
+        else if (md->is_pure)     tier_prefix = "pure func";
         maybe_push(out_arr, arena, md->method_name, LSP_CK_METHOD,
                     ILSP_COMPLETION_BUCKET_LOCAL,
-                    "method", "", md->method_name,
+                    tier_prefix, "", md->method_name,
                     false, false, query_prefix);
+    }
+
+    /* PATCH-03 (Plan 11-02): walk patch registry + workspace_index entries
+     * for patched methods on the same target type. Patches route through
+     * the SAME maybe_push helper so TIER-03 detail-field tier prefix
+     * (Phase 10 D-10) flows through automatically. Visibility filter is
+     * applied INSIDE ilsp_patch_for_each_method per Plan 11-01 helper
+     * internals (forward-compat shape per RESEARCH Conflict 3). */
+    {
+        struct patch_member_emit_ctx ctx_pms = {
+            .out    = out_arr,
+            .arena  = arena,
+            .prefix = query_prefix,
+        };
+        IronLsp_WorkspaceIndex *wi_pms = (server) ? server->workspace_index : NULL;
+        const char *requester_pms = (doc && doc->uri) ? doc->uri : "";
+        ilsp_patch_for_each_method(program, wi_pms, type_name,
+                                   requester_pms, emit_patch_member_field,
+                                   &ctx_pms, NULL);
     }
     (void)dot;
 }

@@ -45,6 +45,33 @@ size_t ilsp_dep_map_size(const struct IronLsp_DepMap *dm) {
     (void)dm; return 0;
 }
 
+/* Phase 11 PATCH-03 (Plan 11-02 Task 4): buckets.c emit_member_fields
+ * now references ilsp_patch_for_each_method via the patch-member walk.
+ * Provide a no-op stub here so the test binary links without dragging
+ * patch_lookup.c + visibility.c + nav_common.c (and their transitive
+ * line_index/utf/yyjson deps) into the minimal completion-bucket test.
+ * MEMBER_AFTER_DOT is not exercised by any of the test_completion_buckets
+ * cases (they all use EXPR_HEAD / STATEMENT_HEAD / IMPORT_PATH), so the
+ * stub returns 0 visited and is never invoked when the existing test
+ * cases run. */
+struct Iron_MethodDecl;
+struct Iron_ObjectDecl;
+struct IronLsp_WorkspaceIndex;
+size_t ilsp_patch_for_each_method(
+    Iron_Program             *program,
+    struct IronLsp_WorkspaceIndex *wi,
+    const char               *target_type_name,
+    const char               *requester_canonical_path,
+    bool (*visit)(struct Iron_MethodDecl *md,
+                    struct Iron_ObjectDecl *patch_od,
+                    void *ud),
+    void                     *userdata,
+    _Atomic bool             *cancel) {
+    (void)program; (void)wi; (void)target_type_name;
+    (void)requester_canonical_path; (void)visit; (void)userdata; (void)cancel;
+    return 0;
+}
+
 void setUp(void)    {}
 void tearDown(void) {}
 
