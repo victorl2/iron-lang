@@ -20,6 +20,7 @@
 #include "lsp/facade/nav/node_at.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/references_index.h"
+#include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
@@ -156,6 +157,29 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
     size_t raw_n = 0;
     if (wi) {
         ilsp_refs_query(wi, triple, arena, enc, &raw_sites, &raw_n);
+    }
+
+    /* Step 5.5 (NEW Phase 10 VIS-01): post-filter cross-file results
+     * by visibility. doc->uri is the requester; sym->decl_node carries
+     * the visibility bits via ilsp_vis_is_public. Same-module sites
+     * short-circuit to true; stdlib sites pass via D-08 carve-out.
+     *
+     * In-place compaction preserves the order of remaining results.
+     * Each raw_sites[i].uri is treated as the per-site decl-path
+     * proxy (the predicate's same-module shortcut handles the case
+     * where the site IS the decl's home file). Cross-file private
+     * sites get filtered. */
+    if (raw_sites && raw_n > 0) {
+        const char *requester = (doc && doc->uri) ? doc->uri : "";
+        size_t kept = 0;
+        for (size_t i = 0; i < raw_n; i++) {
+            if (ilsp_vis_can_see(raw_sites[i].uri, requester,
+                                  sym ? sym->decl_node : NULL)) {
+                if (kept != i) raw_sites[kept] = raw_sites[i];
+                kept++;
+            }
+        }
+        raw_n = kept;
     }
 
     /* Step 6: if raw_n is 0 and we still want to surface same-file
