@@ -1,0 +1,3 @@
+/* Phase 10 fixture stub -- full content lands in Task 5. */
+import mod_a
+func main() -> Int { return public_fn() + private_fn() }

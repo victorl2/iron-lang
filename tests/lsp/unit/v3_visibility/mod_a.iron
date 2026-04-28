@@ -1,0 +1,3 @@
+/* Phase 10 fixture stub -- full content lands in Task 5. */
+pub func public_fn() -> Int { return 1 }
+func private_fn() -> Int { return 2 }
