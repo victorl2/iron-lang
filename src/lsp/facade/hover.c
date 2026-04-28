@@ -11,6 +11,7 @@
 
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/node_at.h"
+#include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
@@ -123,15 +124,16 @@ static void render_params(SB *sb, Iron_Node **params, int count,
 
 static const char *signature_func(Iron_FuncDecl *fd, Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
+    /* Phase 10 D-11 / VIS-05: emit `pub ` prefix when func is publicly
+     * visible. Order: pub -> readonly|pure -> func (Phase 9 D-10 lock).
+     * Predicate normalises Iron_FuncDecl.is_private (v2 inverse) into a
+     * positive boolean via the LSP-only adapter at visibility.c. */
+    if (ilsp_vis_is_public((const Iron_Node *)fd)) sb_append(&sb, "pub ");
     /* Phase 9 AST-06: modifier prefix on hover signature line. Locked
      * order per CONTEXT.md D-10: readonly|pure -> func. Mutual exclusion
      * of readonly + pure is enforced by the parser at
      * src/parser/parser.c:3162-3180; both fields cannot be true at once,
-     * so the order between them is academic for emission. Note:
-     * Phase 83 only landed `pub` on Iron_Field; Iron_FuncDecl carries
-     * is_private (v2 inverse) but no is_pub bit yet. Phase 10 VIS-05
-     * is the place to surface visibility on funcs/methods once the AST
-     * gains the field. */
+     * so the order between them is academic for emission. */
     if (fd->is_readonly) sb_append(&sb, "readonly ");
     if (fd->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");
@@ -168,10 +170,15 @@ static const char *signature_method(Iron_MethodDecl *md, Iron_Arena *arena) {
         }
         return sb.buf ? sb.buf : "";
     }
-    /* Regular method form: readonly|pure -> func Type.method. Phase 83
-     * lands `pub` only on Iron_Field; Iron_MethodDecl gains visibility
-     * bits in a future phase, so this signature line cannot yet surface
-     * a method-level pub modifier. */
+    /* Phase 10 D-11 / VIS-05: emit `pub ` prefix when regular method
+     * (NOT init) is publicly visible. Order: pub -> readonly|pure ->
+     * func Type.method (Phase 9 D-10 lock). is_init form is short-
+     * circuited above per Pitfall 7 -- `pub init` is grammar-rejected
+     * by the parser (src/parser/parser.c:3232-3247), so the early-
+     * return at the top of signature_method ensures we never emit
+     * `pub init`. */
+    if (ilsp_vis_is_public((const Iron_Node *)md)) sb_append(&sb, "pub ");
+    /* Regular method form: pub -> readonly|pure -> func Type.method. */
     if (md->is_readonly) sb_append(&sb, "readonly ");
     if (md->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");
@@ -190,6 +197,15 @@ static const char *signature_method(Iron_MethodDecl *md, Iron_Arena *arena) {
 
 static const char *signature_object(Iron_ObjectDecl *od, Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
+    /* Phase 10 D-11 / VIS-05: emit `pub ` prefix when object is publicly
+     * visible. Order: pub -> patch -> object (Phase 8 F5 grammar lock).
+     * Per RESEARCH Conflict 3, Iron_ObjectDecl has no is_private bit;
+     * the predicate defaults-true and all objects render `pub`. This
+     * satisfies REQUIREMENTS.md VIS-05 ("Hover displays pub modifier
+     * explicitly when present"): every object IS publicly visible (the
+     * language cannot represent a private object today, since the
+     * parser drops `private` on top-level decls per parser.c:4047). */
+    if (ilsp_vis_is_public((const Iron_Node *)od)) sb_append(&sb, "pub ");
     /* Phase 9 AST-06: emit `patch ` prefix for patch decls so hover on
      * `patch object Int { ... }` does not silently render as a regular
      * `object Int` declaration. Phase 11 PATCH-02 will surface the
