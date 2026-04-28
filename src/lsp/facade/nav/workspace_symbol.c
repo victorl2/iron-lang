@@ -20,6 +20,7 @@
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/symbol_id.h"
+#include "lsp/facade/nav/visibility.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
@@ -174,6 +175,26 @@ static void score_decl(IronLsp_Server *server,
     if (!d || d->kind == IRON_NODE_ERROR) return;
     const char *nm = decl_name(d);
     if (!nm || !*nm) return;
+
+    /* NEW Phase 10 VIS-02 (Pitfall 4): drop non-pub decls BEFORE the
+     * candidate gets arrput-into the score array, so the 256-result
+     * cap operates over a visibility-filtered candidate list.
+     *
+     * workspace/symbol has no requester URI in the LSP request shape;
+     * the workspace IS the requester. Every caller not from the
+     * symbol's own module is cross-module by definition. Therefore
+     * the filter uses ilsp_vis_is_public directly (not
+     * ilsp_vis_can_see with a requester) - non-pub means hidden
+     * globally. documentSymbol path is unchanged (it does not call
+     * score_decl). */
+    if (!ilsp_vis_is_public(d)) {
+        /* Stdlib carve-out (D-08): keep stdlib decls visible since
+         * stdlib .iron files lack `pub` keywords pre-Phase-14 MIG. */
+        if (!entry || !ilsp_nav_path_is_stdlib(entry->canonical_path)) {
+            return;
+        }
+    }
+
     if (!path_contains_prefix(entry->canonical_path, prefix, prefix_len)) return;
     if (!ilsp_fuzzy_has_match(name_needle, nm)) return;
     double sc = ilsp_fuzzy_match(name_needle, nm, arena, NULL);
