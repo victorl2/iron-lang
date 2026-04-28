@@ -20,7 +20,12 @@ patch object Foo {
     readonly func patched_method() -> Int { return self.x + 1 }
 }
 
+-- Top-level `val f: Foo` so emit_member_fields' top-level val/var
+-- walker finds the receiver type. The PATCH-03 receiver-resolver
+-- walks program->decls, so the `val f` MUST be a top-level decl,
+-- not nested inside a function body.
+val f: Foo = Foo(42)
+
 func main() -> Int {
-    val f: Foo = Foo(42)
     return f.native_method()
 }

@@ -1175,27 +1175,49 @@ if(IRON_BUILD_LSP)
         TIMEOUT 60)
 
     # ── Phase 11 Plan 11-02 (PATCH-02 + PATCH-03) ───────────────────────
-    # Wave 0 stubs — flipped to real assertions in Task 5. Minimal link
-    # set is fine here since the stubs only TEST_IGNORE_MESSAGE; Task 5
-    # upgrades both to the full nav-facade stack with IRON_SOURCE_TREE_ROOT
-    # define so fixture_path() can locate tests/lsp/unit/v3_patch/*.iron.
-    add_executable(test_v3_patch_subtypes test_v3_patch_subtypes.c)
+    # Task 5 upgraded the link sets from Wave 0 minimal to full nav-facade
+    # stack so the real Unity assertions can drive the facade entry points
+    # (subtypes via _LSP_PHASE3_NAV_FACADE_SRC; completion-buckets via the
+    # nav-facade stack + buckets.c + context_classify.c).
+    #
+    # PATCH-02 subtypes test: drives ilsp_facade_nav_type_hierarchy_subtypes
+    # which lives inside _LSP_PHASE3_NAV_FACADE_SRC (type_hierarchy.c +
+    # patch_lookup.c are already linked there). IRON_SOURCE_TREE_ROOT
+    # define lets find_fixture() locate tests/lsp/unit/v3_patch/*.iron.
+    add_executable(test_v3_patch_subtypes test_v3_patch_subtypes.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_v3_patch_subtypes PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
         ${CMAKE_BINARY_DIR}/generated)
-    target_link_libraries(test_v3_patch_subtypes unity pthread m)
+    target_compile_definitions(test_v3_patch_subtypes PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_patch_subtypes
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_v3_patch_subtypes COMMAND test_v3_patch_subtypes)
     set_tests_properties(test_v3_patch_subtypes PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
-    add_executable(test_v3_patch_completion test_v3_patch_completion.c)
+    # PATCH-03 completion test: drives ilsp_complete_buckets_build through
+    # ILSP_CCTX_MEMBER_AFTER_DOT. emit_member_fields lives in buckets.c
+    # and references ilsp_patch_for_each_method (Plan 11-01) via the new
+    # patch-member walk. Mirror test_v3_tier_completion's link set:
+    # full nav-facade stack + buckets.c + context_classify.c.
+    add_executable(test_v3_patch_completion test_v3_patch_completion.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC}
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c)
     target_include_directories(test_v3_patch_completion PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
         ${CMAKE_BINARY_DIR}/generated)
-    target_link_libraries(test_v3_patch_completion unity pthread m)
+    target_compile_definitions(test_v3_patch_completion PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_patch_completion
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_v3_patch_completion COMMAND test_v3_patch_completion)
     set_tests_properties(test_v3_patch_completion PROPERTIES
         LABELS "unit;phase-m2-invariant"
