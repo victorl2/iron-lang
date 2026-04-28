@@ -1,0 +1,39 @@
+-- @compile-only — raylib 6 binding signature surface.
+-- tests/manual/raylib6_signatures.iron
+--
+-- Pins the Iron-side signatures that changed when the vendored raylib went
+-- 5.5 → 6.0. These shims have no IQM/animation asset to drive a live
+-- runtime probe, so a compile-only fixture is the lowest-friction guard
+-- against future signature drift (e.g. another upstream rename, or an
+-- accidental Float32 → Int32 regression on the frame param).
+--
+-- Three signatures are pinned here:
+--   • Draw.circle_gradient(center: Vector2, r, inner, outer)
+--       — raylib 6 took a Vector2 center, replacing the 5.5 Int32 cx, cy.
+--   • Model.update_animation(model, anim, frame: Float32)
+--       — raylib 6 made `frame` a float (was int).
+--   • Model.update_animation_ex(model, anim_a, frame_a, anim_b, frame_b, blend)
+--       — new blending API; replaces the removed update_animation_bones.
+--
+-- Calls live behind an `if false` so the file never opens a window/audio
+-- device at runtime — the compiler still type-checks every call.
+
+import raylib
+
+func main() -> Int32 {
+    if false {
+        val center = Vector2.of(Float32(0.0), Float32(0.0))
+        Draw.circle_gradient(center, Float32(20.0), WHITE, BLACK)
+
+        val anims = ModelAnimation.load("/tmp/raylib6_sig_nonexistent.iqm")
+        val cube  = Mesh.cube(Float32(1.0), Float32(1.0), Float32(1.0))
+        val model = Model.from_mesh(cube)
+        val anim_a = anims[0]
+        val anim_b = anims[0]
+
+        Model.update_animation(model, anim_a, Float32(0.0))
+        Model.update_animation_ex(model, anim_a, Float32(0.0),
+                                  anim_b, Float32(0.0), Float32(0.5))
+    }
+    return Int32(0)
+}

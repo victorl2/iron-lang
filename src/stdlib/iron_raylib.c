@@ -5805,8 +5805,10 @@ void Iron_draw_grid(int32_t slices, float spacing) {
 
 /* Phase 70 binds rmodels.c: Model / Mesh / Material / ModelAnimation +
  * billboard + bounding-box draws. All struct sizes under the Phase 64-02
- * 120 B validated ceiling. Model = 120 B, Mesh = 120 B, Material = 40 B,
- * BoundingBox = 24 B, ModelAnimation = 56 B.
+ * 120 B validated ceiling. Material = 40 B, BoundingBox = 24 B; Model,
+ * Mesh and ModelAnimation sizes were re-shuffled by raylib 6 — exact
+ * sizes are pinned by the _Static_assert grid in iron_raylib_layout.c
+ * rather than hard-coded here.
  *
  * Templates used (all proven in Phase 63-69):
  *   B — struct-in (memcpy-in)
@@ -6194,12 +6196,16 @@ struct Iron_Model Iron_model_set_mesh_material(struct Iron_Model model,
     return out;
 }
 
-/* MODEL-08: Model animations (6) — raylib.h:1604-1609
+/* MODEL-08: Model animations — raylib.h:1640-1644 (raylib 6)
  *
  * LoadModelAnimations returns raylib-allocated ModelAnimation*; Iron deep-
- * copies the 56 B wrappers into Iron_List_Iron_ModelAnimation and free()s
- * ONLY the outer array. Interior _bones / _framePoses pointers stay live
- * until UnloadModelAnimations is called via unload_all (Pitfall 7).
+ * copies the wrappers into Iron_List_Iron_ModelAnimation and free()s ONLY
+ * the outer array. Interior _keyframePoses pointers stay live until
+ * UnloadModelAnimations is called via unload / unload_all (Pitfall 7).
+ *
+ * raylib 6 dropped the per-animation `bones` array (bones moved into
+ * Model.skeleton) and renamed frameCount → keyframeCount, framePoses →
+ * keyframePoses. The Iron mirror in iron_raylib.h follows the new shape.
  *
  * IsModelAnimationValid takes Model + ModelAnimation (Pitfall 11). Iron's
  * signature matches raylib: model.animation_valid(anim).
@@ -6221,7 +6227,7 @@ Iron_List_Iron_ModelAnimation Iron_modelanimation_load(Iron_String file_name) {
             out.count = count;
         }
     }
-    /* Free ONLY the outer raylib wrapper array. Interior _bones/_framePoses
+    /* Free ONLY the outer raylib wrapper array. Interior _keyframePoses
      * stay live for later unload_all() to reach via list.items. */
     if (raw) free(raw);
     return out;
@@ -6262,6 +6268,12 @@ void Iron_model_update_animation_ex(struct Iron_Model model,
 }
 
 void Iron_modelanimation_unload(struct Iron_ModelAnimation anim) {
+    /* raylib 6 dropped the singular UnloadModelAnimation; the only entry
+     * point is UnloadModelAnimations(arr, count), which RL_FREEs the outer
+     * pointer at the end. We malloc a 1-slot heap copy and let raylib free
+     * it. Safe because raylib.h:131-142 defaults RL_MALLOC/RL_FREE to
+     * malloc/free and neither config.h nor any Iron TU overrides them; if
+     * that ever changes (e.g. custom RL_FREE), this hand-off is UB. */
     ModelAnimation *heap = (ModelAnimation *)malloc(sizeof(ModelAnimation));
     if (!heap) {
         return;
