@@ -92,6 +92,17 @@ static void build_sig_info(IronLsp_SignatureInfo *out,
     memset(out, 0, sizeof(*out));
     SB label; sb_init(&label, arena);
 
+    /* NEW Phase 10 TIER-04: prefix tier modifier on signature label.
+     * Mutual exclusion of is_readonly + is_pure is parser-enforced
+     * (parser.c:3162-3180), so at most one prefix word is emitted.
+     * parameter_offsets math is computed from the open-paren position
+     * which is AFTER the `func ` token; the prefix does NOT shift
+     * the offsets. */
+    bool ro = (md ? md->is_readonly : (fd ? fd->is_readonly : false));
+    bool pu = (md ? md->is_pure     : (fd ? fd->is_pure     : false));
+    if (ro)      sb_append(&label, "readonly ");
+    else if (pu) sb_append(&label, "pure ");
+
     /* Prefix: "func Name(" or "func Container.Name(". */
     sb_append(&label, "func ");
     if (md) {
