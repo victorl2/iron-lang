@@ -26,6 +26,7 @@
 #include "lsp/facade/nav/iface_workspace.h"
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/node_at.h"
+#include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
@@ -134,11 +135,11 @@ static bool find_decl_by_name(const Iron_Program   *program,
         if (!d) continue;
         if (d->kind == IRON_NODE_OBJECT_DECL) {
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
-            /* XXX_PHASE_11 - patches are not native subtypes/supertypes;
-             * Phase 11 PATCH-02 surfaces them as virtual `methods of T`
-             * entries instead. Skip is_patch ObjectDecls from the
-             * find-by-name path so type_hierarchy never names a patch
-             * decl as the parent/child of a real object. */
+            /* PATCH-02 (Plan 11-02): patches are NOT returned as native
+             * subtypes via this find-by-name path; they are surfaced as
+             * virtual Method entries via ilsp_patch_for_each_method in
+             * the subtypes-resolver below. Continue past patches here so
+             * they don't pollute the native-subtype index. */
             if (od->is_patch) continue;
             if (od->name && strcmp(od->name, name) == 0) {
                 if (out_obj) *out_obj = od;
@@ -327,6 +328,106 @@ void ilsp_facade_nav_type_hierarchy_supertypes(
 
 /* ── typeHierarchy/subtypes ───────────────────────────────────────── */
 
+/* PATCH-02 (Plan 11-02): build the "[patch from <relpath>]" detail string
+ * for a patch-method virtual entry. Strips wi->workspace_root prefix when
+ * present so the rendered path tracks the project root the user opened.
+ * Falls back to the absolute filename when no prefix match. */
+static const char *build_patch_detail(const Iron_ObjectDecl   *patch_od,
+                                        IronLsp_WorkspaceIndex  *wi,
+                                        Iron_Arena              *arena) {
+    const char *od_path = (patch_od && patch_od->span.filename)
+        ? patch_od->span.filename : "<unknown>";
+    const char *rel = od_path;
+    if (wi && wi->workspace_root && *wi->workspace_root) {
+        size_t root_len = strlen(wi->workspace_root);
+        if (root_len > 0 && strncmp(od_path, wi->workspace_root, root_len) == 0) {
+            rel = od_path + root_len;
+            if (*rel == '/') rel++;
+        }
+    }
+    size_t need = strlen("[patch from ") + strlen(rel) + 2;  /* ']' + NUL */
+    char *buf = (char *)iron_arena_alloc(arena, need, 1);
+    if (!buf) return NULL;
+    snprintf(buf, need, "[patch from %s]", rel);
+    return buf;
+}
+
+/* PATCH-02 (Plan 11-02): visitor state for the patch-method walk; closes
+ * over the result accumulator + position-encoding context so each yielded
+ * (Iron_MethodDecl, Iron_ObjectDecl) pair becomes a TypeHierarchyItem
+ * with kind=SymbolKind.Method=6 and detail="[patch from <relpath>]". */
+struct th_patch_emit_state {
+    IronLsp_TypeHierarchyItem **buf;          /* stb_ds dynamic */
+    Iron_Arena                 *arena;
+    IronLsp_WorkspaceIndex     *wi;
+    IronLsp_PositionEncoding    enc;
+};
+
+static bool th_patch_emit_visit(Iron_MethodDecl *m,
+                                  Iron_ObjectDecl *p,
+                                  void           *ud) {
+    struct th_patch_emit_state *st = (struct th_patch_emit_state *)ud;
+    if (!st || !m || !p || !m->method_name) return true;
+
+    const char *od_path = p->span.filename ? p->span.filename : "";
+    IronLsp_IndexEntry *patch_entry = (st->wi && *od_path)
+        ? ilsp_workspace_index_lookup(st->wi, od_path) : NULL;
+
+    IronLsp_TypeHierarchyItem it = {0};
+    it.name = iron_arena_strdup(st->arena, m->method_name,
+                                 strlen(m->method_name));
+    it.kind = 6;   /* LSP SymbolKind.Method per CONTEXT D-06 */
+    it.detail = build_patch_detail(p, st->wi, st->arena);
+    it.uri = ilsp_nav_path_to_uri(od_path, st->arena);
+    if (!it.uri) it.uri = "";
+    /* Range from the method span: prefer workspace_index entry's line
+     * index when available so the editor jumps to the correct line on
+     * click. */
+    if (patch_entry) {
+        it.range           = ilsp_nav_entry_span_to_range(
+            patch_entry, m->span, st->enc);
+        it.selection_range = ilsp_nav_entry_span_to_range(
+            patch_entry, m->span, st->enc);
+    }
+    /* Triple keyed on the patched method identity. The owner_sym route
+     * matches symbol_id.c's existing patch path; if owner_sym is NULL
+     * (defensive) fall back to a name-based triple keyed on the patch
+     * target. Either way the data round-trips through prepare->
+     * subtypes-resolver if a future caller follows the click. */
+    if (m->owner_sym) {
+        it.triple = ilsp_symbol_id_derive(m->owner_sym, od_path, NULL,
+                                            st->arena);
+    } else {
+        Iron_Symbol fake = {0};
+        fake.name = m->method_name;
+        fake.sym_kind = IRON_SYM_METHOD;
+        fake.decl_node = (Iron_Node *)m;
+        it.triple = ilsp_symbol_id_derive(&fake, od_path, NULL, st->arena);
+    }
+    arrput(*st->buf, it);
+    return true;
+}
+
+/* PATCH-02 (Plan 11-02): qsort comparator — sort interleaved children
+ * (real subtypes + patch methods) by range.start.line ascending so the
+ * editor's tree-view ordering tracks declaration order in the workspace
+ * (CONTEXT D-08 + RESEARCH Discretion). */
+static int th_item_cmp_by_line(const void *a, const void *b) {
+    const IronLsp_TypeHierarchyItem *ia = (const IronLsp_TypeHierarchyItem *)a;
+    const IronLsp_TypeHierarchyItem *ib = (const IronLsp_TypeHierarchyItem *)b;
+    uint32_t la = ia->range.start.line;
+    uint32_t lb = ib->range.start.line;
+    if (la < lb) return -1;
+    if (la > lb) return  1;
+    /* Tie-break on character so ordering is stable when two children
+     * land on the same line (unlikely but defensive). */
+    uint32_t ca = ia->range.start.character;
+    uint32_t cb = ib->range.start.character;
+    if (ca < cb) return -1;
+    if (ca > cb) return  1;
+    return 0;
+}
+
 void ilsp_facade_nav_type_hierarchy_subtypes(
     IronLsp_Server              *server,
     IronLsp_SymbolId             item_triple,
@@ -430,11 +531,9 @@ void ilsp_facade_nav_type_hierarchy_subtypes(
                     Iron_Node *d = p->decls[j];
                     if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
                     Iron_ObjectDecl *ood = (Iron_ObjectDecl *)d;
-                    /* XXX_PHASE_11 - patches are not native subtypes;
-                     * Phase 11 PATCH-02 surfaces them as virtual
-                     * `methods of T` entries instead. Skip is_patch
-                     * ObjectDecls so subtypes never lists a patch as a
-                     * descendant of a real object. */
+                    /* PATCH-02 (Plan 11-02): see comment at line ~138.
+                     * Patches are surfaced separately via
+                     * ilsp_patch_for_each_method below. */
                     if (ood->is_patch) continue;
                     if (!ood->extends_name ||
                         strcmp(ood->extends_name,
@@ -449,6 +548,29 @@ void ilsp_facade_nav_type_hierarchy_subtypes(
         }
     }
 
+    /* PATCH-02 (Plan 11-02): emit virtual TypeHierarchyItem entries for
+     * patched methods on the requested type. One item per patch method;
+     * kind=SymbolKind.Method (6); detail="[patch from <relpath>]".
+     * For an interface target this returns nothing (primitives do not
+     * implement interfaces today and patches of user objects do not show
+     * up under typeHierarchy/subtypes of the interface itself — that's
+     * what textDocument/implementation handles in PATCH-01). For an
+     * object target (including a future primitive synthesis path per
+     * RESEARCH Pitfall 2) the walker yields each (md, patch_od) pair;
+     * visibility filter applied internally on the enclosing patch
+     * ObjectDecl per Plan 11-01 helper internals. */
+    if (od && simple_name && *simple_name) {
+        struct th_patch_emit_state pstate = {
+            .buf   = &buf,
+            .arena = arena,
+            .wi    = wi,
+            .enc   = enc,
+        };
+        ilsp_patch_for_each_method(
+            entry->program, wi, simple_name,
+            item_triple.canonical_path, th_patch_emit_visit, &pstate, cancel);
+    }
+
     ptrdiff_t nb = arrlen(buf);
     if (nb <= 0) { arrfree(buf); return; }
 
@@ -458,6 +580,15 @@ void ilsp_facade_nav_type_hierarchy_subtypes(
     if (!arr) { arrfree(buf); return; }
     for (ptrdiff_t i = 0; i < nb; i++) arr[i] = buf[i];
     arrfree(buf);
+
+    /* PATCH-02 (Plan 11-02) D-08 + RESEARCH Discretion: sort the
+     * combined result (native subtypes + patch methods) by
+     * range.start.line ascending so the editor's tree-view ordering
+     * tracks declaration order in the workspace. Stable on ties via the
+     * character-column tie-breaker inside the comparator. */
+    if (nb > 1) {
+        qsort(arr, (size_t)nb, sizeof(*arr), th_item_cmp_by_line);
+    }
     *out = arr;
     *out_n = (size_t)nb;
 }
