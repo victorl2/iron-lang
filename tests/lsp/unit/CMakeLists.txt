@@ -1224,26 +1224,38 @@ if(IRON_BUILD_LSP)
         TIMEOUT 60)
 
     # ── Phase 11 Plan 11-03 (PATCH-04 hover + PATCH-05 references) ──────
-    # Wave 0 stubs (TEST_IGNORE_MESSAGE); flipped to real assertions in
-    # Task 5 with full nav facade link set. Minimal link set here is fine
-    # because the Wave 0 stubs have no external dependencies beyond unity.
-    add_executable(test_v3_patch_hover test_v3_patch_hover.c)
+    # Task 5 upgraded the link sets from Wave 0 minimal to full nav-facade
+    # stack so the real Unity assertions can drive the facade entry points
+    # (hover via ilsp_facade_hover; references via
+    # ilsp_facade_nav_references). IRON_SOURCE_TREE_ROOT compile-define lets
+    # find_fixture() locate tests/lsp/unit/v3_patch/*.iron from a build dir.
+    add_executable(test_v3_patch_hover test_v3_patch_hover.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_v3_patch_hover PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
         ${CMAKE_BINARY_DIR}/generated)
-    target_link_libraries(test_v3_patch_hover unity pthread m)
+    target_compile_definitions(test_v3_patch_hover PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_patch_hover
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_v3_patch_hover COMMAND test_v3_patch_hover)
     set_tests_properties(test_v3_patch_hover PROPERTIES
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 60)
 
-    add_executable(test_v3_patch_references test_v3_patch_references.c)
+    add_executable(test_v3_patch_references test_v3_patch_references.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
     target_include_directories(test_v3_patch_references PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
         ${CMAKE_BINARY_DIR}/generated)
-    target_link_libraries(test_v3_patch_references unity pthread m)
+    target_compile_definitions(test_v3_patch_references PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_patch_references
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
     add_test(NAME test_v3_patch_references COMMAND test_v3_patch_references)
     set_tests_properties(test_v3_patch_references PROPERTIES
         LABELS "unit;phase-m2-invariant"
