@@ -671,6 +671,36 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 120)
 
+    # ── Phase 10 Plan 10-01 (VIS-01..04, D-02 + D-12) ────────────────────
+    # Wave 0 stubs for the visibility predicate + symbol identity drift-guard.
+    # Stubs ship TEST_IGNORE'd; Task 4 flips them to real assertions, and
+    # Task 2 lands src/lsp/facade/nav/visibility.{c,h} which the predicate
+    # test compiles against.
+    add_executable(test_v3_visibility_predicate test_v3_visibility_predicate.c)
+    target_include_directories(test_v3_visibility_predicate PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(test_v3_visibility_predicate unity pthread m)
+    add_test(NAME test_v3_visibility_predicate COMMAND test_v3_visibility_predicate)
+    set_tests_properties(test_v3_visibility_predicate PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_visibility_symbol_identity_drift
+        test_v3_visibility_symbol_identity_drift.c)
+    target_include_directories(test_v3_visibility_symbol_identity_drift PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(test_v3_visibility_symbol_identity_drift
+        unity pthread m)
+    add_test(NAME test_v3_visibility_symbol_identity_drift
+        COMMAND test_v3_visibility_symbol_identity_drift)
+    set_tests_properties(test_v3_visibility_symbol_identity_drift PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
     # ── Phase 3 Plan 02 Task 01 (NAV-01): workspace_index ────────────────
     # Per-file arena-scoped IndexEntry map with warm-seed, lazy analyze,
     # LRU cap, and path + dep invalidation.  Test drives the store API
