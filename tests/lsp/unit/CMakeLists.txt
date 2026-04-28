@@ -992,6 +992,124 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
+    # ── Phase 10 Plan 10-02 Wave 0 stubs (VIS-01..04) ────────────────────
+    # 5 nav-facade tests (references / workspace_symbol / definition /
+    # type_definition / implementation) + 1 rename test (rename). Each
+    # links the full nav facade stack so the visibility predicate (Plan
+    # 10-01) is exercised against real bytes via _LSP_PHASE3_NAV_FACADE_SRC.
+    # The rename test additionally needs apply.c + notifications.c +
+    # rename/prepare.c + rename/collision.c (rename apply orchestration).
+    # Stubs land in Wave 0 with TEST_IGNORE_MESSAGE; flipped to real
+    # assertions in Task 5.
+    add_executable(test_v3_visibility_references test_v3_visibility_references.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_v3_visibility_references PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_visibility_references PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_visibility_references
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_visibility_references COMMAND test_v3_visibility_references)
+    set_tests_properties(test_v3_visibility_references PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_visibility_workspace_symbol
+        test_v3_visibility_workspace_symbol.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_v3_visibility_workspace_symbol PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_visibility_workspace_symbol PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_visibility_workspace_symbol
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_visibility_workspace_symbol
+        COMMAND test_v3_visibility_workspace_symbol)
+    set_tests_properties(test_v3_visibility_workspace_symbol PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_visibility_definition test_v3_visibility_definition.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_v3_visibility_definition PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_visibility_definition PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_visibility_definition
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_visibility_definition COMMAND test_v3_visibility_definition)
+    set_tests_properties(test_v3_visibility_definition PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_visibility_type_definition
+        test_v3_visibility_type_definition.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_v3_visibility_type_definition PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_visibility_type_definition PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_visibility_type_definition
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_visibility_type_definition
+        COMMAND test_v3_visibility_type_definition)
+    set_tests_properties(test_v3_visibility_type_definition PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_visibility_implementation
+        test_v3_visibility_implementation.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_v3_visibility_implementation PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_visibility_implementation PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_visibility_implementation
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_visibility_implementation
+        COMMAND test_v3_visibility_implementation)
+    set_tests_properties(test_v3_visibility_implementation PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    # Rename test (m3 invariant): needs the rename apply orchestration
+    # stack on top of the nav facade -- apply.c + collision.c + prepare.c,
+    # plus notifications.c for the VIS-04 window/showMessage emit.
+    add_executable(test_v3_visibility_rename test_v3_visibility_rename.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC}
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/apply.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/collision.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/prepare.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/server/notifications.c)
+    target_include_directories(test_v3_visibility_rename PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_visibility_rename PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_visibility_rename
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_visibility_rename COMMAND test_v3_visibility_rename)
+    set_tests_properties(test_v3_visibility_rename PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 60)
+
     # ── Phase 3 Plan 06: workspace/diagnostic facade + refresh push ──────
     # Flipped from Wave 0 stub: exercises the cache (hit/miss/evict),
     # the 2 s budget loop termination, and the refresh-notification
