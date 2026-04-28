@@ -116,21 +116,6 @@ static const char *decl_name(const Iron_Node *d) {
     }
 }
 
-/* Reserved for Plan 04-03 when auto-import needs to filter private
- * decls from non-same-module candidate buckets. Currently private
- * top-level decls are included — the compiler-side privacy check fires
- * later if the user actually uses them. */
-#if 0
-static bool decl_is_private(const Iron_Node *d) {
-    if (!d) return false;
-    switch ((int)d->kind) {
-        case IRON_NODE_FUNC_DECL:   return ((const Iron_FuncDecl *)d)->is_private;
-        case IRON_NODE_METHOD_DECL: return ((const Iron_MethodDecl *)d)->is_private;
-        default:                     return false;
-    }
-}
-#endif
-
 static bool decl_is_extern(const Iron_Node *d) {
     if (!d) return false;
     if (d->kind == IRON_NODE_FUNC_DECL) return ((const Iron_FuncDecl *)d)->is_extern;
