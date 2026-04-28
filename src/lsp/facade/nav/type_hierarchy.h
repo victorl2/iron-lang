@@ -32,6 +32,11 @@ struct IronLsp_Document;
 typedef struct IronLsp_TypeHierarchyItem {
     const char       *name;
     int               kind;             /* LSP SymbolKind */
+    const char       *detail;           /* Phase 11 PATCH-02 (Plan 11-02 Task 1):
+                                         * optional per LSP 3.17 spec.
+                                         * NULL for native subtypes; non-NULL
+                                         * "[patch from <module>]" for patch
+                                         * method virtual entries (D-06). */
     const char       *uri;
     IronLsp_Range     range;
     IronLsp_Range     selection_range;
