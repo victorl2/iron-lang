@@ -528,13 +528,11 @@ bool Iron_files_is_dropped(void) {
     return IsFileDropped();
 }
 
-/* Struct-by-value FilePathList return — Phase 60 `_Static_assert`
- * grid proves Iron_FilePathList is byte-compatible with raylib's
- * FilePathList (capacity/count/paths at offsets 0/4/8, total 16 bytes). */
+/* Struct-by-value FilePathList return — raylib 6 drops the old capacity
+ * field, so the Iron mirror is now just count + paths. */
 struct Iron_FilePathList Iron_files_load_dropped(void) {
     FilePathList src = LoadDroppedFiles();
     struct Iron_FilePathList out;
-    out.capacity = src.capacity;
     out.count = src.count;
     out._paths = (void *)src.paths;
     return out;
@@ -542,7 +540,6 @@ struct Iron_FilePathList Iron_files_load_dropped(void) {
 
 void Iron_files_unload_dropped(struct Iron_FilePathList list) {
     FilePathList fl;
-    fl.capacity = list.capacity;
     fl.count = list.count;
     fl.paths = (char **)list._paths;
     UnloadDroppedFiles(fl);
@@ -714,13 +711,15 @@ void Iron_draw_circle_sector_lines(struct Iron_Vector2 center, float r, float st
     DrawCircleSectorLines(ct, r, start, end, (int)segments, cl);
 }
 
-/* Two-color variant — memcpy twice for the inner/outer gradient stops. */
-void Iron_draw_circle_gradient(int32_t cx, int32_t cy, float r,
+/* raylib 6 takes the circle center as a Vector2. */
+void Iron_draw_circle_gradient(struct Iron_Vector2 center, float r,
                                struct Iron_Color inner, struct Iron_Color outer) {
+    Vector2 ct;
     Color i, o;
+    memcpy(&ct, &center, sizeof(Vector2));
     memcpy(&i, &inner, sizeof(Color));
     memcpy(&o, &outer, sizeof(Color));
-    DrawCircleGradient((int)cx, (int)cy, r, i, o);
+    DrawCircleGradient(ct, r, i, o);
 }
 
 void Iron_draw_circle_v(struct Iron_Vector2 center, float r, struct Iron_Color color) {
@@ -4409,7 +4408,7 @@ Iron_String Iron_text_join(Iron_List_Iron_String parts, Iron_String delimiter) {
     if (count <= 0) {
         return iron_string_from_literal("", 0);
     }
-    const char **c_parts = (const char **)calloc((size_t)count, sizeof(const char *));
+    char **c_parts = (char **)calloc((size_t)count, sizeof(char *));
     if (!c_parts) {
         return iron_string_from_literal("", 0);
     }
@@ -4418,9 +4417,9 @@ Iron_String Iron_text_join(Iron_List_Iron_String parts, Iron_String delimiter) {
      * live in the list's items array for the duration of this shim. */
     for (int32_t i = 0; i < count; i++) {
         Iron_String p = Iron_List_Iron_String_get(&parts, (int64_t)i);
-        c_parts[i] = iron_string_cstr(&p);
+        c_parts[i] = (char *)iron_string_cstr(&p);
     }
-    const char *joined = TextJoin(c_parts, (int)count, iron_string_cstr(&delimiter));
+    char *joined = TextJoin(c_parts, (int)count, iron_string_cstr(&delimiter));
     Iron_String out = joined ? iron_string_from_cstr(joined, strlen(joined))
                              : iron_string_from_literal("", 0);
     free(c_parts);
@@ -4436,7 +4435,7 @@ Iron_List_Iron_String Iron_text_split(Iron_String text, Iron_String delimiter) {
     int count = 0;
     const char *d = iron_string_cstr(&delimiter);
     char delim = (d && d[0]) ? d[0] : ',';
-    const char **parts = TextSplit(iron_string_cstr(&text), delim, &count);
+    char **parts = TextSplit(iron_string_cstr(&text), delim, &count);
     Iron_List_Iron_String out = Iron_List_Iron_String_create();
     for (int i = 0; i < count; i++) {
         Iron_String part = parts[i]
@@ -5806,8 +5805,10 @@ void Iron_draw_grid(int32_t slices, float spacing) {
 
 /* Phase 70 binds rmodels.c: Model / Mesh / Material / ModelAnimation +
  * billboard + bounding-box draws. All struct sizes under the Phase 64-02
- * 120 B validated ceiling. Model = 120 B, Mesh = 120 B, Material = 40 B,
- * BoundingBox = 24 B, ModelAnimation = 56 B.
+ * 120 B validated ceiling. Material = 40 B, BoundingBox = 24 B; Model,
+ * Mesh and ModelAnimation sizes were re-shuffled by raylib 6 — exact
+ * sizes are pinned by the _Static_assert grid in iron_raylib_layout.c
+ * rather than hard-coded here.
  *
  * Templates used (all proven in Phase 63-69):
  *   B — struct-in (memcpy-in)
@@ -5913,31 +5914,6 @@ void Iron_model_draw_wires_ex(struct Iron_Model model, struct Iron_Vector3 posit
     memcpy(&sc,  &scale,         sizeof(Vector3));
     memcpy(&c,   &tint,          sizeof(Color));
     DrawModelWiresEx(rm, pos, ax, rotation_angle, sc, c);
-}
-
-void Iron_model_draw_points(struct Iron_Model model, struct Iron_Vector3 position,
-                            float scale, struct Iron_Color tint) {
-    Model   rm;
-    Vector3 pos;
-    Color   c;
-    memcpy(&rm,  &model,    sizeof(Model));
-    memcpy(&pos, &position, sizeof(Vector3));
-    memcpy(&c,   &tint,     sizeof(Color));
-    DrawModelPoints(rm, pos, scale, c);
-}
-
-void Iron_model_draw_points_ex(struct Iron_Model model, struct Iron_Vector3 position,
-                               struct Iron_Vector3 rotation_axis, float rotation_angle,
-                               struct Iron_Vector3 scale, struct Iron_Color tint) {
-    Model   rm;
-    Vector3 pos, ax, sc;
-    Color   c;
-    memcpy(&rm,  &model,         sizeof(Model));
-    memcpy(&pos, &position,      sizeof(Vector3));
-    memcpy(&ax,  &rotation_axis, sizeof(Vector3));
-    memcpy(&sc,  &scale,         sizeof(Vector3));
-    memcpy(&c,   &tint,          sizeof(Color));
-    DrawModelPointsEx(rm, pos, ax, rotation_angle, sc, c);
 }
 
 /* MODEL-04: Mesh operations (7) — raylib.h:1572-1580
@@ -6146,7 +6122,7 @@ struct Iron_Mesh Iron_mesh_cubicmap(struct Iron_Image cubicmap, struct Iron_Vect
 /* MODEL-07: Materials (6) — raylib.h:1596-1601
  *
  * Material = 40 B (CORRECTION vs CONTEXT.md's ~296 B estimate — verified
- * sizeof(Material) == 40 against raylib 5.5). Same memcpy template as Image.
+ * sizeof(Material) == 40 against raylib 6.0). Same memcpy template as Image.
  *
  * LoadMaterials returns raylib-allocated Material*; raylib does NOT expose
  * UnloadMaterials (Pitfall 10). Iron deep-copies into Iron_List_Iron_Material
@@ -6220,12 +6196,16 @@ struct Iron_Model Iron_model_set_mesh_material(struct Iron_Model model,
     return out;
 }
 
-/* MODEL-08: Model animations (6) — raylib.h:1604-1609
+/* MODEL-08: Model animations — raylib.h:1640-1644 (raylib 6)
  *
  * LoadModelAnimations returns raylib-allocated ModelAnimation*; Iron deep-
- * copies the 56 B wrappers into Iron_List_Iron_ModelAnimation and free()s
- * ONLY the outer array. Interior _bones / _framePoses pointers stay live
- * until UnloadModelAnimations is called via unload_all (Pitfall 7).
+ * copies the wrappers into Iron_List_Iron_ModelAnimation and free()s ONLY
+ * the outer array. Interior _keyframePoses pointers stay live until
+ * UnloadModelAnimations is called via unload / unload_all (Pitfall 7).
+ *
+ * raylib 6 dropped the per-animation `bones` array (bones moved into
+ * Model.skeleton) and renamed frameCount → keyframeCount, framePoses →
+ * keyframePoses. The Iron mirror in iron_raylib.h follows the new shape.
  *
  * IsModelAnimationValid takes Model + ModelAnimation (Pitfall 11). Iron's
  * signature matches raylib: model.animation_valid(anim).
@@ -6247,7 +6227,7 @@ Iron_List_Iron_ModelAnimation Iron_modelanimation_load(Iron_String file_name) {
             out.count = count;
         }
     }
-    /* Free ONLY the outer raylib wrapper array. Interior _bones/_framePoses
+    /* Free ONLY the outer raylib wrapper array. Interior _keyframePoses
      * stay live for later unload_all() to reach via list.items. */
     if (raw) free(raw);
     return out;
@@ -6264,34 +6244,48 @@ bool Iron_model_animation_valid(struct Iron_Model model,
 
 void Iron_model_update_animation(struct Iron_Model model,
                                  struct Iron_ModelAnimation anim,
-                                 int32_t frame) {
+                                 float frame) {
     Model          rm;
     ModelAnimation ra;
     memcpy(&rm, &model, sizeof(Model));
     memcpy(&ra, &anim,  sizeof(ModelAnimation));
-    UpdateModelAnimation(rm, ra, (int)frame);
+    UpdateModelAnimation(rm, ra, frame);
 }
 
-void Iron_model_update_animation_bones(struct Iron_Model model,
-                                       struct Iron_ModelAnimation anim,
-                                       int32_t frame) {
+void Iron_model_update_animation_ex(struct Iron_Model model,
+                                    struct Iron_ModelAnimation anim_a,
+                                    float frame_a,
+                                    struct Iron_ModelAnimation anim_b,
+                                    float frame_b,
+                                    float blend) {
     Model          rm;
     ModelAnimation ra;
-    memcpy(&rm, &model, sizeof(Model));
-    memcpy(&ra, &anim,  sizeof(ModelAnimation));
-    UpdateModelAnimationBones(rm, ra, (int)frame);
+    ModelAnimation rb;
+    memcpy(&rm, &model,  sizeof(Model));
+    memcpy(&ra, &anim_a, sizeof(ModelAnimation));
+    memcpy(&rb, &anim_b, sizeof(ModelAnimation));
+    UpdateModelAnimationEx(rm, ra, frame_a, rb, frame_b, blend);
 }
 
 void Iron_modelanimation_unload(struct Iron_ModelAnimation anim) {
-    ModelAnimation ra;
-    memcpy(&ra, &anim, sizeof(ModelAnimation));
-    UnloadModelAnimation(ra);
+    /* raylib 6 dropped the singular UnloadModelAnimation; the only entry
+     * point is UnloadModelAnimations(arr, count), which RL_FREEs the outer
+     * pointer at the end. We malloc a 1-slot heap copy and let raylib free
+     * it. Safe because raylib.h:131-142 defaults RL_MALLOC/RL_FREE to
+     * malloc/free and neither config.h nor any Iron TU overrides them; if
+     * that ever changes (e.g. custom RL_FREE), this hand-off is UB. */
+    ModelAnimation *heap = (ModelAnimation *)malloc(sizeof(ModelAnimation));
+    if (!heap) {
+        return;
+    }
+    memcpy(heap, &anim, sizeof(ModelAnimation));
+    UnloadModelAnimations(heap, 1);
 }
 
 void Iron_modelanimation_unload_all(Iron_List_Iron_ModelAnimation anims) {
     /* Forward the list back to raylib. Safe because Iron_modelanimation_load
-     * freed ONLY the outer wrapper; _bones / _framePoses are still raylib-
-     * owned and will be released here. */
+     * freed ONLY the outer wrapper; _keyframePoses are still raylib-owned
+     * and will be released here. */
     UnloadModelAnimations((ModelAnimation *)anims.items, (int)anims.count);
 }
 
@@ -6645,7 +6639,6 @@ struct Iron_FilePathList Iron_files_list(Iron_String path) {
     const char *cpath = iron_string_cstr(&path);
     FilePathList src = LoadDirectoryFiles(cpath);
     struct Iron_FilePathList out;
-    out.capacity = src.capacity;
     out.count    = src.count;
     out._paths   = (void *)src.paths;
     return out;
@@ -6662,7 +6655,6 @@ struct Iron_FilePathList Iron_files_list_ex(Iron_String path,
                                             (cfilter && *cfilter) ? cfilter : NULL,
                                             scan_subdirs);
     struct Iron_FilePathList out;
-    out.capacity = src.capacity;
     out.count    = src.count;
     out._paths   = (void *)src.paths;
     return out;
@@ -6670,7 +6662,6 @@ struct Iron_FilePathList Iron_files_list_ex(Iron_String path,
 
 void Iron_files_unload_list(struct Iron_FilePathList list) {
     FilePathList fl;
-    fl.capacity = list.capacity;
     fl.count    = list.count;
     fl.paths    = (char **)list._paths;
     UnloadDirectoryFiles(fl);
@@ -6744,7 +6735,7 @@ Iron_String Iron_files_encode_base64(Iron_List_uint8_t data) {
 Iron_List_uint8_t Iron_files_decode_base64(Iron_String b64) {
     const char *cb64 = iron_string_cstr(&b64);
     int out_size = 0;
-    unsigned char *buf = DecodeDataBase64((const unsigned char *)cb64, &out_size);
+    unsigned char *buf = DecodeDataBase64(cb64, &out_size);
     Iron_List_uint8_t out;
     out.items    = NULL;
     out.count    = 0;
@@ -6850,8 +6841,8 @@ void Iron_random_unload_sequence(Iron_List_int32_t seq) {
  *
  * Omissions (documented in 73-01-SUMMARY.md):
  *   • Image.load_svg — LoadImageSvg is NOT exposed in the vendored
- *     raylib 5.5 source (grep src/vendor/raylib/raylib.h → 0 matches).
- *     This was a post-5.5 addition. Closure defers to a future raylib
+ *     raylib 6.0 source (grep src/vendor/raylib/raylib.h → 0 matches).
+ *     The symbol is still absent from the upstream 6.0 public header.
  *     vendor bump; scope shrinks from 8 → 7 closed shims.
  *
  * Template A (Iron_List_uint8_t ARG + struct RETURN) — mirrors
@@ -6897,13 +6888,15 @@ Iron_List_Iron_GlyphInfo Iron_font_load_data(Iron_List_uint8_t file_data,
                                               int32_t font_size,
                                               Iron_List_int32_t codepoints,
                                               int32_t type) {
+    int glyph_count = 0;
     GlyphInfo *raw = LoadFontData((const unsigned char *)file_data.items,
                                   (int)data_size,
                                   (int)font_size,
-                                  (int *)codepoints.items,
+                                  (const int *)codepoints.items,
                                   (int)codepoints.count,
-                                  (int)type);
-    int64_t count = (codepoints.count > 0) ? codepoints.count : 95; /* raylib default */
+                                  (int)type,
+                                  &glyph_count);
+    int64_t count = (int64_t)glyph_count;
     Iron_List_Iron_GlyphInfo out;
     out.items    = NULL;
     out.count    = 0;

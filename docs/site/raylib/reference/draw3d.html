@@ -219,7 +219,7 @@
 <span class="syn-ty">Draw</span>.<span class="syn-fn">end</span>()</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2658">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2822">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
         </p>
       </article>
@@ -233,7 +233,7 @@
         <pre><code class="iron">cam = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">update</span>(cam, <span class="syn-ty">CameraMode</span>.<span class="syn-pr">ORBITAL</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2672">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2837">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
         </p>
       </article>
@@ -245,7 +245,7 @@
         <pre><code class="iron">cam = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">update_pro</span>(cam, move, <span class="syn-ty">Vector3</span>.<span class="syn-fn">zero</span>(), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.0</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2673">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2846">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -257,7 +257,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> view = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">matrix</span>(cam)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2698">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2843">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -271,7 +271,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> ray = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">screen_to_world_ray</span>(cam, <span class="syn-ty">Mouse</span>.<span class="syn-fn">get_position</span>())</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2692">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2839">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -283,7 +283,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> ray = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">screen_to_world_ray_ex</span>(cam, pos, <span class="syn-ty">Int32</span>(<span class="syn-nu">400</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">300</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2693">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2866">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -295,7 +295,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> screen_pos = <span class="syn-ty">Camera3D</span>.<span class="syn-fn">world_to_screen</span>(cam, enemy_pos)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2695">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2841">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -309,7 +309,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">line_3d</span>(<span class="syn-ty">Vector3</span>.<span class="syn-fn">zero</span>(), <span class="syn-ty">Vector3</span>.<span class="syn-fn">of</span>(<span class="syn-nu">1.0</span>, <span class="syn-nu">0.0</span>, <span class="syn-nu">0.0</span>), <span class="syn-pr">RED</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2716">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2889">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -321,7 +321,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">point_3d</span>(origin, <span class="syn-pr">YELLOW</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2717">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2890">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -333,7 +333,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">circle_3d</span>(center, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), axis, angle, <span class="syn-pr">GREEN</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2718">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2891">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -345,7 +345,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">triangle_3d</span>(a, b, c, <span class="syn-pr">RED</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2721">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2894">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -357,7 +357,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cube</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-pr">RED</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2725">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2898">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
         </p>
       </article>
@@ -369,7 +369,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cube_wires</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-pr">BLACK</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2728">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2900">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
         </p>
       </article>
@@ -381,7 +381,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">sphere</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-pr">BLUE</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2733">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2906">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -393,7 +393,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cylinder</span>(origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-pr">MAROON</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2754">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2927">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -405,7 +405,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">cylinder_ex</span>(start, finish, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-pr">RED</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2756">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2929">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -417,7 +417,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">capsule</span>(start, finish, <span class="syn-ty">Float32</span>(<span class="syn-nu">0.5</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">8</span>), <span class="syn-pr">PURPLE</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2766">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2939">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -429,7 +429,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">plane</span>(origin, <span class="syn-ty">Vector2</span>.<span class="syn-fn">of</span>(<span class="syn-nu">10.0</span>, <span class="syn-nu">10.0</span>), <span class="syn-pr">LIME</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2773">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2946">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -441,7 +441,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">ray</span>(mouse_ray, <span class="syn-pr">YELLOW</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2775">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2948">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/draw3d_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -453,7 +453,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">grid</span>(<span class="syn-ty">Int32</span>(<span class="syn-nu">10</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2777">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2950">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/rotating_cube/rotating_cube.iron">Test usage</a>
         </p>
       </article>

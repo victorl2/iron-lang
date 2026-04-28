@@ -1,0 +1,26 @@
+-- @compile-only
+-- raylib 6 shader enum surface smoke.
+--
+-- This fixture pins the renamed/extended shader enum API that Iron should
+-- expose once the vendored binding is migrated to raylib 6.
+
+import raylib
+
+func main() -> Int32 {
+    val loc_bones = ShaderLocationIndex.MATRIX_BONETRANSFORMS
+    val loc_inst  = ShaderLocationIndex.VERTEX_INSTANCETRANSFORM
+
+    val u0 = ShaderUniformDataType.UINT
+    val u1 = ShaderUniformDataType.UIVEC2
+    val u2 = ShaderUniformDataType.UIVEC3
+    val u3 = ShaderUniformDataType.UIVEC4
+
+    val _a = loc_bones
+    val _b = loc_inst
+    val _c = u0
+    val _d = u1
+    val _e = u2
+    val _f = u3
+
+    return Int32(0)
+}

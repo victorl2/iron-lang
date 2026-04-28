@@ -1,6 +1,6 @@
 # Contributing to raylib documentation
 
-This directory (`docs/site/raylib/`) documents the v2.0.0-alpha raylib binding. Follow this process when the binding surface changes.
+This directory (`docs/site/raylib/`) documents the current raylib 6.0 binding. Follow this process when the binding surface changes.
 
 ## When you add a new raylib function or method
 

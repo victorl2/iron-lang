@@ -214,7 +214,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> model = <span class="syn-ty">Model</span>.<span class="syn-fn">load</span>(<span class="syn-st">"tests/assets/models/cube.obj"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2798">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2971">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">Test usage</a>
         </p>
       </article>
@@ -226,7 +226,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> fallback = <span class="syn-ty">Model</span>.<span class="syn-fn">from_mesh</span>(<span class="syn-ty">Mesh</span>.<span class="syn-fn">cube</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>)))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2799">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2972">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">Test usage</a>
         </p>
       </article>
@@ -238,7 +238,7 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Model</span>.<span class="syn-fn">is_valid</span>(model) { <span class="syn-ty">Model</span>.<span class="syn-fn">unload</span>(model) }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2800">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2974">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -253,7 +253,7 @@
 <span class="syn-ty">Draw</span>.<span class="syn-fn">bounding_box</span>(bbox, <span class="syn-pr">GREEN</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2806">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2980">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">Test usage</a>
         </p>
       </article>
@@ -267,19 +267,19 @@
         <pre><code class="iron"><span class="syn-ty">Model</span>.<span class="syn-fn">draw</span>(model, origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-pr">WHITE</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2811">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2984">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">Test usage</a>
         </p>
       </article>
 
       <article class="api-entry">
-        <h3 id="model-draw-wires"><code>Model.draw_wires / draw_wires_ex / draw_points / draw_points_ex</code></h3>
-        <p class="signature-meta">Category: <a href="#model-draw">Draw</a> &middot; raylib: <code>DrawModelWires / Ex / Points / PointsEx</code></p>
-        <p>Wireframe + point-cloud renders with matching <code>_ex</code> rotation/scale variants.</p>
+        <h3 id="model-draw-wires"><code>Model.draw_wires / draw_wires_ex</code></h3>
+        <p class="signature-meta">Category: <a href="#model-draw">Draw</a> &middot; raylib: <code>DrawModelWires / DrawModelWiresEx</code></p>
+        <p>Wireframe renders with matching <code>_ex</code> rotation/scale variants.</p>
         <pre><code class="iron"><span class="syn-ty">Model</span>.<span class="syn-fn">draw_wires</span>(model, origin, <span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-pr">BLACK</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2814">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2986">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">Test usage</a>
         </p>
       </article>
@@ -293,7 +293,7 @@
         <pre><code class="iron"><span class="syn-kw">var</span> m = <span class="syn-ty">Mesh</span>.<span class="syn-fn">upload</span>(mesh, <span class="syn-kw">false</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2826">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3009">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -305,7 +305,7 @@
         <pre><code class="iron"><span class="syn-ty">Mesh</span>.<span class="syn-fn">export</span>(cube, <span class="syn-st">"cube.obj"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2829">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3011">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -317,7 +317,7 @@
         <pre><code class="iron"><span class="syn-kw">var</span> m = <span class="syn-ty">Mesh</span>.<span class="syn-fn">gen_tangents</span>(mesh)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2832">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3014">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -331,7 +331,7 @@
         <pre><code class="iron"><span class="syn-ty">Mesh</span>.<span class="syn-fn">draw</span>(cube_mesh, mat, <span class="syn-ty">Matrix</span>.<span class="syn-fn">identity</span>())</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2841">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3023">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -343,7 +343,7 @@
         <pre><code class="iron"><span class="syn-ty">Mesh</span>.<span class="syn-fn">draw_instanced</span>(mesh, mat, transforms, <span class="syn-ty">Int32</span>(transforms.length))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2842">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3029">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -357,7 +357,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> cube = <span class="syn-ty">Mesh</span>.<span class="syn-fn">cube</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2849">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3036">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">Test usage</a>
         </p>
       </article>
@@ -369,7 +369,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> sphere = <span class="syn-ty">Mesh</span>.<span class="syn-fn">sphere</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">32</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2857">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3044">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -381,7 +381,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> torus = <span class="syn-ty">Mesh</span>.<span class="syn-fn">torus</span>(<span class="syn-ty">Float32</span>(<span class="syn-nu">1.0</span>), <span class="syn-ty">Float32</span>(<span class="syn-nu">0.3</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">16</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">32</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2861">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3048">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -393,7 +393,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> terrain = <span class="syn-ty">Mesh</span>.<span class="syn-fn">heightmap</span>(heightmap_img, <span class="syn-ty">Vector3</span>.<span class="syn-fn">of</span>(<span class="syn-nu">16.0</span>, <span class="syn-nu">4.0</span>, <span class="syn-nu">16.0</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2865">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3052">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -407,7 +407,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> mats = <span class="syn-ty">Material</span>.<span class="syn-fn">load</span>(<span class="syn-st">"scene.mtl"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2874">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3061">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -419,7 +419,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> mat = <span class="syn-ty">Material</span>.<span class="syn-fn">default</span>()</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2875">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3062">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -431,7 +431,7 @@
         <pre><code class="iron"><span class="syn-kw">var</span> mat = <span class="syn-ty">Material</span>.<span class="syn-fn">set_texture</span>(mat, <span class="syn-ty">MaterialMapIndex</span>.<span class="syn-pr">ALBEDO</span>, tex)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2878">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3068">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -443,7 +443,7 @@
         <pre><code class="iron"><span class="syn-kw">var</span> m = <span class="syn-ty">Model</span>.<span class="syn-fn">set_mesh_material</span>(model, <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>), <span class="syn-ty">Int32</span>(<span class="syn-nu">0</span>))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2880">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2988">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -457,7 +457,7 @@
         <pre><code class="iron"><span class="syn-kw">val</span> anims = <span class="syn-ty">ModelAnimation</span>.<span class="syn-fn">load</span>(<span class="syn-st">"character.iqm"</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2891">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3081">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -469,19 +469,19 @@
         <pre><code class="iron"><span class="syn-kw">if</span> <span class="syn-ty">Model</span>.<span class="syn-fn">animation_valid</span>(model, anims[<span class="syn-nu">0</span>]) { }</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2892">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2990">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
 
       <article class="api-entry">
-        <h3 id="model-update-animation"><code>Model.update_animation(model, anim, frame: Int32) / update_animation_bones(model, anim, frame)</code></h3>
-        <p class="signature-meta">Category: <a href="#animation">Animation</a> &middot; raylib: <code>UpdateModelAnimation / UpdateModelAnimationBones</code></p>
-        <p>Apply frame's bone poses to vertices (<code>update_animation</code>) or just the bone transforms (<code>update_animation_bones</code>, for GPU skinning).</p>
-        <pre><code class="iron"><span class="syn-ty">Model</span>.<span class="syn-fn">update_animation</span>(model, anim, <span class="syn-ty">Int32</span>(frame))</code></pre>
+        <h3 id="model-update-animation"><code>Model.update_animation(model, anim, frame: Float32) / update_animation_ex(model, anim_a, frame_a, anim_b, frame_b, blend)</code></h3>
+        <p class="signature-meta">Category: <a href="#animation">Animation</a> &middot; raylib: <code>UpdateModelAnimation / UpdateModelAnimationEx</code></p>
+        <p>Apply a single animation at a fractional frame or blend two animations directly using the raylib 6 extended update path.</p>
+        <pre><code class="iron"><span class="syn-ty">Model</span>.<span class="syn-fn">update_animation</span>(model, anim, <span class="syn-ty">Float32</span>(frame))</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2893">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2991">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -493,7 +493,7 @@
         <pre><code class="iron"><span class="syn-ty">ModelAnimation</span>.<span class="syn-fn">unload_all</span>(anims)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2895">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3084">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -507,7 +507,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">billboard</span>(cam, tex, pos, <span class="syn-ty">Float32</span>(<span class="syn-nu">2.0</span>), <span class="syn-pr">WHITE</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2903">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3094">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -519,7 +519,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">billboard_rec</span>(cam, tex, src, pos, size, <span class="syn-pr">WHITE</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2905">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3096">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/tests/manual/models_smoke.iron">Test usage</a>
         </p>
       </article>
@@ -533,7 +533,7 @@
         <pre><code class="iron"><span class="syn-ty">Draw</span>.<span class="syn-fn">bounding_box</span>(<span class="syn-ty">Model</span>.<span class="syn-fn">bounding_box</span>(model), <span class="syn-pr">GREEN</span>)</code></pre>
         <p class="sources">
           <a href="https://www.raylib.com/cheatsheet/cheatsheet.html">raylib cheatsheet</a> &middot;
-          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L2912">Iron source</a> &middot;
+          <a href="https://github.com/victorl2/iron-lang/blob/main/src/stdlib/raylib.iron#L3103">Iron source</a> &middot;
           <a href="https://github.com/victorl2/iron-lang/blob/main/examples/model_viewer/model_viewer.iron">Test usage</a>
         </p>
       </article>
