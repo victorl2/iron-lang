@@ -1,0 +1,2 @@
+-- Phase 10 fixture stub - full content lands in Task 5.
+object Vec { val x: Int }
