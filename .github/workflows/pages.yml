@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'docs/site/**'
+      - 'scripts/install.sh'
       - '.github/workflows/pages.yml'
 
 permissions:
@@ -33,6 +34,9 @@ jobs:
         run: |
           VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unreleased")
           sed -i "s/__IRON_VERSION__/${VERSION}/g" docs/site/index.html
+
+      - name: Stage install.sh at site root
+        run: install -m 0755 scripts/install.sh docs/site/install.sh
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
