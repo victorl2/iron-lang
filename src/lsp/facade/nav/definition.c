@@ -20,6 +20,7 @@
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/node_at.h"
+#include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
@@ -191,6 +192,21 @@ static void resolve(IronLsp_Server          *server,
     }
 
     if (!sym || !sym->decl_node || !ident) goto done;
+
+    /* NEW Phase 10 VIS-03 (REQUIREMENTS.md:164): gate definition target
+     * on cross-module visibility. When requester != decl module AND
+     * symbol not visible, return empty result (definition request
+     * returns null per LSP contract). Stdlib carve-out (D-08) flows
+     * through ilsp_vis_can_see automatically. */
+    {
+        const char *decl_path =
+            (sym->decl_node && sym->decl_node->span.filename)
+                ? sym->decl_node->span.filename : "";
+        const char *requester = (doc && doc->uri) ? doc->uri : "";
+        if (!ilsp_vis_can_see(decl_path, requester, sym->decl_node)) {
+            goto done;  /* leaves *out_n == 0 */
+        }
+    }
 
     /* Allocate into caller's arena. */
     IronLsp_LocationLink *arr = (IronLsp_LocationLink *)iron_arena_alloc(

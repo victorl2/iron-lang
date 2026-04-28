@@ -13,6 +13,7 @@
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/node_at.h"
+#include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
@@ -117,6 +118,23 @@ void ilsp_facade_nav_type_definition(IronLsp_Server        *server,
 
     Iron_Node *tdecl = type_decl_node(sym->type);
     if (!tdecl) goto done;   /* primitive / func / tuple / generic */
+
+    /* NEW Phase 10 VIS-03: gate type-definition target on cross-module
+     * visibility. tdecl is the type's declaration node. Stdlib carve-out
+     * (D-08) flows through ilsp_vis_can_see automatically. Note: ObjectDecl
+     * / InterfaceDecl / EnumDecl have no is_pub axis (parser drops the
+     * `private` keyword for them per parser.c:4047) so the predicate
+     * default-trues for those kinds; the gate effectively fires only for
+     * decl kinds that DO carry a visibility bit (per RESEARCH Conflict 3
+     * resolution in Plan 10-01). */
+    {
+        const char *td_decl_path =
+            (tdecl->span.filename) ? tdecl->span.filename : "";
+        const char *td_requester = (doc && doc->uri) ? doc->uri : "";
+        if (!ilsp_vis_can_see(td_decl_path, td_requester, tdecl)) {
+            goto done;  /* empty result */
+        }
+    }
 
     IronLsp_LocationLink *arr = (IronLsp_LocationLink *)iron_arena_alloc(
         arena, sizeof(*arr), _Alignof(IronLsp_LocationLink));

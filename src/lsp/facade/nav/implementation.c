@@ -22,6 +22,7 @@
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/node_at.h"
 #include "lsp/facade/nav/symbol_id.h"
+#include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/server/server.h"
@@ -257,6 +258,24 @@ void ilsp_facade_nav_implementation(IronLsp_Server             *server,
              * never lists a patch decl as a native implementor of the
              * interface under the cursor. */
             if (od->is_patch) continue;
+            /* NEW Phase 10 VIS-03 (RESEARCH Conflict 2): filter each
+             * implementor by cross-module visibility. Per-impl gate (NOT
+             * per-request) so partial visibility is honored. Stdlib
+             * implementors stay (D-08 carve-out flows through
+             * ilsp_vis_can_see). NOTE: ObjectDecl has no is_pub axis in
+             * v3 (parser drops `private` keyword per parser.c:4047), so
+             * the predicate default-trues for ObjectDecl kind today --
+             * the gate is functionally a no-op for objects but is wired
+             * here so Phase 11 PATCH / Phase 14 MIG don't have to revisit
+             * the call site. Same-module short-circuit handles same-file
+             * implementors deterministically. */
+            const char *od_decl_path =
+                (od->span.filename) ? od->span.filename : "";
+            const char *od_requester = (doc && doc->uri) ? doc->uri : "";
+            if (!ilsp_vis_can_see(od_decl_path, od_requester,
+                                   (const Iron_Node *)od)) {
+                continue; /* skip this implementor */
+            }
             for (int j = 0; j < od->implements_count; j++) {
                 if (od->implements_names[j] &&
                     strcmp(od->implements_names[j], ifc->name) == 0) {
@@ -281,6 +300,16 @@ void ilsp_facade_nav_implementation(IronLsp_Server             *server,
              * the emit pass and the count pass agree. Phase 11 PATCH-01
              * replaces both with proper virtual rendering. */
             if (od->is_patch) continue;
+            /* NEW Phase 10 VIS-03 (RESEARCH Conflict 2): mirror the
+             * count-pass visibility gate so the emit pass and count
+             * pass agree on which implementors are kept. */
+            const char *od_decl_path =
+                (od->span.filename) ? od->span.filename : "";
+            const char *od_requester = (doc && doc->uri) ? doc->uri : "";
+            if (!ilsp_vis_can_see(od_decl_path, od_requester,
+                                   (const Iron_Node *)od)) {
+                continue;
+            }
             bool matches = false;
             for (int j = 0; j < od->implements_count; j++) {
                 if (od->implements_names[j] &&
