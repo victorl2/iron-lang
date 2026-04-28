@@ -1,0 +1,14 @@
+-- Phase 11 Plan 11-01 fixture: PATCH-01 primitive negative case.
+-- Asserts: patches of primitives (Int) do NOT appear under
+-- textDocument/implementation for any interface (primitives don't
+-- implement interfaces in Iron's surface today per CONTEXT D-03).
+
+interface Greeter {
+    func hi() -> String
+}
+
+patch object Int {
+    readonly func double() -> Int {
+        return self * 2
+    }
+}
