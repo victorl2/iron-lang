@@ -21,6 +21,7 @@
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/references_index.h"
 #include "lsp/facade/nav/visibility.h"
+#include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
@@ -168,13 +169,32 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
      * Each raw_sites[i].uri is treated as the per-site decl-path
      * proxy (the predicate's same-module shortcut handles the case
      * where the site IS the decl's home file). Cross-file private
-     * sites get filtered. */
+     * sites get filtered.
+     *
+     * PATCH-05 (Plan 11-03): when the cursor is on a patch method, the
+     * visibility gate uses the enclosing patch ObjectDecl as decl_node
+     * (CONTEXT D-14). Per RESEARCH Conflict 3, this is forward-compat
+     * shape: today the predicate defaults-true for ObjectDecl (no
+     * is_private/is_pub axis on Iron_ObjectDecl in v3 grammar). The
+     * call shape activates the moment a future grammar phase adds
+     * patch-level visibility. For native methods, sym->decl_node
+     * remains the right argument and the existing filter applies.
+     *
+     * Derivation is done ONCE per request (before the filter loop) and
+     * cached in a local vis_decl_node used inside the loop. */
+    const Iron_Node *vis_decl_node = sym ? sym->decl_node : NULL;
+    if (sym && sym->decl_node &&
+        sym->decl_node->kind == IRON_NODE_METHOD_DECL) {
+        Iron_ObjectDecl *patch_od = ilsp_patch_enclosing_for_method(
+            program, (Iron_MethodDecl *)sym->decl_node, wi);
+        if (patch_od) vis_decl_node = (const Iron_Node *)patch_od;
+    }
     if (raw_sites && raw_n > 0) {
         const char *requester = (doc && doc->uri) ? doc->uri : "";
         size_t kept = 0;
         for (size_t i = 0; i < raw_n; i++) {
             if (ilsp_vis_can_see(raw_sites[i].uri, requester,
-                                  sym ? sym->decl_node : NULL)) {
+                                  vis_decl_node)) {
                 if (kept != i) raw_sites[kept] = raw_sites[i];
                 kept++;
             }
