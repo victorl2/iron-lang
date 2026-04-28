@@ -85,6 +85,13 @@ const char *ilsp_nav_path_to_uri(const char *canonical_path, Iron_Arena *arena);
  * need realpath normalization should invoke it separately. */
 const char *ilsp_nav_uri_to_path(const char *uri, Iron_Arena *arena);
 
+/* Phase 10 D-08: stdlib path predicate. Promoted from
+ * src/lsp/facade/edit/rename/apply.c so the visibility gate
+ * (visibility.c) shares the same definition. Returns true when
+ * `canonical_path` begins with the "stdlib://" sentinel scheme used
+ * by stdlib_cache. NULL/empty -> false. */
+bool ilsp_nav_path_is_stdlib(const char *canonical_path);
+
 /* ── LocationLink -> JSON ────────────────────────────────────────── */
 
 /* Build a JSON object for a single LocationLink. When

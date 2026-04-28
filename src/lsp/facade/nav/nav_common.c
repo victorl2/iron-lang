@@ -175,6 +175,13 @@ const char *ilsp_nav_uri_to_path(const char *uri, Iron_Arena *arena) {
     return iron_arena_strdup(arena, uri, strlen(uri));
 }
 
+/* Phase 10 D-08: see header comment. Body byte-identical to the
+ * original src/lsp/facade/edit/rename/apply.c:96-98 implementation
+ * (lifted verbatim with the new public name). */
+bool ilsp_nav_path_is_stdlib(const char *p) {
+    return p && strncmp(p, "stdlib://", 9) == 0;
+}
+
 /* ── LocationLink -> JSON ────────────────────────────────────────── */
 
 yyjson_mut_val *ilsp_nav_build_location_link_json(
