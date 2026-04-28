@@ -30,6 +30,8 @@
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/references_index.h"
 #include "lsp/facade/nav/iface_workspace.h"
+#include "lsp/facade/nav/visibility.h"
+#include "lsp/server/notifications.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/server/server.h"
@@ -491,6 +493,46 @@ void ilsp_facade_rename(IronLsp_Server        *server,
     if (wi) {
         ilsp_refs_query(wi, triple, arena, enc,
                           &workspace_sites, &workspace_n);
+    }
+
+    /* Step 7.5 (NEW Phase 10 VIS-04, D-07): visibility pre-flight.
+     * Before constructing the WorkspaceEdit, check whether ANY workspace
+     * site lives in a module other than doc->uri AND the symbol is not
+     * publicly visible. If so, refuse the rename loudly via
+     * window/showMessage and return null WorkspaceEdit. Two-channel
+     * surface per D-07 -- distinct from Category 1/2 silent rejects in
+     * prepare.c which fire when the cursor is not on a renameable
+     * token (a "no-op" condition; user does not need feedback).
+     *
+     * E03PV is the LSP-side advisory code, NOT a compiler diagnostic
+     * code. CLAUDE.md "Error Code Ranges" reserves: lexer 1-99,
+     * parser 101-199, semantic 200-299, LIR 300-399, lowering 400-499,
+     * HIR 500-599, warnings 600+, web 700-799. LSP advisory codes
+     * (E03PV, future ones) live in a separate LSP-only namespace. */
+    {
+        const char *requester_uri = (doc && doc->uri) ? doc->uri : "";
+        bool visibility_failed = false;
+        for (size_t i = 0; i < workspace_n; i++) {
+            if (!ilsp_vis_can_see(workspace_sites[i].uri,
+                                   requester_uri,
+                                   sym ? sym->decl_node : NULL)) {
+                visibility_failed = true;
+                break;
+            }
+        }
+        if (visibility_failed) {
+            const char *msg = arena_printf(arena,
+                "E03PV: cannot rename `%s` -- usage spans modules and symbol is not pub",
+                (sym && sym->name) ? sym->name : "");
+            if (server) {
+                ilsp_send_window_showmessage(
+                    server, doc ? doc->uri : NULL,
+                    ILSP_MESSAGE_TYPE_WARNING, msg);
+            }
+            out->outcome = ILSP_RENAME_FAIL_VISIBILITY;
+            out->fail_message = msg;
+            goto done;  /* null WorkspaceEdit downstream */
+        }
     }
 
     /* Step 8: open-doc fallback if workspace index doesn't cover the
