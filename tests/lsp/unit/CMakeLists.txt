@@ -1110,6 +1110,44 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m3-invariant"
         TIMEOUT 60)
 
+    # ── Phase 10 Plan 10-03 Wave 0 stubs (TIER-03 + TIER-04) ─────────────
+    # 2 facade tests (completion detail tier prefix + signature_help label
+    # tier prefix). Each links the full nav facade stack so the v3 tier
+    # rendering shipped by Tasks 3 + 4 is exercised against real bytes.
+    # Stubs land in Wave 0 with TEST_IGNORE_MESSAGE; flipped to real
+    # assertions in Task 5.
+    add_executable(test_v3_tier_completion test_v3_tier_completion.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_v3_tier_completion PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_tier_completion PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_tier_completion
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_tier_completion COMMAND test_v3_tier_completion)
+    set_tests_properties(test_v3_tier_completion PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_tier_signature_help test_v3_tier_signature_help.c
+        ${_LSP_PHASE3_NAV_FACADE_SRC})
+    target_include_directories(test_v3_tier_signature_help PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_tier_signature_help PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_tier_signature_help
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_tier_signature_help COMMAND test_v3_tier_signature_help)
+    set_tests_properties(test_v3_tier_signature_help PROPERTIES
+        LABELS "unit;phase-m3-invariant"
+        TIMEOUT 60)
+
     # ── Phase 3 Plan 06: workspace/diagnostic facade + refresh push ──────
     # Flipped from Wave 0 stub: exercises the cache (hit/miss/evict),
     # the 2 s budget loop termination, and the refresh-notification
