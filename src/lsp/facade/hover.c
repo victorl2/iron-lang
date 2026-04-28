@@ -12,6 +12,7 @@
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/node_at.h"
 #include "lsp/facade/nav/visibility.h"
+#include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
@@ -567,6 +568,34 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
 
     /* Build the final markdown per D-04 ordering. */
     SB md; sb_init(&md, arena);
+
+    /* PATCH-04 (Plan 11-03): prepend italic context line for patch-contributed
+     * methods. Predicate-gated: ilsp_patch_enclosing_for_method returns NULL
+     * for non-patch methods, so native hover renders unchanged (D-13). The
+     * italic line precedes the existing fenced code block so editors that
+     * render markdown show "_From `patch object T { … }` in <module>_" above
+     * the existing signature. The same line is suppressed when the cursor is
+     * on a non-method decl (function, field, object, enum, etc.) because the
+     * predicate-gated condition checks decl->kind == IRON_NODE_METHOD_DECL.
+     * Phase 9 AST-06 `patch object T` prefix on object-level hover is
+     * UNTOUCHED (lives in signature_object). */
+    if (decl && decl->kind == IRON_NODE_METHOD_DECL) {
+        Iron_MethodDecl *md_node = (Iron_MethodDecl *)decl;
+        Iron_ObjectDecl *patch_od =
+            ilsp_patch_enclosing_for_method(
+                program,
+                md_node,
+                server ? server->workspace_index : NULL);
+        if (patch_od && patch_od->span.filename) {
+            sb_append(&md, "_From `patch object ");
+            sb_append(&md, patch_od->target_type_name
+                           ? patch_od->target_type_name : "_");
+            sb_append(&md, " { … }` in ");
+            sb_append(&md, patch_od->span.filename);
+            sb_append(&md, "_\n\n");
+        }
+    }
+
     sb_append(&md, "```iron\n");
     sb_append(&md, sig);
     sb_append(&md, "\n```");
